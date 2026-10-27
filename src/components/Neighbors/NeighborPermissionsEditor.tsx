@@ -23,10 +23,12 @@ export function permissionProblem(permission: NeighborPermission): string | null
 }
 
 /** What a Neighbor may ask, whether they may open tabs, and how often; editable here or with your General Agent. */
-export function NeighborPermissionsEditor({ neighbor, name, permission, pending, onSave, onSaveDailyLimit, onLimit, onEditWithGeneral }: {
+export function NeighborPermissionsEditor({ neighbor, name, permission, pending, onSave, onSaveDailyLimit, onSaveFileDailyLimit, onLimit, onEditWithGeneral }: {
   neighbor: Neighbor; name: string; permission: NeighborPermission | null | undefined; pending: boolean;
   onSave: (permission: NeighborPermission) => Promise<void>;
   onSaveDailyLimit: (dailyLimit: number | null) => Promise<void>;
+  /** Absent until the daemon offers a way to change it; the current allowance still shows. */
+  onSaveFileDailyLimit?: (bytes: number | null) => Promise<void>;
   onLimit: (limit: number) => Promise<boolean>; onEditWithGeneral: () => void;
 }) {
   const [baseline, setBaseline] = useState<NeighborPermission | null>(permission ?? null);
@@ -120,6 +122,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       </FormRow>
       {dailyError && <InlineErrorNotice error={dailyError} operation="saving the daily limit" role="alert" />}
     </form>
+    <FileDailyLimit neighbor={neighbor} name={name} onSave={onSaveFileDailyLimit} />
     <form className="neighbor-limit" onSubmit={event => { event.preventDefault(); if (validNeighborLimit(limit)) void onLimit(limit); }}>
       <FormRow label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
         <div className="neighbor-limit__row">
@@ -131,4 +134,36 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </form>
     {folderPicker}
   </div>;
+}
+
+const MIB = 1024 * 1024;
+const DEFAULT_FILE_LIMIT_MIB = 50;
+
+/** Files a day you accept from a friend, in MiB: empty keeps the 50 MiB default, 0 blocks files. */
+function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: string; onSave?: (bytes: number | null) => Promise<void> }) {
+  const current = neighbor.my_file_daily_limit_bytes ?? null;
+  const [value, setValue] = useState(current === null ? "" : String(Math.round((current / MIB) * 10) / 10));
+  const [error, setError] = useState<string | null>(null);
+  const field = useId();
+  const mib = value.trim() === "" ? null : Number(value);
+  const valid = mib === null || (Number.isFinite(mib) && mib >= 0 && mib <= 1024);
+  const bytes = mib === null ? null : Math.round(mib * MIB);
+  const hint = current === 0 ? `Files from ${name} are blocked.` : `Leave empty for the ${DEFAULT_FILE_LIMIT_MIB} MiB default; 0 blocks files from ${name}.`;
+  return <form className="neighbor-limit" onSubmit={event => {
+    event.preventDefault();
+    if (!valid || !onSave) return;
+    setError(null);
+    void onSave(bytes).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file limit could not be saved."));
+  }}>
+    <FormRow label="Files per day from this friend" htmlFor={field} hint={valid ? hint : "Use a number of MiB from 0 to 1024, or leave it empty."}>
+      <div className="neighbor-limit__row">
+        <input id={field} type="number" min={0} max={1024} step={0.5} inputMode="decimal" placeholder={`${DEFAULT_FILE_LIMIT_MIB} MiB`}
+          className={`${UI_INPUT.compact} neighbor-limit__input`} value={value} aria-invalid={!valid} disabled={!onSave}
+          onChange={event => setValue(event.currentTarget.value)} />
+        <span className="neighbor-note">MiB</span>
+        {onSave && <Button size="sm" type="submit" disabled={!valid || bytes === current}>Save file limit</Button>}
+      </div>
+    </FormRow>
+    {error && <InlineErrorNotice error={error} operation="saving the file limit" role="alert" />}
+  </form>;
 }

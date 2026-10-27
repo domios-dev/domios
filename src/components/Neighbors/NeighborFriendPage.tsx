@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bell, Bot, MessagesSquare, ShieldCheck, UserX } from "lucide-react";
+import { Bell, Bot, FolderOpen, MessagesSquare, ShieldCheck, UserX } from "lucide-react";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { SettingsCard, SettingsPage, SettingsPill } from "../Settings/shared";
@@ -17,6 +17,8 @@ import { openNeighbor } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborPermissionsEditor } from "./NeighborPermissionsEditor";
+import { formatBytes, neighborFilesClient, type NeighborFileQuota, type NeighborFilesClient } from "./neighborFilesClient";
+import { formatUntil } from "../../lib/timeLabels";
 import type { NeighborPermission, NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useConciergeStatus, type ConciergeStatus } from "./useConciergeStatus";
 import { useNeighborPermission } from "./useNeighborPermission";
@@ -37,10 +39,10 @@ function conciergeState(status: ConciergeStatus | null, bound: boolean): { label
 }
 
 /** One Neighbor's settings: the conversation, their concierge, what they may ask, notifications, and removal. */
-export function NeighborFriendPage({ friend, locked, enabled, pending, focusPermissions, runtimeClient, conciergeClient,
+export function NeighborFriendPage({ friend, locked, enabled, pending, focusPermissions, runtimeClient, conciergeClient, filesClient = neighborFilesClient,
   onBack, onTalkAbout, onInterview, onLimit, onRemove, onPlans }: {
   friend: Neighbor; locked: boolean; enabled: boolean; pending: boolean; focusPermissions: boolean;
-  runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient;
+  runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; filesClient?: NeighborFilesClient;
   onBack: () => void; onTalkAbout: () => void; onInterview: () => void;
   onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onPlans: () => void;
 }) {
@@ -56,6 +58,12 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [notify, setNotify] = useState<NeighborNotify>(friend.notify ?? "in_app");
   const [error, setError] = useState<string | null>(null);
+  const [quota, setQuota] = useState<NeighborFileQuota | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    filesClient.usage(friendship, controller.signal).then(setQuota, () => setQuota(null));
+    return () => controller.abort();
+  }, [filesClient, friendship]);
   const permissions = useRef<HTMLDivElement>(null);
   const gatewayId = concierge?.gateway_tab ?? friend.gateway_tab ?? null;
   const gateway = gatewayId ? tabs[gatewayId] : undefined;
@@ -125,9 +133,15 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, focusPerm
             <NeighborPermissionsEditor neighbor={friend} name={name} permission={permission} pending={pending}
               onSave={(permission: NeighborPermission) => conciergeClient.setPermission(friendship, permission)}
               onSaveDailyLimit={dailyLimit => conciergeClient.setDailyLimit(friendship, dailyLimit)}
+              onSaveFileDailyLimit={bytes => filesClient.setDailyLimit(friendship, bytes)}
               onLimit={onLimit} onEditWithGeneral={onInterview} />
           </SettingsCard>
         </div>
+
+        <SettingsCard icon={<FolderOpen size={16} />} title="Files" description={`Files ${name} sends you are saved in their own folder on this machine.`}
+          headerRight={<Button size="sm" onClick={() => { void filesClient.openFolder(friendship).catch((failure: unknown) => fail(failure, "Their folder could not be opened.")); }}>Open folder</Button>}>
+          {quota && <p className="neighbor-note">Today you sent {formatBytes(quota.friend.used_bytes)} of the {formatBytes(quota.friend.limit_bytes)} {name} accepts, resets {formatUntil(quota.friend.resets_at, Date.now())}.</p>}
+        </SettingsCard>
 
         <SettingsCard icon={<Bell size={16} />} title="Notifications" description={`Where ${name}'s messages reach you. Previews show only a first line.`}
           headerRight={<DropdownSelect aria-label="Notifications" value={notify} options={NOTIFY_CHOICES}

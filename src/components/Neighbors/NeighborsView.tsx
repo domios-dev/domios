@@ -20,6 +20,7 @@ import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighb
 import { neighborName } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient, type ReceiverState } from "./neighborRuntimeClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
+import type { NeighborFilesClient } from "./neighborFilesClient";
 import { referralStatus } from "./referralTrial";
 import { useNeighbors } from "./useNeighbors";
 import { useNeighborsSwitch } from "./neighborsSwitch";
@@ -45,19 +46,19 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   nodes[(index + step + nodes.length) % nodes.length].focus();
 }
 
-export function NeighborsView({ config, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient }: {
-  config?: object | null; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient;
+export function NeighborsView({ config, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient }: {
+  config?: object | null; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient; filesClient?: NeighborFilesClient;
 }) {
   const neighborsSwitch = useNeighborsSwitch(config);
   const account = useAccount();
   const identity = account.model.kind === "signed_in" ? account.model.identity.uid : null;
-  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient}
+  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient}
     enabled={neighborsSwitch.enabled} onEnable={() => { void neighborsSwitch.setEnabled(true); }} />;
 }
 
-function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeClient, enabled, onEnable }: {
+function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeClient, filesClient, enabled, onEnable }: {
   identity: string | null; account: ReturnType<typeof useAccount>; client?: NeighborClient; runtimeClient: NeighborRuntimeClient;
-  conciergeClient: NeighborConciergeClient;
+  conciergeClient: NeighborConciergeClient; filesClient?: NeighborFilesClient;
   enabled: boolean; onEnable: () => void;
 }) {
   const neighbors = useNeighbors(identity, client);
@@ -184,7 +185,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
     </div>
     <NeighborPrivacyNote className="neighbors-privacy" />
     {enabled && friend && identity && <NeighborFriendPage key={friend.friendship_id} friend={friend} locked={!paid} enabled={enabled}
-      pending={neighbors.pending} focusPermissions={openSection === "configure"} runtimeClient={runtimeClient} conciergeClient={conciergeClient}
+      pending={neighbors.pending} focusPermissions={openSection === "configure"} runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient}
       onBack={() => { setSelected(null); setOpenSection(null); }} onPlans={openPlans}
       onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}
       onInterview={() => interview({ name: neighborName(friend), friendshipId: friend.friendship_id })}
