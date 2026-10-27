@@ -385,10 +385,9 @@ fn task_file_round_trips_shell_metacharacters_byte_exact() {
 
     std::fs::remove_file(&path).ok();
     assert_eq!(resolved, Some(body.to_string()));
-    assert_eq!(
-        resolve_spawn_task(Some(body.into()), None, None, &mut &b""[..]).unwrap(),
-        Some(body.into())
-    );
+    let error = resolve_spawn_task(Some(body.into()), None, None, &mut &b""[..]).unwrap_err();
+    assert!(error.starts_with("inline_handoff_refused:"));
+    assert!(error.contains("--task-file"));
 }
 
 #[test]

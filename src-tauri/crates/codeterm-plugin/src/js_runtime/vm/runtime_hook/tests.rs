@@ -115,6 +115,7 @@ fn interrupted_cached_hook_recovers_on_a_fresh_context() {
 fn thrown_errors_retire_cached_globals_and_preserve_exception_text() {
     for (expression, expected) in [
         ("new Error('projection failed')", "projection failed"),
+        ("new Error('')", "runtimePlan: Error"),
         (
             "{code:'provider_refused',message:'owned refusal'}",
             "owned refusal",
@@ -154,7 +155,9 @@ fn out_of_memory_hook_recovers_without_retaining_its_heap() {
     assert_eq!(error.code, RuntimeFailureCode::HookFailed);
     assert!(error.message.starts_with("runtimePlan: "));
     assert!(
-        error.message.contains("out of memory") || error.message.contains("Value(Null"),
+        error.message.contains("out of memory")
+            || error.message == "runtimePlan: InternalError"
+            || error.message.contains("Value(Null"),
         "{}",
         error.message
     );
