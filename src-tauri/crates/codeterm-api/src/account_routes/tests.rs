@@ -545,3 +545,21 @@ async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttle
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(*provider.calls.lock(), before);
 }
+
+#[tokio::test]
+async fn portal_no_billing_customer_keeps_its_code_and_message() {
+    let response = portal_failure(codeterm_billing::NO_BILLING_CUSTOMER.into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096).await.unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({
+            "code": "no_billing_customer",
+            "message": "There is no paid subscription to manage. Your current access is not billed through Paddle."
+        })
+    );
+    assert_eq!(
+        portal_failure("unavailable".into()).status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}

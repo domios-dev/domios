@@ -6,10 +6,15 @@ const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async 
 const account = vi.hoisted(() => ({
   signedIn: true,
   plan: "free",
+  paid: true,
   login: null as null | ((outcome: "ok" | "fail") => void),
   logins: 0,
 }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
+
+vi.mock("./useDesktopBilling", () => ({ useDesktopBilling: () => ({
+  loading: false, subscription: { paid_subscription: account.signedIn && account.paid && account.plan !== "free" ? { tier: account.plan } : null },
+}) }));
 
 import type { ToastInput } from "../../lib/notices";
 import { connectNoticeToasts } from "../../lib/notices";
@@ -50,7 +55,7 @@ async function fakeDaemon(url: string) {
 
 beforeEach(() => {
   fetches.localJson.mockClear().mockResolvedValue({ consent: "off" });
-  Object.assign(account, { signedIn: true, plan: "free", login: null, logins: 0 });
+  Object.assign(account, { signedIn: true, plan: "free", paid: true, login: null, logins: 0 });
   fetches.localFetch.mockImplementation(fakeDaemon);
   toasts.length = 0;
   disconnectToasts = connectNoticeToasts((toast) => { toasts.push(toast); });
@@ -283,4 +288,13 @@ it("uses the injected catalog checkout key without inferring a tier price", asyn
   await openModal("workspaces");
   await click("Upgrade");
   expect(upgrade).toHaveBeenCalledExactlyOnceWith("opaque-price-key");
+});
+
+it("lets a granted Pro account upgrade instead of offering subscription management", async () => {
+  account.plan = "pro"; account.paid = false;
+  const upgrade = vi.fn(async () => {});
+  await render(upgrade); await openModal("teams");
+  expect(button("Manage subscription")).toBeUndefined();
+  await click("Choose Pro");
+  expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_yearly");
 });

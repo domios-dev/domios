@@ -19,6 +19,7 @@ const stores = vi.hoisted(() => ({
 
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => stores.account }));
 vi.mock("../Settings/useAccountPlan", () => ({ useAccountPlan: () => stores.billing }));
+vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({ subscription: { paid_subscription: { tier: "pro" } } }) }));
 vi.mock("../../hooks/useUpdatePanel", () => ({ useUpdatePanel: () => stores.update }));
 vi.mock("./KeepAwakeTray", () => ({ KeepAwakeTray: () => null }));
 vi.mock("./ExtensionsTray", () => ({ ExtensionsTray: () => null }));
