@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { finish, it } from "../test/standaloneTest";
 import { adoptStoredActions, neighborNotificationTarget, runNotificationAction } from "./notificationActions";
-import { takeNeighborFocus } from "../components/Neighbors/neighborFocus";
 
 it("stored prompt options retain their value and prompt identity for the answer route", () => {
   const identity = {
@@ -37,12 +36,11 @@ it("Neighbor notification actions select the exact friend without opening an ext
   assert.equal(neighborNotificationTarget(`domios://neighbor/${id}`), id);
   assert.equal(neighborNotificationTarget(`domios://neighbor/${id}/extra`), null);
   const prior = Object.getOwnPropertyDescriptor(globalThis, "window");
-  const events: string[] = [];
-  Object.defineProperty(globalThis, "window", { configurable: true, value: { dispatchEvent: (event: Event) => { events.push(event.type); return true; }, open: () => { throw new Error("Unexpected external navigation"); } } });
+  const panels: string[] = [];
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { dispatchEvent: (event: Event) => { if (event instanceof CustomEvent && event.type === "codeterm:open-panel") panels.push(event.detail.panel); return true; }, open: () => { throw new Error("Unexpected external navigation"); } } });
   try {
     await runNotificationAction({ type: "url", label: "Open Neighbor", value: `domios://neighbor/${id}` });
-    assert.equal(takeNeighborFocus(), id);
-    assert.ok(events.includes("codeterm:open-panel"));
+    assert.deepEqual(panels, [`neighbor:${id}`]);
   } finally {
     if (prior) Object.defineProperty(globalThis, "window", prior);
     else Reflect.deleteProperty(globalThis, "window");

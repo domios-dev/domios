@@ -39,12 +39,16 @@ pub enum Error {
     InvalidRequest,
     FriendshipNotFound,
     Firestore { code: i32, operation: &'static str },
+    ListenProtocol { kind: &'static str },
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Self::Firestore { code, operation } = self {
             return write!(f, "Firestore {operation} failed (gRPC code {code})");
+        }
+        if let Self::ListenProtocol { kind } = self {
+            return write!(f, "Firestore Listen failed ({kind})");
         }
         if let Self::DailyLimit { limit, resets_at } = self {
             return write!(
@@ -85,7 +89,7 @@ impl std::fmt::Display for Error {
             Self::LimitOutOfRange => "limit_out_of_range: Choose a valid daily message limit",
             Self::InvalidRequest => "invalid_request: Invalid Neighbor request",
             Self::FriendshipNotFound => "friendship_not_found: Neighbor friendship not found",
-            Self::Firestore { .. } | Self::DailyLimit { .. } => unreachable!(),
+            Self::Firestore { .. } | Self::DailyLimit { .. } | Self::ListenProtocol { .. } => unreachable!(),
         })
     }
 }

@@ -7,6 +7,15 @@ export interface Neighbor {
   outbound_per_hour: number;
   since: number;
   receiving: boolean;
+  /** Messages a day you allow them; null means no limit. */
+  my_daily_limit?: number | null;
+  /** Messages a day they allow you; null means no limit. */
+  their_daily_limit?: number | null;
+  sent_today?: number;
+  /** This friendship's concierge tab on this machine, when one is bound. */
+  gateway_tab?: string | null;
+  /** Where this friend's messages notify you; the daemon defaults to in_app. */
+  notify?: "off" | "in_app" | "in_app_and_bridges";
 }
 
 export interface NeighborRequest {

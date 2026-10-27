@@ -110,6 +110,7 @@ pub(super) async fn run(session: &listener::Session) {
             Err(
                 Error::Transport
                 | Error::Firestore { .. }
+                | Error::ListenProtocol { .. }
                 | Error::SecretStore
                 | Error::LocalKeyUnavailable,
             ) if attempt < 3 => {}

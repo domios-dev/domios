@@ -16,6 +16,7 @@ async fn receiver_fence_requires_current_enabled_installation_and_revision() {
         receiver_machine_label: Some("Desk".into()),
         receiving_enabled: true,
         is_me: true,
+        legacy_active: false,
     };
     for (is_me, enabled, revision, allowed) in [
         (true, true, 8, true),

@@ -314,6 +314,7 @@ impl ServiceContext {
                 enrollment: Some(codeterm_neighbors::adapter::Enrollment {
                     expected_revision: *expected_receiver_revision,
                     takeover: true,
+                    operation_id: None,
                 }),
                 ..registry.as_ref().clone()
             }),
@@ -323,7 +324,7 @@ impl ServiceContext {
             _ => registry,
         };
         let receiver_status = self
-            .refresh_neighbor_receiver(&registry, generation)
+            .refresh_neighbor_receiver(&registry, &scope, generation)
             .await?;
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
@@ -461,7 +462,9 @@ impl ServiceContext {
                         | Error::Transport
                         | Error::NotReceiver
                 ) {
-                    let _ = self.refresh_neighbor_receiver(&registry, generation).await;
+                    let _ = self
+                        .refresh_neighbor_receiver(&registry, &lifecycle.scope, generation)
+                        .await;
                 }
                 return Err(error.to_string());
             }
@@ -678,7 +681,7 @@ impl ServiceContext {
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
         let status = self
-            .refresh_neighbor_receiver(&registry, generation)
+            .refresh_neighbor_receiver(&registry, &scope, generation)
             .await?;
         if !status.receiving_here() {
             self.stop_neighbor_listeners();

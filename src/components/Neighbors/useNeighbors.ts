@@ -57,6 +57,8 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
       else unlisteners.push(stop);
     };
     void listen("entitlement-changed", load).then(retain);
+    // Daily limits live on the list rows; a change on either side reloads them.
+    void listen("neighbor-daily-limit-changed", load).then(retain);
     void listen<{ uid?: unknown; list?: unknown }>("neighbors-changed", event => {
       if (controller.signal.aborted || generation.current !== epoch || event.payload?.uid !== identity) return;
       let list: NeighborList;

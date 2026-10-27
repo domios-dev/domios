@@ -58,6 +58,15 @@ fn firestore_requests_keep_account_tokens_sensitive_and_reject_invalid_metadata(
     assert_eq!(
         request
             .metadata()
+            .get("x-goog-request-params")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        format!("database={database}")
+    );
+    assert_eq!(
+        request
+            .metadata()
             .get("google-cloud-resource-prefix")
             .unwrap()
             .to_str()

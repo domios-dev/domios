@@ -11,17 +11,20 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_PANEL, UI_TEXT } from "../shared/design";
 import { useMuxSelector } from "../../store/multiplexer";
 import { AddNeighborDialog } from "./AddNeighborDialog";
-import { NeighborPanel, NeighborPrivacyNote, NeighborRequestPanel } from "./NeighborPanel";
-import { askGeneralAgent, focusTab, permissionInterviewTask, talkAboutTask, workspaceOfTab, type NeighborSubject } from "./neighborAgent";
+import { NeighborPrivacyNote, NeighborRequestPanel } from "./NeighborPanel";
+import { NeighborFriendPage } from "./NeighborFriendPage";
+import { askGeneralAgent, permissionInterviewTask, talkAboutTask, type NeighborSubject } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { onNeighborFocus, takeNeighborFocus } from "./neighborFocus";
 import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighborhoodModel";
-import { neighborName, type Neighbor } from "./neighborModel";
-import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { neighborName } from "./neighborModel";
+import { neighborRuntimeClient, type NeighborRuntimeClient, type ReceiverState } from "./neighborRuntimeClient";
+import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { referralStatus } from "./referralTrial";
-import { useNeighborChannel } from "./useNeighborChannel";
 import { useNeighbors } from "./useNeighbors";
 import { useNeighborsSwitch } from "./neighborsSwitch";
+import { receivingLine, useReceiverState } from "./useReceiverState";
+import { takeoverWarning } from "./NeighborChannel";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -29,21 +32,6 @@ function useTabMap() {
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
   return { workspaces, tabs };
-}
-
-function SelectedNeighbor({ owner, neighbor, locked, pending, runtimeClient, onTalkAbout, onInterview, onLimit, onRemove, onClose }: {
-  owner: string; neighbor: Neighbor; locked: boolean; pending: boolean; runtimeClient: NeighborRuntimeClient;
-  onTalkAbout: () => void; onInterview: () => void;
-  onLimit: (limit: number) => Promise<boolean>; onRemove: () => Promise<boolean>; onClose: () => void;
-}) {
-  const channel = useNeighborChannel(owner, neighbor.friendship_id, runtimeClient);
-  const tabMap = useTabMap();
-  const gatewayId = channel.status?.bindings[neighbor.friendship_id] ?? null;
-  const gatewayTab = gatewayId ? tabMap.tabs[gatewayId] : undefined;
-  return <NeighborPanel neighbor={neighbor} name={neighborName(neighbor)} locked={locked} pending={pending} channel={channel}
-    gateway={gatewayId && gatewayTab ? { title: gatewayTab.title } : null}
-    onOpenGateway={() => { if (gatewayId) focusTab(gatewayId, workspaceOfTab(tabMap, gatewayId)); }}
-    onTalkAbout={onTalkAbout} onInterview={onInterview} onLimit={onLimit} onRemove={onRemove} onPlans={openPlans} onClose={onClose} />;
 }
 
 function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
@@ -56,29 +44,32 @@ function moveFocus(event: KeyboardEvent<HTMLDivElement>) {
   nodes[(index + step + nodes.length) % nodes.length].focus();
 }
 
-export function NeighborsView({ config, client, runtimeClient = neighborRuntimeClient }: {
-  config?: object | null; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient;
+export function NeighborsView({ config, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient }: {
+  config?: object | null; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient;
 }) {
   const neighborsSwitch = useNeighborsSwitch(config);
   const account = useAccount();
   const identity = account.model.kind === "signed_in" ? account.model.identity.uid : null;
-  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient}
+  return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient}
     enabled={neighborsSwitch.enabled} onEnable={() => { void neighborsSwitch.setEnabled(true); }} />;
 }
 
-function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, onEnable }: {
+function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeClient, enabled, onEnable }: {
   identity: string | null; account: ReturnType<typeof useAccount>; client?: NeighborClient; runtimeClient: NeighborRuntimeClient;
+  conciergeClient: NeighborConciergeClient;
   enabled: boolean; onEnable: () => void;
 }) {
   const neighbors = useNeighbors(identity, client);
   const tabMap = useTabMap();
   const me = accountTrayModel(account.model, null);
+  const receiver = useReceiverState(runtimeClient, Boolean(identity) && enabled);
   const [selected, setSelected] = useState<string | null>(null);
+  const [openSection, setOpenSection] = useState<"configure" | null>(null);
   const [adding, setAdding] = useState(false);
   const [agentError, setAgentError] = useState<string | null>(null);
   const awaitingAccept = useRef<string | null>(null);
   useEffect(() => {
-    const take = () => { const id = takeNeighborFocus(); if (id) setSelected(id); };
+    const take = () => { const focus = takeNeighborFocus(); if (focus) { setSelected(focus.id); setOpenSection(focus.section); } };
     take();
     return onNeighborFocus(take);
   }, []);
@@ -110,7 +101,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, o
   const invited = (list?.outgoing.length ?? 0);
   const summary = [`${people} ${people === 1 ? "neighbor" : "neighbors"}`,
     ...(requests ? [`${requests} ${requests === 1 ? "request" : "requests"}`] : []), ...(invited ? [`${invited} invited`] : [])].join(", ");
-  const panelOpen = enabled && Boolean(friend || request);
+  const panelOpen = enabled && Boolean(request);
 
   return <div className="neighbors-view absolute inset-0 flex flex-col bg-[var(--ct-bg)] pt-[var(--ct-safe-top,0px)]">
     <div className={`${UI_PANEL.toolbar} ct-section-toolbar gap-3 px-4 py-0 text-[var(--ct-fg)] whitespace-nowrap`}>
@@ -144,7 +135,8 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, o
                 <p className="neighbor-note">Your agents don't send or receive Neighbor messages. Your connections and their permissions are kept.</p>
                 <Button size="sm" variant="primary" onClick={onEnable}>Turn on Neighbors</Button>
               </div>
-              : me.kind === "signed_in" ? <span className="neighbor-node__name">You</span>
+              : me.kind === "signed_in" ? <><span className="neighbor-node__name">You</span>
+                {receiver && <span role="status" className="neighbor-note neighbor-me__receiving">{receivingLine(receiver)}</span>}</>
               : <div className="neighbor-me__signin">
                 <p className="neighbor-me__title">Sign in to meet your neighbors</p>
                 <p className="neighbor-note">Your agents can message a friend's agents, end-to-end encrypted. Invited? Sign in with that email to start your 7-day trial, no card needed.</p>
@@ -160,24 +152,19 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, o
                 else if (list?.can_invite === false) openPlans();
                 return;
               }
+              setOpenSection(null);
               setSelected(current => current === node.id ? null : node.id);
             }} />)}
           {identity && list === null && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
         </div>
         {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
+        {identity && enabled && receiver && !receiver.receiving_here && <ReceiveHere receiver={receiver} client={runtimeClient} />}
         {identity && <NeighborPrivacyNote className="neighbors-privacy" />}
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}
         </div>}
       </div>
-      {enabled && friend && identity && <SelectedNeighbor key={friend.friendship_id} owner={identity} neighbor={friend} locked={!paid} pending={neighbors.pending}
-        runtimeClient={runtimeClient}
-        onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}
-        onInterview={() => interview({ name: neighborName(friend), friendshipId: friend.friendship_id })}
-        onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: friend.friendship_id, per_hour })}
-        onRemove={() => neighbors.apply({ operation: "remove", friendship_id: friend.friendship_id })}
-        onClose={() => setSelected(null)} />}
       {enabled && request && <NeighborRequestPanel request={{ ...request, name: neighborName(request) }} pending={neighbors.pending}
         onAccept={() => {
           awaitingAccept.current = request.uid;
@@ -189,6 +176,13 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, enabled, o
         onDecline={() => { void neighbors.apply({ operation: "respond", request_id: request.request_id, accept: false }).then(ok => { if (ok) setSelected(null); }); }}
         onClose={() => setSelected(null)} />}
     </div>
+    {enabled && friend && identity && <NeighborFriendPage key={friend.friendship_id} owner={identity} friend={friend} locked={!paid} enabled={enabled}
+      pending={neighbors.pending} focusPermissions={openSection === "configure"} runtimeClient={runtimeClient} conciergeClient={conciergeClient}
+      onBack={() => { setSelected(null); setOpenSection(null); }} onPlans={openPlans}
+      onTalkAbout={() => ask(talkAboutTask({ name: neighborName(friend), friendshipId: friend.friendship_id }))}
+      onInterview={() => interview({ name: neighborName(friend), friendshipId: friend.friendship_id })}
+      onLimit={per_hour => neighbors.apply({ operation: "set_limit", friendship_id: friend.friendship_id, per_hour })}
+      onRemove={() => neighbors.apply({ operation: "remove", friendship_id: friend.friendship_id })} />}
     {adding && list?.can_invite && <AddNeighborDialog pending={neighbors.pending} error={neighbors.error}
       onClose={() => setAdding(false)}
       onSend={async email => {
@@ -227,4 +221,29 @@ function NodeButton({ node, index, selected, canInvite, onSelect }: {
     <span className="neighbor-node__name">{node.name}</span>
     <span className="neighbor-status"><span className="neighbor-dot" data-tone={node.status === "connected" ? "ok" : node.status === "request" ? "progress" : "muted"} aria-hidden="true" />{STATUS_LABEL[node.status]}</span>
   </button>;
+}
+
+/** Taking over receiving names who stops, and that concierges and permissions stay per machine. */
+function ReceiveHere({ receiver, client }: { receiver: ReceiverState; client: NeighborRuntimeClient }) {
+  const [confirming, setConfirming] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (confirming === null) {
+    return <div className="neighbors-receive"><Button size="sm" onClick={() => { setError(null); setConfirming(receiver.revision); }}>Receive here</Button></div>;
+  }
+  const stale = confirming !== receiver.revision;
+  return <div role="group" aria-label="Receive on this machine" className="ct-card ct-card--static neighbors-receive neighbors-receive--confirm">
+    {stale && <p className="neighbor-note">Receiving changed. Confirm again to receive here.</p>}
+    <p className="ct-card__meta">{takeoverWarning(receiver)}</p>
+    {error && <InlineErrorNotice error={error} operation="receiving Neighbor messages here" role="alert" />}
+    <div className="neighbor-confirm__actions">
+      <Button size="sm" variant="primary" loading={busy} onClick={() => {
+        if (stale) { setConfirming(receiver.revision); return; }
+        setBusy(true); setError(null);
+        void client.enroll(receiver.revision).then(() => setConfirming(null),
+          (failure: unknown) => setError(failure instanceof Error ? failure.message : "Receiving could not move here.")).finally(() => setBusy(false));
+      }}>Receive Neighbor messages here</Button>
+      <Button size="sm" disabled={busy} onClick={() => setConfirming(null)}>Cancel</Button>
+    </div>
+  </div>;
 }

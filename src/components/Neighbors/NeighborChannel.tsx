@@ -15,6 +15,13 @@ export function NeighborChannel({ owner, friendship, locked, client }: {
 
 const DELIVERY_LABEL = { delivered: "Delivered", pending: "Pending", not_delivered: "Not delivered" } as const;
 
+/** Taking over receiving moves every Neighbor here, but each machine keeps its own concierges and permissions. */
+export function takeoverWarning(status: { receiving_enabled: boolean; receiver_machine_label: string | null }): string {
+  const perMachine = "Concierges and permissions are per machine: friends without a concierge on this machine will wait until you set their permissions here.";
+  if (!status.receiving_enabled) return `This machine will start receiving Neighbor messages. ${perMachine}`;
+  return `${status.receiver_machine_label ?? "The other machine"} will stop receiving Neighbor messages. ${perMachine}`;
+}
+
 export function NeighborChannelView({ channel, friendship, locked }: { channel: NeighborChannelState; friendship: string; locked: boolean }) {
   const [confirmTakeover, setConfirmTakeover] = useState<number | null>(null);
   const [confirmRotation, setConfirmRotation] = useState(false);
@@ -27,7 +34,7 @@ export function NeighborChannelView({ channel, friendship, locked }: { channel: 
     {channel.status && <p role="status" className="neighbor-note">{channel.status.receiving_here ? "Receiving here" : channel.status.receiving_enabled ? `Receiving on ${channel.status.receiver_machine_label ?? "another machine"}` : channel.status.revision === 0 ? "Receiver not chosen yet" : "Not receiving"}</p>}
     {!locked && channel.status && !channel.status.receiving_here && (confirmTakeover !== null ? <div role="group" aria-label="Receive on this machine" className="neighbor-confirm">
       {confirmTakeover !== channel.status.revision && <p>Receiving changed. Confirm again to receive here.</p>}
-      <p>Receive Neighbors on this machine. Other machines will stop receiving.</p>
+      <p>{takeoverWarning(channel.status)}</p>
       <div className="neighbor-confirm__actions">
         <Button type="button" size="sm" variant="primary" disabled={channel.pending} onClick={() => { if (confirmTakeover !== channel.status!.revision) { setConfirmTakeover(channel.status!.revision); return; } setConfirmTakeover(null); void channel.enroll(confirmTakeover); }}>Confirm this machine</Button>
         <Button type="button" size="sm" onClick={() => setConfirmTakeover(null)}>Cancel</Button>

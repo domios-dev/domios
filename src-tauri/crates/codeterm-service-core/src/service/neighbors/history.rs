@@ -140,7 +140,7 @@ impl Metadata {
 }
 
 #[derive(Default)]
-struct HistoryCell(tokio::sync::Mutex<()>);
+pub(crate) struct HistoryCell(tokio::sync::Mutex<()>);
 
 impl ServiceContext {
     pub(super) fn neighbor_author(&self, caller: Option<&str>) -> Result<Author> {

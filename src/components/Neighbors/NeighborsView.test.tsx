@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { NeighborsView } from "./NeighborsView";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
+import { NeighborConversationView } from "./NeighborConversationView";
+import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
 import { takeNeighborFocus } from "./neighborFocus";
+import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborClient } from "./neighborClient";
 import type { NeighborList } from "./neighborModel";
 import { parseNeighbors } from "./neighborModel";
@@ -19,6 +22,7 @@ const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid:
 const mux = vi.hoisted(() => ({
   workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
   tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
+  tabStatuses: {},
 }));
 vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
 vi.mock("../../lib/notices", () => notices);
@@ -62,17 +66,18 @@ function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   };
 }
 
-async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"] } = {}) {
+async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"]; runtimeClient?: NeighborRuntimeClient } = {}) {
   const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
   const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime(options.bindings)} />));
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={options.runtimeClient ?? runtime(options.bindings)} />));
   return { client, list };
 }
 
-const sentText = () => bridge.invoke.mock.calls.map(call => (call as unknown as [string, { tabId: string; text: string }])[1]);
+const sentText = () => (bridge.invoke.mock.calls as unknown as Array<[string, { tabId: string; text: string }]>)
+  .filter(([command]) => command === "chat_send_text").map(([, args]) => args);
 
 it("draws you, each Neighbor and request without duplicating daemon notifications", async () => {
   const { client } = await render();
@@ -132,34 +137,42 @@ it("accepts a request and interviews about the new connection once it exists", a
   expect(sentText()[0].text).toContain("pair-grace");
 });
 
-it("manages a Neighbor from its panel: limit, talk about, and revoke only after confirmation", async () => {
+it("opens a friend's own page: limit, talk about, and removal only after confirmation", async () => {
   const { client } = await render();
   await act(async () => button("Ada, connected").click());
-  await act(async () => button("Configure").click());
-  const input = document.querySelector<HTMLInputElement>('input[type="number"]')!;
+  expect(document.querySelector('[data-settings-page="ada"]')).not.toBeNull();
+  const input = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Incoming requests per hour")!.control as HTMLInputElement;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "42");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => button("Save limit").click());
   expect(client.apply).toHaveBeenCalledWith({ operation: "set_limit", friendship_id: "pair", per_hour: 42 });
-  await act(async () => button("Talk about Ada").click());
+  await act(async () => { button("More actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Talk about Ada")!.click());
   expect(sentText()[0].text).toContain("pair");
-  await act(async () => button("Revoke").click());
+  await act(async () => button("Remove friend").click());
   expect(client.apply).not.toHaveBeenCalledWith({ operation: "remove", friendship_id: "pair" });
-  await act(async () => button("Confirm revoke").click());
+  await act(async () => button("Confirm remove").click());
   expect(client.apply).toHaveBeenCalledWith({ operation: "remove", friendship_id: "pair" });
 });
 
-it("opens the gateway tab only when one receives this Neighbor", async () => {
+it("opens the conversation and the concierge's chat from the friend page", async () => {
   await render("paid", { bindings: { pair: "tab-gateway" } });
   const focused = vi.fn();
+  const panels = vi.fn();
   window.addEventListener("codeterm:focus-tab", focused);
+  window.addEventListener("codeterm:open-panel", panels);
   try {
     await act(async () => button("Ada, connected").click());
-    await act(async () => button("Open their tab").click());
+    await act(async () => button("Open conversation").click());
+    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbor:pair" });
+    await act(async () => button("Open its chat").click());
     expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
-  } finally { window.removeEventListener("codeterm:focus-tab", focused); }
+  } finally {
+    window.removeEventListener("codeterm:focus-tab", focused);
+    window.removeEventListener("codeterm:open-panel", panels);
+  }
 });
 
 it.each([false, undefined])("requires explicit server invitation permission, even with paid channel access (%s)", async canInvite => {
@@ -190,8 +203,7 @@ it("keeps a server-locked Neighbor manageable, offers plans and never unlocks th
   } });
   await act(async () => button("Ada, paused by plan").click());
   expect(button("View plans")).toBeDefined();
-  await act(async () => button("Messages").click());
-  expect(hasButton("Enable encrypted channel")).toBe(false);
+  expect(hasButton("Open conversation")).toBe(false);
   expect(client.apply).not.toHaveBeenCalled();
 });
 
@@ -278,29 +290,63 @@ it("updates the sidebar immediately from an own-account push and removes its sub
   await renderSection([]);
   const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
-  expect(hasButton("Open Ada in Neighbors")).toBe(true);
+  expect(hasButton("Open Ada")).toBe(true);
   await act(async () => mounted!.root.unmount());
   expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
   mounted!.host.remove();
   mounted = null;
 });
 
-it("opens a Neighbor's gateway tab from the sidebar, or the neighborhood when none is bound", async () => {
+it("nests each concierge under its Neighbor; the Neighbor opens your conversation and the concierge its chat", async () => {
   await renderSection([neighbor, { ...neighbor, uid: "peer-2", displayName: "Lin", friendship_id: "pair-2" }], { pair: "tab-gateway" });
   const focused = vi.fn();
   const panels = vi.fn();
   window.addEventListener("codeterm:focus-tab", focused);
   window.addEventListener("codeterm:open-panel", panels);
   try {
-    await act(async () => button("Open Ada's conversation in Concierge").click());
+    expect(hasButton("Open Lin's concierge")).toBe(false);
+    await act(async () => button("Open Ada's concierge").click());
     expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
-    await act(async () => button("Open Lin in Neighbors").click());
-    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbors" });
-    expect(takeNeighborFocus()).toBe("pair-2");
+    await act(async () => button("Open Lin").click());
+    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbor:pair-2" });
   } finally {
     window.removeEventListener("codeterm:focus-tab", focused);
     window.removeEventListener("codeterm:open-panel", panels);
   }
+});
+
+it("offers the concierge actions: change agent, view permissions and edit with General", async () => {
+  await renderSection([neighbor], { pair: "tab-gateway" });
+  await act(async () => { button("Actions for Ada's concierge").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
+  expect(items).toEqual(["Change agent", "View permissions", "Edit with General"]);
+  const viewPermissions = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "View permissions")!;
+  await act(async () => viewPermissions.click());
+  expect(takeNeighborFocus()).toEqual({ id: "pair", section: "configure" });
+});
+
+it("saves permissions directly and refuses an allowed grant without a scope", async () => {
+  const conciergeClient = { history: vi.fn(), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
+    onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
+    setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
+    setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}) };
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  const allow = button("Allow requests from Ada");
+  await act(async () => allow.click());
+  expect(button("Save permissions").disabled).toBe(true);
+  const scope = document.querySelector<HTMLTextAreaElement>(".neighbor-permissions textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(scope, "Questions about our shared project");
+    scope.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Save permissions").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", { allowed: true, scope: "Questions about our shared project", allow_tab_requests: false });
 });
 
 it("shows a sent invitation as its typed email with no profile and no action", async () => {
@@ -338,4 +384,139 @@ it("shows a calm off state with a way back on, and draws no ring while Neighbors
   expect(path).toBe("/api/account/neighbors/enabled");
   expect(JSON.parse(String(init?.body))).toEqual({ enabled: true });
   expect(hasButton("Ada, connected")).toBe(true);
+});
+
+function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed: (friendship: string) => void } {
+  let changed = (_friendship: string) => {};
+  return {
+    history: vi.fn(async () => ({ entries: [...entries].reverse(), next_before: null, ended: true })),
+    onHistoryChanged: vi.fn(async (handler: (friendship: string) => void) => { changed = handler; return () => {}; }),
+    onPermissionChanged: vi.fn(async () => () => {}), onAgentChanged: vi.fn(async () => () => {}),
+    setPermission: vi.fn(async () => {}), changeAgent: vi.fn(async () => "tab-gateway"),
+    setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
+    setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
+    changed: (friendship: string) => changed(friendship),
+  };
+}
+
+it("shows the conversation with a refused question, its linked refusal and delivery, and sends straight to the Neighbor", async () => {
+  const entries: HistoryEntry[] = [
+    { direction: "in", kind: "question", author: "friend", body: "Can you share the deploy keys?", at: 1700000000000, message_id: "m1", outcome: "refused", reason: "Secrets are off limits" },
+    { direction: "out", kind: "refusal", author: { agent: "tab-gateway", name: "Concierge" }, body: "I can't share secrets.", at: 1700000060000, message_id: "m2", in_reply_to: "m1", delivery_status: "delivered" },
+  ];
+  const conciergeClient = concierge(entries);
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.send).mockResolvedValue({ message_id: "f".repeat(32), status: "pending" });
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  const log = document.querySelector('[role="log"]')!;
+  expect(log.textContent).toContain("Can you share the deploy keys?");
+  expect(log.textContent).toContain("refused: Secrets are off limits");
+  expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
+  expect(log.textContent).toContain("delivered");
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
+  expect(runtimeClient.send).toHaveBeenCalledExactlyOnceWith("pair", "Lunch on Friday?");
+  expect(conciergeClient.history).toHaveBeenCalledTimes(2);
+  await act(async () => conciergeClient.changed("other-pair"));
+  expect(conciergeClient.history).toHaveBeenCalledTimes(2);
+  await act(async () => conciergeClient.changed("pair"));
+  expect(conciergeClient.history).toHaveBeenCalledTimes(3);
+});
+
+it("shows their daily allowance, explains a limit refusal and holds the composer once the day is used up", async () => {
+  const entries: HistoryEntry[] = [
+    { direction: "out", kind: "question", author: "me", body: "One more thing", at: 1700000000000, message_id: "m9",
+      delivery_status: "not_delivered", reason: "neighbor_daily_limit", limit: 3, resets_at: 4102444800000 },
+  ];
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, outgoing: [], incoming: [],
+    friends: [{ ...neighbor, their_daily_limit: 3, sent_today: 3, my_daily_limit: null }] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
+  expect(document.body.textContent).toContain("3/day, 3 sent today");
+  expect(document.getElementById("neighbor-msg-m9")?.textContent).toContain("Limit reached: Ada allows 3 messages a day; ask them to raise it.");
+  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
+});
+
+it("tells the old machine that receiving moved, and warns before taking it over", async () => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  await render("paid", { runtimeClient });
+  expect(document.body.textContent).toContain("Receiving moved to Studio");
+  await act(async () => button("Receive here").click());
+  expect(document.querySelector('[aria-label="Receive on this machine"]')?.textContent)
+    .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
+  await act(async () => button("Receive Neighbor messages here").click());
+  expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
+});
+
+it("says when a friend has no concierge on this machine, with the waiting count only once it is known", async () => {
+  const missing = (pending_count: number | null) => ({ gateway_tab: null, concierge_missing: true, pending_count, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" });
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: true, receiving_enabled: true, receiver_machine_label: null, revision: 2,
+    concierges: { pair: missing(3) } } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
+  expect(document.body.textContent).toContain("No concierge on this machine — 3 messages waiting");
+  await act(async () => { emit("neighbor-concierge-status", { friendship_id: "pair", ...missing(null) }); });
+  expect(document.body.textContent).toContain("No concierge on this machine");
+  expect(document.body.textContent).not.toContain("messages waiting");
+  await act(async () => button("Set up with General").click());
+  expect(sentText()[0].text).toContain("pair");
+});
+
+it("nests a concierge bound from any workspace under its friend and marks it hidden from workspace lists", async () => {
+  const seen: Array<ReadonlySet<string>> = [];
+  function Probe() { seen.push(useNeighborGatewayIds()); return null; }
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [],
+    friends: [{ ...neighbor, gateway_tab: "tab-gateway" }] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<><SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} /><Probe /></>));
+  expect(hasButton("Open Ada's concierge")).toBe(true);
+  expect(seen[seen.length - 1]?.has("tab-gateway")).toBe(true);
+});
+
+function pendingClient(): NeighborClient {
+  return { list: vi.fn(() => new Promise<NeighborList>(() => {})), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+}
+
+it("draws last known friends at once with a quiet refresh indicator, and stays away when there were none", async () => {
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] }));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
+  expect(hasButton("Open Ada")).toBe(true);
+  expect(hasButton("Open Ada's concierge")).toBe(true);
+  expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).not.toBeNull();
+  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [] }));
+  await act(async () => root.render(<SidebarNeighborsSection key="empty" touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
+  expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
+});
+
+it("remembers only names, avatars and the concierge binding, and forgets them on sign-out", async () => {
+  await renderSection([{ ...neighbor, gateway_tab: "tab-gateway", my_daily_limit: 5 }]);
+  const stored = JSON.parse(localStorage.getItem("domios.neighbors.last-known:owner")!);
+  expect(stored).toEqual({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] });
+  account.model = { kind: "signed_out" };
+  await act(async () => mounted!.root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtime()} />));
+  expect(localStorage.getItem("domios.neighbors.last-known:owner")).toBeNull();
 });

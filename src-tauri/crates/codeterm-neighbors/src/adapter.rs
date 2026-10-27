@@ -58,7 +58,9 @@ impl NeighborTransport for FirebaseTransport {
             .invoke("friendsSend", {
                 let mut data = serde_json::to_value(message).map_err(|_| Error::InvalidEnvelope)?;
                 data["installation_id"] = self.installation_id.clone().into();
-                data["in_reply_to"] = json!(message.envelope.in_reply_to);
+                if let Some(reply) = &message.envelope.in_reply_to {
+                    data["in_reply_to"] = reply.clone().into();
+                }
                 data
             })
             .await?;
@@ -123,6 +125,7 @@ impl KeyRegistry for FirebaseRegistry {
             None if status.receiving_here() => Enrollment {
                 expected_revision: status.receiver_revision,
                 takeover: false,
+                operation_id: None,
             },
             None => return Err(Error::NotReceiver),
         };
@@ -132,7 +135,7 @@ impl KeyRegistry for FirebaseRegistry {
             "installation_id":self.installation_id,
             "machine_label":self.machine_label,
             "expected_receiver_revision":enrollment.expected_revision,
-            "operation_id":receiver::operation_id(),
+            "operation_id":enrollment.operation_id.clone().unwrap_or_else(receiver::operation_id),
             "takeover":enrollment.takeover && replace_others,
         });
         let body = match self.calls.invoke("friendsEnrollVerifierKey", data).await {

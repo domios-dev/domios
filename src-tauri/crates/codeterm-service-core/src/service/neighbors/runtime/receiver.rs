@@ -29,9 +29,20 @@ impl ServiceContext {
     pub(super) async fn refresh_neighbor_receiver(
         &self,
         registry: &FirebaseRegistry,
+        scope: &KeyScope,
         generation: u64,
     ) -> Result<ReceiverStatus, String> {
-        let result = registry.receiver_status().await;
+        let result = registry
+            .receiver_status_for(
+                &InstallationKeys {
+                    store: &OsKeyStore,
+                    registry,
+                    scope: scope.clone(),
+                    uid: &registry.uid,
+                },
+                true,
+            )
+            .await;
         self.require_neighbor_generation(generation)?;
         let status = match result {
             Ok(status) => status,

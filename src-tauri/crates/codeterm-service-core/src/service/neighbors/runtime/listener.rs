@@ -70,7 +70,10 @@ impl InboxSession for Session {
     }
     async fn prepare(&self) -> codeterm_neighbors::Result<()> {
         self.current()?;
-        let status = self.registry.receiver_status().await?;
+        let status = self
+            .registry
+            .receiver_status_for(&self.keys(), false)
+            .await?;
         if !status.receiving_here() || status.receiver_revision != self.receiver_revision {
             return Err(Error::NotReceiver);
         }
@@ -83,7 +86,10 @@ impl InboxSession for Session {
     async fn receive(&self, messages: &mut [InboxMessage]) -> codeterm_neighbors::Result<()> {
         self.current()?;
         let tab = self.tab.as_ref().ok_or(Error::Gateway)?;
-        let status = self.registry.receiver_status().await?;
+        let status = self
+            .registry
+            .receiver_status_for(&self.keys(), false)
+            .await?;
         if !status.receiving_here() || status.receiver_revision != self.receiver_revision {
             self.service.stop_neighbor_listeners();
             return Err(Error::NotReceiver);
@@ -130,6 +136,9 @@ impl ReceptionEvents for Session {
             return;
         }
         let detail = match error {
+            Error::ListenProtocol { kind } => {
+                json!({"kind":kind,"operation":"inbox.listen.protocol"})
+            }
             Error::Firestore { code, operation } => {
                 json!({"code":code,"operation":operation,"kind":"grpc"})
             }

@@ -21,6 +21,7 @@ fn receiving() -> ReceiverStatus {
         receiver_machine_label: Some("Here".into()),
         receiving_enabled: true,
         is_me: true,
+        legacy_active: false,
     }
 }
 
