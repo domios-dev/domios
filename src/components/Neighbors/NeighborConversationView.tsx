@@ -21,7 +21,7 @@ import { neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborComposer } from "./NeighborComposer";
 import { useConciergeStatus } from "./useConciergeStatus";
-import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { neighborRuntimeClient, NeighborRuntimeFailure, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
 import { useNeighborPermission } from "./useNeighborPermission";
@@ -180,7 +180,11 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       await loadLatest();
       return true;
     } catch (failure: unknown) {
-      setError(failure instanceof Error ? failure.message : "The message was not sent.");
+      const refused = failure instanceof NeighborRuntimeFailure ? failure.refusal : undefined;
+      const resetsAt = refused?.resets_at === undefined ? undefined : refused.resets_at < 1e12 ? refused.resets_at * 1000 : refused.resets_at;
+      const line = refused ? refusalLine({ direction: "out", kind: "question", author: "me", body: "", at: Date.now(), message_id: "", reason: refused.reason,
+        limit: refused.limit, resets_at: resetsAt, retry_after_seconds: refused.retry_after_seconds }, name, Date.now()) : null;
+      setError(line ?? (failure instanceof Error ? failure.message : "The message was not sent."));
       return false;
     } finally { setSending(false); }
   };
