@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 
 use crate::routes::AppState;
 use codeterm_service_core::multiplexer::types::AgentRole;
-use codeterm_service_core::plan::{OrchestratorRef, TaskStatus};
+use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::{TaskListFilter, TaskListResult};
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
