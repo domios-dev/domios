@@ -15,23 +15,18 @@ pub(crate) struct RpcRequest {
     protocol_version: Option<serde_json::Value>,
 }
 
-#[cfg(test)]
 pub(super) fn local_caller(
     remote: SocketAddr,
-    expected_token: Option<&str>,
+    state: &AppState,
     authorization: Option<&str>,
-) -> bool {
-    let Some(expected_token) = expected_token.filter(|value| !value.is_empty()) else {
-        return false;
-    };
+) -> Result<Option<codeterm_service_core::service::tab_credentials::TabCaller>, String> {
+    if !remote.ip().is_loopback() {
+        return Err("Local credentials require a loopback connection".into());
+    }
     let presented = authorization
         .and_then(|value| value.strip_prefix("Bearer "))
-        .unwrap_or("");
-    remote.ip().is_loopback()
-        && codeterm_service_core::service::tokens::constant_time_eq(
-            presented.as_bytes(),
-            expected_token.as_bytes(),
-        )
+        .unwrap_or_default();
+    state.svc.authenticate_local_credential(presented)
 }
 
 fn identity_matches(method: &str, params: Option<&serde_json::Value>, headers: &HeaderMap) -> bool {
@@ -122,7 +117,13 @@ pub(crate) async fn dispatch(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.strip_prefix("Bearer "))
         .unwrap_or_default();
-    if !remote.ip().is_loopback() || state.svc.authenticate_local_credential(token).is_err() {
+    if local_caller(
+        remote,
+        &state,
+        headers.get("authorization").and_then(|value| value.to_str().ok()),
+    )
+    .is_err()
+    {
         return Err((
             StatusCode::FORBIDDEN,
             Json(
@@ -202,38 +203,46 @@ mod tests {
     use axum::http::HeaderMap;
     use std::net::SocketAddr;
 
+    fn caller_fixture() -> (
+        codeterm_service_core::service::test_fixture::ServiceFixture,
+        super::AppState,
+    ) {
+        let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let state = crate::test_support::app_state(&fixture);
+        state.config.lock().api.token = Some("secret".into());
+        (fixture, state)
+    }
+
     #[test]
     fn mesh_peer_identity_cannot_use_loopback_rpc_fallback() {
+        let (_fixture, state) = caller_fixture();
         let peer = "192.0.2.10:7000".parse::<SocketAddr>().unwrap();
-        assert!(!local_caller(peer, Some("secret"), Some("Bearer secret")));
-        assert!(!local_caller(
-            "127.0.0.1:7000".parse().unwrap(),
-            Some("secret"),
-            Some("Bearer peer-token")
-        ));
+        assert!(local_caller(peer, &state, Some("Bearer secret")).is_err());
         assert!(local_caller(
             "127.0.0.1:7000".parse().unwrap(),
-            Some("secret"),
-            Some("Bearer secret")
+            &state,
+            Some("Bearer peer-token")
+        ).is_err());
+        assert!(matches!(
+            local_caller("127.0.0.1:7000".parse().unwrap(), &state, Some("Bearer secret")),
+            Ok(None)
         ));
     }
 
     #[test]
     fn rest_identity_headers_are_accepted_for_local_auth_and_refused_for_mesh_callers() {
+        let (_fixture, state) = caller_fixture();
         let local = "127.0.0.1:7000".parse().unwrap();
         let peer = "192.0.2.10:7000".parse().unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-codeterm-tab-id", "worker-1".parse().unwrap());
         let params = serde_json::json!({"tab_id": "worker-1"});
-        let local_authenticated = local_caller(local, Some("secret"), Some("Bearer secret"));
+        let local_authenticated = local_caller(local, &state, Some("Bearer secret")).is_ok();
         assert!(local_authenticated);
         assert!(local_authenticated && identity_matches("agent.ack", Some(&params), &headers));
-        assert!(!local_caller(peer, Some("secret"), Some("Bearer secret")));
-        assert!(!local_caller(
-            local,
-            Some("secret"),
-            Some("Bearer peer-token")
-        ));
+        assert!(local_caller(peer, &state, Some("Bearer secret")).is_err());
+        assert!(local_caller(local, &state, Some("Bearer peer-token")).is_err());
     }
 
     #[test]
