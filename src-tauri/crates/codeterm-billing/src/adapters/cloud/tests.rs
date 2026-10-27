@@ -44,64 +44,18 @@ fn entitlements_attach_proof_and_refuse_unsigned_remote_requests() {
 }
 
 #[test]
-fn checkout_refusals_allow_only_reviewed_reasons_and_exact_messages() {
-    for (reason, message) in [
-        ("unknown_plan", "Unknown billing plan"),
-        (
-            "catalog_selection_unavailable",
-            "Catalog selection unavailable",
-        ),
-        ("catalog_selection_mismatch", "Catalog selection mismatch"),
-        (
-            "reviewed_catalog_required",
-            "Reviewed provider catalog required",
-        ),
-        ("select_catalog_price", "Select a catalog price"),
-        (
-            "trial_admission_pending",
-            "Verified trial payment admission pending",
-        ),
+fn refusal_adapter_ignores_messages_and_invalid_structured_reasons() {
+    for body in [
+        serde_json::Value::Null,
+        serde_json::json!({"error":{"message":"Unknown billing plan"}}),
+        serde_json::json!({"error":{"message":"fixture-untrusted", "details":{"reason":"fixture-unknown"}}}),
+        serde_json::json!({"error":{"details":{"reason":17}}}),
     ] {
-        let by_reason =
-            refusal_message(&serde_json::json!({"error":{"details":{"reason":reason}}}));
-        assert_ne!(by_reason, "Billing request refused", "{reason}");
-        assert_eq!(
-            by_reason,
-            refusal_message(&serde_json::json!({"error":{"message":message}}))
-        );
-        assert_eq!(
-            refusal_message(
-                &serde_json::json!({"error":{"message":format!("{message}: private data")}})
-            ),
-            "Billing request refused"
-        );
-    }
-}
-
-#[test]
-fn plan_change_refusals_preserve_only_known_server_reasons() {
-    for reason in [
-        "renewal_window",
-        "interval_change_unavailable",
-        "change_pending",
-        "confirmation_pending",
-        "subscription_unavailable",
-        "same_tier",
-    ] {
-        let error = serde_json::json!({"error":{"details":{"reason":reason}}});
-        assert!(refusal_message(&error).starts_with(reason));
+        assert_eq!(refusal_reason(&body), BillingRefusal::Unknown);
     }
     assert_eq!(
-        refusal_message(
-            &serde_json::json!({"error":{"message":"Test billing is limited to Domios staff"}})
-        ),
-        "test_billing_restricted: Test billing is limited to Domios staff"
-    );
-    assert_eq!(
-        refusal_message(
-            &serde_json::json!({"error":{"message":"arbitrary provider text","details":{"reason":"unknown"}}})
-        ),
-        "Billing request refused"
+        refusal_reason(&serde_json::json!({"error":{"details":{"reason":"unknown_plan"}}})),
+        BillingRefusal::UnknownPlan
     );
 }
 
@@ -313,28 +267,6 @@ fn dev_issuer_is_loopback_http_in_debug_only() {
     ] {
         assert!(!dev_issuer(&url(refused)));
     }
-}
-
-#[test]
-fn only_an_already_subscribed_refusal_keeps_its_reason() {
-    let refusal = |reason: serde_json::Value| {
-        refusal_message(
-            &serde_json::json!({"error": {"status": "FAILED_PRECONDITION", "message": "opaque", "details": reason}}),
-        )
-    };
-    assert_eq!(
-        refusal(serde_json::json!({"reason": "already_subscribed"})),
-        crate::ALREADY_SUBSCRIBED
-    );
-    assert_eq!(
-        refusal(serde_json::json!({"reason": "something_else"})),
-        "Billing request refused"
-    );
-    assert_eq!(refusal(serde_json::Value::Null), "Billing request refused");
-    assert_eq!(
-        refusal_message(&serde_json::Value::Null),
-        "Billing request refused"
-    );
 }
 
 #[derive(Default)]

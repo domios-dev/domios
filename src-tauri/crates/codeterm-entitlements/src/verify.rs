@@ -263,7 +263,7 @@ fn check_context(
     if payload.aud.project != spec.project || payload.aud.env != spec.mode {
         return Err(Refusal::Audience);
     }
-    if !policy.accepts_version(payload.policy_version) {
+    if payload.policy_version != spec.policy_version {
         return Err(Refusal::PolicyVersion);
     }
     if payload.policy_epoch != spec.policy_epoch {

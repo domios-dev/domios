@@ -45,7 +45,6 @@ pub enum PolicyError {
 #[derive(Clone, Debug)]
 pub struct Policy {
     spec: PolicySpec,
-    accepted_versions: Option<&'static [u64]>,
     keys: Vec<(String, VerifyingKey)>,
 }
 
@@ -81,23 +80,7 @@ impl Policy {
             }
             keys.push((key.key_id.clone(), verifying));
         }
-        Ok(Self {
-            spec,
-            keys,
-            accepted_versions: None,
-        })
-    }
-
-    pub(crate) fn with_versions(mut self, versions: &'static [u64]) -> Self {
-        self.accepted_versions = Some(versions);
-        self
-    }
-
-    pub(crate) fn accepts_version(&self, version: u64) -> bool {
-        self.accepted_versions
-            .map_or(version == self.spec.policy_version, |versions| {
-                versions.contains(&version)
-            })
+        Ok(Self { spec, keys })
     }
 
     pub fn spec(&self) -> &PolicySpec {
