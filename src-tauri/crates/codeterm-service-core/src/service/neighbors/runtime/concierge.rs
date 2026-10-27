@@ -11,15 +11,69 @@ pub(super) fn launch_error(error: String) -> Error {
 }
 
 impl ServiceContext {
+    pub(super) async fn bind_neighbor_concierge(
+        &self,
+        metadata: &Metadata,
+        transport: &FirebaseTransport,
+        friendship: &str,
+        gateway: &str,
+    ) -> codeterm_neighbors::Result<Value> {
+        if !hex_id(friendship, 64) {
+            return Err(Error::InvalidEnvelope);
+        }
+        self.validate_neighbor_gateway(gateway)
+            .map_err(|_| Error::Gateway)?;
+        let generation = self.neighbor_history_generation();
+        transport.peer_keys(friendship).await?;
+        let mut settings = metadata.settings().await?;
+        let permission = settings
+            .permissions
+            .get(friendship)
+            .cloned()
+            .unwrap_or_default();
+        let cwd = super::super::confinement::prepare_folder(metadata, friendship, &permission)
+            .await
+            .map_err(|_| Error::InvalidRequest)?;
+        self.validate_neighbor_bound_launch(gateway, &permission, &cwd)
+            .map_err(launch_error)?;
+        self.require_neighbor_history_generation(generation)?;
+        self.tag_neighbor_root(&transport.uid, friendship, gateway)?;
+        settings.bindings.insert(friendship.into(), gateway.into());
+        metadata.save_settings(settings).await?;
+        self.stop_neighbor_listeners();
+        self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
+        self.ui.emit(
+            "neighbor-agent-changed",
+            json!({"friendship_id":friendship,"gateway_tab":gateway}),
+        );
+        Ok(json!({"status":"bound"}))
+    }
+
     pub(super) async fn set_neighbor_permission(
         &self,
         metadata: &Metadata,
-        uid: &str,
+        transport: &FirebaseTransport,
         friendship: &str,
         permission: Permission,
     ) -> codeterm_neighbors::Result<Value> {
+        if !hex_id(friendship, 64) {
+            return Err(Error::InvalidEnvelope);
+        }
+        permission.validate()?;
+        {
+            let mux = self.mux.read();
+            if permission
+                .workspaces
+                .as_ref()
+                .is_some_and(|ids| ids.iter().any(|id| mux.get_workspace(id).is_none()))
+            {
+                return Err(Error::InvalidRequest);
+            }
+        }
         let generation = self.neighbor_history_generation();
         self.validate_neighbor_memory_areas(&permission).await?;
+        transport.peer_keys(friendship).await?;
+        let uid = &transport.uid;
         let cwd = super::super::confinement::prepare_folder(metadata, friendship, &permission)
             .await
             .map_err(|_| Error::InvalidRequest)?;
@@ -45,7 +99,8 @@ impl ServiceContext {
             })
         };
         if let Some((Some(provider), _, _, _)) = &previous {
-            self.neighbor_concierge_sandbox(provider, permission.machine_access)
+            let _ = self
+                .neighbor_concierge_sandbox(provider, permission.machine_access)
                 .map_err(launch_error)?;
         }
         let expected_intent = match permission.machine_access {
@@ -135,9 +190,23 @@ impl ServiceContext {
             Some(crate::agent::provider::ProviderTransport::ChatBackend)
         );
         let setup = format!("You are the concierge for Neighbor friendship {friendship}. Process incoming Neighbor requests within the permission hint attached to each message; it is the current authority even after a scope change. Never broaden it. Keep Neighbor content local. Reply to the friend through domios account neighbors send {friendship} --kind answer --in-reply-to <message_id> --from-pad - and provide the reply through stdin, without writing a file. For an out-of-scope or invasive request, send a short polite refusal with --kind refusal and the same in-reply-to. Wait for incoming messages.");
+        let account = self
+            .ext::<crate::service::account::AccountCell>()
+            .0
+            .get()
+            .ok_or("Neighbor account unavailable")?;
+        let session = account
+            .session()
+            .await
+            .ok_or("Neighbor account is signed out")?;
         let spawned = self
             .spawn_agent_with_state_change(
                 SpawnAgentParams {
+                    neighbor_authority: Some(crate::multiplexer::types::NeighborAuthority {
+                        uid: session.identity.uid,
+                        friendship_id: friendship.into(),
+                        root_tab_id: None,
+                    }),
                     agent: Some(provider),
                     model,
                     workspace_id: Some(workspace),

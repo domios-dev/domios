@@ -7,6 +7,8 @@ mod shell;
 pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
 mod model_identity;
+mod neighbor;
+pub use neighbor::NeighborAuthority;
 mod restorable_launch;
 pub use managed_tab::ManagedTab;
 mod turn_resume;
@@ -796,6 +798,8 @@ pub struct Tab {
     /// so a top-level orchestrator's report still reaches its spawning agent.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub spawned_by_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neighbor_authority: Option<NeighborAuthority>,
     /// Authenticated control ownership (controller identity, origin peer, origin
     /// Team) — separate from transport identity. Drives target-side attribution.
     #[serde(skip_serializing_if = "Option::is_none", default)]

@@ -102,11 +102,67 @@ fn lifecycle_hook(path: &str) -> bool {
 }
 
 impl ServiceContext {
+    pub(crate) fn refuse_neighbor_descendant_launch(
+        &self,
+        callers: &[Option<&str>],
+    ) -> Result<(), String> {
+        let mux = self.mux.read();
+        let known = self.neighbor_cell().concierge_accounts.lock();
+        if callers.iter().flatten().any(|id| {
+            known.contains_key(*id)
+                || mux
+                    .get_tab(id)
+                    .is_some_and(|tab| tab.neighbor_authority.is_some())
+        }) {
+            return Err("neighbor_capability_denied: This launch path cannot preserve inherited Neighbor authority and machine confinement".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn tag_neighbor_root(
+        &self,
+        uid: &str,
+        friendship: &str,
+        tab_id: &str,
+    ) -> codeterm_neighbors::Result<()> {
+        if !codeterm_neighbors::wire::hex_id(friendship, 64) {
+            return Err(codeterm_neighbors::Error::InvalidRequest);
+        }
+        let changed = {
+            let mut mux = self.mux.write();
+            let tab = mux
+                .get_tab_mut(tab_id)
+                .ok_or(codeterm_neighbors::Error::Gateway)?;
+            let authority = crate::multiplexer::types::NeighborAuthority {
+                uid: uid.into(),
+                friendship_id: friendship.into(),
+                root_tab_id: None,
+            };
+            match tab.neighbor_authority.as_ref() {
+                Some(existing) if existing != &authority => {
+                    return Err(codeterm_neighbors::Error::PermissionDenied)
+                }
+                Some(_) => false,
+                None => {
+                    tab.neighbor_authority = Some(authority);
+                    true
+                }
+            }
+        };
+        if changed {
+            self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
+        }
+        Ok(())
+    }
+
     pub(super) fn remember_neighbor_concierge_accounts(
         &self,
         uid: &str,
         settings: &super::storage::Settings,
     ) {
+        for (friendship, tab) in &settings.bindings {
+            let _ = self.tag_neighbor_root(uid, friendship, tab);
+        }
         let known: Vec<_> = self
             .neighbor_cell()
             .concierge_accounts
@@ -136,7 +192,6 @@ impl ServiceContext {
         let mux = self.mux.read();
         if !mux.get_tab(&caller.tab_id).is_some_and(|tab| {
             (!require_attested || tab.launch_session_authenticated())
-                && tab.agent_type.is_some()
                 && tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
         }) {
             return Err("neighbor_forbidden: Concierge caller binding changed".into());
@@ -195,10 +250,11 @@ impl ServiceContext {
         caller: &TabCaller,
         require_attested: bool,
     ) -> Result<Option<(String, Permission)>, String> {
-        {
+        let authority = {
             let mux = self.mux.read();
             let tab = mux.get_tab(&caller.tab_id).ok_or("neighbor_forbidden")?;
             if crate::service::general_agent::is_general_agent(tab)
+                && tab.neighbor_authority.is_none()
                 && !self
                     .neighbor_cell()
                     .concierge_accounts
@@ -207,7 +263,8 @@ impl ServiceContext {
             {
                 return Ok(None);
             }
-        }
+            tab.neighbor_authority.clone()
+        };
         let account = self
             .ext::<crate::service::account::AccountCell>()
             .0
@@ -218,11 +275,12 @@ impl ServiceContext {
             None => None,
         };
         let Some(session) = session else {
-            return if self
-                .neighbor_cell()
-                .concierge_accounts
-                .lock()
-                .contains_key(&caller.tab_id)
+            return if authority.is_some()
+                || self
+                    .neighbor_cell()
+                    .concierge_accounts
+                    .lock()
+                    .contains_key(&caller.tab_id)
             {
                 Err("neighbor_forbidden: Concierge account is signed out".into())
             } else {
@@ -230,12 +288,15 @@ impl ServiceContext {
             };
         };
         let generation = self.neighbor_history_generation();
-        if self
-            .neighbor_cell()
-            .concierge_accounts
-            .lock()
-            .get(&caller.tab_id)
-            .is_some_and(|uid| uid != &session.identity.uid)
+        if authority
+            .as_ref()
+            .is_some_and(|authority| authority.uid != session.identity.uid)
+            || self
+                .neighbor_cell()
+                .concierge_accounts
+                .lock()
+                .get(&caller.tab_id)
+                .is_some_and(|uid| uid != &session.identity.uid)
         {
             return Err("neighbor_forbidden: Concierge belongs to another account".into());
         }
@@ -245,7 +306,30 @@ impl ServiceContext {
             .await
             .map_err(|error| error.to_string())?;
         self.remember_neighbor_concierge_accounts(&session.identity.uid, &settings);
-        let result = self.neighbor_capability_permission_in(&settings, caller, require_attested)?;
+        let result = if let Some(authority) = authority {
+            self.verify_neighbor_capability_caller(caller, require_attested)?;
+            self.require_neighbors_enabled()
+                .map_err(|error| error.to_string())?;
+            let root = authority.root_tab_id.as_deref().unwrap_or(&caller.tab_id);
+            if !codeterm_neighbors::wire::hex_id(&authority.friendship_id, 64)
+                || require_attested
+                    && settings
+                        .bindings
+                        .get(&authority.friendship_id)
+                        .map(String::as_str)
+                        != Some(root)
+            {
+                return Err("neighbor_forbidden: Concierge binding is not active".into());
+            }
+            let permission = settings
+                .permissions
+                .get(&authority.friendship_id)
+                .cloned()
+                .unwrap_or_default();
+            Some((authority.friendship_id, permission))
+        } else {
+            self.neighbor_capability_permission_in(&settings, caller, require_attested)?
+        };
         if result.is_none()
             && self
                 .neighbor_cell()

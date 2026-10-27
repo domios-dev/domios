@@ -192,6 +192,8 @@ pub enum SplitNodeSnapshot {
         /// the spawner even with no role parent. `None` for legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         spawned_by_tab_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        neighbor_authority: Option<crate::multiplexer::types::NeighborAuthority>,
         /// Non-hierarchy report target (cron / mem worker). Persisted alongside
         /// `spawned_by_tab_id` so report routing survives restart. `None` for
         /// legacy snapshots.

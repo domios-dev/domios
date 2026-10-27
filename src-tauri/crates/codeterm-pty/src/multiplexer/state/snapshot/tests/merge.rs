@@ -24,6 +24,7 @@ fn terminal_leaf(tab_id: &str, parent: Option<&str>) -> SplitNodeSnapshot {
         team_id: None,
         parent_tab_id: parent.map(str::to_string),
         spawned_by_tab_id: None,
+        neighbor_authority: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         ownership: None,

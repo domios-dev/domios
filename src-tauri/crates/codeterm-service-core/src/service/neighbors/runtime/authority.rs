@@ -34,7 +34,8 @@ impl ServiceContext {
         ) {
             return Err(DENIED.into());
         }
-        if crate::service::general_agent::is_general_agent(tab) {
+        if crate::service::general_agent::is_general_agent(tab) && tab.neighbor_authority.is_none()
+        {
             return Ok(Access::Unrestricted);
         }
         drop(mux);

@@ -1,5 +1,7 @@
 use super::*;
 
+mod neighbor_authority;
+
 #[test]
 fn remote_task_binding_matches_startup_identity_without_local_supervisor() {
     let remote = crate::service::RemoteTaskBinding {

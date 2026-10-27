@@ -414,7 +414,12 @@ fn runtime_worker_identity_is_stamped_before_launch() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.create_workspace("fixture".into(), None);
     let tab_id = mux.create_tab(&workspace.id).unwrap();
-    let metadata = crate::service::spawn::ChatBackendLaunchMetadata {
+    let authority = crate::multiplexer::types::NeighborAuthority {
+        uid: "owner".into(),
+        friendship_id: "a".repeat(64),
+        root_tab_id: None,
+    };
+    let mut metadata = crate::service::spawn::ChatBackendLaunchMetadata {
         agent: crate::service::spawn::AgentSpawnSpec {
             provider: "runtime-fixture".into(),
             worker_id: Some("worker-exact".into()),
@@ -424,12 +429,19 @@ fn runtime_worker_identity_is_stamped_before_launch() {
             reasoning_effort: Some("effort-exact".into()),
             ..Default::default()
         },
-        params: Default::default(),
+        params: crate::service::SpawnAgentParams {
+            neighbor_authority: Some(authority.clone()),
+            ..Default::default()
+        },
         owner_linkage: None,
         runtime_fork: None,
     };
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     super::stamp_chatbackend_launch_identity(tab, &metadata);
+    assert_eq!(tab.neighbor_authority.as_ref(), Some(&authority));
+    metadata.params.neighbor_authority = None;
+    super::stamp_chatbackend_launch_identity(tab, &metadata);
+    assert_eq!(tab.neighbor_authority.as_ref(), Some(&authority));
     assert_eq!(tab.worker_id.as_deref(), Some("worker-exact"));
     assert_eq!(tab.agent_type.as_deref(), Some("runtime-fixture"));
     assert_eq!(tab.report_target_tab_id.as_deref(), Some("report-exact"));

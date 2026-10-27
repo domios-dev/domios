@@ -245,6 +245,18 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        let spawner = match &spec.command {
+            TabCommand::Agent(agent) => agent.spawned_by_tab_id.as_deref(),
+            _ => spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|metadata| metadata.params.spawned_by_tab_id.as_deref()),
+        };
+        self.refuse_neighbor_descendant_launch(&[
+            spec.creator_tab_id.as_deref(),
+            spec.parent_tab_id.as_deref(),
+            spawner,
+        ])?;
         if !matches!(&spec.command, TabCommand::Shell) {
             self.validate_request_cwd(
                 spec.workspace_id.as_deref(),
@@ -412,6 +424,12 @@ impl ServiceContext {
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.role_profile = agent.role_profile.clone();
                 tab.taskless_authorized_gates = taskless_authorized_gates.clone();
+                if tab.neighbor_authority.is_none() {
+                    tab.neighbor_authority = spec
+                        .chatbackend_launch
+                        .as_ref()
+                        .and_then(|metadata| metadata.params.neighbor_authority.clone());
+                }
                 tab.audience = spec.audience;
             }
             if let Some(ref description) = spec.description {
@@ -840,6 +858,12 @@ impl ServiceContext {
                 tab.audience = spec.audience;
                 tab.role_profile = agent.role_profile.clone();
                 tab.taskless_authorized_gates = taskless_authorized_gates.clone();
+                if tab.neighbor_authority.is_none() {
+                    tab.neighbor_authority = spec
+                        .chatbackend_launch
+                        .as_ref()
+                        .and_then(|metadata| metadata.params.neighbor_authority.clone());
+                }
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());
                 }

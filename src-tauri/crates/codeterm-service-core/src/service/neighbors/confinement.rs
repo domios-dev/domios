@@ -58,6 +58,38 @@ fn sandbox_label(
 }
 
 impl ServiceContext {
+    pub(super) fn validate_neighbor_bound_launch(
+        &self,
+        tab_id: &str,
+        permission: &Permission,
+        cwd: &str,
+    ) -> std::result::Result<(), String> {
+        let (provider, actual_cwd, intent) = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(tab_id).ok_or("Neighbor concierge is missing")?;
+            (
+                tab.agent_type
+                    .clone()
+                    .ok_or("Neighbor concierge has no provider")?,
+                tab.cwd.clone(),
+                tab.restorable_launch
+                    .execution_sandbox
+                    .as_ref()
+                    .map(|policy| policy.intent.clone()),
+            )
+        };
+        let _ = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
+        if !bound_launch_matches(
+            actual_cwd.as_deref(),
+            intent,
+            permission.machine_access,
+            cwd,
+        ) {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
+        Ok(())
+    }
+
     pub(super) fn neighbor_concierge_sandbox(
         &self,
         provider: &str,
@@ -120,6 +152,21 @@ impl ServiceContext {
         value["folder_enforcement"]["network"] = json!("not_confined");
         Ok(value)
     }
+}
+
+fn bound_launch_matches(
+    cwd: Option<&str>,
+    intent: Option<ExecutionIntent>,
+    access: MachineAccess,
+    expected_cwd: &str,
+) -> bool {
+    let expected = match access {
+        MachineAccess::ReadOnly => Some(ExecutionIntent::ReadOnly),
+        MachineAccess::Folder => Some(ExecutionIntent::Mutating),
+        MachineAccess::Full => None,
+        MachineAccess::None => return false,
+    };
+    cwd == Some(expected_cwd) && intent == expected
 }
 
 #[cfg(test)]

@@ -67,6 +67,11 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
+        self.refuse_neighbor_descendant_launch(&[
+            params.spawned_by_tab_id.as_deref(),
+            params.creator_tab_id.as_deref(),
+            params.parent_tab_id.as_deref(),
+        ])?;
         self.validate_remote_spawn(&params)?;
         crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
@@ -1097,6 +1102,9 @@ pub(crate) fn initialize_ordinary_pty_agent_tab(
     tab: &mut crate::multiplexer::types::Tab,
     params: &SpawnAgentParams,
 ) {
+    if tab.neighbor_authority.is_none() {
+        tab.neighbor_authority = params.neighbor_authority.clone();
+    }
     tab.role_profile = params.role_profile.clone();
     tab.audience = params.audience;
     if params.description.is_some() {

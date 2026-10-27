@@ -161,6 +161,7 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         spawned_by_tab_id: None,
+        neighbor_authority: None,
         ownership: None,
         title_level: TitleLevel::Default,
         chat_view: false,

@@ -38,6 +38,8 @@ The daemon applies a default-deny command allowlist to the authenticated concier
 
 Permission reads and status `permissions[friendship_id]` add `effective_folder` and `folder_enforcement: {writes, reads, network, note}`. Writes are `provider_sandbox` when a policy is active, `unrestricted` for explicit full access, otherwise `advisory`. Reads are `not_confined`; network is `disabled` only when the runtime explicitly confirms it, otherwise `not_confined`. The note includes additional host writable roots and platform limitations. These daemon grants do not prevent an agent shell from reading plaintext OS files. A read-only concierge can send a reply without writing a pad file by providing its text on stdin with `domios account neighbors send FRIENDSHIP_ID --from-pad -`.
 
+Concierge authority is host-owned, attached before launch and persisted with the tab. Restart, sign-out, role changes and a missing/ended binding cannot turn it into an unrestricted agent. An existing independent agent may be bound only when its current folder and sandbox already match the permission; use permission editing or agent replacement to start the configured launch. Binding never silently reuses a broader launch.
+
 A denied concierge tool call returns the typed refusal with instructions to reply politely to the current Neighbor request using its `message_id` as `in_reply_to`. The daemon does not guess a request from the latest history row. Permission-off and disallowed incoming tab requests still receive the automatic linked refusal before agent involvement. Generic file-path serving and browsing routes are unavailable to concierges; received files must be read through their friendship-checked handles.
 
 ```bash
@@ -128,4 +130,4 @@ Use `POST /api/account/neighbors/files` with one of these JSON operations:
 
 `neighbor-files-changed` carries `friendship_id` when the local file index changes. Join files to conversation entries by `message_id`. `neighbor-file-daily-limit-changed` carries `friendship_id` and `file_daily_limit_bytes`. Local file listing and opening do not contact the relay. Each installation keeps its own saved files; changing the receiving machine does not copy them.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

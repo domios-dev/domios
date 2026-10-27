@@ -1,6 +1,53 @@
 use super::*;
 use codeterm_neighbors::wire::{InboxDocument, Timestamp};
 
+#[test]
+fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
+    let (mut mux, general) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&general).unwrap();
+    let tab = mux.create_tab(&workspace).unwrap();
+    mux.get_tab_mut(&tab).unwrap().neighbor_authority =
+        Some(crate::multiplexer::types::NeighborAuthority {
+            uid: "owner".into(),
+            friendship_id: "a".repeat(64),
+            root_tab_id: None,
+        });
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    *fixture.service.neighbor_cell().receiver.lock() =
+        Some(codeterm_neighbors::adapter::ReceiverStatus {
+            receiver_revision: 1,
+            receiver_installation_id: Some("machine".into()),
+            receiver_key_id: None,
+            receiver_machine_label: Some("Here".into()),
+            receiving_enabled: true,
+            is_me: true,
+            legacy_active: false,
+        });
+    let (_stop, stopped) = tokio::sync::watch::channel(false);
+    let mut gateway = Gateway {
+        service: fixture.service.clone(),
+        metadata: Metadata::new(fixture.temp.path().to_owned(), "owner"),
+        friendship: "b".repeat(64),
+        tab: tab.clone(),
+        generation: 0,
+        stopped,
+    };
+    assert_eq!(gateway.current(), Err(Error::Gateway));
+    gateway.friendship = "a".repeat(64);
+    assert!(gateway.current().is_ok());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .neighbor_authority
+        .as_mut()
+        .unwrap()
+        .root_tab_id = Some("other-root".into());
+    assert_eq!(gateway.current(), Err(Error::Gateway));
+}
+
 #[tokio::test]
 async fn disabled_gateway_never_admits_or_records_a_message() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
