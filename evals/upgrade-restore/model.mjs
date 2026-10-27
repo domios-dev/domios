@@ -58,6 +58,10 @@ export function requireBackings(document) {
     if (!ids.has(live.tab_id)) throw new Error(`tab=${live.tab_id}: hidden/live tab has no persisted replay backing`);
   }
   for (const tab of tabs) {
+    const transcript = document.histories.find(row => row.tab_id === tab.tab_id)?.transcript;
+    if (transcript?.status === 'unavailable') {
+      throw new Error(`tab=${tab.tab_id}: transcript unavailable (backing=${transcript.backing_kind}, provider=${transcript.provider ?? 'none'})`);
+    }
     if (!tab.agent_type) throw new Error(`tab=${tab.tab_id}: fake shell/surface backing missing`);
     if (tab.agent_type && !(tab.claude_session_id ?? tab.agent_session_id)) {
       throw new Error(`tab=${tab.tab_id}: provider thread identity missing`);
