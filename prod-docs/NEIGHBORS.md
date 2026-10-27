@@ -97,4 +97,25 @@ Restored runtime concierges start in the background when this machine prepares r
 
 The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
 
-<!-- revision: 20 -->
+## Files
+
+Attach up to four files in a conversation. Each encrypted object is at most 2 MiB, leaving 2,097,120 bytes for the original file. Text and private attachment metadata together must fit the message's 32,752-byte plaintext limit. The receiving installation must support files; otherwise sending refuses with `recipient_files_unsupported`.
+
+Files download automatically into that friend's own folder, including while its concierge is missing or `allow_files` is off. Domios verifies the encrypted object and original bytes before saving, then confirms the saved file to the server. It sanitizes filenames for Windows reserved names, invalid characters and path traversal, and never automatically opens, executes or unpacks a file. The owner opens saved files or the folder from the friend page. Attachment keys and private manifests never appear in conversation history, notifications or concierge text.
+
+`allow_files` defaults on and controls only the exact bound concierge's access to saved files. With that grant, the concierge may list saved files and resolve a file handle to its absolute path inside the friend's folder, then read it using its own tools. It cannot open an operating-system application, upload a local path, change limits or enumerate another friend's files through those handles. Revoking the grant refuses subsequent reads with `neighbor_files_not_allowed`. The friend's receive folder is independent of the concierge's chosen working folder.
+
+The recipient allows 50 MiB per friend per UTC day by default and may set any byte limit from zero through 52,428,800; zero blocks new files and null restores the default. Sender caps are plan-dependent: trial 20 MiB, Pro 50 MiB, Max 200 MiB and Sponsor 500 MiB daily. The daily file-count cap is the sender's byte cap divided by 2 MiB. The server charges grants without refunds and deletes encrypted blobs after confirmation or seven days. A file refusal retains typed quota and reset details; an uncertain message submission is never automatically resent.
+
+Use `POST /api/account/neighbors/files` with one of these JSON operations:
+
+- `{operation:"send",friendship_id,kind,body,in_reply_to:null,paths:["absolute local path"]}` seals, uploads and finalizes each file before sending the encrypted message. The receipt includes public `attachments` entries.
+- `{operation:"list",friendship_id}` returns `{folder,files}` for the owner or General. File entries include `file_id`, `message_id`, `name`, `mime`, `size_bytes`, `direction` and `state`; incoming states are `downloading`, `saved`, `failed` or `expired`.
+- `{operation:"open",friendship_id,file_id}` opens a saved received file for the owner or General. For an authorized bound concierge, list and open instead return saved-file metadata with `path`; they never launch an application.
+- `{operation:"open_folder",friendship_id}` opens the friend's folder for the owner or General.
+- `{operation:"usage",friendship_id}` reads today's `quota.friend` and `quota.sender`. Each has `limit_bytes`, `used_bytes` and `resets_at`; sender also has `limit_files` and `used_files`. Read on opening the friend page or after sending, never on a timer.
+- `{operation:"set_daily_limit",friendship_id,file_daily_limit_bytes:null}` changes the recipient's inbound limit for the owner or General. Friend-list rows expose `my_file_daily_limit_bytes` and `their_file_daily_limit_bytes`.
+
+`neighbor-files-changed` carries `friendship_id` when the local file index changes. Join files to conversation entries by `message_id`. `neighbor-file-daily-limit-changed` carries `friendship_id` and `file_daily_limit_bytes`. Local file listing and opening do not contact the relay. Each installation keeps its own saved files; changing the receiving machine does not copy them.
+
+<!-- revision: 21 -->
