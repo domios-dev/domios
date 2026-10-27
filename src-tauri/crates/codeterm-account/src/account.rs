@@ -51,6 +51,7 @@ pub struct Account {
     operation: Mutex<()>,
     deadline: Duration,
     observer: Option<Arc<dyn IdentityObserver>>,
+    browser_return_to_app: bool,
 }
 impl Account {
     pub fn new(
@@ -63,12 +64,17 @@ impl Account {
             store,
             deadline,
             observer: None,
+            browser_return_to_app: false,
             state: Mutex::new(State::default()),
             operation: Mutex::new(()),
         }
     }
     pub fn with_identity_observer(mut self, observer: Arc<dyn IdentityObserver>) -> Self {
         self.observer = Some(observer);
+        self
+    }
+    pub fn with_browser_return_to_app(mut self, enabled: bool) -> Self {
+        self.browser_return_to_app = enabled;
         self
     }
     pub async fn status(&self) -> Status {
@@ -162,7 +168,7 @@ impl Account {
                         }
                         attempt.run(SignInStage::Browser, browser.open(&url)).await?;
                         let request = {
-                            let serve = loopback.serve(self.clone());
+                            let serve = loopback.serve(self.clone(), self.browser_return_to_app);
                             tokio::pin!(serve);
                             tokio::pin!(receiver);
                             attempt.run(SignInStage::Callback, async { tokio::select! {

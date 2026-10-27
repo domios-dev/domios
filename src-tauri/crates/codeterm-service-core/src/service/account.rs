@@ -115,6 +115,16 @@ impl super::ServiceContext {
                         credentials.clone(),
                         Duration::from_secs(config.login_timeout_secs),
                     )
+                    .with_browser_return_to_app(
+                        !crate::paths::is_dev_instance()
+                            && std::env::var("CODETERM_DEV").ok().as_deref() != Some("1")
+                            && std::env::var("CODETERM_INSTANCE")
+                                .ok()
+                                .is_none_or(|value| value.trim().is_empty())
+                            && std::env::var("CODETERM_API_PORT")
+                                .ok()
+                                .is_none_or(|value| value == "7685"),
+                    )
                     .with_identity_observer(Arc::new(
                         codeterm_account::account_mesh::IdentityObservers(observers),
                     )),
