@@ -4,14 +4,14 @@ mod neighbor_authority;
 
 #[tokio::test]
 async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
-    let response = neighbor_failure("message_too_large: {\"limit\":8176}".into());
+    let response = neighbor_failure("message_too_large: {\"limit\":32752}".into());
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
         .unwrap();
     let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(body["reason"], "message_too_large");
-    assert_eq!(body["limit"], 8176);
+    assert_eq!(body["limit"], 32752);
     for reason in ["tab_requests_not_allowed", "neighbor_permission_denied"] {
         let response = neighbor_failure(format!("{reason}: This request is not allowed"));
         assert_eq!(response.status(), StatusCode::FORBIDDEN);

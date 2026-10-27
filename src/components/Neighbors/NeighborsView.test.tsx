@@ -13,7 +13,7 @@ import type { NeighborList } from "./neighborModel";
 import { parseNeighbors } from "./neighborModel";
 import { parseReferralClaim, type ReferralClaim } from "./referralTrial";
 import { neighborClient } from "./neighborClient";
-import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+import type { NeighborRuntimeClient, NeighborListenerEvent } from "./neighborRuntimeClient";
 import { localFetch } from "../../lib/webApi";
 
 const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
@@ -479,6 +479,20 @@ it("says when a friend has no concierge on this machine, with the waiting count 
   expect(document.body.textContent).not.toContain("messages waiting");
   await act(async () => button("Set up with General").click());
   expect(sentText()[0].text).toContain("pair");
+});
+
+it("requires a fresh confirmation if receiving moves while the active takeover prompt is open", async () => {
+  const runtimeClient = runtime();
+  let changed: ((event: NeighborListenerEvent) => void) | undefined;
+  vi.mocked(runtimeClient.subscribe).mockImplementation(async handler => { changed = handler; return () => {}; });
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  await render("paid", { runtimeClient });
+  await act(async () => button("Receive here").click());
+  await act(async () => changed?.({ receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5 }));
+  await act(async () => button("Receive Neighbor messages here").click());
+  expect(runtimeClient.enroll).not.toHaveBeenCalled();
+  await act(async () => button("Receive Neighbor messages here").click());
+  expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(5);
 });
 
 it("nests a concierge bound from any workspace under its friend and marks it hidden from workspace lists", async () => {

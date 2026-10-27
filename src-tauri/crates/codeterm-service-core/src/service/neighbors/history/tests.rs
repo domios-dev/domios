@@ -170,7 +170,7 @@ fn bounded_history_pages_newest_first_and_links_answer_and_refusal() {
     );
     for id in 400..500 {
         let mut large = entry(id, "in", Kind::Question, None);
-        large.body = "\u{0001}".repeat(8176);
+        large.body = "\u{0001}".repeat(codeterm_neighbors::wire::MAX_PLAINTEXT_BYTES);
         history.append(large).unwrap();
     }
     assert!(serde_json::to_vec(&history).unwrap().len() <= MAX_BYTES);
