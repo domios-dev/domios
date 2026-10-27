@@ -368,17 +368,31 @@ impl ServiceContext {
         else {
             return Ok(());
         };
-        let status = receipt.delivery.status;
+        let status = match (entry.delivery_status, receipt.delivery.status) {
+            (Some(DeliveryStatus::Delivered), _) => DeliveryStatus::Delivered,
+            (Some(DeliveryStatus::NotDelivered), DeliveryStatus::Pending) => {
+                DeliveryStatus::NotDelivered
+            }
+            (_, status) => status,
+        };
         if entry.delivery_status == Some(status)
             && receipt.rejection.is_none()
-            && receipt.submission.is_none()
+            && receipt
+                .submission
+                .is_none_or(|submission| entry.submission == Some(submission))
             && receipt.delivery.reason.is_none()
         {
             return Ok(());
         }
         entry.delivery_status = Some(status);
+        if status == DeliveryStatus::Delivered {
+            entry.submission = Some(Submission::Accepted);
+        }
         if let Some(submission) = receipt.submission {
-            entry.submission = Some(submission);
+            if entry.submission != Some(Submission::Accepted) || submission == Submission::Accepted
+            {
+                entry.submission = Some(submission);
+            }
         }
         if let Some(reason) = receipt.delivery.reason {
             entry.reason = Some(

@@ -62,7 +62,7 @@ fn restored_concierge_reports_starting_until_its_own_runtime_is_live_and_ready()
     let service = &fixture.service;
     let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(
         &json!({"id":"neighbor-runtime-fixture","version":"1.0.0","displayName":"Fixture",
-            "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true},
+            "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
                 "agentRuntime":{"runtimeModes":[],"runtime":"stdio-jsonrpc",
                     "command":{"binary":"fixture-cli","args":[]},
                     "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},

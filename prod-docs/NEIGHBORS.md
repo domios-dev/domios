@@ -91,4 +91,8 @@ Switching Neighbors on starts the receiver and registry watches directly, outsid
 
 An outgoing text over 32752 UTF-8 bytes fails before network dispatch with HTTP 413, `reason: message_too_large` and `limit: 32752`. A denied tab request returns HTTP 403 and `tab_requests_not_allowed`; other denied grants use `neighbor_permission_denied`. Incoming denied requests still receive the polite automatic linked refusal without involving the concierge.
 
-<!-- revision: 18 -->
+Restored runtime concierges start in the background when this machine prepares reception. A bound agent remains `concierge_starting` until its own live session is authenticated and ready; a restored session ID alone does not establish readiness.
+
+The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
+
+<!-- revision: 19 -->

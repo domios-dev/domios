@@ -6,8 +6,17 @@ pub struct Acceptance {
     pub friendship_id: String,
 }
 
+pub struct DeliverySignal {
+    pub friendship_id: String,
+    pub message_id: String,
+    pub status: crate::wire::DeliveryStatus,
+}
+
 #[derive(Default)]
 pub struct RegistrySignal {
+    pub revision: Option<u64>,
+    pub delivery: Option<DeliverySignal>,
+    pub ignored: bool,
     pub receiver_revision: Option<u64>,
     pub accepted: Vec<Acceptance>,
     pub removed: Vec<String>,
