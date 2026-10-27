@@ -82,6 +82,80 @@ it("the interval toggle selects the checkout key", async () => {
   expect(choose.mock.calls).toEqual([["pro_yearly"], ["pro_monthly"]]);
 });
 
+it("keeps the four offers in one navigable group and chooses every paid offer", async () => {
+  const choose = vi.fn();
+  const host = await renderWith(<PlanCards onChoose={choose} />);
+  const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Subscription plans"]')!;
+  expect(group.tabIndex).toBe(0);
+  expect(group.querySelectorAll(":scope > section")).toHaveLength(4);
+  for (const section of group.querySelectorAll("section")) {
+    for (const button of section.querySelectorAll("button")) await act(async () => button.click());
+  }
+  expect(choose.mock.calls).toEqual([["pro_yearly"], ["max_yearly"], ["sponsor_yearly"]]);
+});
+
+it("offers navigation only toward hidden cards and removes it after resizing to fit", async () => {
+  let resize = () => {};
+  const disconnect = vi.fn();
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: () => void) { resize = callback; }
+    observe() {}
+    disconnect = disconnect;
+  });
+  const host = await renderWith(<PlanCards onChoose={vi.fn()} />);
+  const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Subscription plans"]')!;
+  const previous = () => host.querySelector<HTMLButtonElement>('[aria-label="Previous plans"]');
+  const next = () => host.querySelector<HTMLButtonElement>('[aria-label="Next plans"]');
+  expect(previous()).toBeNull();
+  expect(next()).toBeNull();
+  let viewport = 500;
+  Object.defineProperties(group, {
+    clientWidth: { configurable: true, get: () => viewport },
+    scrollWidth: { configurable: true, value: 1000 },
+  });
+  await act(async () => resize());
+  expect(previous()).toBeNull();
+  expect(next()).not.toBeNull();
+  await act(async () => { group.scrollLeft = 250; group.dispatchEvent(new Event("scroll")); });
+  expect(previous()).not.toBeNull();
+  expect(next()).not.toBeNull();
+  await act(async () => { group.scrollLeft = 500; group.dispatchEvent(new Event("scroll")); });
+  expect(previous()).not.toBeNull();
+  expect(next()).toBeNull();
+  await act(async () => { viewport = 1000; group.scrollLeft = 0; resize(); });
+  expect(previous()).toBeNull();
+  expect(next()).toBeNull();
+});
+
+it("scrolls with keyboard, wheel and focused card controls", async () => {
+  const host = await renderWith(<PlanCards onChoose={vi.fn()} />);
+  const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Subscription plans"]')!;
+  Object.defineProperties(group, {
+    clientWidth: { configurable: true, value: 500 },
+    scrollWidth: { configurable: true, value: 1000 },
+  });
+  const scroll = vi.spyOn(group, "scrollBy").mockImplementation(() => {});
+  vi.spyOn(group.firstElementChild!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 220, 400));
+  const sponsor = card(host, "Sponsor");
+  const reveal = vi.spyOn(sponsor, "scrollIntoView").mockImplementation(() => {});
+  await act(async () => group.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight", bubbles: true })));
+  expect(scroll).toHaveBeenCalledWith({ left: 232 });
+  scroll.mockClear();
+  const wheel = new WheelEvent("wheel", { deltaY: 80, cancelable: true });
+  await act(async () => group.dispatchEvent(wheel));
+  expect(wheel.defaultPrevented).toBe(true);
+  expect(scroll).toHaveBeenCalledWith({ left: 80 });
+  const trackpad = new WheelEvent("wheel", { deltaX: 40, cancelable: true });
+  await act(async () => group.dispatchEvent(trackpad));
+  expect(trackpad.defaultPrevented).toBe(false);
+  group.scrollLeft = 500;
+  const endWheel = new WheelEvent("wheel", { deltaY: 80, cancelable: true });
+  await act(async () => group.dispatchEvent(endWheel));
+  expect(endWheel.defaultPrevented).toBe(false);
+  await act(async () => sponsor.querySelector<HTMLButtonElement>("button")!.focus());
+  expect(reveal).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+});
+
 it("a paid subscription never starts a checkout; other paid cards and intervals offer Manage subscription", async () => {
   const onChoose = vi.fn();
   const onManage = vi.fn();

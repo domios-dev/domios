@@ -69,7 +69,7 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
     );
   }
   return (
-    <FormDialog titleId={titleId} descriptionId={detail ? descriptionId : undefined} className="max-w-3xl" onCancel={onClose}
+    <FormDialog titleId={titleId} descriptionId={detail ? descriptionId : undefined} className="max-w-5xl" onCancel={onClose}
       onSubmit={(event) => { event.preventDefault(); if (!blocked && !subscribed) purchase.choose(upgradePlanKey(offers, interval) ?? UPGRADE_PLAN_KEY); }}>
       <h2 id={titleId} className="m-0 text-base font-semibold">{limitHeadline(limit, max)}</h2>
       {detail && <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">{detail}</p>}
