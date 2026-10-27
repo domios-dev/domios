@@ -17,10 +17,7 @@ fn owns(tab: &Tab, provider: &str, context: &RuntimeContext) -> bool {
             if plugin_id == provider && Some(session_id) == context.thread_id.as_ref())
 }
 
-pub(super) fn for_tab(
-    svc: &ServiceContext,
-    tab_id: &str,
-) -> Result<Option<Vec<ChatMsg>>, String> {
+pub(super) fn for_tab(svc: &ServiceContext, tab_id: &str) -> Result<Option<Vec<ChatMsg>>, String> {
     cached(svc, tab_id, None)
 }
 
@@ -37,21 +34,28 @@ fn cached(
     };
     let context = session.context.lock().clone();
     if expected.is_some_and(|(provider, cwd, thread)| {
-        session.provider != provider || context.cwd != cwd || context.thread_id.as_deref() != Some(thread)
-    }) || !session.thread_loaded.load(Ordering::Acquire) {
+        session.provider != provider
+            || context.cwd != cwd
+            || context.thread_id.as_deref() != Some(thread)
+    }) || !session.thread_loaded.load(Ordering::Acquire)
+    {
         return Ok(None);
     }
-    let current = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        owns(tab, &session.provider, &context)
-    });
+    let current = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| owns(tab, &session.provider, &context));
     if !current || engine::validate_binding(svc, &session).is_err() {
         return Err("Runtime transcript binding is not current".into());
     }
     let messages = session.cache.lock().snapshot();
     let current_context = session.context.lock().clone();
-    let current = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        owns(tab, &session.provider, &context)
-    });
+    let current = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| owns(tab, &session.provider, &context));
     if !current
         || current_context.epoch != context.epoch
         || current_context.thread_id != context.thread_id
@@ -70,18 +74,26 @@ pub(super) fn for_session(
     cwd: &str,
     session_id: &str,
 ) -> Result<Option<(Vec<ChatMsg>, u64)>, String> {
-    if !svc.agent_registry.with_provider(provider_id, |provider| {
-        provider.agent_runtime().is_some()
-    }).unwrap_or(false) {
+    if !svc
+        .agent_registry
+        .with_provider(provider_id, |provider| provider.agent_runtime().is_some())
+        .unwrap_or(false)
+    {
         return Ok(None);
     }
-    let tabs = svc.mux.read().all_tabs().filter(|tab| {
-        tab.agent_type.as_deref() == Some(provider_id)
-            && tab.agent_session_id.as_deref() == Some(session_id)
-            && tab.cwd.as_deref().unwrap_or_default() == cwd
-            && matches!(&tab.backing, TabBacking::ChatBackend { plugin_id, session_id: bound }
+    let tabs = svc
+        .mux
+        .read()
+        .all_tabs()
+        .filter(|tab| {
+            tab.agent_type.as_deref() == Some(provider_id)
+                && tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.cwd.as_deref().unwrap_or_default() == cwd
+                && matches!(&tab.backing, TabBacking::ChatBackend { plugin_id, session_id: bound }
                 if plugin_id == provider_id && bound == session_id)
-    }).map(|tab| tab.id.clone()).collect::<Vec<_>>();
+        })
+        .map(|tab| tab.id.clone())
+        .collect::<Vec<_>>();
     let mut snapshot = None;
     for tab in tabs {
         if let Some(messages) = cached(svc, &tab, Some((provider_id, cwd, session_id)))? {

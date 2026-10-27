@@ -891,11 +891,7 @@ pub fn launch_agent_in_background_with_env(
             .as_mut()
             .expect("launch readiness registered")
             .handoff();
-        crate::startup::boot_timing::mark(
-            &tab_id,
-            Some(&pty_id),
-            "readiness_observer_scheduled",
-        );
+        crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "readiness_observer_scheduled");
 
         let (provider_readiness, composer_cursor_position) = svc
             .agent_registry
@@ -915,36 +911,34 @@ pub fn launch_agent_in_background_with_env(
             provider_readiness.requires_composer(),
         );
         let user_composer_required = user_input::requires_composer(&svc, &agent_cmd, &tab_id);
-        let launch_input_readiness = if fallback_spec.is_some()
-            || session_starts_on_first_turn
-            || user_composer_required
-        {
-            let readiness = owner_prompt_wait::await_input_readiness(
-                &svc,
-                &tab_id,
-                &pty_id,
-                &agent_cmd,
-                &readiness_attempt,
-                session_starts_on_first_turn || user_composer_required,
-                input_readiness_timeout,
-                provider_readiness,
-                composer_cursor_position,
-            );
-            match readiness {
-                Ok(readiness) => Some(readiness),
-                Err(refusal) => {
-                    let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
-                    launch.fail(&svc, failure.clone());
-                    set_booting(&launch, false);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Err(failure.reason()));
+        let launch_input_readiness =
+            if fallback_spec.is_some() || session_starts_on_first_turn || user_composer_required {
+                let readiness = owner_prompt_wait::await_input_readiness(
+                    &svc,
+                    &tab_id,
+                    &pty_id,
+                    &agent_cmd,
+                    &readiness_attempt,
+                    session_starts_on_first_turn || user_composer_required,
+                    input_readiness_timeout,
+                    provider_readiness,
+                    composer_cursor_position,
+                );
+                match readiness {
+                    Ok(readiness) => Some(readiness),
+                    Err(refusal) => {
+                        let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
+                        launch.fail(&svc, failure.clone());
+                        set_booting(&launch, false);
+                        if let Some(tx) = ready_tx {
+                            let _ = tx.send(Err(failure.reason()));
+                        }
+                        return;
                     }
-                    return;
                 }
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
         if let Some(readiness) = launch_input_readiness {
             log::info!(
                 "[launch-input-readiness] tab={} pty={} evidence={:?}",
