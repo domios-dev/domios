@@ -1,6 +1,7 @@
 #[cfg(feature = "runtime")]
 pub mod adapter;
 pub mod crypto;
+pub mod files;
 pub mod gateway;
 pub mod keys;
 pub mod permissions;
