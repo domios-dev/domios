@@ -1,5 +1,7 @@
 import { expect, it } from "vitest";
 import { parseNeighbors, validNeighborLimit } from "./neighborModel";
+import { refusalLine } from "./neighborConversationModel";
+import type { HistoryEntry } from "./neighborConciergeClient";
 
 it("accepts the server's locked registry so Free can manage existing connections", () => {
   const list = { schema_version: 1, access: "locked", friends: [], incoming: [], outgoing: [] };
@@ -27,4 +29,14 @@ it("preserves the server's receiving flag and refuses an untyped flag", () => {
   const list = { schema_version: 1, access: "paid", friends: [friend], incoming: [], outgoing: [] };
   expect(parseNeighbors(list).friends[0].receiving).toBe(false);
   expect(() => parseNeighbors({ ...list, friends: [{ ...friend, receiving: "false" }] })).toThrow();
+});
+
+
+it("explains each delivery refusal in plain words and says when to retry only when it is known", () => {
+  const base: HistoryEntry = { direction: "out", kind: "question", author: { agent: "tab", name: "Concierge" }, body: "x", at: 0, message_id: "m", delivery_status: "not_delivered" };
+  const now = 1_700_000_000_000;
+  expect(refusalLine({ ...base, reason: "rate_limited", retry_after_seconds: 600 }, "Ada", now)).toBe("Not delivered: Ada is getting too many messages right now. Try again in 10m.");
+  expect(refusalLine({ ...base, reason: "aggregate_limited" }, "Ada", now)).toBe("Not delivered: you have sent too many Neighbor messages for now.");
+  expect(refusalLine({ ...base, reason: "recipient_locked" }, "Ada", now)).toBe("Not delivered: Ada's plan pauses their Neighbor messages.");
+  expect(refusalLine({ ...base, reason: "something_new" }, "Ada", now)).toBeNull();
 });

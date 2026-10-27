@@ -1,3 +1,4 @@
+import { formatUntil } from "../../lib/timeLabels";
 import type { HistoryEntry } from "./neighborConciergeClient";
 
 /** Pages arrive newest first; the conversation reads oldest first, one copy per message id. */
@@ -21,3 +22,18 @@ export function dayLabel(at: number, previous: number | null, locale?: string): 
 }
 
 export const DELIVERY_LABEL = { pending: "sending", delivered: "delivered", not_delivered: "not delivered" } as const;
+
+/** Why a message of yours did not reach them, in plain words, with when to try again when that is known. */
+export function refusalLine(entry: HistoryEntry, friendName: string, now: number): string | null {
+  const retry = entry.retry_after_seconds !== undefined ? ` Try again ${formatUntil(now + entry.retry_after_seconds * 1000, now)}.` : "";
+  switch (entry.reason) {
+    case "neighbor_daily_limit":
+      return `Limit reached: ${friendName} allows ${entry.limit ?? "a few"} messages a day; ask them to raise it.${entry.resets_at ? ` Resets ${formatUntil(entry.resets_at, now)}.` : ""}`;
+    case "rate_limited": return `Not delivered: ${friendName} is getting too many messages right now.${retry}`;
+    case "aggregate_limited": return `Not delivered: you have sent too many Neighbor messages for now.${retry}`;
+    case "friends_locked": return "Not delivered: your plan pauses Neighbor messages.";
+    case "recipient_locked": return `Not delivered: ${friendName}'s plan pauses their Neighbor messages.`;
+    case "recipient_not_receiving": return `Not delivered: ${friendName} is not receiving right now.`;
+    default: return null;
+  }
+}

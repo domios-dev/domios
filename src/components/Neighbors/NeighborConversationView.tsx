@@ -11,12 +11,11 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
 import { UI_PANEL } from "../shared/design";
 import { useMuxSelector } from "../../store/multiplexer";
-import { formatUntil } from "../../lib/timeLabels";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient, type NeighborNotify } from "./neighborConciergeClient";
 import { NOTIFY_CHOICES } from "./NeighborFriendPage";
-import { dayLabel, DELIVERY_LABEL, mergeHistory, speaker } from "./neighborConversationModel";
+import { dayLabel, DELIVERY_LABEL, mergeHistory, refusalLine, speaker } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
@@ -192,6 +191,7 @@ function Entry({ entry, friend, friendName, quoted, onOpenQuoted }: {
   entry: HistoryEntry; friend: Neighbor; friendName: string; quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
 }) {
   const time = formatMessageTime(entry.at);
+  const refusal = entry.direction === "out" ? refusalLine(entry, friendName, Date.now()) : null;
   const mine = entry.direction === "out";
   const agent = typeof entry.author === "object" ? entry.author : null;
   return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-side={mine ? "out" : "in"} data-kind={entry.kind}>
@@ -206,8 +206,7 @@ function Entry({ entry, friend, friendName, quoted, onOpenQuoted }: {
       </div>
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
-        {mine && entry.reason === "neighbor_daily_limit" ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />
-          Limit reached: {friendName} allows {entry.limit ?? "a few"} messages a day; ask them to raise it.{entry.resets_at ? ` Resets ${formatUntil(entry.resets_at, Date.now())}.` : ""}</span>
+        {mine && refusal ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />{refusal}</span>
         : mine && entry.delivery_status && <span className="neighbor-status"><span className="neighbor-dot"
           data-tone={entry.delivery_status === "delivered" ? "ok" : entry.delivery_status === "pending" ? "progress" : "danger"} aria-hidden="true" />{DELIVERY_LABEL[entry.delivery_status]}</span>}
         {!mine && entry.outcome === "refused" && <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />refused{entry.reason ? `: ${entry.reason}` : ""}</span>}

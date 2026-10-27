@@ -15,6 +15,8 @@ export interface HistoryEntry {
   /** Set on a message the daily limit refused: the limit and when it resets, in unix milliseconds. */
   limit?: number;
   resets_at?: number;
+  /** Hourly or overall limits: how long until another send may go through. */
+  retry_after_seconds?: number;
   author: HistoryAuthor;
   body: string;
   /** Unix milliseconds. */
@@ -68,6 +70,7 @@ export function parseHistory(value: unknown): HistoryPage {
         ...(typeof entry.reason === "string" ? { reason: entry.reason } : {}),
         ...(typeof entry.limit === "number" ? { limit: entry.limit } : {}),
         ...(typeof entry.resets_at === "number" ? { resets_at: unixMillis(entry.resets_at) } : {}),
+        ...(typeof entry.retry_after_seconds === "number" ? { retry_after_seconds: entry.retry_after_seconds } : {}),
         ...(entry.delivery_status === undefined ? {} : { delivery_status: deliveryStatus(entry.delivery_status) }) };
     }),
   };
