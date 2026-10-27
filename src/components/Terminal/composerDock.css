@@ -2,10 +2,9 @@
   --ct-composer-gutter-x: 0.75rem;
   --ct-composer-gutter-b: var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)));
   --ct-composer-radius: 1.215rem;
-  --ct-composer-editor-max: min(230px, 40dvh);
   --ct-composer-float-min-width: 30rem;
   --ct-composer-control-size: var(--ct-control-height);
-  --ct-composer-inner-control-size: var(--ct-control-height-micro);
+  --ct-composer-inner-control-size: 2rem;
   --ct-composer-card-border: 1px;
 }
 @media (pointer: coarse), (max-width: 768px) {
@@ -32,7 +31,6 @@
     box-shadow var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
 }
-.ct-composer-card textarea { max-height: var(--ct-composer-editor-max); }
 .ct-composer-control { width: var(--ct-composer-control-size); height: var(--ct-composer-control-size); }
 .ct-composer-inner-control { width: var(--ct-composer-inner-control-size); height: var(--ct-composer-inner-control-size); }
 .ct-composer-row { min-height: calc(var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border)); }
