@@ -277,7 +277,8 @@ dev_token() {
   local data_dir cli
   data_dir="$(dev_data_dir)" || return 7
   cli="$(dev_bootstrap_cli)" || return 7
-  env -u CODETERM_API_TOKEN -u CODETERM_API_URL \
+  # The calling tab belongs to the parent instance, not this dev instance; its identity must not reach dev.
+  env -u CODETERM_API_TOKEN -u CODETERM_API_URL -u CODETERM_TAB_ID -u CODETERM_SESSION_ID -u CODETERM_SESSION_BINDING_NONCE \
     CODETERM_DATA_DIR="$data_dir" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
     "$cli" system api-token || { dev_resolution_error "$data_dir/.secrets" "$data_dir"; return 7; }
 }
