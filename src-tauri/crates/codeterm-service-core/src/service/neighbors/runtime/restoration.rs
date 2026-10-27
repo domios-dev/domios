@@ -16,6 +16,7 @@ fn needs_key_recovery(
 }
 
 impl ServiceContext {
+    #[cfg(not(any(test, feature = "test-support")))]
     pub(super) fn spawn_neighbor_restoration(
         &self,
         future: impl std::future::Future<Output = ()> + Send + 'static,
