@@ -39,7 +39,7 @@ pub async fn chat_send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    Json(body): Json<SendTextBody>,
+    Json(mut body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
@@ -457,7 +457,7 @@ pub async fn send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
-    Json(body): Json<SendTextBody>,
+    Json(mut body): Json<SendTextBody>,
 ) -> Result<Json<serde_json::Value>, SendRejection> {
     let svc_token_match = headers
         .get("Authorization")
@@ -482,6 +482,16 @@ pub async fn send_text(
         .map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
         })?;
+    if svc_token_match.is_none() && crate::auth::caller_peer_id(&state, &headers).is_none() {
+        body.source_tab = crate::auth::caller_claim(&state, &headers, body.source_tab.as_deref())
+            .map_err(|(status, message)| SendRejection {status, body: serde_json::json!({"ok":false,"error":{"code":"forbidden","message":message}})})?;
+        if crate::auth::tab_caller(&state, &headers).map_err(|_| SendRejection::from((StatusCode::FORBIDDEN, "Invalid caller credential")))?.is_some()
+            && (body.source_peer.is_some() || body.system_context.is_some()) {
+            return Err(SendRejection::from((StatusCode::FORBIDDEN, "Tab credentials cannot supply peer or system provenance")));
+        }
+    } else if svc_token_match.is_some() && (body.source_tab.is_some() || body.source_peer.is_some() || body.system_context.is_some()) {
+        return Err(SendRejection::from((StatusCode::FORBIDDEN, "Service push cannot claim a tab sender")));
+    }
     let owner = state.clone();
     let target = tab_id.clone();
     let source_tab = body.source_tab.clone();

@@ -19,6 +19,7 @@ pub mod essence_map;
 pub mod graph_hubs;
 pub mod graph_mutate;
 pub mod hints;
+mod host_credentials;
 pub mod identify;
 pub mod install;
 pub mod integration;

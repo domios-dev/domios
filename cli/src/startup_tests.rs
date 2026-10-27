@@ -17,11 +17,15 @@ fn local_resolution_sends_first_request_on_one_connection() {
         "CODETERM_SOCKET_PATH",
         "CODETERM_INSTANCE",
         "CODETERM_API_PORT",
+        "CODETERM_API_TOKEN",
+        "CODETERM_TAB_ID",
     ];
     let previous = keys.map(|key| std::env::var(key).ok());
     std::env::set_var(keys[0], &name);
     std::env::remove_var(keys[1]);
     std::env::remove_var(keys[2]);
+    std::env::set_var(keys[3], "fixture-launch-token");
+    std::env::set_var(keys[4], "fixture-tab");
     let start = Instant::now();
     let server = std::thread::spawn(move || {
         let mut accepted = 0;
@@ -38,6 +42,7 @@ fn local_resolution_sends_first_request_on_one_connection() {
             line.insert(0, first[0] as char);
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
             assert_eq!(request["method"], "system.identify");
+            assert_eq!(request["credential"], "fixture-launch-token");
             writeln!(
                 stream.get_mut(),
                 "{}",

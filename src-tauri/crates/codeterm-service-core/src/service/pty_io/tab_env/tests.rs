@@ -71,7 +71,6 @@ fn instance_env() -> InstanceEnv {
         socket_path: "/tmp/domios-test.sock".into(),
         api_url: "http://127.0.0.1:7686".into(),
         api_port: "7686".into(),
-        api_token: Some("test-token".into()),
         cli_path: None,
     }
 }
@@ -120,6 +119,7 @@ fn env_compose_both_launch_paths_agree_for_one_tab_record() {
         pad_dir: Some("/pads/tab-a".into()),
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity: agent_identity(),
         task: tab_task_env(&store, AGENT_TAB_ID),
     };
@@ -158,6 +158,7 @@ fn env_compose_restore_path_carries_plan_task_team_lane_and_pad() {
         pad_dir: Some("/pads/tab-a".into()),
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity: agent_identity(),
         task: tab_task_env(&store, AGENT_TAB_ID),
     };
@@ -198,6 +199,7 @@ fn env_compose_absent_identity_omits_variables_instead_of_blanking_them() {
         pad_dir: None,
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity,
         task: tab_task_env(&store, "plain-tab"),
     };
@@ -242,6 +244,7 @@ fn env_compose_service_surface_matches_todays_agent_launch_map() {
         pad_dir: Some("/pads/tab-a".into()),
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity: agent_identity(),
         task: tab_task_env(&store, AGENT_TAB_ID),
     };
@@ -288,7 +291,6 @@ fn env_compose_frontend_spawn_without_tab_record_stamps_no_identity() {
 
     let expected: BTreeSet<String> = [
         "CODETERM_API_PORT",
-        "CODETERM_API_TOKEN",
         "CODETERM_API_URL",
         "CODETERM_SOCKET_PATH",
     ]
@@ -395,6 +397,7 @@ fn launch_env_composes_task_identity_in_gui_and_normal_path_modes() {
                 pad_dir: None,
                 session_binding_nonce: "binding".into(),
                 shell_nonce: "shell".into(),
+                api_token: Some("tab-credential".into()),
                 identity: HashMap::from([("PATH".into(), path.into())]),
                 task: if task_bound {
                     compose_task_env(
@@ -449,6 +452,7 @@ fn agents_and_shells_receive_the_owning_instance_cli_with_restricted_path() {
                 pad_dir: None,
                 session_binding_nonce: "binding".into(),
                 shell_nonce: "shell".into(),
+                api_token: Some("tab-credential".into()),
                 identity,
                 task: HashMap::new(),
             };

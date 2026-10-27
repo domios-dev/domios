@@ -104,9 +104,12 @@ pub(crate) async fn configure(
     if crate::auth::caller_peer_id(&state, &headers).is_some() {
         return Err((StatusCode::FORBIDDEN, "webhook management is local only"));
     }
+    let actor = crate::auth::caller_claim(&state, &headers, Some(&body.caller_tab_id))
+        .map_err(|_| (StatusCode::FORBIDDEN, "webhook management refused"))?
+        .ok_or((StatusCode::FORBIDDEN, "webhook management requires a tab credential"))?;
     let caller = state
         .svc
-        .sentinel_caller(&body.caller_tab_id, body.session_binding_nonce.as_deref())
+        .sentinel_caller(&actor, body.session_binding_nonce.as_deref())
         .map_err(|_| (StatusCode::FORBIDDEN, "webhook management refused"))?;
     blueprint_webhook::service(&state.svc)
         .map_err(refusal)?

@@ -5,7 +5,7 @@ Transports: authenticated REST, local socket JSON-RPC and `domios`.
 
 REST, socket and CLI share authorization, PTY cleanup, events and hierarchy checks.
 
-The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
+The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; each control request also authenticates its credential.
 
 Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `API-TRANSPORT`; peer notice routes: `MESH`.
 
@@ -17,7 +17,7 @@ POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprin
 Base: `http://<host>:7685/api`.
 
 ### Authentication
-The Bearer token lives in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`, never stored in `config.toml`. Local-only `domios system api-token` prints the credential and refuses `--mesh`. Control endpoints require it even on loopback; public health/pairing grants no control.
+The host credential lives in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, never in `config.toml` or a tab environment. The owner Web UI and host services retain this authority. Each tab receives its own launch credential as `CODETERM_API_TOKEN`; closing the tab, replacing its launch/session or restarting the daemon revokes it. Tab ids, nonces and sender fields are checked against that credential and cannot select another caller. Host-authenticated UI requests may select tab context, subject to the operation's existing role/session checks. `domios system api-token` and token-bearing web links are host-only and refuse tab callers; token export also refuses `--mesh`. Control endpoints authenticate even on loopback; public health/pairing grants no control.
 
 Default configuration:
 ```toml
@@ -167,7 +167,7 @@ Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 #### Batch
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
+| POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Host credential only; execute multiple commands sequentially (see below) |
 
 #### Pasteboard (cross-mesh ephemeral payloads)
 | Method | Path | Body | Description |
@@ -186,10 +186,10 @@ Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 
 Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) carry caller/session/binding/owner-epoch authority (REST: matching `X-CodeTerm-*` headers). Once owned, the caller must match the recorded owner. `GET /api/tasks` and socket `task.list` return the same object: `tasks` plus an optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`, `plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`, `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks exist; consumers ignore unknown kinds and never invent a local explanation.
 
-Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `domios plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Callers name themselves with `caller_tab_id`; an unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
+Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `domios plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Tab callers are derived from their credentials; `caller_tab_id` is a consistency assertion, and omitting it cannot select the human path. An unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
 
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `ORCHESTRATION`.
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 231 -->
+<!-- revision: 232 -->

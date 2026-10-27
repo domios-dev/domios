@@ -288,6 +288,7 @@ pub fn build_service_context(
         parking_lot::Mutex::new(crate::service::WorkerPersonaReservations::default()),
     )));
     let service = ServiceContext {
+            tab_credentials: Default::default(),
         lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
         #[cfg(any(test, feature = "test-support"))]
         ready_user_send_tasks: Arc::new(service::test_fixture::TestReadySendTasks::default()),

@@ -114,6 +114,7 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                 format!("codeterm-report-{}.sock", uuid::Uuid::new_v4()),
             )
             .env("CODETERM_API_URL", format!("http://{address}"))
+            .env("CODETERM_API_PORT", address.port().to_string())
             .env("CODETERM_API_TOKEN", "fixture-token")
             .env("CODETERM_TAB_ID", "fixture-worker")
             .env("CODETERM_SESSION_BINDING_NONCE", "own-nonce")

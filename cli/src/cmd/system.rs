@@ -909,11 +909,9 @@ fn systemd_quote(value: &str) -> String {
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 fn instance_api_token(data_root: &std::path::Path, remote: bool) -> Result<String, String> {
-    if remote {
-        return Err("Instance API credentials are local-only; run on the owning machine".into());
-    }
-    codeterm_util::instance_token::read_at(data_root)?
+    super::host_credentials::read(data_root, remote, None)?
         .ok_or_else(|| "No local instance API credential; start Domios first".into())
 }
 
@@ -922,7 +920,10 @@ fn instance_api_token(data_root: &std::path::Path, remote: bool) -> Result<Strin
 mod token_tests;
 
 pub fn handle_api_token(remote: bool) {
-    match instance_api_token(&crate::data_root(), remote) {
+    let caller = crate::nonempty_env("CODETERM_TAB_ID");
+    let token = super::host_credentials::read(&crate::data_root(), remote, caller.as_deref())
+        .and_then(|token| token.ok_or_else(|| "No local instance API credential; start Domios first".into()));
+    match token {
         Ok(token) => print!("{token}"),
         Err(error) => crate::cmd::print::fail(if remote { 7 } else { 1 }, error),
     }

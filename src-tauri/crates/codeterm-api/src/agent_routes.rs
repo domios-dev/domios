@@ -238,6 +238,19 @@ pub async fn spawn_agent(
             |message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message),
         )?;
     }
+    if crate::auth::caller_peer_id(&state, &headers).is_none() {
+        if let Some(caller) = crate::auth::tab_caller(&state, &headers)
+            .map_err(|(status, message)| SpawnRejection::new(status, "forbidden", message))? {
+            for claim in [body.spawned_by_tab_id.as_deref(), body.creator_tab_id.as_deref()] {
+                caller.validate_claim(claim).map_err(|message| SpawnRejection::new(StatusCode::FORBIDDEN, "forbidden", message))?;
+            }
+            if body.origin_peer.is_some() {
+                return Err(SpawnRejection::new(StatusCode::FORBIDDEN, "forbidden", "Tab credentials cannot supply peer provenance".into()));
+            }
+            body.spawned_by_tab_id = Some(caller.tab_id.clone());
+            body.creator_tab_id = Some(caller.tab_id);
+        }
+    }
     let require_delivery_ack = body.require_delivery_ack;
     let spawning_peer = crate::auth::caller_peer_id(&state, &headers).map(|peer_id| {
         let peer_name = state
@@ -515,6 +528,9 @@ pub async fn batch_commands(
     Json(body): Json<BatchBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if crate::auth::tab_caller(&state, &headers)?.is_some() {
+        return Err((StatusCode::FORBIDDEN, "Agent batch execution requires the host credential".into()));
+    }
     let ops: Vec<codeterm_service_core::service::BatchOp> = body
         .commands
         .into_iter()
@@ -778,10 +794,21 @@ pub async fn submit_report(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    Json(body): Json<ReportBody>,
+    Json(mut body): Json<ReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        let id = state.svc.mux.read().resolve_tab_id(&id)
+            .ok_or((StatusCode::NOT_FOUND, "Reporting tab not found".into()))?;
+        let mut details = Some(serde_json::to_value(body.details)
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?);
+        details.as_mut().ok_or((StatusCode::BAD_REQUEST, "Missing report details".into()))?["tab_id"] = serde_json::json!(id);
+        let credential = headers.get("authorization").and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer ")).unwrap_or_default();
+        state.svc.bind_local_rpc(credential, "agent.report", &mut details)
+            .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        body.details = serde_json::from_value(details.unwrap_or_default())
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
         let result = state
             .svc
             .submit_report_with_source_outcome(

@@ -30,13 +30,9 @@ pub(super) fn dispatch(params: &Option<Value>, svc: &ServiceState) -> Result<Val
             }
         }
     }
-    if let Some(token) = svc
-        .ext::<codeterm_service_core::config::ConfigState>()
-        .lock()
-        .api
-        .token
-        .as_deref()
-    {
+    let token = params.get("authenticated_api_credential").and_then(Value::as_str).map(str::to_owned)
+        .or_else(|| svc.configuration().api.token);
+    if let Some(token) = token {
         request = request.header("authorization", format!("Bearer {token}"));
     }
     let body = params

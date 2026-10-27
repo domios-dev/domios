@@ -14,6 +14,8 @@ Command and tool permission prompts follow the tab's own permission policy. At a
 
 The owner's execution-access choice is separate from authority over Teams, plans, tasks and reports. A role or task grants its defined scope through the [orchestration contract](orchestration.md); a provider execution mode does not confer another role. An agent cannot claim the owner's identity merely by supplying a command or request field. Human confirmation and agent role checks remain distinct at the operation that requires them.
 
+API and local-socket callers from tabs authenticate with credentials bound to their current launch. Tab close, launch or bound-session replacement, and daemon restart end that credential's authority. A supplied tab id or omitted caller field cannot impersonate another tab or select the human path. The owner Web UI and internal host services retain a separate host credential; trusted owner context selection remains subject to the operation's existing checks. These credentials govern API identity and do not replace execution-access policy or OS confinement.
+
 ## Folder trust and provenance
 
 Trust in a directory authorizes the provider-declared folder-trust response, not blanket approval of future commands. It is established by the existing deterministic policy: host-recorded provenance, shared trust, or a live same-provider tab with a verified session in the exact canonical directory. At an agent's launch or during a cron run, the provider-declared folder-trust option may also be chosen under the [Supporter prompt-answer rule](supporter-agent.md#provider-declared-prompt-answers). Otherwise, uncovered folder trust requires owner attention.

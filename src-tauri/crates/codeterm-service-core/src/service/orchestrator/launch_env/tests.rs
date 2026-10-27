@@ -287,3 +287,16 @@ fn dev_instance_agents_resolve_the_instance_cli_first() {
     );
     assert!(std::env::split_paths(&launched).any(|entry| entry == prod_cli_dir));
 }
+
+#[test]
+fn direct_launch_specs_cannot_replace_or_remove_tab_credentials() {
+    use codeterm_types::agent::LaunchSpec;
+    for key in ["CODETERM_API_TOKEN", "CODETERM_TAB_ID"] {
+        for spec in [
+            LaunchSpec {env_set: [(key.into(), "foreign".into())].into(), ..Default::default()},
+            LaunchSpec {env_unset: vec![key.into()], ..Default::default()},
+        ] {
+            assert!(direct_environment(Default::default(), &spec, "nonce", "attempt", None, std::ffi::OsStr::new("")).unwrap_err().contains("tab credentials"));
+        }
+    }
+}

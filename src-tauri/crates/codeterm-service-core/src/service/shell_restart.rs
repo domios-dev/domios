@@ -47,6 +47,7 @@ impl ServiceContext {
         )?;
 
         self.utility_command_finished(tab_id)?;
+        self.rotate_session_binding_nonce(tab_id);
 
         if let Some(ref old_pty_id) = old_pty_id {
             self.pty_ownership.release_pty(old_pty_id);

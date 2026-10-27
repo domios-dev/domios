@@ -30,6 +30,7 @@ pub(crate) struct TabLaunchEnv {
     pub pad_dir: Option<String>,
     pub session_binding_nonce: String,
     pub shell_nonce: String,
+    pub api_token: Option<String>,
     pub identity: HashMap<String, String>,
     pub task: HashMap<String, String>,
 }
@@ -49,9 +50,6 @@ pub(crate) fn compose_launch_env(
             path.to_string_lossy().into_owned(),
         );
     }
-    if let Some(ref token) = instance.api_token {
-        env_vars.insert("CODETERM_API_TOKEN".into(), token.clone());
-    }
     if matches!(surface, LaunchSurface::Frontend) {
         env_vars.extend(
             frontend_only_env()
@@ -60,6 +58,9 @@ pub(crate) fn compose_launch_env(
         );
     }
     if let Some(tab) = tab {
+        if let Some(token) = &tab.api_token {
+            env_vars.insert("CODETERM_API_TOKEN".into(), token.clone());
+        }
         env_vars.insert("CODETERM_TAB_ID".into(), tab.tab_id.clone());
         if let Some(ref pad_dir) = tab.pad_dir {
             env_vars.insert("CODETERM_PAD_DIR".into(), pad_dir.clone());
@@ -220,11 +221,13 @@ impl ServiceContext {
         if team_shell {
             super::super::spawn_shell::apply_team_shell_path(&mut identity);
         }
+        let api_token = self.mint_tab_credential(tab_id, &session_binding_nonce);
         TabLaunchEnv {
             tab_id: tab_id.to_string(),
             pad_dir,
             session_binding_nonce,
             shell_nonce,
+            api_token,
             identity,
             task,
         }

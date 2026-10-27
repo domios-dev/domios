@@ -168,6 +168,7 @@ pub(super) fn general_agent_env_vars(
     pad_dir: String,
     session_binding_nonce: String,
     config: &crate::config::ConfigState,
+    credential: Option<String>,
 ) -> std::collections::HashMap<String, String> {
     let mut env = std::collections::HashMap::new();
     env.insert("CODETERM_TAB_ID".to_string(), tab_id.to_string());
@@ -190,12 +191,8 @@ pub(super) fn general_agent_env_vars(
     let (api_url, api_port) = crate::config::api_callback_url(&config.lock().api);
     env.insert("CODETERM_API_URL".to_string(), api_url);
     env.insert("CODETERM_API_PORT".to_string(), api_port);
-    // Hook callbacks POST to our REST API. Without the token they'd 401 on any non-loopback bind and silently swallow the failure via `curl … || true`.
-    let tok: Option<String> = config.lock().api.token.clone();
-    if let Some(tok) = tok {
-        if !tok.is_empty() {
-            env.insert("CODETERM_API_TOKEN".to_string(), tok);
-        }
+    if let Some(credential) = credential {
+        env.insert("CODETERM_API_TOKEN".into(), credential);
     }
     env
 }
