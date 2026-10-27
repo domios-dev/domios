@@ -54,7 +54,7 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
         for (const incoming of list.incoming) {
           if (seen.current.has(incoming.request_id)) continue;
           publishNotice({ kind: "toast", severity: "Info", id: `neighbor-request:${incoming.request_id}`,
-            title: "New Neighbor request", detail: `${neighborName(incoming)} would like to connect. Open Neighbors in General to respond.` });
+            title: "New Neighbor request", detail: `${neighborName(incoming)} would like to connect. Open Neighbors in the sidebar to respond.` });
           seen.current.add(incoming.request_id);
         }
         seen.current = new Set([...seen.current].slice(-200));

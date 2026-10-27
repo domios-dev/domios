@@ -1,45 +1,65 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "../shared/Button";
+import { UI_INPUT } from "../shared/design";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighborChannel } from "./useNeighborChannel";
+
+export type NeighborChannelState = ReturnType<typeof useNeighborChannel>;
 
 export function NeighborChannel({ owner, friendship, locked, client }: {
   owner: string; friendship: string; locked: boolean; client: NeighborRuntimeClient;
 }) {
-  const channel = useNeighborChannel(owner, friendship, client);
+  return <NeighborChannelView channel={useNeighborChannel(owner, friendship, client)} friendship={friendship} locked={locked} />;
+}
+
+const DELIVERY_LABEL = { delivered: "Delivered", pending: "Pending", not_delivered: "Not delivered" } as const;
+
+export function NeighborChannelView({ channel, friendship, locked }: { channel: NeighborChannelState; friendship: string; locked: boolean }) {
   const [confirmTakeover, setConfirmTakeover] = useState(false);
   const [confirmRotation, setConfirmRotation] = useState(false);
   const [body, setBody] = useState("");
+  const field = useId();
   const tooLarge = new TextEncoder().encode(body).length > 8176;
-  return <section aria-label="Encrypted Neighbor channel">
+  return <section aria-label="Encrypted Neighbor channel" className="neighbor-channel">
     {channel.error && <InlineErrorNotice error={channel.error} operation="using your Neighbor channel" role="alert" />}
-    {!locked && channel.status && !channel.status.enrolled && (confirmTakeover ? <div role="group" aria-label="Receive on this machine">
+    {!locked && channel.status && !channel.status.enrolled && (confirmTakeover ? <div role="group" aria-label="Receive on this machine" className="neighbor-confirm">
       <p>Receive Neighbors on this machine. Other machines will stop receiving.</p>
-      <Button type="button" disabled={channel.pending} onClick={() => { setConfirmTakeover(false); void channel.enroll(); }}>Confirm this machine</Button>
-      <Button type="button" onClick={() => setConfirmTakeover(false)}>Cancel</Button>
-    </div> : <Button type="button" onClick={() => setConfirmTakeover(true)}>Enable encrypted channel</Button>)}
+      <div className="neighbor-confirm__actions">
+        <Button type="button" size="sm" variant="primary" disabled={channel.pending} onClick={() => { setConfirmTakeover(false); void channel.enroll(); }}>Confirm this machine</Button>
+        <Button type="button" size="sm" onClick={() => setConfirmTakeover(false)}>Cancel</Button>
+      </div>
+    </div> : <Button type="button" size="sm" variant="accent" onClick={() => setConfirmTakeover(true)}>Enable encrypted channel</Button>)}
     {channel.status?.enrolled && <>
-      <p role="status">Reception: {channel.reception}</p>
-      {!locked && <Button type="button" disabled={channel.pending} onClick={() => { void channel.retry(); }}>Retry reception</Button>}
-      <p>{channel.status.bindings[friendship] ? "Incoming messages go to your gateway agent." : "Ask your General Agent to choose a gateway agent for incoming messages."}</p>
-      {!locked && (confirmRotation ? <div role="group" aria-label="Rotate Neighbor keys">
+      <p role="status" className="neighbor-status"><span className="neighbor-dot" data-tone={channel.reception === "receiving" ? "ok" : channel.reception === "stopped" ? "muted" : "progress"} aria-hidden="true" />Reception: {channel.reception}</p>
+      <p className="neighbor-note">{channel.status.bindings[friendship] ? "Incoming messages go to your gateway agent." : "Ask your General Agent to choose a gateway agent for incoming messages."}</p>
+      {!locked && <div className="neighbor-confirm__actions">
+        <Button type="button" size="sm" disabled={channel.pending} onClick={() => { void channel.retry(); }}>Retry reception</Button>
+        {!confirmRotation && <Button type="button" size="sm" disabled={channel.pending} onClick={() => setConfirmRotation(true)}>Rotate keys</Button>}
+      </div>}
+      {!locked && confirmRotation && <div role="group" aria-label="Rotate Neighbor keys" className="neighbor-confirm">
         <p>Rotate keys? Messages waiting for the previous key will become not delivered.</p>
-        <Button type="button" disabled={channel.pending} onClick={() => { setConfirmRotation(false); void channel.rotate(); }}>Confirm rotation</Button>
-        <Button type="button" onClick={() => setConfirmRotation(false)}>Keep keys</Button>
-      </div> : <Button type="button" disabled={channel.pending} onClick={() => setConfirmRotation(true)}>Rotate keys</Button>)}
+        <div className="neighbor-confirm__actions">
+          <Button type="button" size="sm" variant="primary" disabled={channel.pending} onClick={() => { setConfirmRotation(false); void channel.rotate(); }}>Confirm rotation</Button>
+          <Button type="button" size="sm" onClick={() => setConfirmRotation(false)}>Keep keys</Button>
+        </div>
+      </div>}
     </>}
     {!locked && <>
-      {!channel.permission?.allowed && <p>Your General Agent must grant a scope before this channel can send.</p>}
-      <label>Message to Neighbor<textarea value={body} maxLength={8176} onChange={event => setBody(event.currentTarget.value)} /></label>
-      {tooLarge && <p role="alert">The message exceeds the encrypted channel limit.</p>}
-      <Button type="button" disabled={channel.pending || !channel.status?.enrolled || !channel.permission?.allowed || !body.trim() || tooLarge}
-        onClick={() => { const message = body; setBody(""); void channel.send(message); }}>Send encrypted message</Button>
+      {!channel.permission?.allowed && <p className="neighbor-note">Your General Agent must grant a scope before this channel can send.</p>}
+      <label htmlFor={field} className="neighbor-label">Message to Neighbor</label>
+      <textarea id={field} className={`${UI_INPUT.full} neighbor-textarea`} rows={3} value={body} maxLength={8176} onChange={event => setBody(event.currentTarget.value)} />
+      {tooLarge && <p role="alert" className="neighbor-note">The message exceeds the encrypted channel limit.</p>}
+      <div className="neighbor-confirm__actions">
+        <Button type="button" size="sm" variant="primary" disabled={channel.pending || !channel.status?.enrolled || !channel.permission?.allowed || !body.trim() || tooLarge}
+          onClick={() => { const message = body; setBody(""); void channel.send(message); }}>Send encrypted message</Button>
+      </div>
     </>}
-    <ul aria-label="Neighbor deliveries">{channel.receipts.map(item => <li key={item.message_id}>
-      <span>{item.status === "not_delivered" ? (item.reason === "key_revoked" ? "Not delivered: recipient keys were revoked" : "Not delivered") : item.status === "delivered" ? "Delivered" : "Pending"}</span>
-      {item.submission === "unconfirmed" && <span>Submission unconfirmed</span>}
-      {item.status === "pending" && <Button type="button" disabled={channel.pending} onClick={() => { void channel.check(item.message_id); }}>Check delivery</Button>}
-    </li>)}</ul>
+    {channel.receipts.length > 0 && <ul aria-label="Neighbor deliveries" className="neighbor-receipts">{channel.receipts.map(item => <li key={item.message_id}>
+      <span className="neighbor-dot" data-tone={item.status === "delivered" ? "ok" : item.status === "pending" ? "progress" : "danger"} aria-hidden="true" />
+      <span>{item.status === "not_delivered" && item.reason === "key_revoked" ? "Not delivered: recipient keys were revoked" : DELIVERY_LABEL[item.status]}</span>
+      {item.submission === "unconfirmed" && <span className="neighbor-note">Submission unconfirmed</span>}
+      {item.status === "pending" && <Button type="button" size="compact" disabled={channel.pending} onClick={() => { void channel.check(item.message_id); }}>Check delivery</Button>}
+    </li>)}</ul>}
   </section>;
 }

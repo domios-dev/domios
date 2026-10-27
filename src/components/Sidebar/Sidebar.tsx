@@ -19,8 +19,7 @@ import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
-import { ExtensionsIcon } from "../Icons";
-import { MemoryGraphIcon, MeshIcon, SidebarNavButton } from "./SidebarNavButton";
+import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./SidebarNavButton";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
@@ -80,9 +79,9 @@ interface SidebarProps {
   onCollapse?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
-  onOpenExtensions?: () => void;
+  onOpenNeighbors?: () => void;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git" | "extensions" | "analytics";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "neighbors" | "git" | "extensions" | "analytics";
   config?: AppConfig;
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
@@ -100,7 +99,7 @@ export const Sidebar = memo(function Sidebar({
   onCollapse,
   onOpenMemory,
   onOpenMesh,
-  onOpenExtensions,
+  onOpenNeighbors,
   onNavigateToTab,
   mainView = "workspace",
   config,
@@ -849,11 +848,11 @@ export const Sidebar = memo(function Sidebar({
               className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
               <SidebarNavButton
-                testId="nav-extensions"
-                label="Plugins"
-                icon={<ExtensionsIcon size={navIconSize} className="shrink-0" />}
-                current={mainView === "extensions"}
-                onClick={onOpenExtensions}
+                testId="nav-neighbors"
+                label="Neighbors"
+                icon={<NeighborsIcon size={navIconSize} />}
+                current={mainView === "neighbors"}
+                onClick={onOpenNeighbors}
                 {...navButtonLayout}
               />
               <SidebarNavButton

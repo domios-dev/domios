@@ -20,6 +20,7 @@
 @import "../components/Terminal/RestoreStatePanel.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";
+@import "../components/Neighbors/neighbors.css";
 @import "../components/shared/rowKebab.css";
 @import "../components/Terminal/tabBarPill.css";
 @import "../components/shared/card.css";

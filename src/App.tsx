@@ -103,6 +103,7 @@ const EMPTY_LEVELS: AgentLevelChoice[] = [];
 const SettingsPanel = deferredComponent(async () => ({ default: (await import("./components/Settings/SettingsPanel")).SettingsPanel }));
 const MemoryPanel = deferredComponent(async () => ({ default: (await import("./components/MemoryPanel/MemoryPanel")).MemoryPanel }));
 const MeshPanel = deferredComponent(async () => ({ default: (await import("./components/MeshPanel/MeshPanel")).MeshPanel }));
+const NeighborsView = deferredComponent(async () => ({ default: (await import("./components/Neighbors/NeighborsView")).NeighborsView }));
 const ExtensionsView = deferredComponent(async () => ({ default: (await import("./components/Extensions/ExtensionsView")).ExtensionsView }));
 const AnalyticsSupporterSection = deferredComponent(async () => ({ default: (await import("./components/Supporter/AnalyticsSupporterSection")).AnalyticsSupporterSection }));
 const CanvasView = deferredComponent(async () => ({ default: (await import("./components/Canvas/CanvasView")).CanvasView }));
@@ -179,12 +180,14 @@ function AppInner() {
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
+  const [mountedNeighbors, setMountedNeighbors] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
   const [mountedAnalytics, setMountedAnalytics] = useState(false);
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
+    if (mainView === "neighbors") setMountedNeighbors(true);
     if (mainView === "extensions") setMountedExtensions(true);
     if (mainView === "analytics") setMountedAnalytics(true);
   }, [mainView]);
@@ -401,6 +404,8 @@ function AppInner() {
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
         setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
         setSettingsOpen(true);
+      } else if (panel === "neighbors") {
+        setMainView("neighbors");
       } else if (panel === "memory") {
         if (DEV_BUILD && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
         setMemoryOpen(true);
@@ -553,7 +558,7 @@ function AppInner() {
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   const openMemoryFromSidebar = useCallback(() => { setMemoryOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMemoryOpen]);
   const openMeshFromSidebar = useCallback(() => { setMeshOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMeshOpen]);
-  const openExtensionsFromSidebar = useCallback(() => { setExtensionsOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setExtensionsOpen]);
+  const openNeighborsFromSidebar = useCallback(() => { setMainView("neighbors"); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMainView]);
   const handleNavigateToTab = useCallback(() => {
     setAutomationWorkspaceId(null);
     closeWorkspaceMap();
@@ -812,7 +817,7 @@ function AppInner() {
                 expandRequest={sidebarExpandRequest}
                 onOpenMemory={openMemoryFromSidebar}
                 onOpenMesh={openMeshFromSidebar}
-                onOpenExtensions={openExtensionsFromSidebar}
+                onOpenNeighbors={openNeighborsFromSidebar}
                 onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
@@ -886,6 +891,16 @@ function AppInner() {
                 onConfigUpdate={updateConfig}
                 onClose={closeMesh}
               />
+            </div>
+          )}
+          {mountedNeighbors && (
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "neighbors")}
+              aria-hidden={mainView !== "neighbors"}
+              inert={mainView !== "neighbors" || undefined}
+            >
+              <NeighborsView />
             </div>
           )}
           {mountedExtensions && (

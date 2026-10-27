@@ -3,7 +3,7 @@ import { HYDRATED_GENERATION } from "../store/multiplexer/initialState";
 import { optionalNavigationId, parentWhenMissing } from "../lib/viewerNavigation";
 import { useViewerNavigation } from "./useViewerNavigation";
 
-const VIEWS = ["workspace", "settings", "memory", "mesh", "extensions", "analytics"] as const;
+const VIEWS = ["workspace", "settings", "memory", "mesh", "neighbors", "extensions", "analytics"] as const;
 export type MainView = typeof VIEWS[number];
 const mainView = (value: unknown): MainView | undefined => VIEWS.find((entry) => entry === value);
 const jobsScope = (value: unknown) => value === "machine" || value === "workspace" ? value : undefined;

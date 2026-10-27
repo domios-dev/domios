@@ -3,7 +3,6 @@ import type { ApiConfig, Workspace } from "../../lib/types";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import type { JobsTarget } from "../Jobs/JobsView";
 import { GeneralInventory } from "./GeneralInventory";
-import { NeighborsSection } from "../Neighbors/NeighborsSection";
 import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { SpinalCordButton } from "./SpinalCord";
@@ -88,10 +87,6 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onCloseTeam={closeTeam}
         onOpenSentinelJob={openSentinelJob}
       />}
-      <div hidden={!expanded}><NeighborsSection onOpenGeneral={() => {
-        const general = sortedTabs.find(tab => tab.protected);
-        if (general) activateTab(general.id);
-      }} /></div>
       {expanded && <GeneralInventory
         generalWorkspaceId={workspaceId}
         onShowAllJobs={() => onOpenJobs?.(workspaceId, undefined, "machine")}
