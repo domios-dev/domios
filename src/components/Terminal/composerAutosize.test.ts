@@ -1,6 +1,8 @@
 // The composer autosize must measure the textarea without letting the sibling chat viewport grow, or the browser clamps a bottom-pinned transcript off the bottom on every keystroke.
 
 import { measureComposerAutosize, applyComposerAutosize, COMPOSER_MIN_HEIGHT } from "./composerAutosize";
+import { COMPOSER_MAX_HEIGHT } from "./composerAutosize";
+import { resolveComposerLayout } from "./composerLayoutModel";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -124,4 +126,34 @@ console.log("composer autosize jitter checks passed");
   assert(measured.contentPx === 400, "raw editor content is exposed independently of the clamp");
   assert(measured.editorPx === 120, "applied height respects the panel bound");
   console.log("PASS raw measurement survives editor clamping");
+}
+
+for (const focused of [false, true]) {
+  const col = makeFlexColumn({ contentLines: 40 });
+  const textarea = col.textarea;
+  let scrollTop = 120;
+  Object.defineProperties(textarea, {
+    value: { value: "long draft" },
+    selectionStart: { value: 10 },
+    selectionEnd: { value: 10 },
+    ownerDocument: { value: { activeElement: focused ? textarea : null } },
+    clientHeight: { get: () => Number.parseInt(textarea.style.height, 10) },
+    scrollTop: {
+      get: () => scrollTop,
+      set: (next: number) => { scrollTop = Math.max(0, Math.min(next, textarea.scrollHeight - textarea.clientHeight)); },
+    },
+  });
+  measureComposerAutosize(textarea, col.shell);
+  assert(textarea.scrollHeight > textarea.clientHeight, "long drafts overflow the capped editor");
+  assert(scrollTop === (focused ? 800 - textarea.clientHeight : 120), "typing at the end reveals the caret; background measurement preserves reading position");
+  textarea.scrollTop = textarea.scrollHeight;
+  assert(textarea.scrollTop + textarea.clientHeight === textarea.scrollHeight, "scrolling reaches the end of a long draft");
+  console.log(`PASS capped editor scroll behavior with focused=${focused}`);
+}
+
+{
+  const layout = resolveComposerLayout({ contentPx: COMPOSER_MAX_HEIGHT + 1, minPx: COMPOSER_MIN_HEIGHT,
+    editorMaxPx: COMPOSER_MAX_HEIGHT, panelWidthPx: 1000, panelHeightPx: 1000, keyboardOpen: false });
+  assert(layout.scrolls, "scrolling starts as soon as content exceeds the editor cap");
+  console.log("PASS scrolling starts at the shared editor cap");
 }

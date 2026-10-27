@@ -1,6 +1,6 @@
 export const COMPOSER_MIN_HEIGHT = 20;
 export const COMPOSER_HEIGHT_EPSILON = 2;
-export const COMPOSER_MAX_HEIGHT = 440;
+export const COMPOSER_MAX_HEIGHT = 230;
 
 export function composerHeight(el: HTMLTextAreaElement, maxPx = COMPOSER_MAX_HEIGHT): number {
   return clampComposerHeight(el.scrollHeight, maxPx);
@@ -12,6 +12,9 @@ function clampComposerHeight(measured: number, maxPx: number): number {
 }
 
 export function measureComposerAutosize(textarea: HTMLTextAreaElement, shell: HTMLElement | null, maxPx = COMPOSER_MAX_HEIGHT) {
+  const scrollTop = textarea.scrollTop;
+  const revealEnd = textarea.ownerDocument?.activeElement === textarea
+    && textarea.selectionStart === textarea.selectionEnd && textarea.selectionEnd === textarea.value.length;
   const frozenHeight = shell?.offsetHeight ?? 0;
   const freeze = shell != null && frozenHeight > 0;
   const previousMinHeight = shell?.style.minHeight ?? "";
@@ -21,6 +24,7 @@ export function measureComposerAutosize(textarea: HTMLTextAreaElement, shell: HT
     const contentPx = textarea.scrollHeight;
     const editorPx = clampComposerHeight(contentPx, maxPx);
     textarea.style.height = `${editorPx}px`;
+    textarea.scrollTop = revealEnd ? textarea.scrollHeight : scrollTop;
     return { contentPx, editorPx };
   } finally {
     if (freeze) shell.style.minHeight = previousMinHeight;

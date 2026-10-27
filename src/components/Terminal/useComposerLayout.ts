@@ -19,7 +19,7 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     const bounds = panel.getBoundingClientRect();
     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
     const panelHeightPx = Math.min(bounds.height || viewportHeight, viewportHeight);
-    const maxPx = Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, panelHeightPx * 0.5));
+    const maxPx = Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, panelHeightPx * 0.4));
     const measured = measureComposerAutosize(textarea, shell, maxPx);
     const next = resolveComposerLayout({ contentPx: measured.contentPx, minPx: COMPOSER_MIN_HEIGHT, editorMaxPx: COMPOSER_MAX_HEIGHT,
       panelWidthPx: bounds.width, panelHeightPx, keyboardOpen });
