@@ -271,7 +271,7 @@ async fn private_history_persists_status_and_end_and_stops_writing_when_disabled
                 service.neighbor_history_generation()
             )
             .await,
-        Err(Error::Revoked)
+        Err(Error::FriendshipEnded)
     ));
     let events = fixture.ui.0.lock();
     assert_eq!(
@@ -284,6 +284,83 @@ async fn private_history_persists_status_and_end_and_stops_writing_when_disabled
     assert!(events
         .iter()
         .all(|(_, payload)| !payload.to_string().contains("opaque")));
+}
+
+#[tokio::test]
+async fn accepted_friendship_reopens_retained_history_but_stale_active_epochs_do_not() {
+    assert!(Error::FriendshipEnded
+        .to_string()
+        .starts_with("friendship_ended:"));
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let generation = service.neighbor_history_generation();
+    service
+        .append_neighbor_history(
+            &metadata,
+            &friendship,
+            entry(1, "out", Kind::Question, None),
+            generation,
+        )
+        .await
+        .unwrap();
+    service
+        .end_neighbor_history(&metadata, &friendship, generation)
+        .await
+        .unwrap();
+    assert_eq!(
+        service
+            .append_neighbor_history(
+                &metadata,
+                &friendship,
+                entry(2, "out", Kind::Question, None),
+                generation
+            )
+            .await,
+        Err(Error::FriendshipEnded)
+    );
+    let active = |since| json!({"friends":[{"friendship_id":friendship,"since":since}]});
+    service
+        .refresh_active_neighbor_history(&metadata, &active(200), generation)
+        .await
+        .unwrap();
+    service
+        .append_neighbor_history(
+            &metadata,
+            &friendship,
+            entry(2, "out", Kind::Question, None),
+            generation,
+        )
+        .await
+        .unwrap();
+    let page = metadata.history_page(&friendship, None, 50).await.unwrap();
+    assert_eq!(page["ended"], false);
+    assert_eq!(page["entries"].as_array().unwrap().len(), 2);
+    assert_eq!(page["entries"][1]["body"], "opaque-1");
+    service
+        .end_neighbor_history(&metadata, &friendship, generation)
+        .await
+        .unwrap();
+    for since in [100, 200] {
+        service
+            .refresh_active_neighbor_history(&metadata, &active(since), generation)
+            .await
+            .unwrap();
+        assert_eq!(
+            metadata.history_page(&friendship, None, 50).await.unwrap()["ended"],
+            true
+        );
+    }
+    service
+        .refresh_active_neighbor_history(&metadata, &active(300), generation)
+        .await
+        .unwrap();
+    assert_eq!(
+        metadata.history_page(&friendship, None, 50).await.unwrap()["ended"],
+        false
+    );
 }
 
 #[test]

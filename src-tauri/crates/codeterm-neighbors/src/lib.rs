@@ -38,6 +38,7 @@ pub enum Error {
     LimitOutOfRange,
     InvalidRequest,
     FriendshipNotFound,
+    FriendshipEnded,
     RecipientLocked,
     RateLimited { retry_after_seconds: u64 },
     AggregateLimited { retry_after_seconds: u64 },
@@ -104,6 +105,7 @@ impl std::fmt::Display for Error {
             Self::LimitOutOfRange => "limit_out_of_range: Choose a valid daily message limit",
             Self::InvalidRequest => "invalid_request: Invalid Neighbor request",
             Self::FriendshipNotFound => "friendship_not_found: Neighbor friendship not found",
+            Self::FriendshipEnded => "friendship_ended: This Neighbor conversation has ended; refresh the friendship before sending",
             Self::RecipientLocked => "recipient_locked: This Neighbor's plan does not allow the channel",
             Self::Firestore { .. } | Self::DailyLimit { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
         })

@@ -3,6 +3,21 @@ use super::*;
 mod neighbor_authority;
 
 #[tokio::test]
+async fn ended_neighbor_history_retains_a_typed_conflict_and_diagnostic() {
+    let response = neighbor_failure("friendship_ended: This Neighbor conversation has ended; refresh the friendship before sending".into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["reason"], "friendship_ended");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("conversation has ended"));
+}
+
+#[tokio::test]
 async fn neighbor_limit_errors_keep_typed_status_and_fields() {
     let response =
         neighbor_failure("neighbor_daily_limit: {\"limit\":5,\"resets_at\":1000}".into());
