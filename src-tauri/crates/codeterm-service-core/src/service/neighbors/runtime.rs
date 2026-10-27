@@ -38,6 +38,10 @@ pub struct NeighborRuntimeCell {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
+    SetDailyLimit {
+        friendship_id: String,
+        daily_limit: Option<serde_json::Number>,
+    },
     History {
         friendship_id: String,
         before: Option<String>,
@@ -246,6 +250,7 @@ impl ServiceContext {
                 | NeighborRuntimeCommand::Bind { .. }
                 | NeighborRuntimeCommand::ChangeAgent { .. }
                 | NeighborRuntimeCommand::Permission { .. }
+                | NeighborRuntimeCommand::SetDailyLimit { .. }
         ) && caller.is_some()
         {
             self.require_neighbor_general(caller, nonce)?;
@@ -311,6 +316,12 @@ impl ServiceContext {
         };
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
+                NeighborRuntimeCommand::SetDailyLimit { friendship_id, daily_limit } => {
+                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                    let result = transport.calls.invoke("friendsSetDailyLimit", json!({"friendship_id":friendship_id,"daily_limit":daily_limit})).await?;
+                    self.ui.emit("neighbor-daily-limit-changed", json!({"friendship_id":friendship_id,"daily_limit":result["daily_limit"]}));
+                    Ok(result)
+                },
                 NeighborRuntimeCommand::History { .. } => Err(Error::InvalidEnvelope),
                 NeighborRuntimeCommand::ChangeAgent { friendship_id, provider, model } => {
                     if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
@@ -398,7 +409,7 @@ impl ServiceContext {
                     if !hex_id(&message_id, 32) { return Err(Error::InvalidEnvelope); }
                     let result = transport.delivery_status(&message_id).await?;
                     if self.require_neighbors_enabled().is_ok() {
-                        self.update_neighbor_history_status(&metadata, &message_id, result.status).await?;
+                        self.update_neighbor_history_status(&metadata, &message_id, result.status, None, generation).await?;
                     }
                     Ok(json!(result))
                 }
@@ -535,8 +546,11 @@ impl ServiceContext {
                 in_reply_to,
                 outcome: None,
                 reason: None,
+                limit: None,
+                resets_at: None,
                 delivery_status: Some(codeterm_neighbors::wire::DeliveryStatus::Pending),
             },
+            generation,
         )
         .await?;
         self.require_neighbor_history_generation(generation)?;
@@ -547,14 +561,27 @@ impl ServiceContext {
             Err(_) => codeterm_neighbors::wire::DeliveryStatus::NotDelivered,
         };
         if self.require_neighbor_history_generation(generation).is_ok() {
+            let refusal = match &result {
+                Err(Error::DailyLimit { limit, resets_at }) => Some((*limit, *resets_at)),
+                _ => None,
+            };
             if let Err(error) = self
-                .update_neighbor_history_status(metadata, &signed.envelope.message_id, status)
+                .update_neighbor_history_status(
+                    metadata,
+                    &signed.envelope.message_id,
+                    status,
+                    refusal,
+                    generation,
+                )
                 .await
             {
                 log::debug!("[neighbors] local delivery status write failed: {error}");
             }
         }
         match result {
+            Err(Error::DailyLimit { limit, resets_at }) => Ok(
+                json!({"message_id":signed.envelope.message_id,"status":"not_delivered","reason":"neighbor_daily_limit","limit":limit,"resets_at":resets_at}),
+            ),
             Ok(status) => Ok(json!({"message_id":signed.envelope.message_id,"status":status})),
             Err(Error::Transport) => Ok(
                 json!({"message_id":signed.envelope.message_id,"status":"pending","submission":"unconfirmed"}),

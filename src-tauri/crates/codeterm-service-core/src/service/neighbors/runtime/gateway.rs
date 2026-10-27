@@ -51,6 +51,7 @@ impl NeighborGateway for Gateway {
         message: &InboxMessage,
         plaintext: Zeroizing<String>,
     ) -> Result<GatewayReceipt> {
+        let history_generation = self.service.neighbor_history_generation();
         self.current()?;
         let events = self.service.events.subscribe();
         let path = format!("gateway-{}.json", self.friendship);
@@ -84,7 +85,10 @@ impl NeighborGateway for Gateway {
                     in_reply_to: message.doc.envelope.in_reply_to.clone(),
                     outcome: None,
                     reason: None,
+                    limit: None,
+                    resets_at: None,
                 },
+                history_generation,
             )
             .await?;
         let permission = self

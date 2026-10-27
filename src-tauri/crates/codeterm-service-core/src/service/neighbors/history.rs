@@ -34,6 +34,10 @@ pub(super) struct Entry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resets_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery_status: Option<DeliveryStatus>,
 }
 
@@ -158,8 +162,8 @@ impl ServiceContext {
         metadata: &Metadata,
         friendship: &str,
         entry: Entry,
+        generation: u64,
     ) -> Result<()> {
-        let generation = self.neighbor_history_generation();
         let _guard = self
             .extensions
             .get_or_init(HistoryCell::default)
@@ -214,8 +218,9 @@ impl ServiceContext {
         metadata: &Metadata,
         message_id: &str,
         status: DeliveryStatus,
+        refusal: Option<(u64, u64)>,
+        generation: u64,
     ) -> Result<()> {
-        let generation = self.neighbor_history_generation();
         let _guard = self
             .extensions
             .get_or_init(HistoryCell::default)
@@ -241,10 +246,15 @@ impl ServiceContext {
         else {
             return Ok(());
         };
-        if entry.delivery_status == Some(status) {
+        if entry.delivery_status == Some(status) && refusal.is_none() {
             return Ok(());
         }
         entry.delivery_status = Some(status);
+        if let Some((limit, resets_at)) = refusal {
+            entry.reason = Some("neighbor_daily_limit".into());
+            entry.limit = Some(limit);
+            entry.resets_at = Some(resets_at);
+        }
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)
@@ -260,8 +270,8 @@ impl ServiceContext {
         &self,
         metadata: &Metadata,
         friendship: &str,
+        generation: u64,
     ) -> Result<()> {
-        let generation = self.neighbor_history_generation();
         let _guard = self
             .extensions
             .get_or_init(HistoryCell::default)

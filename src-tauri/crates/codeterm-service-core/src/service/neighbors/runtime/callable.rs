@@ -62,23 +62,7 @@ impl AuthenticatedCall for Calls {
                     self.service.session_revocations().revoked(&session).await;
                     return Err(Error::SessionRevoked);
                 }
-                return Err(
-                    match body
-                        .pointer("/error/details/reason")
-                        .and_then(Value::as_str)
-                    {
-                        Some("operation_id_conflict") => Error::OperationIdConflict,
-                        Some("installation_unverified") => Error::InstallationUnverified,
-                        Some("receiver_elsewhere") => Error::ReceiverElsewhere,
-                        Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
-                        Some("not_receiver") => Error::NotReceiver,
-                        Some("recipient_not_receiving") => Error::RecipientNotReceiving,
-                        Some("friends_locked") => Error::Locked,
-                        Some("key_revoked" | "unknown_key") => Error::Revoked,
-                        Some("key_not_found") => Error::KeyNotFound,
-                        _ => Error::Refused,
-                    },
-                );
+                return Err(refusal(&body));
             }
             Err(_) => return Err(Error::Transport),
         };
@@ -86,3 +70,36 @@ impl AuthenticatedCall for Calls {
         body.get("result").cloned().ok_or(Error::Transport)
     }
 }
+
+fn refusal(body: &Value) -> Error {
+    match body
+        .pointer("/error/details/reason")
+        .and_then(Value::as_str)
+        .or_else(|| body.pointer("/error/message").and_then(Value::as_str))
+    {
+        Some("neighbor_daily_limit") => {
+            match (
+                body.pointer("/error/details/limit").and_then(Value::as_u64),
+                body.pointer("/error/details/resets_at")
+                    .and_then(Value::as_u64),
+            ) {
+                (Some(limit), Some(resets_at)) => Error::DailyLimit { limit, resets_at },
+                _ => Error::Refused,
+            }
+        }
+        Some("limit_out_of_range") => Error::LimitOutOfRange,
+        Some("operation_id_conflict") => Error::OperationIdConflict,
+        Some("installation_unverified") => Error::InstallationUnverified,
+        Some("receiver_elsewhere") => Error::ReceiverElsewhere,
+        Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
+        Some("not_receiver") => Error::NotReceiver,
+        Some("recipient_not_receiving") => Error::RecipientNotReceiving,
+        Some("friends_locked") => Error::Locked,
+        Some("key_revoked" | "unknown_key") => Error::Revoked,
+        Some("key_not_found") => Error::KeyNotFound,
+        _ => Error::Refused,
+    }
+}
+
+#[cfg(test)]
+mod tests;

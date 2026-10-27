@@ -276,10 +276,18 @@ pub async fn neighbor_runtime(
 }
 
 fn neighbor_failure(message: String) -> Response {
+    if let Some(detail) = message.strip_prefix("neighbor_daily_limit:") {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+            if data["limit"].as_u64().is_some() && data["resets_at"].as_u64().is_some() {
+                return (StatusCode::TOO_MANY_REQUESTS, Json(serde_json::json!({"code":"neighbor_daily_limit","reason":"neighbor_daily_limit","limit":data["limit"],"resets_at":data["resets_at"],"message":"Neighbor daily message limit reached"}))).into_response();
+            }
+        }
+    }
     let reason = message.split_once(':').map(|(reason, _)| reason);
     let status = match reason {
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
+        Some("limit_out_of_range") => StatusCode::BAD_REQUEST,
         Some(
             "receiver_elsewhere"
             | "receiver_revision_stale"

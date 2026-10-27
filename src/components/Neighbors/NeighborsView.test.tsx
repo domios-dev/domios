@@ -65,13 +65,13 @@ function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   };
 }
 
-async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"] } = {}) {
+async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"]; runtimeClient?: NeighborRuntimeClient } = {}) {
   const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
   const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime(options.bindings)} />));
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={options.runtimeClient ?? runtime(options.bindings)} />));
   return { client, list };
 }
 
@@ -437,4 +437,16 @@ it("shows their daily allowance, explains a limit refusal and holds the composer
   expect(document.body.textContent).toContain("3/day, 3 sent today");
   expect(document.getElementById("neighbor-msg-m9")?.textContent).toContain("Limit reached: Ada allows 3 messages a day; ask them to raise it.");
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
+});
+
+it("tells the old machine that receiving moved, and warns before taking it over", async () => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  await render("paid", { runtimeClient });
+  expect(document.body.textContent).toContain("Receiving moved to Studio");
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Messages").click());
+  await act(async () => button("Receive here").click());
+  expect(document.querySelector('[aria-label="Receive on this machine"]')?.textContent)
+    .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
 });

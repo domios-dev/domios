@@ -21,6 +21,7 @@ import { neighborName, type Neighbor } from "./neighborModel";
 import { NeighborPrivacyNote } from "./NeighborPanel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
+import { receivingLine, useReceiverState } from "./useReceiverState";
 
 /** Your conversation with one Neighbor: what they asked, what you and your agents answered, and how it was delivered. */
 export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient }: {
@@ -47,6 +48,7 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   const friendship = friend.friendship_id;
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
+  const receiver = useReceiverState(runtimeClient, enabled);
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [before, setBefore] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -122,6 +124,8 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
         { label: "Open in Neighborhood", onClick: () => openNeighbor(friendship) },
       ]} trigger={<RowMenuButton label={`Actions for ${name}`} title={`${name} actions`} />} />
     </div>
+    {receiver && !receiver.receiving_here && receiver.receiving_enabled && <p role="status" className="neighbor-chat__moved">
+      {receivingLine(receiver)}. {name}'s messages arrive there, and concierges here stay idle.</p>}
     <div ref={scroller} className="neighbor-chat__scroll" onScroll={event => {
       const element = event.currentTarget;
       stickToEnd.current = element.scrollHeight - element.scrollTop - element.clientHeight < 48;

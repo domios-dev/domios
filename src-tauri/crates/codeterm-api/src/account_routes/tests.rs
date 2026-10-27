@@ -3,6 +3,24 @@ use super::*;
 mod neighbor_authority;
 
 #[tokio::test]
+async fn neighbor_limit_errors_keep_typed_status_and_fields() {
+    let response =
+        neighbor_failure("neighbor_daily_limit: {\"limit\":5,\"resets_at\":1000}".into());
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["reason"], "neighbor_daily_limit");
+    assert_eq!(body["limit"], 5);
+    assert_eq!(body["resets_at"], 1000);
+    assert_eq!(
+        neighbor_failure("limit_out_of_range: invalid daily limit".into()).status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
 async fn neighbor_disabled_response_keeps_a_typed_reason() {
     let response =
         neighbor_failure("neighbors_disabled: Neighbors is turned off on this instance".into());

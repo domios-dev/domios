@@ -34,6 +34,8 @@ pub enum Error {
     SessionRevoked,
     OperationIdConflict,
     Disabled,
+    DailyLimit { limit: u64, resets_at: u64 },
+    LimitOutOfRange,
     Firestore { code: i32, operation: &'static str },
     ListenProtocol { kind: &'static str },
 }
@@ -45,6 +47,12 @@ impl std::fmt::Display for Error {
         }
         if let Self::ListenProtocol { kind } = self {
             return write!(f, "Firestore Listen failed ({kind})");
+        }
+        if let Self::DailyLimit { limit, resets_at } = self {
+            return write!(
+                f,
+                "neighbor_daily_limit: {{\"limit\":{limit},\"resets_at\":{resets_at}}}"
+            );
         }
         f.write_str(match self {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
@@ -76,8 +84,8 @@ impl std::fmt::Display for Error {
             }
             Self::Refused => "Neighbor request refused",
             Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
-            Self::Firestore { .. } => unreachable!(),
-            Self::ListenProtocol { .. } => unreachable!(),
+            Self::LimitOutOfRange => "limit_out_of_range: Choose a valid daily message limit",
+            Self::Firestore { .. } | Self::DailyLimit { .. } | Self::ListenProtocol { .. } => unreachable!(),
         })
     }
 }

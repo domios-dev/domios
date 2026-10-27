@@ -23,6 +23,7 @@ import { referralStatus } from "./referralTrial";
 import { useNeighborChannel } from "./useNeighborChannel";
 import { useNeighbors } from "./useNeighbors";
 import { useNeighborsSwitch } from "./neighborsSwitch";
+import { receivingLine, useReceiverState } from "./useReceiverState";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -77,6 +78,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   const neighbors = useNeighbors(identity, client);
   const tabMap = useTabMap();
   const me = accountTrayModel(account.model, null);
+  const receiver = useReceiverState(runtimeClient, Boolean(identity) && enabled);
   const [selected, setSelected] = useState<string | null>(null);
   const [openSection, setOpenSection] = useState<"configure" | null>(null);
   const [adding, setAdding] = useState(false);
@@ -149,7 +151,8 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
                 <p className="neighbor-note">Your agents don't send or receive Neighbor messages. Your connections and their permissions are kept.</p>
                 <Button size="sm" variant="primary" onClick={onEnable}>Turn on Neighbors</Button>
               </div>
-              : me.kind === "signed_in" ? <span className="neighbor-node__name">You</span>
+              : me.kind === "signed_in" ? <><span className="neighbor-node__name">You</span>
+                {receiver && <span role="status" className="neighbor-note neighbor-me__receiving">{receivingLine(receiver)}</span>}</>
               : <div className="neighbor-me__signin">
                 <p className="neighbor-me__title">Sign in to meet your neighbors</p>
                 <p className="neighbor-note">Your agents can message a friend's agents, end-to-end encrypted. Invited? Sign in with that email to start your 7-day trial, no card needed.</p>

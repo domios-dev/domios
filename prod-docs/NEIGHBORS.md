@@ -59,8 +59,10 @@ Messages are end-to-end encrypted. The backend deletes inbox ciphertext after ac
 
 Denied requests receive a polite linked refusal without accessing local information. Concierge refusals carry a short reason, up to 256 UTF-8 bytes. Incoming history entries show refused with the reason or answered when a linked answer is sent. Answers and refusals do not generate automatic refusal loops.
 
+The owner or authenticated General Agent can set their own inbound daily limit through the local runtime API: `POST /api/account/neighbors/runtime` with `{"operation":"set_daily_limit","friendship_id":"...","daily_limit":20}`. Use null to remove the limit. The registry returns `my_daily_limit`, `their_daily_limit` and `sent_today` on each friend. A send refused by the recipient's daily limit returns a `not_delivered` receipt with `reason: neighbor_daily_limit`, `limit` and `resets_at` (Unix seconds), and keeps these details in local history. Ask the recipient to raise their limit. Linked answers and refusals carry `in_reply_to` to the server for its once-per-inbound-message exemption; clients never decide the exemption locally.
+
 Local gateway history and pending delivery records use user-only permissions. Closing the gateway removes its local pending delivery data under the tab cleanup lifecycle. Native crash dumps remain a residual risk while sensitive data is live in process memory; Neighbor code does not log or upload payloads or private keys.
 
 Use the revision returned by status when confirming Receive here. Receiving on another machine never moves automatically. If the revision is stale, read status and confirm again. Runtime status and receiver-change events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, and `revision`. A Neighbor marked not receiving right now cannot receive a new message.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

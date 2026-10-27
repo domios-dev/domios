@@ -21,6 +21,7 @@ import { publishNeighborGateways } from "./neighborGateways";
 import { neighborName, type Neighbor } from "./neighborModel";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
+import { receivingLine, useReceiverState } from "./useReceiverState";
 
 const STORAGE_KEY = "codeterm.sidebar.neighbors-expanded";
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
@@ -48,6 +49,9 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const friends = neighbors.list?.friends ?? [];
   const paid = neighbors.list?.access === "paid";
   const friendKey = friends.map(friend => friend.friendship_id).join(",");
+  const receiver = useReceiverState(runtimeClient, friends.length > 0 && enabled);
+  // Concierges only work on the receiving machine; elsewhere they wait.
+  const idleNote = receiver && !receiver.receiving_here && receiver.receiving_enabled ? `idle, ${receivingLine(receiver).toLowerCase()}` : null;
 
   useEffect(() => {
     if (!friendKey) { setBindings({}); return; }
@@ -103,7 +107,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
             </button>
           </div>}
           renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode}
-            activity={tabActivity(tab, tabStatuses[tab.id]).label}
+            activity={idleNote ?? tabActivity(tab, tabStatuses[tab.id]).label}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
             onChangeAgent={() => setChanging({ friend, tab })}
             onViewPermissions={() => openNeighbor(friend.friendship_id, "configure")}

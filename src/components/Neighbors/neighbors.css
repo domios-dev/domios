@@ -955,3 +955,16 @@
 .neighbor-chat__limit {
   text-align: center;
 }
+
+.neighbor-me__receiving {
+  white-space: nowrap;
+}
+
+.neighbor-chat__moved {
+  margin: 0;
+  padding: 0.45rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  text-align: center;
+}

@@ -2,6 +2,49 @@ use super::*;
 use crate::wire::DeliveryReason;
 
 struct Calls;
+
+struct LimitedSend(std::sync::atomic::AtomicUsize);
+#[async_trait]
+impl AuthenticatedCall for LimitedSend {
+    async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
+        assert_eq!(route, "friendsSend");
+        assert_eq!(data["in_reply_to"], data["envelope"]["in_reply_to"]);
+        assert_eq!(data["in_reply_to"], "b".repeat(32));
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Err(Error::DailyLimit {
+            limit: 3,
+            resets_at: 1000,
+        })
+    }
+    async fn id_token(&self) -> Result<Zeroizing<String>> {
+        Err(Error::Transport)
+    }
+}
+
+#[tokio::test]
+async fn linked_reply_reaches_the_callable_once_and_keeps_a_daily_limit_refusal() {
+    let golden: Value = serde_json::from_str(include_str!("../../test/golden-v2.json")).unwrap();
+    let mut message: SignedEnvelope = serde_json::from_value(
+        json!({"envelope":golden["envelope"],"signature":golden["signature"]}),
+    )
+    .unwrap();
+    message.envelope.in_reply_to = Some("b".repeat(32));
+    let calls = Arc::new(LimitedSend(0.into()));
+    let transport = FirebaseTransport {
+        calls: calls.clone(),
+        uid: message.envelope.sender_uid.clone(),
+        project: "fixture".into(),
+        installation_id: "machine".into(),
+    };
+    assert_eq!(
+        transport.send(&message).await,
+        Err(Error::DailyLimit {
+            limit: 3,
+            resets_at: 1000
+        })
+    );
+    assert_eq!(calls.0.load(std::sync::atomic::Ordering::Relaxed), 1);
+}
 #[async_trait]
 impl AuthenticatedCall for Calls {
     async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
