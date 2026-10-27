@@ -173,7 +173,7 @@ impl Metadata {
             .then(|| friendship.clone()))
     }
 
-    async fn history(&self, friendship: &str) -> Result<History> {
+    pub(super) async fn history(&self, friendship: &str) -> Result<History> {
         if !hex_id(friendship, 64) {
             return Err(Error::InvalidEnvelope);
         }
