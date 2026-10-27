@@ -31,7 +31,7 @@ use zeroize::Zeroizing;
 pub struct NeighborRuntimeCell {
     registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
-    generation: AtomicU64,
+    pub(super) generation: AtomicU64,
     listener_generation: AtomicU64,
     listeners: parking_lot::Mutex<listener::Slots>,
     states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
