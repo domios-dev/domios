@@ -12,6 +12,9 @@ use codeterm_neighbors::{
 };
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct Gateway {
     pub service: ServiceContext,
     pub metadata: Metadata,
@@ -142,6 +145,7 @@ impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
 
 impl Gateway {
     fn current(&self) -> Result<()> {
+        self.service.require_neighbors_enabled()?;
         use std::sync::atomic::Ordering;
         if self
             .service
@@ -200,9 +204,15 @@ impl Gateway {
         let service = self.service.clone();
         let tab = self.tab.clone();
         let outcome = tokio::task::spawn_blocking(move || {
+            service
+                .require_neighbors_enabled()
+                .map_err(|error| (error, false))?;
             Messenger::deliver(&service, &tab, envelope, &body).map_err(|error| {
-                crate::service::delivery_error::DeliveryError::from_opaque(&tab, error)
-                    .bytes_written()
+                (
+                    Error::Gateway,
+                    crate::service::delivery_error::DeliveryError::from_opaque(&tab, error)
+                        .bytes_written(),
+                )
             })
         })
         .await
@@ -225,15 +235,15 @@ impl Gateway {
                 self.await_pending(message, path.to_owned(), delivery_id, events)
                     .await
             }
-            Ok(Delivery::Unconfirmed { .. }) | Err(true) => {
+            Ok(Delivery::Unconfirmed { .. }) | Err((_, true)) => {
                 self.save_receipt(message, &path, ReceiptState::SubmitUnconfirmed)
                     .await?;
                 Ok(GatewayReceipt::SubmitUnconfirmed)
             }
-            Err(false) => {
+            Err((error, false)) => {
                 self.save_receipt(message, &path, ReceiptState::PrewriteRefused)
                     .await?;
-                Err(Error::Gateway)
+                Err(error)
             }
         }
     }

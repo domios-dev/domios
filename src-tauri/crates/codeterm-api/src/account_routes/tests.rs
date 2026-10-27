@@ -3,6 +3,19 @@ use super::*;
 mod neighbor_authority;
 
 #[tokio::test]
+async fn neighbor_disabled_response_keeps_a_typed_reason() {
+    let response =
+        neighbor_failure("neighbors_disabled: Neighbors is turned off on this instance".into());
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "neighbors_disabled");
+    assert_eq!(body["reason"], "neighbors_disabled");
+}
+
+#[tokio::test]
 async fn pending_login_route_is_compiled_out_without_debug_assertions() {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;

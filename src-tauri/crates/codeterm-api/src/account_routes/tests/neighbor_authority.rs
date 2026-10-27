@@ -157,7 +157,11 @@ async fn neighbor_actor_cannot_be_replaced_by_headers_or_retired_session() {
         )
         .await
         .unwrap_err();
-        assert_eq!(error.1, "Sign in with a hosted account to use Neighbors");
+        assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            std::str::from_utf8(&to_bytes(error.into_body(), 4096).await.unwrap()).unwrap(),
+            "Sign in with a hosted account to use Neighbors"
+        );
     }
     state
         .svc

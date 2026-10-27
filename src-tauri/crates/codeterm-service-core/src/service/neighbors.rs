@@ -6,6 +6,8 @@ use serde_json::{json, Value};
 mod referral;
 pub(crate) mod runtime;
 mod storage;
+mod toggle;
+mod updates;
 pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
 
 #[derive(Debug, Deserialize)]

@@ -95,3 +95,61 @@ fn identity_change_invalidates_old_operations_and_listener_generations() {
         1
     );
 }
+
+#[tokio::test]
+async fn disabling_neighbors_stops_the_owned_inbox_listener() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
+    let (finished, completion) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(async move {
+        stopped.changed().await.unwrap();
+        assert!(*stopped.borrow());
+        let _ = finished.send(());
+    });
+    fixture
+        .service
+        .neighbor_cell()
+        .listeners
+        .lock()
+        .active
+        .insert(
+            "f".into(),
+            listener::Handle {
+                task,
+                shutdown,
+                retry: Arc::new(tokio::sync::Notify::new()),
+            },
+        );
+    fixture
+        .service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .neighbors
+        .enabled = false;
+    fixture.service.neighbors_config_changed();
+    tokio::time::timeout(std::time::Duration::from_secs(1), completion)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(fixture
+        .service
+        .neighbor_cell()
+        .listeners
+        .lock()
+        .active
+        .is_empty());
+    fixture
+        .service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .neighbors
+        .enabled = true;
+    fixture.service.neighbors_config_changed();
+    assert!(fixture.service.require_neighbors_enabled().is_ok());
+    assert!(!fixture
+        .service
+        .neighbor_cell()
+        .bootstrapped
+        .load(Ordering::Acquire));
+}
