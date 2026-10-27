@@ -390,7 +390,7 @@ it("shows a calm off state with a way back on, and draws no ring while Neighbors
 function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed: (friendship: string) => void } {
   let changed = (_friendship: string) => {};
   return {
-    history: vi.fn(async () => ({ entries: [...entries].reverse(), next_before: null, ended: true })),
+    history: vi.fn(async () => ({ entries: [...entries].reverse(), next_before: null, ended: false })),
     onHistoryChanged: vi.fn(async (handler: (friendship: string) => void) => { changed = handler; return () => {}; }),
     onPermissionChanged: vi.fn(async () => () => {}), onAgentChanged: vi.fn(async () => () => {}),
     setPermission: vi.fn(async () => {}), changeAgent: vi.fn(async () => "tab-gateway"),
