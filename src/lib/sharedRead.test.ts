@@ -50,3 +50,61 @@ it("does not turn failed focus requests into a retry storm", async () => {
   await expect(read.read(load)).rejects.toThrow("offline");
   expect(calls).toBe(2);
 });
+
+it.each([false, true])("queues one fresh shared read after invalidating an old flight (failure: %s)", async reject => {
+  const read = new SharedRead<number>();
+  const published: number[] = [];
+  read.subscribe(value => { published.push(value); });
+  let finish!: (value: number) => void;
+  let fail!: (failure: Error) => void;
+  let calls = 0;
+  const old = read.read(() => { calls++; return new Promise<number>((resolve, reject) => { finish = resolve; fail = reject; }); });
+  const fresh = async () => { calls++; return 2; };
+  const forced = read.read(fresh, true);
+  expect(read.read(fresh, true)).toBe(forced);
+  expect(read.read(fresh, true)).toBe(forced);
+  expect(read.read(fresh)).toBe(forced);
+  expect(calls).toBe(1);
+  if (reject) fail(new Error("old failure")); else finish(1);
+  expect(await old).toBe(2);
+  expect(await forced).toBe(2);
+  expect(calls).toBe(2);
+  expect(published).toEqual([2]);
+  expect(await read.read(fresh)).toBe(2);
+  expect(calls).toBe(2);
+});
+
+it("keeps only the latest queued load when another mutation occurs during a replacement flight", async () => {
+  const read = new SharedRead<number>();
+  const published: number[] = [];
+  read.subscribe(value => { published.push(value); });
+  let finishOld!: (value: number) => void;
+  let finishReplacement!: (value: number) => void;
+  let replacementStarted!: () => void;
+  const started = new Promise<void>(resolve => { replacementStarted = resolve; });
+  let calls = 0;
+  const flight = read.read(() => { calls++; return new Promise<number>(resolve => { finishOld = resolve; }); });
+  read.read(() => {
+    calls++;
+    replacementStarted();
+    return new Promise<number>(resolve => { finishReplacement = resolve; });
+  }, true);
+  finishOld(1);
+  await started;
+  read.read(async () => { calls++; return 3; }, true);
+  read.read(async () => { calls++; return 4; }, true);
+  expect(calls).toBe(2);
+  finishReplacement(2);
+  expect(await flight).toBe(4);
+  expect(calls).toBe(3);
+  expect(published).toEqual([4]);
+});
+
+it("starts a forced read even while the previous caller's promise is settling", async () => {
+  const read = new SharedRead<number>();
+  const first = read.read(async () => 1);
+  await Promise.resolve();
+  expect(await read.read(async () => 2, true)).toBe(2);
+  await first;
+  expect(read.value).toBe(2);
+});

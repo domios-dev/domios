@@ -35,14 +35,14 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
     });
     let latest = 0;
     let pushes = 0;
-    async function load(force = false) {
+    async function load(force = false, retryReferral = false) {
       const request = ++latest;
       const push = pushes;
       let referral: ReferralClaim | null = null;
       let referralError: string | null = null;
       try {
-        try { referral = await shared!.referral(client); }
-        catch { referralError = "Your referral could not be checked."; }
+        try { referral = await shared!.referral(client, retryReferral); }
+        catch { referralError = "Your referral could not be checked. Refresh Neighbors to try again."; }
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
         const list = await shared!.list.read(() => client.list(), force);
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
@@ -56,7 +56,7 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
         }
       }
     }
-    void load(revision > 0);
+    void load(revision > 0, revision > 0);
     const onFocus = () => { void load(); };
     const reload = () => { void load(true); };
     window.addEventListener("focus", onFocus);

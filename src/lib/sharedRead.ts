@@ -1,6 +1,7 @@
 export class SharedRead<T> {
   value: T | undefined;
   private flight: Promise<T> | undefined;
+  private queued: (() => Promise<T>) | undefined;
   private attemptedAt = -Infinity;
   private failure: unknown;
   private revision = 0;
@@ -22,20 +23,47 @@ export class SharedRead<T> {
   }
 
   read(load: () => Promise<T>, force = false): Promise<T> {
-    if (this.flight) return this.flight;
+    if (this.flight) {
+      if (force) {
+        if (!this.queued) this.revision++;
+        this.queued = load;
+      }
+      return this.flight;
+    }
     if (!force && this.now() - this.attemptedAt < 60_000) {
       return this.failure === undefined ? Promise.resolve(this.value!) : Promise.reject(this.failure);
     }
-    this.attemptedAt = this.now();
-    const revision = this.revision;
-    this.flight = load().then(value => {
-      if (this.revision === revision) this.write(value);
-      return this.value!;
-    }, failure => {
-      if (this.revision !== revision) return this.value!;
-      this.failure = failure;
-      throw failure;
-    }).finally(() => { this.flight = undefined; });
-    return this.flight;
+    let complete!: (value: T) => void;
+    let fail!: (failure: unknown) => void;
+    const flight = new Promise<T>((resolve, reject) => { complete = resolve; fail = reject; });
+    this.flight = flight;
+    void this.fetch(load).then(complete, fail);
+    return flight;
+  }
+
+  private async fetch(load: () => Promise<T>): Promise<T> {
+    try {
+      for (;;) {
+        this.attemptedAt = this.now();
+        const revision = this.revision;
+        try {
+          const value = await load();
+          if (!this.queued) {
+            if (this.revision === revision) this.write(value);
+            if (!this.queued) return this.value!;
+          }
+        } catch (failure: unknown) {
+          if (!this.queued) {
+            if (this.revision !== revision) return this.value!;
+            this.failure = failure;
+            throw failure;
+          }
+        }
+        load = this.queued!;
+        this.queued = undefined;
+      }
+    } finally {
+      this.flight = undefined;
+    }
   }
 }
