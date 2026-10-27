@@ -120,7 +120,9 @@ pub(crate) async fn dispatch(
     if local_caller(
         remote,
         &state,
-        headers.get("authorization").and_then(|value| value.to_str().ok()),
+        headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok()),
     )
     .is_err()
     {
@@ -223,9 +225,14 @@ mod tests {
             "127.0.0.1:7000".parse().unwrap(),
             &state,
             Some("Bearer peer-token")
-        ).is_err());
+        )
+        .is_err());
         assert!(matches!(
-            local_caller("127.0.0.1:7000".parse().unwrap(), &state, Some("Bearer secret")),
+            local_caller(
+                "127.0.0.1:7000".parse().unwrap(),
+                &state,
+                Some("Bearer secret")
+            ),
             Ok(None)
         ));
     }

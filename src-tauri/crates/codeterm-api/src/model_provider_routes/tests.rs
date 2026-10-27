@@ -12,8 +12,11 @@ fn model_provider_management_accepts_only_the_loopback_host_credential() {
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
     state.config.lock().api.token = Some("model-owner-fixture".into());
-    let scoped = state.svc.frontend_pty_env(Some(&tab))
-        .remove("CODETERM_API_TOKEN").unwrap();
+    let scoped = state
+        .svc
+        .frontend_pty_env(Some(&tab))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
     let local = "127.0.0.1:7000".parse().unwrap();
     for token in ["model-owner-fixture", scoped.as_str(), "unknown"] {
         let mut headers = HeaderMap::new();
@@ -22,7 +25,11 @@ fn model_provider_management_accepts_only_the_loopback_host_credential() {
             host_caller(&state, local, &headers),
             token == "model-owner-fixture"
         );
-        assert!(!host_caller(&state, "192.0.2.10:7000".parse().unwrap(), &headers));
+        assert!(!host_caller(
+            &state,
+            "192.0.2.10:7000".parse().unwrap(),
+            &headers
+        ));
     }
     assert!(!host_caller(&state, local, &HeaderMap::new()));
 }

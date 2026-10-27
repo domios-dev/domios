@@ -46,7 +46,9 @@ fn host_caller(state: &AppState, remote: SocketAddr, headers: &HeaderMap) -> boo
         super::cli_rpc_routes::local_caller(
             remote,
             state,
-            headers.get("authorization").and_then(|value| value.to_str().ok()),
+            headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok()),
         ),
         Ok(None)
     )
