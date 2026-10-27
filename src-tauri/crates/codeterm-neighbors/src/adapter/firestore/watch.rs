@@ -4,9 +4,16 @@ use std::collections::HashSet;
 #[derive(Default)]
 pub(super) struct Membership {
     documents: HashSet<String>,
+    observe_only: bool,
 }
 
 impl Membership {
+    pub(super) fn new(observe_only: bool) -> Self {
+        Self {
+            observe_only,
+            ..Default::default()
+        }
+    }
     pub(super) fn observe(&mut self, response: &fs::ListenResponse) -> Result<bool> {
         use fs::listen_response::ResponseType;
         match response.response_type.as_ref() {
@@ -14,7 +21,7 @@ impl Membership {
                 let document = change.document.as_ref().ok_or(Error::ListenProtocol {
                     kind: "document_missing",
                 })?;
-                if change.target_ids.contains(&1) {
+                if !self.observe_only && change.target_ids.contains(&1) {
                     self.documents.insert(document.name.clone());
                 }
                 if change.removed_target_ids.contains(&1) {
@@ -29,7 +36,7 @@ impl Membership {
                     self.documents.remove(&change.document);
                 }
             }
-            Some(ResponseType::Filter(filter)) if filter.target_id == 1 => {
+            Some(ResponseType::Filter(filter)) if filter.target_id == 1 && !self.observe_only => {
                 if usize::try_from(filter.count).ok() != Some(self.documents.len()) {
                     return Err(Error::ListenProtocol {
                         kind: "existence_filter_mismatch",

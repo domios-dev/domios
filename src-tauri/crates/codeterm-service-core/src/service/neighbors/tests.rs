@@ -9,6 +9,7 @@ fn list_includes_local_scopes_and_preserves_backend_outgoing_requests() {
             allowed: true,
             scope: "Read shared notes".into(),
             allow_tab_requests: false,
+            allow_interactive_content: false,
         },
     );
     let mut list = json!({"schema_version":1,"access":"paid",

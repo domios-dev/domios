@@ -294,6 +294,7 @@ fn neighbor_failure(message: String) -> Response {
     }
     let reason = message.split_once(':').map(|(reason, _)| reason);
     let status = match reason {
+        Some("neighbor_forbidden") => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
         Some("limit_out_of_range") => StatusCode::BAD_REQUEST,

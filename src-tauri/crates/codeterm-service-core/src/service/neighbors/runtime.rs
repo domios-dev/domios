@@ -1,7 +1,9 @@
+mod authority;
 pub(super) mod callable;
 mod concierge;
 mod gateway;
 mod listener;
+mod local;
 pub(crate) mod logout;
 mod owner;
 mod pending;
@@ -240,6 +242,11 @@ impl ServiceContext {
         caller: Option<&str>,
         nonce: Option<&str>,
     ) -> Result<Value, String> {
+        self.authorize_neighbor_runtime(&command, caller, nonce)
+            .await?;
+        if command.is_local_read() {
+            return self.neighbor_local_read(&command, caller, nonce).await;
+        }
         let result = self
             .neighbor_operation(owner::Operation::Command {
                 command,
@@ -259,39 +266,10 @@ impl ServiceContext {
         nonce: Option<&str>,
         generation: u64,
     ) -> Result<Value, String> {
-        if matches!(
-            &command,
-            NeighborRuntimeCommand::SetPermission { .. }
-                | NeighborRuntimeCommand::Bind { .. }
-                | NeighborRuntimeCommand::ChangeAgent { .. }
-                | NeighborRuntimeCommand::Permission { .. }
-                | NeighborRuntimeCommand::SetDailyLimit { .. }
-                | NeighborRuntimeCommand::NotificationPreference { .. }
-                | NeighborRuntimeCommand::SetNotificationPreference { .. }
-        ) && caller.is_some()
-        {
-            self.require_neighbor_general(caller, nonce)?;
-        }
-        if let NeighborRuntimeCommand::History {
-            friendship_id,
-            before,
-            limit,
-        } = &command
-        {
-            let account = self.account().await?;
-            let session = account
-                .session()
-                .await
-                .ok_or("Sign in to read Neighbor history")?;
-            let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
-            let page = metadata
-                .history_page(friendship_id, before.as_deref(), limit.unwrap_or(50))
-                .await
-                .map_err(|error| error.to_string())?;
-            if !super::same_session(account.session().await.as_ref(), &session) {
-                return Err("Neighbor account changed".into());
-            }
-            return Ok(page);
+        self.authorize_neighbor_runtime(&command, caller, nonce)
+            .await?;
+        if command.is_local_read() {
+            return self.neighbor_local_read(&command, caller, nonce).await;
         }
         if !matches!(
             &command,
@@ -334,124 +312,228 @@ impl ServiceContext {
         };
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
-                NeighborRuntimeCommand::NotificationPreference { friendship_id } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
-                    Ok(json!({"friendship_id":friendship_id,"notify":metadata.settings().await?.neighbor_notify(&friendship_id)}))
-                }
-                NeighborRuntimeCommand::SetNotificationPreference { friendship_id, notify } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                NeighborRuntimeCommand::SetNotificationPreference {
+                    friendship_id,
+                    notify,
+                } => {
+                    if !hex_id(&friendship_id, 64) {
+                        return Err(Error::InvalidEnvelope);
+                    }
                     transport.peer_keys(&friendship_id).await?;
                     let mut settings = metadata.settings().await?;
                     settings.notifications.insert(friendship_id.clone(), notify);
                     self.require_neighbor_history_generation(generation)?;
                     metadata.save_settings(settings).await?;
-                    self.ui.emit("neighbor-notification-changed", json!({"friendship_id":friendship_id,"notify":notify}));
+                    self.ui.emit(
+                        "neighbor-notification-changed",
+                        json!({"friendship_id":friendship_id,"notify":notify}),
+                    );
                     Ok(json!({"friendship_id":friendship_id,"notify":notify}))
                 }
-                NeighborRuntimeCommand::SetDailyLimit { friendship_id, daily_limit } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
-                    let result = transport.calls.invoke("friendsSetDailyLimit", json!({"friendship_id":friendship_id,"daily_limit":daily_limit})).await?;
-                    self.ui.emit("neighbor-daily-limit-changed", json!({"friendship_id":friendship_id,"daily_limit":result["daily_limit"]}));
+                NeighborRuntimeCommand::SetDailyLimit {
+                    friendship_id,
+                    daily_limit,
+                } => {
+                    if !hex_id(&friendship_id, 64) {
+                        return Err(Error::InvalidEnvelope);
+                    }
+                    let result = transport
+                        .calls
+                        .invoke(
+                            "friendsSetDailyLimit",
+                            json!({"friendship_id":friendship_id,"daily_limit":daily_limit}),
+                        )
+                        .await?;
+                    self.ui.emit(
+                        "neighbor-daily-limit-changed",
+                        json!({"friendship_id":friendship_id,"daily_limit":result["daily_limit"]}),
+                    );
                     Ok(result)
-                },
-                NeighborRuntimeCommand::History { .. } => Err(Error::InvalidEnvelope),
-                NeighborRuntimeCommand::ChangeAgent { friendship_id, provider, model } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                }
+                NeighborRuntimeCommand::History { .. }
+                | NeighborRuntimeCommand::Status
+                | NeighborRuntimeCommand::Permission { .. }
+                | NeighborRuntimeCommand::NotificationPreference { .. } => {
+                    Err(Error::InvalidEnvelope)
+                }
+                NeighborRuntimeCommand::ChangeAgent {
+                    friendship_id,
+                    provider,
+                    model,
+                } => {
+                    if !hex_id(&friendship_id, 64) {
+                        return Err(Error::InvalidEnvelope);
+                    }
                     transport.peer_keys(&friendship_id).await?;
-                    let tab = self.replace_neighbor_concierge(&metadata, &friendship_id, Some(provider), model).await.map_err(|_| Error::Gateway)?;
+                    let tab = self
+                        .replace_neighbor_concierge(
+                            &metadata,
+                            &friendship_id,
+                            Some(provider),
+                            model,
+                        )
+                        .await
+                        .map_err(|_| Error::Gateway)?;
                     Ok(json!({"gateway_tab":tab}))
                 }
-                NeighborRuntimeCommand::Status => {
-                    let settings = metadata.settings().await?;
-                    let friends = self.neighbor_registry(super::NeighborCommand::List {}).await.map_err(|_| Error::Transport)?;
-                    let concierges = self.neighbor_concierge_views(&settings, &receiver_status, &friends);
-                    let notification_preferences = Self::neighbor_notification_preferences(&settings, &friends);
-                    let keys = if receiver_status.receiving_here() { lifecycle.reconcile().await? } else { None };
-                    let id = keys.map(|keys| keys.verifier_key_id(&transport.uid));
-                    let states = self.neighbor_cell().states.lock().clone();
-                    let failures = self.neighbor_cell().failures.lock().clone();
-                    Ok(json!({"enabled":self.configuration().neighbors.enabled,"enrolled":id.is_some(),"verifier_key_id":id,"bindings":settings.bindings,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":receiver_status.receiving_here(),"receiver_machine_label":receiver_status.receiver_machine_label,"receiving_enabled":receiver_status.receiving_enabled,"revision":receiver_status.receiver_revision}))
-                }
-                NeighborRuntimeCommand::Enroll { takeover_confirmed, expected_receiver_revision } => {
-                    if expected_receiver_revision != receiver_status.receiver_revision { return Err(Error::ReceiverRevisionStale); }
-                    let keys = lifecycle.enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata).await?;
+                NeighborRuntimeCommand::Enroll {
+                    takeover_confirmed,
+                    expected_receiver_revision,
+                } => {
+                    if expected_receiver_revision != receiver_status.receiver_revision {
+                        return Err(Error::ReceiverRevisionStale);
+                    }
+                    let keys = lifecycle
+                        .enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata)
+                        .await?;
                     Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
                 }
                 NeighborRuntimeCommand::Retry { friendship_id } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
-                    if let Some(listener) = self.neighbor_cell().listeners.lock().active.get(&friendship_id) { listener.retry.notify_one(); }
+                    if !hex_id(&friendship_id, 64) {
+                        return Err(Error::InvalidEnvelope);
+                    }
+                    if let Some(listener) = self
+                        .neighbor_cell()
+                        .listeners
+                        .lock()
+                        .active
+                        .get(&friendship_id)
+                    {
+                        listener.retry.notify_one();
+                    }
                     Ok(json!({"status":"reconnecting"}))
                 }
                 NeighborRuntimeCommand::Rotate => {
-                    if !receiver_status.receiving_here() { return Err(Error::NotReceiver); }
+                    if !receiver_status.receiving_here() {
+                        return Err(Error::NotReceiver);
+                    }
                     self.stop_neighbor_listeners();
                     let keys = lifecycle.rotate(&mut rand::rngs::OsRng).await?;
                     Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
                 }
                 NeighborRuntimeCommand::Revoke => {
                     self.stop_neighbor_listeners();
-                    registry.disable_receiving(receiver_status.receiver_revision).await?;
+                    registry
+                        .disable_receiving(receiver_status.receiver_revision)
+                        .await?;
                     lifecycle.forget().await?;
                     let mut settings = metadata.settings().await?;
                     settings.enabled = false;
                     metadata.save_settings(settings).await?;
                     Ok(json!({"status":"revoked"}))
                 }
-                NeighborRuntimeCommand::OwnKeys => transport.calls.invoke("friendsOwnKeys", json!({})).await,
-                NeighborRuntimeCommand::Bind { friendship_id, gateway_tab } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
-                    self.validate_neighbor_gateway(&gateway_tab).map_err(|_| Error::Gateway)?;
+                NeighborRuntimeCommand::OwnKeys => {
+                    transport.calls.invoke("friendsOwnKeys", json!({})).await
+                }
+                NeighborRuntimeCommand::Bind {
+                    friendship_id,
+                    gateway_tab,
+                } => {
+                    if !hex_id(&friendship_id, 64) {
+                        return Err(Error::InvalidEnvelope);
+                    }
+                    self.validate_neighbor_gateway(&gateway_tab)
+                        .map_err(|_| Error::Gateway)?;
                     transport.peer_keys(&friendship_id).await?;
                     let mut settings = metadata.settings().await?;
-                    settings.bindings.insert(friendship_id.clone(), gateway_tab.clone());
+                    settings
+                        .bindings
+                        .insert(friendship_id.clone(), gateway_tab.clone());
                     metadata.save_settings(settings).await?;
                     self.stop_neighbor_listeners();
                     self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
-                    self.ui.emit("neighbor-agent-changed", json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}));
+                    self.ui.emit(
+                        "neighbor-agent-changed",
+                        json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}),
+                    );
                     Ok(json!({"status":"bound"}))
                 }
-                NeighborRuntimeCommand::Permission { friendship_id } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
-                    Ok(json!(metadata.settings().await?.permissions.get(&friendship_id).cloned().unwrap_or_default()))
-                }
-                NeighborRuntimeCommand::SetPermission { friendship_id, permission } => {
-                    if !hex_id(&friendship_id, 64) { return Err(Error::InvalidEnvelope); }
+                NeighborRuntimeCommand::SetPermission {
+                    friendship_id,
+                    permission,
+                } => {
+                    if !hex_id(&friendship_id, 64) {
+                        return Err(Error::InvalidEnvelope);
+                    }
                     permission.validate()?;
                     transport.peer_keys(&friendship_id).await?;
                     let mut settings = metadata.settings().await?;
                     let mut created = None;
-                    if settings.bindings.get(&friendship_id).is_none_or(|tab| self.validate_neighbor_gateway(tab).is_err()) {
-                        let tab = self.create_neighbor_concierge(&friendship_id, None, None).await.map_err(|_| Error::Gateway)?;
+                    if settings
+                        .bindings
+                        .get(&friendship_id)
+                        .is_none_or(|tab| self.validate_neighbor_gateway(tab).is_err())
+                    {
+                        let tab = self
+                            .create_neighbor_concierge(&friendship_id, None, None)
+                            .await
+                            .map_err(|_| Error::Gateway)?;
                         settings.bindings.insert(friendship_id.clone(), tab.clone());
                         created = Some(tab);
                     }
-                    settings.permissions.insert(friendship_id.clone(), permission);
+                    settings
+                        .permissions
+                        .insert(friendship_id.clone(), permission);
                     let gateway_tab = settings.bindings.get(&friendship_id).cloned();
                     if let Err(error) = metadata.save_settings(settings).await {
-                        if let Some(tab) = created { let _ = self.close_tab_async(&tab).await; }
+                        if let Some(tab) = created {
+                            let _ = self.close_tab_async(&tab).await;
+                        }
                         return Err(error);
                     }
                     if created.is_some() {
                         self.stop_neighbor_listeners();
                         self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
-                        self.ui.emit("neighbor-agent-changed", json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}));
+                        self.ui.emit(
+                            "neighbor-agent-changed",
+                            json!({"friendship_id":friendship_id,"gateway_tab":gateway_tab}),
+                        );
                     }
-                    self.ui.emit("neighbor-permission-changed", json!({"friendship_id":friendship_id}));
+                    self.ui.emit(
+                        "neighbor-permission-changed",
+                        json!({"friendship_id":friendship_id}),
+                    );
                     Ok(json!({"status":"saved","gateway_tab":gateway_tab}))
                 }
-                NeighborRuntimeCommand::Send { friendship_id, kind, body, in_reply_to } => {
-                    self.send_neighbor(&transport, &lifecycle, &metadata, Outgoing { friendship: friendship_id, kind, body: OutboundBody::Granted(Zeroizing::new(body)), in_reply_to, author: self.neighbor_author(caller)? }).await
+                NeighborRuntimeCommand::Send {
+                    friendship_id,
+                    kind,
+                    body,
+                    in_reply_to,
+                } => {
+                    self.send_neighbor(
+                        &transport,
+                        &lifecycle,
+                        &metadata,
+                        Outgoing {
+                            friendship: friendship_id,
+                            kind,
+                            body: OutboundBody::Granted(Zeroizing::new(body)),
+                            in_reply_to,
+                            author: self.neighbor_author(caller)?,
+                        },
+                    )
+                    .await
                 }
                 NeighborRuntimeCommand::DeliveryStatus { message_id } => {
-                    if !hex_id(&message_id, 32) { return Err(Error::InvalidEnvelope); }
+                    if !hex_id(&message_id, 32) {
+                        return Err(Error::InvalidEnvelope);
+                    }
                     let result = transport.delivery_status(&message_id).await?;
                     if self.require_neighbors_enabled().is_ok() {
-                        self.update_neighbor_history_status(&metadata, &message_id, result.status, None, generation).await?;
+                        self.update_neighbor_history_status(
+                            &metadata,
+                            &message_id,
+                            result.into(),
+                            generation,
+                        )
+                        .await?;
                     }
                     Ok(json!(result))
                 }
             }
-        }.await;
+        }
+        .await;
         let result = match result {
             Ok(result) => result,
             Err(error) => {
@@ -617,6 +699,7 @@ impl ServiceContext {
                 limit: None,
                 resets_at: None,
                 retry_after_seconds: None,
+                submission: None,
                 delivery_status: Some(codeterm_neighbors::wire::DeliveryStatus::Pending),
             },
             generation,
@@ -639,8 +722,15 @@ impl ServiceContext {
                 .update_neighbor_history_status(
                     metadata,
                     &signed.envelope.message_id,
-                    status,
-                    refusal,
+                    super::history::HistoryReceipt {
+                        delivery: status.into(),
+                        rejection: refusal,
+                        submission: Some(match &result {
+                            Ok(_) => super::history::Submission::Accepted,
+                            Err(Error::Transport) => super::history::Submission::Unconfirmed,
+                            Err(_) => super::history::Submission::Refused,
+                        }),
+                    },
                     generation,
                 )
                 .await
@@ -693,6 +783,7 @@ impl ServiceContext {
             .remove(friendship);
         self.neighbor_cell().states.lock().remove(friendship);
         self.neighbor_cell().failures.lock().remove(friendship);
+        self.neighbor_cell().names.lock().remove(friendship);
         targets
     }
 

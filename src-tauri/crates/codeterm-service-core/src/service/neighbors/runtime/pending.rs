@@ -38,7 +38,7 @@ impl ServiceContext {
         } else {
             None
         };
-        json!({"gateway_tab":gateway,"concierge_missing":missing,"pending_count":count,"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
+        json!({"gateway_tab":gateway,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
     }
 
     pub(super) fn neighbor_concierge_views(
@@ -122,6 +122,32 @@ pub(super) async fn run(session: &listener::Session) {
     }
 }
 
+#[derive(Default)]
+struct Recount {
+    in_flight: bool,
+    dirty: bool,
+}
+
+impl Recount {
+    fn changed(&mut self) -> bool {
+        if self.in_flight {
+            self.dirty = true;
+            false
+        } else {
+            self.in_flight = true;
+            true
+        }
+    }
+    fn completed(&mut self) -> bool {
+        self.in_flight = std::mem::take(&mut self.dirty);
+        self.in_flight
+    }
+}
+
+type CountFuture<'a> = std::pin::Pin<
+    Box<dyn std::future::Future<Output = codeterm_neighbors::Result<u64>> + Send + 'a>,
+>;
+
 async fn observe(session: &listener::Session) -> codeterm_neighbors::Result<()> {
     session.prepare().await?;
     let mut stopped = session.stopped.clone();
@@ -130,32 +156,35 @@ async fn observe(session: &listener::Session) -> codeterm_neighbors::Result<()> 
         _ = session.stopped() => return Err(Error::Revoked),
         result = session.transport.listen_pending(&session.friendship) => result?,
     };
+    let mut recount = Recount::default();
+    let mut count: Option<CountFuture<'_>> = None;
     loop {
-        let event = tokio::select! {
+        tokio::select! {
             biased;
             _ = stopped.changed() => return Err(Error::Revoked),
-            result = inbox.next() => result?,
-        };
-        session.current()?;
-        match event {
-            Some(InboxEvent::Ready) => {
-                let count = tokio::select! {
-                    biased;
-                    _ = stopped.changed() => return Err(Error::Revoked),
-                    result = session.transport.pending_count(&session.friendship) => result?,
-                };
+            result = async {
+                match count.as_mut() { Some(future) => future.await, None => std::future::pending().await }
+            } => {
                 session.current()?;
+                count = None;
                 session
                     .service
                     .neighbor_cell()
                     .pending_counts
                     .lock()
-                    .insert(session.friendship.clone(), count);
+                    .insert(session.friendship.clone(), result?.min(codeterm_neighbors::adapter::PENDING_COUNT_LIMIT));
                 publish(session).await?;
                 session.state(ListenerState::Receiving);
+                if recount.completed() { count = Some(Box::pin(session.transport.pending_count(&session.friendship))); }
             }
-            Some(InboxEvent::Messages(_)) => return Err(Error::Gateway),
-            None => return Err(Error::Transport),
+            result = inbox.next() => {
+                session.current()?;
+                match result? {
+                    Some(InboxEvent::Ready) => if recount.changed() { count = Some(Box::pin(session.transport.pending_count(&session.friendship))); },
+                    Some(InboxEvent::Messages(_)) => return Err(Error::Gateway),
+                    None => return Err(Error::Transport),
+                }
+            }
         }
     }
 }

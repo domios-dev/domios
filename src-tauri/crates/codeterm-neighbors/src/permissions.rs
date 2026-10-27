@@ -9,6 +9,8 @@ pub struct Permission {
     pub allowed: bool,
     pub scope: String,
     pub allow_tab_requests: bool,
+    #[serde(default)]
+    pub allow_interactive_content: bool,
 }
 
 impl Permission {

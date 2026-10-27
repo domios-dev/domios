@@ -3,6 +3,19 @@ use crate::{multiplexer::state::MultiplexerState, service::test_fixture::Service
 use async_trait::async_trait;
 
 struct NoRemoteCalls;
+
+#[test]
+fn dirty_checkpoints_coalesce_to_one_in_flight_count_and_one_followup() {
+    let mut recount = Recount::default();
+    assert!(recount.changed());
+    for _ in 0..1000 {
+        assert!(!recount.changed());
+    }
+    assert!(recount.completed());
+    assert!(!recount.completed());
+    assert!(!recount.in_flight);
+    assert!(recount.changed());
+}
 #[async_trait]
 impl codeterm_neighbors::adapter::AuthenticatedCall for NoRemoteCalls {
     async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
@@ -95,7 +108,19 @@ async fn missing_concierge_never_admits_acknowledges_or_advances_a_cursor() {
         .find(|(event, _)| event == "neighbor-concierge-status")
         .unwrap();
     assert_eq!(view["pending_count"], 3);
+    assert_eq!(view["pending_count_capped"], false);
     assert_eq!(view["state"], "concierge_missing");
+    drop(events);
+    service
+        .neighbor_cell()
+        .pending_counts
+        .lock()
+        .insert(friendship.clone(), 100);
+    assert_eq!(
+        service.neighbor_concierge_view(&friendship, &Settings::default(), &receiving())
+            ["pending_count_capped"],
+        true
+    );
 }
 
 #[tokio::test]
@@ -117,6 +142,7 @@ async fn receiver_move_keeps_local_concierge_and_never_copies_bindings_or_permis
             allowed: true,
             scope: "opaque scope".into(),
             allow_tab_requests: false,
+            allow_interactive_content: false,
         },
     );
     let local = Metadata::new(fixture.temp.path().to_owned(), "owner");
