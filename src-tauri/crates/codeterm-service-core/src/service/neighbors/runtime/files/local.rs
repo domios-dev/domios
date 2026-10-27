@@ -1,6 +1,21 @@
 use super::*;
 use crate::service::tab_credentials::TabCaller;
 
+#[cfg(test)]
+mod tests;
+
+async fn concierge_file_views(metadata: &Metadata, friendship: &str, entries: &[storage::Entry]) -> Value {
+    let mut files = vec![];
+    for entry in entries.iter().filter(|entry| entry.direction == "in" && entry.state == "saved") {
+        if let Ok(path) = metadata.saved_file(friendship, entry).await {
+            let mut view = json!(entry);
+            view["path"] = json!(path.to_string_lossy());
+            files.push(view);
+        }
+    }
+    json!({"files":files})
+}
+
 impl ServiceContext {
     pub(super) async fn neighbor_file_local(
         &self,
@@ -25,22 +40,15 @@ impl ServiceContext {
                 Command::List { .. } => {
                     let entries = metadata.file_entries(friendship).await?;
                     if concierge.is_some() {
-                        let mut files = vec![];
-                        for entry in entries.iter().filter(|entry| entry.direction == "in" && entry.state == "saved") {
-                            if let Ok(path) = metadata.saved_file(friendship, &entry.file_id).await {
-                                let mut view = json!(entry);
-                                view["path"] = json!(path.to_string_lossy());
-                                files.push(view);
-                            }
-                        }
-                        return Ok(json!({"files":files}));
+                        return Ok(concierge_file_views(&metadata, friendship, &entries).await);
                     }
                     Ok(json!({"folder":metadata.friend_folder(friendship)?.to_string_lossy(),"files":entries}))
                 }
                 Command::Open { file_id, .. } => {
-                    let path = metadata.saved_file(friendship, file_id).await?;
+                    let entries = metadata.file_entries(friendship).await?;
+                    let entry = entries.iter().find(|entry| &entry.file_id == file_id && entry.direction == "in" && entry.state == "saved").ok_or(Error::InvalidRequest)?;
+                    let path = metadata.saved_file(friendship, entry).await?;
                     if concierge.is_some() {
-                        let entry = metadata.file_entries(friendship).await?.into_iter().find(|entry| &entry.file_id == file_id && entry.direction == "in").ok_or(Error::InvalidRequest)?;
                         let mut view = json!(entry);
                         view["path"] = json!(path.to_string_lossy());
                         return Ok(view);

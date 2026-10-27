@@ -92,23 +92,16 @@ impl Metadata {
     pub(super) async fn saved_file(
         &self,
         friendship: &str,
-        file_id: &str,
+        entry: &Entry,
     ) -> codeterm_neighbors::Result<PathBuf> {
-        if !hex_id(file_id, 32) {
+        if !hex_id(&entry.file_id, 32) || entry.state != "saved" || entry.direction != "in" {
             return Err(Error::InvalidRequest);
         }
-        let entry = self
-            .file_entries(friendship)
-            .await?
-            .into_iter()
-            .find(|entry| {
-                entry.file_id == file_id && entry.state == "saved" && entry.direction == "in"
-            })
-            .ok_or(Error::InvalidRequest)?;
         let folder = self.friend_folder(friendship)?;
+        let filename = entry.filename();
         tokio::task::spawn_blocking(move || {
             let folder = folder.canonicalize().map_err(|_| Error::CursorStore)?;
-            let path = folder.join(entry.filename());
+            let path = folder.join(filename);
             let metadata = std::fs::symlink_metadata(&path).map_err(|_| Error::CursorStore)?;
             if !metadata.is_file()
                 || metadata.file_type().is_symlink()

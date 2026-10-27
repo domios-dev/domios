@@ -101,7 +101,7 @@ async fn file_receive_writes_verified_bytes_before_server_confirm() {
     assert_eq!(entries[0].state, "saved");
     assert_eq!(entries[0].name, "_NUL.txt");
     let path = metadata
-        .saved_file(&envelope.friendship_id, &file.file_id)
+        .saved_file(&envelope.friendship_id, &entries[0])
         .await
         .unwrap();
     assert_eq!(std::fs::read(path).unwrap(), b"received bytes");
