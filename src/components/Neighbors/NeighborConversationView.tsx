@@ -38,14 +38,17 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
   const fresh = neighbors.list?.friends.find(entry => entry.friendship_id === friendship);
   const friend: ConversationFriend | undefined = fresh ?? (neighbors.list === null ? cached?.friends.find(entry => entry.friendship_id === friendship) : undefined);
-  if (!friend) {
+  if (!friend && neighbors.list === null) {
     return <div className="neighbor-chat absolute inset-0 flex items-center justify-center bg-[var(--ct-bg)]">
-      {neighbors.list === null ? <BusyState inline label="Loading conversation" phase="work" />
-        : <p className="neighbor-note">This Neighbor is no longer connected.</p>}
+      <BusyState inline label="Loading conversation" phase="work" />
     </div>;
   }
+  // A removed friend keeps a readable history under the name we last knew them by.
+  const removed = !friend;
+  const shown: ConversationFriend = friend ?? cached?.friends.find(entry => entry.friendship_id === friendship)
+    ?? { friendship_id: friendship, uid: friendship, displayName: "Former Neighbor", photoURL: null };
   const access = neighbors.list?.access ?? cached?.access;
-  return <Conversation key={friendship} friend={friend} locked={access !== "paid"} enabled={enabled}
+  return <Conversation key={friendship} friend={shown} removed={removed} locked={access !== "paid"} enabled={enabled}
     runtimeClient={runtimeClient} conciergeClient={conciergeClient} onSent={neighbors.refresh} />;
 }
 
@@ -54,8 +57,8 @@ type ConversationFriend = CachedFriend & Partial<Omit<Neighbor, keyof CachedFrie
 
 const MESSAGE_LIMIT_BYTES = 32752;
 
-function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient, onSent }: {
-  friend: ConversationFriend; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; onSent: () => void;
+function Conversation({ friend, removed, locked, enabled, runtimeClient, conciergeClient, onSent }: {
+  friend: ConversationFriend; removed: boolean; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient; onSent: () => void;
 }) {
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
@@ -97,7 +100,8 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [before, setBefore] = useState<string | null>(null);
   // An ended friendship keeps its history readable but takes no new messages.
-  const [ended, setEnded] = useState(false);
+  const [historyEnded, setEnded] = useState(false);
+  const ended = historyEnded || removed;
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -170,8 +174,8 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
         <span className="neighbor-chat__avatar"><AccountAvatar url={friend.photoURL} initial={accountInitials(name)} label="" size="node" /></span>
         <strong className="min-w-0 truncate">{name}</strong>
       </button>
-      <span className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
-        {!enabled ? "Neighbors is off" : locked ? "paused by plan" : "connected"}</span>
+      <span className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked && !removed ? "ok" : "muted"} aria-hidden="true" />
+        {removed ? "no longer connected" : !enabled ? "Neighbors is off" : locked ? "paused by plan" : "connected"}</span>
       {allowance && <span className="neighbor-note" title={`${name} allows you ${allowance.limit} messages a day`}>{allowance.limit}/day, {allowance.sent} sent today</span>}
       <span className="ml-auto" />
       <DropdownMenu menuLabel={`${name} actions`} items={[
@@ -196,8 +200,8 @@ function Conversation({ friend, locked, enabled, runtimeClient, conciergeClient,
       <div className="neighbor-chat__column" role="log" aria-label={`Conversation with ${name}`}>
         {before && <div className="neighbor-chat__earlier"><Button size="sm" onClick={() => { void loadEarlier(); }}>Show earlier messages</Button></div>}
         {(entries === null || entries.length === 0) && !error && <div className="neighbor-chat__empty">
-          <p className="neighbor-me__title">No messages yet</p>
-          <p className="neighbor-me__hint">Say hi to {name}. Your concierge answers their agents within the permissions you set.</p>
+          <p className="neighbor-me__title">{removed ? "No longer connected" : "No messages yet"}</p>
+          <p className="neighbor-me__hint">{removed ? `You and ${name} are no longer Neighbors.` : `Say hi to ${name}. Your concierge answers their agents within the permissions you set.`}</p>
         </div>}
         {(entries ?? []).map((entry, index) => {
           const day = dayLabel(entry.at, index > 0 ? entries![index - 1].at : null);

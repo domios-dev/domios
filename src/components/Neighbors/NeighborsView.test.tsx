@@ -710,3 +710,15 @@ it("turns off reading memory and files for one friend and saves it", async () =>
   await act(async () => button("Save permissions").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: false }));
 });
+
+it("keeps a removed friend's conversation readable and closed", async () => {
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()}
+    conciergeClient={concierge([{ direction: "in", kind: "question", author: "friend", body: "Old note", at: 1700000000000, message_id: "o1" }])} />));
+  expect(document.body.textContent).toContain("Old note");
+  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
+});
