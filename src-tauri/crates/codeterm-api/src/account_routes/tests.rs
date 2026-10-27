@@ -68,7 +68,10 @@ fn account_routes_admission_refuses_nonlocal_callers() {
 
 #[tokio::test]
 async fn gift_redemption_route_requires_auth_and_redacts_malformed_payloads() {
-    use axum::{body::{to_bytes, Body}, http::Request};
+    use axum::{
+        body::{to_bytes, Body},
+        http::Request,
+    };
     use tower::ServiceExt;
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(
         codeterm_service_core::multiplexer::state::MultiplexerState::empty(),
@@ -78,17 +81,45 @@ async fn gift_redemption_route_requires_auth_and_redacts_malformed_payloads() {
     let router = crate::routes::create_router(state);
     for (token, body, expected) in [
         ("", "{}".to_owned(), StatusCode::UNAUTHORIZED),
-        ("Bearer fixture-token", "{private-material".to_owned(), StatusCode::BAD_REQUEST),
-        ("Bearer fixture-token", r#"{"key":"private-material","expected_uid":"own","plan":"admin"}"#.to_owned(), StatusCode::BAD_REQUEST),
-        ("Bearer fixture-token", serde_json::json!({"key":"private-material".repeat(100),"expected_uid":"own"}).to_string(), StatusCode::BAD_REQUEST),
+        (
+            "Bearer fixture-token",
+            "{private-material".to_owned(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "Bearer fixture-token",
+            r#"{"key":"private-material","expected_uid":"own","plan":"admin"}"#.to_owned(),
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "Bearer fixture-token",
+            serde_json::json!({"key":"private-material".repeat(100),"expected_uid":"own"})
+                .to_string(),
+            StatusCode::BAD_REQUEST,
+        ),
     ] {
-        let response = router.clone().oneshot(Request::builder().method("POST")
-            .uri("/api/account/gift/redeem").header("authorization", token)
-            .header("content-type", "application/json").body(Body::from(body)).unwrap()).await.unwrap();
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/account/gift/redeem")
+                    .header("authorization", token)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), expected);
         let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
         assert!(!String::from_utf8_lossy(&bytes).contains("private-material"));
-        assert!(fixture.service.ext::<codeterm_service_core::service::account::AccountCell>().0.get().is_none());
+        assert!(fixture
+            .service
+            .ext::<codeterm_service_core::service::account::AccountCell>()
+            .0
+            .get()
+            .is_none());
     }
 }
 

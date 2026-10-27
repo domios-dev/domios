@@ -66,7 +66,12 @@ fn service_authority_resolves_live_teams_and_preserves_host_access() {
     assert!(service
         .authorize_tab_mutation(TabMutationCaller::Tab(&caller), &target, Default::default())
         .is_ok());
-    for denied in [owner.as_str(), foreign.as_str(), initial.as_str(), "missing"] {
+    for denied in [
+        owner.as_str(),
+        foreign.as_str(),
+        initial.as_str(),
+        "missing",
+    ] {
         assert!(service
             .authorize_tab_mutation(TabMutationCaller::Tab(&caller), denied, Default::default())
             .is_err());

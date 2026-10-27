@@ -30,9 +30,9 @@ pub(super) fn refresh_required(value: &serde_json::Value) -> Result<bool, String
         || (!granted && claim.trial_end.is_some())
         || claim.friend_request_id.as_ref().is_some_and(|id| {
             id.len() != 64
-                || !id.bytes().all(|byte| {
-                    byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
-                })
+                || !id
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         })
     {
         return Err("Invalid referral response".into());

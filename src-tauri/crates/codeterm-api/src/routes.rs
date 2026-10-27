@@ -595,8 +595,11 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/account/plan", get(super::account_routes::plan))
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
         .route("/api/account/portal", post(super::account_routes::portal))
-        .route("/api/account/gift/redeem", post(super::account_routes::redeem_gift_key)
-            .layer(axum::extract::DefaultBodyLimit::max(1024)))
+        .route(
+            "/api/account/gift/redeem",
+            post(super::account_routes::redeem_gift_key)
+                .layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
         .route(
             "/api/account/neighbors",
             post(super::account_routes::neighbors),

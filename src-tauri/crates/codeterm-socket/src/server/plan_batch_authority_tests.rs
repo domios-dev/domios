@@ -268,7 +268,10 @@ fn the_internal_report_path_still_writes_its_milestones() {
     assert_eq!(result.milestone_ids.len(), 1);
 
     let task = fx.task(&fx.foreign);
-    assert_eq!(task.status, codeterm_service_core::plan::TaskStatus::InReview);
+    assert_eq!(
+        task.status,
+        codeterm_service_core::plan::TaskStatus::InReview
+    );
     assert_eq!(task.milestones.len(), 1);
     assert_eq!(task.milestones[0].text, "REPORT MILESTONE");
 
