@@ -52,3 +52,36 @@ for (const [mode, type, approval] of [["full-access", "dangerFullAccess", "never
   assert.equal(params.sandboxPolicy.type, type);
 }
 console.log("Codex execution sandbox: 11 operation mappings passed");
+
+const padSettings: RuntimeSettings = {mode:capability.runtimeReadOnlyWritableRootsMode!,additionalDirectories:["/own-pad"],networkAccess:false};
+assert.equal(padSettings.mode,"read-only-with-writable-roots");
+for (const operation of [
+  {kind:"openThread" as const,instructions:"opaque",settings:padSettings},
+  {kind:"resumeThread" as const,threadId:"opaque-thread",instructions:"opaque",settings:padSettings},
+  {kind:"submitTurn" as const,threadId:"opaque-thread",sendId:"opaque-send",input:{text:"opaque",attachments:[]},settings:padSettings},
+]) {
+  const result=plain(provider.runtimePlan({...context,settings:padSettings},operation));
+  if (result.action.kind !== "request") throw new Error("Missing pad-write request");
+  const params=result.action.call.params as Record<string,unknown>;
+  assert.equal(params.cwd,"/lane");
+  assert.deepEqual(params.runtimeWorkspaceRoots,["/own-pad"]);
+  if (operation.kind === "submitTurn") {
+    assert.deepEqual(params.sandboxPolicy,{type:"workspaceWrite",networkAccess:false,writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true});
+  } else {
+    assert.equal(params.sandbox,"workspace-write");
+    assert.deepEqual((params.config as Record<string,unknown>)["sandbox_workspace_write.writable_roots"],["/own-pad"]);
+    const reply={thread:{id:"opaque-thread",source:"user"},approvalPolicy:"never",runtimeWorkspaceRoots:["/own-pad"],sandbox:{type:"workspaceWrite",writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true}};
+    const accepted=plain(provider.runtimeResponse({...context,settings:padSettings},operation,result.state,{kind:"success",value:reply}));
+    assert.notEqual(accepted.kind,"refused");
+    for (const wrong of [{...reply,runtimeWorkspaceRoots:["/lane","/own-pad"]},{thread:reply.thread,approvalPolicy:reply.approvalPolicy,sandbox:reply.sandbox},{...reply,sandbox:{...reply.sandbox,excludeSlashTmp:false}},{...reply,sandbox:{...reply.sandbox,writableRoots:["/foreign-pad"]}},{...reply,sandbox:{type:"dangerFullAccess"}}]) {
+      const denied=plain(provider.runtimeResponse({...context,settings:padSettings},operation,result.state,{kind:"success",value:wrong}));
+      assert.equal(denied.kind,"refused");
+    }
+  }
+}
+const control=plain(provider.runtimePlan({...context,settings:padSettings},{kind:"control",threadId:"opaque-thread",action:"model",value:"opaque-model"}));
+if (control.action.kind !== "request") throw new Error("Missing model control");
+assert.equal(control.action.call.method,"thread/settings/update");
+assert.equal((control.action.call.params as Record<string,unknown>).sandboxPolicy,undefined);
+assert.equal((control.action.call.params as Record<string,unknown>).runtimeWorkspaceRoots,undefined);
+assert.throws(()=>provider.runtimePlan({...context,settings:padSettings},{kind:"control",threadId:"opaque-thread",action:"settings",value:{additionalDirectories:["/other-pad"]}}));

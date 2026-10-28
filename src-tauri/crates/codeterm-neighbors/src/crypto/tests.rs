@@ -28,6 +28,45 @@ pub(crate) fn recipient() -> PrivateKeys {
 }
 
 #[test]
+fn plaintext_size_boundary_is_typed_in_utf8_bytes() {
+    let vector = vector();
+    let sender = keys(
+        vector["senderSeed"].as_str().unwrap(),
+        vector["seed"].as_str().unwrap(),
+    );
+    let mut envelope: Envelope = serde_json::from_value(vector["envelope"].clone()).unwrap();
+    let mut body = "é".repeat(crate::wire::MAX_PLAINTEXT_BYTES / 2);
+    assert_eq!(body.len(), 32752);
+    assert!(sender
+        .encrypt_with_nonce(
+            &mut envelope,
+            vector["recipientSpki"].as_str().unwrap(),
+            &body,
+            [0; 12]
+        )
+        .is_ok());
+    assert_eq!(
+        crate::wire::decode_url(&envelope.ciphertext, 16, crate::wire::MAX_CIPHERTEXT_BYTES)
+            .unwrap()
+            .len(),
+        32768
+    );
+    let mut oversized_envelope = envelope.clone();
+    oversized_envelope.ciphertext = URL_SAFE_NO_PAD.encode(vec![0; 32769]);
+    assert_eq!(oversized_envelope.validate(), Err(Error::InvalidEnvelope));
+    body.push('x');
+    assert_eq!(
+        sender.encrypt_with_nonce(
+            &mut envelope,
+            vector["recipientSpki"].as_str().unwrap(),
+            &body,
+            [0; 12]
+        ),
+        Err(Error::MessageTooLarge { limit: 32752 })
+    );
+}
+
+#[test]
 fn golden_v2_matches_every_crypto_boundary() {
     let v = vector();
     let envelope: Envelope = serde_json::from_value(v["envelope"].clone()).unwrap();

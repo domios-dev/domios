@@ -8,6 +8,8 @@ type Slot = Box<dyn Any + Send + Sync>;
 
 pub struct Extensions {
     map: HashMap<TypeId, Slot>,
+    // Late slots a caller forgot to pre-register; leaked once per type so references stay valid.
+    lazy: parking_lot::Mutex<HashMap<TypeId, &'static (dyn Any + Send + Sync)>>,
 }
 
 impl Extensions {
@@ -17,22 +19,38 @@ impl Extensions {
     }
 
     pub fn try_get<T: Any + Send + Sync>(&self) -> Option<&T> {
-        self.map.get(&TypeId::of::<T>()).and_then(|slot| {
-            slot.downcast_ref::<T>()
-                .or_else(|| slot.downcast_ref::<OnceLock<T>>().and_then(OnceLock::get))
-        })
+        self.map
+            .get(&TypeId::of::<T>())
+            .and_then(|slot| {
+                slot.downcast_ref::<T>()
+                    .or_else(|| slot.downcast_ref::<OnceLock<T>>().and_then(OnceLock::get))
+            })
+            .or_else(|| self.lazy_slot::<T>(false).and_then(OnceLock::get))
+    }
+
+    fn lazy_slot<T: Any + Send + Sync>(&self, create: bool) -> Option<&'static OnceLock<T>> {
+        let mut lazy = self.lazy.lock();
+        if let Some(&slot) = lazy.get(&TypeId::of::<T>()) {
+            return slot.downcast_ref::<OnceLock<T>>();
+        }
+        if !create {
+            return None;
+        }
+        log::debug!(
+            "late extension {} created on first use",
+            std::any::type_name::<T>()
+        );
+        let slot: &'static OnceLock<T> = Box::leak(Box::new(OnceLock::new()));
+        lazy.insert(TypeId::of::<T>(), slot);
+        Some(slot)
     }
 
     pub fn get_or_init<T: Any + Send + Sync>(&self, init: impl FnOnce() -> T) -> &T {
         self.map
             .get(&TypeId::of::<T>())
             .and_then(|slot| slot.downcast_ref::<OnceLock<T>>())
-            .unwrap_or_else(|| {
-                panic!(
-                    "late extension {} is not registered",
-                    std::any::type_name::<T>()
-                )
-            })
+            .or_else(|| self.lazy_slot::<T>(true))
+            .expect("a lazily created late slot always exists")
             .get_or_init(init)
     }
 
@@ -87,7 +105,10 @@ impl ExtensionsBuilder {
     pub(crate) fn insert_service_slots(&mut self) {
         self.insert_late::<crate::service::plan::respawn_executor::RetirementReceipts>();
         self.insert_late::<crate::service::neighbors::NeighborRuntimeCell>();
+        self.insert_late::<crate::service::neighbors::updates::UpdateCell>();
+        self.insert_late::<crate::service::neighbors::history::HistoryCell>();
         self.insert_late::<crate::service::account::AccountCredentialCell>();
+        self.insert_late::<crate::service::account::logout::LogoutCell>();
         self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
@@ -105,6 +126,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::account_mesh::AccountMeshCell>();
         self.insert_late::<crate::service::lane_git_queue::LaneGitQueue>();
         self.insert_late::<crate::service::durable_delivery::DurableDeliveryRuntime>();
+        self.insert_late::<crate::service::model_providers::ModelProviderClientState>();
     }
 
     pub fn finish(self) -> Extensions {
@@ -113,7 +135,10 @@ impl ExtensionsBuilder {
                 panic!("required extension {name} is missing");
             }
         }
-        Extensions { map: self.map }
+        Extensions {
+            map: self.map,
+            lazy: Default::default(),
+        }
     }
 }
 

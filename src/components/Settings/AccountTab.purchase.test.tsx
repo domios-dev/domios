@@ -16,6 +16,7 @@ const daemon = vi.hoisted(() => {
     subscriptionUnavailable: false,
     catalogUnavailable: false,
     portals: 0,
+    portalFailure: false,
     logins: 0,
     login: null as null | ((outcome: "ok" | "fail") => void),
     upgrades: [] as string[],
@@ -58,7 +59,8 @@ const daemon = vi.hoisted(() => {
       return ok({ current_tier: state.account.plan, period_end: 1700604800, pending_change: null, billing_interval: paid ? "year" : null,
         paid_subscription: paid ? { tier: paid, status: "active", period_end: 1700604800 } : null });
     }
-    if (path.endsWith("/portal")) { state.portals++; return ok({}); }
+    if (path.endsWith("/portal")) { state.portals++; return state.portalFailure
+      ? { ok: false, status: 409, json: async () => ({ code: "no_billing_customer", message: "There is no paid subscription to manage. Your current access is not billed through Paddle." }) } : ok({}); }
     if (path.endsWith("/login")) {
       state.logins++;
       state.pending = true;
@@ -112,7 +114,7 @@ beforeEach(() => {
   Object.assign(daemon.state, {
     identity: null, pending: false, failure: null, account: { plan: "free", fullAccess: false },
     logins: 0, login: null, upgrades: [], upgradeFails: false, upgradeWait: null, paidPlan: undefined, subscriptionUnavailable: false, catalogUnavailable: false, portals: 0,
-    giftRequests: [], giftResponse: { schema_version: 1, status: "redeemed", plan: "max", duration: "lifetime", expires_at: null }, giftFailure: null, giftWait: null, giftAbortable: false,
+    portalFailure: false, giftRequests: [], giftResponse: { schema_version: 1, status: "redeemed", plan: "max", duration: "lifetime", expires_at: null }, giftFailure: null, giftWait: null, giftAbortable: false,
   });
 });
 
@@ -267,6 +269,8 @@ it("does not offer checkout when actual subscription status could not be verifie
   daemon.state.subscriptionUnavailable = true;
   await mount();
   expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).not.toBeNull();
+  expect(button(host, "Manage subscription")).toBeUndefined();
+  expect(button(host, "Upgrade")).toBeDefined();
   for (const name of ["Pro", "Max", "Sponsor"]) {
     const choose = button(card(name), `Choose ${name}`);
     expect(choose === undefined || choose.disabled).toBe(true);
@@ -413,4 +417,31 @@ it("bounds a stalled redemption without automatically replaying the key", async 
   expect(giftForm()!.querySelector('[role="alert"]')).not.toBeNull();
   expect(daemon.state.giftRequests).toHaveLength(1);
   expect(daemon.state.account.plan).toBe("free");
+});
+
+it.each([
+  ["free", false], ["pro", false], ["max", false], ["free", true],
+] as const)("offers Upgrade for %s access (staff: %s) without a paid subscription", async (plan, fullAccess) => {
+  daemon.state.identity = { uid: "granted-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.account = { plan, fullAccess };
+  daemon.state.paidPlan = null;
+  await mount();
+  expect(button(host, "Manage subscription")).toBeUndefined();
+  expect(button(host, "Upgrade")).toBeDefined();
+  await click(host, "Upgrade");
+  expect(document.activeElement?.contains(host.querySelector('[role="group"][aria-label="Subscription plans"]'))).toBe(true);
+  expect(daemon.state.portals).toBe(0);
+  expect(daemon.state.upgrades).toEqual([]);
+});
+
+it("shows the typed no-customer fallback when a paid subscription readback has become stale", async () => {
+  daemon.state.identity = { uid: "paid-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
+  daemon.state.account = { plan: "pro", fullAccess: false };
+  daemon.state.paidPlan = "pro";
+  daemon.state.portalFailure = true;
+  await mount();
+  await click(host, "Manage subscription");
+  expect(daemon.state.portals).toBe(1);
+  expect(toast()?.textContent).toContain("There is no paid subscription to manage. Your current access is not billed through Paddle.");
+  expect(button(toast() as HTMLElement, "Retry")).toBeUndefined();
 });

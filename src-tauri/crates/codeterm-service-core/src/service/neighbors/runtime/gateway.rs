@@ -12,6 +12,9 @@ use codeterm_neighbors::{
 };
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+mod tests;
+
 pub(super) struct Gateway {
     pub service: ServiceContext,
     pub metadata: Metadata,
@@ -22,6 +25,41 @@ pub(super) struct Gateway {
 }
 
 impl ServiceContext {
+    pub(super) fn neighbor_gateway_ready(&self, tab_id: &str) -> bool {
+        let runtime = crate::service::agent_runtime::requested_for_tab(self, tab_id);
+        let mux = self.mux.read();
+        mux.get_tab(tab_id).is_some_and(|tab| {
+            !tab.frozen
+                && !tab.agent_booting
+                && tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
+                && tab.launch_session_authenticated()
+                && (!runtime || crate::service::agent_runtime::engine::has_live_bound_session(tab))
+        })
+    }
+
+    pub(super) async fn prepare_neighbor_gateway(&self, tab_id: &str) -> Result<()> {
+        self.validate_neighbor_gateway(tab_id)
+            .map_err(|_| Error::Gateway)?;
+        if crate::service::agent_runtime::requested_for_tab(self, tab_id) {
+            let service = self.clone();
+            let tab = tab_id.to_owned();
+            tokio::task::spawn_blocking(move || service.wake_frozen_tab(&tab))
+                .await
+                .map_err(|_| Error::Gateway)?
+                .map_err(|error| {
+                    log::debug!("[neighbors] concierge wake tab={tab_id}: {error}");
+                    Error::Gateway
+                })?;
+            crate::service::agent_runtime::engine::ensure(self, tab_id)
+                .await
+                .map_err(|error| {
+                    log::debug!("[neighbors] concierge startup tab={tab_id}: {error}");
+                    Error::Gateway
+                })?;
+        }
+        Ok(())
+    }
+
     pub(super) fn validate_neighbor_gateway(
         &self,
         tab_id: &str,
@@ -48,7 +86,18 @@ impl NeighborGateway for Gateway {
         message: &InboxMessage,
         plaintext: Zeroizing<String>,
     ) -> Result<GatewayReceipt> {
+        let history_generation = self.service.neighbor_history_generation();
         self.current()?;
+        if self
+            .service
+            .mux
+            .read()
+            .get_tab(&self.tab)
+            .and_then(|tab| tab.neighbor_authority.as_ref())
+            .is_some_and(|authority| authority.uid != message.doc.envelope.recipient_uid)
+        {
+            return Err(Error::WrongPeer);
+        }
         let events = self.service.events.subscribe();
         let path = format!("gateway-{}.json", self.friendship);
         let previous: Option<Receipt> = self.metadata.read(path.clone()).await?;
@@ -63,6 +112,36 @@ impl NeighborGateway for Gateway {
             Resume::Unconfirmed => return Ok(GatewayReceipt::SubmitUnconfirmed),
             Resume::Admit => {}
         }
+        self.current()?;
+        let plaintext = self
+            .service
+            .receive_neighbor_files(&self.metadata, message, plaintext, self.generation)
+            .await?;
+        self.service
+            .append_neighbor_history(
+                &self.metadata,
+                &self.friendship,
+                super::super::history::Entry {
+                    direction: "in".into(),
+                    author: super::super::history::Author::Person("friend".into()),
+                    sender_uid: message.doc.envelope.sender_uid.clone(),
+                    body: plaintext.to_string(),
+                    at: message.doc.received_at.seconds * 1000
+                        + u64::from(message.doc.received_at.nanoseconds / 1_000_000),
+                    message_id: message.doc.envelope.message_id.clone(),
+                    delivery_status: None,
+                    kind: message.doc.envelope.kind,
+                    in_reply_to: message.doc.envelope.in_reply_to.clone(),
+                    outcome: None,
+                    reason: None,
+                    limit: None,
+                    resets_at: None,
+                    retry_after_seconds: None,
+                    submission: None,
+                },
+                history_generation,
+            )
+            .await?;
         let permission = self
             .metadata
             .settings()
@@ -142,6 +221,20 @@ impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
 
 impl Gateway {
     fn current(&self) -> Result<()> {
+        self.service.require_neighbors_enabled()?;
+        self.service.require_neighbor_receiver(None)?;
+        if self
+            .service
+            .mux
+            .read()
+            .get_tab(&self.tab)
+            .and_then(|tab| tab.neighbor_authority.as_ref())
+            .is_some_and(|authority| {
+                authority.friendship_id != self.friendship || authority.root_tab_id.is_some()
+            })
+        {
+            return Err(Error::Gateway);
+        }
         use std::sync::atomic::Ordering;
         if self
             .service
@@ -183,14 +276,17 @@ impl Gateway {
             .len();
         let limit = {
             let mux = self.service.mux.read();
-            let provider = mux
-                .get_tab(&self.tab)
-                .and_then(|tab| tab.agent_type.as_deref())
-                .ok_or(Error::Gateway)?;
-            self.service
-                .agent_registry
-                .with_provider(provider, |provider| provider.paste_limit_bytes())
-                .flatten()
+            let tab = mux.get_tab(&self.tab).ok_or(Error::Gateway)?;
+            let provider = tab.agent_type.as_deref().ok_or(Error::Gateway)?;
+            // A paste limit bounds PTY input only; runtime-backed tabs take the turn as structured input.
+            if matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty) {
+                self.service
+                    .agent_registry
+                    .with_provider(provider, |provider| provider.paste_limit_bytes())
+                    .flatten()
+            } else {
+                None
+            }
         };
         if limit.is_some_and(|limit| framed_bytes > limit) {
             return Err(Error::Gateway);
@@ -200,9 +296,15 @@ impl Gateway {
         let service = self.service.clone();
         let tab = self.tab.clone();
         let outcome = tokio::task::spawn_blocking(move || {
+            service
+                .require_neighbors_enabled()
+                .map_err(|error| (error, false))?;
             Messenger::deliver(&service, &tab, envelope, &body).map_err(|error| {
-                crate::service::delivery_error::DeliveryError::from_opaque(&tab, error)
-                    .bytes_written()
+                (
+                    Error::Gateway,
+                    crate::service::delivery_error::DeliveryError::from_opaque(&tab, error)
+                        .bytes_written(),
+                )
             })
         })
         .await
@@ -225,15 +327,15 @@ impl Gateway {
                 self.await_pending(message, path.to_owned(), delivery_id, events)
                     .await
             }
-            Ok(Delivery::Unconfirmed { .. }) | Err(true) => {
+            Ok(Delivery::Unconfirmed { .. }) | Err((_, true)) => {
                 self.save_receipt(message, &path, ReceiptState::SubmitUnconfirmed)
                     .await?;
                 Ok(GatewayReceipt::SubmitUnconfirmed)
             }
-            Err(false) => {
+            Err((error, false)) => {
                 self.save_receipt(message, &path, ReceiptState::PrewriteRefused)
                     .await?;
-                Err(Error::Gateway)
+                Err(error)
             }
         }
     }

@@ -1,0 +1,1483 @@
+.neighbors-view {
+  container-type: inline-size;
+  --neighbor-node-size: 3.25rem;
+  --neighbor-me-size: 4.75rem;
+}
+
+.neighbors-refresh {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.neighbors-refresh:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.neighbors-body {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+
+/* The neighborhood sits on the Domios dot field, fading out toward the edges. */
+.neighbors-canvas {
+  position: relative;
+  container-type: size;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  overflow: auto;
+  padding: 2.5rem 1rem 3rem;
+  background:
+    radial-gradient(color-mix(in srgb, var(--ct-fg) 12%, transparent) 1px, transparent 1.6px) 0 0 / 22px 22px,
+    radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 72%);
+}
+
+.neighbors-canvas::before {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 30%, var(--ct-bg) 82%);
+  content: "";
+  pointer-events: none;
+}
+
+.neighbors-notices {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 3;
+  width: min(28rem, calc(100% - 2rem));
+  transform: translateX(-50%);
+}
+
+.neighbors-stage {
+  position: relative;
+  z-index: 1;
+  width: min(34rem, calc(100cqw - 2rem), calc(100cqh - 9rem));
+  min-width: 14rem;
+  aspect-ratio: 1;
+  flex: none;
+}
+
+.neighbors-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.neighbor-edge {
+  stroke: color-mix(in srgb, var(--ct-fg) 18%, transparent);
+  stroke-width: 1.25;
+  stroke-linecap: round;
+  transition: stroke var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+}
+
+.neighbor-edge[data-kind="request"],
+.neighbor-edge[data-kind="add"] {
+  stroke-dasharray: 3 5;
+}
+
+.neighbor-edge[data-kind="add"] {
+  stroke: color-mix(in srgb, var(--ct-accent) 30%, transparent);
+}
+
+.neighbor-edge[data-active] {
+  stroke: var(--ct-accent);
+  stroke-width: 1.75;
+}
+
+.neighbor-me,
+.neighbor-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  transform: translate(-50%, calc(var(--neighbor-node-size) / -2));
+}
+
+.neighbor-me {
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  transform: translate(-50%, calc(var(--neighbor-me-size) / -2));
+}
+
+.neighbor-me__ring {
+  display: flex;
+  width: var(--neighbor-me-size);
+  height: var(--neighbor-me-size);
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--ct-bg);
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--ct-accent) 70%, transparent),
+    0 0 0 9px color-mix(in srgb, var(--ct-accent) 7%, transparent),
+    var(--ct-shadow-capsule);
+}
+
+.neighbor-me__ring > span {
+  border-radius: 999px;
+}
+
+.neighbor-me__ghost {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed color-mix(in srgb, var(--ct-muted-fg) 50%, transparent);
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-me:not([data-signed-in]) .neighbor-me__ring {
+  box-shadow: var(--ct-shadow-capsule);
+}
+
+.neighbor-me__signin {
+  display: flex;
+  width: min(19rem, 80cqi);
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  text-align: center;
+}
+
+.neighbor-me__title {
+  color: var(--ct-fg);
+  font-size: var(--ct-font-size-md);
+  font-weight: 600;
+}
+
+.neighbor-node {
+  z-index: 2;
+  max-width: 8.5rem;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ct-fg);
+  cursor: pointer;
+  animation: neighbor-arrive var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+  animation-delay: var(--neighbor-delay, 0ms);
+}
+
+@keyframes neighbor-arrive {
+  from {
+    opacity: 0;
+    translate: var(--neighbor-from-x) var(--neighbor-from-y);
+    scale: 0.6;
+  }
+}
+
+.neighbor-node__disc {
+  display: flex;
+  width: var(--neighbor-node-size);
+  height: var(--neighbor-node-size);
+  flex: none;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--ct-bg);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ct-fg) 12%, transparent), var(--ct-shadow-capsule);
+  transition:
+    box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
+    scale var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell);
+}
+
+.neighbor-node__disc > span {
+  border-radius: 999px;
+}
+
+.neighbor-node:hover .neighbor-node__disc,
+.neighbor-node:focus-visible .neighbor-node__disc {
+  scale: 1.06;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-accent) 60%, transparent), var(--ct-shadow-capsule);
+}
+
+.neighbor-node:focus-visible {
+  outline: none;
+}
+
+.neighbor-node[aria-pressed="true"] .neighbor-node__disc {
+  box-shadow: 0 0 0 2px var(--ct-accent), 0 0 0 7px color-mix(in srgb, var(--ct-accent) 12%, transparent), var(--ct-shadow-capsule);
+}
+
+.neighbor-node[data-status="request"] .neighbor-node__disc {
+  outline: 1.5px dashed color-mix(in srgb, var(--ct-accent) 55%, transparent);
+  outline-offset: 3px;
+}
+
+.neighbor-node[data-status="paused"] .neighbor-node__disc > span {
+  opacity: 0.6;
+}
+
+.neighbor-node__name {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The add node is the one glowing thing on the page: an open seat at the table. */
+.neighbor-node--add .neighbor-node__disc {
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed color-mix(in srgb, var(--ct-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 8%, var(--ct-bg));
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--ct-accent) 6%, transparent), 0 0 26px color-mix(in srgb, var(--ct-accent) 30%, transparent);
+  color: var(--ct-accent);
+}
+
+.neighbor-node--add:hover .neighbor-node__disc,
+.neighbor-node--add:focus-visible .neighbor-node__disc {
+  border-style: solid;
+  box-shadow: 0 0 0 8px color-mix(in srgb, var(--ct-accent) 10%, transparent), 0 0 34px color-mix(in srgb, var(--ct-accent) 42%, transparent);
+}
+
+.neighbor-node--add .neighbor-node__name {
+  color: var(--ct-accent);
+  font-weight: 500;
+}
+
+.neighbor-node:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.neighbor-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.neighbor-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--ct-muted);
+}
+
+.neighbor-dot[data-tone="ok"] { background: var(--ct-green); }
+.neighbor-dot[data-tone="progress"] { background: var(--ct-accent); }
+.neighbor-dot[data-tone="danger"] { background: var(--ct-red); }
+
+.neighbor-note {
+  color: var(--ct-muted-fg);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.neighbors-loading {
+  position: absolute;
+  top: calc(50% + var(--neighbor-me-size) / 2 + 2rem);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.neighbors-caption {
+  position: relative;
+  z-index: 1;
+  max-width: 22rem;
+  margin-top: 0.5rem;
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.neighbors-referral {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  max-width: 28rem;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.6rem 0.75rem;
+}
+
+.neighbor-panel {
+  display: flex;
+  width: 20rem;
+  flex: none;
+  flex-direction: column;
+  gap: 0.85rem;
+  overflow-y: auto;
+  padding: 1rem;
+  border-left: 1px solid color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  background: var(--ct-bg);
+  animation: neighbor-panel-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+
+@keyframes neighbor-panel-in {
+  from {
+    opacity: 0;
+    translate: 1.5rem 0;
+  }
+}
+
+.neighbor-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.neighbor-panel__avatar {
+  display: flex;
+  width: 2.75rem;
+  height: 2.75rem;
+  flex: none;
+}
+
+.neighbor-panel__avatar > span {
+  border-radius: 999px;
+}
+
+.neighbor-panel__name {
+  overflow: hidden;
+  font-size: var(--ct-font-size-md);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.neighbor-panel__close {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.neighbor-panel__close:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.neighbor-panel__lead {
+  color: var(--ct-muted-fg);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.neighbor-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.neighbor-action {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 0.7rem;
+  border: 0;
+  border-radius: 10px;
+  padding: 0.5rem 0.55rem;
+  background: transparent;
+  color: var(--ct-fg);
+  cursor: pointer;
+  text-align: left;
+}
+
+.neighbor-action:hover:not(:disabled),
+.neighbor-action[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+}
+
+.neighbor-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.neighbor-action__icon {
+  display: inline-flex;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ct-accent) 11%, transparent);
+  color: var(--ct-accent);
+}
+
+.neighbor-action[data-danger] .neighbor-action__icon {
+  background: color-mix(in srgb, var(--ct-red) 10%, transparent);
+  color: var(--ct-red);
+}
+
+.neighbor-action__label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.neighbor-action__hint {
+  display: block;
+  overflow: hidden;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.neighbor-panel__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0.1rem 0 0.5rem 2.95rem;
+}
+
+.neighbor-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.neighbor-confirm__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.neighbor-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  font-size: 12px;
+}
+
+.neighbor-facts dt {
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-limit__row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.neighbor-limit__input {
+  width: 5rem;
+}
+
+.neighbor-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.neighbor-label {
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.neighbor-textarea {
+  min-height: 4.5rem;
+  padding-block: 0.45rem;
+  resize: vertical;
+}
+
+/* In a friend's permissions the scope field lines up with the tiles above and below it. */
+.neighbor-permissions .neighbor-textarea {
+  padding-inline: 0.75rem;
+  border-radius: 12px;
+}
+
+.neighbor-receipts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 11.5px;
+}
+
+.neighbor-receipts li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Add dialog: you, an open seat, and a dotted line waiting to be drawn between you. */
+.neighbor-dialog {
+  gap: 0.9rem;
+  padding: 1.25rem;
+  border-radius: var(--ct-radius-xl);
+}
+
+.neighbor-dialog__art {
+  display: flex;
+  height: 5.5rem;
+  align-items: center;
+  justify-content: center;
+  margin: -1.25rem -1.25rem 0;
+  border-radius: var(--ct-radius-xl) var(--ct-radius-xl) 0 0;
+  background:
+    radial-gradient(color-mix(in srgb, var(--ct-fg) 13%, transparent) 1px, transparent 1.6px) 0 0 / 16px 16px,
+    color-mix(in srgb, var(--ct-accent) 5%, var(--ct-surface));
+  mask-image: linear-gradient(to bottom, black 70%, transparent);
+}
+
+.neighbor-dialog__you,
+.neighbor-dialog__them {
+  display: flex;
+  width: 2.6rem;
+  height: 2.6rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+
+.neighbor-dialog__you {
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-accent) 70%, transparent);
+  color: var(--ct-accent);
+}
+
+.neighbor-dialog__them {
+  border: 1.5px dashed color-mix(in srgb, var(--ct-accent) 65%, transparent);
+  background: color-mix(in srgb, var(--ct-accent) 8%, var(--ct-bg));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ct-accent) 30%, transparent);
+  color: var(--ct-accent);
+  transition: background-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
+}
+
+.neighbor-dialog__them--sent {
+  border-style: solid;
+  background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+}
+
+.neighbor-dialog__link {
+  position: relative;
+  width: 4.5rem;
+  height: 0;
+  border-top: 1.5px dashed color-mix(in srgb, var(--ct-accent) 50%, transparent);
+}
+
+.neighbor-dialog__link::after {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--ct-accent);
+  content: "";
+  animation: neighbor-travel 1.6s var(--ct-ease-liquid-settle) 0.2s both;
+}
+
+@keyframes neighbor-travel {
+  from { left: 0; opacity: 0; }
+  20% { opacity: 1; }
+  to { left: calc(100% - 6px); opacity: 1; }
+}
+
+.neighbor-dialog__title {
+  font-size: var(--ct-font-size-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-align: center;
+}
+
+.neighbor-dialog__lead {
+  margin-top: -0.5rem;
+  color: var(--ct-muted-fg);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.neighbor-dialog__sent {
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.neighbor-perk {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.7rem 0.8rem;
+  --ct-card-tone: var(--ct-yellow);
+}
+
+.neighbor-perk .ct-card__meta {
+  margin-top: 0.15rem;
+  line-height: 1.45;
+}
+
+/* On a phone the panel is an opaque glass sheet below the graph, and the graph re-centres above it. */
+@container (max-width: 40rem) {
+  .neighbors-body {
+    --neighbor-node-size: 2.75rem;
+    --neighbor-me-size: 4rem;
+    flex-direction: column;
+  }
+
+  .neighbors-canvas {
+    padding: 1.25rem 0.75rem 4.25rem;
+  }
+
+  .neighbors-body[data-panel] ~ .neighbors-privacy {
+    display: none;
+  }
+
+  .neighbor-panel {
+    position: relative;
+    z-index: 3;
+    width: auto;
+    max-height: 58%;
+    border-top: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
+    border-left: 0;
+    border-radius: var(--ct-radius-xl) var(--ct-radius-xl) 0 0;
+    background: var(--ct-glass-sheen), var(--ct-glass-bg);
+    box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+    backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+    animation-name: neighbor-sheet-in;
+  }
+}
+
+@keyframes neighbor-sheet-in {
+  from {
+    opacity: 0;
+    translate: 0 2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neighbor-node,
+  .neighbor-panel,
+  .neighbor-dialog__link::after {
+    animation: none;
+  }
+
+  .neighbor-node__disc,
+  .neighbor-edge {
+    transition: none;
+  }
+}
+
+.sidebar-neighbors {
+  padding: 2px 0 6px;
+}
+
+.sidebar-neighbor-avatar {
+  display: flex;
+  width: 18px;
+  height: 18px;
+}
+
+.sidebar-neighbor-avatar > span {
+  border-radius: 999px;
+  font-size: 8.5px;
+}
+
+.sidebar-neighbors .neighbor-dot {
+  width: 5px;
+  height: 5px;
+}
+
+/* An invitation is an empty seat: a dashed outline and the typed address, never a face. */
+.neighbor-edge[data-kind="invited"] {
+  stroke-dasharray: 2 6;
+  stroke: color-mix(in srgb, var(--ct-fg) 14%, transparent);
+}
+
+.neighbor-node--invited {
+  cursor: default;
+}
+
+.neighbor-node--invited .neighbor-node__disc {
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed color-mix(in srgb, var(--ct-muted-fg) 55%, transparent);
+  background: var(--ct-bg);
+  box-shadow: none;
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-node--invited .neighbor-node__name {
+  color: var(--ct-muted-fg);
+  font-weight: 500;
+}
+
+.sidebar-neighbors-off {
+  padding: 4px 16px 0;
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+}
+
+.sidebar-neighbors[data-off] .sidebar-tab-body {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+
+.neighbor-me[data-off] .neighbor-me__ring {
+  opacity: 0.55;
+  filter: grayscale(1);
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-muted-fg) 40%, transparent), var(--ct-shadow-capsule);
+}
+
+.neighbor-privacy {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.neighbor-privacy svg {
+  flex: none;
+  translate: 0 1px;
+}
+
+/* The privacy promise rests at the bottom edge as one small glass capsule, out of the graph's way. */
+.neighbors-privacy {
+  position: absolute;
+  bottom: calc(0.9rem + var(--ct-safe-bottom, 0px));
+  left: 50%;
+  z-index: 2;
+  width: max-content;
+  max-width: min(34rem, calc(100% - 2rem));
+  align-items: center;
+  padding: 0.4rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  border-radius: 999px;
+  background: var(--ct-glass-sheen), var(--ct-glass-bg);
+  box-shadow: var(--ct-glass-edge), var(--ct-shadow-capsule);
+  backdrop-filter: blur(var(--ct-glass-blur)) saturate(var(--ct-glass-saturate));
+  font-size: 11px;
+  translate: -50% 0;
+}
+
+.neighbors-privacy svg {
+  translate: 0;
+  color: var(--ct-accent);
+}
+
+.neighbors-canvas {
+  padding-bottom: 4.5rem;
+}
+
+.neighbor-me__hint {
+  max-width: 17rem;
+  color: var(--ct-muted-fg);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.neighbor-panel__privacy {
+  margin-top: auto;
+  padding-top: 0.75rem;
+  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 6%, transparent);
+}
+
+.sidebar-neighbor-concierge {
+  padding-left: 30px;
+}
+
+.sidebar-neighbor-concierge__menu {
+  display: flex;
+  border: 0;
+  padding: 0 2px;
+  background: transparent;
+}
+
+@media (hover: hover) {
+  .sidebar-neighbor-concierge .sidebar-neighbor-concierge__menu {
+    opacity: 0;
+    transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
+  }
+
+  .sidebar-neighbor-concierge:hover .sidebar-neighbor-concierge__menu,
+  .sidebar-neighbor-concierge:focus-within .sidebar-neighbor-concierge__menu {
+    opacity: 1;
+  }
+}
+
+.neighbor-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.neighbor-permissions__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Every field in a friend's permissions is named one way, below the section labels. */
+.neighbor-permissions__label,
+.neighbor-field > label {
+  color: var(--ct-fg);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* A Neighbor's conversation reads like the main chat: their words on the left, your side on the right. */
+.neighbor-chat__avatar {
+  display: flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+}
+
+.neighbor-chat__avatar > span,
+.neighbor-msg__avatar > span {
+  border-radius: 999px;
+}
+
+.neighbor-chat__scroll {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.neighbor-chat__column {
+  display: flex;
+  max-width: 48rem;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 1.5rem;
+}
+
+.neighbor-chat__earlier,
+.neighbor-chat__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: center;
+}
+
+.neighbor-chat__empty {
+  margin: 18vh auto 0;
+  max-width: 22rem;
+}
+
+/* Authorship reads at a glance: your side in the accent bubble, captioned when an agent spoke for you;
+   your friend and their concierge in neutral bubbles behind their avatar. */
+.neighbor-msg {
+  display: flex;
+  max-width: 85%;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.neighbor-msg[data-side="out"] {
+  align-self: flex-end;
+}
+
+.neighbor-msg[data-grouped] {
+  margin-top: -0.6rem;
+}
+
+.neighbor-msg__avatar {
+  position: relative;
+  display: flex;
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: none;
+  margin-bottom: 1.15rem;
+}
+
+.neighbor-msg__badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: flex;
+  width: 0.85rem;
+  height: 0.85rem;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--ct-bg);
+  border-radius: 999px;
+  background: var(--ct-accent);
+  color: var(--ct-bg);
+}
+
+.neighbor-msg__stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.neighbor-msg[data-side="out"] .neighbor-msg__stack {
+  align-items: flex-end;
+}
+
+.neighbor-msg__bubble {
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--ct-bubble-pad-y) var(--ct-bubble-pad-x);
+  color: var(--ct-fg);
+}
+
+.neighbor-msg__caption {
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.neighbor-msg[data-side="in"] .neighbor-msg__bubble {
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  border-radius: var(--ct-bubble-radius) var(--ct-bubble-radius) var(--ct-bubble-radius) var(--ct-bubble-tail-radius);
+  background: color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg));
+}
+
+/* A refusal keeps its words but carries a quiet danger edge on the side it speaks from. */
+.neighbor-msg[data-refused][data-side="in"] .neighbor-msg__bubble {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ct-red) 60%, transparent);
+}
+
+.neighbor-msg[data-refused][data-side="out"] .neighbor-msg__bubble {
+  box-shadow: inset -2px 0 0 color-mix(in srgb, var(--ct-red) 60%, transparent);
+}
+
+.neighbor-msg[data-grouped] .neighbor-msg__meta:empty {
+  display: none;
+}
+
+.neighbor-msg__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+}
+
+.neighbor-msg__refused {
+  white-space: normal;
+}
+
+.neighbor-chat__composer {
+  display: flex;
+  width: min(48rem, 100%);
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0 auto;
+  padding: 0 1rem calc(0.9rem + var(--ct-safe-bottom, 0px));
+}
+
+.neighbor-chat__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+  padding: 0.4rem;
+  border-radius: var(--ct-radius-xl);
+  background: var(--ct-bg);
+  box-shadow: var(--ct-shadow-capsule);
+}
+
+.neighbor-chat__input {
+  max-height: 10rem;
+  min-height: var(--ct-control-height-small);
+  padding-block: 0.4rem;
+  border: 0;
+  background: transparent;
+  resize: none;
+  field-sizing: content;
+}
+
+.neighbor-chat__input:focus {
+  box-shadow: none;
+}
+
+.neighbor-chat__privacy {
+  justify-content: center;
+}
+
+.sidebar-neighbors .sidebar-tab[data-active] {
+  border-radius: 8px;
+  background: var(--ct-active);
+}
+
+.neighbor-chat__limit {
+  text-align: center;
+}
+
+.neighbor-me__receiving {
+  white-space: nowrap;
+}
+
+.neighbor-chat__moved {
+  margin: 0;
+  padding: 0.45rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 7%, transparent);
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  text-align: center;
+}
+
+.neighbor-missing {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  --ct-card-tone: var(--ct-accent);
+}
+
+.neighbor-chat__notice {
+  width: min(48rem, 100%);
+  margin: 0.75rem auto 0;
+  padding: 0 1rem;
+}
+
+.sidebar-neighbors-loading {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 4px;
+  animation: neighbor-fade-in var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle) both;
+}
+
+@keyframes neighbor-fade-in {
+  from { opacity: 0; }
+}
+
+/* A friend opens as a window that grows out of their node over the dimmed neighborhood, and folds back into it. */
+.neighbor-window-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: color-mix(in srgb, var(--ct-bg) 55%, transparent);
+  backdrop-filter: blur(6px);
+  animation: neighbor-fade-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+
+.neighbor-window-layer[data-closing] {
+  animation: neighbor-fade-out var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+
+.neighbor-window {
+  display: flex;
+  width: min(56rem, 100%);
+  max-height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
+  border-radius: var(--ct-radius-xl);
+  background: var(--ct-bg);
+  box-shadow: var(--ct-shadow-capsule);
+  outline: none;
+  animation: neighbor-window-in var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+
+.neighbor-window-layer[data-closing] .neighbor-window {
+  animation: neighbor-window-out var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle) both;
+}
+
+@keyframes neighbor-window-in {
+  from {
+    opacity: 0;
+    transform: translate(var(--neighbor-from-dx, 0px), var(--neighbor-from-dy, 0px)) scale(0.08);
+  }
+}
+
+@keyframes neighbor-window-out {
+  to {
+    opacity: 0;
+    transform: translate(var(--neighbor-from-dx, 0px), var(--neighbor-from-dy, 0px)) scale(0.08);
+  }
+}
+
+@keyframes neighbor-fade-out {
+  to { opacity: 0; }
+}
+
+.neighbor-window__hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.25rem 1.25rem 1rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 7%, transparent);
+}
+
+.neighbor-window__avatar {
+  display: flex;
+  width: 4rem;
+  height: 4rem;
+  flex: none;
+  padding: 3px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--ct-accent) 55%, transparent), var(--ct-shadow-capsule);
+}
+
+.neighbor-window__avatar > span {
+  border-radius: 999px;
+}
+
+.neighbor-window__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.neighbor-window__actions .ct-btn {
+  gap: 0.35rem;
+}
+
+/* The window sits outside the Settings panel, so its buttons take the Settings button size here instead of the page's. */
+.neighbor-window .ct-btn:not(.ct-btn-lg) {
+  font-size: 12px;
+}
+
+.neighbor-window__pause {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0 0.35rem;
+  color: var(--ct-muted-fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.neighbor-window__pause[data-paused] {
+  color: var(--ct-yellow);
+}
+
+/* A paused friend stays on every surface, just quieter. */
+.neighbor-window[data-paused] .neighbor-window__avatar,
+.neighbor-node[data-paused] .neighbor-node__disc,
+.sidebar-neighbor-avatar[data-paused] {
+  position: relative;
+}
+
+.neighbor-window[data-paused] .neighbor-window__avatar > :not(.neighbor-pause-glyph),
+.neighbor-node[data-paused] .neighbor-node__disc > :not(.neighbor-pause-glyph),
+.sidebar-neighbor-avatar[data-paused] > :not(.neighbor-pause-glyph) {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+
+.neighbor-chat__paused {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sidebar-neighbor-concierge[data-paused] {
+  opacity: 0.6;
+}
+
+.neighbor-pause-glyph {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-flex;
+  padding: 1px;
+  border-radius: 999px;
+  background: var(--ct-bg);
+  color: var(--ct-yellow);
+}
+
+.neighbor-window__close {
+  display: inline-flex;
+  width: 1.9rem;
+  height: 1.9rem;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+
+.neighbor-window__close:hover {
+  background: var(--ct-hover);
+  color: var(--ct-fg);
+}
+
+.neighbor-window__body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1.25rem 1.5rem;
+}
+
+.neighbor-friend__name {
+  font-size: var(--ct-font-size-lg);
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.neighbor-friend__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.neighbor-friend__label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.neighbor-friend__danger {
+  --ct-card-tone: var(--ct-red);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neighbor-window-layer,
+  .neighbor-window,
+  .neighbor-window-layer[data-closing] .neighbor-window {
+    animation: none;
+  }
+}
+
+/* On a phone the friend's window takes the whole view. */
+@container (max-width: 40rem) {
+  .neighbor-window-layer {
+    padding: 0;
+  }
+
+  .neighbor-window {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .neighbor-window__hero {
+    padding: calc(1rem + var(--ct-safe-top, 0px)) 1rem 0.85rem;
+  }
+
+  .neighbor-window__body {
+    padding: 0.85rem 1rem calc(1.25rem + var(--ct-safe-bottom, 0px));
+  }
+
+  /* Four trust presets do not fit one row on a phone: they stack two by two, and the chosen one wears the thumb. */
+  .neighbor-trust {
+    display: grid;
+    height: auto !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 3px;
+    border-radius: var(--ct-radius-lg);
+  }
+
+  .neighbor-trust .ct-liquid-segmented__thumb {
+    display: none;
+  }
+
+  .neighbor-trust .ct-liquid-segmented__option {
+    min-height: 1.75rem;
+    padding-inline: 0.5rem;
+    border-radius: var(--ct-radius-md);
+  }
+
+  .neighbor-trust .ct-liquid-segmented__option[aria-selected="true"] {
+    background: color-mix(in srgb, var(--ct-accent) 22%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  }
+
+  .neighbor-trust .ct-liquid-segmented__option[aria-selected="true"]:focus-visible {
+    box-shadow: 0 0 0 2px var(--ct-bg), 0 0 0 4px color-mix(in srgb, var(--ct-accent) 60%, transparent);
+  }
+}
+
+.neighbors-receive {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  max-width: 26rem;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.neighbors-receive--confirm {
+  align-items: stretch;
+  padding: 0.75rem 0.85rem;
+}
+
+.neighbors-updating {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  animation: neighbor-fade-in var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle) both;
+}
+
+.neighbor-chat__who {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.6rem;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.15rem 0.5rem 0.15rem 0.15rem;
+  background: transparent;
+  color: var(--ct-fg);
+  cursor: pointer;
+}
+
+.neighbor-chat__who:hover {
+  background: var(--ct-hover);
+}
+
+.neighbor-folder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.neighbor-folder__path {
+  overflow: hidden;
+  max-width: 28rem;
+  color: var(--ct-muted-fg);
+  font-family: var(--ct-font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.neighbor-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.neighbor-msg[data-side="out"] .neighbor-files {
+  justify-content: flex-end;
+}
+
+.neighbor-file {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--ct-fg) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ct-fg) 3%, var(--ct-bg));
+  color: var(--ct-fg);
+  font-size: 11.5px;
+}
+
+.neighbor-file__item {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+button.neighbor-file {
+  cursor: pointer;
+}
+
+button.neighbor-file:hover {
+  border-color: color-mix(in srgb, var(--ct-accent) 40%, transparent);
+}
+
+.neighbor-file[data-state="expired"],
+.neighbor-file[data-state="failed"] {
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-file__name {
+  overflow: hidden;
+  max-width: 14rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.neighbor-access {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.neighbor-access__warning {
+  color: color-mix(in srgb, var(--ct-red) 75%, var(--ct-fg));
+}
+
+/* A picker row is a tile like the switches around it. */
+.neighbor-areas {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+}
+
+/* Under a message, Check delivery reads as part of the quiet meta line, not as a full button. */
+.neighbor-msg__meta .ct-btn {
+  min-height: 0;
+  padding: 0 0.35rem;
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
+.neighbor-permissions .ct-settings-section + .ct-settings-section,
+.neighbor-permissions .neighbor-confirm__actions + .ct-settings-section {
+  margin-top: 0.4rem;
+}
+
+.neighbor-folder--needed {
+  align-items: center;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-accent) 6%, var(--ct-bg));
+}
+
+.neighbor-friend__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}

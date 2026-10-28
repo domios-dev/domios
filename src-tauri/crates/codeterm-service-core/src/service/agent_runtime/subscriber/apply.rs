@@ -198,6 +198,13 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         }
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
             let item = session.cache.lock().reconcile_live(item, at);
+            crate::flow_trace::SourceCursor::rpc(
+                &context.tab_id,
+                &session.provider,
+                &thread_id,
+                Some(&context.binding_nonce),
+                &item,
+            );
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
                 svc.ui.as_ref(),
                 &context.tab_id,
@@ -220,6 +227,14 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             {
                 return;
             }
+            svc.chat_send_ledger.trace_rpc_turn(
+                &context.tab_id,
+                &thread_id,
+                &context.binding_nonce,
+                &send_id,
+                &turn_id,
+                &session.provider,
+            );
             if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(
                 &context.tab_id,
                 &thread_id,

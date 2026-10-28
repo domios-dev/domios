@@ -64,7 +64,7 @@ fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
 impl SessionSource for AccountSessions {
     async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
         let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
-        account.fresh_session().await.map_err(session_refusal)
+        account.current_session().await.map_err(session_refusal)
     }
 }
 
@@ -125,6 +125,8 @@ pub enum AccountMeshOutcome<T> {
         ok: bool,
         request_id: Option<String>,
         failure: AccountMeshRefusal,
+        #[serde(skip_serializing_if = "std::ops::Not::not")]
+        local_signed_out: bool,
     },
 }
 
@@ -136,6 +138,7 @@ impl<T> AccountMeshOutcome<T> {
                 ok: false,
                 request_id,
                 failure,
+                local_signed_out: false,
             },
         }
     }
@@ -407,24 +410,31 @@ impl ServiceContext {
         AccountMeshOutcome<codeterm_account::account_mesh::wire::SessionRevokedResult>,
         String,
     > {
-        let account = self.account().await?;
-        let session = account
-            .current_session()
-            .await
-            .map_err(|error| error.to_string())?;
-        let service = self.account_mesh().await?;
         let self_id = self.installation_id().await?;
         let installation_id = installation_id.unwrap_or_else(|| self_id.as_str().to_owned());
         let own = installation_id == self_id.as_str();
-        let result = service.mesh.revoke_session(installation_id).await;
-        if result.is_ok() && own {
-            if let Some(session) = session {
-                account
-                    .session_revoked(&session)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            }
+        if own {
+            let service = self.clone();
+            let (_, result) = tokio::spawn(async move { service.account_sign_out_owned().await })
+                .await
+                .map_err(|_| codeterm_account::Error::Cancelled.to_string())??;
+            let result = result.and_then(|result| result.ok_or(AccountMeshRefusal::Unavailable));
+            return Ok(match result {
+                Ok(result) => AccountMeshOutcome::of(Ok(result), None),
+                Err(failure) => {
+                    log::warn!("Account sign-out cleanup failed: stage=session_revoke error_kind={failure:?}");
+                    AccountMeshOutcome::Refused {
+                        ok: false,
+                        request_id: None,
+                        failure,
+                        local_signed_out: true,
+                    }
+                }
+            });
         }
+        let service = self.account_mesh().await?;
+        let _ = self.account().await?;
+        let result = service.mesh.revoke_session(installation_id).await;
         Ok(AccountMeshOutcome::of(result, None))
     }
 

@@ -4,6 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async () => ({ consent: "off" })) }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
+const billing = vi.hoisted(() => ({ available: true }));
+vi.mock("./useDesktopBilling", () => ({ useDesktopBilling: () => ({
+  loading: false, subscription: billing.available ? { paid_subscription: null } : null,
+}) }));
+
 
 import { AccountMeshRefusalError, openOnMeshRefusal, raiseMeshMachineLimit } from "./accountMeshLimit";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
@@ -69,6 +74,7 @@ afterEach(async () => {
   root = null;
   act(() => freeLimitGate.close());
   freeLimitGate.setLimits(null);
+  billing.available = true;
   document.body.replaceChildren();
 });
 
@@ -165,12 +171,27 @@ describe("explicit Add or retry", () => {
     await mountModal(upgrade);
     const machines = fakeMachines(() => machineLimit());
     await act(async () => { await openOnMeshRefusal(() => machines.add("third-machine")); });
+    expect(button("Upgrade").disabled).toBe(false);
+    expect(button("Manage subscription")).toBeUndefined();
     await click("Upgrade");
-    expect(upgrade).toHaveBeenCalledWith("pro_yearly");
+    expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_yearly");
     expect(dialog()).toBeNull();
     expect(machines.attempts).toHaveLength(1);
     expect(machines.records).not.toContain("third-machine");
   });
+
+  it("keeps Upgrade blocked when the paid subscription readback is unavailable", async () => {
+    const upgrade = vi.fn(async () => {});
+    await mountModal(upgrade);
+    billing.available = false;
+    await deliver(requestId(), machineLimit());
+    expect(button("Upgrade").disabled).toBe(true);
+    expect(button("Manage subscription")).toBeUndefined();
+    await click("Upgrade");
+    expect(upgrade).not.toHaveBeenCalled();
+    expect(dialog()).not.toBeNull();
+  });
+
 });
 
 describe("failures that are not the server's machine limit never open plans", () => {

@@ -12,6 +12,7 @@ export function cacheSnapshot(payload, endpoint) {
   const stats = payload.stats;
   if (!stats || !Number.isFinite(stats.compile_requests)) throw new Error('missing sccache counters');
   return { requests: stats.compile_requests, hits: total(stats.cache_hits), misses: total(stats.cache_misses),
+    rust_hits: stats.cache_hits?.counts?.Rust ?? 0, rust_misses: stats.cache_misses?.counts?.Rust ?? 0,
     non_cacheable: stats.requests_not_cacheable ?? 0, not_cached: stats.not_cached ?? {},
     location: payload.cache_location, endpoint };
 }
@@ -24,6 +25,12 @@ export function cacheDelta(start, end, reset = false) {
   const delta = Object.fromEntries(keys.map(key => [key, end[key] - start[key]]));
   delta.not_cached = Object.fromEntries(Object.entries(end.not_cached).map(([key, value]) => [key, value - (start.not_cached[key] ?? 0)]).filter(([, value]) => value > 0));
   delta.hit_rate = delta.hits + delta.misses ? delta.hits / (delta.hits + delta.misses) : null;
+  if ([start.rust_hits, start.rust_misses, end.rust_hits, end.rust_misses].every(Number.isFinite)) {
+    if (end.rust_hits < start.rust_hits || end.rust_misses < start.rust_misses) return null;
+    delta.rust_hits = end.rust_hits - start.rust_hits;
+    delta.rust_misses = end.rust_misses - start.rust_misses;
+    delta.rust_hit_rate = delta.rust_hits + delta.rust_misses ? delta.rust_hits / (delta.rust_hits + delta.rust_misses) : null;
+  }
   return delta;
 }
 

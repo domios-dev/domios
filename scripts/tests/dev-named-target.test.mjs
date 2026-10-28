@@ -7,10 +7,69 @@ import { spawnSync } from 'node:child_process';
 
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-const helpers = ['named_dev_target_dir', 'named_dev_isolated', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
-  'tauri_debug_dir', 'dev_built_app_path', 'dev_app_path'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
+const helpers = ['dev_build_phase', 'named_dev_target_dir', 'named_dev_isolated', 'configure_named_dev_cache', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
+  'tauri_debug_dir', 'dev_built_app_path', 'dev_app_path', 'kill_dev', 'dev_provenance_record'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
 const dev = source.slice(source.indexOf('  dev)\n'), source.indexOf('  e2e)\n'));
+const kill = source.slice(source.indexOf('  kill)\n'), source.indexOf('  dev-server)\n'));
 const prebuilt = source.slice(source.indexOf('  dev-prebuilt)\n'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)\n')));
+
+for (const [platform, refused] of [['linux', false], ['darwin', false], ['msys', false], ['msys', true]]) {
+  test(`daemon shutdown precedes watcher cleanup; platform=${platform}, refused=${refused}`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helpers}
+OSTYPE="$1" CT_PORT=17999 CT_VITE_PORT=1529 CT_SUFFIX=-test CT_INSTANCE=test
+CT_DATA_DIR=/absent-kill-order-fixture DEV_FRONT_EXTERNAL=1
+dev_provenance_record() { echo record; }
+dev_app_path() { echo app; }
+lsof() { echo 12345; }
+screen() { :; }
+request_dev_clean_restart() { echo shutdown-request; }
+wait_for_dev_exit() { echo pinned-exit; }
+node() { echo verified-shutdown; [ "$2" = record ]; [ "$REFUSED" = false ]; }
+kill_web_watch() { echo watcher-stop; }
+kill_dev_static_server() { :; }
+windows_dev_leftover_cleanup() { :; }
+REFUSED="$2"
+kill_dev
+`, '--', platform, String(refused)], { encoding: 'utf8' });
+    const events = result.stdout.trim().split('\n');
+    if (platform === 'msys') {
+      assert.equal(result.status, refused ? 1 : 0, result.stderr);
+      assert.deepEqual(events, refused ? ['verified-shutdown'] : ['verified-shutdown', 'watcher-stop']);
+    } else {
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(events, ['shutdown-request', 'pinned-exit', 'watcher-stop']);
+    }
+  });
+}
+
+for (const instance of ['', 'first-proof', 'second-proof']) {
+  test(`shutdown selects the launched artifact before checking its identity; instance=${instance || 'default'}`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helpers}
+OSTYPE=msys
+CT_INSTANCE="$1" CT_INSTANCE_KEY="$1" CT_PORT=17999 CT_SUFFIX=
+CT_DATA_DIR="$PWD/data"
+CARGO_BUILD_TARGET=
+if [ -n "$CT_INSTANCE" ]; then CARGO_TARGET_DIR=foreign-target; else unset CARGO_TARGET_DIR; fi
+node() { [ "$1" = scripts/dev-rebuild-stop.mjs ]; printf 'app=%s\\n' "$6"; }
+kill_web_watch() { :; }
+kill_dev_static_server() { :; }
+windows_dev_leftover_cleanup() { :; }
+case kill in
+${kill}
+esac
+`, '--', instance], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const app = result.stdout.split('\n').find(line => line.startsWith('app=')).slice(4);
+    if (instance) {
+      assert.ok(app.endsWith(`/src-tauri/target/dev-instances/${instance}/debug/domios-dev-app.exe`), app);
+      assert.ok(!app.includes('foreign-target'), app);
+    } else {
+      assert.equal(app, 'src-tauri/target/debug/domios-dev-app.exe');
+    }
+  });
+}
 
 for (const platform of ['windows','linux']) for (const wait of [0, 1]) {
   test(`named DEV build and standalone prebuilt use checkout artifacts; platform=${platform}, wait=${wait}`, () => {
@@ -20,21 +79,28 @@ for (const platform of ['windows','linux']) for (const wait of [0, 1]) {
       const defaultApp = path.join(directory, `src-tauri/target/debug/domios-app${exe}`);
       fs.mkdirSync(path.dirname(defaultApp), { recursive: true });
       fs.writeFileSync(defaultApp, 'default running artifact');
-      const result = spawnSync(bash, ['-c', `set -euo pipefail
+      const result = spawnSync(bash, ['-s', '--', directory, String(wait), platform === 'windows'?'msys':'linux-gnu'], { encoding: 'utf8', input: `set -euo pipefail
 ${helpers}
 cd "$1"
 OSTYPE="$3"
 CMD=dev CT_DEV_WAIT="$2" CT_PORT=7799 DEV_NOTIFY_TAB= CT_SUFFIX="-target-test-$$"
 CARGO_BUILD_TARGET= CODETERM_BUILD_SHA=opaque
+unset DOMIOS_QA_PROJECT_ID
 dev_health_status() { :; }
 dev_health_fields() { :; }
 ct_verify_target_dir() { :; }
 kill_dev() { :; }
 stop_dev_before_replacement() { :; }
 enter_cargo_gateway() { :; }
+ct_configure_dev_qa_project() { export DOMIOS_QA_PROJECT_ID=opaque-shared-project; }
 prepare_dev_frontend_dist() { :; }
 ensure_deps() { :; }
-cargo() { [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY" ]; }
+cargo() {
+  [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY" ]
+  [ "$CARGO_INCREMENTAL" = 0 ]
+  [ "$CODETERM_PORTABLE_COMPILER_CACHE" = 1 ]
+  [ "$DOMIOS_QA_PROJECT_ID" = opaque-shared-project ]
+}
 cli_profile_binary() { echo unused; }
 cli_file_sha256_or_status() { echo unused; }
 install_cli_to() { :; }
@@ -68,7 +134,7 @@ ${prebuilt}
   esac
   rm -f "$PREBUILT_LOG"
 done
-`, '--', directory, String(wait), platform === 'windows'?'msys':'linux-gnu'], { encoding: 'utf8' });
+` });
       assert.equal(result.status, 0, result.stderr);
       for (const instance of ['meshqa', 'welcomeqa']) {
         const app = path.join(directory, 'src-tauri/target/dev-instances', instance, `debug/domios-app${exe}`);

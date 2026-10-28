@@ -73,11 +73,16 @@ async fn denied_requests_refuse_without_local_information_access_and_answers_do_
     route_request(&Permission::default(), Kind::Answer, &ports)
         .await
         .unwrap();
+    route_request(&Permission::default(), Kind::Refusal, &ports)
+        .await
+        .unwrap();
     assert_eq!(ports.refusals.load(Ordering::Relaxed), 2);
     let permission = Permission {
         allowed: true,
         scope: "opaque scope".into(),
         allow_tab_requests: false,
+        allow_interactive_content: false,
+        ..Default::default()
     };
     route_request(&permission, Kind::Question, &ports)
         .await

@@ -1,5 +1,129 @@
 use super::*;
 
+mod neighbor_authority;
+mod neighbor_files;
+
+#[tokio::test]
+async fn recipient_pause_returns_a_typed_conflict_without_limit_metadata() {
+    let response = neighbor_failure(codeterm_neighbors::Error::RecipientPaused.to_string());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["reason"], "recipient_paused");
+    assert_eq!(body["code"], "recipient_paused");
+    assert!(body.get("limit").is_none());
+}
+
+#[tokio::test]
+async fn aggregate_daily_send_limit_returns_429_with_limit_and_reset() {
+    let response = neighbor_failure(
+        "aggregate_daily_limited: {\"limit\":500,\"resets_at\":1793145600}".into(),
+    );
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["reason"], "aggregate_daily_limited");
+    assert_eq!(body["code"], "aggregate_daily_limited");
+    assert_eq!(body["limit"], 500);
+    assert_eq!(body["resets_at"], 1793145600u64);
+}
+
+#[tokio::test]
+async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
+    let response = neighbor_failure("message_too_large: {\"limit\":32752}".into());
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["reason"], "message_too_large");
+    assert_eq!(body["limit"], 32752);
+    for reason in [
+        "tab_requests_not_allowed",
+        "neighbor_permission_denied",
+        "neighbor_memory_not_allowed",
+        "neighbor_memory_read_only",
+        "neighbor_secrets_not_allowed",
+        "neighbor_files_not_allowed",
+    ] {
+        let response = neighbor_failure(format!("{reason}: This request is not allowed"));
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["reason"],
+            reason
+        );
+    }
+}
+
+#[tokio::test]
+async fn ended_neighbor_history_retains_a_typed_conflict_and_diagnostic() {
+    let response = neighbor_failure("friendship_ended: This Neighbor conversation has ended; refresh the friendship before sending".into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["reason"], "friendship_ended");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("conversation has ended"));
+}
+
+#[tokio::test]
+async fn neighbor_limit_errors_keep_typed_status_and_fields() {
+    let response =
+        neighbor_failure("neighbor_daily_limit: {\"limit\":5,\"resets_at\":1000}".into());
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["reason"], "neighbor_daily_limit");
+    assert_eq!(body["limit"], 5);
+    assert_eq!(body["resets_at"], 1000);
+    for reason in ["rate_limited", "aggregate_limited"] {
+        let response = neighbor_failure(format!("{reason}: {{\"retry_after_seconds\":42}}"));
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["reason"], reason);
+        assert_eq!(body["retry_after_seconds"], 42);
+    }
+    for reason in ["friends_locked", "recipient_locked"] {
+        assert_eq!(
+            neighbor_failure(format!("{reason}: plan unavailable")).status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        neighbor_failure("limit_out_of_range: invalid daily limit".into()).status(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[tokio::test]
+async fn neighbor_disabled_response_keeps_a_typed_reason() {
+    let response =
+        neighbor_failure("neighbors_disabled: Neighbors is turned off on this instance".into());
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "neighbors_disabled");
+    assert_eq!(body["reason"], "neighbors_disabled");
+}
+
 #[tokio::test]
 async fn pending_login_route_is_compiled_out_without_debug_assertions() {
     use axum::{body::Body, http::Request};
@@ -544,4 +668,60 @@ async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttle
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(*provider.calls.lock(), before);
+}
+
+#[tokio::test]
+async fn portal_no_billing_customer_keeps_its_code_and_message() {
+    let response = portal_failure(codeterm_billing::NO_BILLING_CUSTOMER.into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+        serde_json::json!({
+            "code": "no_billing_customer",
+            "message": "There is no paid subscription to manage. Your current access is not billed through Paddle."
+        })
+    );
+    assert_eq!(
+        portal_failure("unavailable".into()).status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
+#[tokio::test]
+async fn receiver_refusals_retain_machine_readable_codes() {
+    for code in [
+        "receiver_elsewhere",
+        "receiver_revision_stale",
+        "not_receiver",
+        "recipient_not_receiving",
+        "installation_unverified",
+        "operation_id_conflict",
+        "session_revoked",
+    ] {
+        let message = format!("{code}: opaque explanation");
+        let response = neighbor_failure(message.clone());
+        assert_eq!(
+            response.status(),
+            if code == "session_revoked" {
+                StatusCode::UNAUTHORIZED
+            } else {
+                StatusCode::CONFLICT
+            }
+        );
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({"code":code,"reason":code,"message":message,"error":message})
+        );
+    }
+    assert_eq!(
+        neighbor_failure("unavailable".into()).status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
 }

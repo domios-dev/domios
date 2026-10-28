@@ -11,7 +11,7 @@ import { useMyMachines } from "./useMyMachines";
 export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey = 0): CanvasAccount {
   const account = useMeshAccount();
   const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, onChanged });
-  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, connect, decide, disconnect, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession } = machines;
+  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, connect, decide, disconnect, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession, retryEnrollment } = machines;
   const lastRefreshKey = useRef(registryRefreshKey);
   useEffect(() => {
     if (lastRefreshKey.current === registryRefreshKey) return;
@@ -41,5 +41,8 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
     limitMachines: view.kind === "account" && view.machineLimit ? machines : undefined,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
-  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines]);
+    onRetryEnrollment: account.presence === "signed_in" && snapshot?.enrollment === "refused" && snapshot.retry_at == null
+      && ["unavailable", "offline", "authority-unavailable", "rate-limited"].includes(snapshot.last_refusal?.reason ?? "")
+      ? () => { void retryEnrollment(); } : undefined,
+  }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines, account.presence, retryEnrollment]);
 }

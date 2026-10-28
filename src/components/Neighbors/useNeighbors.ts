@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { publishNotice } from "../../lib/notices";
 import { listen } from "../../lib/bridge";
 import { neighborClient, type NeighborClient } from "./neighborClient";
-import { neighborName, type NeighborCommand, type NeighborList } from "./neighborModel";
+import { parseNeighbors, type NeighborCommand, type NeighborList } from "./neighborModel";
 import type { ReferralClaim } from "./referralTrial";
+import { neighborReads } from "./neighborReads";
 
 interface LoadedNeighbors {
   identity: string | null;
@@ -20,61 +20,69 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
   const generation = useRef(0);
   const currentIdentity = useRef(identity);
   currentIdentity.current = identity;
-  const seen = useRef(new Set<string>());
-
-  useEffect(() => {
-    seen.current = new Set();
-    if (identity) {
-      try {
-        const stored: unknown = JSON.parse(localStorage.getItem(`domios.neighbors.seen:${identity}`) ?? "[]");
-        if (Array.isArray(stored)) seen.current = new Set(stored.filter((id): id is string => typeof id === "string").slice(-200));
-      } catch { seen.current = new Set(); }
-    }
-  }, [identity]);
 
   useEffect(() => {
     const epoch = ++generation.current;
     const controller = new AbortController();
+    const shared = neighborReads(client, identity);
     if (!identity) {
       setLoaded({ identity, list: null, error: null, referral: null });
       return () => controller.abort();
     }
+    if (!shared) return;
+    const unsubscribe = shared.list.subscribe(list => {
+      if (!controller.signal.aborted && generation.current === epoch) setLoaded(previous => ({ ...previous, identity, list }));
+    });
     let latest = 0;
-    async function load() {
+    let pushes = 0;
+    async function load(force = false, retryReferral = false) {
       const request = ++latest;
+      const push = pushes;
       let referral: ReferralClaim | null = null;
       let referralError: string | null = null;
       try {
-        try { referral = await client.claimReferralTrial(controller.signal); }
+        try { referral = await shared!.referral(client, retryReferral); }
         catch { referralError = "Your referral could not be checked. Refresh Neighbors to try again."; }
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
-        const list = await client.list(controller.signal);
+        const list = await shared!.list.read(() => client.list(), force);
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
-        setLoaded({ identity, list, referral, error: referralError });
-        for (const incoming of list.incoming) {
-          if (seen.current.has(incoming.request_id)) continue;
-          publishNotice({ kind: "toast", severity: "Info", id: `neighbor-request:${incoming.request_id}`,
-            title: "New Neighbor request", detail: `${neighborName(incoming)} would like to connect. Open Neighbors in General to respond.` });
-          seen.current.add(incoming.request_id);
-        }
-        seen.current = new Set([...seen.current].slice(-200));
-        try { localStorage.setItem(`domios.neighbors.seen:${identity}`, JSON.stringify([...seen.current])); }
-        catch { /* Notifications remain deduplicated for this session. */ }
+        shared!.observe(list);
+        setLoaded(previous => pushes === push ? { identity, list, referral, error: referralError }
+          : { ...previous, referral, error: referralError });
       } catch (failure: unknown) {
-        if (!controller.signal.aborted && generation.current === epoch && request === latest) {
+        if (!controller.signal.aborted && generation.current === epoch && request === latest && pushes === push) {
           setLoaded(previous => ({ identity, list: previous.identity === identity && previous.list ? { ...previous.list, can_invite: false } : null, referral,
             error: failure instanceof Error ? failure.message : "Neighbors unavailable" }));
         }
       }
     }
-    void load();
-    window.addEventListener("focus", load);
-    let unlisten: (() => void) | undefined;
-    void listen("entitlement-changed", load).then(stop => {
+    void load(revision > 0, revision > 0);
+    const onFocus = () => { void load(); };
+    const reload = () => { void load(true); };
+    window.addEventListener("focus", onFocus);
+    const unlisteners: (() => void)[] = [];
+    const retain = (stop: () => void) => {
       if (controller.signal.aborted) stop();
-      else unlisten = stop;
-    });
-    return () => { controller.abort(); generation.current++; window.removeEventListener("focus", load); unlisten?.(); };
+      else unlisteners.push(stop);
+    };
+    void listen("entitlement-changed", reload).then(retain);
+    // Daily limits live on the list rows; a change on either side reloads them.
+    void listen("neighbor-daily-limit-changed", reload).then(retain);
+    void listen("neighbor-file-daily-limit-changed", reload).then(retain);
+    void listen<{ uid?: unknown; list?: unknown }>("neighbors-changed", event => {
+      if (controller.signal.aborted || generation.current !== epoch || event.payload?.uid !== identity) return;
+      let list: NeighborList;
+      try { list = parseNeighbors(event.payload.list); }
+      catch { void load(true); return; }
+      pushes++;
+      shared.observe(list);
+      shared.list.write(list);
+      setLoaded(previous => ({ identity, list, error: null, referral: previous.identity === identity ? previous.referral : null }));
+      void shared.referral(client).then(referral => {
+        if (!controller.signal.aborted && generation.current === epoch) setLoaded(previous => ({ ...previous, referral }));
+      }).catch(() => {});
+    }).then(retain);
+    return () => { unsubscribe(); controller.abort(); generation.current++; window.removeEventListener("focus", onFocus); unlisteners.forEach(stop => stop()); };
   }, [identity, client, revision]);
 
   async function apply(command: Exclude<NeighborCommand, { operation: "list" }>): Promise<boolean> {

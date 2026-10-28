@@ -67,10 +67,10 @@ mod plugin_lifecycle;
 mod provider_compat;
 #[path = "parity_test/rotterdom.rs"]
 mod rotterdom;
+#[path = "parity_test/runtime_modes.rs"]
+mod runtime_modes;
 #[path = "parity_test/sqlite_fixture.rs"]
 mod sqlite_fixture;
-#[path = "parity_test/structured_control.rs"]
-mod structured_control;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
@@ -1008,10 +1008,10 @@ fn paste_limit_capability_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
-    // 4096 lies above passing short cells and below cn20's first failing 8192-byte cell.
+    // Codex is chat-backed only, so it has no PTY paste limit to declare.
     let codex = load_js("codex");
-    assert_eq!(codex.paste_limit_bytes(), Some(4096));
-    assert_eq!(codex.describe().paste_limit_bytes, Some(4096));
+    assert_eq!(codex.paste_limit_bytes(), None);
+    assert_eq!(codex.describe().paste_limit_bytes, None);
     assert_eq!(load_js("claude").paste_limit_bytes(), None);
     assert_eq!(load_js("opencode").paste_limit_bytes(), None);
 }

@@ -184,7 +184,22 @@ Foreground launch stays in its Dev shell and owns the client process.
 
 Server reload/staging tool updates also use `dev-server`; native source and
 Tauri/Cargo configuration changes still require `dev`. Named DEV CLI artifacts
-build into the instance target's `cli/` child so the native build cannot overwrite them.
+build alongside the app in the instance target under distinct binary names.
+Named `dev` and `dev-server` use nonincremental Rust compilation and the portable
+compiler-cache wrapper automatically. Cargo keeps its configured intermediate
+directory; runnable artifacts stay isolated per instance. Generated-source
+metadata uses the same virtual prefix across configured build directories.
+Existing Cargo-fresh intermediates retain their previous metadata until rebuilt;
+the build skill covers scoped invalidation for an approved cache measurement.
+Source and CLI artifact changes can still relink the roots.
+
+Debug Development servers resolve the frontend port and identifier from the
+launch environment (`CODETERM_VITE_PORT`, `CODETERM_DEV_IDENTIFIER`). These values
+are validated at startup and do not enter the server's compiler inputs. Release
+build directives and the compiled CLI artifact hash retain their existing role.
+The native client applies the same validated runtime identity and frontend URL,
+plus browser/CDP settings, before constructing Tauri. Named instances share stable
+Tauri compile configuration while keeping their runnable artifacts isolated.
 
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.
@@ -277,6 +292,10 @@ Agent launchers for dev, build, check, QA batch and install-local (PowerShell an
 `kill` also reaps orphaned Codex RPC launchers whose `--ws-token-file` is
 inside this instance's `codex-rpc` directory. Unix cleanup requires an owned
 group leader; Windows cleanup terminates the identified launcher's tree.
+Windows `kill` first uses the rebuild shutdown verifier to pin the selected
+server, exact native executable and their descendants, then confirms their
+exit. Missing or conflicting authenticated ownership refuses before cleanup;
+an orphaned native window without a live server still requires owner diagnosis.
 A launcher in an unidentified Unix group fails cleanup rather than risking
 another instance. Inspect the scoped count with:
 
@@ -393,7 +412,7 @@ verify the named instance's live listener set first.
 
 **Important:** the dev CLI config is separate from prod. Dev PTYs receive the
 active data-directory CLI first on `PATH`; production shells continue using
-`~/.codeterm/bin/`. From outside a dev PTY, use the dev environment wrapper:
+`~/.domios/bin/`. From outside a dev PTY, use the dev environment wrapper:
 
 ```bash
 source evals/_lib/lib.sh
@@ -458,6 +477,10 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 ---
 
 ## Troubleshooting log (grow this as things break)
+
+- **Windows DEV exits before READY with missing frontend runtime identity.** The private desktop launch channel must carry the validated Vite port, development identifier, browser arguments and CDP port. Keep its fixed allowlist in sync with runtime configuration; preserve credential scrubbing, peer ownership checks and CDP validation.
+
+- **Named `kill` refuses its own launched instance with `Uncertain DEV instance identity`.** Shutdown must select the same checkout-local `dev-instances/<name>` target as the build before deriving the client path. The guard previously received the default target while provenance pinned the named target. Use the corrected `build.sh kill` from the instance's original checkout with its explicit instance and port; all process, epoch, data, production and foreign-instance checks remain active.
 
 - **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under `<checkout>/src-tauri/target/dev-instances/<instance-key>`, for both foreground and `--wait`; `dev-prebuilt` resolves the same checkout target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with the same explicit instance and private port to create the new artifacts and provenance, then reuse them with `dev-prebuilt`. Separate instance targets keep a second instance from overwriting the default instance's running executable. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
 
@@ -579,7 +602,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 ### REST listener bind recovery
 

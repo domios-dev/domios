@@ -60,17 +60,24 @@ impl AccountMesh {
         if installation_id != &self.config.installation_id {
             return Err(AccountMeshRefusal::Invalid);
         }
-        let signed = self.signed(None).await?;
+        let signed = self.signed(None).await.inspect_err(|refusal| {
+            log::debug!("Entitlement proof failed: stage=session kind={refusal:?}");
+        })?;
         if signed.session.identity.uid != session.identity.uid
             || signed.session.login_generation != session.login_generation
         {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        let generation = self.generation(&signed).await?;
+        let generation = self.generation(&signed).await.inspect_err(|refusal| {
+            log::debug!("Entitlement proof failed: stage=enrollment kind={refusal:?}");
+        })?;
         let body = serde_json::json!({"installation_id": installation_id});
         let proof = self
             .prove(&signed, ProofEndpoint::GetEntitlements, &body, generation)
-            .await?;
+            .await
+            .inspect_err(|refusal| {
+                log::debug!("Entitlement proof failed: stage=challenge kind={refusal:?}");
+            })?;
         if !self.with(|inner| inner.is_current(signed.epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
         }
@@ -668,7 +675,7 @@ impl AccountMesh {
     }
 
     /// One bounded online read of the account registry; a stale observation for display only.
-    async fn read_registry(&self, signed: &Signed) -> Outcome<RegistryObservation> {
+    pub(super) async fn read_registry(&self, signed: &Signed) -> Outcome<RegistryObservation> {
         let mut rows = Vec::new();
         let mut cursor = None;
         let mut registry_revision = 0;
@@ -719,23 +726,6 @@ impl AccountMesh {
             self.push().await;
         }
         Ok(observation)
-    }
-
-    pub async fn list(&self) -> Outcome<RegistryObservation> {
-        let signed = self.signed(None).await?;
-        let result = self.read_registry(&signed).await;
-        self.with(|inner| {
-            if !inner.is_current(signed.epoch) {
-                return Err(AccountMeshRefusal::Cancelled);
-            }
-            match result {
-                Ok(observation) => Ok(observation),
-                Err(refusal) => {
-                    inner.update(&self.watch, |state| state.registry_failure = Some(refusal));
-                    Err(refusal)
-                }
-            }
-        })
     }
 
     /// Server `update`, actor-only: renames this installation.
@@ -807,20 +797,52 @@ impl AccountMesh {
         crate::InstallationId::parse(installation_id.clone())
             .map_err(|_| AccountMeshRefusal::Invalid)?;
         let signed = self.signed(None).await?;
+        let result = self.revoke_signed_session(&signed, installation_id).await?;
+        if !self.with(|inner| inner.is_current(signed.epoch)) {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        Ok(result)
+    }
+
+    pub async fn revoke_outgoing_session(
+        &self,
+        session: &Session,
+    ) -> Outcome<SessionRevokedResult> {
+        let signed = self.outgoing_signed(session).await?;
+        self.revoke_signed_session(&signed, self.installation())
+            .await
+    }
+
+    pub async fn revoke_prior_sessions(&self, session: &Session, cutoff: u64) -> Outcome<()> {
+        let target = PriorSessionsTarget {
+            installation_id: self.installation(),
+            cutoff,
+        };
+        let result = self
+            .call(self.ports.registry.revoke_prior_sessions(session, &target))
+            .await?;
+        if result.schema_version != 1 || result.revoked_count > 1 {
+            return Err(AccountMeshRefusal::Invalid);
+        }
+        Ok(())
+    }
+
+    async fn revoke_signed_session(
+        &self,
+        signed: &Signed,
+        installation_id: String,
+    ) -> Outcome<SessionRevokedResult> {
         let target = SessionTarget {
             installation_id: installation_id.clone(),
         };
         let MeshResult::SessionRevoked(result) = self
-            .admission(&signed, MeshOperation::SessionRevoke { target })
+            .admission(signed, MeshOperation::SessionRevoke { target })
             .await?
         else {
             return Err(AccountMeshRefusal::Invalid);
         };
         if result.target_installation_id != installation_id || result.revoked_at == 0 {
             return Err(AccountMeshRefusal::Invalid);
-        }
-        if !self.with(|inner| inner.is_current(signed.epoch)) {
-            return Err(AccountMeshRefusal::Cancelled);
         }
         Ok(result)
     }

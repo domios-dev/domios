@@ -34,7 +34,6 @@ pub(crate) struct HiddenLaunch {
     pub(crate) launch_session_id: Option<String>,
     pub(crate) task: Option<String>,
     pub(crate) model_args: Vec<String>,
-    pub(crate) selection: crate::ports::transport::Selection,
     pub(crate) role: Option<String>,
     pub(crate) role_profile: Option<String>,
     pub(crate) pty_input_task: Option<String>,
@@ -64,7 +63,6 @@ pub(crate) fn start(service: Arc<ServiceContext>, launch: HiddenLaunch) {
         launch_session_id,
         task,
         model_args,
-        selection,
         role,
         role_profile,
         pty_input_task,
@@ -145,7 +143,6 @@ pub(crate) fn start(service: Arc<ServiceContext>, launch: HiddenLaunch) {
                     &tab_id,
                     &hidden_cwd,
                     &mut launch_params,
-                    selection,
                 )
                 .unwrap_or_else(|| provider.clone());
                 crate::service::launch_diagnostics::log_launch(
@@ -198,51 +195,7 @@ pub(crate) fn start(service: Arc<ServiceContext>, launch: HiddenLaunch) {
                             }
                         }
 
-                        if let Some(sidecar) = super::codex_rpc::lifecycle::for_tab(&tab_id) {
-                            let nonce = sidecar.launch_nonce.clone();
-                            if !super::codex_rpc::lifecycle::wait_attached(
-                                &tab_id,
-                                &nonce,
-                                Duration::from_secs(30),
-                            ) {
-                                super::codex_rpc::recovery::try_start(
-                                    &service,
-                                    &tab_id,
-                                    &nonce,
-                                    "hidden remote TUI attachment failed",
-                                );
-                                if !super::codex_rpc::recovery::wait_recovery(&tab_id, &nonce) {
-                                    return;
-                                }
-                            }
-                            let Some(attempt) =
-                                LaunchAttempt::current(&service.mux, &tab_id, &launch_pty_id)
-                            else {
-                                return;
-                            };
-                            let rpc_task = service.agent_registry.with_provider(&provider, |p| {
-                                first_turn(
-                                    matches!(super::launch_delivery::mode_for_descriptor(&p.system_prompt_delivery()), super::launch_delivery::LaunchDeliveryMode::SystemPrompt),
-                                    false,
-                                    task.as_deref(),
-                                    p.starter_prompt_text(crate::agent::provider::StarterPrompt::AssignedTask).as_deref(),
-                                )
-                            }).flatten();
-                            let consumed = match rpc_task.as_ref() {
-                                Some(payload) => super::codex_rpc::bootstrap::consume(&service, &attempt, super::launch_delivery::FallbackDeliverySpec {
-                                    channel: crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                                    payload: payload.clone(),
-                                }),
-                                None => Ok(true),
-                            };
-                            match consumed {
-                                Ok(true) => {
-                                    super::codex_rpc::lifecycle::startup_complete(&service, &tab_id, &nonce);
-                                    service.run_watcher.arm(&launch_pty_id);
-                                },
-                                result => log::error!("[spawn.hidden] tab={tab_id} startup RPC not confirmed: {result:?}; sends held"),
-                            }
-                        } else if let Some(task_text) = pty_input_task.as_deref() {
+                        if let Some(task_text) = pty_input_task.as_deref() {
                             if let Err(error) = super::spawn::deliver_hidden_pty_task(
                                 &service,
                                 &launch_pty_id,

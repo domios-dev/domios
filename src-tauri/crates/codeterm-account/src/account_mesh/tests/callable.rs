@@ -9,6 +9,45 @@ use std::sync::Mutex;
 const PACKET: &str = include_str!("account-mesh-packet.json");
 
 #[tokio::test]
+async fn prior_session_revoke_uses_the_confirmed_callable_contract_and_typed_refusals() {
+    let registry = registry(Ok(
+        json!({"result":{"schema_version":1,"revoked_count":1,"receiver_disabled":true}}),
+    ));
+    let target = PriorSessionsTarget {
+        installation_id: "desk-7f3a".into(),
+        cutoff: 123,
+    };
+    let result = registry
+        .revoke_prior_sessions(&session("user-1"), &target)
+        .await
+        .unwrap();
+    assert!(result.receiver_disabled);
+    assert_eq!(
+        registry.transport_calls(),
+        vec![(
+            "revokePriorInstallationSessions".into(),
+            "token-user-1".into(),
+            json!({"installation_id":"desk-7f3a","cutoff":123})
+        )]
+    );
+    for (reason, expected) in [
+        (
+            "installation_unverified",
+            RegistryRefusal::InstallationUnverified,
+        ),
+        (
+            "cutoff_after_current_session",
+            RegistryRefusal::CutoffAfterCurrentSession,
+        ),
+    ] {
+        assert_eq!(
+            RegistryRefusal::from_details(&json!({"reason":reason})),
+            expected
+        );
+    }
+}
+
+#[tokio::test]
 async fn entitlements_challenge_uses_the_online_route_and_exact_body() {
     let registry = registry(Ok(json!({"result":{"nonce":"fixture-nonce"}})));
     let request = ChallengeRequest {

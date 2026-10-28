@@ -8,6 +8,7 @@ import { DEFAULT_THEME, readCachedTheme } from "../lib/themeCss";
 
 export function defaultConfig(): AppConfig {
   return {
+    neighbors: { enabled: true },
     theme: readCachedTheme() ?? DEFAULT_THEME,
     font: {
       family: "JetBrains Mono, Cascadia Code, Fira Code, Consolas, monospace",

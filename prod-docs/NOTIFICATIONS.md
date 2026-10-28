@@ -114,6 +114,8 @@ does an offer to turn a surface on, which must be sent again.
 
 ## Related documents
 
+Neighbor arrivals use the local per-friend preference: Off, In Domios (default), or In Domios + bridges. In-app-only arrivals reach app surfaces without consuming bridge push allowance. The bridges option also follows the verbose level's configured channels, audiences and lifetime ceilings. Only a bounded first-line preview is carried, with an action opening the friend conversation; full Neighbor bodies are never notification payloads. See `domios docs NEIGHBORS` for the owner and General Agent controls.
+
 The rest of the configuration file: `domios docs CONFIG`. Bridge and integration
 settings: `domios docs INTEGRATIONS`.
 
@@ -121,4 +123,6 @@ settings: `domios docs INTEGRATIONS`.
 
 Provider access refusals from a tab's own session are incidents even when optional structured-signal settings are disabled. The notification has severity `error` and level `action_needed`, names the tab, role, machine and provider, and asks for `/login` in that tab (or `claude setup-token` for Claude). It opens once per access-loss transition and resolves after a successful provider turn. Existing notification surface and channel settings decide where it is carried. They apply to plain tabs as well as role tabs. Detection uses typed session-record error codes or HTTP status, including OAuth org-disabled and refresh failures; terminal text and message prose cannot establish an incident. The tab remains in an auth-required attention state while access is lost.
 
-<!-- revision: 12 -->
+Neighbor agent sends refused by limits, plan restrictions or a non-receiving recipient raise metadata-only notices under the same per-friend preference. They contain the failure reason and available reset or retry time, never the outgoing message text. Owner-authored sends and uncertain submissions do not raise these notices.
+
+<!-- revision: 14 -->

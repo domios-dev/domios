@@ -10,10 +10,15 @@ fn authored(path: &str) -> Zeroizing<String> {
 }
 
 pub(super) fn handle(json_mode: bool, action: NeighborAction) {
+    let listing = matches!(action, NeighborAction::List);
     let command = match action {
+        NeighborAction::List => json!({"operation":"list"}),
         NeighborAction::Status => json!({"operation":"status"}),
-        NeighborAction::Enroll { confirm_takeover } => {
-            json!({"operation":"enroll","takeover_confirmed":confirm_takeover})
+        NeighborAction::Enroll {
+            confirm_takeover,
+            expected_receiver_revision,
+        } => {
+            json!({"operation":"enroll","takeover_confirmed":confirm_takeover,"expected_receiver_revision":expected_receiver_revision})
         }
         NeighborAction::Rotate => json!({"operation":"rotate"}),
         NeighborAction::Revoke => json!({"operation":"revoke"}),
@@ -51,7 +56,11 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
     let client =
         crate::build_local_api().unwrap_or_else(|_| fail(1, "Local Neighbor service unavailable"));
     let response = client
-        .post("/api/account/neighbors/runtime")
+        .post(if listing {
+            "/api/account/neighbors"
+        } else {
+            "/api/account/neighbors/runtime"
+        })
         .json(&command)
         .send()
         .unwrap_or_else(|_| fail(1, "Local Neighbor request failed"));
@@ -66,9 +75,61 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
         serde_json::from_str(&body).unwrap_or_else(|_| fail(1, "Invalid Neighbor response"));
     if json_mode {
         println!("{result}");
+    } else if listing {
+        println!("{}", render_list(&result));
     } else {
         print_human(&result);
     }
+}
+
+fn render_list(result: &Value) -> String {
+    let mut lines = vec![];
+    for (key, label, id_key) in [
+        ("friends", "Friendships", "friendship_id"),
+        ("incoming", "Incoming requests", "request_id"),
+        ("outgoing", "Outgoing requests", "id"),
+    ] {
+        lines.push(format!("{label}:"));
+        let Some(rows) = result[key].as_array() else {
+            lines.push("  unavailable from backend".into());
+            continue;
+        };
+        if rows.is_empty() {
+            lines.push("  (none)".into());
+        }
+        for row in rows {
+            let text = |key: &str| row[key].as_str().unwrap_or("");
+            let name = ["displayName", "typed_email", "email", "uid"]
+                .into_iter()
+                .map(text)
+                .find(|value| !value.is_empty())
+                .unwrap_or("unknown");
+            let id = text(id_key);
+            if key == "friends" {
+                let permission = &row["permission"];
+                let scope = if permission["allowed"] == true {
+                    permission["scope"].as_str().unwrap_or("")
+                } else {
+                    "denied"
+                };
+                lines.push(format!(
+                    "  {id}\t{name}\t{}\tscope: {scope}\ttab requests: {}",
+                    if row["receiving"] == false {
+                        "not receiving right now"
+                    } else {
+                        text("status")
+                    },
+                    permission["allow_tab_requests"] == true
+                ));
+            } else {
+                lines.push(format!(
+                    "  {id}\t{name}\tpending\tcreated_at: {}",
+                    row["created_at"]
+                ));
+            }
+        }
+    }
+    lines.join("\n")
 }
 
 #[cfg(test)]

@@ -17,7 +17,8 @@ public static class DevDesktop {
     const int MaximumText = 32768;
     static readonly string[] EnvironmentKeys = {
         "CODETERM_DEV", "CODETERM_DEV_INSTANCE", "CODETERM_DEV_API_PORT",
-        "CODETERM_DEV_WORKSPACE_ROOT", "CODETERM_WEB_DIST", "CODETERM_CLI_PATH", "CODETERM_CDP_PORT"
+        "CODETERM_DEV_WORKSPACE_ROOT", "CODETERM_WEB_DIST", "CODETERM_CLI_PATH", "CODETERM_CDP_PORT",
+        "CODETERM_VITE_PORT", "CODETERM_DEV_IDENTIFIER", "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS"
     };
     [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
@@ -84,6 +85,23 @@ public static class DevDesktop {
         if (bytes.Length != length) throw new EndOfStreamException();
         return new UTF8Encoding(false, true).GetString(bytes);
     }
+    static void WriteEnvironment(BinaryWriter writer) {
+        writer.Write(EnvironmentKeys.Length);
+        foreach (string key in EnvironmentKeys) {
+            WriteText(writer, key); WriteText(writer, Environment.GetEnvironmentVariable(key) ?? "");
+        }
+    }
+    static Dictionary<string, string> ReadEnvironment(BinaryReader reader) {
+        int count = reader.ReadInt32();
+        if (count != EnvironmentKeys.Length) throw new InvalidDataException("DEV environment refused");
+        var environment = new Dictionary<string, string>();
+        foreach (string expected in EnvironmentKeys) {
+            if (ReadText(reader) != expected) throw new InvalidDataException("DEV environment key refused");
+            environment.Add(expected, ReadText(reader));
+        }
+        if (environment["CODETERM_DEV"] != "1") throw new InvalidDataException("DEV intent refused");
+        return environment;
+    }
     static string ExactClient(string app) {
         var full = Path.GetFullPath(app);
         if (!Path.IsPathRooted(app) || !File.Exists(full) ||
@@ -120,10 +138,7 @@ public static class DevDesktop {
             using (var helper = PinPeer(helperPid, powershell)) {
                 var writer = new BinaryWriter(pipe, Encoding.UTF8, true);
                 WriteText(writer, app); WriteText(writer, Path.GetDirectoryName(Path.GetDirectoryName(script)));
-                writer.Write(EnvironmentKeys.Length);
-                foreach (string key in EnvironmentKeys) {
-                    WriteText(writer, key); WriteText(writer, Environment.GetEnvironmentVariable(key) ?? "");
-                }
+                WriteEnvironment(writer);
                 writer.Flush();
                 var reader = new BinaryReader(pipe, Encoding.UTF8, true);
                 var output = Console.OpenStandardOutput();
@@ -184,14 +199,7 @@ public static class DevDesktop {
                 string cwd = ReadText(reader);
                 if (!String.Equals(cwd, Path.GetDirectoryName(Path.GetDirectoryName(script)), StringComparison.OrdinalIgnoreCase))
                     throw new InvalidDataException("DEV working directory refused");
-                int count = reader.ReadInt32();
-                if (count != EnvironmentKeys.Length) throw new InvalidDataException("DEV environment refused");
-                var environment = new Dictionary<string, string>();
-                foreach (string expected in EnvironmentKeys) {
-                    if (ReadText(reader) != expected) throw new InvalidDataException("DEV environment key refused");
-                    environment.Add(expected, ReadText(reader));
-                }
-                if (environment["CODETERM_DEV"] != "1") throw new InvalidDataException("DEV intent refused");
+                var environment = ReadEnvironment(reader);
                 var output = new Output(pipe);
                 using (var cancellation = new CancellationTokenSource()) {
                     var control = Task.Factory.StartNew(() => {
@@ -202,7 +210,6 @@ public static class DevDesktop {
                         if (!Int32.TryParse(environment["CODETERM_CDP_PORT"], out port) || port < 1024 || port > 65535 || port == 7685 ||
                             port.ToString() == environment["CODETERM_DEV_API_PORT"])
                             throw new InvalidDataException("DEV diagnostics port refused");
-                        environment.Remove("CODETERM_CDP_PORT");
                         int code = DevAppProcess.RunOwned(app, new string[] { "--local-webview-diagnostics-port=" + port }, output, cwd, environment, cancellation.Token);
                         output.Complete(code);
                         return code;

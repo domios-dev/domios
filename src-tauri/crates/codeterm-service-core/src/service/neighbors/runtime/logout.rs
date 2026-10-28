@@ -7,51 +7,55 @@ pub(crate) struct LogoutKeyPorts {
 }
 
 impl ServiceContext {
-    pub(crate) async fn revoke_neighbors_owned(&self) -> Result<(), String> {
-        self.neighbor_identity_changed();
-        let account = self.account().await?;
-        let Some(session) = account.session().await else {
-            return Ok(());
-        };
-        if account.status().await.provider == "local" {
+    pub(crate) async fn queue_neighbor_logout(
+        &self,
+        session: &codeterm_account::Session,
+    ) -> Result<(), String> {
+        if session.identity.provider == "local" {
             return Ok(());
         }
         let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
         let mut settings = metadata.settings().await.map_err(|e| e.to_string())?;
-        let native;
-        let ports = match self.try_ext::<LogoutKeyPorts>() {
-            Some(ports) => ports,
-            None => {
-                let (registry, _, _) = self.neighbor_key_ports().await?;
-                native = LogoutKeyPorts {
-                    store: Arc::new(OsKeyStore),
-                    registry,
-                };
-                &native
-            }
-        };
-        let active = ports
-            .registry
-            .active_key_ids()
+        self.remember_neighbor_concierge_accounts(&session.identity.uid, &settings);
+        settings.enabled = false;
+        settings.cleanup_pending = true;
+        metadata
+            .save_settings(settings)
             .await
-            .map_err(|e| e.to_string())?;
-        if settings.enabled || !active.is_empty() {
-            let scope = KeyScope::installation(
-                self.installation_id().await?.as_str(),
-                &session.identity.uid,
-            )
-            .map_err(|e| e.to_string())?;
-            InstallationKeys {
-                store: ports.store.as_ref(),
-                registry: ports.registry.as_ref(),
-                scope,
-                uid: &session.identity.uid,
-            }
-            .revoke()
-            .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| e.to_string())
+    }
+
+    pub(super) async fn retry_neighbor_logout(
+        &self,
+        metadata: &Metadata,
+        scope: &KeyScope,
+        uid: &str,
+        registry: &dyn KeyRegistry,
+    ) -> Result<(), String> {
+        let mut settings = metadata.settings().await.map_err(|e| e.to_string())?;
+        if !settings.cleanup_pending {
+            return Ok(());
+        }
+        let native = OsKeyStore;
+        let (store, registry): (&dyn KeyStore, &dyn KeyRegistry) =
+            match self.try_ext::<LogoutKeyPorts>() {
+                Some(ports) => (ports.store.as_ref(), ports.registry.as_ref()),
+                None => (&native, registry),
+            };
+        let result = InstallationKeys {
+            store,
+            registry,
+            scope: scope.clone(),
+            uid,
+        }
+        .forget()
+        .await;
+        if let Err(error) = result {
+            log::warn!("Account sign-out cleanup failed: stage=neighbor_keys error_kind={error:?}");
+            return Err(error.to_string());
         }
         settings.enabled = false;
+        settings.cleanup_pending = false;
         metadata
             .save_settings(settings)
             .await

@@ -172,6 +172,13 @@
               "subcommands": []
             },
             {
+              "name": "list",
+              "about": "List friendships, local scopes and pending incoming/outgoing requests",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
               "name": "own-keys",
               "about": "List active own key IDs",
               "aliases": [],

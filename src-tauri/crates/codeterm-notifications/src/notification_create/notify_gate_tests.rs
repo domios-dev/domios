@@ -7,6 +7,59 @@ use codeterm_types::config::schema::{AgentLevelChoice, NotificationConfig};
 use parking_lot::Mutex;
 use std::sync::Arc;
 
+#[test]
+fn local_owner_events_do_not_coalesce_distinct_arrivals_or_spend_push_allowance() {
+    let sinks = Sinks::new();
+    let mut ids = Vec::new();
+    for _ in 0..2 {
+        ids.push(create_notification_with_delivery(
+            NotificationAdmission::LocalEvent,
+            &sinks.store,
+            |_, _| panic!("Unexpected native notification"),
+            "same short preview".into(),
+            None,
+            Some("info"),
+            Ask::default(),
+            None,
+            NotificationOrigin::default(),
+            |_| None,
+            PushDispatch::inert(),
+            SurfaceDispatch::silent(),
+            |payload| sinks.emitted.lock().push(payload),
+        ));
+    }
+    assert_ne!(ids[0], ids[1]);
+    assert_eq!(sinks.records(), 2);
+    assert_eq!(sinks.emitted.lock().len(), 2);
+    let pushes = Mutex::new(0);
+    create_notification_with_delivery(
+        NotificationAdmission::Explicit,
+        &sinks.store,
+        |_, _| panic!("Unexpected native notification"),
+        "push preview".into(),
+        None,
+        Some("info"),
+        Ask::default(),
+        None,
+        NotificationOrigin::default(),
+        |_| None,
+        PushDispatch {
+            intent: PushIntent {
+                level: Some(NotifyLevel::Verbose),
+                event_key: Some("event".into()),
+            },
+            per_scope_limit: 1,
+            deliver: |_| {
+                *pushes.lock() += 1;
+                Ok(())
+            },
+        },
+        SurfaceDispatch::silent(),
+        |_| {},
+    );
+    assert_eq!(*pushes.lock(), 1);
+}
+
 struct Sinks {
     store: NotifState,
     native: Mutex<Vec<String>>,

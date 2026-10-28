@@ -867,7 +867,7 @@ async fn account_mesh_publication_retry_preserves_reason_and_success() {
         Err(refusal)
     );
     assert_eq!(harness.state().publication_failure, Some(refusal));
-    assert_eq!(harness.state().retry_at, Some(START + 7));
+    assert_eq!(harness.state().retry_at, Some(START + 30));
     for trigger in [
         EnrollTrigger::Network,
         EnrollTrigger::Explicit,
@@ -876,7 +876,7 @@ async fn account_mesh_publication_retry_preserves_reason_and_success() {
         assert_eq!(harness.mesh.refresh(trigger).await, Err(refusal));
     }
     assert_eq!(harness.calls("publish"), 1);
-    harness.clock.set(START + 7);
+    harness.clock.set(START + 30);
     harness.registry.script.lock().unwrap().publication = None;
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
     assert_eq!(harness.calls("publish"), 2);

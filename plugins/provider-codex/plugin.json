@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.54",
-  "minCodeterm": "1.15.3",
+  "version": "1.14.56",
+  "minCodeterm": "1.16.1",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Codex",
@@ -15,28 +15,6 @@
     },
     "agentProvider": true,
     "subagentVisibility": true,
-    "structuredControl": {
-      "protocol": "codex-app-server",
-      "minVersion": "0.159.0",
-      "runtimeModes": [
-        {
-          "id": "approval-required",
-          "displayName": "Approval required"
-        },
-        {
-          "id": "auto-accept-edits",
-          "displayName": "Auto accept edits"
-        },
-        {
-          "id": "auto",
-          "displayName": "Auto"
-        },
-        {
-          "id": "full-access",
-          "displayName": "Full access"
-        }
-      ]
-    },
     "agentRuntime": {
       "storedHistory": true,
       "runtime": "stdio-jsonrpc",
@@ -177,6 +155,24 @@
           "description": "",
           "unavailableReason": "Not available on your plan"
         }
+      ],
+      "runtimeModes": [
+        {
+          "id": "approval-required",
+          "displayName": "Approval required"
+        },
+        {
+          "id": "auto-accept-edits",
+          "displayName": "Auto accept edits"
+        },
+        {
+          "id": "auto",
+          "displayName": "Auto"
+        },
+        {
+          "id": "full-access",
+          "displayName": "Full access"
+        }
       ]
     },
     "chatBackend": {
@@ -315,7 +311,6 @@
       "networkAccessConfigPath": "~/.codex/config.toml",
       "networkAccessSetting": "sandbox_workspace_write.network_access"
     },
-    "pasteLimitBytes": 4096,
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30
@@ -406,6 +401,7 @@
         ],
         "runtimeMode": "read-only"
       },
+      "runtimeReadOnlyWritableRootsMode": "read-only-with-writable-roots",
       "forbiddenArgumentPrefixes": [
         "-c",
         "--config",

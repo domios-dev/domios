@@ -900,10 +900,6 @@ impl AgentProvider for JsProvider {
         }
     }
 
-    fn structured_control(&self) -> Option<crate::provider::StructuredControl> {
-        self.manifest.capabilities.structured_control.clone()
-    }
-
     fn supports_prompt_answers(&self) -> bool {
         self.manifest
             .spawn

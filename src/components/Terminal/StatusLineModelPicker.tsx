@@ -144,7 +144,7 @@ export function StatusLineModelPicker({
   commitRef.current = commit;
 
   const selection = pendingSelection ? { model: pendingSelection.model, effort: pendingSelection.effort ?? undefined }
-    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
+    : applied ?? { model: currentModel ?? "Unknown model", effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor?.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) };
   const modelName = descriptor?.available_models.find((model) => matchesModel(model, selection.model))?.display_name
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
@@ -270,10 +270,10 @@ export function ModelPickerPopover({
   const searchable = pickerNeedsSearch(descriptor);
   const groups = pickerModelGroups(descriptor, staged?.model, query, showAll, currentModel);
   const efforts = showReasoning ? effortChoices(descriptor, staged?.model) : [];
-  const hasRuntimeModes = Boolean(descriptor.structured_control?.runtimeModes?.length);
+  const hasRuntimeModes = Boolean(descriptor.agent_runtime?.runtimeModes?.length);
   const hasServiceTiers = Boolean(descriptor.agent_runtime?.serviceTiers?.length);
   const stagedEffort = staged ? effortAfterModelChange(descriptor, staged.model, staged.effort) : undefined;
-  const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
+  const selectionPlan = staged ? planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor?.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged) : { action: "none" };
 
   // Picking a model is the intent; search is opt-in, so the list takes focus and the field only when opened.
   useLayoutEffect(() => {
@@ -299,7 +299,7 @@ export function ModelPickerPopover({
 
   function commit() {
     if (busy || !staged) return;
-    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.structured_control?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged);
+    const plan = planSelection(gate, { model: currentModel, effort: currentEffort, ...(descriptor.agent_runtime?.serviceTiers ? { serviceTier: currentServiceTier } : {}), ...(descriptor.agent_runtime?.runtimeModes?.length ? { runtimeMode: currentRuntimeMode } : {}) }, staged);
     if (plan.action === "confirm") setConfirming(plan.selection);
     if (plan.action === "apply") apply(plan.selection);
   }
@@ -489,7 +489,7 @@ export function ModelPickerPopover({
                 disabled={busy}
                 onChange={(event) => choose({ ...staged, runtimeMode: event.currentTarget.value })}
               >
-                {descriptor.structured_control?.runtimeModes?.map((mode) => (
+                {descriptor.agent_runtime?.runtimeModes?.map((mode) => (
                   <option key={mode.id} value={mode.id}>{mode.displayName}</option>
                 ))}
               </select>

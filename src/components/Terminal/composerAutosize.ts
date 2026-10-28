@@ -1,6 +1,6 @@
 export const COMPOSER_MIN_HEIGHT = 20;
 export const COMPOSER_HEIGHT_EPSILON = 2;
-export const COMPOSER_MAX_HEIGHT = 230;
+export const COMPOSER_MAX_HEIGHT = 420;
 
 export function composerHeight(el: HTMLTextAreaElement, maxPx = COMPOSER_MAX_HEIGHT): number {
   return clampComposerHeight(el.scrollHeight, maxPx);

@@ -48,7 +48,9 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/account/callback` | Complete account sign-in with the verified callback. |
 | POST | `/api/account/gift/redeem` | Local signed-in redemption: `{key, expected_uid}`; returns the server plan, duration and expiry receipt after signed entitlement refresh. No key generation. |
 | POST | `/api/account/neighbors` | Manage account Neighbor channels. |
+| POST | `/api/account/neighbors/enabled` | Turn Neighbors on or off on this machine (`{"enabled": bool}`); off stops receiving and sending until turned back on. |
 | POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. |
+| POST | `/api/account/neighbors/files` | Send attachments, list saved friend files, open files or the folder, read usage and set inbound file limits. Owner/General manage; an authorized bound concierge may only list or resolve saved files. See NEIGHBORS. |
 | POST | `/api/analytics/consent` | Set analytics consent. |
 | POST | `/api/analytics/event` | Record an admitted typed analytics event. |
 | POST | `/api/app/quit` | Submit the exact Quit snapshot. |
@@ -89,4 +91,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 4 -->
+<!-- revision: 6 -->

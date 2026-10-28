@@ -22,12 +22,17 @@ pub enum AccountAction {
 
 #[derive(Subcommand)]
 pub enum NeighborAction {
+    /// List friendships, local scopes and pending incoming/outgoing requests
+    List,
     /// Show local channel enrollment and gateway bindings
     Status,
     /// Receive Neighbors on this machine; other machines stop receiving
     Enroll {
         #[arg(long, required = true)]
         confirm_takeover: bool,
+        /// Receiver revision shown by status; refresh and confirm again if stale
+        #[arg(long)]
+        expected_receiver_revision: u64,
     },
     /// Rotate this installation's keys and revoke the previous pair
     Rotate,

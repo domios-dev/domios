@@ -3,11 +3,14 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 
 pub(super) enum Operation {
+    Files(super::files::Command),
     Command {
         command: NeighborRuntimeCommand,
         caller: Option<String>,
         nonce: Option<String>,
     },
+    ReceiverChanged,
+    RegistryChanged,
     Refuse {
         friendship: String,
         message_id: String,
@@ -15,12 +18,10 @@ pub(super) enum Operation {
     },
     #[cfg(not(any(test, feature = "test-support")))]
     Restore,
-    Logout,
 }
 
 pub(super) enum Outcome {
     Value(Value),
-    Logout(codeterm_account::Status),
 }
 
 pub(super) struct Request {
@@ -31,7 +32,10 @@ pub(super) struct Request {
 }
 
 impl ServiceContext {
-    pub(super) fn require_neighbor_generation(&self, generation: u64) -> Result<(), String> {
+    pub(in crate::service::neighbors) fn require_neighbor_generation(
+        &self,
+        generation: u64,
+    ) -> Result<(), String> {
         if self.neighbor_cell().generation.load(Ordering::Acquire) != generation {
             return Err("Neighbor account changed".into());
         }
@@ -68,6 +72,22 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
+            Operation::Files(command) => self
+                .neighbor_files_owned(command, generation)
+                .await
+                .map(Outcome::Value),
+            Operation::ReceiverChanged | Operation::RegistryChanged => {
+                let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
+                self.start_neighbor_listeners(
+                    transport.clone(),
+                    registry,
+                    scope,
+                    metadata,
+                    generation,
+                )
+                .await?;
+                Ok(Outcome::Value(Value::Null))
+            }
             Operation::Command {
                 command,
                 caller,
@@ -97,15 +117,27 @@ impl ServiceContext {
                     scope,
                     uid: &transport.uid,
                 };
+                let author = self
+                    .neighbor_author(
+                        metadata
+                            .settings()
+                            .await
+                            .map_err(|e| e.to_string())?
+                            .bindings
+                            .get(&friendship)
+                            .map(String::as_str),
+                    )
+                    .map_err(|e| e.to_string())?;
                 self.send_neighbor(
                     transport.as_ref(),
                     &lifecycle,
                     &metadata,
                     Outgoing {
                         friendship,
-                        kind: Kind::Answer,
+                        kind: Kind::Refusal,
                         body: OutboundBody::Refusal,
                         in_reply_to: Some(message_id),
+                        author,
                     },
                 )
                 .await
@@ -119,7 +151,6 @@ impl ServiceContext {
                     .await?;
                 Ok(Outcome::Value(Value::Null))
             }
-            Operation::Logout => self.account_logout_owned().await.map(Outcome::Logout),
         }
     }
 }

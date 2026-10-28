@@ -19,8 +19,12 @@ pub(super) struct Metadata {
 pub(super) struct Settings {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cleanup_pending: bool,
     pub bindings: BTreeMap<String, String>,
     pub permissions: BTreeMap<String, Permission>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub notifications: BTreeMap<String, super::NeighborNotify>,
 }
 
 #[async_trait]
@@ -33,6 +37,13 @@ impl codeterm_neighbors::keys::EnrollmentState for Metadata {
 }
 
 impl Metadata {
+    pub(super) fn friend_folder(&self, friendship: &str) -> Result<PathBuf> {
+        if !hex_id(friendship, 64) {
+            return Err(Error::InvalidEnvelope);
+        }
+        Ok(self.root.join("friends").join(friendship))
+    }
+
     pub fn new(root: PathBuf, uid: &str) -> Self {
         Self {
             root: root.join("neighbors").join(sha256_hex(uid.as_bytes())),

@@ -19,6 +19,8 @@ pub struct AgentRuntimeCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub runtime_modes: Vec<RuntimeModeDescriptor>,
     #[serde(default)]
     pub service_tiers: Vec<super::RuntimeServiceTier>,
     #[serde(default)]
@@ -85,4 +87,11 @@ pub struct RuntimeThreadHistoryCapability {
 pub enum RuntimeThreadHistoryAction {
     Fork,
     Revert,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RuntimeModeDescriptor {
+    pub id: String,
+    pub display_name: String,
 }

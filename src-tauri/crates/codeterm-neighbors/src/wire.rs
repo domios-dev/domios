@@ -3,7 +3,17 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 
 pub const SCHEMA: &str = "domios.friend-envelope.v2";
-pub const MAX_CIPHERTEXT_BYTES: usize = 8192;
+pub const MAX_CIPHERTEXT_BYTES: usize = 32768;
+pub const MAX_PLAINTEXT_BYTES: usize = MAX_CIPHERTEXT_BYTES - 16;
+
+pub fn validate_message_size(body: &str) -> Result<()> {
+    if body.len() > MAX_PLAINTEXT_BYTES {
+        return Err(Error::MessageTooLarge {
+            limit: MAX_PLAINTEXT_BYTES as u64,
+        });
+    }
+    Ok(())
+}
 pub const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]

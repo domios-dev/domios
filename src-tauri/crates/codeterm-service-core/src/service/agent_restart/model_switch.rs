@@ -457,6 +457,7 @@ impl ServiceContext {
         self.agent_switch_model_with_options(tab_id, requested, requested_effort, false)
     }
 
+    #[cfg(test)]
     pub(crate) fn agent_switch_model_with_options(
         &self,
         tab_id: &str,
@@ -534,17 +535,6 @@ impl ServiceContext {
             Some(requested),
         )
         .map_err(ModelSwitchError::InvalidModel)?;
-        if declared_mode == ModelSwitchMode::NextTurn
-            && crate::service::codex_rpc::lifecycle::for_tab(&resolved_tab).is_some()
-        {
-            return crate::service::codex_rpc::model::switch_next_turn(
-                self,
-                &resolved_tab,
-                &provider,
-                requested,
-                requested_effort,
-            );
-        }
         let declared_mode = if declared_mode == ModelSwitchMode::LiveCommand && restart_fallback {
             ModelSwitchMode::RestartResume
         } else {

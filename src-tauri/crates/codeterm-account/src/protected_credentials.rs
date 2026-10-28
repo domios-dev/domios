@@ -70,6 +70,18 @@ impl ProtectedCredentials {
         state.migrating.remove(name);
         self.persist(&mut state, name, token)
     }
+    pub fn save_persistent(&self, name: &str, token: &Secret) -> Result<()> {
+        let mut state = self.state.lock();
+        if !self.file.is_available() {
+            return Err(Error::Credentials);
+        }
+        self.file
+            .set(name, token.expose())
+            .map_err(|_| Error::Credentials)?;
+        state.memory.remove(name);
+        state.migrating.remove(name);
+        Ok(())
+    }
     fn persist(&self, state: &mut State, name: &str, token: &Secret) -> Result<()> {
         if self.file.is_available() && self.file.set(name, token.expose()).is_ok() {
             state.memory.remove(name);

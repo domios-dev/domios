@@ -96,8 +96,7 @@ pub fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
     if let Some(prompt) = crate::service::permission_decision::pending_for_tab(tab_id) {
         return Some(prompt);
     }
-    crate::service::codex_rpc::approvals::pending(tab_id)
-        .or_else(|| ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone()))
+    ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone())
 }
 
 #[cfg(test)]
@@ -120,14 +119,11 @@ fn clear_request(active: &mut HashMap<String, Active>, tab_id: &str, request_id:
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
     crate::service::permission_decision::clear_tab(tab_id);
-    crate::service::codex_rpc::launch::clear_tab(tab_id);
     let subscriber = SUBSCRIBED.lock().remove(tab_id);
     if let Some(subscriber) = subscriber {
         *subscriber.live.lock() = false;
     }
-    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_none() {
-        super::structured_endpoint::remove(tab_id);
-    }
+    super::structured_endpoint::remove(tab_id);
     ACTIVE.lock().remove(tab_id);
     QUEUED.lock().remove(tab_id);
 }
@@ -220,9 +216,6 @@ pub(crate) fn respond(
         crate::service::permission_decision::respond_with_identity(svc, tab_id, value, None)
     {
         return Some(result.map(|()| StructuredResponse::Advanced));
-    }
-    if let Some(result) = crate::service::codex_rpc::approvals::respond(svc, tab_id, value) {
-        return Some(result);
     }
     let mut active = ACTIVE.lock();
     let entry = active.get_mut(tab_id)?;

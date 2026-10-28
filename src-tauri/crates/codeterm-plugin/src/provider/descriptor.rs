@@ -4,18 +4,6 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
     let platform = current_platform_tag();
     let runtime = provider.agent_runtime();
     let mut settings = provider.settings_schema();
-    if provider.structured_control().is_some() {
-        settings.push(SettingField::Section {
-            title: "Structured control".into(),
-            description: None,
-            fields: vec![SettingField::Toggle {
-                key: "structured_control_enabled".into(),
-                label: "Enable structured control".into(),
-                default: true,
-                description: None,
-            }],
-        });
-    }
     if provider.usage_parser().is_some() {
         let probe_cmd = provider.usage_probe_command().unwrap_or("/usage");
         settings.push(usage_tracking_section(probe_cmd));
@@ -29,7 +17,6 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         agent_runtime: runtime.clone(),
         cli_login: provider.cli_login(),
         supports_session_fork: provider.fork_session_args().is_some(),
-        structured_control: provider.structured_control(),
         schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
         cli_status: None,
         id: provider.id().to_string(),

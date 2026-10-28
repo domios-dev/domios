@@ -118,6 +118,17 @@ impl Receiver<'_> {
         message: &InboxMessage,
         now: Timestamp,
     ) -> Result<ReceiveOutcome> {
+        let mut peers = None;
+        self.process_with_peer_snapshot(message, now, &mut peers)
+            .await
+    }
+
+    async fn process_with_peer_snapshot(
+        &mut self,
+        message: &InboxMessage,
+        now: Timestamp,
+        peers: &mut Option<PeerKeys>,
+    ) -> Result<ReceiveOutcome> {
         let cursor = Cursor {
             received_at: message.doc.received_at,
             id: message.id.clone(),
@@ -137,10 +148,13 @@ impl Receiver<'_> {
                 return Ok(ReceiveOutcome::Duplicate);
             }
         }
-        let peers = self.transport.peer_keys(self.friendship_id).await?;
+        if peers.is_none() {
+            *peers = Some(self.transport.peer_keys(self.friendship_id).await?);
+        }
+        let peers = peers.as_ref().ok_or(Error::Transport)?;
         let plaintext = match self
             .transport
-            .verify(&message.doc, &peers, self.recipient_uid, now)
+            .verify(&message.doc, peers, self.recipient_uid, now)
         {
             Ok(peer) => {
                 self.private_keys
@@ -162,6 +176,19 @@ impl Receiver<'_> {
                 return Ok(ReceiveOutcome::Rejected(reason));
             }
         };
+        let envelope = &message.doc.envelope;
+        if let Err(reason) = crate::files::AttachmentBody::parse(
+            &plaintext,
+            &crate::files::Binding {
+                friendship_id: &envelope.friendship_id,
+                sender_uid: &envelope.sender_uid,
+                recipient_uid: &envelope.recipient_uid,
+                message_id: &envelope.message_id,
+            },
+        ) {
+            self.cursors.save(self.friendship_id, &cursor).await?;
+            return Ok(ReceiveOutcome::Rejected(reason));
+        }
         match self.gateway.deliver(message, plaintext).await? {
             GatewayReceipt::Delivered => {}
             GatewayReceipt::SubmitUnconfirmed => return Err(Error::Gateway),
@@ -196,8 +223,12 @@ impl Receiver<'_> {
                 .then_with(|| a.id.cmp(&b.id))
         });
         let mut outcomes = Vec::with_capacity(messages.len());
+        let mut peers = None;
         for message in messages {
-            outcomes.push(self.process(message, now).await?);
+            outcomes.push(
+                self.process_with_peer_snapshot(message, now, &mut peers)
+                    .await?,
+            );
         }
         Ok(outcomes)
     }

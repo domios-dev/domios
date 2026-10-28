@@ -488,6 +488,7 @@ pub async fn resume_session_api(
         remote_task_binding: None,
         execution_mode: None,
         context_files: None,
+        neighbor_authority: None,
         context_skills: None,
         fork_session: false,
         agent_name: None,

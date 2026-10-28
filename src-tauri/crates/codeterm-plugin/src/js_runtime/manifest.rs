@@ -239,7 +239,6 @@ fn default_capabilities() -> Capabilities {
         attachments: Default::default(),
         remote_task: None,
         record_sources: Default::default(),
-        structured_control: None,
         agent_provider: true,
         subagent_visibility: false,
         reply_relay: false,

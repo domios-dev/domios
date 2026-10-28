@@ -1,3 +1,5 @@
+use super::AuthenticatedCall;
+pub(super) mod control;
 use super::FirebaseTransport;
 use crate::receive::{InboxEvent, InboxListener};
 use crate::wire::{hex_id, Cursor, InboxDocument, InboxMessage, Timestamp};
@@ -11,14 +13,18 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zeroize::Zeroizing;
 
 const PAGE_SIZE: i32 = 100;
+const MAX_ENVELOPE_STRING_BYTES: usize = crate::wire::MAX_CIPHERTEXT_BYTES
+    .saturating_mul(4)
+    .div_ceil(3);
+mod pending;
+pub(super) mod registry;
+pub(super) use pending::count as pending_count;
+mod watch;
 
-pub(super) async fn listen(
+async fn connection(
     transport: &FirebaseTransport,
-    friendship: &str,
-    cursor: Option<&Cursor>,
-) -> Result<Box<dyn InboxListener>> {
-    if !hex_id(friendship, 64)
-        || !crate::wire::uid(&transport.uid)
+) -> Result<(FirestoreClient<Channel>, Zeroizing<String>, String)> {
+    if !crate::wire::uid(&transport.uid)
         || transport.project.is_empty()
         || !transport
             .project
@@ -27,35 +33,146 @@ pub(super) async fn listen(
     {
         return Err(Error::InvalidEnvelope);
     }
-    if let Some(cursor) = cursor {
-        cursor.validate()?;
-    }
     let channel = Channel::from_static("https://firestore.googleapis.com")
         .tls_config(ClientTlsConfig::new().with_native_roots())
         .map_err(|_| Error::Transport)?
         .connect_timeout(Duration::from_secs(15))
         .connect()
         .await
+        .map_err(|_| {
+            transport.calls.firestore_failure(
+                "connect",
+                "firestore.googleapis.com",
+                None,
+                "transport_connect",
+            );
+            Error::Transport
+        })?;
+    Ok((
+        FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
+        transport.calls.id_token().await?,
+        format!("projects/{}/databases/(default)", transport.project),
+    ))
+}
+
+fn rpc_failure(
+    calls: &dyn AuthenticatedCall,
+    operation: &'static str,
+    target: &str,
+    status: tonic::Status,
+) -> Error {
+    use std::error::Error as _;
+    if let Some(source) = status.source() {
+        let mut source = Some(source);
+        let mut kind = "source_other";
+        while let Some(error) = source {
+            if let Some(error) = error.downcast_ref::<std::io::Error>() {
+                let kind = format!("io_{:?}", error.kind());
+                calls.firestore_failure(operation, target, Some(status.code() as i32), &kind);
+                break;
+            }
+            let text = error.to_string().to_ascii_lowercase();
+            if text.contains("http2") || text.contains("http/2") || text.contains("h2") {
+                kind = "http2";
+            } else if text.contains("decode") || text.contains("protobuf") {
+                kind = "response_decode";
+            }
+            source = error.source();
+        }
+        calls.firestore_failure(operation, target, Some(status.code() as i32), kind);
+    }
+    code_failure(calls, operation, target, status.code() as i32)
+}
+
+fn code_failure(
+    calls: &dyn AuthenticatedCall,
+    operation: &'static str,
+    target: &str,
+    code: i32,
+) -> Error {
+    let kind = format!("{:?}", tonic::Code::from_i32(code));
+    calls.firestore_failure(operation, target, Some(code), &kind);
+    Error::Firestore { code, operation }
+}
+
+fn authenticated_request<T>(token: &str, database: &str, message: T) -> Result<tonic::Request<T>> {
+    let mut request = tonic::Request::new(message);
+    let header = Zeroizing::new(format!("Bearer {token}"));
+    let mut metadata = header
+        .parse::<tonic::metadata::MetadataValue<_>>()
         .map_err(|_| Error::Transport)?;
-    let token = transport.calls.id_token().await?;
-    let database = format!("projects/{}/databases/(default)", transport.project);
+    metadata.set_sensitive(true);
+    request.metadata_mut().insert("authorization", metadata);
+    request.metadata_mut().insert(
+        "google-cloud-resource-prefix",
+        database.parse().map_err(|_| Error::Transport)?,
+    );
+    request.metadata_mut().insert(
+        "x-goog-request-params",
+        format!("database={database}")
+            .parse()
+            .map_err(|_| Error::Transport)?,
+    );
+    Ok(request)
+}
+
+pub(super) async fn listen(
+    transport: &FirebaseTransport,
+    friendship: &str,
+    cursor: Option<&Cursor>,
+) -> Result<Box<dyn InboxListener>> {
+    listen_mode(transport, friendship, cursor, false).await
+}
+
+pub(super) async fn listen_pending(
+    transport: &FirebaseTransport,
+    friendship: &str,
+) -> Result<Box<dyn InboxListener>> {
+    listen_mode(transport, friendship, None, true).await
+}
+
+async fn listen_mode(
+    transport: &FirebaseTransport,
+    friendship: &str,
+    cursor: Option<&Cursor>,
+    observe_only: bool,
+) -> Result<Box<dyn InboxListener>> {
+    if !hex_id(friendship, 64) {
+        return Err(Error::InvalidEnvelope);
+    }
+    if let Some(cursor) = cursor {
+        cursor.validate()?;
+    }
+    let (client, token, database) = connection(transport).await?;
     let parent = format!("{database}/documents/friendInbox/{}", transport.uid);
     Ok(Box::new(Listener {
-        client: FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
+        client,
         token,
         database,
         parent,
         friendship: friendship.into(),
         cursor: cursor.cloned(),
-        catch_up: true,
+        catch_up: !observe_only,
+        observe_only,
+        dirty: false,
         stream: None,
         requests: None,
         buffered: HashMap::new(),
         pending: None,
+        membership: watch::Membership::new(observe_only),
+        resetting: false,
+        reset_budget: Default::default(),
+        calls: transport.calls.clone(),
     }))
 }
 
 struct Listener {
+    observe_only: bool,
+    dirty: bool,
+    resetting: bool,
+    reset_budget: watch::ResetBudget,
+    membership: watch::Membership,
+    calls: std::sync::Arc<dyn AuthenticatedCall>,
     client: FirestoreClient<Channel>,
     token: Zeroizing<String>,
     database: String,
@@ -70,39 +187,60 @@ struct Listener {
 }
 
 impl Listener {
+    fn target(&self) -> fs::Target {
+        fs::Target {
+            target_type: Some(fs::target::TargetType::Query(fs::target::QueryTarget {
+                parent: self.parent.clone(),
+                query_type: Some(fs::target::query_target::QueryType::StructuredQuery(
+                    self.query(
+                        self.observe_only
+                            .then_some(super::PENDING_COUNT_LIMIT as i32),
+                    ),
+                )),
+            })),
+            target_id: 1,
+            ..Default::default()
+        }
+    }
+
+    async fn reset_target(&mut self) -> Result<()> {
+        self.reset_budget.consume()?;
+        let sender = self.requests.as_ref().ok_or(Error::ListenProtocol {
+            kind: "request_stream_missing",
+        })?;
+        for target_change in [
+            fs::listen_request::TargetChange::RemoveTarget(1),
+            fs::listen_request::TargetChange::AddTarget(self.target()),
+        ] {
+            sender
+                .send(fs::ListenRequest {
+                    database: self.database.clone(),
+                    target_change: Some(target_change),
+                    ..Default::default()
+                })
+                .await
+                .map_err(|_| Error::ListenProtocol {
+                    kind: "request_stream_closed",
+                })?;
+        }
+        self.membership = watch::Membership::new(self.observe_only);
+        self.buffered.clear();
+        self.resetting = true;
+        Ok(())
+    }
+
     fn request<T>(&self, message: T) -> Result<tonic::Request<T>> {
-        let mut request = tonic::Request::new(message);
-        let header = Zeroizing::new(format!("Bearer {}", self.token.as_str()));
-        let mut metadata = header
-            .parse::<tonic::metadata::MetadataValue<_>>()
-            .map_err(|_| Error::Transport)?;
-        metadata.set_sensitive(true);
-        request.metadata_mut().insert("authorization", metadata);
-        request.metadata_mut().insert(
-            "google-cloud-resource-prefix",
-            self.database.parse().map_err(|_| Error::Transport)?,
-        );
-        Ok(request)
+        authenticated_request(&self.token, &self.database, message)
     }
 
     fn query(&self, limit: Option<i32>) -> fs::StructuredQuery {
-        use fs::structured_query::{self as q, field_filter::Operator, filter::FilterType};
+        use fs::structured_query as q;
         fs::StructuredQuery {
             from: vec![q::CollectionSelector {
                 collection_id: "messages".into(),
                 all_descendants: false,
             }],
-            r#where: Some(q::Filter {
-                filter_type: Some(FilterType::FieldFilter(q::FieldFilter {
-                    field: Some(q::FieldReference {
-                        field_path: "envelope.friendship_id".into(),
-                    }),
-                    op: Operator::Equal as i32,
-                    value: Some(value(fs::value::ValueType::StringValue(
-                        self.friendship.clone(),
-                    ))),
-                })),
-            }),
+            r#where: Some(friendship_filter(&self.friendship)),
             order_by: ["received_at", "__name__"]
                 .into_iter()
                 .map(|field| q::Order {
@@ -175,10 +313,19 @@ impl InboxListener for Listener {
                 .client
                 .run_query(request)
                 .await
-                .map_err(|_| Error::Transport)?
+                .map_err(|status| {
+                    rpc_failure(self.calls.as_ref(), "inbox.run_query", &self.parent, status)
+                })?
                 .into_inner();
             let mut messages = Vec::new();
-            while let Some(response) = responses.message().await.map_err(|_| Error::Transport)? {
+            while let Some(response) = responses.message().await.map_err(|status| {
+                rpc_failure(
+                    self.calls.as_ref(),
+                    "inbox.run_query.read",
+                    &self.parent,
+                    status,
+                )
+            })? {
                 if let Some(doc) = response.document {
                     messages.push(parse_document(doc, &self.parent)?);
                 }
@@ -196,16 +343,7 @@ impl InboxListener for Listener {
             sender
                 .send(fs::ListenRequest {
                     database: self.database.clone(),
-                    target_change: Some(fs::listen_request::TargetChange::AddTarget(fs::Target {
-                        target_type: Some(fs::target::TargetType::Query(fs::target::QueryTarget {
-                            parent: self.parent.clone(),
-                            query_type: Some(fs::target::query_target::QueryType::StructuredQuery(
-                                self.query(None),
-                            )),
-                        })),
-                        target_id: 1,
-                        ..Default::default()
-                    })),
+                    target_change: Some(fs::listen_request::TargetChange::AddTarget(self.target())),
                     ..Default::default()
                 })
                 .await
@@ -215,7 +353,9 @@ impl InboxListener for Listener {
                 self.client
                     .listen(request)
                     .await
-                    .map_err(|_| Error::Transport)?
+                    .map_err(|status| {
+                        rpc_failure(self.calls.as_ref(), "inbox.listen", &self.parent, status)
+                    })?
                     .into_inner(),
             );
             self.requests = Some(sender);
@@ -224,33 +364,104 @@ impl InboxListener for Listener {
             let response = self
                 .stream
                 .as_mut()
-                .ok_or(Error::Transport)?
+                .ok_or(Error::ListenProtocol {
+                    kind: "response_stream_missing",
+                })?
                 .message()
                 .await
-                .map_err(|_| Error::Transport)?;
+                .map_err(|status| {
+                    rpc_failure(
+                        self.calls.as_ref(),
+                        "inbox.listen.read",
+                        &self.parent,
+                        status,
+                    )
+                })?;
             let Some(response) = response else {
-                return Ok(None);
+                return Err(Error::ListenProtocol {
+                    kind: "stream_closed",
+                });
             };
+            if self.resetting
+                && matches!(&response.response_type, Some(fs::listen_response::ResponseType::TargetChange(change)) if change.cause.is_none() && change.target_change_type == fs::target_change::TargetChangeType::Remove as i32 && change.target_ids.contains(&1))
+            {
+                self.resetting = false;
+                continue;
+            }
+            match self.membership.observe(&response) {
+                Err(Error::ListenProtocol {
+                    kind: "existence_filter_mismatch",
+                }) => {
+                    self.calls.firestore_failure(
+                        "inbox.listen.reset",
+                        &self.parent,
+                        None,
+                        "existence_filter_mismatch",
+                    );
+                    self.reset_target().await?;
+                    continue;
+                }
+                Ok(true) => {
+                    self.buffered.clear();
+                    self.dirty = true;
+                }
+                result => {
+                    result?;
+                }
+            }
             use fs::listen_response::ResponseType;
             match response.response_type {
                 Some(ResponseType::DocumentChange(change)) => {
-                    let message =
-                        parse_document(change.document.ok_or(Error::Transport)?, &self.parent)?;
+                    if self.observe_only {
+                        self.dirty = true;
+                        continue;
+                    }
+                    let message = parse_document(
+                        change.document.ok_or(Error::ListenProtocol {
+                            kind: "document_missing",
+                        })?,
+                        &self.parent,
+                    )?;
                     if self.buffered.len() >= 500 {
-                        return Err(Error::Transport);
+                        return Err(Error::ListenProtocol {
+                            kind: "document_buffer_limit",
+                        });
                     }
                     self.buffered.insert(message.id.clone(), message);
                 }
                 Some(ResponseType::DocumentDelete(change)) => {
+                    if self.observe_only {
+                        self.dirty = true;
+                        continue;
+                    }
                     self.buffered
                         .remove(change.document.rsplit('/').next().ok_or(Error::Transport)?);
                 }
                 Some(ResponseType::DocumentRemove(change)) => {
+                    if self.observe_only {
+                        self.dirty = true;
+                        continue;
+                    }
                     self.buffered
                         .remove(change.document.rsplit('/').next().ok_or(Error::Transport)?);
                 }
                 Some(ResponseType::TargetChange(change)) => {
+                    if let Some(cause) = change.cause.as_ref() {
+                        return Err(code_failure(
+                            self.calls.as_ref(),
+                            "inbox.listen.target",
+                            &self.parent,
+                            cause.code,
+                        ));
+                    }
                     let checkpoint = target_checkpoint(&change)?;
+                    if self.observe_only {
+                        if checkpoint.ready || checkpoint.flush && self.dirty {
+                            self.dirty = false;
+                            return Ok(Some(InboxEvent::Ready));
+                        }
+                        continue;
+                    }
                     let messages = if checkpoint.flush {
                         let messages = self.buffered.drain().map(|(_, message)| message).collect();
                         self.sorted(messages)
@@ -267,8 +478,16 @@ impl InboxListener for Listener {
                         return Ok(Some(InboxEvent::Messages(messages)));
                     }
                 }
-                Some(ResponseType::Filter(_)) => return Err(Error::Transport),
-                None => return Err(Error::Transport),
+                Some(ResponseType::Filter(_)) => {
+                    if self.observe_only {
+                        self.dirty = true;
+                    }
+                }
+                None => {
+                    return Err(Error::ListenProtocol {
+                        kind: "response_missing",
+                    })
+                }
             }
         }
     }
@@ -284,10 +503,15 @@ fn target_checkpoint(change: &fs::TargetChange) -> Result<TargetCheckpoint> {
     if change.cause.is_some() {
         return Err(Error::Transport);
     }
-    let kind =
-        TargetChangeType::try_from(change.target_change_type).map_err(|_| Error::Transport)?;
-    if matches!(kind, TargetChangeType::Remove | TargetChangeType::Reset) {
-        return Err(Error::Transport);
+    let kind = TargetChangeType::try_from(change.target_change_type).map_err(|_| {
+        Error::ListenProtocol {
+            kind: "target_change_unknown",
+        }
+    })?;
+    if kind == TargetChangeType::Remove {
+        return Err(Error::ListenProtocol {
+            kind: "target_removed",
+        });
     }
     let own_target = change.target_ids.is_empty() || change.target_ids.contains(&1);
     Ok(TargetCheckpoint {
@@ -304,6 +528,19 @@ mod tests;
 fn value(value_type: fs::value::ValueType) -> fs::Value {
     fs::Value {
         value_type: Some(value_type),
+    }
+}
+
+fn friendship_filter(friendship: &str) -> fs::structured_query::Filter {
+    use fs::structured_query::{self as q, field_filter::Operator, filter::FilterType};
+    q::Filter {
+        filter_type: Some(FilterType::FieldFilter(q::FieldFilter {
+            field: Some(q::FieldReference {
+                field_path: "envelope.friendship_id".into(),
+            }),
+            op: Operator::Equal as i32,
+            value: Some(value(fs::value::ValueType::StringValue(friendship.into()))),
+        })),
     }
 }
 
@@ -330,7 +567,7 @@ fn json(value: fs::Value, depth: usize) -> Result<serde_json::Value> {
     }
     use fs::value::ValueType;
     match value.value_type {
-        Some(ValueType::StringValue(s)) if s.len() <= 12_000 => Ok(s.into()),
+        Some(ValueType::StringValue(s)) if s.len() <= MAX_ENVELOPE_STRING_BYTES => Ok(s.into()),
         Some(ValueType::IntegerValue(i)) if i >= 0 && i as u64 <= crate::wire::MAX_SAFE_INTEGER => {
             Ok(i.into())
         }

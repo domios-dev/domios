@@ -139,17 +139,24 @@ impl InstallationKeys<'_> {
         if let Some(candidate) = candidate {
             let id = candidate.verifier_key_id(self.uid);
             if active.contains(&id) {
-                // Keep the candidate until both the local promotion and server revocation are confirmed.
+                let previous = current
+                    .as_ref()
+                    .map(|keys| keys.verifier_key_id(self.uid))
+                    .filter(|previous| previous != &id);
+                if let Some(previous) = &previous {
+                    if active.contains(previous) {
+                        self.registry.revoke(previous).await?;
+                    }
+                }
+                let confirmed = self.registry.active_key_ids().await?;
+                if !confirmed.contains(&id)
+                    || previous.is_some_and(|previous| confirmed.contains(&previous))
+                {
+                    return Err(Error::Transport);
+                }
                 self.store
                     .save(&self.scope, Slot::Current, candidate.storage_bytes())
                     .await?;
-                for other in active.iter().filter(|other| *other != &id) {
-                    self.registry.revoke(other).await?;
-                }
-                let confirmed = self.registry.active_key_ids().await?;
-                if confirmed != vec![id] {
-                    return Err(Error::Transport);
-                }
                 self.store.delete(&self.scope, Slot::Candidate).await?;
                 return Ok(Some(candidate));
             }
@@ -181,14 +188,14 @@ impl InstallationKeys<'_> {
             return self.promote_candidate(true, rng).await;
         }
         if let Some(keys) = self.load().await? {
-            if self
+            let id = self
                 .registry
-                .active_key_ids()
-                .await?
-                .contains(&keys.verifier_key_id(self.uid))
-            {
-                return Ok(keys);
+                .enroll(&keys.signing_spki(), &keys.encryption_spki(), true)
+                .await?;
+            if id != keys.verifier_key_id(self.uid) {
+                return Err(Error::InvalidKey);
             }
+            return Ok(keys);
         }
         self.promote_candidate(true, rng).await
     }
@@ -244,8 +251,16 @@ impl InstallationKeys<'_> {
         self.reconcile().await?.ok_or(Error::LocalKeyUnavailable)
     }
 
+    pub async fn forget(&self) -> Result<()> {
+        for slot in [Slot::Candidate, Slot::Current] {
+            self.store.delete(&self.scope, slot).await?;
+        }
+        Ok(())
+    }
+
     pub async fn revoke(&self) -> Result<()> {
-        let mut ids = self.registry.active_key_ids().await?;
+        self.registry.active_key_ids().await?;
+        let mut ids = Vec::new();
         for slot in [Slot::Candidate, Slot::Current] {
             if let Some(bytes) = self.store.load(&self.scope, slot).await? {
                 let keys = PrivateKeys::from_storage(&bytes)?;
@@ -254,10 +269,16 @@ impl InstallationKeys<'_> {
         }
         ids.sort();
         ids.dedup();
-        for id in ids {
-            self.registry.revoke(&id).await?;
+        for id in &ids {
+            self.registry.revoke(id).await?;
         }
-        if !self.registry.active_key_ids().await?.is_empty() {
+        if self
+            .registry
+            .active_key_ids()
+            .await?
+            .iter()
+            .any(|id| ids.contains(id))
+        {
             return Err(Error::Transport);
         }
         for slot in [Slot::Candidate, Slot::Current] {

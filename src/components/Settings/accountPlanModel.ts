@@ -30,11 +30,15 @@ export function accountPlanModel(value: AccountPlan): PlanModel {
     limits:parseFreeLimits(value.limits)};
 }
 
-// The portal needs a Paddle customer: billing authority, or any paid record (past due, canceled, or an admin who also pays).
-export function manageActionForPlan(plan: PlanModel | null): "portal" | "plans" {
-  return plan && (plan.authority === "billing" || (plan.plan !== "free" && plan.plan !== "admin")) ? "portal" : "plans";
-}
-
 export function planFailure(previous: PlanModel | null): PlanModel | null {
   return previous ? {...previous,stale:true} : null;
+}
+
+export class NoBillingCustomer extends Error {
+  readonly code = "no_billing_customer";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "NoBillingCustomer";
+  }
 }

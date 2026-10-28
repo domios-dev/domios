@@ -18,7 +18,7 @@ impl ServiceContext {
     ) -> Result<serde_json::Value, String> {
         let account = self.account().await?;
         let session = account
-            .fresh_session()
+            .current_session()
             .await
             .map_err(|_| "Sign in to manage your plan")?
             .ok_or("Sign in to manage your plan")?;
@@ -92,7 +92,7 @@ impl ServiceContext {
                 let mut billing = Billing::new(adapter).with_grants(
                     &installation_id,
                     Arc::new(codeterm_billing::FileGrantStore::new(
-                        crate::paths::data_dir(),
+                        self.account_data_root()?,
                     )),
                 )?;
                 if let Ok(worker) = self.analytics_worker().await {
@@ -149,6 +149,19 @@ impl ServiceContext {
             self.sync_limit_gate();
         }
         result
+    }
+    pub(super) async fn clear_account_plan(&self) -> Result<(), String> {
+        self.account_plan().await?;
+        let root = self.account_data_root()?;
+        tokio::task::spawn_blocking(move || {
+            use codeterm_billing::GrantStore;
+            let store = codeterm_billing::FileGrantStore::new(root);
+            store.clear()?;
+            store.save_hint(false)
+        })
+        .await
+        .map_err(|error| error.to_string())??;
+        Ok(())
     }
     async fn account_plan_inner(&self) -> Result<Snapshot, String> {
         let session = self.account().await?.session().await;

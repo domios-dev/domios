@@ -60,6 +60,14 @@ fn refusal_adapter_ignores_messages_and_invalid_structured_reasons() {
 }
 
 #[test]
+fn no_billing_customer_adapter_uses_structured_reason() {
+    let body = serde_json::json!({"error": {"status": "FAILED_PRECONDITION",
+        "message": "No billing customer", "details": {"reason": "no_billing_customer"}}});
+    assert_eq!(refusal_reason(&body), BillingRefusal::NoBillingCustomer);
+    assert_eq!(refusal_message(&body), crate::NO_BILLING_CUSTOMER);
+}
+
+#[test]
 fn plan_operations_pin_callable_names_and_reject_injected_fields() {
     for (input, name, data) in [
         (

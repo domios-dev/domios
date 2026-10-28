@@ -175,6 +175,32 @@ describe("Mesh canvas wiring", () => {
     await act(async () => element!.click());
   };
 
+  it.each(["unavailable", "offline", "authority-unavailable", "rate-limited"] as const)("restarts stopped %s enrollment through its visible retry and reloads the snapshot", async reason => {
+    const refusal = reason === "rate-limited" ? { reason, retry_after_seconds: 30 } : { reason };
+    const client = new FakeAccountMeshClient(snapshot({ enrollment: "refused", last_refusal: refusal, retry_at: null, registry: null }));
+    const enroll = vi.spyOn(client, "enroll").mockImplementation(async () => {
+      client.state = snapshot();
+      return { ok: true };
+    });
+    await mount(client);
+    const retry = () => [...host.querySelectorAll<HTMLButtonElement>("button")].find(element => element.textContent === "Retry enrollment") ?? null;
+    expect(enroll).not.toHaveBeenCalled();
+    expect(node("MacBook")).toBeNull();
+    const snapshots = client.snapshotCalls;
+    await click(retry());
+    expect(enroll).toHaveBeenCalledTimes(1);
+    expect(client.snapshotCalls).toBeGreaterThan(snapshots);
+    expect(node("MacBook")).not.toBeNull();
+    expect(retry()).toBeNull();
+  });
+
+  it("keeps enrollment retry hidden while automatic backoff is pending", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ enrollment: "refused", last_refusal: { reason: "unavailable" }, retry_at: NOW + 30 }));
+    await mount(client);
+    expect([...host.querySelectorAll("button")].some(element => element.textContent === "Retry enrollment")).toBe(false);
+    expect(client.enrollCalls).toBe(0);
+  });
+
   it("confirms a named machine sign-out on the canvas without removing its pairing", async () => {
     const client = new FakeAccountMeshClient(snapshot());
     await mount(client);

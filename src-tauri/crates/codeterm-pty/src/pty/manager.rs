@@ -655,6 +655,8 @@ fn apply_launch_overrides(cmd: &mut CommandBuilder, cwd: Option<&str>, env_unset
     for key in env_unset {
         cmd.env_remove(key);
     }
+    #[cfg(unix)]
+    super::shell_integration::bind_bash_cli(cmd);
 }
 
 /// Manages PTY sessions. Sessions are stored behind Arc for shared access.
@@ -979,6 +981,10 @@ fn kill_failure_blocks_teardown(_error: &std::io::Error) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "manager/bash_cli_tests.rs"]
+mod bash_cli_tests;
 
 #[cfg(windows)]
 fn wrap_windows_pty_child(cmd: &mut CommandBuilder, launcher: std::ffi::OsString) {

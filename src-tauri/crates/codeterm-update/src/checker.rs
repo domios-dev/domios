@@ -148,8 +148,8 @@ fn build_update_command(
     _download_url: Option<&str>,
 ) -> Option<String> {
     match method {
-        InstallMethod::Brew => Some("brew upgrade --cask codeterm".to_string()),
-        InstallMethod::Scoop => Some("scoop update codeterm".to_string()),
+        InstallMethod::Brew => Some("brew upgrade --cask domios-dev/domios/domios".to_string()),
+        InstallMethod::Scoop => Some("scoop update domios".to_string()),
         InstallMethod::Deb => None,
         InstallMethod::Rpm => Some(format!(
             "curl -sLO https://github.com/{}/releases/download/v{}/Domios-{}-1.x86_64.rpm && sudo rpm -U Domios-{}-1.x86_64.rpm",

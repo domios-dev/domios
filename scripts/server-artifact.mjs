@@ -158,7 +158,7 @@ export async function stageDevResources({ cargoLog, treeLog, cliLog, repo, resou
   const root = resolveDevResourceRoot(resourceRoot, resources);
   const server = artifactReceipt({ cargoLog, treeLog, build, resources: root, platform });
   if (path.dirname(server.executable) !== path.dirname(builtClient)) throw new Error('DEV server and client must share the exact Cargo artifact directory');
-  if (path.basename(builtClient) !== `codeterm${platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
+  if (path.basename(builtClient) !== `domios-app${platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected DEV client artifact filename');
   const messages = readFileSync(cargoLog, 'utf8').split(/\r?\n/).filter(Boolean).map(JSON.parse);
   const message = messages.find(row => row.reason === 'compiler-artifact' && row.executable && realpathSync.native(row.executable) === server.executable);
   if (realpathSync.native(message.target.src_path) !== realpathSync.native(path.join(repo, 'src-tauri/crates/domios-server/src/main.rs'))) throw new Error('Server artifact has a foreign source target');

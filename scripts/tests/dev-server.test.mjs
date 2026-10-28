@@ -82,7 +82,8 @@ test('build verb never invokes whole-client cleanup, frontend build, or native c
   const directory = mkdtempSync(path.join(tmpdir(), 'dev-server-verb-'));
   mkdirSync(path.join(directory, '.domios-dev-build'));
   try {
-  const result = spawnSync(bash, ['-c', `set -e
+  const result = spawnSync(bash, [], { encoding: 'utf8', input: `set -e
+${source.match(/^dev_build_phase\(\) \{[^]*?^\}/m)[0]}
 ${body}
 ${server}
 ${config}
@@ -110,9 +111,9 @@ release_stable_build_path() { :; }
 complete_build_gateway_before_handoff() { :; }
 CT_DATA_DIR=data CT_PORT=7887 CT_VITE_PORT=1511 CT_DEV_CARGO_PROFILE=dev CODETERM_BUILD_SHA=sha CMD=dev-server
 reload_dev_server
-`], { encoding: 'utf8' });
+` });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stderr, /cargo:build .* -p domios-server --bin domios-server/);
+  assert.match(result.stderr, /cargo:build .* -p domios-server --bin domios-server/, result.stdout);
   assert.doesNotMatch(result.stderr, /manifest-path cli\/Cargo.toml|-p codeterm --bin/);
   assert.match(result.stdout, /dev-server.mjs stop record data 7887/);
   assert.match(result.stdout, /dev-server.mjs start record data 7887/);

@@ -241,6 +241,7 @@ pub async fn patch_config_api(
     // Detect rename so can sync mesh state + push the new name to peers. Mirror of the same logic in the Tauri update_config command.
     let prev_name = state.config.lock().mesh.instance_name.clone();
     let prev_mesh_enabled = state.config.lock().mesh.enabled;
+    let neighbors_changed = cfg.neighbors.enabled != new_cfg.neighbors.enabled;
     let new_name = new_cfg.mesh.instance_name.clone();
     let new_mesh_enabled = new_cfg.mesh.enabled;
     let renamed = !new_name.is_empty() && new_name != prev_name;
@@ -275,6 +276,9 @@ pub async fn patch_config_api(
         "config-changed",
         serde_json::to_value(&new_cfg).unwrap_or_default(),
     );
+    if neighbors_changed {
+        state.svc.neighbors_config_changed();
+    }
 
     if mesh_disabled {
         log::info!("[mesh] disabled mid-session — marking peers offline");

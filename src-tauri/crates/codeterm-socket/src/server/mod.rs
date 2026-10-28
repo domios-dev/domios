@@ -13,6 +13,8 @@ mod error_codes;
 mod local_api;
 mod mem;
 mod model_errors;
+#[cfg(test)]
+mod model_provider_authority_tests;
 mod model_providers;
 mod notification;
 mod orchestration;
@@ -63,6 +65,9 @@ mod team;
 mod workspace;
 
 pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
+
+#[cfg(test)]
+mod neighbor_tests;
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
@@ -520,6 +525,18 @@ fn respond_to_request(
     }
     if let Err(message) = svc.bind_local_rpc(&req.credential, &req.method, &mut local_params) {
         return JsonRpcResponse::error(id, -32003, message);
+    }
+    if let Err(message) = codeterm_service_core::async_runtime::block_on(
+        svc.authorize_neighbor_rpc_credential(&req.credential, &req.method, local_params.as_ref()),
+    ) {
+        return JsonRpcResponse::error(id, -32003, message);
+    }
+    match codeterm_service_core::async_runtime::block_on(
+        svc.neighbor_rpc_discovery(&req.credential, &req.method),
+    ) {
+        Ok(Some(value)) => return JsonRpcResponse::success(id, value),
+        Ok(None) => {}
+        Err(message) => return JsonRpcResponse::error(id, -32003, message),
     }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.

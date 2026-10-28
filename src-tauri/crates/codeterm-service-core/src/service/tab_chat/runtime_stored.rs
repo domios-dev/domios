@@ -230,6 +230,15 @@ pub(super) fn archived_messages(
     cwd: &str,
     session: &str,
 ) -> Result<Option<Vec<ChatMsg>>, String> {
+    Ok(archived_window(svc, provider_id, cwd, session)?.map(|(messages, _)| messages))
+}
+
+pub(super) fn archived_window(
+    svc: &ServiceContext,
+    provider_id: &str,
+    cwd: &str,
+    session: &str,
+) -> Result<Option<(Vec<ChatMsg>, u64)>, String> {
     let Some(provider) = svc.agent_registry.provider_arc(provider_id) else {
         return Ok(None);
     };
@@ -244,7 +253,7 @@ pub(super) fn archived_messages(
             "Stored runtime history is unavailable for session {session}"
         ));
     };
-    Ok(Some(window.messages))
+    Ok(Some((window.messages, window.start)))
 }
 
 pub fn start(

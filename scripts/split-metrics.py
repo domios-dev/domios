@@ -37,7 +37,7 @@ def count_lines(paths):
 def rs_files(base):
     return [os.path.join(dp, f) for dp, _, fs in os.walk(base) for f in fs if f.endswith(".rs")]
 
-HOT_AREAS = ("service/codex_rpc", "service/pty_io", "service/orchestrator", "service/hierarchy", "service/agent_restart",
+HOT_AREAS = ("service/pty_io", "service/orchestrator", "service/hierarchy", "service/agent_restart",
              "service/supporter_tab_state", "api/mem_routes", "api/hook_routes", "socket/server", "sentinel")
 
 def crate_closure():

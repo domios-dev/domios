@@ -1,4 +1,5 @@
 mod callable;
+mod enrollment_refusals;
 mod entitlements;
 mod lifecycle;
 mod membership;
@@ -7,6 +8,7 @@ mod presence;
 mod reauthentication;
 mod refusals;
 mod rejoin;
+mod request_volume;
 mod startup;
 mod support;
 

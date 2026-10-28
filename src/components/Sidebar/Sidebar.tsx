@@ -19,10 +19,11 @@ import { getAgentProvider } from "../../lib/agentProviders";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
-import { ExtensionsIcon } from "../Icons";
-import { MemoryGraphIcon, MeshIcon, SidebarNavButton } from "./SidebarNavButton";
+import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./SidebarNavButton";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
-import { SidebarDisclosure } from "./SidebarDisclosure";
+import { SidebarStructuralSection } from "./SidebarStructuralSection";
+import { SidebarNeighborsSection } from "../Neighbors/SidebarNeighborsSection";
+import { useNeighborsSwitch } from "../Neighbors/neighborsSwitch";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
   keepPressFocusInPlace,
@@ -80,9 +81,11 @@ interface SidebarProps {
   onCollapse?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
-  onOpenExtensions?: () => void;
+  onOpenNeighbors?: () => void;
+  /** The Neighbor whose conversation is the current view, for its row's highlight. */
+  activeNeighborChat?: string | null;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git" | "extensions" | "analytics";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "neighbors" | "neighbor" | "git" | "extensions" | "analytics";
   config?: AppConfig;
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
@@ -100,7 +103,8 @@ export const Sidebar = memo(function Sidebar({
   onCollapse,
   onOpenMemory,
   onOpenMesh,
-  onOpenExtensions,
+  onOpenNeighbors,
+  activeNeighborChat = null,
   onNavigateToTab,
   mainView = "workspace",
   config,
@@ -364,6 +368,8 @@ export const Sidebar = memo(function Sidebar({
       setMeshEnabledOverride(null);
     }
   }, [meshPresence]);
+
+  const neighborsSwitch = useNeighborsSwitch(config);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -780,18 +786,9 @@ export const Sidebar = memo(function Sidebar({
                   onOpenJobs={onOpenWorkspaceAutomation}
                 />
               )}
-              {!isCompact && !restoring && <div className="sidebar-structural-section">
-                <div className="sidebar-structural-header">
-                  <SidebarDisclosure
-                    data-testid="workspaces-section-toggle"
-                    className="sidebar-structural-toggle"
-                    expanded={workspacesSectionExpanded}
-                    onClick={toggleWorkspacesSection}
-                  >
-                    <span className="sidebar-structural-label">WORKSPACES</span>
-                  </SidebarDisclosure>
-                  <div className="sidebar-structural-action" />
-                </div>
+              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat} />}
+              {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
+                expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
                   <>
                     <WorkspaceCardGrid
@@ -817,7 +814,7 @@ export const Sidebar = memo(function Sidebar({
                     )}
                   </>
                 )}
-              </div>}
+              </SidebarStructuralSection>}
               </SidebarDnd>
               </div>
               <div ref={scrollAnchor.spaceRef} aria-hidden="true" />
@@ -849,14 +846,6 @@ export const Sidebar = memo(function Sidebar({
               className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
               <SidebarNavButton
-                testId="nav-extensions"
-                label="Plugins"
-                icon={<ExtensionsIcon size={navIconSize} className="shrink-0" />}
-                current={mainView === "extensions"}
-                onClick={onOpenExtensions}
-                {...navButtonLayout}
-              />
-              <SidebarNavButton
                 testId="nav-memory"
                 label="Memory"
                 title="Memory Graph (Ctrl+Shift+M)"
@@ -865,6 +854,26 @@ export const Sidebar = memo(function Sidebar({
                 onClick={onOpenMemory}
                 {...navButtonLayout}
               />
+              <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
+                <SidebarNavButton
+                  testId="nav-neighbors"
+                  label="Neighborhood"
+                  icon={<NeighborsIcon size={navIconSize} />}
+                  current={mainView === "neighbors"}
+                  onClick={onOpenNeighbors}
+                  grow
+                  {...navButtonLayout}
+                />
+                {!isCompact && (
+                  <LiquidFlip
+                    data-testid="neighbors-toggle"
+                    aria-label="Neighbors"
+                    className="shrink-0 text-[10px]"
+                    checked={neighborsSwitch.enabled}
+                    onCheckedChange={neighborsSwitch.setEnabled}
+                  />
+                )}
+              </div>
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
                 <SidebarNavButton
                   testId="nav-mesh"

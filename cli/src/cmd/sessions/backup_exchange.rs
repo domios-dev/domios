@@ -8,13 +8,27 @@ fn response(request: crate::local_api::LocalApiRequest) -> Value {
         .send()
         .unwrap_or_else(|error| print::fail(1, &error.to_string()));
     let status = response.status();
-    let value: Value = response
-        .json()
-        .unwrap_or_else(|error| print::fail(1, &format!("Invalid snapshot response: {error}")));
+    let body = response
+        .bytes()
+        .unwrap_or_else(|error| print::fail(1, &error.to_string()));
+    decode_response(status, &body).unwrap_or_else(|error| print::fail(1, &error))
+}
+
+fn decode_response(status: reqwest::StatusCode, body: &[u8]) -> Result<Value, String> {
     if !status.is_success() {
-        print::fail(1, &format!("Snapshot exchange refused: {status} {value}"));
+        const MAX_REFUSAL_BYTES: usize = 4096;
+        let text = String::from_utf8_lossy(body);
+        let mut end = text.len().min(MAX_REFUSAL_BYTES);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let suffix = if end < text.len() { " [truncated]" } else { "" };
+        return Err(format!(
+            "Snapshot exchange refused: {status} {}{suffix}",
+            &text[..end]
+        ));
     }
-    value
+    serde_json::from_slice(body).map_err(|error| format!("Invalid snapshot response: {error}"))
 }
 
 pub(super) fn export(
@@ -101,3 +115,6 @@ pub(super) fn import(
     let result = response(request);
     println!("{result}");
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,4 +1,5 @@
 import type { NotificationAction, NotificationPromptIdentity } from "./types";
+import { openNeighbor } from "../components/Neighbors/neighborFocus";
 
 function adoptPromptIdentity(raw: unknown): NotificationPromptIdentity | null {
   if (typeof raw !== "object" || raw === null) return null;
@@ -51,5 +52,14 @@ export function adoptStoredActions(raw: unknown): NotificationAction[] | undefin
 }
 
 export async function runNotificationAction(action: NotificationAction): Promise<void> {
-  if (action.type === "url" && action.value) window.open(action.value, "_blank");
+  if (action.type === "url" && action.value) {
+    const neighbor = neighborNotificationTarget(action.value);
+    if (neighbor) openNeighbor(neighbor);
+    else window.open(action.value, "_blank");
+  }
+}
+
+export function neighborNotificationTarget(value: string): string | null {
+  const match = /^domios:\/\/neighbor\/([a-f0-9]{64})$/.exec(value);
+  return match?.[1] ?? null;
 }

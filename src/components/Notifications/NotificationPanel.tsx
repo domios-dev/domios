@@ -2,13 +2,14 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
 import type { Notification } from "../../lib/types";
-import { runNotificationAction } from "../../lib/notificationActions";
+import { neighborNotificationTarget, runNotificationAction } from "../../lib/notificationActions";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
+import { openNeighbor } from "../Neighbors/neighborFocus";
 
 const NOTIFICATION_SKELETON_ROWS = [78, 64, 70];
 
@@ -45,7 +46,11 @@ export function NotificationPanel({
   const handleClick = useCallback(
     (notif: Notification) => {
       if (!notif.read) onMarkRead(notif.id);
-      if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
+      // A Neighbor message belongs to the friend's conversation, not to the concierge tab that raised it.
+      const neighbor = notif.actions?.flatMap((action) => action.type === "url" && action.value ? [neighborNotificationTarget(action.value)] : [])
+        .find((target): target is string => target !== null);
+      if (neighbor) openNeighbor(neighbor);
+      else if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
     },
     [onJumpToTab, onMarkRead],
   );

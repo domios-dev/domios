@@ -369,8 +369,7 @@ function utf8Bytes(value) {
 }
 function supportsDirectResume() {
   try {
-    const manifest = JSON.parse(host.manifestJson() || "null");
-    const minimum = manifest?.capabilities?.structuredControl?.minVersion;
+    const minimum = "0.159.0";
     const observed = JSON.parse(host.providerVersionJson());
     if (observed?.status !== "detected" || typeof minimum !== "string") return false;
     const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
@@ -2555,14 +2554,17 @@ function codexRuntimePolicy(settings) {
     "auto": ["on-request", "auto_review", "workspaceWrite"],
     "full-access": ["never", "user", "dangerFullAccess"],
     "read-only": ["never", "user", "readOnly"],
+    "read-only-with-writable-roots": ["never", "user", "workspaceWrite"],
     "workspace-write": ["never", "user", "workspaceWrite"]
   };
   const policy = policies[selected];
   if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
-  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], sandboxPolicy: {
+  const padOnly = selected === "read-only-with-writable-roots";
+  if (padOnly && !settings.additionalDirectories?.length) throw { code: "invalid_schema", message: "Read-only writable roots are missing" };
+  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], ...padOnly ? { runtimeWorkspaceRoots: [...settings.additionalDirectories] } : {}, sandboxPolicy: {
     type: policy[2],
     ...(policy[2] === "workspaceWrite" || selected === "read-only") && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
-    ...selected === "workspace-write" ? { writableRoots: [...settings.additionalDirectories ?? []], excludeTmpdirEnvVar: true, excludeSlashTmp: true } : {},
+    ...selected === "workspace-write" || padOnly ? { writableRoots: [...settings.additionalDirectories ?? []], excludeTmpdirEnvVar: true, excludeSlashTmp: true } : {},
     ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
   } };
 }
@@ -2571,7 +2573,7 @@ function codexThreadConfig(settings, hostOwned) {
   return {
     check_for_update_on_startup: false,
     project_doc_max_bytes: 65536,
-    ...["read-only", "workspace-write"].includes(settings.mode ?? "") ? {
+    ...["read-only", "workspace-write", "read-only-with-writable-roots"].includes(settings.mode ?? "") ? {
       "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories ?? []],
       "sandbox_workspace_write.exclude_tmpdir_env_var": true,
       "sandbox_workspace_write.exclude_slash_tmp": true
@@ -2582,7 +2584,7 @@ function codexThreadConfig(settings, hostOwned) {
     ...hostOwned?.questions ? { "features.default_mode_request_user_input": false } : {}
   };
 }
-function codexReportedSettings(raw) {
+function codexReportedSettings(raw, requested) {
   const root = object(raw);
   const settings = root.threadSettings ? object(root.threadSettings) : root;
   const thread = object(settings.thread);
@@ -2594,11 +2596,22 @@ function codexReportedSettings(raw) {
   const approval = settings.approvalPolicy ?? thread.approvalPolicy;
   const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
   const mode = text2(settings.mode) ?? text2(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
-  return { ...serviceTier !== void 0 ? { serviceTier } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...mode ? { mode } : {} };
+  const effectiveMode = requested?.mode === "read-only-with-writable-roots" && mode === "workspace-write" ? requested.mode : mode;
+  return { ...serviceTier !== void 0 ? { serviceTier } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...effectiveMode ? { mode: effectiveMode } : {} };
 }
 function codexEffectiveSettings(requested, reply) {
   const { serviceTier: _requestedTier, ...other } = requested;
-  return { ...other, ...codexReportedSettings(reply) };
+  return { ...other, ...codexReportedSettings(reply, requested) };
+}
+function codexWritableRootsConfirmed(settings, reply) {
+  if (settings.mode !== "read-only-with-writable-roots") return true;
+  const root = object(reply);
+  const reported = root.threadSettings ? object(root.threadSettings) : root;
+  const roots = reported.runtimeWorkspaceRoots;
+  const sandbox = object(reported.sandboxPolicy ?? reported.sandbox);
+  const expected = settings.additionalDirectories ?? [];
+  const same = (value) => Array.isArray(value) && value.length === expected.length && value.every((path) => typeof path === "string" && expected.includes(path));
+  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
 }
 
 // plugins/provider-codex/src/runtimeServiceTiers.ts
@@ -3126,7 +3139,7 @@ function runtimeReduce(ctx, raw, frames) {
         events.push(...abandonOpenTurn(state, threadId, turnId));
         state.activeTurnId = turnId;
         delete state.compacting;
-        const settings = codexReportedSettings({ ...params, ...object(params.turn) });
+        const settings = codexReportedSettings({ ...params, ...object(params.turn) }, ctx.settings);
         if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
         events.push({ kind: "turnState", threadId, turnId, state: "working", ...timing(params) });
         break;
@@ -3173,7 +3186,7 @@ function runtimeReduce(ctx, raw, frames) {
         break;
       }
       case "thread/settings/updated": {
-        const settings = codexReportedSettings(params);
+        const settings = codexReportedSettings(params, ctx.settings);
         if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
         break;
       }
@@ -3309,6 +3322,7 @@ function settingsParams(ctx, settings, instructions) {
     ...codexServiceTier(settings),
     threadSource: "user",
     config: codexThreadConfig(settings, ctx.hostOwned),
+    ...policies.runtimeWorkspaceRoots ? { runtimeWorkspaceRoots: policies.runtimeWorkspaceRoots } : {},
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,
     sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
@@ -3463,6 +3477,11 @@ function planOperation(ctx, op) {
       if (settings.serviceTier !== void 0 && !serviceTierSelection(settings.serviceTier)) fail2("invalid_schema", "Invalid service tier");
       const parsed = settings;
       if (parsed.serviceTier && !tierAvailable({ ...parsed, serviceTierAvailability: ctx.settings.serviceTierAvailability }, parsed.serviceTier)) fail2("provider_refused", "Service tier is not available for this account and model");
+      if (ctx.settings.mode === "read-only-with-writable-roots") {
+        if (parsed.mode !== ctx.settings.mode || JSON.stringify(parsed.additionalDirectories) !== JSON.stringify(ctx.settings.additionalDirectories) || parsed.networkAccess !== ctx.settings.networkAccess) fail2("provider_refused", "Read-only writable roots require a new launch to change");
+        return request("thread/settings/update", { threadId: thread, ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
+      }
+      if (parsed.mode === "read-only-with-writable-roots") fail2("provider_refused", "Read-only writable roots require a new launch");
       return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
     }
   }
@@ -3532,11 +3551,13 @@ function respondOperation(ctx, op, raw, reply) {
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
+      if (!codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
       return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
+      if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
       if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
       const idle = threadStatus(object(value.thread).status)?.state === "idle";
       return {

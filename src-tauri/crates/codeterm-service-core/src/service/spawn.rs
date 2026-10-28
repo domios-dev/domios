@@ -245,6 +245,18 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
+        let spawner = match &spec.command {
+            TabCommand::Agent(agent) => agent.spawned_by_tab_id.as_deref(),
+            _ => spec
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|metadata| metadata.params.spawned_by_tab_id.as_deref()),
+        };
+        self.refuse_neighbor_descendant_launch(&[
+            spec.creator_tab_id.as_deref(),
+            spec.parent_tab_id.as_deref(),
+            spawner,
+        ])?;
         if !matches!(&spec.command, TabCommand::Shell) {
             self.validate_request_cwd(
                 spec.workspace_id.as_deref(),
@@ -412,6 +424,12 @@ impl ServiceContext {
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.role_profile = agent.role_profile.clone();
                 tab.taskless_authorized_gates = taskless_authorized_gates.clone();
+                if tab.neighbor_authority.is_none() {
+                    tab.neighbor_authority = spec
+                        .chatbackend_launch
+                        .as_ref()
+                        .and_then(|metadata| metadata.params.neighbor_authority.clone());
+                }
                 tab.audience = spec.audience;
             }
             if let Some(ref description) = spec.description {
@@ -616,11 +634,7 @@ impl ServiceContext {
             self.agent_registry
                 .with_provider(&agent_cmd, |provider| provider.is_tool_less())
                 .unwrap_or(false),
-            super::codex_rpc::launch::carries_startup_attempt(
-                self,
-                &agent_cmd,
-                !agent.extra_args.is_empty(),
-            ),
+            true,
         );
         let mut legacy_params = spec.to_agent_launch_params(resolved_cwd.clone())?;
         let input_provider = self.agent_registry.provider_arc(&agent_cmd);
@@ -844,6 +858,12 @@ impl ServiceContext {
                 tab.audience = spec.audience;
                 tab.role_profile = agent.role_profile.clone();
                 tab.taskless_authorized_gates = taskless_authorized_gates.clone();
+                if tab.neighbor_authority.is_none() {
+                    tab.neighbor_authority = spec
+                        .chatbackend_launch
+                        .as_ref()
+                        .and_then(|metadata| metadata.params.neighbor_authority.clone());
+                }
                 if let Some(ref wid) = agent.worker_id {
                     tab.worker_id = Some(wid.clone());
                 }
@@ -935,7 +955,6 @@ impl ServiceContext {
             &env_vars,
         );
 
-        super::codex_rpc::lifecycle::launch_env(self, &tab_id, &mut env_vars);
         let pty_id = match self.link_hidden_agent_pty(&tab_id, resolved_cwd, env_vars) {
             Ok(pty_id) => pty_id,
             Err(error) => {
@@ -1042,12 +1061,6 @@ impl ServiceContext {
                 provider,
                 launch_session_id,
                 task: task_for_thread,
-                selection: crate::ports::transport::Selection {
-                    model: launch_model.clone(),
-                    effort: agent.reasoning_effort.clone(),
-                    resume: agent.resume_session_id.clone(),
-                    extra_args: false,
-                },
                 model_args,
                 role: role_for_thread,
                 role_profile: role_profile_for_thread,

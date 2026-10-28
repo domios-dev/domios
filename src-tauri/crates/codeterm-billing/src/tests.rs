@@ -254,42 +254,6 @@ async fn signed_out_returns_free() {
     assert_eq!(*provider.calls.lock(), 1);
 }
 #[tokio::test]
-async fn explicit_focus_refresh_throttled_checkout_bypasses() {
-    let provider = Arc::new(adapters::fake::Fake::default());
-    let billing = Billing::new(provider.clone());
-    let session = session("owner");
-    let now = Instant::now();
-    billing
-        .refresh(Some(&session), RefreshEvent::SignIn, now)
-        .await;
-    billing
-        .refresh(
-            Some(&session),
-            RefreshEvent::Focus,
-            now + Duration::from_secs(59),
-        )
-        .await;
-    assert_eq!(*provider.calls.lock(), 1);
-    billing
-        .refresh(
-            Some(&session),
-            RefreshEvent::Focus,
-            now + Duration::from_secs(60),
-        )
-        .await;
-    assert_eq!(*provider.calls.lock(), 2);
-    billing.browser_opened(&session);
-    billing
-        .refresh(
-            Some(&session),
-            RefreshEvent::Focus,
-            now + Duration::from_secs(61),
-        )
-        .await;
-    assert_eq!(*provider.calls.lock(), 3);
-}
-
-#[tokio::test]
 async fn late_fetch_cannot_restore_signed_out_entitlement() {
     struct Delayed {
         started: tokio::sync::Notify,
@@ -630,42 +594,6 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
             if paid { None } else { Some(2) }
         );
     }
-}
-
-#[tokio::test]
-async fn focus_bypasses_throttle_while_stale_checkout_still_bypasses() {
-    let provider = GrantReplies::new(vec![Ok(paid_grant())]);
-    let (now, clock) = clock(1_700_000_060);
-    let billing = Billing::new(provider.clone()).with_test_grants(
-        activation("fixture-online-v1"),
-        "fixture-installation",
-        Arc::new(MemoryGrants::default()),
-        clock,
-    );
-    let user = session("fixture-user");
-    let focus = Instant::now();
-    billing
-        .refresh(Some(&user), RefreshEvent::SignIn, focus)
-        .await;
-    billing
-        .refresh(Some(&user), RefreshEvent::Focus, focus)
-        .await;
-    assert_eq!(provider.count(), 1);
-    for instant in [1_700_003_600, 1_700_086_399] {
-        now.store(instant, std::sync::atomic::Ordering::SeqCst);
-        let snapshot = billing
-            .refresh(Some(&user), RefreshEvent::Focus, focus)
-            .await;
-        assert!(snapshot.stale);
-        assert!(snapshot.grant.is_some());
-        assert!(billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
-    }
-    assert_eq!(provider.count(), 3);
-    now.store(1_700_000_060, std::sync::atomic::Ordering::SeqCst);
-    billing
-        .refresh(Some(&user), RefreshEvent::CheckoutReturned, focus)
-        .await;
-    assert_eq!(provider.count(), 4);
 }
 
 #[tokio::test]
@@ -1177,3 +1105,8 @@ mod startup;
 
 #[path = "observer_tests.rs"]
 mod observer;
+
+#[path = "refresh_error_tests.rs"]
+mod refresh_error;
+
+mod focus;

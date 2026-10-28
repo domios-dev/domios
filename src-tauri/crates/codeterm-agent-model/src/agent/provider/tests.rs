@@ -33,7 +33,6 @@ fn provider_descriptor_round_trip() {
         agent_runtime: None,
         cli_login: None,
         supports_session_fork: false,
-            structured_control: None,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: "test".into(),

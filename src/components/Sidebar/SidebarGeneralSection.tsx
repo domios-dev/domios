@@ -3,7 +3,7 @@ import type { ApiConfig, Workspace } from "../../lib/types";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import type { JobsTarget } from "../Jobs/JobsView";
 import { GeneralInventory } from "./GeneralInventory";
-import { NeighborsSection } from "../Neighbors/NeighborsSection";
+import { useNeighborGatewayIds } from "../Neighbors/neighborGateways";
 import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { SpinalCordButton } from "./SpinalCord";
@@ -29,6 +29,9 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
 }) {
   const workspaceId = workspace.id;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
+  const conciergeIds = useNeighborGatewayIds();
+  // A Neighbor's concierge is shown under that Neighbor, like a surface under its owner.
+  const otherTabs = useMemo(() => sortedTabs.filter((tab) => !isGeneralSectionTab(tab) && !conciergeIds.has(tab.id)), [sortedTabs, conciergeIds]);
   const generalCwd = workspace.cwd ?? sortedTabs.find((tab) => tab.protected)?.cwd ?? null;
   const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const { activate, activateTab, closeTab, renameTab, openRemoteTab, openSentinelJob, closeTeam } =
@@ -88,10 +91,6 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onCloseTeam={closeTeam}
         onOpenSentinelJob={openSentinelJob}
       />}
-      <div hidden={!expanded}><NeighborsSection onOpenGeneral={() => {
-        const general = sortedTabs.find(tab => tab.protected);
-        if (general) activateTab(general.id);
-      }} /></div>
       {expanded && <GeneralInventory
         generalWorkspaceId={workspaceId}
         onShowAllJobs={() => onOpenJobs?.(workspaceId, undefined, "machine")}
@@ -105,9 +104,9 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onNavigate={actions.activateTab}
       />}
     </section>
-    {expanded && sortedTabs.some((tab) => !isGeneralSectionTab(tab) && isSidebarTabVisible(tab)) && <section aria-label="Other sessions">
+    {expanded && otherTabs.some(isSidebarTabVisible) && <section aria-label="Other sessions">
       <SidebarWorkspaceTabs workspace={workspace} activeTabId={data.activeTabIds[workspaceId] ?? null}
-        sortedTabs={sortedTabs.filter((tab) => !isGeneralSectionTab(tab))} tabs={data.tabs}
+        sortedTabs={otherTabs} tabs={data.tabs}
         tabStatuses={data.tabStatuses} teams={data.teams} planIndex={data.planIndex} plans={data.plans}
         providers={data.providers} closingTabIds={data.closingTabIds} appearingTabIds={data.appearingTabIds}
         isActiveVisual={isActiveVisual} workspaceCanvasActive={data.workspaceCanvasActive} touchMode={data.touchMode}

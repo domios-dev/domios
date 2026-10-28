@@ -20,6 +20,15 @@
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent) 45%, transparent);
 }
 
+.ct-field-prominent {
+  height: 32px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-fg) 18%, transparent);
+}
+
+.ct-field-prominent:focus {
+  box-shadow: inset 0 0 0 1px var(--ct-accent);
+}
+
 .ct-field:disabled {
   opacity: 0.5;
 }

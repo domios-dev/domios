@@ -20,6 +20,7 @@
 @import "../components/Terminal/RestoreStatePanel.css";
 @import "../components/shared/dropdownMenu.css";
 @import "../components/Sidebar/sidebarPanel.css";
+@import "../components/Neighbors/neighbors.css";
 @import "../components/shared/rowKebab.css";
 @import "../components/Terminal/tabBarPill.css";
 @import "../components/shared/card.css";
@@ -394,17 +395,21 @@ body {
   pointer-events: auto;
 }
 @media (max-width: 640px) {
+  /* A closed drawer also hides once it has slid away: content wider than the capped drawer would otherwise peek in. */
   .ct-sidebar-drawer {
     width: fit-content;
     max-width: min(85vw, calc(100vw - 1rem));
     transform: translateX(-100%);
+    visibility: hidden;
     pointer-events: none;
-    transition: transform 300ms var(--ct-ease-liquid-settle);
+    transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s linear 300ms;
     will-change: transform;
   }
   .ct-sidebar-drawer.is-open {
     transform: translateX(0);
+    visibility: visible;
     pointer-events: auto;
+    transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s;
   }
 }
 @media (prefers-reduced-motion: reduce) {

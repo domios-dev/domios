@@ -20,7 +20,19 @@ fn materialize(tab: &mut Tab, runtime_declared: bool) -> bool {
     };
     tab.pty_id = None;
     tab.chat_view = true;
-    tab.agent_booting = false;
+    let ready = super::engine::has_live_bound_session(tab)
+        && tab.session_binding_nonce.is_some()
+        && tab.reported_session_binding_nonce == tab.session_binding_nonce;
+    tab.agent_booting = !ready;
+    crate::service::boot_stage::apply_boot_stage(
+        tab,
+        if ready {
+            codeterm_types::pty::BootStage::AgentReady
+        } else {
+            codeterm_types::pty::BootStage::AgentLaunching
+        },
+        None,
+    );
     true
 }
 
@@ -59,8 +71,17 @@ pub fn tab(svc: &ServiceContext, tab_id: &str) -> Result<bool, String> {
         {
             return Err("Restored runtime binding changed".into());
         }
+        let previous_stage = target.boot_stage;
         if !materialize(target, true) {
             return Ok(false);
+        }
+        if target.boot_stage != previous_stage {
+            svc.publish_boot_stage_transition(
+                tab_id,
+                target,
+                target.boot_stage.expect("Materialized runtime stage"),
+                None,
+            );
         }
         target.agent_session_id.clone()
     };
@@ -130,7 +151,7 @@ fn sanitize_saved_controls(
                 model_efforts
             };
             let mut modes: Vec<String> = provider
-                .structured_control()
+                .agent_runtime()
                 .map(|control| {
                     control
                         .runtime_modes
@@ -140,6 +161,7 @@ fn sanitize_saved_controls(
                 })
                 .unwrap_or_default();
             if let Some(sandbox) = provider.execution_sandbox_capability() {
+                modes.extend(sandbox.runtime_read_only_writable_roots_mode.clone());
                 for intent in [ExecutionIntent::ReadOnly, ExecutionIntent::Mutating] {
                     if let Ok(Some(mode)) = sandbox.resolve(&intent, std::env::consts::OS, true) {
                         if let Some(runtime_mode) = mode.runtime_mode {

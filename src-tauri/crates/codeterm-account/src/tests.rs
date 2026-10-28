@@ -113,6 +113,7 @@ async fn login_failure_deadline_returns_timeout() {
     assert_eq!(
         account.status().await,
         Status {
+            server_stop_unconfirmed: false,
             session_revoked: false,
             provider: "fake".into(),
             identity: None,

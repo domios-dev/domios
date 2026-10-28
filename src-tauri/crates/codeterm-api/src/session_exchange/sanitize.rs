@@ -72,6 +72,7 @@ const METADATA: &[&str] = &[
     "scope",
     "stage",
     "status",
+    "backing_kind",
     "placement",
     "execution_intent",
     "continuation",

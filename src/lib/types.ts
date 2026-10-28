@@ -241,7 +241,6 @@ export interface Tab {
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   agent_requested_model?: string | null;
-  structured_control_active?: boolean;
   structured_runtime_mode?: string | null;
   agent_provider_resolved_model?: string | null;
   agent_label?: string | null;
@@ -851,6 +850,7 @@ export interface AppConfig {
   supporter: SupporterConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
+  neighbors: { enabled: boolean };
   orchestration: OrchestrationConfig;
   ui?: UiConfig;
   model_defaults?: ModelDefaultsConfig;
@@ -1081,6 +1081,7 @@ export interface ProviderDescriptor {
   attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {
+    runtimeModes?: readonly { id: string; displayName: string }[];
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
     usage?: boolean;
     backgroundProcesses?: boolean;
@@ -1089,11 +1090,6 @@ export interface ProviderDescriptor {
   };
   supports_session_fork?: boolean;
   supports_subagent_visibility?: boolean;
-  structured_control?: {
-    protocol: string;
-    minVersion: string;
-    runtimeModes?: readonly { id: string; displayName: string }[];
-  };
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;

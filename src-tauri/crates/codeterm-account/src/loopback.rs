@@ -8,6 +8,7 @@ use tokio::{
     net::TcpListener,
 };
 
+mod page;
 #[cfg(test)]
 mod tests;
 
@@ -31,7 +32,7 @@ impl Loopback {
                 .port()
         ))
     }
-    pub(crate) async fn serve(self, account: Arc<Account>) -> Result<()> {
+    pub(crate) async fn serve(self, account: Arc<Account>, return_to_app: bool) -> Result<()> {
         loop {
             let (mut stream, _) = self.listener.accept().await.map_err(|_| Error::Transport)?;
             let outcome = tokio::time::timeout(Duration::from_secs(5), async {
@@ -57,15 +58,7 @@ impl Loopback {
             } else {
                 log::debug!(target: "codeterm_account::sign_in", "sign_in detail stage={} callback_validated=true", SignInStage::Callback.name());
             }
-            let (status, body) = if accepted {
-                ("200 OK", "<!doctype html><title>Domios</title><p>Callback received. You can close this tab and return to Domios.</p>")
-            } else {
-                (
-                    "400 Bad Request",
-                    "<!doctype html><title>Domios</title><p>Sign-in callback refused.</p>",
-                )
-            };
-            let response = format!("HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+            let response = page::response(accepted, return_to_app);
             let _ = tokio::time::timeout(
                 Duration::from_secs(2),
                 stream.write_all(response.as_bytes()),

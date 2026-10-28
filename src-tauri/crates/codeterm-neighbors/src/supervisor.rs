@@ -23,6 +23,7 @@ pub trait InboxSession: Send + Sync {
 
 #[async_trait]
 pub trait ReceptionEvents: Send + Sync {
+    fn failure(&self, _error: Error) {}
     fn state(&self, state: ListenerState);
     async fn retry_after_failure(&self, attempt: usize) -> Result<()>;
 }
@@ -70,9 +71,17 @@ pub async fn supervise(
             Err(Error::Transport)
         }
         .await;
+        if let Err(error) = result {
+            events.failure(error);
+        }
         match result {
-            Err(Error::Transport | Error::LocalKeyUnavailable | Error::SecretStore)
-                if attempt < 3 => {}
+            Err(
+                Error::Transport
+                | Error::Firestore { .. }
+                | Error::ListenProtocol { .. }
+                | Error::LocalKeyUnavailable
+                | Error::SecretStore,
+            ) if attempt < 3 => {}
             result => {
                 events.state(ListenerState::Stopped);
                 return result;
