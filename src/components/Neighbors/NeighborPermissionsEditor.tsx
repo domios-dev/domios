@@ -183,13 +183,14 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         }}>Choose folder</Button>
       </div>}
       {/* A saved read-only concierge may still write its own pad; the runtime's note for that saved state says so. */}
-      {access === "read_only" && !awaitingFolder && <p className="neighbor-note">
-        {baseline?.machine_access === "read_only" && baseline.folder_enforcement?.writes === "pad_only" ? baseline.folder_enforcement.note : "Looks things up; changes nothing on this machine."}</p>}
+      {access === "read_only" && !awaitingFolder && (baseline?.machine_access === "read_only" && baseline.folder_enforcement?.writes === "pad_only"
+        ? <EnforcementNote enforcement={baseline.folder_enforcement} />
+        : <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>)}
       {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning">Their requests can change anything your agents on this machine can reach.</p>}
       {access === "folder" && <div className="neighbor-folder">
         <div className="min-w-0">
           <p className="neighbor-folder__path" title={draft?.folder ?? undefined}>{draft?.folder ?? "No folder chosen"}</p>
-          {draft?.folder_enforcement?.note && <p className="neighbor-note">{draft.folder_enforcement.note}</p>}
+          {draft?.folder_enforcement && <EnforcementNote enforcement={draft.folder_enforcement} />}
         </div>
         <Button size="sm" disabled={!draft || saving} onClick={() => {
           void pickFolder(`Folder for ${name}'s concierge`, draft?.folder ?? draft?.effective_folder).then(folder => { if (folder) edit({ folder }); });
@@ -221,7 +222,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       <FormRow className="neighbor-field" label="Files per day from this friend" htmlFor={fileField}
         hint={!fileValid ? `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.` : savedFileLimit === 0 ? `Files from ${name} are blocked.` : `Empty for ${FILE_LIMIT_MIB} MiB; 0 blocks files.`}>
         <div className="neighbor-limit__row">
-          <input id={fileField} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={`${FILE_LIMIT_MIB} MiB`}
+          <input id={fileField} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={String(FILE_LIMIT_MIB)}
             className={`${UI_INPUT.compact} neighbor-limit__input`} value={fileLimit} aria-invalid={!fileValid} disabled={!onSaveFileDailyLimit || saving}
             onChange={event => setFileLimit(event.currentTarget.value)} />
           <span className="neighbor-note">MiB</span>
@@ -249,6 +250,27 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       </div>
     </div>
     {folderPicker}
+  </div>;
+}
+
+type FolderEnforcement = NonNullable<NeighborPermission["folder_enforcement"]>;
+
+const WRITES_LINE: Record<FolderEnforcement["writes"], string> = {
+  pad_only: "Only its own notes folder is writable.",
+  provider_sandbox: "Its sandbox keeps changes inside the allowed folder.",
+  unrestricted: "It can change files anywhere it can reach.",
+  advisory: "This agent has no file sandbox here, so the folder is a guideline, not a limit.",
+};
+
+/** How the runtime actually confines the concierge, in one short line; the runtime's full wording, paths included, stays under Details. */
+function EnforcementNote({ enforcement }: { enforcement: FolderEnforcement }) {
+  const reads = enforcement.reads === "not_confined" && enforcement.writes !== "advisory" && enforcement.writes !== "unrestricted" ? " Reads are not restricted." : "";
+  return <div className="neighbor-enforcement">
+    <p className="neighbor-note">{WRITES_LINE[enforcement.writes]}{reads}</p>
+    {enforcement.note && <details className="neighbor-enforcement__details">
+      <summary>Details</summary>
+      <p className="neighbor-note select-text [overflow-wrap:anywhere]">{enforcement.note}</p>
+    </details>}
   </div>;
 }
 
