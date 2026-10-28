@@ -2383,6 +2383,10 @@ build_dev_frontend() {
 # The static server serves dist/ during the watcher's first rebuild, so the watcher overwrites in place.
 start_web_watch() {
   kill_web_watch || true
+  if [ "${CODETERM_DEV_WATCH:-1}" = 0 ]; then
+    echo "Web bundle watcher disabled; serving the provenance-validated frontend unchanged."
+    return 0
+  fi
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
   local vite_entry="node_modules/vite/bin/vite.js"
   local pid shell_pid spawn_status
