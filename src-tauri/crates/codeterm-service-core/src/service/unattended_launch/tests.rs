@@ -12,6 +12,7 @@ fn capability(grants_commands: bool) -> LaunchPermissionCapability {
         allow_rule_args_format: vec!["--allow-rule".into(), "{rule}".into()],
         deny_tool_args_format: vec!["--deny-tool".into(), "{tool}".into()],
         native_subagent_tools: vec!["SubagentTool".into()],
+        ..Default::default()
     }
 }
 

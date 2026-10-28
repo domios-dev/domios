@@ -67,7 +67,10 @@ impl crate::service::test_fixture::ServiceFixture {
             "id":id,"version":"1.0.0","displayName":"Fixture",
             "capabilities":{"agentProvider":true},
             "commands":{"autoApproveFlags":["opaque-full"]},
-            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},
+                "launchPermissions":{"allowRuleArgsFormat":["opaque-allow","{rule}"],"commandRuleFormat":"OpaqueShell({command}:*)",
+                    "scopedFilesystem":{"noPromptArgs":["opaque-mode","opaque-no-prompt"],"readAllRules":["OpaqueRead","OpaqueGlob","OpaqueGrep"],
+                        "readRootRule":"OpaqueRead({path}/**)","writeRootRule":"OpaqueEdit({path}/**)","additionalDirectoryArgs":["opaque-dir","{path}"]}}}
         }).to_string()).unwrap();
         let vm = Arc::new(
             codeterm_plugin::js_runtime::PluginVm::from_source(id, "module.exports={}".into())
