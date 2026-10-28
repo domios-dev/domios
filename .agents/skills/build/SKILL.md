@@ -119,6 +119,8 @@ Run `./build.sh cache-wrapper-check` for a real-cache fixture proving relocation
 hits, tracked-variable misses, unset values, compiler probes and error exits.
 It also proves identical generated-source metadata, a downstream consumer hit,
 unchanged runtime `OUT_DIR` strings and a real C compiler cache hit.
+Native wrapper identity tests run through this operation with
+`CODETERM_CACHE_WRAPPER_TEST=1`; ordinary script tests do not require real sccache.
 Release use remains opt-in until measured on the other build machines. Keep
 compiler-cache capacity large enough for the release graph; once populated,
 new empty Cargo targets can reuse cacheable crates. Initial population still
