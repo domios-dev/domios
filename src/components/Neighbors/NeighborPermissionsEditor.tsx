@@ -81,7 +81,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const problem = draft ? permissionProblem(draft) : null;
   const edit = (patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
-    <Segmented<TrustPreset> aria-label="Trust" value={awaitingFolder ? "collaborator" : draft ? trustPresetOf(draft, dailyValue) : "custom"} height={28} options={TRUST_OPTIONS}
+    <Segmented<TrustPreset> aria-label="Trust" className="neighbor-trust" value={awaitingFolder ? "collaborator" : draft ? trustPresetOf(draft, dailyValue) : "custom"} height={28} options={TRUST_OPTIONS}
       onChange={preset => {
         if (!draft || saving || preset === "custom") return;
         const applied = applyTrustPreset(preset, draft);
