@@ -196,4 +196,10 @@ The provider capability `supports_initial_prompt_update_on_resume` determines wh
 
 `status.concierges[friendship_id].initial_context_digest` and the permission projection's `initial_context_digest` expose the SHA-256 of the effective concierge initial context, never its text. The digest is persisted with the exact bound tab. Reconciliation compares that binding digest, rather than a provider's normalized prompt representation; an unchanged grant does not restart the concierge. A real context change restarts once and resumes the same session when the provider supports updated initial instructions on resume.
 
-<!-- revision: 37 -->
+Incoming agent delivery uses the standard routed envelope: `<domios from="neighbor" friend="NAME" friendship="FRIENDSHIP_ID" message="MESSAGE_ID" kind="question" in_reply_to="OPTIONAL_MESSAGE_ID">BODY<tip>HOST_REPLY_INSTRUCTION</tip></domios>`. The optional reply attribute is omitted when absent. Attribute values and body use the Messenger's existing escaping; permissions remain only in initial instructions. Answers and refusals carry a host tip forbidding a reply and suggesting a local flag if suspicious.
+
+Only questions and tab requests enter the concierge request path. A linked answer/refusal to an owner-authored UI message stays in the friend conversation. A link to a locally agent-authored message routes only to that exact live authenticated author tab; unknown, unavailable or cross-friend targets stay in the conversation, with no concierge fallback. A confirmed agent delivery records private tab/session/nonce provenance for local flag authority. Pending or uncertain delivery is never replayed to a replacement tab. Owner replies are admitted even when the receiving machine has no concierge; awaiting questions retain their cursor and remain pending.
+
+A bound, unpaused concierge on the receiving machine is woken during listener preparation for both PTY and runtime-backed providers. It resumes its own saved session in the background without opening its tab. Paused friendships, other receiving machines and Neighbors off keep their existing admission fences; readiness follows actual provider state.
+
+<!-- revision: 38 -->

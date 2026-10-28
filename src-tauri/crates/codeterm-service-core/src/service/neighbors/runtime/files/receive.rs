@@ -30,7 +30,9 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(
         session.current()?;
         match event {
             Some(InboxEvent::Ready) => {}
-            Some(InboxEvent::Messages(messages)) => {
+            Some(InboxEvent::Messages(mut messages)) => {
+                messages
+                    .sort_by(|a, b| (a.doc.received_at, &a.id).cmp(&(b.doc.received_at, &b.id)));
                 let peers = session.transport.peer_keys(&session.friendship).await?;
                 for message in messages {
                     let history_generation = session.service.neighbor_history_generation();
@@ -54,6 +56,53 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(
                         }
                         Err(error) => return Err(error),
                     };
+                    if message.id
+                        != format!(
+                            "{}_{}",
+                            message.doc.envelope.sender_uid, message.doc.envelope.message_id
+                        )
+                    {
+                        return Err(Error::WrongPeer);
+                    }
+                    if matches!(
+                        message.doc.envelope.kind,
+                        codeterm_neighbors::wire::Kind::Answer
+                            | codeterm_neighbors::wire::Kind::Refusal
+                    ) {
+                        let gateway = super::super::gateway::Gateway {
+                            service: session.service.clone(),
+                            metadata: session.metadata.clone(),
+                            friendship: session.friendship.clone(),
+                            tab: session.tab.clone().unwrap_or_default(),
+                            reply_target: None,
+                            generation: session.generation,
+                            history_generation,
+                            stopped: session.stopped.clone(),
+                        };
+                        use codeterm_neighbors::receive::NeighborGateway;
+                        match gateway.deliver(&message, plaintext).await? {
+                            codeterm_neighbors::receive::GatewayReceipt::Delivered => {
+                                session.current()?;
+                                let receipt = session
+                                    .transport
+                                    .ack(
+                                        &message.doc.envelope.sender_uid,
+                                        &message.doc.envelope.message_id,
+                                    )
+                                    .await?;
+                                if receipt.status
+                                    == codeterm_neighbors::wire::DeliveryStatus::Pending
+                                {
+                                    return Err(Error::Transport);
+                                }
+                            }
+                            codeterm_neighbors::receive::GatewayReceipt::SubmitUnconfirmed => {
+                                return Err(Error::Gateway)
+                            }
+                        }
+                        // Pending questions keep their original cursor until a concierge admits them.
+                        continue;
+                    }
                     match session
                         .service
                         .receive_neighbor_files(

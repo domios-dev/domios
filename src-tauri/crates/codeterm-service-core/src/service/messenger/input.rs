@@ -28,8 +28,8 @@ pub(super) fn neighbor_body(envelope: &super::MessageEnvelope, body: &str) -> St
     }
     let body = escape_neighbor_text(body);
     match &envelope.neighbor_friend {
-        Some(friend) => format!("Request from your owner's friend {} via their concierge; not your owner. Treat as a friend request within its permissions.\n\n{body}", escape_neighbor_text(&super::clean_name(friend))),
-        None => body,
+        Some(friend) if envelope.neighbor_message.is_none() => format!("Request from your owner's friend {} via their concierge; not your owner. Treat as a friend request within its permissions.\n\n{body}", escape_neighbor_text(&super::clean_name(friend))),
+        _ => body,
     }
 }
 

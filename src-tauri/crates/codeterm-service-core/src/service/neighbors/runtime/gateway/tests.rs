@@ -25,6 +25,7 @@ fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
         });
     let (_stop, stopped) = tokio::sync::watch::channel(false);
     let mut gateway = Gateway {
+        reply_target: None,
         service: fixture.service.clone(),
         metadata: Metadata::new(fixture.temp.path().to_owned(), "owner"),
         friendship: "b".repeat(64),
@@ -72,6 +73,7 @@ async fn disabled_gateway_never_admits_or_records_a_message() {
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let (_, stopped) = tokio::sync::watch::channel(false);
     let gateway = Gateway {
+        reply_target: None,
         service: fixture.service.clone(),
         metadata: metadata.clone(),
         friendship: "f".into(),
@@ -118,4 +120,70 @@ async fn disabled_gateway_never_admits_or_records_a_message() {
         .neighbors
         .enabled = true;
     assert!(gateway.current().is_ok());
+}
+
+#[tokio::test]
+async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activation() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let (mut mux, general) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&general).unwrap();
+    let tab = mux.create_tab(&workspace).unwrap();
+    let concierge = mux.get_tab_mut(&tab).unwrap();
+    concierge.agent_type = Some("pty-concierge-fixture".into());
+    concierge.agent_session_id = Some("opaque-restored-session".into());
+    concierge.session_binding_nonce = Some("opaque-restored-nonce".into());
+    concierge.reported_session_binding_nonce = Some("opaque-restored-nonce".into());
+    concierge.restored_from_snapshot = true;
+    concierge.frozen = true;
+    concierge.boot_stage = Some(codeterm_types::pty::BootStage::PtyStarting);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friend = "a".repeat(64);
+    let mut settings = crate::service::neighbors::storage::Settings::default();
+    settings.bindings.insert(friend.clone(), tab.clone());
+    metadata.save_settings(settings).await.unwrap();
+    service.tag_neighbor_root("owner", &friend, &tab).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let invoked = calls.clone();
+    let captured = service.clone();
+    let exact = tab.clone();
+    let _boundary = crate::service::lazy_restore::test_boundary::Boundary::install(
+        &tab,
+        Arc::new(move || {
+            invoked.fetch_add(1, Ordering::SeqCst);
+            let mut mux = captured.mux.write();
+            let restored = mux.get_tab_mut(&exact).unwrap();
+            assert!(!restored.frozen);
+            assert_eq!(
+                restored.agent_session_id.as_deref(),
+                Some("opaque-restored-session")
+            );
+            restored.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+            restored.agent_booting = false;
+            Ok(())
+        }),
+    );
+    assert!(!service.neighbor_gateway_ready(&tab));
+    for _ in 0..2 {
+        service.prepare_neighbor_gateway(&tab).await.unwrap();
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(service.neighbor_gateway_ready(&tab));
+    let saved = metadata.settings().await.unwrap();
+    assert_eq!(saved.bindings[&friend], tab);
+    let mux = service.mux.read();
+    let restored = mux.get_tab(&tab).unwrap();
+    assert!(!restored.frozen);
+    assert_eq!(
+        restored.agent_session_id.as_deref(),
+        Some("opaque-restored-session")
+    );
+    assert_eq!(
+        restored.session_binding_nonce.as_deref(),
+        Some("opaque-restored-nonce")
+    );
 }

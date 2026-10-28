@@ -9,7 +9,6 @@ mod delivery;
 mod flags;
 mod handling;
 pub use flags::FlagCategory;
-mod handling;
 pub(crate) mod history;
 mod launch_fence;
 mod notifications;
