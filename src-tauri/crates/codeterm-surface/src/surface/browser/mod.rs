@@ -8,6 +8,7 @@ mod metrics;
 mod page;
 mod redaction;
 mod resume;
+mod snapshots;
 mod snip;
 mod stream;
 mod verbs;

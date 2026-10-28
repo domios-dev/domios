@@ -4,7 +4,6 @@ use super::heuristics::{activity_label, is_quiet_verb, IDLE};
 use super::input::{self, InputArgs, NavAction};
 use super::{cdp_error, BrowserRuntime, WAIT_DEADLINE};
 use crate::surface::runtime::SurfaceCallCtx;
-use codeterm_browser::snapshot::{build_snapshot_scoped, parse_full_ax_tree, DEFAULT_MAX_LINES};
 use codeterm_browser::PageChannel;
 
 pub const VERBS: &[&str] = &[
@@ -239,10 +238,7 @@ impl BrowserRuntime {
             "back" => self.history_step(page, NavAction::Back).await,
             "forward" => self.history_step(page, NavAction::Forward).await,
             "reload" => self.history_step(page, NavAction::Reload).await,
-            "snapshot" => {
-                self.snapshot(page, parse_limit(args.first(), DEFAULT_MAX_LINES))
-                    .await
-            }
+            "snapshot" => self.snapshot_verb(page, args).await,
             "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
                 self.atomic_action(page, args, verb == "fill").await
             }
@@ -306,20 +302,6 @@ impl BrowserRuntime {
     ) -> Result<codeterm_browser::snapshot::ResolvedTarget, String> {
         let parts: Vec<&str> = locator.iter().map(String::as_str).collect();
         self.shared.resolve(&parts)
-    }
-
-    async fn snapshot(&self, page: &PageChannel, limit: usize) -> Result<String, String> {
-        let capture = self.shared.begin_snapshot(page.session_id())?;
-        let _ = self.send(page, "Accessibility.enable", json!({})).await;
-        let mut tree = self
-            .send(page, "Accessibility.getFullAXTree", json!({}))
-            .await?;
-        self.redact_value(&mut tree);
-        let snapshot = build_snapshot_scoped(&parse_full_ax_tree(&tree)?, limit, &capture);
-        let text = snapshot.text.clone();
-        self.shared.finish_snapshot(&capture, snapshot)?;
-        let state = self.shared.state();
-        Ok(format!("page: {} — {}\n{text}", state.title, state.url))
     }
 
     async fn click_node(&self, page: &PageChannel, backend_node_id: i64) -> Result<(), String> {

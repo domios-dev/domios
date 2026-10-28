@@ -3,6 +3,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
 pub mod query;
+pub mod sensitive;
 
 pub const DEFAULT_MAX_LINES: usize = 200;
 pub const MAX_LINES: usize = 2000;
@@ -114,6 +115,18 @@ pub struct Snapshot {
     pub text: String,
     pub refs: HashMap<String, i64>,
     pub index: Vec<RefEntry>,
+    pub items: Vec<SnapshotItem>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotItem {
+    pub role: String,
+    pub name: String,
+    pub depth: usize,
+    pub text: String,
+    pub reference: Option<String>,
 }
 
 /// `result` is the `Accessibility.getFullAXTree` response body.
@@ -156,6 +169,15 @@ pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
 
 /// The caller supplies a new scope per capture so old refs cannot alias newly indexed elements.
 pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) -> Snapshot {
+    build_snapshot_filtered(nodes, max_lines, scope, false)
+}
+
+pub fn build_snapshot_filtered(
+    nodes: &[AxNode],
+    max_lines: usize,
+    scope: &str,
+    actions_only: bool,
+) -> Snapshot {
     let max_lines = max_lines.clamp(1, MAX_LINES);
     let by_id: HashMap<&str, &AxNode> = nodes.iter().map(|n| (n.node_id.as_str(), n)).collect();
     let root = nodes
@@ -179,8 +201,8 @@ pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) ->
         let mut next_depth = depth;
         if visible
             && (interactive
-                || STRUCTURAL.contains(&role)
-                || (!name.is_empty() && role != "paragraph"))
+                || (!actions_only
+                    && (STRUCTURAL.contains(&role) || (!name.is_empty() && role != "paragraph"))))
         {
             if lines.len() >= max_lines {
                 truncated = true;
@@ -214,21 +236,30 @@ pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) ->
                     _ => {}
                 }
             }
+            let mut item_ref = None;
             if let (true, Some(backend)) = (interactive, backend) {
                 let reference = if scope.is_empty() {
                     format!("e{}", snapshot.index.len() + 1)
                 } else {
                     format!("{scope}-e{}", snapshot.index.len() + 1)
                 };
+                item_ref = Some(reference.clone());
                 snapshot.refs.insert(reference.clone(), backend);
                 line.push_str(&format!(" [@{reference}]"));
                 snapshot.index.push(RefEntry {
                     reference,
                     role: role.to_string(),
-                    name: name.clone(),
+                    name: truncate_chars(&name, NAME_LIMIT),
                     backend_node_id: backend,
                 });
             }
+            snapshot.items.push(SnapshotItem {
+                role: role.into(),
+                name: truncate_chars(&name, NAME_LIMIT),
+                depth,
+                text: line.trim_start().to_string(),
+                reference: item_ref,
+            });
             lines.push(line);
             next_depth = depth + 1;
         }
@@ -243,6 +274,7 @@ pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) ->
             "… (truncated at {max_lines} lines; pass a larger limit)"
         ));
     }
+    snapshot.truncated = truncated;
     snapshot.text = lines.join("\n");
     snapshot
 }
