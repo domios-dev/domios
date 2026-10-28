@@ -1,6 +1,24 @@
 use clap::Parser;
 
 #[test]
+fn neighbor_save_requires_local_authority_over_mesh() {
+    let command = crate::Commands::Mem {
+        action: crate::MemAction::NeighborSave {
+            kind: "fact".into(),
+            area: "project".into(),
+            title: "opaque".into(),
+            from_pad: "missing-body.md".into(),
+            summary: None,
+            tags: Vec::new(),
+        },
+    };
+    let (method, reason, body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
+    assert_eq!(method, crate::mesh_cli::api_map::UNSUPPORTED_OVER_MESH);
+    assert!(reason.contains("local Neighbor tab credential"));
+    assert_eq!(body, None);
+}
+
+#[test]
 fn neighbor_save_help_documents_body_area_and_repeated_tags() {
     let help = match crate::Cli::try_parse_from(["domios", "mem", "neighbor-save", "--help"]) {
         Err(error) => error,
