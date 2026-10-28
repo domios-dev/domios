@@ -43,7 +43,8 @@ impl ServiceContext {
         } else {
             None
         };
-        json!({"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
+        let initial_context_digest = settings.initial_context_digest(friendship);
+        json!({"initial_context_digest":initial_context_digest,"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
     }
 
     pub(super) fn neighbor_concierge_views(
