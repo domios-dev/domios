@@ -749,9 +749,15 @@ named_dev_isolated() {
 
 prepare_named_dev_target() {
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
+  configure_named_dev_cache
   mkdir -p "$CARGO_TARGET_DIR"
   ct_verify_target_dir
   echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR"
+}
+
+configure_named_dev_cache() {
+  export CARGO_INCREMENTAL=0
+  export CODETERM_PORTABLE_COMPILER_CACHE=1
 }
 
 if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
@@ -1557,7 +1563,7 @@ reload_dev_server() {
   local plan split_logs receipt build_sha started
   started="$(date +%s)"
   CT_SPLIT_DEV=1
-  if named_dev_isolated; then export CARGO_TARGET_DIR="$(named_dev_target_dir)"; fi
+  if named_dev_isolated; then prepare_named_dev_target; fi
   plan="$(CT_DEV_PROVENANCE_OPERATION=--check-server-reload validate_dev_provenance)"
   split_logs="$(tauri_debug_dir)/.domios-dev-build"
   receipt="$split_logs/reload-server.json"
