@@ -18,7 +18,7 @@ domios account neighbors revoke
 
 Use current status revision; stale revisions require reread/reconfirmation. Status/events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, `revision`. A non-receiving friend cannot accept new messages. Keys use Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext fallback. Sign-out clears local account access first; server session revocation stops receiving, and cleanup removes only this installation's private keys.
 
-Concierges/grants are installation-local; takeover idles old agents, copying no grants. Missing-concierge questions stay encrypted/pending/unacknowledged without cursor advancement until permissions/binding enable admission. Status `concierges[friendship_id]`: `concierge_missing,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Unknown count=null, cap100 displayed `100+`. Observe-only streams retain no names; concurrent count refreshes coalesce.
+Concierges/grants stay local. Losing a friend's effective receiver closes its concierge/descendants to Recently Closed and revokes credentials. Setup stays dormant; return starts a fresh session. Unknown/nonreceivers refuse Bind/Apply/ensure with `receiving_elsewhere`; grants never copy. Missing-concierge questions stay encrypted/pending/unacknowledged without cursor advancement until permissions/binding enable admission. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Unknown count=null, cap100 displayed `100+`. Observe-only streams retain no names; concurrent count refreshes coalesce.
 
 gRPC4/10/13/14, reset/GoAway/EOF and connection failures auto-reconnect: fresh auth, jittered backoff, persisted inbox cursor. Max3 consecutive retries; confirmed snapshots reset the budget. Exhaustion: `listen_retries_exhausted` + last cause. Auth/permission/revocation/off/account-generation/receiver moves terminate. Reconnecting retains error until ready. `status.watches.control`/`.account`: status/error; event `neighbors-watch-status`: watch/status/error. Retry never replays uncertain sends. Existence-filter mismatch:3 target re-adds, then explicit retry; cursor retained.
 
@@ -170,4 +170,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

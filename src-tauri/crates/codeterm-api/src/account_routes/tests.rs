@@ -831,3 +831,17 @@ async fn empty_neighbor_body_is_a_typed_presend_bad_request() {
         .unwrap()
         .contains("nothing was sent"));
 }
+
+#[tokio::test]
+async fn nonreceiver_concierge_mutation_is_a_typed_conflict() {
+    let response = neighbor_failure(
+        "receiving_elsewhere: This machine is not receiving; no concierge can run here".into(),
+    );
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "receiving_elsewhere");
+    assert_eq!(body["reason"], "receiving_elsewhere");
+}

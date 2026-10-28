@@ -17,6 +17,12 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
         tab.restored_from_snapshot = true;
         tab.cwd = Some("old-general-folder".into());
         let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+        fixture
+            .service
+            .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
         let service = &fixture.service;
         let friend = "a".repeat(64);
         let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
@@ -113,6 +119,12 @@ async fn failed_replacement_keeps_the_old_binding_and_permissions() {
     let old = mux.create_tab(&workspace).unwrap();
     mux.get_tab_mut(&old).unwrap().agent_type = Some("advisory-provider".into());
     let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     let service = &fixture.service;
     let friend = "b".repeat(64);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
@@ -165,6 +177,12 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
         .unwrap()
         .root_tab_id = Some(tabs[1].clone());
     let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let permission = Permission::default();
@@ -337,6 +355,7 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
             service.mux.read().get_tab(&root).unwrap().boot_stage,
             Some(BootStage::SpawnFailed)
         );
+        service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
         let metadata = Metadata::new(service.account_data_root().unwrap(), "owner");
         service
             .restore_neighbor_concierge_with(

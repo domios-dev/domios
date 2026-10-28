@@ -23,6 +23,9 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
                 root_tab_id: None,
             });
             let fixture = ServiceFixture::new(mux);
+            fixture
+                .service
+                .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
             let svc = &fixture.service;
             fixture.register_neighbor_advisory_provider("opaque-pty");
             let mut params = SpawnAgentParams {
@@ -146,6 +149,9 @@ fn legacy_full_concierge_without_bypass_requires_reconciliation() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("opaque-pty".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
     fixture.register_neighbor_advisory_provider("opaque-pty");
     let cwd = fixture.temp.path().to_string_lossy().into_owned();
     fixture
@@ -187,6 +193,9 @@ fn restored_full_concierge_without_provider_authorization_refuses_before_relaunc
             root_tab_id: None,
         });
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("opaque-no-bypass"),
     ));
@@ -380,6 +389,9 @@ fn permission_projection_reports_actual_sandbox_and_additional_host_roots() {
     let workspace = mux.find_workspace_for_tab(&general).unwrap();
     let gateway = mux.create_tab(&workspace).unwrap();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friend = "a".repeat(64);
     let mut settings = Settings::default();

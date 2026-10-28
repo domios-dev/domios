@@ -22,7 +22,13 @@ impl ServiceContext {
         metadata
             .save_settings(settings)
             .await
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        self.retire_local_neighbor_concierges(
+            &metadata,
+            &session.identity.uid,
+            self.neighbor_history_generation(),
+        )
+        .await
     }
 
     pub(super) async fn retry_neighbor_logout(

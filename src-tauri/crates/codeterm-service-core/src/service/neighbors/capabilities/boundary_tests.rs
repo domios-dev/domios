@@ -30,6 +30,40 @@ async fn fixture(permission: Permission) -> (ServiceFixture, TabCaller, String) 
     )
 }
 
+#[tokio::test]
+async fn receiver_loss_refuses_concierge_capabilities_before_queued_retirement() {
+    let (fixture, caller, token) = fixture(Permission {
+        allowed: true,
+        scope: "opaque grant".into(),
+        ..Default::default()
+    })
+    .await;
+    assert!(fixture
+        .service
+        .authorize_neighbor_rpc_credential(&token, "mem.search", None)
+        .await
+        .is_ok());
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(false), 2);
+    assert_eq!(
+        fixture
+            .service
+            .authorize_neighbor_rpc_credential(&token, "mem.search", None)
+            .await
+            .unwrap_err(),
+        codeterm_neighbors::Error::ReceivingElsewhere.to_string()
+    );
+    assert_eq!(
+        fixture
+            .service
+            .authorize_neighbor_http(&caller, "POST", "/api/account/neighbors/runtime")
+            .await
+            .unwrap_err(),
+        codeterm_neighbors::Error::ReceivingElsewhere.to_string()
+    );
+}
+
 fn allowed() -> Permission {
     Permission {
         allowed: true,

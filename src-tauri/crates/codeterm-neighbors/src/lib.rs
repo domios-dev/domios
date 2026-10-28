@@ -38,6 +38,7 @@ pub enum Error {
     KeyNotFound,
     Refused,
     ReceiverElsewhere,
+    ReceivingElsewhere,
     ReceiverRevisionStale,
     NotReceiver,
     RecipientNotReceiving,
@@ -127,6 +128,7 @@ impl std::fmt::Display for Error {
             Self::Revoked => "Neighbor installation key revoked",
             Self::KeyNotFound => "Neighbor installation key not found",
             Self::ReceiverElsewhere => "receiver_elsewhere: Receiving on another machine",
+            Self::ReceivingElsewhere => "receiving_elsewhere: This machine is not receiving; no concierge can run here",
             Self::ReceiverRevisionStale => {
                 "receiver_revision_stale: Receiving changed; refresh and confirm again"
             }

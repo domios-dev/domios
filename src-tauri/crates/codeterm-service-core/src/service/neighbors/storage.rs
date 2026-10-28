@@ -30,6 +30,21 @@ pub(super) struct ConciergeOptions {
     pub service_tier: Option<String>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DormantConcierge {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub options: ConciergeOptions,
+}
+
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ConciergeReceiver {
+    pub binding: String,
+    pub revision: u64,
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Settings {
@@ -41,6 +56,10 @@ pub(super) struct Settings {
     pub permissions: BTreeMap<String, Permission>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub initial_contexts: BTreeMap<String, InitialContext>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dormant_concierges: BTreeMap<String, DormantConcierge>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub concierge_receivers: BTreeMap<String, ConciergeReceiver>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub notifications: BTreeMap<String, super::NeighborNotify>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
