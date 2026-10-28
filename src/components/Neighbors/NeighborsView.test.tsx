@@ -94,6 +94,9 @@ it("accepts a request and interviews about the new connection once it exists", a
   expect(client.apply).toHaveBeenCalledWith({ operation: "respond", request_id: "request", accept: true });
   expect(sentText()).toHaveLength(1);
   expect(sentText()[0].text).toContain("pair-grace");
+  const commands = Array.from(sentText()[0].text.matchAll(/\x60([^\x60]+)\x60/g), match => match[1]);
+  expect(commands).toContain("domios account neighbors grant pair-grace --from-pad <file>");
+  expect(commands).toContain("--allow-tab-requests true");
 });
 
 it("opens a friend's own page: limit, talk about, and removal only after confirmation", async () => {

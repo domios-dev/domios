@@ -305,6 +305,7 @@ fn grant_request_builder_covers_each_permission_field_without_implicit_resets() 
         (vec!["--allow-files", "false"], serde_json::json!({"allow_files":false})),
         (vec!["--folder", "/project"], serde_json::json!({"folder":"/project"})),
         (vec!["--folder", "default"], serde_json::json!({"folder":null})),
+        (vec!["--allow-tab-requests", "true"], serde_json::json!({"allow_tab_requests":true})),
         (vec!["--allow-tab-requests", "false"], serde_json::json!({"allow_tab_requests":false})),
         (vec!["--allow-interactive-content", "true"], serde_json::json!({"allow_interactive_content":true})),
         (vec!["--workspaces", "one,two"], serde_json::json!({"workspaces":["one","two"]})),
@@ -337,6 +338,7 @@ fn grant_refuses_unknown_boolean_access_and_malformed_selections() {
         vec!["--machine-access", "admin"], vec!["--memory-areas", "project,,team"],
         vec!["--memory-areas", "all,project"], vec!["--workspaces", "all"],
         vec!["--workspaces", ""], vec!["--unknown", "true"],
+        vec!["--allow-tab-requests"],
     ] {
         let mut args = vec!["domios", "account", "neighbors", "grant", "friend"];
         args.extend(flags);
