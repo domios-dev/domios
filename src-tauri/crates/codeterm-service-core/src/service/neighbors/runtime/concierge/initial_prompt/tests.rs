@@ -106,7 +106,7 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
                 &friend,
                 permission.clone(),
                 service.neighbor_history_generation(),
-                |_, _, cwd, grant, resume| async move {
+                |_, _, cwd, grant, resume, _| async move {
                     invoked.fetch_add(1, Ordering::SeqCst);
                     assert!(resume.is_none());
                     assert_eq!(initial_prompt(&"a".repeat(64), &grant), expected);

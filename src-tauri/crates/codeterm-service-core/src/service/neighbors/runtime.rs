@@ -92,6 +92,8 @@ pub enum NeighborRuntimeCommand {
         friendship_id: String,
         provider: String,
         model: Option<String>,
+        reasoning_effort: Option<String>,
+        service_tier: Option<String>,
     },
     Status,
     Enroll {
@@ -450,10 +452,15 @@ impl ServiceContext {
                     friendship_id,
                     provider,
                     model,
+                    reasoning_effort,
+                    service_tier,
                 } => {
                     if !hex_id(&friendship_id, 64) {
                         return Err(Error::InvalidEnvelope);
                     }
+                    let options = super::storage::ConciergeOptions { reasoning_effort, service_tier };
+                    self.validate_neighbor_launch_options(&provider, model.as_deref(), &options)
+                        .map_err(|_| Error::InvalidRequest)?;
                     transport.peer_keys(&friendship_id).await?;
                     let tab = self
                         .replace_neighbor_concierge(
@@ -461,10 +468,11 @@ impl ServiceContext {
                             &friendship_id,
                             Some(provider),
                             model,
+                            options.clone(),
                         )
                         .await
                         .map_err(concierge::launch_error)?;
-                    Ok(json!({"gateway_tab":tab}))
+                    Ok(json!({"gateway_tab":tab,"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier}))
                 }
                 NeighborRuntimeCommand::Enroll {
                     takeover_confirmed,

@@ -209,3 +209,12 @@ fn initial_prompt_update_on_resume_native_js_parity() {
     );
     assert!(!undeclared.supports_initial_prompt_update_on_resume());
 }
+
+#[test]
+fn neighbor_concierge_native_js_descriptor_parity() {
+    let (native, js) = pair();
+    let native = native.describe().neighbor_concierge;
+    assert!(native.supported);
+    assert_eq!(native.machine_access, ["read_only", "folder", "full"]);
+    assert_eq!(native, js.describe().neighbor_concierge);
+}

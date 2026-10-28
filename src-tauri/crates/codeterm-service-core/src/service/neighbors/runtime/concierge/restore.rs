@@ -11,8 +11,10 @@ impl ServiceContext {
             metadata,
             uid,
             friendship,
-            |provider, model, cwd, permission, resume| {
-                self.create_neighbor_concierge(friendship, provider, model, cwd, permission, resume)
+            |provider, model, cwd, permission, resume, options| {
+                self.create_neighbor_concierge(
+                    friendship, provider, model, cwd, permission, resume, options,
+                )
             },
         )
         .await
@@ -26,7 +28,14 @@ impl ServiceContext {
         create: F,
     ) -> Result<(), String>
     where
-        F: FnOnce(Option<String>, Option<String>, String, Permission, Option<String>) -> Fut,
+        F: FnOnce(
+            Option<String>,
+            Option<String>,
+            String,
+            Permission,
+            Option<String>,
+            ConciergeOptions,
+        ) -> Fut,
         Fut: std::future::Future<Output = Result<String, String>>,
     {
         let generation = self.neighbor_history_generation();
@@ -77,11 +86,13 @@ impl ServiceContext {
             )
         };
         let resume = self.neighbor_initial_context_resume(tab_id);
+        let options = self.neighbor_launch_options(&settings, friendship);
         self.replace_neighbor_concierge_with(
             metadata,
             friendship,
             resume.is_some(),
-            |cwd, permission| create(provider, model, cwd, permission, resume),
+            options.clone(),
+            |cwd, permission| create(provider, model, cwd, permission, resume, options),
         )
         .await?;
         let settings = metadata

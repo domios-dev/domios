@@ -19,6 +19,15 @@ pub(super) struct Metadata {
 pub(super) struct InitialContext {
     pub gateway_tab: String,
     pub digest: String,
+    #[serde(default)]
+    pub launch_options: Option<ConciergeOptions>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ConciergeOptions {
+    pub reasoning_effort: Option<String>,
+    pub service_tier: Option<String>,
 }
 
 #[derive(Clone, Default, Deserialize, Serialize)]
