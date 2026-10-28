@@ -155,11 +155,14 @@ impl CapabilityRegistries {
         if caps.view || caps.remote_task.is_some() {
             self.view.register(
                 id.clone(),
-                Arc::new(super::JsViewProvider::with_webhook_receiver(
-                    vm.clone(),
-                    id.clone(),
-                    caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
-                )),
+                Arc::new(
+                    super::JsViewProvider::with_webhook_receiver(
+                        vm.clone(),
+                        id.clone(),
+                        caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
+                    )
+                    .with_host_actions(caps.view_host_actions.clone()),
+                ),
             );
         }
         if caps.chat_backend.enabled()

@@ -17,6 +17,8 @@ import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
 import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
+import { performViewHostAction } from "../../lib/pluginViewHostActions";
+import { viewHostDeps } from "../../lib/pluginViewHostDeps";
 
 type ApiCfg = DaemonApiConfig;
 
@@ -105,6 +107,14 @@ export function PluginView({
       }
       if (m.__ctClose) {
         onClose?.();
+        return;
+      }
+      if (m.__ctHost != null) {
+        // Read before any await: the gesture is the app's own transient activation, not a frame claim.
+        const gesture = globalThis.navigator?.userActivation?.isActive === true;
+        // The frame token arrives with media delivery (COD-2024); until then media actions refuse `invalid / frame`.
+        const result = await performViewHostAction(pluginId, null, m, gesture, viewHostDeps());
+        if (iframeRef.current?.contentWindow === win) win.postMessage({ __ctReply: m.__ctHost, result }, "*");
         return;
       }
       if (m.__ctInvoke != null) {

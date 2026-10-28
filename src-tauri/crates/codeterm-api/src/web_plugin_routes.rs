@@ -15,6 +15,12 @@ window.addEventListener('message',function(e){var m=e.data||{};
 window.ct={surface:__CT_SURFACE__,invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
   p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
  close:function(){parent.postMessage({__ctClose:true},'*');}};
+window.ct.host=(function(){function ask(action,args){var id=++s;return new Promise(function(res){
+  p[id]={resolve:res,reject:function(e){res({ok:false,code:'unavailable',reason:String(e&&e.message||e)});}};
+  parent.postMessage({__ctHost:id,action:action,args:args},'*');});}
+ return{copyText:function(text){return ask('copyText',{text:text});},
+  saveAs:function(handle,suggestedName){return ask('saveAs',{handle:handle,suggestedName:suggestedName});},
+  reveal:function(handle){return ask('reveal',{handle:handle});}};})();
 parent.postMessage({__ctReady:true},'*');
 function rz(){if(!document.body)return;var h=document.body.scrollHeight;if(h)parent.postMessage({__ctResize:h},'*');}
 function watch(){if(window.ResizeObserver){new ResizeObserver(rz).observe(document.body);}rz();}

@@ -426,6 +426,9 @@ pub struct Capabilities {
     /// App tabs whose content the plugin renders; core owns the frame.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<SurfaceDecl>,
+    /// User-gesture actions the plugin's view may ask the host for; requires `view`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub view_host_actions: Vec<super::ViewHostAction>,
     #[serde(default, flatten, skip_serializing)]
     pub(crate) unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }

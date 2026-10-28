@@ -1,12 +1,14 @@
 mod action;
 mod cli;
 mod diff_cache;
+mod host_action;
 mod permissions;
 mod snapshot;
 mod view;
 
 pub use action::run_action;
 pub use action::PluginManagerAction;
+pub use host_action::{view_host_action, view_host_download, HostActionRequest};
 pub use view::bubble_poll;
 pub use view::glance_render;
 pub use view::view_call;

@@ -18,6 +18,9 @@ import type {
   PluginModule,
   SurfaceContribution,
   TabMenuContribution,
+  ViewHostAction,
+  ViewHostBridge,
+  ViewHostResult,
   WebhookDelivery,
   WebhookReceiveContext,
   WebhookReceiverCapability,
@@ -394,6 +397,16 @@ const unknownRenderer: SurfaceContribution = {
   renderer: "canvas",
 };
 void unknownRenderer;
+const declaredHostActions: ViewHostAction[] = ["copyText", "saveAs", "reveal"];
+void declaredHostActions;
+// @ts-expect-error host actions are a closed set
+const openUrlAction: ViewHostAction = "openUrl";
+void openUrlAction;
+async function saveFromView(bridge: ViewHostBridge): Promise<string> {
+  const result: ViewHostResult = await bridge.saveAs("0".repeat(64), "frame.png");
+  return result.ok ? "saved" : `${result.code}:${result.reason}`;
+}
+void saveFromView;
 function callSurface(): string {
   // host.surface.call answers with JSON text; the plugin parses it.
   return host.surface.call("status", "[]");

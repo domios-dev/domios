@@ -19,6 +19,12 @@ vi.mock("../../lib/webApi", () => ({
   daemonAuthToken: () => "token",
 }));
 vi.mock("./usePluginDocument", () => ({ usePluginDocument: documentLoad }));
+const hostDeps = vi.hoisted(() => ({
+  call: vi.fn(async (_request: Record<string, unknown>): Promise<unknown> => ({ ok: true })),
+  writeText: vi.fn(async (_text: string) => undefined),
+  download: vi.fn(async () => ({ ok: true as const })),
+}));
+vi.mock("../../lib/pluginViewHostDeps", () => ({ viewHostDeps: () => hostDeps }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
@@ -124,5 +130,42 @@ describe("plugin view activation", () => {
   it("does not subscribe a view that has not opted into KPI notices", async () => {
     await mount(<PluginView pluginId="git" api={undefined} active />);
     expect(listeners.has(KPI_RECORDED_EVENT)).toBe(false);
+  });
+
+  it("answers a host action from its own frame with the app's gesture and plugin id, never the frame's", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const ownWindow = host!.querySelector("iframe")!.contentWindow!;
+    const reply = vi.spyOn(ownWindow, "postMessage");
+    const ask = (id: number) => act(async () => window.dispatchEvent(new MessageEvent("message", {
+      source: ownWindow, data: { __ctHost: id, action: "copyText", args: { text: "fox" }, pluginId: "other" },
+    })));
+
+    await ask(1);
+    expect(reply).toHaveBeenCalledWith({ __ctReply: 1, result: { ok: false, code: "denied", reason: "gesture" } }, "*");
+    expect(hostDeps.call).not.toHaveBeenCalled();
+
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      await ask(2);
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    expect(hostDeps.call).toHaveBeenCalledWith({ pluginId: "studio", action: "copyText" });
+    expect(hostDeps.writeText).toHaveBeenCalledWith("fox");
+    expect(reply).toHaveBeenCalledWith({ __ctReply: 2, result: { ok: true } }, "*");
+  });
+
+  it("ignores host actions posted by any window other than its own frame", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    hostDeps.call.mockClear();
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: window, data: { __ctHost: 3, action: "copyText", args: { text: "x" } },
+      })));
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    expect(hostDeps.call).not.toHaveBeenCalled();
   });
 });

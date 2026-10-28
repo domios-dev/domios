@@ -53,6 +53,28 @@ and talks to the plugin through `ct.invoke`, exactly like
 the panel view. One plugin view can serve several surfaces by reading
 `surface`, and several open copies of one surface by reading `instance`.
 
+### Host actions from a view
+
+A view can ask the host to act on the user's behalf through `ct.host`, but only
+for the actions its manifest declares in `capabilities.viewHostActions`
+(`copyText`, `saveAs`, `reveal`; it requires `view`):
+
+- `ct.host.copyText(text)` puts plain text on the clipboard.
+- `ct.host.saveAs(mediaHandle, suggestedName)` saves one of the plugin's own
+  media files: the desktop app asks where with the system save dialog, the web
+  mirror downloads it.
+- `ct.host.reveal(mediaHandle)` shows that file in the system file manager. The
+  web mirror refuses it.
+
+Each call resolves to `{ ok: true }` or `{ ok: false, code, reason }` and never
+throws. `denied` means there was no user gesture, the action is not declared,
+the user cancelled, or the handle does not belong to this frame;
+`unavailable` means the host cannot act here; `invalid` means a malformed
+argument. Call them from a click or key handler: the host checks its own user
+activation, which the frame cannot fake. A media handle is the opaque handle
+the host issued to this frame; a reloaded frame gets new handles. The view never
+sees or sends a file path.
+
 ## Opening, listing and closing
 
 ```bash
@@ -185,4 +207,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

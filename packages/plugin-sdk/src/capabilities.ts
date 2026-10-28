@@ -1020,6 +1020,24 @@ export interface SurfaceContribution {
   chrome?: Record<string, unknown>;
 }
 
+// ── viewHostActions (plugin.json `capabilities.viewHostActions`; requires `view`) ──
+
+// The user-gesture actions the view page may ask for through `ct.host`; each named once.
+export type ViewHostAction = "copyText" | "saveAs" | "reveal";
+
+// `denied`: no gesture, undeclared, cancelled, or media this frame does not own.
+// `unavailable`: the host cannot act here (the web mirror has no file manager).
+// `invalid`: malformed text, handle or arguments.
+export type ViewHostResult = { ok: true } | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
+
+// `window.ct.host` inside the view page. Call it from a click or key handler: the host checks
+// its own user activation. Media handles are the host-issued ones this frame received; never paths.
+export interface ViewHostBridge {
+  copyText(text: string): Promise<ViewHostResult>;
+  saveAs(mediaHandle: string, suggestedName?: string): Promise<ViewHostResult>;
+  reveal(mediaHandle: string): Promise<ViewHostResult>;
+}
+
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {
