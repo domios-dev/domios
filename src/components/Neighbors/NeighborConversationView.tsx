@@ -36,7 +36,9 @@ import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
 import { useNeighborPermission } from "./useNeighborPermission";
 import { formatBytes, neighborFilesClient, NeighborFilesFailure, type NeighborFile, type NeighborFilesClient } from "./neighborFilesClient";
-import { receivingLine, useReceiverState } from "./useReceiverState";
+import { useReceiverState } from "./useReceiverState";
+import { useNeighborStatus } from "./neighborStatusStore";
+import { FriendReceiveConfirm, friendReceiveItems, useFriendReceiveRequest } from "./neighborFriendReceiving";
 
 /** Your conversation with one Neighbor: what they asked, what you and your agents answered, and how it was delivered. */
 export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient = neighborFilesClient, markRead = markNeighborRead, flagMessage = flagNeighborMessage }: {
@@ -78,7 +80,10 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const friendship = friend.friendship_id;
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
-  const receiver = useReceiverState(runtimeClient, enabled);
+  // This friend's own receiver: another friend, or the account, may be received elsewhere.
+  const receiver = useReceiverState(runtimeClient, enabled, friendship);
+  const machineLabel = useNeighborStatus(runtimeClient, enabled)?.machine_label;
+  const receive = useFriendReceiveRequest();
   const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);
   // Files join their message by id; the list reloads whenever a transfer moves.
   const [files, setFiles] = useState<NeighborFile[]>([]);
@@ -281,10 +286,16 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
             .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The General Agent could not be reached."));
         } },
         { label: "Open in Neighborhood", onClick: () => openNeighborPage(friendship) },
+        ...friendReceiveItems(receiver, operation => receive.open(friendship, operation)),
       ]} trigger={<RowMenuButton label={`Actions for ${name}`} title={`${name} actions`} />} />
     </div>
-    {receiver && !receiver.receiving_here && receiver.receiving_enabled && <p role="status" className="neighbor-chat__moved">
-      {receivingLine(receiver)}. {name}'s messages arrive there, and concierges here stay idle.</p>}
+    {receiver && !receiver.receiving_here && <div role="status" className="neighbor-chat__moved">
+      <span>{receiver.receiving_enabled ? `${name}'s messages arrive on ${receiver.receiver_machine_label ?? "another machine"}.`
+        : `No machine is receiving ${name}'s messages.`}</span>
+      {receive.request === null && <Button size="sm" variant="ghost" onClick={() => receive.open(friendship, "set")}>Receive this friend here</Button>}
+    </div>}
+    {receive.request && receiver && <div className="neighbor-chat__notice"><FriendReceiveConfirm request={receive.request} receiver={receiver} friendName={name}
+      targetMachine={machineLabel} client={runtimeClient} onClose={receive.close} /></div>}
     {concierge?.concierge_missing && !concierge.gateway_tab && !friend.gateway_tab && <div className="neighbor-chat__notice"><MissingConciergeNotice status={concierge}
       onSetUpWithGeneral={setUpWithGeneral} onEditPermissions={() => openNeighborPage(friendship, "permissions")} /></div>}
     <div ref={scroller} className="neighbor-chat__scroll" onScroll={event => {
