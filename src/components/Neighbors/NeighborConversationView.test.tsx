@@ -378,6 +378,26 @@ it("explains a send refused by today's sending limit across all friends", async 
   expect(document.body.textContent).toContain("You reached today's sending limit (200). It resets in");
 });
 
+it("shows a reply to a stopped request as not sent, without Retry", async () => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.send).mockRejectedValue(new NeighborRuntimeFailure("reply_target_stopped", "The owner stopped this request; nothing was sent"));
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Hello");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
+  expect(document.body.textContent).toContain("The owner stopped this request; nothing was sent");
+  expect(document.querySelector(".ct-delivery")?.getAttribute("data-state")).toBe("failed");
+  expect(document.querySelector(".ct-delivery__retry")).toBeNull();
+});
+
 it("keeps writing open to a friend you disabled and offers Enable", async () => {
   const conciergeClient = await renderConversation({ ...neighbor, my_paused: true });
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);

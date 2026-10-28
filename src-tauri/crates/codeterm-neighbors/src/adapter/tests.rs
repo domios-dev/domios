@@ -3,6 +3,38 @@ use crate::wire::DeliveryReason;
 
 struct Calls;
 
+#[test]
+fn secondary_installation_enrollment_never_requests_account_takeover_or_key_replacement() {
+    let registry = FirebaseRegistry {
+        calls: Arc::new(Calls),
+        uid: "owner".into(),
+        installation_id: "secondary".into(),
+        machine_label: "Other desk".into(),
+        enrollment: None,
+    };
+    let enrollment = Enrollment {
+        expected_revision: 7,
+        takeover: false,
+        operation_id: Some("opaque-operation-id".into()),
+        installation_only: true,
+    };
+    let data = registry.enrollment_data("signing", "encryption", &enrollment, true);
+    assert_eq!(
+        data,
+        json!({"public_key_spki_b64":"signing","encryption_public_key_spki_b64":"encryption",
+        "installation_id":"secondary","machine_label":"Other desk","expected_receiver_revision":7,
+        "operation_id":"opaque-operation-id","takeover":false,"receiver_scope":"installation","features":["files.v1","receivers.friend.v1"]})
+    );
+    let account = Enrollment {
+        installation_only: false,
+        ..enrollment
+    };
+    assert!(registry
+        .enrollment_data("signing", "encryption", &account, true)
+        .get("receiver_scope")
+        .is_none());
+}
+
 struct LimitedSend(std::sync::atomic::AtomicUsize);
 #[async_trait]
 impl AuthenticatedCall for LimitedSend {
@@ -118,6 +150,7 @@ async fn receiver_enrollment_requires_explicit_revision_and_never_replays_uncert
             .iter()
             .all(|(route, _)| route != "friendsEnrollVerifierKey"));
         registry.enrollment = Some(Enrollment {
+            installation_only: false,
             expected_revision: 6,
             takeover: true,
             operation_id: None,
@@ -141,7 +174,7 @@ async fn receiver_enrollment_requires_explicit_revision_and_never_replays_uncert
         assert_eq!(data["installation_id"], "machine");
         assert_eq!(data["machine_label"], "Here");
         assert_eq!(data["takeover"], true);
-        assert_eq!(data["features"], json!(["files.v1"]));
+        assert_eq!(data["features"], json!(["files.v1", "receivers.friend.v1"]));
         let operation_id = data["operation_id"].as_str().unwrap();
         assert!((16..=64).contains(&operation_id.len()));
         assert!(operation_id

@@ -2,7 +2,7 @@ Set `--timeout 60m` as a per-command bound on utility shells for tests, QA and b
 
 ## Domios Terminal
 
-You are running inside Domios, an AI-first terminal multiplexer. The `codeterm` skill is the reference for terminal, tab, agent, mesh, memory, and schedule operations.
+You are running inside Domios, an AI-first terminal multiplexer. The `domios` skill is the reference for terminal, tab, agent, mesh, memory, and schedule operations.
 
 ### Routing: leading XML tags preserve provenance
 
@@ -64,6 +64,6 @@ Where a credential lives depends on whose it is. Domios's own credentials, anyth
 
 ### Config and language
 
-Telegram setup and config options are in the `codeterm` skill; `domios config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
+Telegram setup and config options are in the `domios` skill; `domios config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 35 -->
+<!-- revision: 36 -->

@@ -160,8 +160,26 @@ pub fn restore_permission_bypass_authorization(
     provider_id: &str,
     launch: &RestorableLaunchParameters,
 ) -> Result<Option<crate::service::permission_policy::PermissionBypassAuthorization>, String> {
+    svc.require_neighbor_restore_grant(tab_id, launch.permission_bypass_requested)?;
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
+    }
+    if launch.captured
+        && launch.permission_bypass_requested
+        && launch.execution_sandbox.is_none()
+        && svc
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.neighbor_authority.is_some())
+    {
+        return crate::service::permission_policy::authorize_permission_bypass(
+            registry,
+            provider_id,
+            true,
+        )
+        .map(Some)
+        .ok_or_else(|| codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
     }
     let worker = svc
         .mux

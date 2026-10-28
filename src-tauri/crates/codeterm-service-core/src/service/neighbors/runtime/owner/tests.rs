@@ -1,5 +1,88 @@
 use super::*;
 
+#[tokio::test]
+async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_network_dispatch() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    let (sender, mut requests) = mpsc::channel::<Request>(1);
+    *service.neighbor_cell().owner.lock() = Some(sender);
+    let invalid_pad = fixture.temp.path().join("invalid-pad");
+    std::fs::write(&invalid_pad, "opaque file").unwrap();
+    assert!(std::fs::write(invalid_pad.join("reply.txt"), "opaque reply").is_err());
+    let failed_read = std::fs::read_to_string(invalid_pad.join("reply.txt")).unwrap_or_default();
+    for body in [
+        String::new(),
+        " \r\n\t".into(),
+        "\u{2003}\u{3000}\u{a0}".into(),
+        failed_read,
+    ] {
+        for kind in [
+            Kind::Question,
+            Kind::Answer,
+            Kind::Refusal,
+            Kind::TabRequest,
+        ] {
+            let command = NeighborRuntimeCommand::Send {
+                friendship_id: "a".repeat(64),
+                kind,
+                body: body.clone(),
+                in_reply_to: Some("b".repeat(32)),
+            };
+            tokio::select! {
+                result = service.neighbor_runtime(command,None,None) => assert_eq!(result.unwrap_err(),Error::EmptyBody.to_string()),
+                _ = requests.recv() => panic!("invalid text reached the owner queue; ports, keys and network must remain unreachable"),
+            }
+        }
+    }
+    assert!(matches!(
+        requests.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    let command = NeighborRuntimeCommand::Send {
+        friendship_id: "a".repeat(64),
+        kind: Kind::Question,
+        body: "opaque nonempty".into(),
+        in_reply_to: None,
+    };
+    let send = service.neighbor_runtime(command, None, None);
+    tokio::pin!(send);
+    let request = tokio::select! {
+        result = &mut send => panic!("nonempty send bypassed queue sentinel: {result:?}"),
+        request = requests.recv() => request.unwrap(),
+    };
+    request
+        .reply
+        .send(Err("opaque owner sentinel".into()))
+        .unwrap_or_else(|_| panic!("caller abandoned queue"));
+    assert_eq!(send.await.unwrap_err(), "opaque owner sentinel");
+}
+
+#[tokio::test]
+async fn public_file_only_send_still_enters_its_distinct_owner_operation() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    let (sender, mut requests) = mpsc::channel::<Request>(1);
+    *service.neighbor_cell().owner.lock() = Some(sender);
+    let send = service.neighbor_files(json!({"operation":"send","friendship_id":"a".repeat(64),"kind":"question","body":"","in_reply_to":null,"paths":["opaque-file"]}),None,None);
+    tokio::pin!(send);
+    let request = tokio::select! {
+        result = &mut send => panic!("file-only send refused before queue sentinel: {result:?}"),
+        request = requests.recv() => request.unwrap(),
+    };
+    assert!(
+        matches!(&request.operation,Operation::Files(super::super::files::Command::Send {body,paths,..}) if body.is_empty() && paths.len() == 1)
+    );
+    request
+        .reply
+        .send(Ok(Outcome::Value(json!({"opaque":"queued"}))))
+        .unwrap_or_else(|_| panic!("caller abandoned queue"));
+    assert_eq!(send.await.unwrap(), json!({"opaque":"queued"}));
+}
+
 struct Port {
     started: mpsc::UnboundedSender<&'static str>,
     release: Arc<tokio::sync::Semaphore>,

@@ -795,3 +795,78 @@ async fn neighbor_flags_have_a_typed_local_api_contract_without_body_fields() {
         );
     }
 }
+
+#[tokio::test]
+async fn stopped_reply_is_a_typed_presend_conflict() {
+    let response = neighbor_failure(
+        "reply_target_stopped: The owner stopped this request; nothing was sent".into(),
+    );
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "reply_target_stopped");
+    assert_eq!(body["reason"], "reply_target_stopped");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("nothing was sent"));
+}
+
+#[tokio::test]
+async fn empty_neighbor_body_is_a_typed_presend_bad_request() {
+    let response = neighbor_failure(
+        "empty_body: The message is empty; nothing was sent. Provide text or an attachment.".into(),
+    );
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "empty_body");
+    assert_eq!(body["reason"], "empty_body");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("nothing was sent"));
+}
+
+#[tokio::test]
+async fn invalid_neighbor_permission_has_typed_bad_request_response() {
+    let response = neighbor_failure("invalid_request: Invalid Neighbor request".into());
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "invalid_request");
+    assert_eq!(body["reason"], "invalid_request");
+}
+
+#[tokio::test]
+async fn nonreceiver_concierge_mutation_is_a_typed_conflict() {
+    let response = neighbor_failure(
+        "receiving_elsewhere: This machine is not receiving; no concierge can run here".into(),
+    );
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "receiving_elsewhere");
+    assert_eq!(body["reason"], "receiving_elsewhere");
+}
+
+#[tokio::test]
+async fn friend_receiver_machine_limit_preserves_typed_counts() {
+    let response = neighbor_failure("key_limit: {\"limit\":5,\"active\":5}".into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "key_limit");
+    assert_eq!(body["limit"], 5);
+    assert_eq!(body["active"], 5);
+}

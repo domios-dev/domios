@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { tabActivity, type TabActivityInput, type TabActivity } from "./tabActivity";
+import { readableActivityLine, tabActivity, type TabActivityInput, type TabActivity } from "./tabActivity";
 import type { BootStage, TabStatus } from "./types";
 import { aggregateTabStatuses } from "../components/Sidebar/tabStatuses";
 import type { Tab } from "./types";
@@ -104,3 +104,10 @@ assert.equal(ended.label, "Ended", "a dead role tab reads as ended, not as a lau
 assert.equal(ended.active, false, "a dead role tab is never a live worker");
 assert.equal(ended.status, "Dead");
 assert.equal(tabActivity({ ...agent, boot_stage: "spawn_failed" }, "Working").label, "Launch failed");
+
+assert.equal(readableActivityLine('"C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\pwsh.exe" -Command Get-Content x'), "pwsh -Command Get-Content x", "a quoted escaped program path reads as its name");
+assert.equal(readableActivityLine("/opt/homebrew/bin/node script.mjs"), "node script.mjs", "an unquoted absolute program reads as its name");
+assert.equal(readableActivityLine("Reading files"), "Reading files", "ordinary status text is unchanged");
+const commandQuestion = tabActivity({ ...agent, pending_prompt: { question: '"C:\\Windows\\pwsh.exe" -Command Set-Content x' } } as TabActivityInput, "Waiting");
+assert.notEqual(commandQuestion.label.includes("\\"), true, "a raw command approval does not show its path");
+assert.equal(tabActivity({ ...agent, pending_prompt: { question: "Which file?" } } as TabActivityInput, "Waiting").label, "Which file?", "a real question keeps its text");

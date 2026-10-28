@@ -2,13 +2,15 @@
 
 Use `domios` for tabs, agents, plans, mesh, memory and schedules. First search
 `domios mem search "<need>"`, then read `--help` or `domios docs`; never guess.
-Load the `codeterm` skill for these operations.
+Load the `domios` skill for these operations.
 
 A tab title is one word and stays stable. Dispatch derives the description from
 the task name (`--description` overrides); direct `agent spawn` needs
 `--description`; `domios tab describe` updates it. Finish related edits,
 then verify once: skip any check the next step already performs (a rebuild
-compiles, a live run tests), and commit per working batch, not per edit.
+compiles, a live run tests). In Git, commit in large batches: one commit per
+finished task or integration wave, plus one per review round; never per edit,
+file or small fix.
 
 Notify through `domios notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`; never use provider-native notifications. `verbose` is occasional progress or completion, never every step. `action_needed` (waiting on the user) and `failure` (it broke and you stopped) are rare escalations, only when you need user input and cannot proceed or the user asked; Workers and Planners use their reporting channel instead. `unseen` means the record was kept with exit 0; do not retry.
 

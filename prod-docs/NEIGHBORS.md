@@ -1,12 +1,12 @@
 # Encrypted Neighbors
 
-Neighbors encrypt account messages. Neighborhood/sidebar manage friends. Free retains/accepts/configures/removes them; messaging stays upgrade-locked.
+Encrypted account messages; Neighborhood/sidebar manage friends. Free keeps connections; messaging is upgrade-locked.
 
 Neighbors defaults on per instance. Off immediately stops receive/send/request notices without restart, retaining connections/keys/scopes/listing. Sends/grants/binding/admission refuse `neighbors_disabled`. On resumes signed-in listeners; sign-out revokes this installation's receiving keys.
 
 ## Receiving and keys
 
-In Messages, choose Receive here and confirm takeover; only this installation receives, never by automatic takeover. One key pair serves all gateways and survives tab recreation. Rotate explicitly; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
+Choose Receive here with confirmation; never take over automatically. Each friend uses its override or the account receiver. One installation key pair serves its concierges. Rotate explicitly; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
 
 ```bash
 domios account neighbors status
@@ -16,13 +16,11 @@ domios account neighbors rotate
 domios account neighbors revoke
 ```
 
-Use current status revision; stale revisions require reread/reconfirmation. Status/events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, `revision`. A non-receiving friend cannot accept new messages. Keys use Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext fallback. Sign-out clears local account access first; server session revocation stops receiving, and cleanup removes only this installation's private keys.
+Use current revision; stale values require reread/reconfirmation. Status/events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, `revision`. Nonreceivers cannot accept new messages. Keys use Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext fallback. Sign-out clears local account access first; server session revocation stops receiving, and cleanup removes only this installation's private keys.
 
-Concierges/grants are installation-local; takeover idles old agents, copying no grants. Missing-concierge questions stay encrypted/pending/unacknowledged without cursor advancement until permissions/binding enable admission. Status `concierges[friendship_id]`: `concierge_missing,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Unknown count=null, cap100 displayed `100+`. Observe-only streams retain no names; concurrent count refreshes coalesce.
+Grants/setup stay local. Receiver loss closes that friend's agents to Recently Closed and revokes credentials; return starts fresh. Unknown/nonreceivers refuse concierge changes/launch (`receiving_elsewhere`). Questions without a concierge stay encrypted/unacknowledged; no cursor advance until local setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Observers retain no names; recounts coalesce.
 
-Failed streams use fresh authentication/durable cursor for at most3 reconnect attempts. Status: connecting/receiving/reconnecting/stopped; Retry reception resumes catch-up, never uncertain sends. Existence-filter mismatch allows3 target re-adds, then `existence_filter_retry_limit` until retry; cursors survive.
-
-Failed/missing receiver/account watches stop reception and invalidate snapshots. Key mutations invalidate operation caches; each batch reads peer keys once and verifies every message. On starts watches outside network work; off/sign-out cancel startup. No polling/warmup.
+Receive retries: max3 consecutive failures; confirmed snapshots reset. Exhaustion: listen_retries_exhausted. Auth/revocation/off/account-generation/receiver changes terminate. Retry retains the cursor and never replays uncertain sends. status.watches and neighbors-watch-status expose watch/errors. Reconnect/cache/admission: API-LIFECYCLE.
 
 ## Authority and permissions
 
@@ -30,13 +28,10 @@ Owner edits grants in friend view; only authenticated General may view/author th
 
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
-domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md
-domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md --allow-tab-requests
-domios account neighbors deny FRIENDSHIP_ID
 domios account neighbors bind FRIENDSHIP_ID --tab GATEWAY_TAB_ID
 ```
 
-Saving grants creates/binds a concierge; provider/model replacement retains scope/limits. Independent agents require matching instructions/folder/confinement; General/Team/role-bound agents cannot bind. Never reuse broader launches. Host-owned authority persists from prelaunch; restart/sign-out/role changes/ended bindings never grant unrestricted access.
+Grants create/bind a concierge; provider/model edits retain scope/limits. Binding requires matching instructions/folder/confinement and an independent agent, never General/Team/role-bound tabs or broader launches. Authority persists from prelaunch; restart/sign-out/role changes/ended bindings never widen access.
 
 `change_agent`: `provider`, optional `model`, provider effort ID `reasoning_effort`, declared tier ID `service_tier` (`default`=Standard). Omitted=provider defaults; unsupported choices refuse before replacement. Restore/Apply retain choices. Result/`status.concierges[friendship_id]` expose effort/tier fields, null for defaults.
 
@@ -75,6 +70,18 @@ Owner/General set their inbound limits. Include `friendship_id`; POST routes are
 
 For two incoming requests/hour: `domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2`. Use literal `null` instead of N only where supported. Limit edits are separate from permission Apply.
 
+## General permission command
+
+Partial grants preserve other fields. --allowed, --allow-memory, --allow-files, --allow-tab-requests, --allow-interactive-content take true/false. --from-pad reads scope and implies --allowed true unless overridden. --memory-areas: all=null, none=[], or comma-separated areas. --workspaces: none=null or comma-separated IDs. --folder: absolute path/default=null. --machine-access: none/read_only/folder/full; folder requires a folder.
+
+~~~bash
+domios account neighbors grant ID --from-pad scope.md --allow-memory false
+domios account neighbors grant ID --allow-memory true --memory-areas project,team
+domios account neighbors grant ID --memory-areas all
+~~~
+
+Deny sets only allowed=false. Runtime set_permission merges partial permission; null clears nullable fields. Invalid input refuses typed before saving. CLI/UI share Apply; limits stay separate.
+
 ## Concierge setup and Apply
 
 General asks trust level, proposes one preset, explains it before saving, and offers project restrictions via areas/workspaces/folder. Keep machine access off unless requested; because `none` is unsupported, leave the concierge disabled if required. Obtain the owner's choice before preset read-only/folder access; never silently widen to full. All presets: `allowed:true`, approved scope, `allow_files:true`, `allow_interactive_content:false`; message limits use separate `set_daily_limit`.
@@ -88,9 +95,9 @@ General asks trust level, proposes one preset, explains it before saving, and of
 
 Creation needs a workspace even for Trusted friend. Resolve real IDs/taxonomy areas; show `folder_enforcement.note` and command/read/advisory limits. Before launch, descendants inherit immutable friendship root, allowlist/current grants, access/folder and own-pad exception. They cannot become General/edit grants. Custom args, foreign resumes, existing-tab claims, shell tabs, Team/plan/mesh dispatch refuse. Permission edits retire descendants; concierge replacement/closure closes them into Recently Closed, retaining friendship history/files.
 
-Before Apply, General says "Applying restarts <friend>'s concierge." Batch all permission edits into one `set_permission`: one restart, scope/grants/refusal rules in initial system/developer instructions, not per turn. `supports_initial_prompt_update_on_resume` enables same-session history-preserving updates (Claude/Codex/OpenCode); others start fresh, retaining friend history. Restore uses persisted instructions/reconciles older launches before turns. Failed restart means failed Apply.
+Before Apply, General says "Applying restarts <friend>'s concierge with a fresh session." Batch all permission edits into one `set_permission`: one restart, scope/grants/refusal rules in initial system/developer instructions, not per turn. Every Apply starts a new provider session with the new initial instructions: agent context is dropped, `history_retained:false`; the friend's Domios conversation stays. Unchanged-digest daemon restore resumes the existing session. Changed context starts fresh before new turns. Failed restart means failed Apply. Structured grants decide tool access; scope narrows topics/sharing. Initial instructions list exact permitted reads; try an in-scope read before refusing. Daemon area/limit checks still apply.
 
-Status `concierges[friendship_id].initial_context_digest` and permission `initial_context_digest`: bound context SHA-256 only. Unchanged: no restart; changed: restart once, resume when supported.
+Status `concierges[friendship_id].initial_context_digest` and permission `initial_context_digest`: bound context SHA-256 only. Unchanged: retain session; changed: start fresh once.
 
 Turns use `<domios from="neighbor" friend="NAME" friendship="FRIENDSHIP_ID" message="MESSAGE_ID" kind="question" in_reply_to="OPTIONAL_MESSAGE_ID">BODY<tip>HOST_REPLY_INSTRUCTION</tip></domios>` with Messenger escaping; omit absent linkage. Answer/refusal tips forbid reply and suggest flags. Questions/tab requests reach concierge; linked owner replies stay in conversation; agent replies target only their exact live authenticated author. Unknown/unavailable/cross-friend targets never fall back. Confirmed delivery saves private tab/session/nonce flag provenance; uncertainty never replays. Owner replies admit without concierge; waiting questions preserve cursor.
 
@@ -99,6 +106,7 @@ Listener preparation wakes the bound unpaused concierge on this receiving machin
 ## Sending, delivery and history
 
 Send once from your pad; retain its ID. Replies link to original messages, never tab addresses.
+Empty/whitespace-only text refuses `empty_body` before submission; nothing was sent. File-only sends are valid. Stop after a pad-write failure; never pipe a missing file into send.
 
 ```bash
 domios account neighbors send FRIENDSHIP_ID --from-pad request.md
@@ -137,7 +145,7 @@ Incoming history fields: `handling_state`, optional `handling_reason`, `handling
 
 `neighbor-history-changed {friendship_id}` publishes transitions. Status `incoming_handling[friendship_id]` is bounded message IDs/handling metadata without bodies. Verified missing-concierge messages may enter history through file prefetch but remain unacknowledged/undelivered to agents. Resumed history marks interrupted older binding failed with `concierge_restarted`.
 
-Owner/General `{operation:"stop_concierge",friendship_id}` on runtime API bypasses network work and interrupts only that friend's exact bound agent. Returns `{friendship_id,gateway_tab,stopped,message_ids}`; confirmed requests become stopped/owner_stopped. Sends no reply/refusal; other agents cannot stop it.
+Owner/General `{operation:"stop_concierge",friendship_id}` on runtime API bypasses network work and interrupts only that friend's exact bound agent. Returns `{friendship_id,gateway_tab,stopped,message_ids}`; confirmed requests become stopped/owner_stopped. Sends no reply/refusal; other agents cannot stop it. Later answers/refusals linked to a stopped request fail before keys/network/history with409 `reply_target_stopped`: nothing sent; never retry that request.
 
 ## Notifications, flags and pause
 
@@ -169,4 +177,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 42 -->
+<!-- revision: 50 -->

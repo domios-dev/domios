@@ -15,7 +15,7 @@ const matchingTabStates = [];
 const busySnapshots = {};
 const receiptEvents = [];
 // Output-side events for the watched tab follow the stub's receipt into the screen buffer.
-const TAB_OUTPUT_EVENTS = new Set(["agent.task_complete", "tab-status-changed", "chat-stream-preview"]);
+const TAB_OUTPUT_EVENTS = new Set(["agent.task_complete", "tab-status-changed"]);
 
 // A journal line still being appended does not parse yet; the next event re-reads it.
 function journalRecords(path) {

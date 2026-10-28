@@ -307,14 +307,16 @@ impl ServiceContext {
         let agent_cmd = model_selection.provider_id;
         let requested_model = model_selection.model;
         let permission_bypass_authorization =
-            super::permission_policy::spawn_permission_bypass_for(
+            super::permission_policy::spawn_permission_bypass_for_launch(
                 self,
-                &self.agent_registry,
                 &agent_cmd,
                 agent.role.as_deref() == Some("Worker"),
                 spec.chatbackend_launch
                     .as_ref()
                     .is_some_and(|metadata| metadata.params.sandbox.is_some()),
+                spec.chatbackend_launch
+                    .as_ref()
+                    .map(|launch| &launch.params),
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
 
@@ -767,14 +769,16 @@ impl ServiceContext {
         }
         self.require_agent_provider_ready(&agent.provider)?;
         let permission_bypass_authorization =
-            super::permission_policy::spawn_permission_bypass_for(
+            super::permission_policy::spawn_permission_bypass_for_launch(
                 self,
-                &self.agent_registry,
                 &agent.provider,
                 agent.role.as_deref() == Some("Worker"),
                 spec.chatbackend_launch
                     .as_ref()
                     .is_some_and(|metadata| metadata.params.sandbox.is_some()),
+                spec.chatbackend_launch
+                    .as_ref()
+                    .map(|launch| &launch.params),
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
         let clearance =

@@ -196,6 +196,7 @@ function MacTrafficLights({
   return (
     <div
       className="flex items-center gap-2 pl-3.5 pr-1 h-full"
+      data-first-run-allowed="true"
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -255,8 +256,9 @@ function WindowsControls({
   onMinimize: () => void;
   onMaximize: () => void;
 }) {
+  // The window's own controls stay usable on the first-run screen.
   return (
-    <div className="flex items-center h-full">
+    <div className="flex items-center h-full" data-first-run-allowed="true">
       <button
         onClick={onMinimize}
         className={`${UI_BUTTON.ghost} h-full w-12`} 

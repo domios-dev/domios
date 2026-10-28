@@ -30,6 +30,8 @@ impl Fixture {
     fn peers(&self) -> PeerKeys {
         let v = vector();
         PeerKeys {
+            peer_receiver: None,
+            my_receiver: None,
             friendship_id: v["envelope"]["friendship_id"].as_str().unwrap().into(),
             peer_uid: v["envelope"]["sender_uid"].as_str().unwrap().into(),
             keys: vec![PeerKey {

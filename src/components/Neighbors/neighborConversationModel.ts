@@ -42,6 +42,8 @@ export interface OutgoingSend {
   messageId?: string;
   uncertain?: boolean;
   reason?: string;
+  /** Refused for good: nothing went out and sending it again cannot succeed, so the bubble offers no Retry. */
+  final?: boolean;
 }
 
 /** Which sends history now holds, as send key to message id, each history entry claimed once. */
@@ -72,6 +74,7 @@ export function refusalLine(entry: HistoryEntry, friendName: string, now: number
     case "friends_locked": return "Not delivered: your plan pauses Neighbor messages.";
     case "recipient_locked": return `Not delivered: ${friendName}'s plan pauses their Neighbor messages.`;
     case "recipient_not_receiving": return `Not delivered: ${friendName} is not receiving right now.`;
+    case "receiver_moved": return `Not delivered: ${friendName}'s receiving machine changed.`;
     case "recipient_paused": return `Not delivered: ${friendName} disabled messages from you.`;
     default: return null;
   }

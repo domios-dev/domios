@@ -269,15 +269,6 @@ impl Metadata {
             .find(|entry| entry.direction == "in" && entry.message_id == message_id)
             .and_then(|entry| entry.received_by))
     }
-
-    pub(super) async fn has_incoming(&self, friendship: &str, message_id: &str) -> Result<bool> {
-        Ok(self
-            .history(friendship)
-            .await?
-            .entries
-            .iter()
-            .any(|entry| entry.direction == "in" && entry.message_id == message_id))
-    }
 }
 
 #[derive(Default)]
@@ -541,6 +532,7 @@ impl ServiceContext {
             entry.reason = Some(
                 match reason {
                     codeterm_neighbors::wire::DeliveryReason::KeyRevoked => "key_revoked",
+                    codeterm_neighbors::wire::DeliveryReason::ReceiverMoved => "receiver_moved",
                 }
                 .into(),
             );

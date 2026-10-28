@@ -14,6 +14,8 @@ export type BrandStateModel =
   | { kind: "loading"; label: string; detail?: string; animate: boolean }
   | { kind: "error"; title: string; sentence: string }
   | { kind: "reconnecting" }
+  /** The stream dropped after the app had loaded: the loaded state stays usable and a quiet pill says so. */
+  | { kind: "paused" }
   | { kind: "reconnected" };
 
 export function transitionBrandConnection(
@@ -45,10 +47,13 @@ export function transitionBrandConnection(
     : state;
 }
 
-export function brandConnectionModel(state: BrandConnectionState, now: number): BrandStateModel {
-  if (state.kind === "disconnected") return { kind: "reconnecting" };
+/** `loaded` is whether the event stream has ever been ready in this session. Only a first connect still has
+ *  nothing worth showing, so only it blocks; a later drop pauses updates and leaves the app in the user's hands. */
+export function brandConnectionModel(state: BrandConnectionState, now: number, loaded = false): BrandStateModel {
+  const lost: BrandStateModel = loaded ? { kind: "paused" } : { kind: "reconnecting" };
+  if (state.kind === "disconnected") return lost;
   if (state.kind === "waiting") {
-    return now >= state.disconnectedAt + RECONNECT_GRACE_MS ? { kind: "reconnecting" } : { kind: "hidden" };
+    return now >= state.disconnectedAt + RECONNECT_GRACE_MS ? lost : { kind: "hidden" };
   }
   if (state.kind === "reconnected") {
     return now < state.connectedAt + RECONNECTED_NOTICE_MS ? { kind: "reconnected" } : { kind: "hidden" };

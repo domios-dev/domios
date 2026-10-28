@@ -49,7 +49,7 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/account/gift/redeem` | Local signed-in redemption: `{key, expected_uid}`; returns the server plan, duration and expiry receipt after signed entitlement refresh. No key generation. |
 | POST | `/api/account/neighbors` | Local owner manages channels; authenticated General may list or set_limit {friendship_id,per_hour}, but cannot request/respond/remove. |
 | POST | `/api/account/neighbors/enabled` | Turn Neighbors on or off on this machine (`{"enabled": bool}`); off stops receiving and sending until turned back on. |
-| POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. |
+| POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. Failed/missing receiver/account watches stop reception and invalidate snapshots. Key mutations invalidate operation caches; each batch reads peer keys once and verifies every message. On starts watches outside network work; off/sign-out cancel startup. No polling/warmup. |
 | POST | `/api/account/neighbors/read` | Local owner UI only: mark a friend's messages read up to `through_message_id` (`{friendship_id, through_message_id}`). |
 | POST | `/api/account/neighbors/files` | Owner/General manage files; bound concierges may resolve permitted saved handles. Payloads below. |
 | POST | `/api/analytics/consent` | Set analytics consent. |
@@ -100,6 +100,15 @@ For open, owner/General `launch:false` returns `{opened:false,path:"<absolute pa
 |---|---|
 | Read relay/signal | Recipient `friendsRead {installation_id,friendship_id,through_message_id}` emits `message_read {schema_version:1,revision,event_id,request_id:null,friendship_id,message_id,at}`; anchor=message_id, server Unix milliseconds=at. No text/files/manifest/key. Sender marks through anchor read; status catch-up restores missed read times. |
 | Runtime flag_message | Runtime `{operation:"flag_message",friendship_id,message_id,category,reason}` returns `{friendship_id,message_id,flag:{category,reason,by,at},created}`; by=concierge/tab/owner, at=Unix seconds. |
+| Runtime set_friend_receiver | Owner UI `{operation:"set_friend_receiver",friendship_id,receiver_operation:"set"|"reset",takeover_confirmed:true,expected_receiver_revision}` changes one friend's receiver; the separate `enroll` action is for all friends. Effective state and observation versions: Per-friend receiving below. |
+
+## Per-friend receiving
+
+Owner UI uses `POST /api/account/neighbors/runtime` with `{operation:"set_friend_receiver",friendship_id,receiver_operation:"set"|"reset",takeover_confirmed:true,expected_receiver_revision}`. This changes only that friendship; `reset` resumes the account receiver. The separate `enroll` operation moves all friends and requires its own confirmation. A reset may lower the effective revision: refresh and reconfirm stale requests rather than taking a numeric maximum or retrying a mutation automatically.
+
+Runtime `status` adds `machine_label` for this machine and `friend_receivers[friendship_id]` with `{receiving_here,receiver_machine_label,receiving_enabled,revision,source:"account"|"friend"}`. Missing entries mean unknown and must not fall back to account state. `friend_receivers_version` orders daemon snapshots independently of backend receiver revisions; friendship-scoped `neighbor-runtime-status` events include the same observation version and `friendship_id`. Keep newer observations when an older read finishes late. A move settles pending outgoing entries as `not_delivered` with reason `receiver_moved`; status catch-up remains available to authenticated sender installations after a move.
+
+Refusals retain typed reasons including `receiver_revision_stale`, `feature_unsupported`, `not_receiver`, and `key_limit {limit,active}`. Machine limits require removing a machine or changing the plan; moving a friend never silently revokes unrelated installation keys. Receiver authority applies to inbox admission, ACK/read receipts, and file download/confirmation; saved local files and grants stay on their own machine.
 
 ## Provider lifecycle ingress
 
@@ -114,4 +123,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 10 -->
+<!-- revision: 13 -->

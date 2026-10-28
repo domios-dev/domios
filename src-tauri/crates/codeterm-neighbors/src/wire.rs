@@ -6,6 +6,13 @@ pub const SCHEMA: &str = "domios.friend-envelope.v2";
 pub const MAX_CIPHERTEXT_BYTES: usize = 32768;
 pub const MAX_PLAINTEXT_BYTES: usize = MAX_CIPHERTEXT_BYTES - 16;
 
+pub fn validate_nonempty_text(body: &str) -> Result<()> {
+    if body.trim().is_empty() {
+        return Err(Error::EmptyBody);
+    }
+    Ok(())
+}
+
 pub fn validate_message_size(body: &str) -> Result<()> {
     if body.len() > MAX_PLAINTEXT_BYTES {
         return Err(Error::MessageTooLarge {
@@ -157,7 +164,14 @@ pub struct PeerKeys {
     pub friendship_id: String,
     pub peer_uid: String,
     pub keys: Vec<PeerKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_receiver: Option<PeerReceiver>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub my_receiver: Option<EffectiveReceiver>,
 }
+
+mod receiver;
+pub use receiver::{EffectiveReceiver, PeerReceiver, ReceiverSource};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
@@ -220,6 +234,7 @@ pub enum DeliveryStatus {
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryReason {
     KeyRevoked,
+    ReceiverMoved,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

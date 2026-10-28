@@ -3,6 +3,7 @@ import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighborStatus } from "./neighborStatusStore";
 
 export interface ConciergeStatus {
+  concierge_dormant?: boolean;
   gateway_tab: string | null;
   concierge_missing: boolean;
   /** Null until an inbox count has been observed; never a stand-in zero. */
@@ -28,6 +29,7 @@ export function parseConciergeStatus(value: unknown): ConciergeStatus | null {
     gateway_tab: value.gateway_tab, concierge_missing: value.concierge_missing, pending_count: value.pending_count as number | null,
     receiving_here: value.receiving_here, receiver_machine_label: value.receiver_machine_label, state: value.state as ConciergeStatus["state"],
     ...(value.pending_count_capped === true ? { pending_count_capped: true } : {}),
+    ...(value.concierge_dormant === true ? { concierge_dormant: true } : {}),
   };
 }
 

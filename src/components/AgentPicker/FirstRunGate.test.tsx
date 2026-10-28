@@ -105,6 +105,35 @@ it("keeps mouse and touch activation of Get started away from sortable drag hand
   expect(activate).toHaveBeenCalledOnce();
 });
 
+it("lets the window drag from its title bar while controls in it stay locked", async () => {
+  const windowDrag = vi.fn();
+  const settings = vi.fn();
+  const minimize = vi.fn();
+  const { host } = await mount(<FirstRunControls locked>
+    <div data-tauri-drag-region data-testid="bar">
+      <span data-tauri-drag-region data-testid="strip" />
+      <button onClick={settings}>Settings</button>
+      <div data-first-run-allowed="true"><button onClick={minimize}>Minimize</button></div>
+    </div>
+  </FirstRunControls>);
+  // The native drag listens for the press after the page; a press the gate swallowed never reaches it.
+  document.addEventListener("mousedown", windowDrag);
+  try {
+    for (const id of ["bar", "strip"]) {
+      const press = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      await act(async () => host.querySelector(`[data-testid=${id}]`)!.dispatchEvent(press));
+      expect(press.defaultPrevented).toBe(false);
+    }
+    expect(windowDrag).toHaveBeenCalledTimes(2);
+    const buttons = Array.from(host.querySelectorAll("button"));
+    await act(async () => buttons.forEach((button) => button.click()));
+    expect(settings).not.toHaveBeenCalled();
+    expect(minimize).toHaveBeenCalledOnce();
+  } finally {
+    document.removeEventListener("mousedown", windowDrag);
+  }
+});
+
 it("blocks shortcuts and the palette until completion, then restores their handlers", async () => {
   const handlers = Object.fromEntries(APP_SHORTCUT_ACTIONS.map((action) => [action, vi.fn()])) as unknown as AppShortcutHandlers;
   function Shell({ locked }: { locked: boolean }) {

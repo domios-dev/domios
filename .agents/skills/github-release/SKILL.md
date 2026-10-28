@@ -489,6 +489,8 @@ Public issues close only after this version's complete served-byte verification 
 `check-release-closure.mjs`. The closure boundary records validator run ID/repository/URL and source
 SHA; readers confirm that successful run through Actions. Missing/unverifiable boundaries are
 refused, never inferred from asset presence or release ownership.
+Included-history resolution prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
+alias of the same version, resolves fully qualified tag refs, and still requires verified publication boundaries.
 
 ## Handoff and closeout
 
@@ -505,4 +507,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->

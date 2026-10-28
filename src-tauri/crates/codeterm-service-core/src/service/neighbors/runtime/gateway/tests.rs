@@ -13,6 +13,12 @@ fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
             root_tab_id: None,
         });
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     *fixture.service.neighbor_cell().receiver.lock() =
         Some(codeterm_neighbors::adapter::ReceiverStatus {
             receiver_revision: 1,
@@ -141,12 +147,15 @@ async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activat
     concierge.boot_stage = Some(codeterm_types::pty::BootStage::PtyStarting);
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
+    service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friend = "a".repeat(64);
     let mut settings = crate::service::neighbors::storage::Settings::default();
     settings.bindings.insert(friend.clone(), tab.clone());
     metadata.save_settings(settings).await.unwrap();
     service.tag_neighbor_root("owner", &friend, &tab).unwrap();
+    let restored_settings = metadata.settings().await.unwrap();
+    service.remember_neighbor_concierge_accounts("owner", &restored_settings);
     crate::service::lazy_restore::initialize(service, 0);
     assert!(service.mux.read().get_tab(&tab).unwrap().frozen);
     let calls = Arc::new(AtomicUsize::new(0));

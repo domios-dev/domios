@@ -77,17 +77,14 @@ impl ServiceContext {
             return Err(Error::Revoked);
         }
         let peers = transport.peer_keys(&friendship).await?;
-        let peer = peers
-            .keys
-            .iter()
-            .max_by_key(|key| key.created_at)
-            .ok_or(Error::InvalidKey)?;
+        peers.require_sender_receiver(&transport.installation_id)?;
+        let peer = peers.receiver_key()?;
         let mut envelope = Envelope {
             schema: SCHEMA.into(),
             friendship_id: friendship.clone(),
             message_id: uuid::Uuid::new_v4().simple().to_string(),
             sender_uid: transport.uid.clone(),
-            recipient_uid: peers.peer_uid,
+            recipient_uid: peers.peer_uid.clone(),
             kind,
             in_reply_to: in_reply_to.clone(),
             ciphertext: String::new(),
@@ -213,11 +210,39 @@ async fn prepare_outgoing_body(
     body: OutboundBody,
     in_reply_to: Option<&str>,
 ) -> codeterm_neighbors::Result<(Zeroizing<String>, Vec<String>)> {
-    if kind == Kind::Refusal {
-        let target = in_reply_to.ok_or(Error::ReplyTargetUnknown)?;
-        if !metadata.has_incoming(friendship, target).await? {
+    match &body {
+        OutboundBody::Granted(text) => codeterm_neighbors::wire::validate_nonempty_text(text)?,
+        OutboundBody::Files { text, paths } if paths.is_empty() => {
+            codeterm_neighbors::wire::validate_nonempty_text(text)?;
+        }
+        _ => {}
+    }
+    if kind != Kind::Refusal {
+        match &body {
+            OutboundBody::Granted(text) | OutboundBody::Files { text, .. } => {
+                codeterm_neighbors::wire::validate_message_size(text)?;
+            }
+            OutboundBody::Refusal => {}
+        }
+    }
+    if matches!(kind, Kind::Answer | Kind::Refusal) {
+        let history = metadata.history(friendship).await?;
+        let target = in_reply_to.and_then(|id| {
+            history
+                .entries
+                .iter()
+                .find(|entry| entry.direction == "in" && entry.message_id == id)
+        });
+        if target.is_some_and(|entry| {
+            entry.handling.handling_state == Some(super::super::history::handling::State::Stopped)
+        }) {
+            return Err(Error::ReplyTargetStopped);
+        }
+        if kind == Kind::Refusal && target.is_none() {
             return Err(Error::ReplyTargetUnknown);
         }
+    }
+    if kind == Kind::Refusal {
         let body = match body {
             OutboundBody::Granted(body) => body,
             OutboundBody::Refusal => {

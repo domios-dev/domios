@@ -147,6 +147,12 @@ fn wake_with(
         return Ok(());
     }
     let _request = WakeRequest(id.clone());
+    let bypass = svc
+        .mux
+        .read()
+        .get_tab(&id)
+        .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
+    svc.require_neighbor_restore_grant(&id, bypass)?;
     let retry_started_agent = {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;

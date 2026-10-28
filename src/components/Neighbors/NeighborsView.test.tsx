@@ -10,7 +10,7 @@ import { parseReferralClaim } from "./referralTrial";
 import { parseNeighbors } from "./neighborModel";
 import { neighborClient } from "./neighborClient";
 import type { NeighborNotify, HistoryEntry } from "./neighborConciergeClient";
-import type { NeighborListenerEvent, NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { NeighborRuntimeFailure, type NeighborListenerEvent, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { missingConciergeLine } from "./useConciergeStatus";
 import { openNeighborPage } from "./neighborFocus";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
@@ -94,6 +94,9 @@ it("accepts a request and interviews about the new connection once it exists", a
   expect(client.apply).toHaveBeenCalledWith({ operation: "respond", request_id: "request", accept: true });
   expect(sentText()).toHaveLength(1);
   expect(sentText()[0].text).toContain("pair-grace");
+  const commands = Array.from(sentText()[0].text.matchAll(/\x60([^\x60]+)\x60/g), match => match[1]);
+  expect(commands).toContain("domios account neighbors grant pair-grace --from-pad <file>");
+  expect(commands).toContain("--allow-tab-requests true");
 });
 
 it("opens a friend's own page: limit, talk about, and removal only after confirmation", async () => {
@@ -260,7 +263,7 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(scope, "Questions about our shared project");
     scope.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  expect(document.body.textContent).toContain("Applying restarts Ada's concierge.");
+  expect(document.body.textContent).toContain("Applying restarts Ada's concierge with a fresh session.");
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", { allowed: true, scope: "Questions about our shared project", allow_tab_requests: false });
 });
@@ -306,12 +309,50 @@ it("tells the old machine that receiving moved, and warns before taking it over"
   const runtimeClient = runtime();
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   await render("paid", { runtimeClient });
-  expect(document.body.textContent).toContain("Receiving moved to Studio");
-  await act(async () => button("Receive here").click());
+  expect(document.body.textContent).toContain("Receiving on Studio");
+  await act(async () => button("Receive all friends here").click());
   expect(document.querySelector('[aria-label="Receive on this machine"]')?.textContent)
-    .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
-  await act(async () => button("Receive Neighbor messages here").click());
+    .toContain("Studio will stop receiving Neighbor messages.");
+  await act(async () => button("Receive all friends here").click());
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
+});
+
+it.each([
+  ["receiver_revision_stale", "Receiving changed; refresh and confirm again", "Receiving changed; refresh and confirm again"],
+  ["unavailable", "Neighbor request refused", "The receiving service is unavailable. Try again."],
+  ["unavailable", 'Authorization: Bearer opaque-secret-response', "The receiving service is unavailable. Try again."],
+  ["receiver_revision_stale", "Receiving changed\nAuthorization: Bearer opaque-secret-typed", "Receiving changed [redacted]"],
+  ["receiver_revision_stale", "x".repeat(4096) + "opaque-secret-tail", "x".repeat(255) + "…"],
+] as const)("shows safe takeover failure %s without expanding Details", async (reason, message, displayed) => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  vi.mocked(runtimeClient.enroll).mockRejectedValue(new NeighborRuntimeFailure(reason, message));
+  await render("paid", { runtimeClient });
+  await act(async () => button("Receive all friends here").click());
+  await act(async () => button("Receive all friends here").click());
+  const alert = document.querySelector('[role="alert"]');
+  const diagnostic = Array.from(alert?.querySelectorAll("*") ?? [])
+    .find(node => node.textContent === `${reason}: ${displayed}` && !node.closest("details"));
+  expect(diagnostic).toBeDefined();
+  expect(alert?.querySelector("details")?.open).toBe(false);
+  expect(alert?.querySelector("pre")?.textContent).toBe(`${reason}: ${displayed}`);
+  expect(alert?.textContent).not.toContain("opaque-secret");
+});
+
+it.each([
+  new Error("opaque-secret-error"),
+  { token: "opaque-secret-object", message: "opaque-secret-message" },
+])("does not retain non-runtime takeover rejection %# in the alert or Details", async failure => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  vi.mocked(runtimeClient.enroll).mockRejectedValue(failure);
+  await render("paid", { runtimeClient });
+  await act(async () => button("Receive all friends here").click());
+  await act(async () => button("Receive all friends here").click());
+  const alert = document.querySelector('[role="alert"]');
+  expect(alert?.textContent).toContain("Receiving could not move here. Try again.");
+  expect(alert?.textContent).not.toContain("opaque-secret");
+  expect(alert?.querySelector("pre")?.textContent).toBe("Receiving could not move here. Try again.");
 });
 
 it("requires a fresh confirmation if receiving moves while the active takeover prompt is open", async () => {
@@ -320,11 +361,11 @@ it("requires a fresh confirmation if receiving moves while the active takeover p
   vi.mocked(runtimeClient.subscribe).mockImplementation(async handler => { changed = handler; return () => {}; });
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   await render("paid", { runtimeClient });
-  await act(async () => button("Receive here").click());
+  await act(async () => button("Receive all friends here").click());
   await act(async () => changed?.({ receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5 }));
-  await act(async () => button("Receive Neighbor messages here").click());
+  await act(async () => button("Receive all friends here").click());
   expect(runtimeClient.enroll).not.toHaveBeenCalled();
-  await act(async () => button("Receive Neighbor messages here").click());
+  await act(async () => button("Receive all friends here").click());
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(5);
 });
 
@@ -354,7 +395,7 @@ it("says nothing about receiving until the daemon knows", async () => {
     receiver_status_known: false } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
   await render("paid", { runtimeClient });
   expect(document.body.textContent).not.toContain("Receiver not chosen yet");
-  expect(hasButton("Receive here")).toBe(false);
+  expect(hasButton("Receive all friends here")).toBe(false);
 });
 
 it("turns off reading memory and files for one friend and saves it", async () => {

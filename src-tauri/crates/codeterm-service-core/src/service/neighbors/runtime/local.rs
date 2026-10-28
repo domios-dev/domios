@@ -89,6 +89,17 @@ impl ServiceContext {
             NeighborRuntimeCommand::Status => {
                 let settings = metadata.settings().await?;
                 let receiver = self.neighbor_cell().receiver.lock().clone();
+                let (friend_receivers, friend_receivers_version) =
+                    self.neighbor_friend_receiver_snapshot();
+                let configured_label = self.configuration().mesh.instance_name.clone();
+                let machine_label = if configured_label.trim().is_empty() {
+                    hostname::get()
+                        .ok()
+                        .and_then(|name| name.into_string().ok())
+                        .unwrap_or_else(|| "This machine".into())
+                } else {
+                    configured_label
+                };
                 let mut ids: std::collections::BTreeSet<String> =
                     settings.bindings.keys().cloned().collect();
                 ids.extend(self.neighbor_cell().names.lock().keys().cloned());
@@ -107,7 +118,16 @@ impl ServiceContext {
                 let key = receiver
                     .as_ref()
                     .filter(|_| here)
-                    .and_then(|receiver| receiver.receiver_key_id.clone());
+                    .and_then(|receiver| receiver.receiver_key_id.clone())
+                    .or_else(|| {
+                        friend_receivers.as_object().and_then(|friends| {
+                            friends.keys().find_map(|id| {
+                                self.neighbor_friend_receiver(id)
+                                    .filter(|receiver| receiver.receiving_here())
+                                    .and_then(|receiver| receiver.receiver_key_id)
+                            })
+                        })
+                    });
                 let states = self.neighbor_cell().states.lock().clone();
                 let failures = self.neighbor_cell().failures.lock().clone();
                 let permissions: serde_json::Map<String, Value> = settings
@@ -121,7 +141,7 @@ impl ServiceContext {
                     })
                     .collect::<codeterm_neighbors::Result<_>>()?;
                 Ok(
-                    json!({"incoming_handling":self.neighbor_handling_status(),"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
+                    json!({"watches":self.neighbor_cell().watch_states.lock().clone(),"incoming_handling":self.neighbor_handling_status(),"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"friend_receivers":friend_receivers,"friend_receivers_version":friend_receivers_version,"machine_label":machine_label,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
                 )
             }
             _ => Err(Error::InvalidEnvelope),

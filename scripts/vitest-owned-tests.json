@@ -2,6 +2,8 @@
   "src/components/Neighbors/neighborNotify.test.tsx",
   "src/components/Neighbors/neighborRuntimeClient.test.ts",
   "src/components/Neighbors/neighborStatusStore.test.tsx",
+  "src/components/Neighbors/neighborFriendReceiving.test.tsx",
+  "src/components/Neighbors/NeighborReceiveHere.test.tsx",
   "src/components/Settings/useAccountEnrollmentFailure.test.tsx",
   "src/components/billing/AccountLimits.test.tsx",
   "src/components/billing/useAccountUsage.test.tsx",

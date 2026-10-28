@@ -3,7 +3,7 @@ dist/
 target/
 target-check/
 references/
-!skills/codeterm/references/
+!skills/domios/references/
 *.exe
 !src-tauri/conpty/**/OpenConsole.exe
 /tmp/

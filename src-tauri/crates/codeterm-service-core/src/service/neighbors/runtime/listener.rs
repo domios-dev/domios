@@ -41,7 +41,7 @@ impl Session {
         }
         self.service.require_neighbors_enabled()?;
         self.service
-            .require_neighbor_receiver(Some(self.receiver_revision))?;
+            .require_neighbor_friend_receiver(&self.friendship, Some(self.receiver_revision))?;
         if self
             .service
             .neighbor_cell()
@@ -135,15 +135,14 @@ impl ReceptionEvents for Session {
         if matches!(error, Error::Firestore { code: 7, .. }) {
             self.service.forget_neighbor_registry();
         }
-        let detail = match error {
-            Error::ListenProtocol { kind } => {
-                json!({"kind":kind,"operation":"inbox.listen.protocol"})
-            }
-            Error::Firestore { code, operation } => {
-                json!({"code":code,"operation":operation,"kind":"grpc"})
-            }
-            error => json!({"kind":format!("{error:?}")}),
-        };
+        let previous = self
+            .service
+            .neighbor_cell()
+            .failures
+            .lock()
+            .get(&self.friendship)
+            .cloned();
+        let detail = super::super::reception::failure_detail(error, previous);
         log::debug!(
             "[neighbor-listen] friendship={} failure={detail}",
             self.friendship
@@ -186,7 +185,7 @@ impl ReceptionEvents for Session {
             json!({"friendship_id":self.friendship,"status":status,"error":error}),
         );
     }
-    async fn retry_after_failure(&self, _: usize) -> codeterm_neighbors::Result<()> {
+    async fn retry_after_failure(&self, attempt: usize) -> codeterm_neighbors::Result<()> {
         let reset_limit = self
             .service
             .neighbor_cell()
@@ -197,7 +196,24 @@ impl ReceptionEvents for Session {
         if reset_limit {
             self.state(ListenerState::Stopped);
         }
-        self.retry.notified().await;
+        let manual = reset_limit
+            || self
+                .service
+                .neighbor_cell()
+                .failures
+                .lock()
+                .get(&self.friendship)
+                .is_some_and(|detail| {
+                    detail["kind"] == "SecretStore" || detail["kind"] == "LocalKeyUnavailable"
+                });
+        if manual {
+            self.retry.notified().await;
+        } else {
+            tokio::select! {
+                _ = self.retry.notified() => {},
+                _ = codeterm_neighbors::supervisor::reconnect_backoff(attempt) => {},
+            }
+        }
         self.current()
     }
 }

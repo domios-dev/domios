@@ -381,6 +381,13 @@ fn neighbor_failure(message: String) -> Response {
             }
         }
     }
+    if let Some(detail) = message.strip_prefix("key_limit:") {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+            if data["limit"].as_u64().is_some() && data["active"].as_u64().is_some() {
+                return (StatusCode::CONFLICT, Json(serde_json::json!({"code":"key_limit","reason":"key_limit","limit":data["limit"],"active":data["active"],"message":"All machine slots are in use"}))).into_response();
+            }
+        }
+    }
     let reason = message.split_once(':').map(|(reason, _)| reason);
     let status = match reason {
         Some("neighbor_forbidden") => StatusCode::FORBIDDEN,
@@ -396,20 +403,27 @@ fn neighbor_failure(message: String) -> Response {
             | "neighbor_files_not_allowed",
         ) => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
-        Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
-        Some("limit_out_of_range" | "reply_target_unknown") => StatusCode::BAD_REQUEST,
+        Some("neighbors_disabled" | "entitlements_unavailable") => StatusCode::SERVICE_UNAVAILABLE,
+        Some("limit_out_of_range" | "reply_target_unknown" | "empty_body") => {
+            StatusCode::BAD_REQUEST
+        }
         Some(
             "invalid_request"
+            | "invalid_key"
             | "neighbor_machine_access_unsupported"
             | "neighbor_memory_area_unknown",
         ) => StatusCode::BAD_REQUEST,
         Some("invalid_flag") => StatusCode::BAD_REQUEST,
         Some("neighbor_flag_limit") => StatusCode::CONFLICT,
-        Some("friendship_not_found") => StatusCode::NOT_FOUND,
+        Some("friendship_not_found" | "key_not_found") => StatusCode::NOT_FOUND,
         Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(
             "receiver_elsewhere"
+            | "receiving_elsewhere"
+            | "feature_unsupported"
+            | "key_revoked"
             | "friendship_ended"
+            | "reply_target_stopped"
             | "receiver_revision_stale"
             | "not_receiver"
             | "recipient_not_receiving"

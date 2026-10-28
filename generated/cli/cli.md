@@ -101,11 +101,19 @@ Locally flag a suspicious incoming message for the owner without replying
 
 #### `domios account neighbors grant`
 
-General Agent only: grant a bounded scope authored in its pad
+General Agent only: apply permission edits and restart the concierge fresh
 
+- `--allow-files`
+- `--allow-interactive-content`
+- `--allow-memory`
 - `--allow-tab-requests`
+- `--allowed`
+- `--folder` — Absolute directory, or default to clear the folder override
 - `<friendship_id>`
-- `--from-pad`
+- `--from-pad` — Scope text in this tab's pad; omitted keeps the current scope
+- `--machine-access`
+- `--memory-areas` — all or comma-separated taxonomy area names
+- `--workspaces` — none or comma-separated local workspace IDs
 
 #### `domios account neighbors list`
 

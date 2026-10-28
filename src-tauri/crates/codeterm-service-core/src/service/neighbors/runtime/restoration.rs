@@ -98,10 +98,8 @@ impl ServiceContext {
                 );
                 return Ok(false);
             }
-            self.start_neighbor_listeners_mode(
-                transport, registry, scope, metadata, generation, false,
-            )
-            .await?;
+            self.neighbor_operation(owner::Operation::ReceiverChanged)
+                .await?;
             Ok(true)
         })
     }

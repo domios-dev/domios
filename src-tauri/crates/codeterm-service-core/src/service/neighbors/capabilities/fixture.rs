@@ -62,6 +62,47 @@ impl Browser for NoBrowser {
 }
 
 impl crate::service::test_fixture::ServiceFixture {
+    pub fn register_neighbor_advisory_provider(&self, id: &str) {
+        let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
+            "id":id,"version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true},
+            "commands":{"autoApproveFlags":["opaque-full"]},
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+        }).to_string()).unwrap();
+        let vm = Arc::new(
+            codeterm_plugin::js_runtime::PluginVm::from_source(id, "module.exports={}".into())
+                .unwrap(),
+        );
+        self.service.agent_registry.register_provider(Box::new(
+            codeterm_plugin::js_runtime::JsProvider::new(manifest, vm),
+        ));
+    }
+
+    pub async fn save_neighbor_restore_settings(
+        &self,
+        uid: &str,
+        friendship: &str,
+        tab: &str,
+        permission: Permission,
+    ) {
+        let metadata = Metadata::new(self.service.account_data_root().unwrap(), uid);
+        let mut settings = metadata.settings().await.unwrap();
+        settings.bindings.insert(friendship.into(), tab.into());
+        settings.permissions.insert(friendship.into(), permission);
+        metadata.save_settings(settings).await.unwrap();
+    }
+
+    pub async fn load_neighbor_restore_settings(&self, uid: &str) {
+        let metadata = Metadata::new(self.service.account_data_root().unwrap(), uid);
+        let settings = metadata.settings().await.unwrap();
+        for friendship in settings.bindings.keys() {
+            self.service
+                .set_neighbor_friend_receiver_for_test(friendship, Some(true), 1);
+        }
+        self.service
+            .remember_neighbor_concierge_accounts(uid, &settings);
+    }
+
     pub async fn seed_neighbor_saved_file(
         &self,
         friendship: &str,
@@ -101,6 +142,8 @@ impl crate::service::test_fixture::ServiceFixture {
         friendship: &str,
         permission: Permission,
     ) {
+        self.service
+            .set_neighbor_friend_receiver_for_test(friendship, Some(true), 1);
         let account = self
             .service
             .ext::<crate::service::account::AccountCell>()

@@ -185,3 +185,29 @@ fn planner_live_attempt_races_classify_as_conflict() {
         ErrorCode::Conflict
     );
 }
+
+#[test]
+fn empty_neighbor_body_keeps_typed_presend_reason() {
+    let error = CliError::http(
+        400,
+        r#"{"code":"empty_body","reason":"empty_body","message":"The message is empty; nothing was sent."}"#,
+    );
+    let envelope = envelope_of(&error);
+    assert_eq!(envelope["error"]["reason"], "empty_body");
+    assert!(envelope["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("nothing was sent"));
+}
+
+#[test]
+fn nonreceiver_concierge_conflict_keeps_its_typed_reason() {
+    let error = CliError::http(
+        409,
+        r#"{"code":"receiving_elsewhere","reason":"receiving_elsewhere","message":"No concierge can run here"}"#,
+    );
+    assert_eq!(
+        envelope_of(&error)["error"]["reason"],
+        "receiving_elsewhere"
+    );
+}

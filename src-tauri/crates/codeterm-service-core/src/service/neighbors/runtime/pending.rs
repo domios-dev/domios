@@ -45,13 +45,13 @@ impl ServiceContext {
         };
         let initial_context_digest = settings.initial_context_digest(friendship);
         let options = self.neighbor_launch_options(settings, friendship);
-        json!({"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier,"initial_context_digest":initial_context_digest,"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
+        json!({"concierge_dormant":settings.dormant_concierges.contains_key(friendship),"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier,"initial_context_digest":initial_context_digest,"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
     }
 
     pub(super) fn neighbor_concierge_views(
         &self,
         settings: &Settings,
-        receiver: &ReceiverStatus,
+        account_receiver: &ReceiverStatus,
         friends: &Value,
     ) -> Value {
         let mut views = serde_json::Map::new();
@@ -60,7 +60,17 @@ impl ServiceContext {
                 if let Some(id) = friend["friendship_id"].as_str() {
                     views.insert(
                         id.into(),
-                        self.neighbor_concierge_view(id, settings, receiver),
+                        self.neighbor_concierge_view(
+                            id,
+                            settings,
+                            &self
+                                .neighbor_friend_receiver(id)
+                                .unwrap_or_else(|| ReceiverStatus {
+                                    is_me: false,
+                                    receiving_enabled: false,
+                                    ..account_receiver.clone()
+                                }),
+                        ),
                     );
                 }
             }
@@ -74,10 +84,7 @@ pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::
     session.current()?;
     let receiver = session
         .service
-        .neighbor_cell()
-        .receiver
-        .lock()
-        .clone()
+        .neighbor_friend_receiver(&session.friendship)
         .ok_or(Error::NotReceiver)?;
     let mut view =
         session
@@ -88,45 +95,51 @@ pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::
     Ok(())
 }
 
-pub(super) async fn run(session: &listener::Session) {
-    for attempt in 0..=3 {
-        if attempt > 0 {
-            session.state(ListenerState::Reconnecting);
-            let retry = tokio::select! {
-                biased;
-                _ = session.stopped() => Err(Error::Revoked),
-                result = session.retry_after_failure(attempt) => result,
-            };
-            if retry.is_err() {
-                return;
-            }
+struct PendingWatch<'a> {
+    session: &'a listener::Session,
+    progress: AtomicU64,
+}
+#[async_trait::async_trait]
+impl ReceptionEvents for PendingWatch<'_> {
+    fn failure(&self, error: Error) {
+        self.session.failure(error);
+    }
+    fn state(&self, state: ListenerState) {
+        if state == ListenerState::Receiving {
+            self.progress.fetch_add(1, Ordering::AcqRel);
         }
-        session.state(ListenerState::Connecting);
-        let result = observe(session).await;
-        session
+        self.session.state(state);
+    }
+    async fn retry_after_failure(&self, attempt: usize) -> codeterm_neighbors::Result<()> {
+        self.session.retry_after_failure(attempt).await
+    }
+}
+#[async_trait::async_trait]
+impl codeterm_neighbors::supervisor::DocumentSession for PendingWatch<'_> {
+    fn progress(&self) -> u64 {
+        self.progress.load(Ordering::Acquire)
+    }
+    async fn stopped(&self) {
+        self.session.stopped().await;
+    }
+    async fn listen(&self) -> codeterm_neighbors::Result<()> {
+        let result = observe(self.session, self).await;
+        self.session
             .service
             .neighbor_cell()
             .pending_counts
             .lock()
-            .remove(&session.friendship);
-        let _ = publish(session).await;
-        if let Err(error) = result {
-            session.failure(error);
-        }
-        match result {
-            Err(
-                Error::Transport
-                | Error::Firestore { .. }
-                | Error::ListenProtocol { .. }
-                | Error::SecretStore
-                | Error::LocalKeyUnavailable,
-            ) if attempt < 3 => {}
-            _ => {
-                session.state(ListenerState::Stopped);
-                return;
-            }
-        }
+            .remove(&self.session.friendship);
+        let _ = publish(self.session).await;
+        result
     }
+}
+pub(super) async fn run(session: &listener::Session) {
+    let watch = PendingWatch {
+        session,
+        progress: AtomicU64::new(0),
+    };
+    let _ = codeterm_neighbors::supervisor::supervise_documents(&watch).await;
 }
 
 #[derive(Default)]
@@ -155,14 +168,20 @@ type CountFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = codeterm_neighbors::Result<u64>> + Send + 'a>,
 >;
 
-async fn observe(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+async fn observe(
+    session: &listener::Session,
+    events: &dyn ReceptionEvents,
+) -> codeterm_neighbors::Result<()> {
     tokio::select! {
-        result = observe_count(session) => result,
+        result = observe_count(session,events) => result,
         result = super::files::prefetch(session) => result,
     }
 }
 
-async fn observe_count(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+async fn observe_count(
+    session: &listener::Session,
+    events: &dyn ReceptionEvents,
+) -> codeterm_neighbors::Result<()> {
     session.prepare().await?;
     let mut stopped = session.stopped.clone();
     let mut inbox = tokio::select! {
@@ -188,7 +207,7 @@ async fn observe_count(session: &listener::Session) -> codeterm_neighbors::Resul
                     .lock()
                     .insert(session.friendship.clone(), result?.min(codeterm_neighbors::adapter::PENDING_COUNT_LIMIT));
                 publish(session).await?;
-                session.state(ListenerState::Receiving);
+                events.state(ListenerState::Receiving);
                 if recount.completed() { count = Some(Box::pin(session.transport.pending_count(&session.friendship))); }
             }
             result = inbox.next() => {

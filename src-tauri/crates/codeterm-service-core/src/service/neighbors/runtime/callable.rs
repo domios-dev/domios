@@ -86,7 +86,10 @@ impl AuthenticatedCall for Calls {
         }
         if matches!(
             route,
-            "friendsEnrollVerifierKey" | "friendsRevokeVerifierKey" | "friendsDisableReceiving"
+            "friendsEnrollVerifierKey"
+                | "friendsRevokeVerifierKey"
+                | "friendsDisableReceiving"
+                | "friendsSetFriendReceiver"
         ) {
             self.own_keys.lock().await.take();
             self.receiver_status.lock().await.take();
@@ -172,6 +175,17 @@ fn refusal(body: &Value) -> Error {
         Some("friends_locked") => Error::Locked,
         Some("key_revoked" | "unknown_key") => Error::Revoked,
         Some("key_not_found") => Error::KeyNotFound,
+        Some("feature_unsupported") => Error::FeatureUnsupported,
+        Some("invalid_key") => Error::InvalidKey,
+        Some("entitlements_unavailable") => Error::EntitlementsUnavailable,
+        Some("key_limit") => match (
+            body.pointer("/error/details/limit").and_then(Value::as_u64),
+            body.pointer("/error/details/active")
+                .and_then(Value::as_u64),
+        ) {
+            (Some(limit), Some(active)) => Error::KeyLimit { limit, active },
+            _ => Error::Refused,
+        },
         _ => Error::Refused,
     }
 }

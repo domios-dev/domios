@@ -17,6 +17,8 @@ pub enum Error {
     MessageTooLarge { limit: u64 },
     RefusalTooLong { limit: u64, actual: u64 },
     ReplyTargetUnknown,
+    ReplyTargetStopped,
+    EmptyBody,
     TabRequestsNotAllowed,
     PermissionDenied,
     MachineAccessUnsupported,
@@ -34,8 +36,12 @@ pub enum Error {
     Locked,
     Revoked,
     KeyNotFound,
+    KeyLimit { limit: u64, active: u64 },
+    FeatureUnsupported,
+    EntitlementsUnavailable,
     Refused,
     ReceiverElsewhere,
+    ReceivingElsewhere,
     ReceiverRevisionStale,
     NotReceiver,
     RecipientNotReceiving,
@@ -64,6 +70,9 @@ impl std::fmt::Display for Error {
         }
         if let Self::MessageTooLarge { limit } = self {
             return write!(f, "message_too_large: {{\"limit\":{limit}}}");
+        }
+        if let Self::KeyLimit { limit, active } = self {
+            return write!(f, "key_limit: {{\"limit\":{limit},\"active\":{active}}}");
         }
         if let Self::RefusalTooLong { limit, actual } = self {
             return write!(
@@ -104,12 +113,14 @@ impl std::fmt::Display for Error {
         }
         f.write_str(match self {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
+            Self::ReplyTargetStopped => "reply_target_stopped: The owner stopped this request; nothing was sent",
+            Self::EmptyBody => "empty_body: The message is empty; nothing was sent. Provide text or an attachment.",
             Self::ReplyTargetUnknown => "reply_target_unknown: Nothing was sent. Reply to an incoming message in this friendship's local history",
             Self::TabRequestsNotAllowed => "tab_requests_not_allowed: Tab requests are not allowed for this Neighbor",
             Self::PermissionDenied => "neighbor_permission_denied: This request is outside the Neighbor permission grant",
             Self::MachineAccessUnsupported => "neighbor_machine_access_unsupported: This concierge launch cannot enforce the requested machine access on this platform",
             Self::MemoryAreaUnknown => "neighbor_memory_area_unknown: Choose memory areas from the current taxonomy",
-            Self::InvalidKey => "Invalid Neighbor key",
+            Self::InvalidKey => "invalid_key: Invalid Neighbor key",
             Self::BadSignature => "Invalid Neighbor signature",
             Self::WrongPeer => "Neighbor identity mismatch",
             Self::Expired => "Neighbor message expired",
@@ -120,9 +131,12 @@ impl std::fmt::Display for Error {
             Self::CursorStore => "Neighbor cursor storage unavailable",
             Self::Gateway => "Neighbor gateway unavailable",
             Self::Locked => "friends_locked: Upgrade to use your Neighbors channel",
-            Self::Revoked => "Neighbor installation key revoked",
-            Self::KeyNotFound => "Neighbor installation key not found",
+            Self::Revoked => "key_revoked: Neighbor installation key revoked",
+            Self::KeyNotFound => "key_not_found: Neighbor installation key not found",
+            Self::FeatureUnsupported => "feature_unsupported: The account receiver must update before moving one friend",
+            Self::EntitlementsUnavailable => "entitlements_unavailable: The service could not verify access; try again",
             Self::ReceiverElsewhere => "receiver_elsewhere: Receiving on another machine",
+            Self::ReceivingElsewhere => "receiving_elsewhere: This machine is not receiving; no concierge can run here",
             Self::ReceiverRevisionStale => {
                 "receiver_revision_stale: Receiving changed; refresh and confirm again"
             }
@@ -143,7 +157,7 @@ impl std::fmt::Display for Error {
             Self::FriendshipNotFound => "friendship_not_found: Neighbor friendship not found",
             Self::FriendshipEnded => "friendship_ended: This Neighbor conversation has ended; refresh the friendship before sending",
             Self::RecipientLocked => "recipient_locked: This Neighbor's plan does not allow the channel",
-            Self::File(_) | Self::MessageTooLarge { .. } | Self::RefusalTooLong { .. } | Self::Firestore { .. } | Self::DailyLimit { .. } | Self::AggregateDailyLimited { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
+            Self::File(_) | Self::KeyLimit { .. } | Self::MessageTooLarge { .. } | Self::RefusalTooLong { .. } | Self::Firestore { .. } | Self::DailyLimit { .. } | Self::AggregateDailyLimited { .. } | Self::ListenProtocol { .. } | Self::RateLimited { .. } | Self::AggregateLimited { .. } => unreachable!(),
         })
     }
 }

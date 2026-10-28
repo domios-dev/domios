@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "name": "@codeterm/provider-codex",
-  "version": "1.14.56",
+  "version": "1.14.57",
   "private": true,
   "type": "module",
   "description": "CodeTerm provider plugin for OpenAI Codex CLI.",

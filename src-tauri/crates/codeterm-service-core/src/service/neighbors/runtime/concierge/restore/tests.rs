@@ -17,6 +17,12 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
         tab.restored_from_snapshot = true;
         tab.cwd = Some("old-general-folder".into());
         let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+        fixture
+            .service
+            .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
         let service = &fixture.service;
         let friend = "a".repeat(64);
         let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
@@ -113,6 +119,12 @@ async fn failed_replacement_keeps_the_old_binding_and_permissions() {
     let old = mux.create_tab(&workspace).unwrap();
     mux.get_tab_mut(&old).unwrap().agent_type = Some("advisory-provider".into());
     let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     let service = &fixture.service;
     let friend = "b".repeat(64);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
@@ -165,6 +177,12 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
         .unwrap()
         .root_tab_id = Some(tabs[1].clone());
     let fixture = ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let permission = Permission::default();
@@ -215,4 +233,173 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
             .count(),
         1
     );
+}
+
+#[tokio::test]
+async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once() {
+    use crate::{
+        multiplexer::{state::MultiplexerState, types::NeighborAuthority},
+        service::{lazy_restore::test_boundary::Boundary, test_fixture::ServiceFixture},
+    };
+    use codeterm_neighbors::permissions::MachineAccess;
+    use codeterm_types::pty::BootStage;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    for access in [
+        MachineAccess::ReadOnly,
+        MachineAccess::Folder,
+        MachineAccess::Full,
+    ] {
+        let data_dir = tempfile::tempdir().unwrap();
+        let (mut mux, general) = MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&general).unwrap();
+        let root = mux.create_tab(&workspace).unwrap();
+        let friend = "a".repeat(64);
+        let tab = mux.get_tab_mut(&root).unwrap();
+        tab.agent_type = Some("opaque-pty".into());
+        tab.agent_session_id = Some("same-restored-session".into());
+        tab.session_binding_nonce = Some("same-nonce".into());
+        tab.neighbor_authority = Some(NeighborAuthority {
+            uid: "owner".into(),
+            friendship_id: friend.clone(),
+            root_tab_id: None,
+        });
+        tab.restorable_launch.captured = true;
+        tab.restorable_launch.permission_bypass_requested = access == MachineAccess::Full;
+        let original = ServiceFixture::new_at(mux, data_dir.path());
+        let permission = Permission {
+            machine_access: access,
+            folder: (access == MachineAccess::Folder)
+                .then(|| data_dir.path().to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        original
+            .save_neighbor_restore_settings("owner", &friend, &root, permission.clone())
+            .await;
+        let metadata = Metadata::new(original.service.account_data_root().unwrap(), "owner");
+        let cwd =
+            crate::service::neighbors::confinement::prepare_folder(&metadata, &friend, &permission)
+                .await
+                .unwrap();
+        original.service.mux.write().get_tab_mut(&root).unwrap().cwd = Some(cwd);
+        let mut settings = metadata.settings().await.unwrap();
+        settings.initial_contexts.insert(
+            friend.clone(),
+            crate::service::neighbors::storage::InitialContext {
+                gateway_tab: root.clone(),
+                digest: initial_prompt::digest(&friend, &permission),
+                launch_options: None,
+            },
+        );
+        metadata.save_settings(settings).await.unwrap();
+        original.load_neighbor_restore_settings("owner").await;
+        assert!(original
+            .service
+            .require_neighbor_restore_grant(&root, access == MachineAccess::Full)
+            .is_ok());
+        let snapshot =
+            serde_json::to_vec(&original.service.mux.read().to_session_snapshot()).unwrap();
+        drop(original);
+        let snapshot = serde_json::from_slice(&snapshot).unwrap();
+        let restored = ServiceFixture::new_at(
+            MultiplexerState::from_session_snapshot(&snapshot),
+            data_dir.path(),
+        );
+        let service = &restored.service;
+        service
+            .ext::<crate::config::ConfigState>()
+            .lock()
+            .neighbors
+            .enabled = true;
+        restored.register_neighbor_advisory_provider("opaque-pty");
+        service.mux.write().get_tab_mut(&root).unwrap().frozen = true;
+        assert!(service.neighbor_cell().restore_grants.lock().is_empty());
+        let calls = Arc::new(AtomicUsize::new(0));
+        let seen = calls.clone();
+        let target = root.clone();
+        let copy = service.clone();
+        let boundary = Boundary::install(
+            &root,
+            Arc::new(move || {
+                seen.fetch_add(1, Ordering::SeqCst);
+                let launch = copy
+                    .mux
+                    .read()
+                    .get_tab(&target)
+                    .unwrap()
+                    .restorable_launch
+                    .clone();
+                let authorization =
+                    crate::service::restored_launch::restore_permission_bypass_authorization(
+                        &copy,
+                        &copy.agent_registry,
+                        &target,
+                        "opaque-pty",
+                        &launch,
+                    )?;
+                assert_eq!(authorization.is_some(), access == MachineAccess::Full);
+                let mut mux = copy.mux.write();
+                let tab = mux.get_tab_mut(&target).unwrap();
+                tab.boot_stage = Some(BootStage::AgentReady);
+                tab.agent_booting = false;
+                tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+                Ok(())
+            }),
+        );
+        assert!(service.wake_frozen_tab(&root).is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert!(service.mux.read().get_tab(&root).unwrap().frozen);
+        assert_ne!(
+            service.mux.read().get_tab(&root).unwrap().boot_stage,
+            Some(BootStage::SpawnFailed)
+        );
+        service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+        let metadata = Metadata::new(service.account_data_root().unwrap(), "owner");
+        service
+            .restore_neighbor_concierge_with(
+                &metadata,
+                "owner",
+                &friend,
+                |_, _, _, _, _, _| async {
+                    panic!("matching restored grant/digest must not replace the root")
+                },
+            )
+            .await
+            .unwrap();
+        service.prepare_neighbor_gateway(&root).await.unwrap();
+        service.prepare_neighbor_gateway(&root).await.unwrap();
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert!(service.neighbor_gateway_ready(&root));
+        assert_eq!(
+            service
+                .mux
+                .read()
+                .get_tab(&root)
+                .unwrap()
+                .agent_session_id
+                .as_deref(),
+            Some("same-restored-session")
+        );
+        drop(boundary);
+        service.mux.write().get_tab_mut(&root).unwrap().frozen = true;
+        let failures = Arc::new(AtomicUsize::new(0));
+        let seen = failures.clone();
+        let _failure = Boundary::install(
+            &root,
+            Arc::new(move || {
+                seen.fetch_add(1, Ordering::SeqCst);
+                Err("opaque unrelated or uncertain materialization failure".into())
+            }),
+        );
+        assert!(service.wake_frozen_tab(&root).is_err());
+        assert!(!service.mux.read().get_tab(&root).unwrap().frozen);
+        assert_eq!(
+            service.mux.read().get_tab(&root).unwrap().boot_stage,
+            Some(BootStage::SpawnFailed)
+        );
+        service.wake_frozen_tab(&root).unwrap();
+        assert_eq!(failures.load(Ordering::SeqCst), 1);
+    }
 }
