@@ -24,6 +24,7 @@ import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { HostBlueprintView } from "../Automation/blueprint/HostBlueprintView";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
+import { DropdownMenu } from "../shared/DropdownMenu";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { BlueprintProjectList } from "./BlueprintProjectList";
 import { BlueprintImportForm } from "./BlueprintImportForm";
@@ -287,8 +288,8 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
           : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" heldReason={job.sentinel.root?.held_reason} state={sentinelStateLabel(job.sentinel)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
-    {sources.map((workspaceId) => <BlueprintProjectList key={workspaceId} workspaceId={workspaceId} />)}
-    <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} workspaceName={workspaceName} onOpen={setOpenedSolution} />
+    {/* An empty scope shows only its empty state; saved solutions join a list that has jobs. */}
+    {!empty && <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} workspaceName={workspaceName} onOpen={setOpenedSolution} />}
     {confirmation && <JobConfirmationDialog
       title={confirmation.kind === "delete" ? deleteJobConfirmation(confirmation.job).title : "Clear stopped jobs?"}
       description={confirmation.kind === "delete"
@@ -337,6 +338,8 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
   const peers = machinePeers ?? machines.peers;
   const [machineId, setMachineId] = useState(jobsEntryState({ kind: "machine" }).machineId);
   const [importOpen, setImportOpen] = useState(false);
+  const [repositoryOpen, setRepositoryOpen] = useState(false);
+  const workspaceName = (id: string) => workspaces.find((workspace) => workspace.id === id)?.name ?? id;
   const [detailOpen, setDetailOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [filter, setFilter] = useJobsFilterNavigation(initialFilter, !initialScenarioId && !initialCronId && !initialBlueprintId, context.ready, workspaces);
@@ -360,7 +363,10 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
       <JobsMachineFilter value={machineId} peers={peers} onChange={changeMachine} />
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>
+        <DropdownMenu menuLabel="Import Blueprint" items={[
+          { label: "From file…", onClick: () => { setRepositoryOpen(false); setImportOpen(true); } },
+          { label: "From repository…", disabled: sources.length === 0, onClick: () => { setImportOpen(false); setRepositoryOpen(true); } },
+        ]} trigger={<button type="button" className={AUTOMATION_TOOL}><Plus size={12} aria-hidden="true" />Import Blueprint</button>} />
         <button ref={clearStoppedButton} type="button" className={AUTOMATION_TOOL} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
           Clear stopped{clearState.count > 0 && <span className="text-[var(--ct-fg)]">{clearState.count}</span>}
         </button>
@@ -369,10 +375,11 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {machines.failed && machinePeers === undefined && <p role="status" className="px-4 py-2">Paired machine list unavailable.</p>}
       {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
+      {repositoryOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintProjectList workspaceIds={sources} workspaceName={workspaceName} onClose={() => setRepositoryOpen(false)} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />
-          : <JobsSurface solutionsApi={solutionsApi} key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} workspaceName={(id) => workspaces.find((workspace) => workspace.id === id)?.name ?? id} />}
+          : <JobsSurface solutionsApi={solutionsApi} key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} workspaceName={workspaceName} />}
     </div>
   </section>;
 }

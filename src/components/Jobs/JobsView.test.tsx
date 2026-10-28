@@ -156,9 +156,16 @@ async function main() {
     }
   });
 
+  async function chooseImport(host: HTMLElement, label: string) {
+    await act(async () => { buttonWith(host, "Import Blueprint").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+    const item = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find((candidate) => candidate.textContent === label);
+    assert.ok(item, `Import menu offers ${label}`);
+    await act(async () => item.click());
+  }
+
   test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
     const view = await mount(jobsView(workspaceTransport()));
-    await act(async () => buttonWith(view.host, "Import Blueprint").click());
+    await chooseImport(view.host, "From file…");
     assert(view.host.querySelector('form[aria-label="Import Blueprint"]'));
     assert(view.host.querySelector('input[type="file"]'));
     await act(async () => buttonWith(view.host, "Cancel import").click());
@@ -528,6 +535,9 @@ async function main() {
     try {
       await settle(() => empty.host.querySelector('[role="status"][aria-label="No jobs"]') !== null);
       assert.equal(empty.host.querySelector('ul[aria-label="Jobs"]'), null, "an empty scope renders no list");
+      assert.equal(empty.host.querySelector('[aria-label="Saved solutions"]'), null, "an empty scope shows no saved solutions block");
+      assert.equal(empty.host.querySelector('[aria-label="Repository Blueprints"]'), null, "an empty scope shows no repository Blueprints");
+      assert.ok(!Array.from(empty.host.querySelectorAll("button")).some((button) => /repository/i.test(button.textContent ?? "")), "repository Blueprints live only in the Import menu");
     } finally {
       await empty.close();
       cronList = async () => [teamCron, unteamedCron];
