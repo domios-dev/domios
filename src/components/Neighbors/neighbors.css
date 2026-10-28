@@ -960,13 +960,9 @@
   background: color-mix(in srgb, var(--ct-fg) 4%, var(--ct-bg));
 }
 
-/* A refusal keeps its words but carries a quiet danger edge on the side it speaks from. */
-.neighbor-msg[data-refused][data-side="in"] .neighbor-msg__bubble {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ct-red) 60%, transparent);
-}
-
-.neighbor-msg[data-refused][data-side="out"] .neighbor-msg__bubble {
-  box-shadow: inset -2px 0 0 color-mix(in srgb, var(--ct-red) 60%, transparent);
+/* A refusal keeps its words with a faint red wash from the left edge, a tint rather than a line, on either side. */
+.neighbor-msg[data-refused] .neighbor-msg__bubble {
+  background-image: linear-gradient(90deg, color-mix(in srgb, var(--ct-red) 10%, transparent), transparent 60%);
 }
 
 .neighbor-msg[data-grouped] .neighbor-msg__meta:empty {
@@ -990,10 +986,6 @@
 
 .neighbor-receipt[data-mark="read"] {
   color: var(--ct-accent);
-}
-
-.neighbor-msg__refused {
-  white-space: normal;
 }
 
 .neighbor-chat__composer {
@@ -1492,9 +1484,12 @@ button.neighbor-file:hover {
   opacity: 0.8;
 }
 
-.neighbor-work[data-work="refused"],
-.neighbor-work[data-work="failed"] {
-  color: color-mix(in srgb, var(--ct-red) 75%, var(--ct-muted-fg));
+/* A reason without a bubble of its own stays one line; the tooltip holds the rest. */
+.neighbor-work__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .neighbor-work__reply {
@@ -1520,6 +1515,8 @@ button.neighbor-file:hover {
 .neighbor-work--inline {
   display: inline-flex;
   min-width: 0;
+  max-width: 100%;
+  flex-wrap: nowrap;
   gap: 0.3rem;
 }
 

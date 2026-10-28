@@ -422,7 +422,9 @@ it("shows the conversation with a refused question, its linked refusal and deliv
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
   const log = document.querySelector('[role="log"]')!;
   expect(log.textContent).toContain("Can you share the deploy keys?");
-  expect(log.textContent).toContain("Declined: Secrets are off limits");
+  // The refusal reply already says why, so the time row only names the outcome and links to it.
+  expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply")?.textContent).toBe("Declined");
+  expect(log.textContent).not.toContain("Declined: Secrets are off limits");
   expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
   expect(document.querySelector("#neighbor-msg-m2 .neighbor-receipt")?.getAttribute("aria-label")).toBe("Delivered");
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;

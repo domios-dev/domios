@@ -375,8 +375,8 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
       {files.length > 0 && <div className="neighbor-files" role="list" aria-label="Files">{files.map(file => <FileChip key={file.file_id} file={file} onOpen={onOpenFile} />)}</div>}
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
-        {mine && refusal ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />{refusal}</span>
-        : mark === "not_delivered" ? <span className="neighbor-status"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />not delivered</span>
+        {mine && (refusal || mark === "not_delivered") ? <span className="neighbor-work neighbor-work--inline" data-work="refused">
+          <span className="neighbor-work__text" title={refusal ?? undefined}>{refusal ?? "Not delivered"}</span></span>
         : mark && mark !== "sending" && <ReceiptTicks mark={mark} at={mark === "read" ? entry.read_at! : mark === "delivered" ? entry.delivered_at ?? null : entry.at} />}
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
@@ -414,13 +414,14 @@ function ConciergeWorkLine({ work, tab, canStop, stopping, onStop, onOpenReply }
   const line = CONCIERGE_WORK_LINE[work.work];
   const active = activeWork(work.work);
   const settled = settledWork(work.work);
-  // Only a settled refusal or failure names its reason; an answer links to the reply instead.
-  const reason = (work.work === "refused" || work.work === "failed") && work.reason ? `: ${work.reason}` : "";
+  // An answer or a refusal links to the reply that already says it all; without a reply, the reason is one truncated line.
+  const reply = (work.work === "answered" || work.work === "refused") && work.reply;
+  const reason = !reply && work.reason ? work.reason : null;
   const content = <>
     <ConciergeIcon tab={tab} />
-    {work.work === "answered" && work.reply
-      ? <button type="button" className="neighbor-work__reply ct-liquid-interactive" onClick={() => onOpenReply(work.reply!)}>{line}</button>
-      : <span className="min-w-0">{line}{reason}</span>}
+    {reply
+      ? <button type="button" className="neighbor-work__reply ct-liquid-interactive" onClick={() => onOpenReply(reply)}>{line}</button>
+      : <span className="neighbor-work__text" title={reason ?? undefined}>{line}{reason ? `: ${reason}` : ""}</span>}
     {work.work === "working" && <ActivityDots size="small" tone="muted" />}
     {active && canStop && <Button size="compact" loading={stopping} aria-label="Stop your concierge" onClick={onStop}>Stop</Button>}
   </>;
