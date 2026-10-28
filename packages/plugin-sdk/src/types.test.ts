@@ -403,6 +403,7 @@ void declaredHostActions;
 const openUrlAction: ViewHostAction = "openUrl";
 void openUrlAction;
 async function saveFromView(bridge: ViewHostBridge): Promise<string> {
+  if (!(await bridge.availability()).saveAs) return "hidden";
   const result: ViewHostResult = await bridge.saveAs("0".repeat(64), "frame.png");
   return result.ok ? "saved" : `${result.code}:${result.reason}`;
 }

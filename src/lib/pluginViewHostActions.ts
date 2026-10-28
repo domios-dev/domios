@@ -27,7 +27,8 @@ export interface ViewHostMediaRequest {
 export interface ViewHostDeps {
   /** `POST /api/plugins/view-host-action`; the daemon's typed answer. */
   call(request: Record<string, unknown>): Promise<unknown>;
-  writeText(text: string): Promise<void>;
+  /** The clipboard; absent where the page has none (an insecure web mirror origin). */
+  writeText?: (text: string) => Promise<void>;
   /** The native save dialog; absent where the app cannot write a local file (web mirror, relayed peer). */
   pickDestination?: (suggestedName: string) => Promise<string | null>;
   /** Saves through the browser instead of a dialog. */
@@ -37,6 +38,17 @@ export interface ViewHostDeps {
 }
 
 const refused = (code: ViewHostRefusalCode, reason: string): ViewHostResult => ({ ok: false, code, reason });
+
+export type ViewHostSupport = Record<ViewHostActionName, boolean>;
+
+/**
+ * What this app instance can perform for a view, sent once when the frame is ready so a view can
+ * hide an action instead of probing it. It grants nothing: declaration, gesture and media
+ * ownership are still checked on every use.
+ */
+export function viewHostSupport(deps: Pick<ViewHostDeps, "writeText" | "reveal">): ViewHostSupport {
+  return { copyText: deps.writeText !== undefined, saveAs: true, reveal: deps.reveal !== undefined };
+}
 
 function record(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -79,10 +91,12 @@ export async function performViewHostAction(
     if (action === "copyText") {
       const text = args.text;
       if (typeof text !== "string" || text.length > MAX_COPY_TEXT) return refused("invalid", "text");
+      const writeText = deps.writeText;
+      if (!writeText) return refused("unavailable", "clipboard");
       const declared = viewHostResult(await deps.call({ pluginId, action }));
       if (!declared.ok) return declared;
       try {
-        await deps.writeText(text);
+        await writeText(text);
       } catch {
         return refused("unavailable", "clipboard");
       }

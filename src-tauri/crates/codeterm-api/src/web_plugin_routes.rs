@@ -18,7 +18,10 @@ window.ct={surface:__CT_SURFACE__,invoke:function(method,args){var id=++s;return
 window.ct.host=(function(){function ask(action,args){var id=++s;return new Promise(function(res){
   p[id]={resolve:res,reject:function(e){res({ok:false,code:'unavailable',reason:String(e&&e.message||e)});}};
   parent.postMessage({__ctHost:id,action:action,args:args},'*');});}
- return{copyText:function(text){return ask('copyText',{text:text});},
+ var known,waiting=[];window.addEventListener('message',function(e){var m=e.data||{};
+  if(e.source===parent&&m.__ctHostSupport!=null&&!known){known=m.__ctHostSupport;waiting.splice(0).forEach(function(f){f(known);});}});
+ return{availability:function(){return known?Promise.resolve(known):new Promise(function(res){waiting.push(res);});},
+  copyText:function(text){return ask('copyText',{text:text});},
   saveAs:function(handle,suggestedName){return ask('saveAs',{handle:handle,suggestedName:suggestedName});},
   reveal:function(handle){return ask('reveal',{handle:handle});}};})();
 parent.postMessage({__ctReady:true},'*');

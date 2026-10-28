@@ -155,6 +155,14 @@ describe("plugin view activation", () => {
     expect(reply).toHaveBeenCalledWith({ __ctReply: 2, result: { ok: true } }, "*");
   });
 
+  it("tells a ready frame which host actions this app can perform", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const ownWindow = host!.querySelector("iframe")!.contentWindow!;
+    const post = vi.spyOn(ownWindow, "postMessage");
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: ownWindow, data: { __ctReady: true } })));
+    expect(post).toHaveBeenCalledWith({ __ctHostSupport: { copyText: true, saveAs: true, reveal: false } }, "*");
+  });
+
   it("ignores host actions posted by any window other than its own frame", async () => {
     await mount(<PluginView pluginId="studio" api={undefined} embedded />);
     hostDeps.call.mockClear();

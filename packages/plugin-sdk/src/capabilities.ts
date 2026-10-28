@@ -1030,9 +1030,15 @@ export type ViewHostAction = "copyText" | "saveAs" | "reveal";
 // `invalid`: malformed text, handle or arguments.
 export type ViewHostResult = { ok: true } | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
 
-// `window.ct.host` inside the view page. Call it from a click or key handler: the host checks
+// What this app instance can perform here (the web mirror has no file manager, an insecure origin no
+// clipboard). It grants nothing: the declaration, gesture and media ownership are checked on each use.
+export type ViewHostAvailability = Record<ViewHostAction, boolean>;
+
+// `window.ct.host` inside the view page. Call the actions from a click or key handler: the host checks
 // its own user activation. Media handles are the host-issued ones this frame received; never paths.
 export interface ViewHostBridge {
+  // Resolves once the host has said what it supports; read it to hide an action, never to probe one.
+  availability(): Promise<ViewHostAvailability>;
   copyText(text: string): Promise<ViewHostResult>;
   saveAs(mediaHandle: string, suggestedName?: string): Promise<ViewHostResult>;
   reveal(mediaHandle: string): Promise<ViewHostResult>;

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MAX_COPY_TEXT, performViewHostAction, safeFileName, viewHostResult, type ViewHostDeps } from "./pluginViewHostActions";
+import { MAX_COPY_TEXT, performViewHostAction, safeFileName, viewHostResult, viewHostSupport, type ViewHostDeps } from "./pluginViewHostActions";
 
 const HANDLE = "a".repeat(64);
 
@@ -96,6 +96,16 @@ describe("plugin view host actions", () => {
     expect(await run(fake, "reveal", {})).toEqual({ ok: false, code: "invalid", reason: "handle" });
     fake.call.mockRejectedValueOnce(new Error("daemon down"));
     expect(await run(fake, "reveal", { handle: HANDLE })).toEqual({ ok: false, code: "unavailable", reason: "host" });
+  });
+
+  it("states what this app can perform so a view hides actions instead of probing them", async () => {
+    expect(viewHostSupport(deps().fake)).toEqual({ copyText: true, saveAs: true, reveal: true });
+    expect(viewHostSupport(deps([], false).fake)).toEqual({ copyText: true, saveAs: true, reveal: false });
+    const { fake, calls } = deps();
+    const noClipboard: ViewHostDeps = { ...fake, writeText: undefined };
+    expect(viewHostSupport(noClipboard).copyText).toBe(false);
+    expect(await run(noClipboard, "copyText", { text: "x" })).toEqual({ ok: false, code: "unavailable", reason: "clipboard" });
+    expect(calls).toEqual([]);
   });
 
   it("narrows daemon answers and file names", () => {

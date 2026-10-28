@@ -71,7 +71,13 @@ throws. `denied` means there was no user gesture, the action is not declared,
 the user cancelled, or the handle does not belong to this frame;
 `unavailable` means the host cannot act here; `invalid` means a malformed
 argument. Call them from a click or key handler: the host checks its own user
-activation, which the frame cannot fake. A media handle is the opaque handle
+activation, which the frame cannot fake. `ct.host.availability()` resolves to
+`{ copyText, saveAs, reveal }` booleans saying what this app can perform here
+(the web mirror cannot reveal; a page without a clipboard cannot copy). Use it
+to hide an action, not to probe one; it grants nothing, and every call is still
+checked. `denied` with `media_expired` means this frame's access to the file
+lapsed, not that the file is gone: reopen the result to get a fresh handle.
+A media handle is the opaque handle
 the host issued to this frame; a reloaded frame gets new handles. The view never
 sees or sends a file path.
 

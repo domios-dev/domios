@@ -17,7 +17,7 @@ import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
 import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
-import { performViewHostAction } from "../../lib/pluginViewHostActions";
+import { performViewHostAction, viewHostSupport } from "../../lib/pluginViewHostActions";
 import { viewHostDeps } from "../../lib/pluginViewHostDeps";
 
 type ApiCfg = DaemonApiConfig;
@@ -103,6 +103,7 @@ export function PluginView({
       if (m.__ctReady) {
         win.postMessage({ __ctTheme: themeCss() }, "*");
         win.postMessage({ __ctActive: activeRef.current }, "*");
+        win.postMessage({ __ctHostSupport: viewHostSupport(viewHostDeps()) }, "*");
         return;
       }
       if (m.__ctClose) {

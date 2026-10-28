@@ -30,9 +30,10 @@ async function download(request: ViewHostMediaRequest, fileName: string): Promis
 /** The native dialog and file manager exist only in the desktop app; the web mirror downloads and refuses reveal. */
 export function viewHostDeps(): ViewHostDeps {
   const dialogs = nativeBridge.dialogs;
+  const clipboard = globalThis.navigator?.clipboard;
   return {
     call: (request) => baseDaemonTransport().json("POST", HOST_ACTION_PATH, request),
-    writeText: (text) => globalThis.navigator.clipboard.writeText(text),
+    writeText: clipboard ? (text) => clipboard.writeText(text) : undefined,
     pickDestination: dialogs ? (defaultPath) => dialogs.save({ defaultPath }) : undefined,
     download,
     reveal: dialogs ? (path) => nativeBridge.revealFile(path) : undefined,
