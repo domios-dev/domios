@@ -73,11 +73,12 @@ test('formats package sources and external example modules with their package ed
   git(root, 'switch', '-c', 'work');
   write(root, 'src-tauri/src/lib.rs', 'pub fn answer()->u32{42}\n');
   write(root, 'evals/runner/helper.rs', 'pub async fn answer()->u32{42}\n');
+  write(root, 'scripts/cache-rustc-wrapper.rs', 'async fn main(){let _ = async {42};}\n');
   git(root, 'add', '.');
   git(root, 'commit', '-m', 'changed Rust source');
 
   const result = formatChangedFiles(root, 'develop');
-  assert.deepEqual(result.rustFiles, ['evals/runner/helper.rs', 'src-tauri/src/lib.rs']);
+  assert.deepEqual(result.rustFiles, ['evals/runner/helper.rs', 'scripts/cache-rustc-wrapper.rs', 'src-tauri/src/lib.rs']);
   assert.deepEqual(result.biomeFiles, []);
   assert.match(readFileSync(path.join(root, 'src-tauri/src/lib.rs'), 'utf8'), /pub fn answer\(\) -> u32 \{\n    42\n\}/);
   assert.match(readFileSync(path.join(root, 'evals/runner/helper.rs'), 'utf8'), /pub async fn answer\(\) -> u32 \{\n    42\n\}/);

@@ -11,11 +11,18 @@ export function prepareCacheWrapper({ env = process.env } = {}) {
   const compilerName = process.platform === 'win32' ? 'rustc.exe' : 'rustc';
   const sysroot = execFileSync('rustc', ['--print', 'sysroot'], { env, encoding: 'utf8' }).trim();
   const compiler = fs.realpathSync(path.join(sysroot, 'bin', compilerName));
-  const outputPrefix = path.resolve(path.dirname(source), '../.codeterm/compiler-output');
-  const version = execFileSync(compiler, ['-vV'], { env, encoding: 'utf8' });
-  const identity = createHash('sha256').update(source).update(fs.readFileSync(source))
-    .update(compiler).update(version).update(outputPrefix).update(String(fs.statSync(compiler).mtimeMs)).digest('hex');
+  const clientName = process.platform === 'win32' ? 'sccache.exe' : 'sccache';
+  const client = (env.PATH || env.Path || '').split(path.delimiter)
+    .map(directory => path.resolve(directory, clientName))
+    .find(file => fs.existsSync(file) && !fs.existsSync(file.replace(/(?:\.exe)?$/, '.compiler')));
+  if (!client) throw new Error('The real sccache client was not found on PATH');
+  const cacheClient = fs.realpathSync(client);
   const cargoHome = env.CARGO_HOME || path.join(os.homedir(), '.cargo');
+  const outputPrefix = path.resolve(cargoHome, 'codeterm-cache-wrappers/compiler-output');
+  const version = execFileSync(compiler, ['-vV'], { env, encoding: 'utf8' });
+  const sourceText = fs.readFileSync(source, 'utf8').replaceAll('\r\n', '\n');
+  const identity = createHash('sha256').update(sourceText)
+    .update(compiler).update(version).update(outputPrefix).update(cacheClient).update(String(fs.statSync(compiler).mtimeMs)).digest('hex');
   const directory = path.join(cargoHome, 'codeterm-cache-wrappers', identity);
   const executable = path.join(directory, process.platform === 'win32' ? 'sccache.exe' : 'sccache');
   const manifest = path.join(directory, 'sccache.compiler');
@@ -25,7 +32,7 @@ export function prepareCacheWrapper({ env = process.env } = {}) {
   try {
     const pending = path.join(scratch, path.basename(executable));
     execFileSync(compiler, ['--edition=2021', '-Dwarnings', '-O', source, '-o', pending], {
-      env: { ...env, CODETERM_CACHE_OUTPUT_PREFIX: outputPrefix }, stdio: ['ignore', 'ignore', 'pipe'],
+      env: { ...env, CODETERM_CACHE_OUTPUT_PREFIX: outputPrefix, CODETERM_CACHE_CLIENT: cacheClient }, stdio: ['ignore', 'ignore', 'pipe'],
     });
     fs.writeFileSync(manifest, compiler);
     fs.renameSync(pending, executable);

@@ -7,7 +7,12 @@ const BRIDGE: &str = "CODETERM_CACHE_COMPILER_BRIDGE";
 const REMAP: &str = "CODETERM_CACHE_REMAP_GENERATED";
 const POLICY: &str = "CARGO_CODETERM_CACHE_OUTPUT_POLICY";
 const OUTPUT_PREFIX: &str = env!("CODETERM_CACHE_OUTPUT_PREFIX");
-const SETTINGS: [&str; 2] = ["CARGO_TARGET_DIR", "CARGO_INCREMENTAL"];
+const CACHE_CLIENT: &str = env!("CODETERM_CACHE_CLIENT");
+const SETTINGS: [&str; 3] = [
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_BUILD_DIR",
+    "CARGO_INCREMENTAL",
+];
 
 fn forward(mut command: Command) -> ExitCode {
     #[cfg(unix)]
@@ -36,7 +41,7 @@ fn main() -> ExitCode {
             .first()
             .is_none_or(|arg| arg.to_string_lossy().starts_with('-'))
     {
-        let mut command = Command::new("sccache");
+        let mut command = Command::new(CACHE_CLIENT);
         command.args(args);
         return forward(command);
     }
@@ -103,13 +108,13 @@ fn main() -> ExitCode {
         let mut command = Command::new(if rust {
             requested
         } else {
-            OsStr::new("sccache")
+            OsStr::new(CACHE_CLIENT)
         });
         command.args(if rust { &args[1..] } else { &args });
         return forward(command);
     }
 
-    let mut command = Command::new("sccache");
+    let mut command = Command::new(CACHE_CLIENT);
     command.arg(executable).args(&args[1..]).env(BRIDGE, "1");
     let generated = std::env::var_os("CARGO_TARGET_DIR")
         .zip(std::env::var_os("OUT_DIR"))
