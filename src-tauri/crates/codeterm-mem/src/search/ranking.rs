@@ -77,6 +77,10 @@ pub fn matches_filters(item: &MemItem, query: &SearchQuery, cfg: &SearchConfig) 
             .is_none_or(|source| item.source == *source)
 }
 
+pub fn sort_lexical_hits(hits: &mut [SearchHit]) {
+    hits.sort_by(|a, b| a.score.total_cmp(&b.score));
+}
+
 pub fn sort_hits(hits: &mut [SearchHit]) {
     hits.sort_by(|a, b| {
         a.score
@@ -192,3 +196,6 @@ pub fn fuse(
     merged.truncate(limit);
     merged
 }
+
+#[cfg(test)]
+mod tests;

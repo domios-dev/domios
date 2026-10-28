@@ -384,7 +384,7 @@ pub fn run_with_config(
         let score = scorer.lexical(&item, bm25);
         hits.push(SearchHit { item, score });
     }
-    ranking::sort_hits(&mut hits);
+    ranking::sort_lexical_hits(&mut hits);
     hits.truncate(limit);
     Ok(hits)
 }
