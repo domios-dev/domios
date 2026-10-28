@@ -159,6 +159,36 @@ function provider(id: string, transport: ProviderDescriptor["transport"], displa
   };
 }
 
+it("lays the Welcome out from the visible providers only, on one centred axis, for one to three providers", async () => {
+  vi.mocked(invoke).mockImplementation(async (command) => command === "mux_get_state" ? snapshot() : undefined);
+  // Offered when absent (Codex's descriptor) shows uninstalled; without that flag (Cursor) an uninstalled one is hidden.
+  const absent = (id: string, offered: boolean): ProviderDescriptor => ({ ...provider(id, "pty"), availability: "unavailable",
+    install_command: "opaque", ...(offered ? { general_agent_offer_when_absent: true } : {}) });
+  const cases: Array<{ providers: ProviderDescriptor[]; shown: string[] }> = [
+    { providers: [provider("claude", "pty"), absent("cursor", false)], shown: ["claude"] },
+    { providers: [provider("claude", "pty"), absent("cursor", false), absent("codex", true)], shown: ["claude", "codex"] },
+    { providers: [provider("opencode", "pty"), provider("claude", "pty"), absent("cursor", false), absent("codex", true)], shown: ["opencode", "claude", "codex"] },
+  ];
+  for (const { providers, shown } of cases) {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<FirstRunGeneralPicker providers={providers} />));
+      const cards = host.querySelector<HTMLElement>("[data-testid=agent-picker-cards]")!;
+      expect(Array.from(cards.children).map((card) => card.getAttribute("data-testid"))).toEqual(shown.map((id) => `agent-picker-card-${id}`));
+      // The header, the card row and the confirm are all laid out by one group, so they share its centre.
+      const group = host.querySelector<HTMLElement>("[data-testid=agent-picker-group]")!;
+      expect(cards.parentElement).toBe(group);
+      expect(host.querySelector("h1")?.closest("[data-testid=agent-picker-group] > *")?.parentElement).toBe(group);
+      expect(host.querySelector("[data-testid=agent-picker-confirm]")?.closest("[data-testid=agent-picker-group] > *")?.parentElement).toBe(group);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  }
+});
+
 it("Welcome offers Codex's runtime and confirms the selected provider once", async () => {
   vi.mocked(invoke).mockImplementation(async (command) => command === "mux_get_state" ? snapshot() : undefined);
   const host = document.createElement("div");

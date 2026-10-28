@@ -102,9 +102,10 @@ export function AgentProviderPicker({
       data-testid="agent-provider-picker"
       className="flex h-full w-full items-center justify-center p-6 overflow-auto"
     >
-      <div className="w-fit max-w-full space-y-6">
+      {/* One centred column: the header, the cards and the confirm share an axis however many providers are shown. */}
+      <div className="flex w-fit max-w-full flex-col items-center gap-6" data-testid="agent-picker-group">
         {installError && <InlineErrorNotice error={installError} operation="installing this provider" blocking />}
-        <div className="flex items-center gap-3">
+        <div className="flex max-w-full items-center gap-3">
           <img src={logoUrl} alt="" className="h-8 w-8 flex-none rounded-lg" />
           <div className="min-w-0">
             <h1
@@ -123,7 +124,7 @@ export function AgentProviderPicker({
         <div
           role="group"
           aria-label="Agent providers"
-          className="flex flex-wrap gap-3"
+          className="flex max-w-full flex-wrap justify-center gap-3"
           data-testid="agent-picker-cards"
         >
           {observed.map((provider) => (
