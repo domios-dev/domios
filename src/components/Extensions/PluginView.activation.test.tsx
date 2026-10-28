@@ -263,10 +263,8 @@ describe("plugin view activation", () => {
 
   /** Sends a copy request from the current frame whose declaration check stays pending until `answer`. */
   async function pendingCopy(id: number) {
-    // The frame's first load lands before any user click; the test owns that load (the DOM never fires it).
+    // Happy DOM delivers the frame's initial srcdoc load during mount, before any user click.
     const frame = host!.querySelector("iframe")!;
-    await act(async () => frame.dispatchEvent(new Event("load")));
-    expect(host!.querySelector("iframe")).toBe(frame);
     const ownWindow = frame.contentWindow!;
     const reply = vi.spyOn(ownWindow, "postMessage");
     hostDeps.call.mockClear();
