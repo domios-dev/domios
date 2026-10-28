@@ -119,8 +119,8 @@ function makeHarness() {
   const padPath = path.join(dir, "agent-pad");
   const fixtureBuild = path.join(dir, "build.sh");
   const buildSource = readFileSync(buildPath, "utf8").replaceAll("\r\n", "\n");
-  const gateway = 'enter_cargo_gateway() {\n  enter_build_gateway "$@"\n  ct_configure_sccache\n}';
-  assert.ok(buildSource.includes(gateway), "build fixture must stub the Cargo gateway");
+  const gateway = buildSource.match(/^enter_cargo_gateway\(\) \{[^]*?^\}/m)?.[0];
+  assert.ok(gateway, "build fixture must stub the Cargo gateway");
   const authority = "source scripts/lane-rust-guard.sh";
   const setup = "*) setup_env ;;";
   assert.ok(buildSource.includes(authority) && buildSource.includes(setup), "build fixture must isolate host authorization and toolchain setup");

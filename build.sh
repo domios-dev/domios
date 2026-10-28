@@ -3034,7 +3034,7 @@ EOF
     node --test scripts/tests/lane-check.test.mjs
     ;;
   cache-wrapper-check)
-    CODETERM_CACHE_WRAPPER_TEST=1 node --test scripts/tests/cache-rustc-wrapper.test.mjs
+    CODETERM_CACHE_WRAPPER_TEST=1 node --test scripts/tests/cache-rustc-wrapper.test.mjs scripts/tests/cache-wrapper-identity.test.mjs
     ;;
   dev-link-measure)
     if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then
