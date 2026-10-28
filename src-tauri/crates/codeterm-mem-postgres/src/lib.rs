@@ -22,23 +22,6 @@ mod wake_up;
 pub type StoreResult<T> = Result<T, String>;
 type Manager = PostgresConnectionManager<NoTls>;
 
-#[derive(Debug)]
-pub struct UnsupportedOperation {
-    pub method: &'static str,
-}
-
-impl std::fmt::Display for UnsupportedOperation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "postgres_backend_not_yet_supported:{}", self.method)
-    }
-}
-
-impl std::error::Error for UnsupportedOperation {}
-
-fn unsupported(method: &'static str) -> String {
-    UnsupportedOperation { method }.to_string()
-}
-
 #[derive(Clone, Debug)]
 pub struct PostgresOptions {
     pub schema: String,
@@ -72,7 +55,6 @@ pub enum PostgresOpenError {
     Connection,
     Migration,
     SchemaVersionMismatch { found: Option<i64>, expected: i64 },
-    Incomplete,
 }
 
 impl std::fmt::Display for PostgresOpenError {
@@ -83,7 +65,6 @@ impl std::fmt::Display for PostgresOpenError {
             Self::Connection => "Postgres memory connection failed",
             Self::Migration => "Postgres memory migration failed",
             Self::SchemaVersionMismatch { .. } => "Postgres memory schema version mismatch",
-            Self::Incomplete => "Postgres memory backend is incomplete; blueprint and engine support must be installed before startup",
         })
     }
 }
@@ -174,20 +155,15 @@ impl PostgresMemStore {
 }
 
 pub fn open(url: &str, options: PostgresOptions) -> Result<Arc<dyn MemStore>, PostgresOpenError> {
-    if !COMPLETE {
-        return Err(PostgresOpenError::Incomplete);
-    }
     Ok(Arc::new(PostgresMemStore::connect(url, options)?))
 }
-
-const COMPLETE: bool = false;
 
 #[cfg(any(test, feature = "test-support"))]
 pub fn open_for_test(
     url: &str,
     options: PostgresOptions,
 ) -> Result<Arc<dyn MemStore>, PostgresOpenError> {
-    Ok(Arc::new(PostgresMemStore::connect(url, options)?))
+    open(url, options)
 }
 
 fn db_error(error: postgres::Error) -> String {

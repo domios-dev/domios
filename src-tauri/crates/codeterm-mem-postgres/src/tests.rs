@@ -5,8 +5,8 @@ use codeterm_mem::store::MemAuthor;
 mod blueprint;
 mod engines;
 mod maintenance;
-mod transfer;
 mod recall;
+mod transfer;
 
 struct Fixture {
     url: String,
@@ -265,14 +265,6 @@ fn postgres_wake_up_excludes_neighbor_and_preserves_priority() {
     assert!(!text.contains("neighbor-pinned-refused"));
     assert!(text.find("owner-rule").unwrap() < text.find("owner-pin").unwrap());
     assert!(text.find("owner-pin").unwrap() < text.find("owner-ranked").unwrap());
-}
-
-#[test]
-fn production_open_refuses_incomplete_backend() {
-    assert!(matches!(
-        open("never-connect", PostgresOptions::default()),
-        Err(PostgresOpenError::Incomplete)
-    ));
 }
 
 #[test]

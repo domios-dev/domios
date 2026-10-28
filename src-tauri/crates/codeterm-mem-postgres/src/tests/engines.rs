@@ -38,6 +38,24 @@ fn pending_contract() {
     let fixture = Fixture::new();
     contract::engine_pending_contract(fixture.store());
 }
+
+#[test]
+#[ignore = "requires disposable pgvector and DOMIOS_TEST_POSTGRES_URL"]
+fn production_open_uses_migrated_schema() {
+    let fixture = Fixture::new();
+    let store = open(&fixture.url, fixture.options.clone()).unwrap();
+    let ctx = WriteContext::system("production-open");
+    let id = store
+        .save(&ctx, &contract::item("production open"), false)
+        .unwrap()
+        .id;
+    assert_eq!(
+        fixture.store().get(&id).unwrap().unwrap().title,
+        "production open"
+    );
+    contract::engine_pending_contract(store.as_ref());
+    assert!(store.blueprint_indexed_items().unwrap().is_empty());
+}
 #[test]
 #[ignore = "requires disposable pgvector and DOMIOS_TEST_POSTGRES_URL"]
 fn auxiliary_round_trip_contract() {
