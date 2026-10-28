@@ -131,6 +131,8 @@ impl ServiceContext {
                 resets_at: None,
                 retry_after_seconds: None,
                 submission: None,
+                delivered_at: None,
+                read_at: None,
                 delivery_status: Some(codeterm_neighbors::wire::DeliveryStatus::Pending),
             },
             generation,

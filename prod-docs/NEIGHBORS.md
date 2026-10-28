@@ -111,7 +111,11 @@ An outgoing text over 32752 UTF-8 bytes fails before network dispatch with HTTP 
 
 Restored runtime concierges start in the background when this machine prepares reception. A bound agent remains `concierge_starting` until its own live session is authenticated and ready; a restored session ID alone does not establish readiness.
 
-The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
+The account signal watch applies confirmed delivery, read and expiry events to local outgoing history and emits `neighbor-history-changed`. Outgoing entries expose optional `delivered_at` and `read_at` in UNIX milliseconds. Accepted sending is one tick, delivery is two ticks, and read is two blue ticks. A read implies delivery; a later pending or older receipt cannot clear it. On reconnect, a signal revision gap, or a read anchor absent from this installation, the watch checks status once for up to 256 locally pending or delivered-but-unread outgoing messages across at most 200 locally configured friendships. It never polls delivery.
+
+A message is read when the recipient owner has that inbound message visible in the open conversation, or the recipient concierge's persisted `handling_state` reaches `working`, `answered`, `refused` or `no_reply`. Delivery to a concierge by itself is not read. The owner UI reports the newest actually visible message with `POST /api/account/neighbors/read {friendship_id, through_message_id}`; fetching history never reports visibility, and agent credentials cannot claim it. The host also queues concierge pickup through the same monotonic read-up-to path. Paused/ended friendships and Neighbors off emit no read receipts. A durable reservation suppresses duplicate or older batches, including after an uncertain relay response.
+
+The relay callable is `friendsRead {installation_id, friendship_id, through_message_id}` from a valid recipient installation. It emits an exact `message_read` account signal with `schema_version:1`, `revision`, `event_id`, `request_id:null`, `friendship_id`, `message_id` (the through-message anchor), and `at` (server read time in UNIX milliseconds). No text, files, manifest or key is included. The sender marks its outgoing history through that anchor read. Delivery-status catch-up includes the persisted read timestamp if a latest-value signal was missed.
 
 ## Incoming message handling
 
@@ -172,4 +176,4 @@ Before applying a permission edit, General must tell the owner: "Applying restar
 
 The provider capability `supports_initial_prompt_update_on_resume` determines whether Apply resumes the same session with updated instructions. Claude, Codex and OpenCode support this through their existing resume instruction channels and retain agent history. Providers without that capability start a fresh concierge; the friend's local conversation history is retained. Restore uses the persisted initial instructions, and reconciles older concierge launches before accepting new turns. A failed restart is reported; it is not a successful Apply.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->

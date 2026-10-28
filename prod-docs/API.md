@@ -55,6 +55,12 @@ Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness
 
 Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke` accepts `{installation_id?: string | null}`; omission selects this machine. It signs out the selected installation's account sessions and returns `{ok: true, result: {target_installation_id, revoked_at}}` or the standard typed refusal. The local installation key and saved pairings remain. The UI asks for confirmation before this action.
 
+#### Neighbor read receipts
+
+`POST /api/account/neighbors/read` accepts exactly `{friendship_id, through_message_id}` from the local owner UI. IDs are respectively 64 and 32 lowercase hexadecimal characters. It reports an actually visible inbound message in the open, visible conversation; fetching history never marks it read. Tab and Mesh callers are refused. The host independently reports concierge pickup. Read-up-to reservations persist before relay dispatch, suppress duplicate/older batches, and are disabled for paused or ended friendships and while Neighbors is off.
+
+Outgoing Neighbor history entries expose optional `delivered_at` and `read_at` as UNIX milliseconds. `read_at` implies delivery. Accepted sending is one tick, delivered is two ticks, read is two blue ticks. `neighbor-history-changed` carries the affected `friendship_id` after receipt persistence. See `NEIGHBORS` for the signal and catch-up behavior.
+
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -193,4 +199,4 @@ A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `c
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 234 -->
+<!-- revision: 235 -->
