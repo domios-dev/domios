@@ -53,11 +53,25 @@ export function useNeighborStatus(client: NeighborRuntimeClient, active: boolean
     const reread = () => { store.read(load, true).then(show, () => {}); };
     void client.subscribe(event => {
       if (!store.value) { reread(); return; }
-      if ("receiver_unavailable" in event) { store.write({ ...store.value, receiver_status_known: false }); return; }
+      if ("receiver_unavailable" in event) {
+        if (typeof event.friendship_id === "string") {
+          const receivers = { ...store.value.friend_receivers };
+          delete receivers[event.friendship_id];
+          store.write({ ...store.value, friend_receivers: receivers });
+        } else { store.write({ ...store.value, receiver_status_known: false, friend_receivers: {} }); }
+        return;
+      }
       if (!receiverState(event)) return;
+      if (typeof event.friendship_id === "string") {
+        const { receiving_here, receiver_machine_label, receiving_enabled, revision, source } = event;
+        store.write({ ...store.value, friend_receivers: { ...store.value.friend_receivers,
+          [event.friendship_id]: { receiving_here, receiver_machine_label, receiving_enabled, revision, source } } });
+        reread();
+        return;
+      }
       const { receiving_here, receiver_machine_label, receiving_enabled, revision } = event;
       store.write({ ...store.value, receiving_here, receiver_machine_label, receiving_enabled, revision, receiver_status_known: true });
-      // Moving the receiver changes every concierge's state too, which only a fresh read reports.
+      // An account change may remove overrides, so reread the effective friendship rows too.
       reread();
     }).then(keep);
     void listen<unknown>("neighbor-concierge-status", event => {

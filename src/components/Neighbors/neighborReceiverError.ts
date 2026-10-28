@@ -17,7 +17,9 @@ function diagnostic(message: string): string {
 export function receiverFailureDescription(failure: unknown): ErrorDescription {
   const typed = failure instanceof NeighborRuntimeFailure;
   const message = typed
-    ? failure.reason === "unavailable" ? "The receiving service is unavailable. Try again."
+    ? failure.reason === "key_limit" && failure.limit !== undefined && failure.active !== undefined
+      ? `${failure.active} of ${failure.limit} machines in use. Remove a machine to receive here.`
+      : failure.reason === "unavailable" ? "The receiving service is unavailable. Try again."
       : diagnostic(failure.message) || "Receiving could not move here."
     : "Receiving could not move here. Try again.";
   const cause = typed ? `${failure.reason}: ${message}` : message;
