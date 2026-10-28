@@ -1063,7 +1063,7 @@ pub fn launch_agent_in_background_with_env(
             }
         }
         if !session_starts_on_first_turn {
-            let session_authenticated = launch.await_provider_ack(std::time::Duration::ZERO);
+            let session_authenticated = launch.reconcile_authenticated_binding(&svc);
             if let Some(stage) =
                 startup_readiness::provider_ready_stage(&readiness, session_authenticated)
             {
