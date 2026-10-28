@@ -321,7 +321,7 @@ impl ServiceContext {
         cell.version.fetch_add(1, Ordering::AcqRel);
     }
 
-    #[cfg(any(test, feature = "test-support"))]
+    #[cfg(test)]
     pub(crate) fn set_neighbor_friend_receiver_binding_for_test(
         &self,
         friendship: &str,
