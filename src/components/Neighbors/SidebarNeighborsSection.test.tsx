@@ -1,5 +1,37 @@
-import { bridge, account, neighbor, mounted, button, hasButton, emit, runtime, render, renderSection, concierge, pendingClient, act, createRoot, expect, it, vi, SidebarNeighborsSection, takeNeighborFocus, missingConciergeLine, useNeighborGatewayIds } from "./neighborsView.testdata";
-import type { NeighborClient, NeighborList, ReferralClaim, NeighborRuntimeClient } from "./neighborsView.testdata";
+import { it, expect, vi } from "vitest";
+import { act } from "react";
+import { takeNeighborFocus } from "./neighborFocus";
+import { useNeighborGatewayIds } from "./neighborGateways";
+import type { NeighborList } from "./neighborModel";
+import type { NeighborClient } from "./neighborClient";
+import type { ReferralClaim } from "./referralTrial";
+import { createRoot } from "react-dom/client";
+import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
+import { missingConciergeLine } from "./useConciergeStatus";
+import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { createNeighborsViewFixture } from "./neighborsView.testdata";
+
+const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
+const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
+const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
+const mux = vi.hoisted(() => ({
+  workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
+  tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
+  tabStatuses: {},
+}));
+vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
+vi.mock("../../lib/notices", () => notices);
+vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+  const handlers = bridge.handlers[event] ??= new Set();
+  handlers.add(handler);
+  return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
+}) }));
+vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
+vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
+
+const { neighbor, mounted, button, hasButton, emit, runtime, renderSection, concierge, pendingClient } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
+
 
 
 it("keeps the sidebar Neighbors section away until there is a Neighbor", async () => {
@@ -12,10 +44,10 @@ it("updates the sidebar immediately from an own-account push and removes its sub
   const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
   expect(hasButton("Open Ada")).toBe(true);
-  await act(async () => mounted!.root.unmount());
+  await act(async () => mounted.current!.root.unmount());
   expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
-  mounted!.host.remove();
-  mounted = null;
+  mounted.current!.host.remove();
+  mounted.current = null;
 });
 
 it("nests each concierge under its Neighbor; the Neighbor opens your conversation and the concierge its chat", async () => {
@@ -100,7 +132,7 @@ it("remembers only names, avatars and the concierge binding, and forgets them on
   expect(stored).toEqual({ access: "paid", can_invite: true, incoming: [], outgoing: [],
     friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] });
   account.model = { kind: "signed_out" };
-  await act(async () => mounted!.root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtime()} />));
+  await act(async () => mounted.current!.root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtime()} />));
   expect(localStorage.getItem("domios.neighbors.last-known:owner")).toBeNull();
 });
 

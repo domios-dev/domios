@@ -1,5 +1,37 @@
-import { neighbor, request, mounted, button, hasButton, emit, runtime, render, sentText, concierge, pendingClient, friendClient, renderConversation, act, createRoot, expect, it, vi, NeighborConversationView, parseConciergeStatus, NeighborRuntimeFailure } from "./neighborsView.testdata";
-import type { HistoryEntry, NeighborClient, NeighborList, ReferralClaim, NeighborRuntimeClient } from "./neighborsView.testdata";
+import { it, vi, expect } from "vitest";
+import type { HistoryEntry } from "./neighborConciergeClient";
+import type { NeighborList } from "./neighborModel";
+import type { NeighborClient } from "./neighborClient";
+import type { ReferralClaim } from "./referralTrial";
+import { createRoot } from "react-dom/client";
+import { act } from "react";
+import { NeighborConversationView } from "./NeighborConversationView";
+import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { parseConciergeStatus } from "./useConciergeStatus";
+import { NeighborRuntimeFailure } from "./neighborRuntimeClient";
+import { createNeighborsViewFixture } from "./neighborsView.testdata";
+
+const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
+const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
+const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
+const mux = vi.hoisted(() => ({
+  workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
+  tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
+  tabStatuses: {},
+}));
+vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
+vi.mock("../../lib/notices", () => notices);
+vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+  const handlers = bridge.handlers[event] ??= new Set();
+  handlers.add(handler);
+  return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
+}) }));
+vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
+vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
+
+const { neighbor, mounted, button, hasButton, emit, runtime, sentText, concierge, pendingClient, friendClient, renderConversation } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
+
 
 
 it("shows the conversation with a refused question, its linked refusal and delivery, and sends straight to the Neighbor", async () => {

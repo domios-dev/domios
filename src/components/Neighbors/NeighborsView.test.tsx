@@ -1,5 +1,41 @@
-import { notices, bridge, account, neighbor, request, signedIn, mounted, button, hasButton, emit, runtime, render, sentText, concierge, pendingClient, act, createRoot, expect, it, vi, NeighborsView, openNeighborPage, missingConciergeLine, parseNeighbors, parseReferralClaim, neighborClient, localFetch } from "./neighborsView.testdata";
-import type { HistoryEntry, NeighborNotify, NeighborClient, NeighborList, ReferralClaim, NeighborRuntimeClient, NeighborListenerEvent } from "./neighborsView.testdata";
+import { it, expect, vi } from "vitest";
+import { act } from "react";
+import type { NeighborList } from "./neighborModel";
+import type { ReferralClaim } from "./referralTrial";
+import type { NeighborClient } from "./neighborClient";
+import { createRoot } from "react-dom/client";
+import { NeighborsView } from "./NeighborsView";
+import { localFetch } from "../../lib/webApi";
+import { parseReferralClaim } from "./referralTrial";
+import { parseNeighbors } from "./neighborModel";
+import { neighborClient } from "./neighborClient";
+import type { NeighborNotify, HistoryEntry } from "./neighborConciergeClient";
+import type { NeighborListenerEvent, NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { missingConciergeLine } from "./useConciergeStatus";
+import { openNeighborPage } from "./neighborFocus";
+import { createNeighborsViewFixture } from "./neighborsView.testdata";
+
+const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
+const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
+const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
+const mux = vi.hoisted(() => ({
+  workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
+  tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
+  tabStatuses: {},
+}));
+vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
+vi.mock("../../lib/notices", () => notices);
+vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
+  const handlers = bridge.handlers[event] ??= new Set();
+  handlers.add(handler);
+  return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
+}) }));
+vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
+vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
+
+const { neighbor, signedIn, mounted, button, hasButton, emit, runtime, render, sentText, concierge, pendingClient } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
+
 
 
 it("draws you, each Neighbor and request without duplicating daemon notifications", async () => {
