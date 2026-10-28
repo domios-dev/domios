@@ -264,3 +264,18 @@ async fn loopback_self_reads_reach_dispatch_only_for_the_credential_owner_and_di
         .iter()
         .all(|method| method != "tab.get_output"));
 }
+
+#[tokio::test]
+async fn loopback_secret_preflight_refuses_concierge_before_rpc_or_secret_dispatch() {
+    let (_fixture, state, _, token) = fixture().await;
+    codeterm_service_core::ports::socket::register_test_stub();
+    let (status, body) = call(state, &token, "mem.secret.authorize", None)
+        .await
+        .unwrap_err();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body.0["error"]["code"], -32003);
+    assert_eq!(
+        body.0["error"]["data"]["reason"],
+        "neighbor_capability_denied"
+    );
+}

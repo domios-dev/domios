@@ -343,6 +343,7 @@ pub(super) fn dispatch(
                 "mem.graph.repair.collapse_synonym_edges",
                 "mem.graph.repair.prune_dream_hub_edges",
                 "mem.graph.repair.orphan_blobs",
+                "mem.secret.authorize",
                 // Credential-bearing mem.secret.* stays on bearer-authenticated HTTP.
             ];
             let plugins = codeterm_service_core::service::plugin_skills::granted_catalogs(

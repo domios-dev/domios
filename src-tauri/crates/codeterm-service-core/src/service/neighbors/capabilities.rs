@@ -5,6 +5,7 @@ use codeterm_neighbors::permissions::Permission;
 #[cfg(any(test, feature = "test-support"))]
 mod fixture;
 mod memory;
+mod secrets;
 mod self_reads;
 mod spawn;
 mod workspaces;
@@ -429,6 +430,9 @@ impl ServiceContext {
         path: &str,
     ) -> Result<(), String> {
         let path = path.split('?').next().unwrap_or(path);
+        if secrets::secret_path(path) {
+            self.authorize_neighbor_secret_caller(caller)?;
+        }
         let capability =
             http_capability(&method.to_ascii_uppercase(), path).unwrap_or(Capability::Denied);
         let Some((friendship, permission)) = self
@@ -480,6 +484,7 @@ impl ServiceContext {
         let Some(caller) = self.authenticate_local_credential(credential)? else {
             return Ok(());
         };
+        self.authorize_neighbor_secret_rpc(&caller, method, params)?;
         let own_launch_hook = method == "api.request"
             && params.is_some_and(|params| {
                 params["method"].as_str() == Some("POST")
