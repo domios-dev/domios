@@ -161,6 +161,7 @@ fn sanitize_saved_controls(
                 })
                 .unwrap_or_default();
             if let Some(sandbox) = provider.execution_sandbox_capability() {
+                modes.extend(sandbox.runtime_read_only_writable_roots_mode.clone());
                 for intent in [ExecutionIntent::ReadOnly, ExecutionIntent::Mutating] {
                     if let Ok(Some(mode)) = sandbox.resolve(&intent, std::env::consts::OS, true) {
                         if let Some(runtime_mode) = mode.runtime_mode {

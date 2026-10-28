@@ -198,7 +198,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         events.push(...abandonOpenTurn(state,threadId,turnId));
         state.activeTurnId = turnId;
         delete state.compacting;
-        const settings = codexReportedSettings({...params,...object(params.turn)});
+        const settings = codexReportedSettings({...params,...object(params.turn)},ctx.settings);
         if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         events.push({kind:"turnState",threadId,turnId,state:"working",...timing(params)}); break;
       }
@@ -241,7 +241,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         const mapped = usage(params); if (mapped) events.push({kind:"usage",threadId,usage:mapped}); break;
       }
       case "thread/settings/updated": {
-        const settings = codexReportedSettings(params);
+        const settings = codexReportedSettings(params,ctx.settings);
         if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         break;
       }

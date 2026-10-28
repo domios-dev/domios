@@ -199,4 +199,21 @@ fn permission_projection_reports_actual_sandbox_and_additional_host_roots() {
         .as_str()
         .unwrap()
         .contains("own-agent-pad"));
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&gateway)
+        .unwrap()
+        .restorable_launch
+        .execution_sandbox
+        .as_mut()
+        .unwrap()
+        .intent = ExecutionIntent::ReadOnly;
+    let projected = fixture
+        .service
+        .neighbor_permission_projection(&metadata, &friend, &permission, &settings)
+        .unwrap();
+    assert_eq!(projected["folder_enforcement"]["writes"], "pad_only");
+    assert_eq!(projected["folder_enforcement"]["reads"], "not_confined");
 }
