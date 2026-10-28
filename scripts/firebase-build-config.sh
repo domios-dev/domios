@@ -6,6 +6,17 @@ ct_firebase_build_secret() {
   fi
 }
 
+ct_configure_dev_qa_project() {
+  case "${CMD:-}" in dev|dev-server) ;; *) return 2 ;; esac
+  local qa_project="" restore_xtrace=0
+  case "$-" in *x*) restore_xtrace=1; set +x ;; esac
+  qa_project="$(ct_firebase_build_secret DOMIOS_QA_PROJECT_ID 2>/dev/null)" || qa_project=""
+  CT_DEV_QA_PROJECT="${qa_project//[[:space:]]/}"
+  CT_DEV_QA_PROJECT_PINNED=1
+  export DOMIOS_QA_PROJECT_ID="$CT_DEV_QA_PROJECT"
+  [ "$restore_xtrace" = 0 ] || set -x
+}
+
 ct_with_firebase_build_config() {
   [ "$#" -gt 0 ] || return 2
 
@@ -30,7 +41,12 @@ ct_with_firebase_build_config() {
   secret_app_id="$(ct_firebase_build_secret DOMIOS_FIREBASE_APP_ID 2>/dev/null)" || secret_app_id=""
   secret_redeem_url="$(ct_firebase_build_secret DOMIOS_ACCOUNT_REDEEM_URL 2>/dev/null)" || secret_redeem_url=""
 
-  qa_project="$(ct_firebase_build_secret DOMIOS_QA_PROJECT_ID 2>/dev/null)" || qa_project=""
+  if [ "${CT_DEV_QA_PROJECT_PINNED:-0}" = 1 ] &&
+      { [ "${CMD:-}" = dev ] || [ "${CMD:-}" = dev-server ]; }; then
+    qa_project="$CT_DEV_QA_PROJECT"
+  else
+    qa_project="$(ct_firebase_build_secret DOMIOS_QA_PROJECT_ID 2>/dev/null)" || qa_project=""
+  fi
   qa_api_key="$(ct_firebase_build_secret DOMIOS_QA_FIREBASE_API_KEY 2>/dev/null)" || qa_api_key=""
   qa_app_id="$(ct_firebase_build_secret DOMIOS_QA_FIREBASE_APP_ID 2>/dev/null)" || qa_app_id=""
   secret_billing_url="$(ct_firebase_build_secret DOMIOS_BILLING_FUNCTIONS_URL 2>/dev/null)" || secret_billing_url=""

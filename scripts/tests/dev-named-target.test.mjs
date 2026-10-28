@@ -85,18 +85,21 @@ cd "$1"
 OSTYPE="$3"
 CMD=dev CT_DEV_WAIT="$2" CT_PORT=7799 DEV_NOTIFY_TAB= CT_SUFFIX="-target-test-$$"
 CARGO_BUILD_TARGET= CODETERM_BUILD_SHA=opaque
+unset DOMIOS_QA_PROJECT_ID
 dev_health_status() { :; }
 dev_health_fields() { :; }
 ct_verify_target_dir() { :; }
 kill_dev() { :; }
 stop_dev_before_replacement() { :; }
 enter_cargo_gateway() { :; }
+ct_configure_dev_qa_project() { export DOMIOS_QA_PROJECT_ID=opaque-shared-project; }
 prepare_dev_frontend_dist() { :; }
 ensure_deps() { :; }
 cargo() {
   [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY" ]
   [ "$CARGO_INCREMENTAL" = 0 ]
   [ "$CODETERM_PORTABLE_COMPILER_CACHE" = 1 ]
+  [ "$DOMIOS_QA_PROJECT_ID" = opaque-shared-project ]
 }
 cli_profile_binary() { echo unused; }
 cli_file_sha256_or_status() { echo unused; }

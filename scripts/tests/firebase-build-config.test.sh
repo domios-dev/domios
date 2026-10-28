@@ -153,3 +153,57 @@ case "$(<"$capture")" in
 esac
 [ "$CODETERM_API_URL" = 'http://dev.invalid' ] || fail
 printf '%s\n' 'DEV resolves build secrets through the captured parent connection.'
+
+(
+  CMD=dev
+  reads="$(mktemp)"
+  trap 'rm -f "$reads"' EXIT
+  unset DOMIOS_QA_PROJECT_ID DOMIOS_QA_FIREBASE_API_KEY DOMIOS_QA_FIREBASE_APP_ID
+  ct_firebase_build_secret() {
+    case "$1" in
+      DOMIOS_QA_PROJECT_ID)
+        if [ ! -s "$reads" ]; then
+          printf 1 > "$reads"
+          printf ' fixture-pinned-project\r\n'
+        else
+          printf 2 > "$reads"
+          printf fixture-next-project
+        fi ;;
+      DOMIOS_QA_FIREBASE_API_KEY) printf fixture-server-key ;;
+      DOMIOS_QA_FIREBASE_APP_ID) printf fixture-server-app ;;
+      *) return 1 ;;
+    esac
+  }
+  set -x
+  ct_configure_dev_qa_project > "$capture" 2>&1 || fail
+  set +x
+  case "$(<"$capture")" in *fixture-pinned-project*) fail ;; esac
+  assert_pinned_compiler() {
+    bash -c '[ "$DOMIOS_QA_PROJECT_ID" = fixture-pinned-project ] && [ -z "${DOMIOS_QA_FIREBASE_API_KEY+x}${DOMIOS_QA_FIREBASE_APP_ID+x}" ]'
+  }
+  assert_pinned_compiler || fail
+  assert_pinned_server() {
+    [ "$DOMIOS_QA_PROJECT_ID" = fixture-pinned-project ] &&
+      [ "$DOMIOS_QA_FIREBASE_API_KEY" = fixture-server-key ] &&
+      [ "$DOMIOS_QA_FIREBASE_APP_ID" = fixture-server-app ]
+  }
+  ct_with_firebase_build_config assert_pinned_server > "$capture" 2>&1 || fail
+  assert_pinned_compiler || fail
+  [ "$(<"$reads")" = 1 ] || fail
+
+  CMD=release
+  assert_release_lookup() { [ "$DOMIOS_QA_PROJECT_ID" = fixture-next-project ]; }
+  ct_with_firebase_build_config assert_release_lookup > "$capture" 2>&1 || fail
+  [ "$(<"$reads")" = 2 ] || fail
+  status=0
+  ct_configure_dev_qa_project > "$capture" 2>&1 || status=$?
+  [ "$status" = 2 ] || fail
+  [ "$DOMIOS_QA_PROJECT_ID" = fixture-pinned-project ] || fail
+
+  CMD=dev-server
+  ct_firebase_build_secret() { return 1; }
+  ct_configure_dev_qa_project || fail
+  [ -z "$DOMIOS_QA_PROJECT_ID" ] || fail
+  ct_with_firebase_build_config assert_missing_qa > "$capture" 2>&1 || fail
+)
+printf '%s\n' 'DEV compiler phases share one QA project; server keys stay scoped and release lookup is unchanged.'
