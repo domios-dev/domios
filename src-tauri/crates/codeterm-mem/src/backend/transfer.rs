@@ -21,10 +21,13 @@ pub enum StoreTable {
     SourceTombstones,
     PrecompactPurges,
     PrecompactBlobs,
+    VectorPending,
+    LessonAudit,
+    GraphPurgeLog,
 }
 
 impl StoreTable {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 21] = [
         Self::Items,
         Self::History,
         Self::Entities,
@@ -43,6 +46,9 @@ impl StoreTable {
         Self::SourceTombstones,
         Self::PrecompactPurges,
         Self::PrecompactBlobs,
+        Self::VectorPending,
+        Self::LessonAudit,
+        Self::GraphPurgeLog,
     ];
 }
 

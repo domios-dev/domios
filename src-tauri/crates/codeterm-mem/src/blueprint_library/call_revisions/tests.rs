@@ -43,7 +43,7 @@ fn pin(document: &Document) -> CallPin {
 }
 fn edit(mem: &MemManager, id: &str, mut document: Document, note: &str) {
     document.note = Some(note.into());
-    let conn = mem.conn.lock();
+    let conn = mem.fixture_conn().lock();
     store::update(
         &conn,
         id,
@@ -125,7 +125,7 @@ fn blueprint_v2_call_far_purpose_vectors_refuse_keep_and_dream_merges() {
         .unwrap();
     assert_eq!(library.len(), 2);
     {
-        let conn = mem.conn.lock();
+        let conn = mem.fixture_conn().lock();
         let identity = mem.embedder.identity();
         let a = Purpose::stored(
             &crate::backend::sqlite::blueprint::index::read_vectors(
@@ -232,7 +232,7 @@ fn blueprint_v2_call_missing_pinned_hash_and_missing_callee_refuse_without_repin
         let before = load(&mem, &caller);
         let original = pin(&before);
         {
-            let conn = mem.conn.lock();
+            let conn = mem.fixture_conn().lock();
             if missing_callee {
                 conn.execute("DELETE FROM mem_items WHERE id=?1", [&callee])
                     .unwrap();
@@ -441,7 +441,7 @@ fn blueprint_v2_call_catalog_uses_shared_scoped_immutable_pin_store() {
             pin.hash,
             projection::identity(&super::super::catalog::document(&pin.id).unwrap()).unwrap()
         );
-        let count:i64=mem.conn.lock().query_row("SELECT count(*) FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND team='team'",params![pin.id,pin.hash],|r|r.get(0)).unwrap();
+        let count:i64=mem.fixture_conn().lock().query_row("SELECT count(*) FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2 AND team='team'",params![pin.id,pin.hash],|r|r.get(0)).unwrap();
         assert_eq!(count, 1);
         frozen
     };
@@ -468,7 +468,7 @@ fn blueprint_v2_call_missing_catalog_hash_never_rebinds_to_embedded_head() {
         .pin_blueprint_calls("blueprints:workspace", "team", catalog_caller())
         .unwrap();
     let pin = pin(&frozen);
-    mem.conn
+    mem.fixture_conn()
         .lock()
         .execute(
             "DELETE FROM blueprint_call_revisions WHERE item_id=?1 AND hash=?2",
@@ -490,7 +490,7 @@ fn blueprint_v2_call_review_archive_warns_and_keeps_pins_but_refuses_new_pins() 
         .unwrap();
     crate::curation::calibration::archive::archive_item_with_context(
         &MemManager::blueprint_write_context(),
-        &mem.conn.lock(),
+        &mem.fixture_conn().lock(),
         &id,
         "skill",
         "system:blueprint-library",
@@ -615,7 +615,7 @@ fn blueprint_stored_identity_1152_sqlite_revision_and_saved_head_preserve_old_pi
         hash: fixture["hash"].as_str().unwrap().into(),
     };
     {
-        let conn = mem.conn.lock();
+        let conn = mem.fixture_conn().lock();
         conn.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES(?1,?2,?3,?4,?5)", params![id,recorded.hash,"blueprints:workspace","team",fixture["document"].to_string()]).unwrap();
         conn.execute(
             "DELETE FROM blueprint_call_revisions WHERE item_id=?1 AND hash!=?2",
@@ -678,7 +678,7 @@ fn blueprint_stored_identity_1152_sqlite_revision_and_saved_head_preserve_old_pi
     let mut tampered = document;
     tampered.steps[0].run =
         Some(codeterm_blueprint_types::blueprint_document::ValueForm::literal("echo tampered"));
-    mem.conn
+    mem.fixture_conn()
         .lock()
         .execute(
             "UPDATE blueprint_call_revisions SET document=?1 WHERE item_id=?2 AND hash=?3",

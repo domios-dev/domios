@@ -39,7 +39,7 @@ fn settled(fx: &Fixture, state: ReembedState) -> ReembedProgress {
 }
 
 fn stamp(fx: &Fixture) -> Option<EmbedderIdentity> {
-    index::stamp(&fx.mem.conn.lock()).unwrap()
+    index::stamp(&fx.mem.fixture_conn().lock()).unwrap()
 }
 
 fn top(fx: &Fixture, query: &str) -> Option<String> {
@@ -115,7 +115,9 @@ fn recall_reembed_refused_item_is_counted_and_the_run_publishes() {
     assert!(!vector_rows(&fx.mem)
         .iter()
         .any(|row| row.starts_with(&ids[1])));
-    assert!(pending::ids(&fx.mem.conn.lock()).unwrap().contains(&ids[1]));
+    assert!(pending::ids(&fx.mem.fixture_conn().lock())
+        .unwrap()
+        .contains(&ids[1]));
     assert_eq!(top(&fx, "pears basket").as_ref(), Some(&ids[2]));
 }
 
@@ -164,7 +166,7 @@ fn recall_reembed_checkpoints_are_binary_hashed_rows_outside_knowledge_db() {
     release.send(()).unwrap();
     started.recv_timeout(DEADLINE).unwrap();
     let (row, triggers, main_tables, shadow) = {
-        let conn = fx.mem.conn.lock();
+        let conn = fx.mem.fixture_conn().lock();
         let row: (String, i64, String, i64) = conn
             .query_row(
                 "SELECT typeof(vectors), length(vectors), typeof(text_hash), length(text_hash) FROM reembed.shadow",
@@ -196,7 +198,7 @@ fn recall_reembed_checkpoints_are_binary_hashed_rows_outside_knowledge_db() {
     assert!(!std::path::Path::new(&shadow).exists());
     let attached: i64 = fx
         .mem
-        .conn
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT COUNT(*) FROM pragma_database_list WHERE name='reembed'",
@@ -313,15 +315,15 @@ fn recall_reembed_1k_items_need_one_provider_and_no_enrichment() {
     let old = MockProvider::new("old", "old", 384);
     let mem = crate::MemManager::open_in_memory().unwrap();
     mem.embedder.replace(old.clone());
-    index::recreate(&mem.conn.lock(), &old.identity()).unwrap();
-    crate::backend::sqlite::blueprint::initialize(&mem.conn.lock()).unwrap();
+    index::recreate(&mem.fixture_conn().lock(), &old.identity()).unwrap();
+    crate::backend::sqlite::blueprint::initialize(&mem.fixture_conn().lock()).unwrap();
     let (sender, events) = std::sync::mpsc::channel();
     mem.embedder.subscribe(Arc::new(move |event| {
         let _ = sender.send(event.clone());
     }));
     for item in 0..1000 {
         crate::store::insert(
-            &mem.conn.lock(),
+            &mem.fixture_conn().lock(),
             &note(
                 &format!("Fixture {item}"),
                 "an ordinary memory body for throughput proof",
@@ -401,7 +403,9 @@ fn recall_reembed_unavailable_unit_is_retried_once_before_publication() {
     assert!(vector_rows(&fx.mem)
         .iter()
         .any(|row| row.starts_with(&ids[1])));
-    assert!(!pending::ids(&fx.mem.conn.lock()).unwrap().contains(&ids[1]));
+    assert!(!pending::ids(&fx.mem.fixture_conn().lock())
+        .unwrap()
+        .contains(&ids[1]));
 }
 
 #[test]
@@ -409,7 +413,7 @@ fn recall_reembed_startup_removes_a_shadow_left_by_a_crash() {
     let (fx, old, _) = seeded(&["apples orchard"]);
     let main: String = fx
         .mem
-        .conn
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT file FROM pragma_database_list WHERE name='main'",
@@ -432,7 +436,7 @@ fn shadow_residency_failed_run_can_be_discarded_then_retried_cleanly() {
     settled(&fx, ReembedState::Failed);
     let shadow: String = fx
         .mem
-        .conn
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT file FROM pragma_database_list WHERE name='reembed'",
@@ -473,7 +477,7 @@ fn recall_reembed_progress_observers_can_read_status_without_holding_connection(
             return;
         };
         let mem = mem.upgrade().unwrap();
-        let unlocked = mem.conn.try_lock().is_some();
+        let unlocked = mem.fixture_conn().try_lock().is_some();
         if unlocked {
             let _ = mem.embedder_status();
             if progress.done == 1 && !changed.swap(true, Ordering::SeqCst) {
@@ -507,7 +511,7 @@ fn recall_reembed_progress_observers_can_read_status_without_holding_connection(
 fn recall_reembed_switch_refuses_a_busy_connection_without_waiting() {
     let (fx, old, _) = seeded(&["orchard harvest"]);
     let new = MockProvider::new("new", "new", 768);
-    let guard = fx.mem.conn.lock();
+    let guard = fx.mem.fixture_conn().lock();
     let refusal = fx.mem.try_switch_embedder(new).unwrap_err();
     assert!(refusal.contains("memory is busy"));
     assert_eq!(fx.mem.reembed_progress().state, ReembedState::Idle);

@@ -340,3 +340,6 @@ fn export_all(store: &dyn MemStore) -> Vec<crate::backend::ExportPage> {
 
 #[cfg(test)]
 mod tests;
+
+mod engines;
+pub use engines::{engine_auxiliary_round_trip, engine_pending_contract, engine_shadow_contract};

@@ -3,7 +3,11 @@ use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::{path::PathBuf, sync::Arc};
 pub(crate) mod blueprint;
+mod construction;
 mod deletion;
+pub mod engines;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod fixtures;
 mod implementation;
 mod operations;
 mod save;

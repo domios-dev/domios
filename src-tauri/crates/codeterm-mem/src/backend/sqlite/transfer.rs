@@ -30,6 +30,9 @@ impl StoreTable {
             Self::SourceTombstones => "mem_source_tombstones",
             Self::PrecompactPurges => "mem_precompact_purges",
             Self::PrecompactBlobs => "mem_precompact_purge_blobs",
+            Self::VectorPending => "mem_vector_pending",
+            Self::LessonAudit => "lesson_audit",
+            Self::GraphPurgeLog => "graph_purge_log",
         }
     }
     fn order_key(self) -> &'static str {
@@ -38,7 +41,10 @@ impl StoreTable {
             | Self::History
             | Self::Entities
             | Self::Relations
-            | Self::BlueprintCleanupReceipt => "id",
+            | Self::BlueprintCleanupReceipt
+            | Self::LessonAudit
+            | Self::GraphPurgeLog => "id",
+            Self::VectorPending => "mem_id",
             Self::Aliases => "alias_id",
             Self::Pins | Self::Vectors => "mem_id",
             Self::Fts => "rowid",
@@ -164,6 +170,9 @@ impl SqliteMemStore {
         }
         let conn = self.conn.lock();
         let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        if page.table == StoreTable::VectorPending {
+            crate::embedder::pending::init(&tx)?;
+        }
         if page.table == StoreTable::Embedder {
             if page.rows.len() != 1 {
                 return Err("expected one embedder stamp".into());

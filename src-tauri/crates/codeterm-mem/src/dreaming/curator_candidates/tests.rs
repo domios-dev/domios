@@ -26,14 +26,16 @@ fn stale_low_solution_is_proposed_until_reobserved() {
     };
     let id = mem.save_curator_skill(item(), None, proof(1), 100).unwrap();
     let threshold = 100 + 60 * 86400;
-    assert!(render(&mem.conn.lock(), threshold - 1).unwrap().is_none());
-    assert!(render(&mem.conn.lock(), threshold)
+    assert!(render(&mem.fixture_conn().lock(), threshold - 1)
+        .unwrap()
+        .is_none());
+    assert!(render(&mem.fixture_conn().lock(), threshold)
         .unwrap()
         .unwrap()
         .contains(&id));
     mem.save_curator_skill(item(), Some(&id), proof(2), threshold)
         .unwrap();
-    assert!(render(&mem.conn.lock(), threshold + 90 * 86400)
+    assert!(render(&mem.fixture_conn().lock(), threshold + 90 * 86400)
         .unwrap()
         .is_none());
 }

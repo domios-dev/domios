@@ -249,5 +249,5 @@ pub(crate) fn wait_for(
 
 pub(crate) fn connection() -> rusqlite::Connection {
     crate::embeddings::ensure_extension_registered();
-    rusqlite::Connection::open_in_memory().unwrap()
+    crate::backend::sqlite::fixtures::bare_connection()
 }

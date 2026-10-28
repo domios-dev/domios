@@ -23,7 +23,7 @@ async fn light_phase_promotes_accessed_learnings() {
         .unwrap();
 
     {
-        let conn = mem.conn();
+        let conn = mem.fixture_conn();
         let conn = conn.lock();
         let two_days_ago = (chrono::Utc::now() - chrono::Duration::days(2)).to_rfc3339();
         conn.execute(
@@ -62,7 +62,7 @@ async fn deep_phase_expires_old_unaccessed_conversations() {
         .unwrap();
 
     {
-        let conn = mem.conn();
+        let conn = mem.fixture_conn();
         let conn = conn.lock();
         let sixty_days_ago = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
         conn.execute(
@@ -162,7 +162,7 @@ async fn normalize_merges_high_confidence_asymmetric_pair() {
     // Typo-class pair: robert vs robertt. LD=1, ratio=6/7=0.857 ≥ 0.85. robertt has 1 relation, robert has 3 → robertt becomes alias of robert.
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         for id in ["person_robert", "person_robertt", "x", "y", "z"] {
             let etype = if id.starts_with("person") {
@@ -182,7 +182,7 @@ async fn normalize_merges_high_confidence_asymmetric_pair() {
     assert_eq!(report.promoted, 1, "exactly one merge expected");
 
     let canonical: String = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT canonical_id FROM entity_aliases WHERE alias_id = 'person_robertt'",
@@ -198,14 +198,14 @@ async fn normalize_ignores_nickname_pair_below_flag_threshold() {
     // Honest documentation: Levenshtein cannot catch nickname↔fullname (tima vs timofey). Ratio ≈ 0.43 < 0.70 → ignored entirely.
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         insert_entity(&c, "person_tima", "person", 0);
         insert_entity(&c, "person_timofey", "person", 0);
     }
     normalize_phase(&mem).await.unwrap();
     let aliases: i64 = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row("SELECT COUNT(*) FROM entity_aliases", [], |r| r.get(0))
         .unwrap();
@@ -216,7 +216,7 @@ async fn normalize_ignores_nickname_pair_below_flag_threshold() {
 async fn normalize_canonicalizes_synonymous_relations() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         insert_entity(&c, "e_a", "thing", 0);
         insert_entity(&c, "e_b", "thing", 0);
@@ -225,7 +225,7 @@ async fn normalize_canonicalizes_synonymous_relations() {
 
     normalize_phase(&mem).await.unwrap();
     let kind: String = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT relation_type FROM relations WHERE from_id='e_a' AND to_id='e_b'",
@@ -240,7 +240,7 @@ async fn normalize_canonicalizes_synonymous_relations() {
 async fn normalize_deletes_old_orphan_entities() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         insert_entity(&c, "orphan_1", "person", 20);
         insert_entity(&c, "kind_protected", "kind", 20);
@@ -248,7 +248,7 @@ async fn normalize_deletes_old_orphan_entities() {
 
     normalize_phase(&mem).await.unwrap();
     let exists_orphan: i64 = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT COUNT(*) FROM entities WHERE id='orphan_1'",
@@ -257,7 +257,7 @@ async fn normalize_deletes_old_orphan_entities() {
         )
         .unwrap();
     let exists_kind: i64 = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT COUNT(*) FROM entities WHERE id='kind_protected'",
@@ -273,7 +273,7 @@ async fn normalize_deletes_old_orphan_entities() {
 async fn normalize_invalidates_broken_relations() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         insert_entity(&c, "e_a", "thing", 0);
         // Relation pointing to non-existent entity 'ghost'.
@@ -282,7 +282,7 @@ async fn normalize_invalidates_broken_relations() {
 
     normalize_phase(&mem).await.unwrap();
     let valid_to: Option<String> = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT valid_to FROM relations WHERE from_id='e_a' AND to_id='ghost'",
@@ -312,7 +312,7 @@ async fn normalize_preserves_relations_anchored_in_mem_items() {
         })
         .unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         insert_entity(&c, "tech_rust", "tech", 0);
         insert_relation(&c, &fact_id, "mentions", "tech_rust");
@@ -320,7 +320,7 @@ async fn normalize_preserves_relations_anchored_in_mem_items() {
 
     normalize_phase(&mem).await.unwrap();
     let valid_to: Option<String> = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT valid_to FROM relations WHERE to_id='tech_rust'",
@@ -368,14 +368,14 @@ async fn normalize_preserves_mem_item_to_mem_item_relations() {
         })
         .unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         insert_relation(&c, &child, "extracted_from", &parent);
     }
 
     normalize_phase(&mem).await.unwrap();
     let valid_to: Option<String> = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT valid_to FROM relations WHERE from_id=?1 AND to_id=?2",
@@ -393,7 +393,7 @@ async fn normalize_preserves_mem_item_to_mem_item_relations() {
 async fn normalize_flags_borderline_pair_without_merging() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn();
+        let c = mem.fixture_conn();
         let c = c.lock();
         insert_entity(&c, "person_anya", "person", 0);
         insert_entity(&c, "person_anna", "person", 0);
@@ -401,7 +401,7 @@ async fn normalize_flags_borderline_pair_without_merging() {
 
     normalize_phase(&mem).await.unwrap();
     let aliases: i64 = mem
-        .conn()
+        .fixture_conn()
         .lock()
         .query_row(
             "SELECT COUNT(*) FROM entity_aliases WHERE alias_id IN ('person_anya','person_anna')",
@@ -434,7 +434,7 @@ async fn deep_phase_keeps_high_importance_conversations() {
         })
         .unwrap();
     {
-        let conn = mem.conn();
+        let conn = mem.fixture_conn();
         let conn = conn.lock();
         let sixty_days_ago = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
         conn.execute(

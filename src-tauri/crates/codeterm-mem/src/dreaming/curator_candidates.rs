@@ -4,7 +4,7 @@ use rusqlite::Connection;
 #[cfg(test)]
 mod tests;
 
-pub(super) fn render(conn: &Connection, now: i64) -> Result<Option<String>, String> {
+pub(crate) fn render(conn: &Connection, now: i64) -> Result<Option<String>, String> {
     let mut statement = conn.prepare("SELECT s.item_id FROM solution_metadata s JOIN mem_items m ON m.id=s.item_id WHERE m.kind='skill' AND json_extract(s.metadata_json,'$.curator.confidence')='low' AND json_extract(s.metadata_json,'$.curator.observed_at')<=?1 ORDER BY s.item_id LIMIT 20").map_err(|error|error.to_string())?;
     let rows = statement
         .query_map([now.saturating_sub(60 * 86400)], |row| {

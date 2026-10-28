@@ -73,7 +73,7 @@ fn blueprint_recall_uses_vectors_without_shared_words_and_scopes_before_limit() 
         .id;
     for index in 0..300 {
         store::insert(
-            &mem.conn.lock(),
+            &mem.fixture_conn().lock(),
             &NewMemItem {
                 kind: MemKind::Fact,
                 scope: MemScope::Global,
@@ -203,7 +203,7 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
         .id;
     let old_identity = old.identity();
     let old_vectors = crate::backend::sqlite::blueprint::index::read_vectors(
-        &fx.mem.conn.lock(),
+        &fx.mem.fixture_conn().lock(),
         &id,
         &old_identity,
     )
@@ -223,15 +223,18 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
     assert_eq!(progress.failed, 0);
     assert_eq!(progress.done, plan.total());
     let identity = new.identity();
-    let vectors =
-        crate::backend::sqlite::blueprint::index::read_vectors(&fx.mem.conn.lock(), &id, &identity)
-            .unwrap();
+    let vectors = crate::backend::sqlite::blueprint::index::read_vectors(
+        &fx.mem.fixture_conn().lock(),
+        &id,
+        &identity,
+    )
+    .unwrap();
     assert!(vectors
         .slot(Slot::Intent)
         .all(|(_, vector)| vector.len() == 1536));
     assert_eq!(vectors.slot(Slot::Intent).count(), 1);
     assert!(crate::backend::sqlite::blueprint::index::read_vectors(
-        &fx.mem.conn.lock(),
+        &fx.mem.fixture_conn().lock(),
         &id,
         &old_identity
     )
@@ -254,7 +257,7 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
             .id,
         id
     );
-    let conn = fx.mem.conn.lock();
+    let conn = fx.mem.fixture_conn().lock();
     let stale = crate::backend::sqlite::blueprint::index::replace_vectors(
         &conn,
         &id,
@@ -347,7 +350,7 @@ fn recall_reembed_shadow_blueprint_vectors_equal_direct_indexing_bytes() {
         |event| matches!(event, EmbedderEvent::Progress(progress) if progress.state == ReembedState::Completed),
     );
     let rows = || -> Vec<(String, i64, String, Vec<u8>)> {
-        let conn = fx.mem.conn.lock();
+        let conn = fx.mem.fixture_conn().lock();
         let mut statement = conn
             .prepare("SELECT slot, ordinal, text, embedding FROM blueprint_vectors WHERE item_id=?1 ORDER BY slot, ordinal")
             .unwrap();
@@ -362,7 +365,7 @@ fn recall_reembed_shadow_blueprint_vectors_equal_direct_indexing_bytes() {
     let published = rows();
     assert!(!published.is_empty());
     fx.mem
-        .conn
+        .fixture_conn()
         .lock()
         .execute("DELETE FROM blueprint_vectors WHERE item_id=?1", [&id])
         .unwrap();

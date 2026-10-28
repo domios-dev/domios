@@ -12,9 +12,11 @@ use crate::{
 pub mod blueprint;
 #[cfg(any(test, feature = "test-support"))]
 pub mod contract;
+pub mod engines;
 pub mod sqlite;
 pub use blueprint::BlueprintStore;
 mod transfer;
+pub use engines::EngineStore;
 pub use sqlite::SqliteMemStore;
 pub use transfer::{ExportCursor, ExportPage, StoreRow, StoreTable, StoreValue, TableCounts};
 
@@ -71,7 +73,7 @@ impl WriteContext {
     }
 }
 
-pub trait MemStore: BlueprintStore + Send + Sync {
+pub trait MemStore: BlueprintStore + EngineStore + Send + Sync {
     fn seed_graph(
         &self,
         ctx: &WriteContext,

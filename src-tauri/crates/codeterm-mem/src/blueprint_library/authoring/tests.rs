@@ -127,7 +127,7 @@ fn blueprint_v2_intent_scopes_candidates_before_ranking_and_limit() {
             .unwrap();
         if let Some(team) = team {
             crate::backend::sqlite::blueprint::calls::scope(
-                &mem.conn.lock(),
+                &mem.fixture_conn().lock(),
                 &saved.id,
                 scope,
                 team,
@@ -142,7 +142,7 @@ fn blueprint_v2_intent_scopes_candidates_before_ranking_and_limit() {
         }
     }
     crate::store::update(
-        &mem.conn.lock(),
+        &mem.fixture_conn().lock(),
         &foreign,
         &crate::store::MemUpdate {
             body: Some("schema_version: 1\nprivate: foreign body".into()),

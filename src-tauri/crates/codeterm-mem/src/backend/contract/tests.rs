@@ -91,3 +91,26 @@ fn sqlite_blueprint_source_filtered_solution_candidates() {
     let (_dir, store) = fixture();
     blueprint::source_filtered_solution_candidates(&store);
 }
+
+#[test]
+fn sqlite_engine_pending() {
+    let (_dir, store) = fixture();
+    engine_pending_contract(&store);
+}
+#[test]
+fn sqlite_engine_auxiliary_round_trip() {
+    let (_a, source) = fixture();
+    let (_b, target) = fixture();
+    engine_auxiliary_round_trip(&source, &target);
+}
+#[test]
+fn sqlite_engine_shadow_publication() {
+    let (_dir, store) = fixture();
+    let active = crate::embedder::ActiveEmbedder::new(crate::embedder::testing::MockProvider::new(
+        "contract", "old", 3,
+    ));
+    let target = crate::embedder::ActiveEmbedder::new(crate::embedder::testing::MockProvider::new(
+        "contract", "new", 4,
+    ));
+    engine_shadow_contract(&store, &active, &target);
+}

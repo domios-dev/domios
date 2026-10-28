@@ -139,3 +139,14 @@ fn build_skill_id_emoji_does_not_panic() {
     });
     assert!(result.is_ok(), "should not panic on emoji skill names");
 }
+
+#[test]
+fn standalone_worker_refuses_remote_database_urls_before_opening() {
+    for url in ["postgres://host/database", "postgresql://host/database"] {
+        assert!(matches!(
+            validate_worker_sqlite_path(std::path::Path::new(url)),
+            Err(WorkerPathError::SqlitePathRequired)
+        ));
+    }
+    assert!(validate_worker_sqlite_path(std::path::Path::new("knowledge.db")).is_ok());
+}

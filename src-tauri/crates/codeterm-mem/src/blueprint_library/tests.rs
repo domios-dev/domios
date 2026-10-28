@@ -335,12 +335,12 @@ fn blueprint_dreamer_only_merges_existing_solutions_and_preserves_stats() {
         })
         .unwrap();
     let record = mem.solution_metadata(&id).unwrap().unwrap();
-    metadata::write(&mem.conn.lock(), &other, &record).unwrap();
+    metadata::write(&mem.fixture_conn().lock(), &other, &record).unwrap();
     let events = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
     let observed = events.clone();
     let weak = std::sync::Arc::downgrade(&mem);
     mem.set_blueprint_library_listener(std::sync::Arc::new(move |area, revision| {
-        assert!(weak.upgrade().unwrap().conn.try_lock().is_some());
+        assert!(weak.upgrade().unwrap().fixture_conn().try_lock().is_some());
         observed.lock().push((area.to_owned(), revision));
     }));
     assert_eq!(mem.dream_blueprints().unwrap(), 1);
@@ -410,7 +410,7 @@ fn memory_access_counters_do_not_change_blueprint_statistics() {
         .save_blueprint("project", document("done"), &when("Watch CI"), evidence())
         .unwrap()
         .id;
-    mem.conn.lock().execute("UPDATE mem_items SET access_count=999,recurrence_count=888,title='Search title' WHERE id=?1",[&id]).unwrap();
+    mem.fixture_conn().lock().execute("UPDATE mem_items SET access_count=999,recurrence_count=888,title='Search title' WHERE id=?1",[&id]).unwrap();
     let entries = mem.list_blueprint_solutions("project").unwrap();
     assert_eq!(entries[0].uses, 0);
     assert_eq!(entries[0].successes, 1);
@@ -471,7 +471,7 @@ fn corrupt_saved_echo(mem: &MemManager, id: &str) {
         model::structure(&broken),
         model::structure(&echo_document())
     );
-    let conn = mem.conn.lock();
+    let conn = mem.fixture_conn().lock();
     store::update(
         &conn,
         id,
@@ -550,7 +550,7 @@ fn recall_archives_invalid_recipes_without_hiding_valid_ones() {
     assert_eq!(recalled[0].entry.id, valid);
     assert_archived(&mem, &id);
     assert!(mem.blueprint_recipe("project", &id).is_err());
-    let conn = mem.conn.lock();
+    let conn = mem.fixture_conn().lock();
     store::update(
         &conn,
         &valid,
@@ -571,7 +571,7 @@ fn recall_archives_invalid_recipes_without_hiding_valid_ones() {
 
 fn assert_archived(mem: &MemManager, id: &str) {
     let kind: String = mem
-        .conn
+        .fixture_conn()
         .lock()
         .query_row("SELECT kind FROM mem_items WHERE id=?1", [id], |row| {
             row.get(0)
@@ -642,7 +642,7 @@ mod recall_regressions;
 #[test]
 fn blueprint_v2_check_v1_cleanup_keeps_history_and_runs_once() {
     let mem = MemManager::open_in_memory().unwrap();
-    let conn = mem.conn.lock();
+    let conn = mem.fixture_conn().lock();
     let obsolete = "schema_version: 1\nname: obsolete\nwatch: {}\n";
     let id = store::insert(
         &conn,

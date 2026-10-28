@@ -439,7 +439,7 @@ impl MemStore for SqliteMemStore {
     fn search(&self, q: &SearchQuery, record_access: bool) -> Result<Vec<SearchHit>, String> {
         let conn = self.conn.lock();
         let _read = (!record_access)
-            .then(|| crate::manager_search::UntouchedRead::begin(&conn))
+            .then(|| super::engines::targets::UntouchedRead::begin(&conn))
             .transpose()?;
         search::run(&conn, q, &self.blobs_dir)
     }
@@ -452,7 +452,7 @@ impl MemStore for SqliteMemStore {
     ) -> Result<Vec<SearchHit>, String> {
         let (vector, conn) = self.query_under_conn(&q.query, embedder);
         let _read = (!record_access)
-            .then(|| crate::manager_search::UntouchedRead::begin(&conn))
+            .then(|| super::engines::targets::UntouchedRead::begin(&conn))
             .transpose()?;
         search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, vector.as_ref())
     }
@@ -676,7 +676,7 @@ impl MemStore for SqliteMemStore {
     }
     fn graph_candidates(&self, q: &SearchQuery, m: usize) -> Result<Vec<SearchHit>, String> {
         let conn = self.conn.lock();
-        let _read = crate::manager_search::UntouchedRead::begin(&conn)?;
+        let _read = super::engines::targets::UntouchedRead::begin(&conn)?;
         let mut hits = Vec::new();
         for id in search::graph_source::graph_candidates(&conn, q, m)? {
             if let Some(item) = store::get(&conn, &id, &self.blobs_dir)? {

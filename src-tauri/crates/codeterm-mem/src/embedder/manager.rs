@@ -3,8 +3,8 @@ use std::sync::Arc;
 use super::active::{ActiveEmbedder, EmbedderEvent};
 use super::provider::SharedProvider;
 use super::switch::SwitchPlan;
-use super::{index, pending, EmbedderStatus};
-use crate::{embeddings, store, MemManager};
+use super::EmbedderStatus;
+use crate::MemManager;
 
 impl MemManager {
     pub fn embedder(&self) -> &Arc<ActiveEmbedder> {
@@ -15,30 +15,10 @@ impl MemManager {
         self.reembed.snapshot()
     }
 
-    fn switch_connection(
-        &self,
-        wait: bool,
-    ) -> Result<parking_lot::MutexGuard<'_, rusqlite::Connection>, String> {
-        if wait {
-            Ok(self.conn.lock())
-        } else {
-            self.conn
-                .try_lock()
-                .ok_or_else(|| "memory is busy; embedder switch cannot complete now".into())
-        }
-    }
-
     pub fn embedder_status(&self) -> EmbedderStatus {
         let provider = self.embedder.provider();
         let identity = provider.identity();
-        let (index, vectors, pending) = {
-            let conn = self.conn.lock();
-            (
-                index::stamp(&conn).ok().flatten(),
-                index::vector_count(&conn),
-                pending::count(&conn),
-            )
-        };
+        let (index, vectors, pending) = self.store.engine_status(true).unwrap_or_default();
         let reembed = self.reembed.snapshot();
         // A build or a failed build leaves recall fully semantic on the published model.
         let degraded = !self.embedder.is_available() || index.as_ref() != Some(&identity);
@@ -63,21 +43,15 @@ impl MemManager {
     /// How much a switch would re-embed: every embeddable item, every entity
     /// and, for the daemon's manager, every documentation section.
     pub fn reembed_plan(&self) -> Result<SwitchPlan, String> {
-        let conn = self.conn.lock();
-        self.reembed_plan_in(&conn)
+        self.store.engine_plan(self.docs_count())
     }
 
-    fn reembed_plan_in(&self, conn: &rusqlite::Connection) -> Result<SwitchPlan, String> {
-        Ok(SwitchPlan {
-            blueprints: crate::backend::sqlite::blueprint::index::indexed_items(conn)?.len() as u64,
-            items: self.reembed_item_targets(conn)?.len() as u64,
-            entities: self.reembed_entity_targets(conn)?.len() as u64,
-            docs: if self.docs_dir.is_some() {
-                self.docs_sections().len() as u64
-            } else {
-                0
-            },
-        })
+    fn docs_count(&self) -> u64 {
+        if self.docs_dir.is_some() {
+            self.docs_sections().len() as u64
+        } else {
+            0
+        }
     }
 
     /// Build a stamped shadow while recall continues on the published model.
@@ -107,7 +81,7 @@ impl MemManager {
         let failed = running.state == super::ReembedState::Failed;
         let running = (running.state == super::ReembedState::Running).then_some(running);
         if self.embedder.identity() == identity
-            && index::stamp(&*self.switch_connection(wait)?)?.as_ref() == Some(&identity)
+            && self.store.engine_status(wait)?.0.as_ref() == Some(&identity)
         {
             if let Some(running) = running {
                 let reason = format!(
@@ -129,7 +103,7 @@ impl MemManager {
                     &self.embedder,
                 );
             }
-            self.clear_shadow(&*self.switch_connection(wait)?);
+            self.store.clear_shadow(&Self::write_context(), wait)?;
             super::local::retain_models(&identity, None);
             return Ok(SwitchPlan::default());
         }
@@ -142,12 +116,12 @@ impl MemManager {
                     .into(),
             );
         }
-        let plan = {
-            let conn = self.switch_connection(wait)?;
-            let plan = self.reembed_plan_in(&conn)?;
-            self.prepare_shadow_in(&conn, &identity)?;
-            plan
-        };
+        let plan = self.store.prepare_engine_switch(
+            &Self::write_context(),
+            &identity,
+            self.docs_count(),
+            wait,
+        )?;
         let generation = self.reembed.start(identity, plan, &self.embedder);
         if let Err(error) = self.launch_shadow(generation, ActiveEmbedder::new(provider)) {
             self.reembed.fail(generation, error.clone(), &self.embedder);
@@ -164,9 +138,9 @@ impl MemManager {
         provider: SharedProvider,
     ) -> Result<Option<SwitchPlan>, String> {
         let identity = provider.identity();
-        if index::stamp(&self.conn.lock())?.as_ref() == Some(&identity) {
+        if self.store.vector_stamp()?.as_ref() == Some(&identity) {
             if self.reembed.snapshot().state != super::ReembedState::Running {
-                self.clear_shadow(&self.conn.lock());
+                self.store.clear_shadow(&Self::write_context(), true)?;
             }
             self.adopt_published(provider);
             return Ok(None);
@@ -177,7 +151,10 @@ impl MemManager {
     /// Serve recall with the published model while a configured switch resumes.
     pub fn adopt_published(&self, provider: SharedProvider) {
         if self.embedder.identity() != provider.identity() {
-            self.embedder.replace(provider);
+            self.store
+                .adopt_published(&Self::write_context(), &self.embedder, provider);
+            self.embedder
+                .emit(&EmbedderEvent::Switched(self.embedder.identity()));
             self.rebuild_docs_vectors();
         }
         self.reembed.retain_local_models(&self.embedder);
@@ -186,7 +163,7 @@ impl MemManager {
 
     /// Queue every vector-pending item and entity again.
     pub fn backfill_pending(&self) -> usize {
-        let ids = match pending::ids(&self.conn.lock()) {
+        let ids = match self.store.pending_ids() {
             Ok(ids) => ids,
             Err(error) => {
                 log::warn!("[mem.embedder] read vector pending: {error}");
@@ -201,7 +178,7 @@ impl MemManager {
                     queued += 1;
                 }
                 None => {
-                    let _ = pending::clear(&self.conn.lock(), &id);
+                    let _ = self.store.clear_pending(&Self::write_context(), &id);
                 }
             }
         }
@@ -251,28 +228,6 @@ impl MemManager {
     }
 
     fn embed_text_for(&self, id: &str) -> Option<String> {
-        let conn = self.conn.lock();
-        if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {
-            return crate::body_is_embeddable(&item.body).then(|| {
-                crate::reindex::compose_item_embed_text(
-                    &item.kind,
-                    &item.title,
-                    item.area.as_deref(),
-                    &item.tags,
-                    &item.body,
-                    item.source.as_deref(),
-                    item.summary.as_deref(),
-                )
-            });
-        }
-        conn.query_row(
-            "SELECT entity_type, properties_json FROM entities WHERE id = ?1",
-            [id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .ok()
-        .map(|(entity_type, props)| {
-            embeddings::embeddable_text_for_entity(id, &entity_type, &props)
-        })
+        self.store.pending_embed_text(id)
     }
 }

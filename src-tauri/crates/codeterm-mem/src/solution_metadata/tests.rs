@@ -35,7 +35,7 @@ fn old_solution_shapes_are_deleted_without_conversion() {
     old.source = Some("blueprint-library".into());
     old.tags = vec!["failures:3".into(), "explicitly-kept".into()];
     let id = mem.insert_raw(&old).unwrap();
-    initialize(&mem.conn.lock()).unwrap();
+    initialize(&mem.fixture_conn().lock()).unwrap();
     assert!(mem.get(&id).unwrap().is_none());
     assert!(mem.solution_metadata(&id).unwrap().is_none());
 }
@@ -44,7 +44,7 @@ fn old_solution_shapes_are_deleted_without_conversion() {
 fn malformed_metadata_fails_instead_of_defaulting() {
     let mem = MemManager::open_in_memory().unwrap();
     let id = mem.insert_raw(&item()).unwrap();
-    mem.conn
+    mem.fixture_conn()
         .lock()
         .execute(
             "INSERT INTO solution_metadata(item_id,metadata_json) VALUES (?1,?2)",

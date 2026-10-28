@@ -338,4 +338,5 @@ fn apply_archive_with_context(
 mod tests;
 
 #[cfg(test)]
+#[path = "calibration/tests_organizer_guard.rs"]
 mod organizer_guard;
