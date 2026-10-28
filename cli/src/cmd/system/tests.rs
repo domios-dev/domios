@@ -130,7 +130,11 @@ fn supervisor_lock_ignores_a_leftover_file_naming_a_live_unrelated_process() {
 
 #[test]
 fn windows_task_retries_failures_with_bounded_count_and_preserves_long_running_supervision() {
-    let policy = codeterm_util::autostart::windows_task_xml("DOMAIN\\user", "C:\\domios.exe", "C:\\domios-app.exe");
+    let policy = codeterm_util::autostart::windows_task_xml(
+        "DOMAIN\\user",
+        "C:\\domios.exe",
+        "C:\\domios-app.exe",
+    );
     assert!(policy.contains("<Count>3</Count>"));
     assert!(policy.contains("<Interval>PT1M</Interval>"));
     assert!(policy.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));

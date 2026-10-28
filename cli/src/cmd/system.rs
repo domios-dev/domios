@@ -499,18 +499,29 @@ fn autostart_home() -> Result<std::path::PathBuf, String> {
     dirs::home_dir().ok_or_else(|| "home dir not found".into())
 }
 
-fn enable_autostart(binary_override: Option<&str>, supervisor_override: Option<&str>) -> Result<serde_json::Value, String> {
+fn enable_autostart(
+    binary_override: Option<&str>,
+    supervisor_override: Option<&str>,
+) -> Result<serde_json::Value, String> {
     let bin = resolve_app_binary(binary_override)?;
     let supervisor = resolve_supervisor_binary(supervisor_override)?;
     let home = autostart_home()?;
     codeterm_util::autostart::enable(&home, &crate::data_root(), &supervisor, &bin)?;
     let mut result = serde_json::json!({"ok":true,"platform":platform_name(),"binary":bin.to_string_lossy(),"supervisor":supervisor.to_string_lossy()});
     #[cfg(windows)]
-    { result["task_name"] = WIN_TASK_NAME.into(); }
+    {
+        result["task_name"] = WIN_TASK_NAME.into();
+    }
     #[cfg(target_os = "macos")]
-    { result["label"] = MAC_LABEL.into(); result["plist"] = mac_plist_path()?.to_string_lossy().into_owned().into(); }
+    {
+        result["label"] = MAC_LABEL.into();
+        result["plist"] = mac_plist_path()?.to_string_lossy().into_owned().into();
+    }
     #[cfg(target_os = "linux")]
-    { result["unit"] = LINUX_UNIT_NAME.into(); result["path"] = linux_unit_path()?.to_string_lossy().into_owned().into(); }
+    {
+        result["unit"] = LINUX_UNIT_NAME.into();
+        result["path"] = linux_unit_path()?.to_string_lossy().into_owned().into();
+    }
     Ok(result)
 }
 
@@ -518,11 +529,17 @@ fn disable_autostart() -> Result<serde_json::Value, String> {
     codeterm_util::autostart::disable(&autostart_home()?, &crate::data_root())?;
     let mut result = serde_json::json!({"ok":true,"platform":platform_name()});
     #[cfg(windows)]
-    { result["removed"] = serde_json::json!([WIN_TASK_NAME]); }
+    {
+        result["removed"] = serde_json::json!([WIN_TASK_NAME]);
+    }
     #[cfg(target_os = "macos")]
-    { result["label"] = MAC_LABEL.into(); }
+    {
+        result["label"] = MAC_LABEL.into();
+    }
     #[cfg(target_os = "linux")]
-    { result["unit"] = LINUX_UNIT_NAME.into(); }
+    {
+        result["unit"] = LINUX_UNIT_NAME.into();
+    }
     Ok(result)
 }
 
