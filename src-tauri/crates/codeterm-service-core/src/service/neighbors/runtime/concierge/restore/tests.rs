@@ -240,7 +240,7 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
         let root = mux.create_tab(&workspace).unwrap();
         let friend = "a".repeat(64);
         let tab = mux.get_tab_mut(&root).unwrap();
-        tab.agent_type = Some("claude".into());
+        tab.agent_type = Some("opaque-pty".into());
         tab.agent_session_id = Some("same-restored-session".into());
         tab.session_binding_nonce = Some("same-nonce".into());
         tab.neighbor_authority = Some(NeighborAuthority {
@@ -295,9 +295,7 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
             .lock()
             .neighbors
             .enabled = true;
-        service
-            .agent_registry
-            .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+        restored.register_neighbor_advisory_provider("opaque-pty");
         service.mux.write().get_tab_mut(&root).unwrap().frozen = true;
         assert!(service.neighbor_cell().restore_grants.lock().is_empty());
         let calls = Arc::new(AtomicUsize::new(0));
@@ -320,7 +318,7 @@ async fn fresh_context_pty_restore_waits_for_local_grant_then_materializes_once(
                         &copy,
                         &copy.agent_registry,
                         &target,
-                        "claude",
+                        "opaque-pty",
                         &launch,
                     )?;
                 assert_eq!(authorization.is_some(), access == MachineAccess::Full);

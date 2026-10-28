@@ -22,8 +22,7 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
             });
             let fixture = ServiceFixture::new(mux);
             let svc = &fixture.service;
-            svc.agent_registry
-                .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+            fixture.register_neighbor_advisory_provider("opaque-pty");
             let mut params = SpawnAgentParams {
                 resume_session_id: (lifecycle != "fresh").then(|| "opaque-session".into()),
                 ..Default::default()
@@ -35,10 +34,10 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
                 .unwrap()
                 .neighbor_authority
                 .clone();
-            svc.configure_neighbor_launch_access("claude", access, &mut params)
+            svc.configure_neighbor_launch_access("opaque-pty", access, &mut params)
                 .unwrap();
             assert_eq!(
-                params.permission_bypass_requested("claude"),
+                params.permission_bypass_requested("opaque-pty"),
                 access == MachineAccess::Full
             );
             for global in [false, true] {
@@ -46,7 +45,7 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
                 assert_eq!(
                     crate::service::permission_policy::spawn_permission_bypass_for_launch(
                         svc,
-                        "claude",
+                        "opaque-pty",
                         false,
                         false,
                         Some(&params)
@@ -61,7 +60,7 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
                 assert!(
                     crate::service::permission_policy::spawn_permission_bypass_for_launch(
                         svc,
-                        "claude",
+                        "opaque-pty",
                         false,
                         false,
                         Some(&forged)
@@ -75,7 +74,7 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
             std::fs::write(pad.path().join("reply.txt"), "opaque reply").unwrap();
             let mut recorded = crate::multiplexer::types::RestorableLaunchParameters::default();
             recorded.captured = true;
-            recorded.permission_bypass_requested = params.permission_bypass_requested("claude");
+            recorded.permission_bypass_requested = params.permission_bypass_requested("opaque-pty");
             svc.remember_neighbor_restore_grant(&tab_id, access == MachineAccess::Full);
             svc.mux
                 .write()
@@ -89,7 +88,7 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
                     svc,
                     &svc.agent_registry,
                     &tab_id,
-                    "claude",
+                    "opaque-pty",
                     &recorded,
                 )
                 .unwrap();
@@ -125,12 +124,9 @@ fn full_launch_without_provider_authorization_is_refused_instead_of_prompting() 
 #[test]
 fn legacy_full_concierge_without_bypass_requires_reconciliation() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("claude".into());
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("opaque-pty".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .agent_registry
-        .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    fixture.register_neighbor_advisory_provider("opaque-pty");
     let cwd = fixture.temp.path().to_string_lossy().into_owned();
     fixture
         .service

@@ -62,6 +62,22 @@ impl Browser for NoBrowser {
 }
 
 impl crate::service::test_fixture::ServiceFixture {
+    pub fn register_neighbor_advisory_provider(&self, id: &str) {
+        let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
+            "id":id,"version":"1.0.0","displayName":"Fixture",
+            "capabilities":{"agentProvider":true},
+            "commands":{"autoApproveFlags":["opaque-full"]},
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+        }).to_string()).unwrap();
+        let vm = Arc::new(
+            codeterm_plugin::js_runtime::PluginVm::from_source(id, "module.exports={}".into())
+                .unwrap(),
+        );
+        self.service.agent_registry.register_provider(Box::new(
+            codeterm_plugin::js_runtime::JsProvider::new(manifest, vm),
+        ));
+    }
+
     pub async fn save_neighbor_restore_settings(
         &self,
         uid: &str,
