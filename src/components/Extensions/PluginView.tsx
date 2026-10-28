@@ -85,7 +85,7 @@ export function PluginView({
 
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
   const documentPath = `${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`;
-  const { html, error: documentError } = usePluginDocument(documentPath);
+  const { html, media, dispose: disposeDocument, error: documentError } = usePluginDocument(documentPath);
   const state = pluginUiDocumentState(html, documentError, runtime?.path === documentPath ? runtime.state : { status: "loading" });
 
   const onMessage = useCallback(
@@ -107,6 +107,16 @@ export function PluginView({
         onClose?.();
         return;
       }
+      if (m.__ctMedia != null) {
+        try {
+          if (!media || !Number.isSafeInteger(m.__ctMedia) || typeof m.id !== "string") throw new Error("Plugin media unavailable");
+          const result = await media(m.id);
+          if (iframeRef.current?.contentWindow === win) win.postMessage({ __ctReply: m.__ctMedia, result }, "*");
+        } catch {
+          if (iframeRef.current?.contentWindow === win) win.postMessage({ __ctReply: m.__ctMedia, error: "Plugin media unavailable" }, "*");
+        }
+        return;
+      }
       if (m.__ctInvoke != null) {
         try {
           // iframes (e.g. Git) never need to know their own path.
@@ -126,7 +136,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath],
+    [pluginId, cwd, onClose, documentPath, media],
   );
 
   useEffect(() => {
@@ -167,6 +177,7 @@ export function PluginView({
     return () => window.removeEventListener("keydown", onKey);
   }, [active, embedded, onClose]);
 
+  const loadedDocument = useRef<string | null>(null);
   const frame = (
     <PluginUiHost pluginId={pluginId} state={state} onRetry={() => setReloadNonce((n) => n + 1)}>
       {html !== undefined && html.trim() && <iframe
@@ -175,6 +186,13 @@ export function PluginView({
         data-testid="extensions-plugin-iframe"
         data-plugin-id={pluginId}
         srcDoc={html}
+        onLoad={() => {
+          if (loadedDocument.current === documentPath) {
+            disposeDocument?.();
+            setReloadNonce((nonce) => nonce + 1);
+          }
+          loadedDocument.current = documentPath;
+        }}
         title={`${pluginId} view`}
         sandbox="allow-scripts"
         style={{ flex: 1, width: "100%", border: "none", background: "var(--ct-bg)", display: "block", height: "100%" }}

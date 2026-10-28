@@ -14,6 +14,7 @@ window.addEventListener('message',function(e){var m=e.data||{};
  if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
 window.ct={surface:__CT_SURFACE__,invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
   p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
+ media:function(id){var key=++s;return new Promise(function(res,rej){p[key]={resolve:res,reject:rej};parent.postMessage({__ctMedia:key,id:id},'*');});},
  close:function(){parent.postMessage({__ctClose:true},'*');}};
 parent.postMessage({__ctReady:true},'*');
 function rz(){if(!document.body)return;var h=document.body.scrollHeight;if(h)parent.postMessage({__ctResize:h},'*');}
@@ -45,7 +46,8 @@ fn ui_mime(path: &str) -> &'static str {
 }
 
 pub async fn plugin_ui(
-    AxumState(_state): AxumState<AppState>,
+    AxumState(state): AxumState<AppState>,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
     axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
     Query(q): Query<PluginUiQuery>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
@@ -57,6 +59,9 @@ pub async fn plugin_ui(
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
     }
+    let media_provider = if rel.ends_with(".html") && matches!(caller.as_ref().map(|value| &value.0), Some(crate::auth::CallerIdentity::Local)) {
+        state.svc.try_ext::<codeterm_plugin::view_host::ViewRegistryHandle>().and_then(|registry| registry.get(&id).map(|provider| (provider, registry.clone())))
+    } else { None };
     let relative = rel.to_owned();
     let bytes = tokio::task::spawn_blocking(move || {
         codeterm_plugin::bundle_access::read_plugin_files(&id, || {
@@ -69,7 +74,13 @@ pub async fn plugin_ui(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
 
-    Ok(plugin_ui_response(rel, bytes, &q))
+    let mut response = plugin_ui_response(rel, bytes, &q);
+    if let Some((provider, registry)) = media_provider.filter(|(provider, _)| provider.media_delivery().is_some()) {
+        if let Ok(frame) = codeterm_plugin::media_delivery::create_frame(&provider, &registry) {
+            if let Ok(value) = HeaderValue::from_str(&frame) { response.headers_mut().insert("x-domios-plugin-media-frame", value); }
+        }
+    }
+    Ok(response)
 }
 
 fn plugin_ui_response(
@@ -96,7 +107,7 @@ fn plugin_frame_csp(nonce: &str) -> String {
     // A style nonce suppresses unsafe-inline, blocking attributes and Git's unnonced runtime styles.
     format!(
         "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; \
-         img-src blob: data:; font-src blob: data:; \
+         img-src blob: data:; font-src blob: data:; media-src 'none'; \
          connect-src 'none'; base-uri 'none'; form-action 'none'"
     )
 }

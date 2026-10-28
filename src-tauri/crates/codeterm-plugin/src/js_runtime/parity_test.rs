@@ -1192,3 +1192,6 @@ mod runtime_chat_descriptor;
 
 #[path = "parity_test/data_dir.rs"]
 mod data_dir;
+
+#[path = "parity_test/media_delivery.rs"]
+mod media_delivery;

@@ -16,9 +16,12 @@ pub struct JsViewProvider {
     vm: Arc<PluginVm>,
     id: String,
     webhook_receiver_kind: Option<WebhookReceiverKind>,
+    media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
 }
 
 impl JsViewProvider {
+    pub fn with_media_delivery(mut self, descriptor: Option<crate::media_delivery::MediaDeliveryDescriptor>) -> Self { self.media_delivery = descriptor; self }
+
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
         Self::with_webhook_receiver(vm, id, None)
     }
@@ -32,6 +35,7 @@ impl JsViewProvider {
             vm,
             id: id.into(),
             webhook_receiver_kind,
+            media_delivery: None,
         }
     }
 }
@@ -44,6 +48,17 @@ impl ViewProvider for JsViewProvider {
 
     fn webhook_receiver_kind(&self) -> Option<WebhookReceiverKind> {
         self.webhook_receiver_kind
+    }
+
+    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> { self.media_delivery.clone().filter(|value| value.valid()) }
+
+    async fn media_file(&self, id: &str) -> Result<crate::media_delivery::MediaFile, ViewError> {
+        if self.media_delivery().is_none() || id.is_empty() || id.len() > 256 { return Err(ViewError::Call("media delivery denied".into())); }
+        let vm = self.vm.clone();
+        let id = id.to_owned();
+        tokio::task::spawn_blocking(move || call_json(&vm, "mediaFile", &[Value::String(id)]))
+            .await.map_err(|_| ViewError::Call("media task failed".into()))?
+            .map_err(|_| ViewError::Call("media file refused".into()))
     }
 
     async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError> {
@@ -60,73 +75,4 @@ impl ViewProvider for JsViewProvider {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn vm_with(src: &str) -> Arc<PluginVm> {
-        Arc::new(PluginVm::from_source("test-view", src.to_string()).expect("vm"))
-    }
-
-    #[tokio::test]
-    async fn routes_bridge_calls_to_view_call() {
-        let vm = vm_with(
-            r#"module.exports.default = {
-                viewCall(method, args) {
-                    if (method === "echo") return { got: args.x * 2 };
-                    return { error: "unknown" };
-                }
-            }"#,
-        );
-        let v = JsViewProvider::new(vm, "test-view");
-        let out = v
-            .call("echo", serde_json::json!({ "x": 21 }))
-            .await
-            .unwrap();
-        assert_eq!(out["got"], 42);
-    }
-
-    /// NEGATIVE CONTROL for the grant seam: view-call args are iframe-authored
-    /// (the host stamps cwd only when the iframe omits it), so an `args.cwd`
-    /// must never mint a read grant — otherwise any drop-in with a view could
-    /// self-issue read access to arbitrary paths. Reads under a tab cwd work
-    /// only after a host-driven bubble/glance call granted that root.
-    #[tokio::test]
-    async fn view_args_cwd_never_mints_a_read_grant() {
-        use crate::js_runtime::host_api::PluginSandbox;
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join("loot")).unwrap();
-        let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
-        let vm = Arc::new(
-            PluginVm::from_source_sandboxed(
-                "confined-view",
-                r#"module.exports.default = {
-                    viewCall(method, args) { return { names: host.listChildDirs(args.cwd) }; }
-                }"#
-                .to_string(),
-                None,
-                sandbox.clone(),
-            )
-            .expect("vm"),
-        );
-        let v = JsViewProvider::new(vm, "confined-view");
-        let cwd = tmp.path().to_string_lossy().into_owned();
-
-        let out = v
-            .call("probe", serde_json::json!({ "cwd": cwd }))
-            .await
-            .unwrap();
-        assert_eq!(
-            out["names"],
-            serde_json::Value::Null,
-            "an iframe-supplied cwd must stay denied"
-        );
-
-        // Once the HOST granted the same cwd (bubble/glance path), the view works.
-        sandbox.grant_cwd_read_root(&cwd);
-        let out = v
-            .call("probe", serde_json::json!({ "cwd": cwd }))
-            .await
-            .unwrap();
-        assert_eq!(out["names"], serde_json::json!(["loot"]));
-    }
-}
+mod tests;

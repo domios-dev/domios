@@ -61,3 +61,5 @@ export type { ParsedSessionRecord, JsonlRecordFilter, JsonlRecordSource, JsonlRe
 export type { ExecutionSandboxCapability, ExecutionSandboxMode } from "./executionSandbox";
 export { activityLabel, activityCommand, type ActivityTool } from "./activityLabel";
 export type { ChatAttachment } from "./gen/ChatAttachment";
+
+export * from "./mediaDelivery";

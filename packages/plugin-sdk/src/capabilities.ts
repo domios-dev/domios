@@ -1051,6 +1051,8 @@ export interface PluginModule
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
+  /** Requires manifest mediaDelivery. Lookup only: never submit work. Paths are relative to this plugin's own data directory. */
+  mediaFile?(id: string): import("./mediaDelivery").MediaFile;
   /** Refresh account-backed remote execution availability and environments. */
   discoverRemoteTask?(): import("./remoteTasks").RemoteTaskDiscovery;
   glanceAction?(action: string, ctx: TabContext): unknown;

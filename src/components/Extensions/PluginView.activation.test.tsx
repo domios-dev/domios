@@ -2,7 +2,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const documentState = vi.hoisted(() => ({ html: "<html></html>" as string | undefined, error: null as string | null }));
+const documentState = vi.hoisted(() => ({ html: "<html></html>" as string | undefined, error: null as string | null, media: undefined as undefined | ((id: string) => Promise<unknown>), dispose: undefined as undefined | (() => void) }));
 const documentLoad = vi.hoisted(() => vi.fn(() => documentState));
 const listeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 
@@ -37,6 +37,8 @@ afterEach(async () => {
   listeners.clear();
   documentState.html = "<html></html>";
   documentState.error = null;
+  documentState.media = undefined;
+  documentState.dispose = undefined;
   documentLoad.mockClear();
 });
 
@@ -52,6 +54,43 @@ async function mount(ui: ReactElement) {
 }
 
 describe("plugin view activation", () => {
+  it("registers media only for the exact current iframe and sends no frame-provided path", async () => {
+    const media = vi.fn(async () => ({ handle: "opaque", url: "scoped" }));
+    documentState.media = media;
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    const postMessage = vi.fn();
+    const ownWindow = { postMessage };
+    Object.defineProperty(iframe, "contentWindow", { configurable: true, value: ownWindow });
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: window, data: { __ctMedia: 1, id: "foreign", path: "/secret" } })));
+    expect(media).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: ownWindow as unknown as Window, data: { __ctMedia: 2, id: "own", path: "/secret", plugin: "foreign" } })));
+    expect(media).toHaveBeenCalledExactlyOnceWith("own");
+    expect(postMessage).toHaveBeenCalledWith({ __ctReply: 2, result: { handle: "opaque", url: "scoped" } }, "*");
+  });
+  it("does not reply to a replaced frame after media registration finishes", async () => {
+    let resolve!: (value: unknown) => void;
+    documentState.media = () => new Promise((done) => { resolve = done; });
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    const postMessage = vi.fn();
+    const ownWindow = { postMessage };
+    Object.defineProperty(iframe, "contentWindow", { configurable: true, value: ownWindow });
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: ownWindow as unknown as Window, data: { __ctMedia: 2, id: "own" } })));
+    Object.defineProperty(iframe, "contentWindow", { configurable: true, value: { postMessage: vi.fn() } });
+    await act(async () => resolve({ handle: "opaque" }));
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 2 }), "*");
+  });
+  it("revokes media on an in-frame reload even when the surface instance is unchanged", async () => {
+    documentState.dispose = vi.fn();
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    await act(async () => iframe.dispatchEvent(new Event("load")));
+    expect(documentState.dispose).not.toHaveBeenCalled();
+    await act(async () => iframe.dispatchEvent(new Event("load")));
+    expect(documentState.dispose).toHaveBeenCalledTimes(1);
+    expect(documentLoad).toHaveBeenLastCalledWith(expect.stringContaining("reload=1"));
+  });
   it("keeps a plugin mount exception visible and retries a fresh document", async () => {
     await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
     const iframe = host!.querySelector("iframe")!;
