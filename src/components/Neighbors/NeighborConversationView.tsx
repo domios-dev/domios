@@ -272,7 +272,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       {!ended && limitReached && enabled && !locked && <p role="status" className="neighbor-note neighbor-chat__limit">Limit reached: {name} allows {allowance!.limit} {allowance!.limit === 1 ? "message" : "messages"} a day. Ask them to raise it.</p>}
       {!ended && paused && <div role="status" className="neighbor-note neighbor-chat__limit neighbor-chat__paused">
         <span>{pausedLine(name)}</span>
-        <Button size="sm" onClick={() => setFriendPaused(conciergeClient, friendship, false, true, setError)}>Resume</Button>
+        <Button size="sm" onClick={() => setFriendPaused(conciergeClient, friendship, false, true, setError)}>Enable</Button>
       </div>}
       {!ended && theyPaused && <p role="status" className="neighbor-note neighbor-chat__limit">{theyPausedLine(name)}</p>}
       {!ended && conciergeWorking && <div role="status" className="neighbor-note neighbor-chat__limit neighbor-chat__working">
@@ -282,7 +282,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
         <Button size="compact" className="ml-auto" loading={stopping} aria-label="Stop your concierge" onClick={stopConcierge}>Stop</Button>
       </div>}
       <NeighborComposer name={name} disabled={!canSend} sending={sending} onError={setError}
-        placeholder={ended ? "This connection has ended" : !enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : theyPaused ? `${name} paused messages from you`
+        placeholder={ended ? "This connection has ended" : !enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : theyPaused ? `${name} disabled messages from you`
           : limitReached ? "Daily limit reached" : `Message ${name}`}
         onSend={send} onSendFiles={sendFiles} />
     </div>
@@ -391,7 +391,7 @@ function fileRefusal(failure: unknown, name: string): string {
     case "files_disabled": return `${name} does not accept files.`;
     case "recipient_files_unsupported": return `${name}'s Domios cannot receive files yet.`;
     case "file_rate_limited": return "Too many files right now. Try again shortly.";
-    case "recipient_paused": return `Not sent: ${name} paused messages from you.`;
+    case "recipient_paused": return `Not sent: ${name} disabled messages from you.`;
     default: return failure.message;
   }
 }
