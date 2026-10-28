@@ -299,6 +299,12 @@ async fn finish(
         return Err(RuntimeFailure::SignInRequired);
     }
     drop(permit);
+    if let Err(error) = svc
+        .refresh_remote_task_environments(&session.provider)
+        .await
+    {
+        log::warn!("[agent_runtime.login] {error}");
+    }
     engine::ensure(svc, &context.tab_id).await?;
     Ok(())
 }

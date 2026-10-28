@@ -2,7 +2,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
 import type { Notification } from "../../lib/types";
-import { runNotificationAction } from "../../lib/notificationActions";
+import { neighborNotificationTarget, runNotificationAction } from "../../lib/notificationActions";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
@@ -45,7 +45,9 @@ export function NotificationPanel({
   const handleClick = useCallback(
     (notif: Notification) => {
       if (!notif.read) onMarkRead(notif.id);
-      if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
+      const neighbor = notif.actions?.find((action) => action.type === "url" && action.value && neighborNotificationTarget(action.value));
+      if (neighbor) void runNotificationAction(neighbor);
+      else if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
     },
     [onJumpToTab, onMarkRead],
   );

@@ -83,13 +83,7 @@ fn resolve_local(
     let plan_id = plan_dir
         .file_name()
         .and_then(|name| name.to_str())
-        .map(|name| {
-            if name == "_inbox" {
-                "inbox".to_string()
-            } else {
-                name.to_string()
-            }
-        })
+        .map(str::to_string)
         .ok_or_else(|| "could not determine authoritative plan id".to_string())?;
     Ok((plan_id, plan_dir))
 }

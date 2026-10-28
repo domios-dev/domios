@@ -23,17 +23,7 @@ if grep -q "7685" <<< "$filtered_prod_output"; then
   exit 1
 fi
 
-kill_dev_body="$(sed -n '/^kill_dev() {/,/^}/p' build.sh)"
-request_lines=()
-while IFS= read -r line; do request_lines+=("$line"); done < <(grep -n 'request_dev_clean_restart' <<< "$kill_dev_body" | cut -d: -f1)
-watcher_lines=()
-while IFS= read -r line; do watcher_lines+=("$line"); done < <(grep -n 'kill_web_watch' <<< "$kill_dev_body" | cut -d: -f1)
-if [ "${#request_lines[@]}" -ne 3 ] || [ "${#watcher_lines[@]}" -ne 2 ] \
-  || [ "${request_lines[1]}" -ge "${watcher_lines[0]}" ] \
-  || [ "${request_lines[2]}" -ge "${watcher_lines[1]}" ]; then
-  echo "dev kill must request clean daemon shutdown before stopping the web watcher" >&2
-  exit 1
-fi
+node --test scripts/tests/dev-named-target.test.mjs
 
 set +e
 named_prod_output="$(CODETERM_DEV_INSTANCE=prod CODETERM_DEV_API_PORT=7685 ./build.sh kill 2>&1)"

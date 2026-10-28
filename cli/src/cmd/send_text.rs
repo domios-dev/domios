@@ -318,15 +318,21 @@ fn refuse_raw_shell_message(require_agent: bool) -> String {
     }
 }
 
-fn probe_tab_kind(client: &mut SocketClient, tab_id: &str) -> TabKind {
+fn probe_tab_kind(
+    client: &mut impl crate::client::RpcClient,
+    tab_id: &str,
+) -> Result<TabKind, crate::cmd::print::CliError> {
     let params = serde_json::json!({ "focused_workspace": false });
-    match client.call("tab.list", Some(params)) {
-        Ok(value) => value
+    match client.call_detailed("tab.list", Some(params)) {
+        Ok(value) => Ok(value
             .as_array()
             .and_then(|tabs| find_target_record(tabs, tab_id))
             .map(classify_tab_kind)
-            .unwrap_or(TabKind::Unknown),
-        Err(_) => TabKind::Unknown,
+            .unwrap_or(TabKind::Unknown)),
+        Err(error) => {
+            let error = crate::cmd::print::CliError::from(error);
+            Err(error.neighbor_refusal().unwrap_or(error))
+        }
     }
 }
 
@@ -407,7 +413,13 @@ fn send_text_to_targets(
         .filter(|t| !t.is_empty());
     for tab_id in targets {
         if !resolved_text.trim().is_empty() {
-            let kind = probe_tab_kind(client, tab_id);
+            let kind = match probe_tab_kind(client, tab_id) {
+                Ok(kind) => kind,
+                Err(error) => {
+                    failures.push((tab_id.clone(), error.message));
+                    continue;
+                }
+            };
             if let SendEligibility::Refuse(msg) =
                 decide_send_eligibility(kind, resolved_text, require_agent, to_shell)
             {
@@ -595,7 +607,8 @@ pub fn handle_send_text(
     }
     let tab_id = resolve_tab(client, tab);
     if !resolved_text.trim().is_empty() {
-        let kind = probe_tab_kind(client, &tab_id);
+        let kind = probe_tab_kind(client, &tab_id)
+            .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
         if let SendEligibility::Refuse(msg) =
             decide_send_eligibility(kind, &resolved_text, require_agent, to_shell)
         {

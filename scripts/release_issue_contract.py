@@ -277,6 +277,41 @@ VALIDATOR_WORKFLOW_PATHS = {
     ".github/workflows/release.yml",
 }
 
+BOUNDARY_VERIFICATION_STEPS = (
+    "Verify published public mirror",
+    "Verify published Debian manifest",
+    "Mint issue closure boundary",
+)
+
+
+def boundary_steps_succeeded(run: dict, jobs: object) -> bool:
+    attempt = run.get("run_attempt")
+    if type(attempt) is not int or attempt < 1 or not isinstance(jobs, list):
+        return False
+    for job in jobs:
+        if (not isinstance(job, dict) or job.get("run_id") != run.get("id")
+                or job.get("run_attempt") != attempt or job.get("status") != "completed"):
+            continue
+        steps = job.get("steps")
+        if not isinstance(steps, list) or not all(isinstance(step, dict) for step in steps):
+            continue
+        required = [[step for step in steps if step.get("name") == name]
+                    for name in BOUNDARY_VERIFICATION_STEPS]
+        if any(len(matches) != 1 for matches in required):
+            continue
+        verified = [matches[0] for matches in required]
+        numbers = [step.get("number") for step in verified]
+        if (any(type(number) is not int for number in numbers)
+                or not numbers[0] < numbers[1] < numbers[2]
+                or any(step.get("conclusion") != "success" for step in verified)):
+            continue
+        if any(type(step.get("number")) is not int or
+               (step["number"] <= numbers[2] and step.get("conclusion") not in {"success", "skipped"})
+               for step in steps):
+            continue
+        return True
+    return False
+
 
 def boundary_run_id(boundary: object) -> str | None:
     """The validator run id an issue-closure boundary claims minted it."""
@@ -317,7 +352,9 @@ def closure_boundary_refusal(release: dict) -> str | None:
         return f"Actions returned run {run.get('id')} for claimed run {run_id}"
     if run.get("path") not in VALIDATOR_WORKFLOW_PATHS:
         return f"run {run_id} is not the release manifest validator"
-    if run.get("conclusion") != "success":
+    if run.get("conclusion") != "success" and not (
+            run.get("conclusion") in {"failure", "cancelled"}
+            and boundary_steps_succeeded(run, release.get("validator_jobs"))):
         return f"validator run {run_id} concluded {run.get('conclusion') or 'nothing'}"
     return None
 
@@ -372,6 +409,10 @@ def main() -> int:
     audit_parser.add_argument("--body-file", required=True)
     range_parser = subparsers.add_parser("range-start")
     range_parser.add_argument("--releases-file", required=True)
+    included_parser = subparsers.add_parser("included")
+    included_parser.add_argument("--version", required=True)
+    included_parser.add_argument("--source-sha", required=True)
+    included_parser.add_argument("--output-dir", required=True)
     args = parser.parse_args()
     try:
         if args.command == "parse":
@@ -396,11 +437,16 @@ def main() -> int:
             print(json.dumps(resolve_sources(read_json(args.commits_file), read_json(args.prs_file)), indent=2))
         elif args.command == "plan-close":
             print(json.dumps(plan_close(read_json(args.resolved_file), read_json(args.states_file), args.version), indent=2))
+        elif args.command == "included":
+            from release_issue_resolution import resolve_included
+            result = resolve_included(args.version, args.source_sha, args.output_dir)
+            print(json.dumps({"start": result["start"], "commits": len(result["commits"]),
+                              "prs": len(result["prs"]), "remote_calls": result["remote_calls"]}))
         else:
             start = select_range_start(read_json(args.releases_file))
             if start:
                 print(start)
-    except (ContractError, OSError, json.JSONDecodeError) as error:
+    except (ValueError, OSError, subprocess.SubprocessError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
     return 0

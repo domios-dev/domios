@@ -172,8 +172,8 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        self.revoke_tab_credential(tab_id);
         super::supporter_tab_state::forget_observations(tab_id);
-        crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         self.release_managed_tabs(tab_id);
         self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
             .close(tab_id);
@@ -194,7 +194,14 @@ impl ServiceContext {
         self.remote_workers.forget_orchestrator(tab_id);
         self.forget_receiver_targets_for_tab(tab_id);
         self.dispose_closed_surface_runtimes();
-        pad_result
+        let payload_result = if self.mux.read().get_tab(tab_id).is_none() {
+            self.pending_delivery_payloads
+                .user_sends
+                .purge_closed_tab(tab_id)
+        } else {
+            Ok(())
+        };
+        payload_result.and(pad_result)
     }
 
     /// True when `tab_id` is a coordinator (Orchestrator role, plan owner, or
@@ -315,6 +322,20 @@ impl ServiceContext {
         reason: TabCloseReason,
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.close_tab_with_teardown(tab_id, reason, validate, || Ok(()), |_, _| Ok(()))
+    }
+
+    pub(crate) fn close_tab_with_teardown(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        teardown: impl FnOnce() -> Result<(), String>,
+        validate_commit: impl FnOnce(
+            &crate::multiplexer::state::MultiplexerState,
+            &str,
+        ) -> Result<(), String>,
+    ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
             let canonical_tab_id = mux
@@ -335,7 +356,14 @@ impl ServiceContext {
             )
         };
         let role_policy = self.role_policy_for_tab(&canonical_tab_id);
-        if let Err(error) = self.prepare_tab_close(tab_id, reason) {
+        let _neighbor_mutation = match self.prepare_neighbor_root_close(&canonical_tab_id) {
+            Ok(mutation) => mutation,
+            Err(error) => {
+                self.mux.write().abort_tab_close(&reservation);
+                return Err(error);
+            }
+        };
+        if let Err(error) = teardown().and_then(|()| self.prepare_tab_close(tab_id, reason)) {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
         }
@@ -348,6 +376,10 @@ impl ServiceContext {
         }
         let (close_result, history_batch) = {
             let mut mux = self.mux.write();
+            if let Err(error) = validate_commit(&mux, &canonical_tab_id) {
+                mux.abort_tab_close(&reservation);
+                return Err(error);
+            }
             let result = mux.close_reserved_tab_with_reason(reservation, reason);
             (result, mux.take_closed_history_batch())
         };
@@ -383,7 +415,7 @@ impl ServiceContext {
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
-        self.finish_tab_close(tab_id)?;
+        self.finish_tab_close(&canonical_tab_id)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         let resolved = {

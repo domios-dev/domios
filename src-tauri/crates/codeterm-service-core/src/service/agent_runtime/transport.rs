@@ -189,6 +189,29 @@ fn turn_input(text: &str) -> TurnInput {
     }
 }
 
+pub(super) fn runtime_input(
+    classified: &crate::service::messenger::AgentInput,
+) -> Result<TurnInput, RuntimeFailure> {
+    use crate::service::messenger::{AgentInput, InputProvenance};
+    let rendered = classified.text();
+    match classified {
+        AgentInput::Launch(_) => Ok(TurnInput {
+            text: rendered.into_owned(),
+            attachments: Vec::new(),
+        }),
+        AgentInput::Framed(frame) if frame.provenance() == InputProvenance::Neighbor => {
+            Ok(TurnInput {
+                text: rendered.into_owned(),
+                attachments: Vec::new(),
+            })
+        }
+        AgentInput::Shell(_) => Err(RuntimeFailure::Refused(
+            "shell input cannot target a runtime agent".into(),
+        )),
+        _ => Ok(turn_input(&rendered)),
+    }
+}
+
 pub(crate) async fn submit_loaded(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -196,20 +219,8 @@ pub(crate) async fn submit_loaded(
     send_id: &str,
     classified: crate::service::messenger::AgentInput,
 ) -> Result<(), DeliveryError> {
-    let rendered = classified.text();
-    let input = match &classified {
-        crate::service::messenger::AgentInput::Launch(_) => TurnInput {
-            text: rendered.into_owned(),
-            attachments: Vec::new(),
-        },
-        crate::service::messenger::AgentInput::Shell(_) => {
-            return Err(before_write(
-                &session.context.lock().tab_id,
-                RuntimeFailure::Refused("shell input cannot target a runtime agent".into()),
-            ))
-        }
-        _ => turn_input(&rendered),
-    };
+    let input = runtime_input(&classified)
+        .map_err(|reason| before_write(&session.context.lock().tab_id, reason))?;
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
     if session.compaction.lock().held(context.epoch) {
@@ -387,7 +398,7 @@ pub(crate) fn send_envelope(
     token: &str,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    super::envelope_delivery::send(svc, tab, &input.to_message(), token, observer)
+    super::envelope_delivery::send(svc, tab, input, token, observer)
 }
 
 #[cfg(test)]

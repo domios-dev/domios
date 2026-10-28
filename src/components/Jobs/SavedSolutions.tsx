@@ -70,6 +70,8 @@ export function SavedSolutions({ sources, revision, api = blueprintSolutionsApi,
   const groups = filter.workspaceId === null && workspaces.length > 1
     ? workspaces.map((workspaceId) => ({ workspaceId, entries: shown.filter((entry) => entry.solution.workspaceId === workspaceId) })).filter((group) => group.entries.length)
     : [{ workspaceId: null, entries: shown }];
+  // The section appears with its first entry; a failed read still says so under the heading.
+  if (entries.length === 0 && !error) return null;
   return <section aria-label="Saved solutions" className="mt-6 flex flex-col gap-3">
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
       <h3 className="ct-detail__heading m-0">Saved solutions</h3>
@@ -105,7 +107,6 @@ export function SavedSolutions({ sources, revision, api = blueprintSolutionsApi,
         ]}
         onOpen={() => { if (onOpen && entry.document) onOpen(entry); }} onTriggerRef={() => {}} error={null} />)}</ul>
     </div>)}
-    {entries.length === 0 && !error && <p className="ct-job-note">No saved solutions.</p>}
     {entries.length > 0 && shown.length === 0 && <p role="status" className="ct-job-note">No saved solution matches these filters.</p>}
   </section>;
 }

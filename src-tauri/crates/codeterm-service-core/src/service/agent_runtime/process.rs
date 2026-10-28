@@ -197,7 +197,7 @@ pub fn spawn(
     })?;
     #[cfg(windows)]
     let job = Arc::new(
-        crate::service::windows_job::Job::attach(&child)
+        crate::service::windows_job::Job::contain(&child)
             .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?,
     );
     let boundary = Arc::new(super::process_boundary::Boundary::new(
@@ -205,6 +205,9 @@ pub fn spawn(
         #[cfg(windows)]
         job.clone(),
     )?);
+    #[cfg(windows)]
+    crate::service::windows_job::resume(&child)
+        .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
     let writer = child.stdin.take().ok_or(RuntimeFailure::PipeEof)?;
     let reader = child.stdout.take().ok_or(RuntimeFailure::PipeEof)?;
     let mut stderr = child.stderr.take().ok_or(RuntimeFailure::PipeEof)?;

@@ -6,6 +6,10 @@
   margin: 0 auto;
 }
 
+.ct-settings-page[data-settings-page="account"] {
+  max-width: 940px;
+}
+
 .ct-settings-card {
   display: flex;
   flex-direction: column;

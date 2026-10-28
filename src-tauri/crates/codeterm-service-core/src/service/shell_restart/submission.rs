@@ -45,7 +45,11 @@ impl ShellCommandSubmission {
             pty_id: pty_id.into(),
             bytes_written: true,
             bytes_queued: bytes_queued.get(),
-            evidence: "pty_write_queue",
+            evidence: if result.is_ok() {
+                "shell_command_start"
+            } else {
+                "pty_write_queue"
+            },
             detail: result.err(),
         })
     }

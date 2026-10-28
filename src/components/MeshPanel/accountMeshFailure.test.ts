@@ -3,9 +3,14 @@ import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 import { failureMessage } from "./accountMachines";
 import { type AccountMeshFailure, linkFailure } from "./accountMeshClient";
 
-const REASONS = ["revoked", "cancelled", "verification-unavailable"] as const;
+const REASONS = ["revoked", "cancelled", "verification-unavailable", "key_conflict", "generation_mismatch", "challenge_invalid", "enrollment_budget", "proof_invalid"] as const;
 
 describe("account mesh failure reasons", () => {
+  it("explains rejected proofs with QA guidance only for DEV builds", () => {
+    const failure = { reason: "proof_invalid" } as const;
+    expect(failureMessage(failure, false)).toBe("This build cannot join this account's mesh (proof rejected).");
+    expect(failureMessage(failure, true)).toBe(`${failureMessage(failure, false)} DEV builds use the QA target.`);
+  });
   it.each(REASONS)("keeps a %s refusal typed instead of collapsing it to unavailable", (reason) => {
     const error = new AccountMeshRefusalError({ requestId: "req", refusal: { reason } });
     expect(linkFailure(error)).toEqual({ reason });

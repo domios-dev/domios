@@ -4,7 +4,7 @@ Config file: `~/.domios/config.toml` on every platform, auto-created with defaul
 
 Sensitive configuration and state use private file writes: Unix files use `0600`; Windows removes inherited and broad access while preserving explicit narrow grants. Data-root, CLI, agent-pad and browser permissions are retained, and shell umasks are unchanged. Startup protects `config.toml` and `.secrets` directly; named state files are tightened in a bounded background pass after the early listener starts. Unrelated state-file errors are logged, never fatal. The instance API credential is stored at `<data_dir>/.secrets` under `domios.instance:api_token`, read once at daemon startup and retained across configuration reloads. DEV (`~/.domios-dev/`, or `~/.domios-dev-<instance>/`) and production (`~/.domios/`) keep separate credentials. An existing `[api].token` is rotated once on startup: the replacement persists before the legacy entry leaves `config.toml`. Existing backups and corrupt copies are retained and their old bearer is refused. A failed rotation preserves the original configuration and active credential, holds config writes until restart, and reports the error.
 
-`domios system api-token` prints only the selected local instance credential, without a newline or a daemon connection. Capture it privately; `--mesh` is refused. Tabs continue to receive `CODETERM_API_TOKEN`.
+`domios system api-token` prints only the selected local host credential, without a newline or a daemon connection. Capture it privately; tab callers and `--mesh` are refused. Tabs receive distinct launch-scoped credentials through `CODETERM_API_TOKEN`; they never receive or fall back to the host credential.
 
 ## Full Reference
 
@@ -68,6 +68,7 @@ open_settings = "Ctrl+,"
 # continue_after_restart: one system continue per mid-turn agent tab after any stop.
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
+# sandbox_ceiling: optional "read-only" or "workspace-write" cap for delegated spawns.
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
@@ -146,25 +147,15 @@ The API listens only on loopback by default. A non-loopback `host` requires a no
 
 Agent access is one global choice. `agent.full_access = true` applies the provider's permission-bypass capability whenever any agent starts or restarts, including General Agent; `false` keeps provider permission prompts everywhere. The first-run picker asks once with Full access selected by default; there are no per-provider, per-resume, audience, or Remember-choice policies. On first load, an enabled remembered bypass from the former global or per-provider settings is converted to `agent.full_access = true` before any agent tab starts; the removed keys are then deleted from the saved config.
 
+`agent.sandbox_ceiling` is unset by default, so Workers keep full machine access. Set to `read-only` or `workspace-write`, every delegated spawn must pass `--sandbox` at or below it; an omitted `--sandbox` means full access and is refused, as is any other value. Tabs restore and restart with the sandbox recorded at their launch.
+
 With `false`, a role, task, or cron launch still runs its own Domios commands (`agent startup-ack`, `agent ack`, `agent report`, `pad path`, and `cron complete` for a cron run) without an owner prompt: a provider that declares launch permissions grants exactly those commands through launch arguments when the model has no unattended mode, never through global provider settings. An Orchestrator or Planner on such a model is refused before any tab exists, naming the model and the models that have the mode. An Orchestrator launch always loses the provider's native subagent tools.
 
 ## Config API
 
 Read and write config values at runtime via REST or CLI.
 
-**REST:**
-```bash
-# Read full config
-curl http://host:7685/api/config
-
-# Read a specific key (dot-notation)
-curl "http://host:7685/api/config?key=integrations.telegram_enabled"
-
-# Set a value
-curl -X PATCH http://host:7685/api/config \
-  -H "Content-Type: application/json" \
-  -d '{"key": "integrations.telegram_enabled", "value": true}'
-```
+REST uses authenticated `GET /api/config?key=<dot-path>` and `PATCH /api/config` with `{"key":"<dot-path>","value":<JSON>}`. Omit `key` to read the full redacted config. See `domios docs API`.
 
 **CLI:**
 ```bash
@@ -219,7 +210,9 @@ A `config.toml` that cannot be read or parsed is never treated as empty and neve
 
 ## General Agent
 
-The General Agent is an always-on Claude Code instance in the "General" workspace (`[general_agent]` in the reference above). It handles Telegram messages and cron tasks and acts as the default orchestrator. When enabled, Domios starts with a single protected "General" workspace instead of "Main"; its tab cannot be closed from the UI, and Settings > Agents > General Agent toggles it. Recovery thresholds, owner notifications and provider update behaviour: `domios docs TAB-LIFECYCLE`, sections "General Agent recovery" and "Provider updates". `general_agent.capability_hints` defaults to `true`. Settings exposes “Suggest Domios features I have when relevant”. During the first seven days from the first composed General session on this machine, the prompt carries a bounded installed capability list. The agent mentions a feature only when it directly helps the request, at most once per topic. Turning this off removes that fragment at the next prompt composition; the first-seen time never resets.
+The protected General workspace starts when `general_agent.enabled` is true. Settings > Agents > General Agent toggles it; its tab cannot be closed from the UI. It handles Telegram and cron work. Recovery and provider updates: `domios docs TAB-LIFECYCLE`.
+
+`general_agent.capability_hints` defaults to `true`; Settings calls it “Suggest Domios features I have when relevant”. For seven days after this machine's first General session, its prompt includes a bounded installed capability list. Suggestions must help the request and appear at most once per topic. Disabling removes the fragment at the next composition; first-seen time never resets.
 
 ## Worker lane provisioning
 
@@ -227,9 +220,9 @@ Provisioning creates an isolated git worktree and launches the agent there; it i
 
 ## Codex Chat runtime
 
-In 1.14.7 Codex runs only in Chat through the provider-codex plugin. Its `agentRuntime` capability selects a tab-owned stdio JSON-RPC process (`codex app-server`), with no terminal, `--remote` attachment, listening port or authentication-token file. The plugin owns the provider protocol; Domios owns process lifetime, session binding and delivery. Raw keys and terminal resize are explicitly unsupported. The former `structured_control_enabled` option is removed.
+Codex uses Chat through provider-codex's `agentRuntime`: a tab-owned `codex app-server` stdio JSON-RPC process. The plugin owns protocol; Domios owns lifetime, session binding and delivery. There is no terminal, remote attachment, listener or token file; raw keys and resize are unsupported. `structured_control_enabled` is removed.
 
-Process exit or pipe failure preserves the tab's exact saved thread and shows the failure reason, including captured exit status and bounded stderr when available. Provider readiness, a send, a command or the visible Retry action attempts initialization and resume within a failure deadline. Recovery reconciles history without duplicating items or replaying uncertain input or the launch brief. A missing saved thread is reported honestly. There is no silent plain-PTY fallback or timer-driven retry. These rules apply to General, project, mesh-remote and restored tabs, including after app restarts or provider updates. Stop interrupts the active turn; it leaves the runtime available.
+Exit or pipe failure keeps the saved thread and displays the reason, exit status and bounded stderr. Readiness, send, command or Retry initializes and resumes within a deadline. History reconciliation never replays uncertain input or the launch brief. A missing thread is reported; there is no PTY fallback or timer retry. Stop interrupts the turn and keeps the runtime available. This applies to General, project, mesh and restored tabs across restarts and provider updates.
 
 ## Related documents
 
@@ -237,4 +230,4 @@ Notification settings: `domios docs NOTIFICATIONS`. Integration settings: `domio
 Utility limits apply to each Team and purpose (`build`, `dev`, `qa`, `deploy`, `logs`, `db`, `shell`). At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `domios tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names. Structured provider access refusals are always observed from the tab's bound session, independently of optional structured-signal settings. Incident levels and recovery are in the notification document above. Capability plugins may declare `permissions.projectFiles` as config selectors such as `["/root", "/profiles/*/root"]`. These configured, existing absolute directories become read roots. They remain read-only until the owner explicitly approves `domios plugin config <id> --grant project_write`. Approval records canonical roots in `grants.yaml`; changing a profile root never transfers that write grant. Revoke with `--revoke project_write`. Reload the plugin after root or grant changes. Symlink roots, traversal and symlink escapes are refused, including writes below missing parents. Project-file plugins use the confined filesystem even in DEV; they cannot rewrite their own `grants.yaml`. A separately granted arbitrary subprocess remains outside the file-tool confinement contract.
 Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
-<!-- revision: 125 -->
+<!-- revision: 127 -->

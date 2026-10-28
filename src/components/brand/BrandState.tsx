@@ -4,13 +4,16 @@ import { DotMatrixCanvas } from "./DotMatrixCanvas";
 import type { DotMatrixCanvasHandle } from "./DotMatrixCanvas";
 import type { BrandStateModel } from "./brandStateModel";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
+import { ActivityDots } from "../shared/ActivityDots";
 
-export function BrandState({ model, className, children, pulse = false }: {
+export function BrandState({ model, className, children, pulse = false, markSize = 92 }: {
   model: BrandStateModel;
   className?: string;
   children?: ReactNode;
   /** Beat the mark and release dot waves; off by default so the boot cover hands over without a restart. */
   pulse?: boolean;
+  /** The loading mark's size; Loader's compact variant draws it smaller. */
+  markSize?: number;
 }) {
   const reducedMotion = usePrefersReducedMotion();
   const headingId = useId();
@@ -22,7 +25,7 @@ export function BrandState({ model, className, children, pulse = false }: {
     return (
       <div className={`brand-state brand-state--loading ${className ?? ""}`} role="status" aria-live="polite" aria-label={model.label} aria-busy="true">
         <DotMatrixCanvas ref={matrixRef} mode="loading" reducedMotion={reducedMotion || !model.animate} />
-        <BrandMark motion={pulse && model.animate && !reducedMotion ? "load" : "static"} onRelease={emitRelease} size={92} />
+        <BrandMark motion={pulse && model.animate && !reducedMotion ? "load" : "static"} onRelease={emitRelease} size={markSize} />
         <div className="brand-state-copy">
           <h2>{model.label}</h2>
           {model.detail && <p>{model.detail}</p>}
@@ -51,6 +54,15 @@ export function BrandState({ model, className, children, pulse = false }: {
           <BrandMark motion={reducedMotion ? "static" : "load"} size={34} />
           <span>Reconnecting…</span>
         </div>
+      </div>
+    );
+  }
+  if (model.kind === "paused") {
+    return (
+      <div className={`brand-connection-pill ${className ?? ""}`} role="status" aria-live="polite" data-testid="connection-paused">
+        <ActivityDots size="small" tone="muted" rhythm="work" />
+        <span>Reconnecting…</span>
+        <span className="brand-connection-pill-hint">Updates paused</span>
       </div>
     );
   }

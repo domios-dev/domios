@@ -59,7 +59,7 @@ export function ResetCreditsSection({resets, model}: {resets?:ResetCredits|null;
     {model.busy && <div role="status" className="ct-usage-reset-note">Resetting limits…</div>}
     {model.outcome && <div role="status" className="ct-usage-reset-note">{resetOutcomeLabels[model.outcome]} · {resetBalanceLabel(model.beforeCount, model.afterCount)}</div>}
     {model.error && <InlineErrorNotice error={model.error} operation="resetting the rate limits" />}
-    {model.confirming && createPortal(<div onMouseDown={event => event.stopPropagation()} ref={node => node?.querySelector<HTMLButtonElement>("button")?.focus()} onKeyDown={event => {
+    {model.confirming && createPortal(<div data-anchored-popover="" onMouseDown={event => event.stopPropagation()} ref={node => node?.querySelector<HTMLButtonElement>("button")?.focus()} onKeyDown={event => {
       if (event.key === "Escape") {event.stopPropagation();cancel();}
       if (event.key === "Tab") {
         const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button")];

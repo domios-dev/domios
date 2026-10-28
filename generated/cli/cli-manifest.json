@@ -46,6 +46,488 @@
           "subcommands": []
         },
         {
+          "name": "neighbors",
+          "about": "Manage the encrypted Neighbors channel on this machine",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "bind",
+              "about": "Bind a friendship to an independent local gateway agent tab",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "tab",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TAB",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "delivery-status",
+              "about": "Read pending, delivered or not_delivered from the relay receipt",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "message_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MESSAGE_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "deny",
+              "about": "General Agent only: deny this Neighbor's requests",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "enroll",
+              "about": "Receive all friends here (account takeover); use a friend's UI to move only that friend",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "confirm-takeover",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CONFIRM_TAKEOVER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "expected-receiver-revision",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "EXPECTED_RECEIVER_REVISION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Receiver revision shown by status; refresh and confirm again if stale",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "flag",
+              "about": "Locally flag a suspicious incoming message for the owner without replying",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "category",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CATEGORY",
+                  "possible_values": [
+                    "suspicious_instructions",
+                    "private_data_request",
+                    "malicious_link",
+                    "spam",
+                    "other"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FRIENDSHIP",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "message_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MESSAGE_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "REASON",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Short explanation without message text or secrets (at most 280 characters)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "grant",
+              "about": "General Agent only: apply permission edits and restart the concierge fresh",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "allow-files",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_FILES",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "allow-interactive-content",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_INTERACTIVE_CONTENT",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "allow-memory",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_MEMORY",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "allow-tab-requests",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_TAB_REQUESTS",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "allowed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOWED",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "folder",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "FOLDER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Absolute directory, or default to clear the folder override",
+                  "aliases": []
+                },
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "FROM_PAD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Scope text in this tab's pad; omitted keeps the current scope",
+                  "aliases": []
+                },
+                {
+                  "name": "machine-access",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "MACHINE_ACCESS",
+                  "possible_values": [
+                    "none",
+                    "read_only",
+                    "folder",
+                    "full"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "memory-areas",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "MEMORY_AREAS",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "all or comma-separated taxonomy area names",
+                  "aliases": []
+                },
+                {
+                  "name": "workspaces",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "WORKSPACES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "none or comma-separated local workspace IDs",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List friendships, local scopes and pending incoming/outgoing requests",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "own-keys",
+              "about": "List active own key IDs",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "permission",
+              "about": "Read a Neighbor's local permission policy",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "revoke",
+              "about": "Revoke this machine's Neighbor keys",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "rotate",
+              "about": "Rotate this installation's keys and revoke the previous pair",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "send",
+              "about": "Encrypt and send one authored message; prints only its ID and status",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "from-pad",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FROM_PAD",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "in-reply-to",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "IN_REPLY_TO",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "kind",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "KIND",
+                  "possible_values": [
+                    "question",
+                    "answer",
+                    "refusal",
+                    "tab_request"
+                  ],
+                  "default": "question",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set-daily-limit",
+              "about": "Set daily incoming messages; null removes the per-friend daily cap",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "daily-limit",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "DAILY_LIMIT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set-file-daily-limit",
+              "about": "Set daily incoming file bytes; null restores the 50 MiB default",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "file-daily-limit-bytes",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FILE_DAILY_LIMIT_BYTES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set-limit",
+              "about": "Set this friend's incoming request cap per hour (owner or General)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "per-hour",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "PER_HOUR",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "status",
+              "about": "Show local channel enrollment and gateway bindings",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "plan",
           "about": "Show the current plan and stale-cache marker",
           "aliases": [],
@@ -1466,7 +1948,7 @@
     },
     {
       "name": "analytics",
-      "about": "Manage local opt-in product analytics",
+      "about": "Manage local product analytics (on by default)",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -1479,7 +1961,7 @@
         },
         {
           "name": "enable",
-          "about": "Record opt-in consent and create an installation identifier",
+          "about": "Turn product analytics on and create an installation identifier",
           "aliases": [],
           "args": [],
           "subcommands": []
@@ -1763,7 +2245,7 @@
         },
         {
           "name": "import",
-          "about": "Import a native v2 recipe into the caller's Team (stopped by default)",
+          "about": "Import a native v2 recipe into the caller's scope (stopped by default)",
           "aliases": [],
           "args": [
             {
@@ -1774,6 +2256,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "required": false,
+              "value_name": "SCOPE",
+              "possible_values": [],
+              "default": null,
+              "help": "Destination: general, workspace:<id>, or team:<id>; caller must belong to it",
               "aliases": []
             },
             {
@@ -3826,185 +4318,6 @@
       "aliases": [],
       "args": [],
       "subcommands": []
-    },
-    {
-      "name": "inbox",
-      "about": "Workspace Inbox — standalone tasks with no plan",
-      "aliases": [],
-      "args": [],
-      "subcommands": [
-        {
-          "name": "add",
-          "about": "Add a standalone task to the workspace Inbox",
-          "aliases": [],
-          "args": [
-            {
-              "name": "assign-tab",
-              "positional": false,
-              "required": false,
-              "value_name": "TAB",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "body",
-              "positional": false,
-              "required": false,
-              "value_name": "BODY",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "body-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "correctness",
-              "positional": false,
-              "required": false,
-              "value_name": "CORRECTNESS",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "criterion",
-              "positional": false,
-              "required": false,
-              "value_name": "CRITERION",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "execution-intent",
-              "positional": false,
-              "required": false,
-              "value_name": "EXECUTION_INTENT",
-              "possible_values": [
-                "repository_mutation",
-                "non_repository"
-              ],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "intent",
-              "positional": false,
-              "required": false,
-              "value_name": "INTENT",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "intent-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "model",
-              "positional": false,
-              "required": false,
-              "value_name": "MODEL",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "name",
-              "positional": false,
-              "required": true,
-              "value_name": "NAME",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "qa-plan",
-              "positional": false,
-              "required": false,
-              "value_name": "QA_PLAN",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "qa-plan-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "test-plan",
-              "positional": false,
-              "required": false,
-              "value_name": "TEST_PLAN",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "type",
-              "positional": false,
-              "required": false,
-              "value_name": "KIND",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "why",
-              "positional": false,
-              "required": false,
-              "value_name": "WHY",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "why-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        }
-      ]
     },
     {
       "name": "integration",
@@ -14932,6 +15245,326 @@
               "possible_values": [],
               "default": null,
               "help": "Path to the plugin directory (the folder containing plugin.json)",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "radar",
+      "about": "Workspace Radar — items noticed above plans, pulled into a plan as tasks",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Add an item to this workspace's Radar; the same --source-provider/--source-id refreshes it",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": false,
+              "required": false,
+              "value_name": "BODY",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Workspace path; defaults to the current directory",
+              "aliases": []
+            },
+            {
+              "name": "source-id",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "The item's stable id in that system",
+              "aliases": []
+            },
+            {
+              "name": "source-provider",
+              "positional": false,
+              "required": false,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": "System the item came from, such as github or linear",
+              "aliases": []
+            },
+            {
+              "name": "source-url",
+              "positional": false,
+              "required": false,
+              "value_name": "URL",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAG",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "required": true,
+              "value_name": "TITLE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "drop",
+          "about": "Remove a Radar item; a task it was pulled into stays in its plan",
+          "aliases": [],
+          "args": [
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "edit",
+          "about": "Edit a Radar item's title, body or tags",
+          "aliases": [],
+          "args": [
+            {
+              "name": "body",
+              "positional": false,
+              "required": false,
+              "value_name": "BODY",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "body-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "clear-tags",
+              "positional": false,
+              "required": false,
+              "value_name": "CLEAR_TAGS",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAG",
+              "possible_values": [],
+              "default": null,
+              "help": "Replace the tags; repeat for several",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "required": false,
+              "value_name": "TITLE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List this workspace's Radar items, newest first",
+          "aliases": [],
+          "args": [
+            {
+              "name": "all-workspaces",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL_WORKSPACES",
+              "possible_values": [],
+              "default": null,
+              "help": "List items of every workspace",
+              "aliases": []
+            },
+            {
+              "name": "project",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Workspace path; defaults to the current directory",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Only items from this source provider",
+              "aliases": []
+            },
+            {
+              "name": "query",
+              "positional": false,
+              "required": false,
+              "value_name": "QUERY",
+              "possible_values": [],
+              "default": null,
+              "help": "Case-insensitive text in the title or body",
+              "aliases": []
+            },
+            {
+              "name": "status",
+              "positional": false,
+              "required": false,
+              "value_name": "STATUS",
+              "possible_values": [
+                "open",
+                "pulled",
+                "all"
+              ],
+              "default": null,
+              "help": "open (default), pulled or all",
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAG",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "pull",
+          "about": "Create a linked task for this item in a plan of the same workspace",
+          "aliases": [],
+          "args": [
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "plan",
+              "positional": false,
+              "required": true,
+              "value_name": "PLAN",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "sections",
+              "positional": false,
+              "required": false,
+              "value_name": "SECTIONS",
+              "possible_values": [],
+              "default": null,
+              "help": "Comma-separated section ids or handles",
+              "aliases": []
+            },
+            {
+              "name": "type",
+              "positional": false,
+              "required": false,
+              "value_name": "KIND",
+              "possible_values": [],
+              "default": null,
+              "help": "Task kind; defaults to task",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "show",
+          "about": "Show one Radar item",
+          "aliases": [],
+          "args": [
+            {
+              "name": "item_id",
+              "positional": true,
+              "required": true,
+              "value_name": "ITEM_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],

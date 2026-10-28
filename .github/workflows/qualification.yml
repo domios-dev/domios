@@ -867,7 +867,7 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 10.32.1
           run_install: false
@@ -1180,7 +1180,7 @@ jobs:
           exit $exitCode
       - name: Retain complete task boundary evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -1228,13 +1228,13 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
         if: runner.environment == 'github-hosted'
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
@@ -1283,7 +1283,7 @@ jobs:
           if summaries != [('ok', '5', '0', '0')]:
               raise SystemExit(f'Unexpected native summaries: {summaries!r}')
           PY
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           overwrite: true
@@ -1335,7 +1335,7 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 10.32.1
           run_install: false
@@ -1354,7 +1354,7 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"sentinel-linux-fixed-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
@@ -1728,7 +1728,7 @@ jobs:
           exit "$node_status"
       - name: Retain complete Linux qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -1785,7 +1785,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs ancestry
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 10.32.1
           run_install: false
@@ -1804,7 +1804,7 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"storage-foundation-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
@@ -2296,7 +2296,7 @@ jobs:
           exit "$node_status"
       - name: Retain complete Linux Storage qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -2355,7 +2355,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs ancestry
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 10.32.1
           run_install: false
@@ -2374,7 +2374,7 @@ jobs:
           mkdir -- "$receipt_dir"
           printf '%s\n' '{"schema":"storage-domains-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
           printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
@@ -3305,7 +3305,7 @@ jobs:
           if (( finish_status != 0 )); then exit "$finish_status"; fi
       - name: Retain complete Linux domain qualification evidence
         if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/storage-domains-linux-${{ github.run_id }}-${{ github.run_attempt }}/
@@ -3374,7 +3374,7 @@ jobs:
           & .\scripts\windows-sccache-session.ps1 -Operation $env:MAINTENANCE_OPERATION
       - name: Retain fresh maintenance evidence
         if: ${{ always() && steps.maintenance.outputs.fresh_receipt_directory == 'true' }}
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}/

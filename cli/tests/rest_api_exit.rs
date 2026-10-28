@@ -50,6 +50,7 @@ fn run_rest_api(verb: &str, json_mode: bool, result: Value) -> std::process::Out
     }
     command
         .env("CODETERM_SOCKET_PATH", socket)
+        .env("CODETERM_API_TOKEN", "fixture-host-token")
         .env("CODETERM_DATA_DIR", scratch.path())
         .current_dir(scratch.path())
         .args(["rest-api", verb])

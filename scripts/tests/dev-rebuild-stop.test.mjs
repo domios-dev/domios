@@ -317,9 +317,10 @@ Write-Output 'shutdown cases=6 and native pinned identity passed'
 test('launcher stops before both staging and prebuilt launch; preflight refusal preserves DEV', () => {
   const source = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
   const build = source.match(/^build_and_launch_dev\(\) \{[^]*?^\}/m)[0];
-  assert.match(build, /stop_dev_before_replacement \|\| return\s+node scripts\/server-artifact.mjs stage-dev/);
+  assert.match(build, /\n  stop_dev_before_replacement \|\| return\n(?:  dev_build_phase [^\n]+\n)*  node scripts\/server-artifact.mjs stage-dev/);
   const prebuilt = source.slice(source.indexOf('\n  dev-prebuilt)\n'), source.indexOf('\n  dev-front)\n'));
   assert.ok(prebuilt.indexOf('validate_dev_provenance') < prebuilt.indexOf('stop_dev_before_replacement'));
   assert.match(prebuilt, /CODETERM_DEV_INSTANCE='\$CT_INSTANCE' CODETERM_DEV_API_PORT='\$CT_PORT' .\/build.sh dev --wait/);
   assert.ok(prebuilt.indexOf('stop_dev_before_replacement') < prebuilt.indexOf('--launch-prebuilt'));
+  assert.match(prebuilt, /run_outside_tab_job node scripts\/dev-prep.mjs --launch-prebuilt/);
 });

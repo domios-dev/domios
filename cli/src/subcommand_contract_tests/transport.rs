@@ -300,11 +300,11 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported(TASK_LOCAL_ONLY),
     ),
     (
-        "inbox",
-        &["codeterm", "inbox", "add", "--name", "n"],
+        "radar",
+        &["codeterm", "radar", "list"],
         Local::Socket,
         MeshRelay::SocketRpc,
-        ApiVerdict::Unsupported(TASK_LOCAL_ONLY),
+        ApiVerdict::Unsupported("radar management is local-only — run it on the target machine"),
     ),
     (
         "canvas",

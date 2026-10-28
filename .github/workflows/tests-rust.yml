@@ -153,20 +153,20 @@ jobs:
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted')
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
         id: ci-7
         run: node scripts/ci-rust-prepare.mjs
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         id: ci-4
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
         with:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
@@ -384,20 +384,20 @@ jobs:
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15')
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
         id: ci-7
         run: node scripts/ci-rust-prepare.mjs
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         id: ci-4
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
         with:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
@@ -603,20 +603,20 @@ jobs:
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && ((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15')
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
         id: ci-7
         run: node scripts/ci-rust-prepare.mjs
-      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         id: ci-4
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
         with:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
@@ -774,7 +774,7 @@ jobs:
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,curl,git,node
       - name: Fetch fallback run artifact evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: ci-artifact-spool-*
           path: ${{ runner.temp }}/ci-artifact-fallback/${{ github.run_id }}

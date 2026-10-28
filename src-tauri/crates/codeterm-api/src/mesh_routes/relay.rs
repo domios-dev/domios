@@ -9,6 +9,9 @@ use axum::{
 };
 use std::sync::LazyLock;
 
+mod caller;
+mod capability;
+
 fn sync_input_for_access<'a>(
     full_access: bool,
     sender_id: Option<&str>,
@@ -385,9 +388,16 @@ fn spawn_registration_from_relay(
 pub async fn mesh_relay_to_peer(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(req): Json<PeerRelayCommand>,
+    Json(mut req): Json<PeerRelayCommand>,
 ) -> Result<Json<PeerRelayResponse>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    if crate::auth::caller_peer_id(&state, &headers).is_none() {
+        if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
+            capability::authorize(&state, &caller, &req.method, &req.path).await?;
+            caller::bind(&caller, &req.method, &req.path, &mut req.body)
+                .map_err(|message| (StatusCode::FORBIDDEN, message))?;
+        }
+    }
     let (client, peer_id, peer_name, peer_version) = {
         let mesh = state.mesh.lock();
         resolve_relay_peer(&mesh, &req.target_peer_id)?
@@ -412,6 +422,21 @@ pub async fn mesh_relay_to_peer(
         }
     }
     let mut relay_body = req.body;
+    if req.path.split('?').next() == Some("/api/agents/spawn")
+        && req.method.eq_ignore_ascii_case("POST")
+    {
+        let named = |field: &str| relay_body.get(field).and_then(|value| value.as_str());
+        codeterm_service_core::service::execution_sandbox_refuse_confined_mesh_delegation(
+            &state.svc,
+            &[
+                crate::tab_routes::caller_tab_header(&headers).as_deref(),
+                named("spawned_by_tab_id"),
+                named("creator_tab_id"),
+                named("parent_tab_id"),
+            ],
+        )
+        .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+    }
     codeterm_service_core::service::mesh_artifacts_transfer(
         &state.svc,
         crate::tab_routes::caller_tab_header(&headers).as_deref(),

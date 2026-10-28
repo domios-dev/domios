@@ -1,3 +1,4 @@
+mod development_context;
 mod quit_plan;
 
 use crate::crash;
@@ -8,7 +9,7 @@ use std::{io, io::Read, path::PathBuf};
 use tauri::Manager;
 
 pub fn run(
-    context: tauri::Context<codeterm_client_shell::app_runtime::Runtime>,
+    mut context: tauri::Context<codeterm_client_shell::app_runtime::Runtime>,
     register_commands: fn(
         tauri::Builder<codeterm_client_shell::app_runtime::Runtime>,
     ) -> tauri::Builder<codeterm_client_shell::app_runtime::Runtime>,
@@ -33,6 +34,15 @@ pub fn run(
             return;
         }
     };
+    if let Err(error) = development_context::configure(
+        context.config_mut(),
+        cfg!(debug_assertions),
+        &selector,
+        |key| std::env::var(key).ok(),
+    ) {
+        eprintln!("Domios development configuration refused: {error}");
+        return;
+    }
     let relaunch_env = codeterm_paths::relaunch_env::ApplicationRelaunchEnv::capture();
     install_client_selector(&selector);
     let mut builder = codeterm_client_shell::app_runtime::builder().manage(relaunch_env);

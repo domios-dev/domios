@@ -13,6 +13,7 @@
 //! - `notification` — create notification with OS toast
 
 mod construct;
+mod provider_refresh;
 pub use construct::build_service_context;
 pub mod account;
 pub mod account_mesh;
@@ -25,6 +26,7 @@ pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod lazy_restore;
+pub mod tab_mutation_authority;
 pub mod tab_sleep_policy;
 pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;
@@ -37,6 +39,8 @@ pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
+pub mod gift_redemption;
+pub mod neighbors;
 pub use codeterm_browser as browser;
 pub(crate) mod capability_probe;
 pub use capability_probe::refresh as capability_probe_refresh;
@@ -45,7 +49,6 @@ pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod close_history;
 pub use close_history::close_inventory_error_data;
-pub mod codex_rpc;
 mod command_port_impl;
 pub mod context_feed;
 pub mod cron;
@@ -127,6 +130,10 @@ pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
 pub(crate) mod execution_sandbox;
+pub use execution_sandbox::{
+    enforce_delegation_ceiling as execution_sandbox_enforce_delegation_ceiling,
+    refuse_confined_mesh_delegation as execution_sandbox_refuse_confined_mesh_delegation,
+};
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod output;
@@ -222,7 +229,6 @@ pub mod blocking;
 pub use blocking::run as blocking_run;
 pub(crate) mod restored_launch;
 pub mod store;
-pub(crate) mod stream_preview;
 pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub mod supporter;
@@ -235,6 +241,7 @@ pub mod tab_adopt;
 pub mod tab_budget;
 pub mod tab_chat;
 pub(crate) mod tab_conditions;
+pub mod tab_credentials;
 pub(crate) mod tab_lifecycle;
 pub mod tab_repair;
 pub(crate) mod tab_session_binding;
@@ -353,6 +360,7 @@ pub use extensions::ExtensionsBuilder;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) tab_credentials: Arc<tab_credentials::TabCredentials>,
     pub lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,

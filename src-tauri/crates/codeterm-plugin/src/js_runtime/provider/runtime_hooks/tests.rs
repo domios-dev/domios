@@ -42,7 +42,9 @@ async fn runtime_hooks_refuse_schema_size_and_unlisted_method() {
     .unwrap()
     .unwrap_err();
     assert_eq!(failure.code, RuntimeFailureCode::Deadline);
-    assert_eq!(failure.message, "runtime hook execution deadline");
+    assert!(failure
+        .message
+        .starts_with("runtimePlan: runtime hook execution deadline"));
 }
 
 #[tokio::test(flavor = "current_thread")]

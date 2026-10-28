@@ -122,6 +122,21 @@ pub fn apply_relaunch_env(command: &mut std::process::Command) {
 }
 
 pub fn application_relaunch_env_from(env: Vec<(OsString, OsString)>) -> Vec<(OsString, OsString)> {
+    application_relaunch_env_for(env, cfg!(debug_assertions))
+}
+
+fn application_relaunch_env_for(
+    env: Vec<(OsString, OsString)>,
+    debug: bool,
+) -> Vec<(OsString, OsString)> {
+    let development = debug
+        && env.iter().any(|(key, value)| {
+            key == "CODETERM_DEV_API_PORT"
+                && value
+                    .to_str()
+                    .and_then(|value| value.parse::<u16>().ok())
+                    .is_some_and(|port| port != 0 && port != 7685)
+        });
     let selectors: Vec<_> = env
         .iter()
         .filter(|(key, _)| {
@@ -133,7 +148,11 @@ pub fn application_relaunch_env_from(env: Vec<(OsString, OsString)>) -> Vec<(OsS
                         | "CODETERM_INSTANCE"
                         | "CODETERM_DEV_INSTANCE"
                         | "CODETERM_DEV_API_PORT"
-                )
+                ) || development
+                    && matches!(
+                        key,
+                        "CODETERM_VITE_PORT" | "CODETERM_DEV_IDENTIFIER" | "CODETERM_CDP_PORT"
+                    )
             })
         })
         .cloned()

@@ -1,19 +1,7 @@
-import { useEffect, useRef, type FormEvent, type ReactNode } from "react";
+import { useRef, type FormEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { trapDialogTab } from "./dialogFocusTrap";
+import { trapDialogTab, useDialogFocus } from "./dialogFocusTrap";
 import { useBackDismissal } from "../../lib/backDismissal";
-
-function useFormDialogFocus() {
-  const dialog = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement;
-    if (!dialog.current?.contains(previous)) {
-      dialog.current?.querySelector<HTMLElement>("input:not([disabled]), button:not([disabled]), textarea:not([disabled])")?.focus();
-    }
-    return () => { if (previous instanceof HTMLElement && previous.isConnected) previous.focus(); };
-  }, []);
-  return dialog;
-}
 
 export function FormDialog({ titleId, descriptionId, onCancel, onSubmit, children, className = "max-w-sm" }: {
   titleId: string;
@@ -23,7 +11,7 @@ export function FormDialog({ titleId, descriptionId, onCancel, onSubmit, childre
   children: ReactNode;
   className?: string;
 }) {
-  const dialog = useFormDialogFocus();
+  const dialog = useDialogFocus<HTMLFormElement>();
   const cancel = useRef(onCancel);
   cancel.current = onCancel;
   useBackDismissal(true, onCancel);

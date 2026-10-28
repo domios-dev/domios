@@ -56,9 +56,6 @@ fn prune_report(
         let Some(plan_id) = entry.get("plan_id").and_then(Value::as_str) else {
             continue;
         };
-        if plan_id == "inbox" {
-            continue;
-        }
         let plan = match client.call("plan.get", Some(json!({ "plan_id": plan_id }))) {
             Ok(plan) => plan,
             Err(_) => continue,

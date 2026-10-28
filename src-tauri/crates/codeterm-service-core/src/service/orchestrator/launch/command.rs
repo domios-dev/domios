@@ -134,6 +134,18 @@ fn build_agent_command_inner(
             return Default::default();
         }
     };
+    let neighbor_tool_args = match notice_context {
+        Some((service, tab_id)) => {
+            match service.neighbor_scoped_tool_launch_args(tab_id, agent_cmd, params) {
+                Ok(args) => args,
+                Err(error) => {
+                    log::error!("[neighbor-launch] scoped tool policy refused: {error}");
+                    return Default::default();
+                }
+            }
+        }
+        None => Vec::new(),
+    };
     if let Some((service, tab_id)) = notice_context {
         crate::service::directory_pre_trust::for_tab(
             service,
@@ -188,7 +200,7 @@ fn build_agent_command_inner(
         model_arguments.as_deref().unwrap_or_default(),
     );
     let mut args = resolved_params.args.clone().unwrap_or_default();
-    if let Some((service, tab_id)) = notice_context {
+    if let Some((_, tab_id)) = notice_context {
         if let Some(session) = params
             .resume_session_id
             .as_deref()
@@ -197,18 +209,6 @@ fn build_agent_command_inner(
             crate::service::launch_session_detection::register_resume_launch_marker(
                 tab_id, session,
             );
-        }
-        if execution_policy.is_none() {
-            if let Some(command) = crate::service::codex_rpc::launch::defer(
-                service,
-                tab_id,
-                agent_cmd,
-                &resolved_params,
-                task,
-                injected_session_id,
-            ) {
-                return command.into();
-            }
         }
     }
     let structured_prompt_server = params.structured_prompt_server.clone().or_else(|| {
@@ -315,6 +315,7 @@ fn build_agent_command_inner(
             );
         }
     }
+    args.extend(neighbor_tool_args);
     if let Some(policy) = &execution_policy {
         args.extend(policy.launch_args.clone());
         if !policy.writable_roots.is_empty() {

@@ -78,7 +78,14 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         AccountMeshRefusal::PlanLimitLocked => M::PlanLimitLocked,
         AccountMeshRefusal::Cancelled => M::Cancelled,
         AccountMeshRefusal::Invalid
+        | AccountMeshRefusal::InstallationUnverified
+        | AccountMeshRefusal::CutoffAfterCurrentSession
         | AccountMeshRefusal::Conflict
+        | AccountMeshRefusal::KeyConflict
+        | AccountMeshRefusal::GenerationMismatch
+        | AccountMeshRefusal::ChallengeInvalid
+        | AccountMeshRefusal::EnrollmentBudget
+        | AccountMeshRefusal::ProofInvalid
         | AccountMeshRefusal::VerificationUnavailable => M::handshake(reason(&refusal)),
     }
 }

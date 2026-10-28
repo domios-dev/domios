@@ -74,6 +74,10 @@ pub enum Enrollment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "reason")]
 pub enum AccountMeshRefusal {
+    #[serde(rename = "installation_unverified")]
+    InstallationUnverified,
+    #[serde(rename = "cutoff_after_current_session")]
+    CutoffAfterCurrentSession,
     #[serde(rename = "invalid")]
     Invalid,
     #[serde(rename = "unauthenticated")]
@@ -86,6 +90,16 @@ pub enum AccountMeshRefusal {
     Forbidden,
     #[serde(rename = "conflict")]
     Conflict,
+    #[serde(rename = "key_conflict")]
+    KeyConflict,
+    #[serde(rename = "generation_mismatch")]
+    GenerationMismatch,
+    #[serde(rename = "challenge_invalid")]
+    ChallengeInvalid,
+    #[serde(rename = "enrollment_budget")]
+    EnrollmentBudget,
+    #[serde(rename = "proof_invalid")]
+    ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
     #[serde(rename = "mesh.machines")]
@@ -112,12 +126,19 @@ pub enum AccountMeshRefusal {
 impl From<RegistryRefusal> for AccountMeshRefusal {
     fn from(value: RegistryRefusal) -> Self {
         match value {
+            RegistryRefusal::InstallationUnverified => Self::InstallationUnverified,
+            RegistryRefusal::CutoffAfterCurrentSession => Self::CutoffAfterCurrentSession,
             RegistryRefusal::Invalid => Self::Invalid,
             RegistryRefusal::Unauthenticated => Self::Unauthenticated,
             RegistryRefusal::ReauthRequired => Self::ReauthRequired,
             RegistryRefusal::AppCheck => Self::AppCheck,
             RegistryRefusal::Forbidden => Self::Forbidden,
             RegistryRefusal::Conflict => Self::Conflict,
+            RegistryRefusal::KeyConflict => Self::KeyConflict,
+            RegistryRefusal::GenerationMismatch => Self::GenerationMismatch,
+            RegistryRefusal::ChallengeInvalid => Self::ChallengeInvalid,
+            RegistryRefusal::EnrollmentBudget => Self::EnrollmentBudget,
+            RegistryRefusal::ProofInvalid => Self::ProofInvalid,
             RegistryRefusal::RateLimited {
                 retry_after_seconds,
             } => Self::RateLimited {

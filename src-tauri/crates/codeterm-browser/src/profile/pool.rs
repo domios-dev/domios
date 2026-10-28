@@ -40,7 +40,7 @@ impl SharedBrowser {
             }
         };
         self.client.close("shared browser stopped");
-        if !self.profile.is_persistent() {
+        if !self.profile.is_persistent() || super::instance::is_ephemeral(&self.dir).await {
             let _ = tokio::fs::remove_dir_all(&self.dir).await;
         }
         outcome

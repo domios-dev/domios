@@ -6,6 +6,24 @@ use crate::service::{
 };
 use std::sync::atomic::Ordering;
 
+pub(super) fn restore_input(
+    record: &crate::service::pending_delivery_payloads::user_sends::UserSendRecord,
+    text: &str,
+) -> Result<crate::service::messenger::AgentInput, String> {
+    use crate::service::messenger::{AgentInput, HumanInput, Messenger};
+    if record
+        .client_token
+        .as_deref()
+        .is_some_and(|token| token.starts_with("runtime-envelope:"))
+    {
+        Ok(AgentInput::Framed(
+            Messenger::restore_framed_delivery(text)?.with_provenance(record.input_provenance),
+        ))
+    } else {
+        Ok(AgentInput::Human(HumanInput::composer(text)))
+    }
+}
+
 pub(crate) fn is_ready(svc: &ServiceContext, authority: &UserSendAuthority) -> bool {
     let owner = svc
         .pending_delivery_payloads
@@ -165,19 +183,7 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
             );
         }
         let dispatch_generation = owner.dispatch_generation.load(Ordering::Acquire);
-        let input = if record
-            .client_token
-            .as_deref()
-            .is_some_and(|token| token.starts_with("runtime-envelope:"))
-        {
-            crate::service::messenger::AgentInput::Framed(
-                crate::service::messenger::Messenger::restore_framed_delivery(&text)?,
-            )
-        } else {
-            crate::service::messenger::AgentInput::Human(
-                crate::service::messenger::HumanInput::composer(&text),
-            )
-        };
+        let input = restore_input(&record, &text)?;
         let result = transport::send(svc, tab, &input, Some(&record.send_id));
         let zero_write = result
             .as_ref()
@@ -252,3 +258,6 @@ pub(crate) fn drain(svc: &ServiceContext, tab: &str) -> Result<UserDrain, String
     }
     Ok(UserDrain::Idle)
 }
+
+#[cfg(test)]
+mod tests;

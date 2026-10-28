@@ -30,6 +30,7 @@ pub(crate) use readiness::observe_delivery_readiness;
 use readiness::{exact_session_turn_source_available, pty_owner_guard};
 mod recovery_guard;
 mod runner;
+mod shell;
 pub(crate) use cycle::{
     claim_command_submit_cycle, claim_exit_submit_cycle, claim_submit_cycle,
     notify_submit_cycle_provider_exit, wake_submit_cycle, wake_submit_cycle_output,
@@ -47,6 +48,7 @@ use runner::run_with_submit_key;
 #[cfg(test)]
 use runner::run_with_submit_key_and_follow_up;
 use runner::run_with_submit_key_and_payload;
+pub(crate) use shell::{shell_dispatch, submit_shell_dispatch};
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
@@ -213,9 +215,6 @@ struct PtySubmitTransport<'a> {
     wake_tx: SyncSender<SubmitCycleSignal>,
     wake_rx: Receiver<SubmitCycleSignal>,
     _session_evidence_watcher: RefCell<Option<notify::RecommendedWatcher>>,
-    /// Stream-preview turn signal fires once per transaction, at the first
-    /// successful submit-key enqueue. Signal only — never gates delivery.
-    turn_signaled: std::cell::Cell<bool>,
     recovery_refusal: Cell<Option<&'static str>>,
 }
 
@@ -607,9 +606,6 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             }
         );
         result.map_err(|error| injection_write_error(self.pty_id, error))?;
-        if !self.turn_signaled.replace(true) {
-            crate::service::stream_preview::begin_turn(self.pty_id);
-        }
         if self.permit.is_some() {
             crate::pty::capture::CaptureRegistry::global().tap_input(self.pty_id, "pty.write", key);
         }
@@ -927,7 +923,6 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
         wake_tx,
         wake_rx,
         _session_evidence_watcher: RefCell::new(None),
-        turn_signaled: std::cell::Cell::new(false),
         deferred_ready_seen: Cell::new(false),
         recovery_refusal: Cell::new(None),
     };

@@ -98,6 +98,11 @@ pub struct SpawnResult {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SpawnAgentParams {
+    /// Host provenance is installed before launch and cannot come from wire input.
+    #[serde(default, skip)]
+    pub neighbor_authority: Option<crate::multiplexer::types::NeighborAuthority>,
+    #[serde(default, skip)]
+    pub neighbor_machine_access: Option<codeterm_neighbors::permissions::MachineAccess>,
     #[serde(default, skip)]
     pub context_files: Option<crate::plan::TaskFiles>,
     #[serde(default, skip)]

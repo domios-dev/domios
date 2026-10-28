@@ -58,4 +58,64 @@ Closes every Team member through the Team cascade path, removes the Team registr
 
 Remote membership freezes during close. All nonfinalized remote members receive an authenticated Full-access preflight before any remote stop. An offline, unpaired, restricted or busy peer retains the Team and its members; a fresh failed preflight releases the provisional freeze. Closing stops only the exact recorded provider, session and parent. An absent tab or changed provider/session/report binding releases stale membership without closing its replacement. Each terminal receipt is persisted; a lost response is recovered by another authenticated close, and already finalized members are skipped. Late telemetry and cached rows for that finalized session cannot recreate a Team tab. A later failure retains partial close progress and the Team until cleanup completes. The response's `remote_members` lists `{peer_id, tab_id, provider, session_id, outcome}`, where outcome is `closed`, `absent` or `released_stale_binding`.
 
-<!-- revision: 9 -->
+## Execution authority and recovery
+
+### Recovering a tab-gone task
+
+The live Plan owner may close pending, blocked or in-progress tasks directly with `plan task close --result-file`, or record `--status done` with a nonblank `--step` result note for that task. Both paths verify the owner's current session binding, persist the result and clear executor assignments. Worker completion goes through reports and review; a task body alone is not a result note.
+
+When a Worker's tab is gone, its owner epoch is stale by definition, so the epoch never blocks recovery. The **live authenticated Plan owner** may `cancel`, `pend`, reassign, respawn, or **dispatch** such a task. The recovery retires the stale attempt in the *same* transition that clears the dead owner identity, so no half-applied state is observable and a later `dispatch_ready` for the retired attempt is rejected instead of resurrecting ownership. A non-owner, non-epoch caller is still refused.
+
+Plan ownership is proven against the caller's **live tab binding**: tab present, agent session live, binding nonce both stored and reported back, and that tab recorded as the plan's owner with Team-Orchestrator authority. It is never proven from the owner record's `session_id`, so an Orchestrator whose session moved by restore, compaction, or provider relaunch stays its own plan's owner.
+
+Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs are a subset of the verbs where the Plan owner has authority over a task it does not hold. A verb asserting the *caller's own* task binding, such as a Worker report, is on neither list and can never ride the recovery hatch. Refusals carry a stable `data.type` naming the blocking state, so a tab-gone task is never reported as a stale epoch.
+
+A genuine respawn preserves predecessor reports and review evidence, retires the prior attempt, and enters pending startup. Runtime readiness precedes the awaiting-ACK label; only the fresh Worker's ACK starts execution.
+
+Dispatch refuses `paused`, `done`, `cancelled`, and `in_review` tasks before spawning. Explicit dispatch of a blocked task clears it to pending in the same mutation that reserves its attempt and records the prior block reason in a plan stride. Respawn also clears a blocked task atomically and records that reason; respawn is additionally the supported way to replace an attempt held in review.
+
+Plan writes require the caller's live bound session. When the caller presents its own launch nonce while binding is still in flight, the daemon waits for the binding event through the startup deadline. A timed-out write returns `data.type = "session_binding_pending"` with `data.retryable = true`; a settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error.
+
+### Bouncing a cleaned terminal review generation
+
+The existing authenticated review-bounce transition can recover a cleaned terminal generation when its original closed-attempt selector finds zero candidates. A unique original match keeps its existing behavior, and multiple original matches remain an ambiguity refusal.
+
+The recovery requires an `in_review` task with no assigned executor, peer, or remaining lane tab, workspace, worktree, or branch, and `cleanup_status: done`. Every attempt must be closed and noncompetitive. Persisted attempt order must agree with strictly increasing, present assignment times; duplicate identities, overlapping generations, and contradictory times refuse selection. Only the last appended generation is considered, and it must have a nonblank executor session and binding nonce, an ACK, a persisted own-session `in_review` report, and ordered assignment, ACK, report, closure, and retirement facts. Continuation round metadata must describe the current review round, and replay labels or continuation-state conflicts refuse the fallback. An incomplete terminal generation blocks the transition even when an earlier generation has a valid report.
+
+A successful bounce records one review evidence item and milestone, advances the review round and credit through the existing transaction, marks the selected predecessor `executor_gone`, and returns the task to pending with no continuation. The transaction preserves historical reports, launch metadata, and closure and retirement times. The retired executor receives no delivery; fresh placement follows ordinary dispatch. Refusals leave task, review credit, and milestones unchanged. This contract adds no command or wire fields.
+
+This verb requires the live owning Orchestrator's top-level `caller_tab_id` and `session_binding_nonce`; `session_id` is optional under existing current-tab resolution. `from` remains attribution only and never supplies authority. The v3 gate refuses v2 clients before dispatch with `-32002`, `data.type = "version_skew"`, and the recovery command.
+
+### Review credit repair and evidence reporters
+
+`domios plan review delegate <plan> <task> --qa-tab <tab>` hands an `in_review` task to a direct child QA: only that bound session may accept or bounce it, with a non-empty evidence note; the verdict consumes the grant, which never authorizes hold, dispatch or other transitions.
+
+`domios plan review reconcile-credit <plan> --reason "<incident evidence>"` auditably repairs review credit leaked by older builds. Credit repair and capacity classification require the live bound Orchestrator session and record an immutable plan stride. For task-less review or canonical-QA evidence, the live Plan owner runs `domios plan review authorize-reporter <plan> <tab> --class review|canonical_qa`; that exact session gains evidence-only authority and reports with `domios agent report --plan <plan>` and no task/status, producing a Plan stride and an ordinary owner event without a task transition. Missing, foreign, rebound, task-bound, or stale-owner grants fail before persistence or delivery. A fresh shell may omit `CODETERM_SESSION_ID`: evidence reporting resolves the registered tab session only with a matching stored and hook-reported nonce; never inject another tab's session.
+
+Planner spawns (CLI, REST, service) resolve an omitted `--parent-tab` from the Plan owner before provisioning; a missing owner refuses with no tab created.
+
+### Task-bound plan skill reads
+
+An omitted `--plan` on `domios plan skill` uses the authenticated caller's Team active plan. Inherited launch plan, task, and attempt values do not override that live binding. An explicit `--plan` reads the named plan without rebinding the Team; a read of another plan records no current-task skill-load receipt.
+
+The caller supplies its tab and binding nonce. The daemon derives its session only when the issued and session-reported nonces match; a supplied session must match too. Same-plan task evidence requires exactly one current assignment and an exact announced content digest. Explicit task or attempt conflicts, ambiguous assignments, unannounced skills, and changed bytes refuse.
+
+Dispatch announces the manifest in its brief. For a supported existing-tab assignment, an authenticated `domios agent ack` returns the current manifest and its brief, recording that announcement on the current attempt before a load can be recorded. Repeating ACK retains an existing announcement and ACK; it never copies predecessor loads or replaces an announced digest. A startup ACK can still precede runtime binding; the first ACK returns only the manifest already announced by dispatch. Repeated ACK can complete both missing attempt binding fields only with retained launch authority for the exact creator, Team, task/attempt, owner epoch, PTY and nonce, plus the current session's matching issued and reported nonce. A verified session occupying the tab cannot mint that authority. The guarded write preserves ACK/timestamps, history, manifest, loads, status and lane. Exact already-bound equality is idempotent; partial, foreign, ambiguous, closed or retired ownership, absent/finalized launch proof and unannounced or changed manifests refuse without repair. A refusal returns `plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan, task and attempt identifiers. Report those identifiers to the Orchestrator for launch-proven binding repair; this operation never rearms finalized launches or assigns a replacement attempt.
+
+
+## Additional REST routes
+
+Team staffing and closing use the authority and confirmation rules above.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/teams/{team_id}/mission-control/spend` | Read Team spend projections. |
+| GET | `/api/teams/{team_id}/mission-control/state` | Read Team mission-control state. |
+| POST | `/api/orchestration/new` | Create an Orchestrator/Planner Team. |
+| POST | `/api/tabs/{id}/make-orchestrator` | Promote the selected tab to Orchestrator. |
+| POST | `/api/tabs/{id}/make-planner` | Promote the selected tab to Planner. |
+| POST | `/api/teams/{team_id}/close` | Close a Team and its owned resources. |
+| POST | `/api/teams/{team_id}/members` | Add a Team member. |
+| POST | `/api/teams/{team_id}/rename` | Rename a Team. |
+
+<!-- revision: 11 -->

@@ -33,7 +33,7 @@ axum = { version = "0.8", features = ["multipart"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
 url = "2"
 async-trait = "0.1"
-which = "7"
+which = "8"
 codeterm-plugins = { path = "../codeterm-plugins" }
 codeterm-update = { path = "../codeterm-update" }
 

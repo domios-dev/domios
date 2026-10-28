@@ -22,6 +22,27 @@ static SCRIPTS_WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 pub const AGENT_SHELL_ENV: &str = "CODETERM_AGENT_SHELL";
 
+#[cfg(unix)]
+pub(super) fn bind_bash_cli(cmd: &mut CommandBuilder) {
+    for name in ["domios", "codeterm"] {
+        cmd.env_remove(format!("BASH_FUNC_{name}%%"));
+    }
+    let Some(cli_path) = cmd
+        .get_env("CODETERM_CLI_PATH")
+        .and_then(|path| path.to_str())
+    else {
+        return;
+    };
+    if !std::path::Path::new(cli_path).is_absolute() {
+        return;
+    }
+    let quoted = cli_path.replace('\'', "'\\''");
+    let function = format!("() {{ ( exec '{quoted}' \"$@\" ); }}");
+    for name in ["domios", "codeterm"] {
+        cmd.env(format!("BASH_FUNC_{name}%%"), &function);
+    }
+}
+
 pub(super) fn apply_agent_startup(cmd: &mut CommandBuilder, shell: &str, agent_shell: bool) {
     #[cfg(target_os = "windows")]
     if agent_shell && !cmd.is_default_prog() && is_powershell(shell) {
@@ -209,7 +230,7 @@ pub fn apply_env(cmd: &mut CommandBuilder, shell: &str) {
                     cmd.arg("--rcfile");
                     cmd.arg(bashrc_path.to_string_lossy().as_ref());
                 }
-                // BASH_ENV covers non-interactive subshells (and the login shell).
+                // BASH_ENV covers non-interactive Bash subshells.
                 cmd.env("BASH_ENV", bashrc_path.to_string_lossy().as_ref());
             }
         } else if shell.contains("fish") {

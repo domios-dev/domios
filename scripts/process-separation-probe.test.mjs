@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, realpathSync, mkdirSync, readFileSy
 import os from 'node:os';
 import path from 'node:path';
 import { parseProbeArgs, cleanEnvironment, attachRequest, assertDisposableHome, assertSafePort,
-  clientArtifact, clientBuildTarget, clientEnvironmentContract, pairPlatformSupport } from './process-separation-probe.mjs';
+  clientArtifact, clientBuildTarget, clientEnvironmentContract, pairPlatformSupport, socketProbeRequest } from './process-separation-probe.mjs';
 import { assertServerClosure, serverArtifact, workerArtifact, stageDevResources, resolveDevResourceRoot } from './server-artifact.mjs';
 
 const legacy = ['code', 'term'].join('');
@@ -116,7 +116,7 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     const artifactRoot = path.join(root, 'target', target, 'debug');
     const resourceRoot = process.platform === 'win32' ? artifactRoot : path.join(artifactRoot, `.domios-dev-runtime/lib/${legacy}`);
     const server = path.join(artifactRoot, `domios-server${exe}`);
-    const client = path.join(artifactRoot, `${legacy}${exe}`);
+    const client = path.join(artifactRoot, `domios-app${exe}`);
     const cli = path.join(root, `cli/target/debug/${legacy}${exe}`);
     const serverSource = path.join(root, 'src-tauri/crates/domios-server/src/main.rs');
     const cliSource = path.join(root, 'cli/src/main.rs');
@@ -196,4 +196,17 @@ test('DEV root confinement accepts resolved SUBST spelling, not junctions or for
   const derived = paths.join(physical, 'missing');
   assert.equal(resolveDevResourceRoot('X:/debug/missing', derived, boundary), derived);
   assert.deepEqual(prepared, [physical, derived]);
+});
+
+// WHAT: authenticate the process oracle socket request using the live protocol source.
+// WHY: a stale literal and missing credential cannot prove server socket readiness.
+// ORACLE: the request carries the broker credential and parsed protocol, refusing malformed inputs.
+test('socket probe authenticates with the broker credential and source protocol', () => {
+  const reply = { api_token: 'private-fixture-credential' };
+  assert.deepEqual(socketProbeRequest(reply, 'pub const PROTOCOL_VERSION: u64 = 31;'), {
+    jsonrpc: '2.0', id: 1, method: 'system.identify', protocol_version: 31,
+    credential: 'private-fixture-credential',
+  });
+  assert.throws(() => socketProbeRequest(reply, 'no protocol contract'), /protocol/);
+  assert.throws(() => socketProbeRequest({}, 'pub const PROTOCOL_VERSION: u64 = 31;'), /credential/);
 });

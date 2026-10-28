@@ -1,147 +1,67 @@
 #!/usr/bin/env node
-// Caller: CI release-manifest-validate.yml; scripts tests/release-closure-authority.test.mjs; skill github-release
-// Gate on closing a public rollacode/codeterm-releases issue.
-//
-// Merging is not shipping, and being the release owner is not evidence. The only
-// thing that authorises the close is a passing published-manifest verification
-// for THIS release, so this reads that record and refuses everything else.
-//
-// Usage:
-//   check-release-closure.mjs --evidence <file> --version <x.y.z> [--issue <n>]...
-
 import { readFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-// Published by every release with no escape hatch: darwin from the build
-// machine, windows x64 from its matrix leg, linux-x86_64 from the AppImage lane.
-const REQUIRED_PLATFORMS = [
-  'darwin-aarch64',
-  'darwin-x86_64',
-  'windows-x86_64',
-  'linux-x86_64',
-];
+const PLATFORMS = ['darwin-aarch64', 'darwin-x86_64', 'windows-x86_64',
+  'windows-aarch64', 'linux-x86_64', 'linux-aarch64'];
 
-// Not silently certified: each is absent for a documented reason, so a run
-// reports which shipped instead of pretending the set is always complete.
-const OPTIONAL_PLATFORMS = new Map([
-  // .agents/skills/github-release/SKILL.md records shipping without it when the ARM64 runner is
-  // unavailable and forbids synthesizing the asset; 1.7.2 shipped without it.
-  ['windows-aarch64', 'the windows-build ARM64 runner was unavailable'],
-  // publish-release.sh emits the fragment only when LINUX_ARM_SIG is set.
-  ['linux-aarch64', 'the Linux ARM lane did not build it'],
-]);
-
-function parseArgs(argv) {
-  const args = { evidence: null, version: null, issues: [] };
-  for (let i = 2; i < argv.length; i++) {
-    const flag = argv[i];
-    if (flag === '--evidence') args.evidence = argv[++i];
-    else if (flag === '--version') args.version = argv[++i];
-    else if (flag === '--issue') args.issues.push(argv[++i]);
-    else throw new Error(`Unknown argument: ${flag}`);
+function verifyRecord(record, version, platforms, deb) {
+  if (!record || record.verified !== true || record.version !== version || record.cache_busted !== true
+    || !Array.isArray(record.failures) || record.failures.length
+    || !Array.isArray(record.platforms) || platforms.some(name => !record.platforms.includes(name))) {
+    throw new Error('Incomplete published-manifest verification for v' + version);
   }
-  if (!args.evidence || !args.version) {
-    throw new Error('Usage: --evidence <file> --version <x.y.z> [--issue <n>]...');
-  }
-  return args;
-}
-
-function refuse(reason) {
-  console.error(`refusing to close: ${reason}`);
-  process.exitCode = 1;
-}
-
-// A version segment in an arbitrary path is not a citation: the record must name
-// the public release the shipped updater actually reads from.
-const PUBLIC_MANIFEST = /^\/rollacode\/codeterm-releases\/releases\/download\/([^/]+)\/[^/]+$/;
-
-function citedRelease(manifest) {
-  if (typeof manifest !== 'string') return null;
-  let parsed;
-  try {
-    parsed = new URL(manifest);
-  } catch {
-    return null;
-  }
-  if (parsed.protocol !== 'https:' || parsed.host !== 'github.com') return null;
-  const asset = PUBLIC_MANIFEST.exec(parsed.pathname);
-  if (asset === null) return null;
-  return asset[1].startsWith('v') ? asset[1].slice(1) : asset[1];
-}
-
-async function readRecord(path) {
-  try {
-    const record = JSON.parse(await readFile(path, 'utf8'));
-    return record !== null && typeof record === 'object' && !Array.isArray(record) ? record : null;
-  } catch {
-    return null;
+  const url = new URL(record.manifest);
+  const filename = deb ? 'domios-latest-deb.json' : 'domios-latest.json';
+  if (url.protocol !== 'https:' || url.host !== 'github.com' || !url.searchParams.has('cb')
+    || url.pathname !== `/rollacode/codeterm-releases/releases/download/v${version}/${filename}`) {
+    throw new Error('Verification must cite this public release manifest');
   }
 }
 
-function missingPlatforms(record) {
-  const verified = Array.isArray(record.platforms) ? record.platforms : [];
-  return REQUIRED_PLATFORMS.filter((name) => !verified.includes(name));
+export function authorizeClosure(record, debRecord, version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid closure version');
+  verifyRecord(record, version, PLATFORMS, false);
+  verifyRecord(debRecord, version, ['linux-x86_64', 'linux-aarch64'], true);
 }
 
-async function main() {
-  const args = parseArgs(process.argv);
-
-  const record = await readRecord(args.evidence);
-  if (!record) {
-    refuse(
-      `no published-manifest verification has run for v${args.version} `
-      + `(${args.evidence} is missing, unreadable, or not a record)`,
-    );
-    return;
+export async function closeVerifiedIssues(plan, record, debRecord, version, close) {
+  authorizeClosure(record, debRecord, version);
+  if (!Array.isArray(plan) || plan.length > 1000 || new Set(plan.map(action => action.number)).size !== plan.length
+    || plan.some(action => !Number.isSafeInteger(action.number) || action.number < 1
+    || typeof action.comment !== 'string' || !action.comment.startsWith(`Released in v${version}\n`))) {
+    throw new Error('Invalid public issue close plan');
   }
-  if (record.verified !== true) {
-    const detail = (record.failures ?? []).join('; ') || 'no platforms verified';
-    refuse(`the published-manifest verification failed: ${detail}`);
-    return;
-  }
-  if (record.version !== args.version) {
-    refuse(
-      `the published-manifest verification belongs to v${record.version}, not v${args.version}`,
-    );
-    return;
-  }
-  // GitHub serves a replaced asset stale for minutes, so an uncached fetch can
-  // verify the bytes the PREVIOUS run published and call this release good.
-  if (record.cache_busted !== true) {
-    refuse('the published-manifest verification ran without a cache-buster');
-    return;
-  }
-
-  const cited = citedRelease(record.manifest);
-  if (cited === null) {
-    refuse(
-      'the verification record does not cite a release-scoped manifest URL '
-      + `(${record.manifest ?? '<absent>'})`,
-    );
-    return;
-  }
-  if (cited !== args.version) {
-    refuse(`the verified manifest was served from the v${cited} release, not v${args.version}`);
-    return;
-  }
-
-  const missing = missingPlatforms(record);
-  if (missing.length > 0) {
-    refuse(`the published manifest was not verified for ${missing.join(', ')}`);
-    return;
-  }
-
-  const subjects = args.issues.length > 0
-    ? args.issues.map((issue) => `rollacode/codeterm-releases#${issue}`).join(', ')
-    : '(no issues named)';
-  const absent = [...OPTIONAL_PLATFORMS]
-    .filter(([name]) => !record.platforms.includes(name))
-    .map(([name, reason]) => `${name} (${reason})`);
-  console.log(
-    `closure authorised for v${args.version}: ${subjects}\n`
-    + `  verified ${record.platforms.join(', ')} at ${record.verified_at}\n`
-    + `  optional platforms absent: ${absent.join('; ') || 'none'}\n`
-    + `  against ${record.manifest}`,
-  );
+  for (const action of plan) await close(action);
 }
 
-await main();
+async function main(argv) {
+  const args = {};
+  for (let i = 0; i < argv.length; i += 2) {
+    if (!['--evidence', '--deb-evidence', '--version', '--plan'].includes(argv[i]) || !argv[i + 1]) {
+      throw new Error('Usage: --evidence FILE --deb-evidence FILE --version X.Y.Z [--plan FILE]');
+    }
+    args[argv[i]] = argv[i + 1];
+  }
+  const read = async filename => JSON.parse(await readFile(filename, 'utf8'));
+  const record = await read(args['--evidence']);
+  const debRecord = await read(args['--deb-evidence']);
+  const version = args['--version'];
+  authorizeClosure(record, debRecord, version);
+  if (args['--plan']) {
+    await closeVerifiedIssues(await read(args['--plan']), record, debRecord, version, action => {
+      execFileSync('gh', ['issue', 'close', String(action.number), '--repo', 'rollacode/codeterm-releases',
+        '--comment', action.comment], { stdio: 'inherit', timeout: 60_000 });
+    });
+  }
+  console.log(`Closure authorised for v${version}: all six updater platforms and both Debian platforms verified`);
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main(process.argv.slice(2)).catch(error => {
+    console.error('refusing to close: ' + error.message);
+    process.exitCode = 1;
+  });
+}

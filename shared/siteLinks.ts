@@ -1,6 +1,6 @@
 export const siteLinks = {
   author: 'https://rollacode.org/',
-  repository: 'https://github.com/rollacode/codeterm',
+  repository: 'https://github.com/domios-dev/domios',
   discord: 'https://discord.gg/JrmVwXEeZA',
   telegram: 'https://t.me/domi_os',
   terms: 'https://domios.dev/terms',

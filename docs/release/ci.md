@@ -1,18 +1,31 @@
 # CI and release admission
 
-CI in tests.yml is the only validation push/PR pipeline. Its final **CI result** job is the
-only required status on master and release branches. The ruleset configuration
-is .github/admin/public-repo.sh; applying repository settings remains an owner
-operation. Existing live rules do not change when that script is edited.
+CI has two PR tiers. **CI result** is the aggregate to require: tests.yml owns
+release PRs into master; tests-side.yml owns all PRs into develop, including
+Dependabot and forks. Repository rules remain an owner operation; changing a
+workflow does not update live required-check settings.
 
 | Event | Checks |
 | --- | --- |
-| Owner push to release/X.Y.Z | Full CI on the PR head SHA, qualification, then signed packaging of all six platforms with retained dry-run artifacts in the same run |
-| All PRs, including release PRs and forks | Hosted, read-only, secret-free guards; release heads run only light policy/body checks |
-| Owner push to develop, rename/domios or master | Complete qualification unless develop carries a release push head SHA; that duplicate skips heavy work with a notice |
-| Admin merges release PR into master | Verify the squashed master commit carries exactly the release head tree, then publish the retained bytes from that exact head's green push run through promote_run_id; never rebuild the merge commit |
-| Nightly | Complete qualification of rename/domios and develop |
-| Owner CI dispatch, scope=fast | All fast contracts against source_ref on their existing runner kinds; no Clippy, full/native Rust, embeddings or qualification |
+| Trusted owner release/X.Y.Z PR into master | Existing heavy fast/Rust graph, qualification and dry-run packaging, with the existing self-hosted routing |
+| Any PR into develop | Hosted repository guards, fmt-check, TS static checks/unit/Vitest, plugin bundle checks/tests, one workspace cargo check --all-targets, then CI result |
+| Other PR into master | Existing repository refusal: master accepts only the owner's release/X.Y.Z |
+| Owner CI dispatch | Existing tests.yml dispatch behavior and scope |
+
+The develop path uses literal ubuntu-24.04 for every job, independent of runner
+variables. It requests a read-only token, no repository/environment secrets,
+no release environment, no reusable release graph, no qualification and no Rust
+test execution. Rust checking includes the CLI workspace member and all target
+kinds on Linux; it uses the GitHub Actions sccache backend and Cargo dependency
+cache without private-store credentials or endpoints. Fork/Dependabot PRs need
+no store access. Every light check runs for every develop PR, regardless of
+changed-file scope. The aggregate rejects failed, cancelled or skipped checks.
+
+After merge, verify the first Dependabot PR into develop by its commit SHA:
+expect Repository guards, fmt-check, ts static checks, ts unit, ts vitest,
+plugin bundles + tests, Rust workspace check and CI result, all on GitHub-hosted
+Ubuntu. Inspect the jobs API's runner names and conclusions; local actionlint
+and trigger review do not prove a live hosted run.
 
 The source guards finish successfully before either test branch can acquire compilers.
 Shared guards cover sizes, provider boundary, crate layering, Tauri reach,
@@ -47,13 +60,10 @@ nextest and platform matrices keep fail-fast off, and no failing qualification
 can start packaging. A newer commit can still supersede an older run.
 CI result reads named failing/timed-out child jobs from the Actions API; timeouts remain failures rather than cancelling siblings. Hosted TS checks have 15-minute bounds; generated types and the private guard role have 20 minutes.
 
-The release branch push is the single full CI and packaging owner. Each push
-runs the full suite on its exact SHA, then calls release.yml with dry_run=true.
-Per-branch concurrency cancels the superseded run, including packaging. Its
-CI result check satisfies the release PR head. Release PR events report
-Release PR checks, so their light success cannot mask the push CI result. PR runs always remain hosted
-and secret-free, including PR body checks; they never start heavy packaging.
-Develop admission skips a SHA already owned by a release push run.
+The trusted release PR into master retains its existing tests.yml admission,
+heavy checks, qualification and packaging. Side PRs never call that graph.
+The workflows have disjoint PR base-branch filters, so their CI result checks
+cannot mask each other on the same PR event.
 
 An admin squash-merges the green release PR (the only allowed method; the branch is deleted). The master push
 event discovers the merged release PR, verifies the merge parents, selects the successful tests.yml push run of
@@ -88,7 +98,8 @@ Runner capacity switches (owner operation):
 | --- | --- | --- |
 | CI_LINUX_LIGHT_RUNNER | ubuntu-24.04 | Current private light labels per job |
 | CI_LINUX_RUST_COMPILE_RUNNER | unset or `private` | Clippy and CLI tests on hosted ubuntu-24.04 by default; `private` routes them to the ubunta linux-build runner |
-| CI_LINUX_RUST_FULL_RUNNER | unset or `private` | Full Rust suite on hosted ubuntu-24.04 by default; `private` routes it to the ubunta linux-build runner |
+| CI_LINUX_RUST_FULL_RUNNER | unset or `hosted` | Full Rust suite on the ubunta linux-build runner by default; `hosted` routes it to ubuntu-24.04 |
+| CI_RELEASE_EVIDENCE_RUNNER | unset or `hosted` | Release evidence promotion on the ubunta linux-build runner by default; `hosted` routes it to ubuntu-24.04 over the public store edge |
 | CI_MACOS_RUST_RUNNER | macos-15 | Air macOS platform tests |
 | CI_MACOS_EMBEDDINGS_RUNNER | macos-15 | Air embeddings after platform tests |
 

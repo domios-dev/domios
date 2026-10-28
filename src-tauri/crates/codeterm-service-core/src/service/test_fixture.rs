@@ -1,3 +1,5 @@
+pub mod model_provider;
+
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -434,6 +436,7 @@ impl ServiceFixture {
         ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
         extensions.insert_service_slots();
+        extensions.insert_late::<super::neighbors::runtime::logout::LogoutKeyPorts>();
         extensions.insert_late::<FixtureLimitGate>();
         extensions.insert(config);
         extensions.insert(crate::service::account::AccountDataRoot(data_dir.clone()));
@@ -631,6 +634,7 @@ impl ServiceFixture {
         )));
         install_test_runtime();
         let service = ServiceContext {
+            tab_credentials: Default::default(),
             lifecycle_journal: Arc::new(crate::session::lifecycle::TabLifecycleJournal::for_dir(
                 data_dir.join("sessions"),
             )),

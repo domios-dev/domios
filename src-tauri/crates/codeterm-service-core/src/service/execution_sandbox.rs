@@ -4,6 +4,64 @@ use crate::{
 };
 use codeterm_types::plan::{ExecutionIntent, ExecutionSandboxPolicy};
 mod build_roots;
+mod ceiling;
+mod neighbor;
+
+/// Every caller identity a delegated spawn names, plus the request's caller header, bounds its sandbox.
+pub fn enforce_delegation_ceiling(
+    svc: &ServiceContext,
+    params: &SpawnAgentParams,
+    header_caller: Option<&str>,
+) -> Result<(), String> {
+    let callers: Vec<_> = {
+        let mux = svc.mux.read();
+        [
+            header_caller,
+            params.spawned_by_tab_id.as_deref(),
+            params.creator_tab_id.as_deref(),
+            params.parent_tab_id.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(|tab| {
+            mux.get_tab(tab)
+                .and_then(|caller| caller.restorable_launch.execution_sandbox.clone())
+                .map(|policy| (tab.to_string(), policy))
+        })
+        .collect()
+    };
+    ceiling::check(
+        params.sandbox.as_deref(),
+        svc.configuration().agent.sandbox_ceiling.as_deref(),
+        &callers,
+        params.cwd.as_deref(),
+    )
+}
+
+/// A peer cannot enforce this machine's caller ceiling, so a confined caller never delegates across the mesh.
+pub fn refuse_confined_mesh_delegation(
+    svc: &ServiceContext,
+    callers: &[Option<&str>],
+) -> Result<(), String> {
+    let mux = svc.mux.read();
+    match callers.iter().flatten().find(|tab| {
+        mux.get_tab(tab)
+            .is_some_and(|caller| caller.restorable_launch.execution_sandbox.is_some())
+    }) {
+        Some(tab) => Err(format!(
+            "Sandboxed caller tab {tab} cannot delegate a launch to a mesh peer"
+        )),
+        None => Ok(()),
+    }
+}
+
+pub(crate) fn requested_label(intent: &ExecutionIntent) -> &'static str {
+    if *intent == ExecutionIntent::ReadOnly {
+        "read-only"
+    } else {
+        "workspace-write"
+    }
+}
 
 pub(crate) fn requested_intent(sandbox: Option<&str>) -> Result<Option<ExecutionIntent>, String> {
     match sandbox {
@@ -90,7 +148,7 @@ pub(crate) fn resolve(
     let Some(mode) = mode_for_intent(registry, provider, intent, arguments, runtime)? else {
         return Ok(None);
     };
-    let intent = intent.ok_or("Execution sandbox intent absent")?;
+    let intent = intent.ok_or("Execution sandbox mode absent")?;
     let path = std::path::Path::new(
         cwd.ok_or("Execution sandbox requires an explicit working directory")?,
     );
@@ -145,7 +203,7 @@ pub(crate) fn for_launch(
             .as_ref()
             .is_some_and(|intent| intent != &policy.intent)
     }) {
-        return Err("Execution sandbox intent is immutable for this tab".into());
+        return Err("Execution sandbox is immutable for this tab".into());
     }
     let mut policy = resolve(
         &svc.agent_registry,
@@ -155,7 +213,9 @@ pub(crate) fn for_launch(
         params.args.as_deref().unwrap_or_default(),
         runtime,
     )?;
+    let neighbor = neighbor::apply_roots(svc, tab, provider, runtime, &mut policy)?;
     if let (Some(saved), Some(resolved)) = (saved.as_ref(), policy.as_mut()) {
+        let allowed_roots = neighbor.then(|| resolved.writable_roots.clone());
         *resolved = restore_recorded(saved, resolved, |root| {
             build_roots::restore_recorded_root(root, &saved.cwd);
             std::path::Path::new(root)
@@ -165,10 +225,15 @@ pub(crate) fn for_launch(
                 .as_deref()
                 == Some(root)
         })?;
+        if let Some(allowed) = allowed_roots {
+            resolved
+                .writable_roots
+                .retain(|root| allowed.contains(root));
+        }
     }
     if let Some(policy) = policy
         .as_mut()
-        .filter(|policy| saved.is_none() && policy.intent == ExecutionIntent::Mutating)
+        .filter(|policy| !neighbor && saved.is_none() && policy.intent == ExecutionIntent::Mutating)
     {
         svc.ensure_agent_pad(tab)?;
         let project = crate::service::launch_session_detection::canonical_project_for_launch(

@@ -1,12 +1,12 @@
 {
   "name": "@codeterm/chat-engine",
-  "version": "1.16.0",
+  "version": "1.17.0",
   "type": "module",
   "description": "Pure context-engine helpers for chatBackend plugins (chat window policy + machine assembly).",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rollacode/codeterm.git",
+    "url": "https://github.com/domios-dev/domios.git",
     "directory": "packages/chat-engine"
   },
   "keywords": [

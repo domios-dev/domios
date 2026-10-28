@@ -67,6 +67,7 @@ pub fn reconcile_restored_runs(
             &run.run_id,
             CronRunStatus::Cancelled,
             &reason,
+            Some(super::store::CronCancelReason::RestartReconcile),
         )
         .map_err(|error| error.to_string())?;
         terminalized += 1;

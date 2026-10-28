@@ -6,6 +6,8 @@ A Team carries the owner's intent through a goal, specification, plan, bounded t
 
 The Orchestrator coordinates, dispatches and verifies. An optional Planner shapes tasks; when planning is waived, the Orchestrator does so. Adopting a plan into a Team binds its unique live Planner. Only the Orchestrator approves a plan, dispatches work, accepts, bounces or holds a task in review, and marks a task done.
 
+The live Plan owner may complete pending, blocked or in-progress tasks directly with a required result note. Workers submit results for review.
+
 Workers execute bounded tasks and never spawn. Only two hierarchy levels exist. Every task carries acceptance criteria and an executable test plan; executors read its applicable plan skills. The Planner assigns the task's executor role, role guidance, one-word personality and model, or the Orchestrator does when planning is waived. Executor role, personality and role guidance are required and cannot be blanked. The spawned Worker keeps its persona name; a runtime role overlay cannot grant spawn or Team authority.
 
 A Team may attach one optional Cartographer Manager for stable product contracts and the generated map. The Cartographer is a non-anchoring singleton with no Team-management, plan or spawn authority, and is removed with its Team. [Operator and agent access](permissions.md) are separate from these role responsibilities.

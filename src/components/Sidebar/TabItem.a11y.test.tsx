@@ -5,6 +5,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, finish, it } from "../../test/standaloneTest";
 import type { Tab } from "../../lib/types";
 import { TabItem } from "./TabItem";
+import { tabActivity } from "../../lib/tabActivity";
+import { Window } from "happy-dom";
 
 type Props = ComponentProps<typeof TabItem>;
 
@@ -44,6 +46,19 @@ function orderOf(html: string, needles: string[]): number[] {
 }
 
 describe("tab row accessibility surface", () => {
+  it("shows the reported compaction phase in the row and its accessible status", () => {
+    const window = new Window();
+    for (const phase of ["compacting", undefined] as const) {
+      const input = tab({ agent_type: "fixture", agent_session_id: "session", agent_state: { state: "working", phase } });
+      window.document.body.innerHTML = render(input, { hasAgent: true });
+      const activity = tabActivity(input);
+      const status = window.document.querySelector('[role="status"]');
+      expect(status?.textContent?.includes(phase ? activity.label : activity.status)).toBe(true);
+      expect(window.document.querySelector('[data-testid="tab-working-activity"]')?.getAttribute("aria-label")).toBe(activity.label);
+      if (phase) expect(window.document.querySelector("button")?.textContent?.includes(activity.label)).toBe(true);
+    }
+    window.happyDOM.abort();
+  });
   it("names the row from the title it was given", () => {
     for (const title of ["Nightly build", "release cut 1.10.0", "shader bake"]) {
       expect(rowName(render({ title }))).toBe(`shell, ${title}`);

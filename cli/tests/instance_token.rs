@@ -42,3 +42,22 @@ fn instance_token_command_refuses_mesh_without_opening_the_local_store() {
     assert!(!String::from_utf8_lossy(&output.stdout).contains("foreign-inherited"));
     assert!(!absent.exists());
 }
+
+#[test]
+fn instance_token_command_refuses_tab_context_without_disclosing_host_authority() {
+    let dir = tempfile::tempdir().unwrap();
+    codeterm_util::instance_token::initialize_at(
+        dir.path(),
+        Some("isolated-host-authority"),
+        false,
+    )
+    .unwrap();
+    let output = command(dir.path())
+        .env("CODETERM_TAB_ID", "isolated-tab")
+        .args(["system", "api-token"])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("isolated-host-authority"));
+}

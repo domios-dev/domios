@@ -152,12 +152,13 @@ async function main() {
     assert(!host.querySelector('[aria-label="Node invoke"]'));
 
     const calls: string[] = [];
-    await act(async () => root.render(<BlueprintProjectList workspaceId="workspace" api={{ list: async (workspace) => { calls.push(workspace); return [{ path: ".domios/blueprints/viewer-fixture.yaml", name: source.name, intent: source.intent ?? null, error: null }, { path: ".domios/blueprints/bad.yaml", name: null, intent: null, error: "mismatch" }]; }, show: async (_, path) => { calls.push(path); return { path, document: source }; } }} />));
-    assert.equal(calls.length, 0);
-    await act(async () => button("List repository Blueprints").click());
+    // Opened from the Jobs Import menu, the list reads the selected workspaces at once and shows each source as a job-style row.
+    const projectApi = { list: async (workspace: string) => { calls.push(workspace); return [{ path: ".domios/blueprints/viewer-fixture.yaml", name: source.name, intent: source.intent ?? null, error: null }, { path: ".domios/blueprints/bad.yaml", name: null, intent: null, error: "mismatch" }]; }, show: async (_: string, path: string) => { calls.push(path); return { path, document: source }; } };
+    await act(async () => root.render(<BlueprintProjectList workspaceIds={["workspace"]} api={projectApi} />));
     assert.deepEqual(calls, ["workspace"]);
-    assert(!host.querySelector('[aria-label="View .domios/blueprints/bad.yaml"]'));
-    await act(async () => button("View .domios/blueprints/viewer-fixture.yaml").click());
+    await act(async () => button(".domios/blueprints/bad.yaml, Repository Blueprint, Unreadable").click());
+    assert.deepEqual(calls, ["workspace"], "an unreadable source does not open");
+    await act(async () => button(`${source.name}, Repository Blueprint, Source`).click());
     assert(host.querySelector('[aria-label="Repository source .domios/blueprints/viewer-fixture.yaml"]'));
     assert(![...host.querySelectorAll("button")].some((button) => /^(apply|run|approve|stop blueprint)$/i.test(button.getAttribute("aria-label") ?? button.textContent ?? "")), "a repository source is read-only");
 

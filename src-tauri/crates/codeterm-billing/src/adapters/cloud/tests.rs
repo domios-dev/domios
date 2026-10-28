@@ -1,5 +1,103 @@
 use super::*;
 
+struct FixtureProof;
+#[async_trait]
+impl InstallationProofSource for FixtureProof {
+    async fn proof(
+        &self,
+        _session: &Session,
+        installation_id: &codeterm_account::InstallationId,
+    ) -> Result<codeterm_account::account_mesh::wire::InstallationProof> {
+        assert_eq!(installation_id, &id());
+        Ok(codeterm_account::account_mesh::wire::InstallationProof {
+            schema_version: 1,
+            key_id: "1".repeat(64),
+            generation: 3,
+            timestamp: 1_700_000_000,
+            nonce: "nonce".into(),
+            signature: "s".repeat(86),
+        })
+    }
+}
+
+#[test]
+fn entitlements_attach_proof_and_refuse_unsigned_remote_requests() {
+    let proof = codeterm_account::account_mesh::wire::InstallationProof {
+        schema_version: 1,
+        key_id: "1".repeat(64),
+        generation: 3,
+        timestamp: 1_700_000_000,
+        nonce: "nonce".into(),
+        signature: "s".repeat(86),
+    };
+    let data = entitlements_request(&id(), Some(proof.clone()), false).unwrap();
+    assert_eq!(
+        data,
+        serde_json::json!({"installation_id":"fixture-installation", "installation_proof":proof})
+    );
+    assert!(entitlements_request(&id(), None, false).is_err());
+    assert_eq!(
+        entitlements_request(&id(), None, true).unwrap(),
+        serde_json::json!({"installation_id":"fixture-installation"})
+    );
+    assert!(!Cloud::fixture("https://fixture.test/", id()).local_entitlements(&local_session()));
+}
+
+#[test]
+fn refusal_adapter_ignores_messages_and_invalid_structured_reasons() {
+    for body in [
+        serde_json::Value::Null,
+        serde_json::json!({"error":{"message":"Unknown billing plan"}}),
+        serde_json::json!({"error":{"message":"fixture-untrusted", "details":{"reason":"fixture-unknown"}}}),
+        serde_json::json!({"error":{"details":{"reason":17}}}),
+    ] {
+        assert_eq!(refusal_reason(&body), BillingRefusal::Unknown);
+    }
+    assert_eq!(
+        refusal_reason(&serde_json::json!({"error":{"details":{"reason":"unknown_plan"}}})),
+        BillingRefusal::UnknownPlan
+    );
+}
+
+#[test]
+fn no_billing_customer_adapter_uses_structured_reason() {
+    let body = serde_json::json!({"error": {"status": "FAILED_PRECONDITION",
+        "message": "No billing customer", "details": {"reason": "no_billing_customer"}}});
+    assert_eq!(refusal_reason(&body), BillingRefusal::NoBillingCustomer);
+    assert_eq!(refusal_message(&body), crate::NO_BILLING_CUSTOMER);
+}
+
+#[test]
+fn plan_operations_pin_callable_names_and_reject_injected_fields() {
+    for (input, name, data) in [
+        (
+            serde_json::json!({"operation":"catalog"}),
+            "getAppCatalog",
+            serde_json::json!({}),
+        ),
+        (
+            serde_json::json!({"operation":"subscription"}),
+            "getSubscriptionPlan",
+            serde_json::json!({}),
+        ),
+        (
+            serde_json::json!({"operation":"change","price_id":"pri_fixture"}),
+            "changeSubscriptionPlan",
+            serde_json::json!({"price_id":"pri_fixture"}),
+        ),
+    ] {
+        let operation: PlanOperation = serde_json::from_value(input).unwrap();
+        assert_eq!(operation.callable(), (name, data));
+    }
+    for input in [
+        serde_json::json!({"operation":"catalog","uid":"foreign"}),
+        serde_json::json!({"operation":"subscription","uid":"foreign"}),
+        serde_json::json!({"operation":"change","price_id":"pri_fixture","uid":"foreign"}),
+    ] {
+        assert!(serde_json::from_value::<PlanOperation>(input).is_err());
+    }
+}
+
 fn id() -> codeterm_account::InstallationId {
     codeterm_account::InstallationId::parse("fixture-installation".into()).unwrap()
 }
@@ -182,28 +280,6 @@ fn dev_issuer_is_loopback_http_in_debug_only() {
     }
 }
 
-#[test]
-fn only_an_already_subscribed_refusal_keeps_its_reason() {
-    let refusal = |reason: serde_json::Value| {
-        refusal_message(
-            &serde_json::json!({"error": {"status": "FAILED_PRECONDITION", "message": "opaque", "details": reason}}),
-        )
-    };
-    assert_eq!(
-        refusal(serde_json::json!({"reason": "already_subscribed"})),
-        crate::ALREADY_SUBSCRIBED
-    );
-    assert_eq!(
-        refusal(serde_json::json!({"reason": "something_else"})),
-        "Billing request refused"
-    );
-    assert_eq!(refusal(serde_json::Value::Null), "Billing request refused");
-    assert_eq!(
-        refusal_message(&serde_json::Value::Null),
-        "Billing request refused"
-    );
-}
-
 #[derive(Default)]
 struct Revocations(std::sync::Mutex<Vec<u64>>);
 #[async_trait]
@@ -230,8 +306,9 @@ impl CloudTransport for RefusingTransport {
 async fn session_revoked_from_entitlements_checkout_portal_and_sponsor_notifies_owner() {
     let observer = std::sync::Arc::new(Revocations::default());
     let transport = std::sync::Arc::new(RefusingTransport::default());
-    let mut cloud =
-        Cloud::fixture("https://fixture.test/", id()).with_revocations(observer.clone());
+    let mut cloud = Cloud::fixture("https://fixture.test/", id())
+        .with_revocations(observer.clone())
+        .with_installation_proofs(std::sync::Arc::new(FixtureProof));
     cloud.transport = transport.clone();
     let mut session = local_session();
     session.login_generation = 17;

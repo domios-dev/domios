@@ -11,6 +11,8 @@ type FrontendTestEnv = {
   VITE_CODETERM_TEST?: string;
 };
 
+declare const process: { env: { VITE_CODETERM_TEST?: string } } | undefined;
+
 export interface TestChatReplyDetail {
   tabId: string;
   content?: string;

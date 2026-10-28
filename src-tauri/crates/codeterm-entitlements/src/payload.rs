@@ -23,13 +23,41 @@ pub enum Authority {
     Free,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Label {
     Admin,
     Pro,
     Sponsor,
     Free,
+    Paid(String),
+}
+
+impl Label {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Admin => "admin",
+            Self::Pro => "pro",
+            Self::Sponsor => "sponsor",
+            Self::Free => "free",
+            Self::Paid(name) => name,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Label {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let name = String::deserialize(deserializer)?;
+        if !scalar_text(&name, 128) {
+            return Err(serde::de::Error::custom("Invalid tier label"));
+        }
+        Ok(match name.as_str() {
+            "admin" => Self::Admin,
+            "pro" => Self::Pro,
+            "sponsor" => Self::Sponsor,
+            "free" => Self::Free,
+            _ => Self::Paid(name),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -108,7 +136,7 @@ pub const COMPILED_FREE_LIMITS: Limits = Limits {
         scope: Scope::Installation,
     },
     mem_items: ScopedLimit {
-        max: Some(1000),
+        max: Some(500),
         scope: Scope::Installation,
     },
     teams: ScopedLimit {
@@ -238,6 +266,12 @@ impl GrantPayload {
             D::PolicyVersion,
         )?;
         ensure(scalar_text(&self.policy_epoch, 128), D::PolicyEpoch)?;
+        if self.policy_version >= TAB_TEAM_LIMITS_POLICY_VERSION {
+            ensure(
+                self.limits.teams.is_some() && self.limits.agent_tabs.is_some(),
+                D::LimitMax,
+            )?;
+        }
         let times = [
             self.issued_at,
             self.not_before,
@@ -257,7 +291,11 @@ impl GrantPayload {
             ensure(seconds(end) && end > self.issued_at, D::PeriodEnd)?;
         }
         let label_ok = match self.authority {
-            Authority::Billing => matches!(self.label, Label::Pro | Label::Sponsor),
+            Authority::Billing => match self.label {
+                Label::Pro | Label::Sponsor => true,
+                Label::Paid(_) => self.policy_version >= TAB_TEAM_LIMITS_POLICY_VERSION,
+                Label::Admin | Label::Free => false,
+            },
             Authority::Admin => self.label == Label::Admin,
             Authority::Free => self.label == Label::Free,
         };
@@ -293,11 +331,15 @@ impl GrantPayload {
             D::Capabilities,
         )?;
         if self.authority == Authority::Free {
+            let mut baseline = COMPILED_FREE_LIMITS;
+            if self.policy_version < TAB_TEAM_LIMITS_POLICY_VERSION {
+                baseline.mem_items.max = Some(1000);
+            }
             ensure(
                 !self.enforcement.rollback
                     && self.perks == Perks::default()
                     && self.capabilities.is_empty()
-                    && limits == COMPILED_FREE_LIMITS,
+                    && limits == baseline,
                 D::FreeGrant,
             )?;
         }

@@ -5,6 +5,7 @@ import type { Notification, ThemeConfig } from "../../lib/types";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 
 const stores = vi.hoisted(() => ({
+  window: { minimize: vi.fn(), toggleMaximize: vi.fn(), close: vi.fn() },
   account: {
     model: { kind: "error", message: "account-store-error" },
     signIn: vi.fn(),
@@ -18,7 +19,15 @@ const stores = vi.hoisted(() => ({
 }));
 
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => stores.account }));
+vi.mock("../../lib/nativeBridge", async (original) => {
+  const module = await original<typeof import("../../lib/nativeBridge")>();
+  return { ...module, nativeBridge: { ...module.nativeBridge, window: stores.window } };
+});
+vi.mock("../../lib/keybindings", async (original) => ({
+  ...await original<typeof import("../../lib/keybindings")>(), isMac: false,
+}));
 vi.mock("../Settings/useAccountPlan", () => ({ useAccountPlan: () => stores.billing }));
+vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({ subscription: { paid_subscription: { tier: "pro" } } }) }));
 vi.mock("../../hooks/useUpdatePanel", () => ({ useUpdatePanel: () => stores.update }));
 vi.mock("./KeepAwakeTray", () => ({ KeepAwakeTray: () => null }));
 vi.mock("./ExtensionsTray", () => ({ ExtensionsTray: () => null }));
@@ -72,7 +81,7 @@ it("keeps account, billing and update errors out of the titlebar status region",
   }
 });
 
-it("keeps the normal titlebar mounted with only account sign-in enabled before onboarding", async () => {
+it("keeps sign-in and native window controls usable while app settings stay locked before onboarding", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -84,6 +93,16 @@ it("keeps the normal titlebar mounted with only account sign-in enabled before o
     expect(settings.disabled).toBe(true);
     expect(update.disabled).toBe(true);
     expect(account.disabled).toBe(false);
+    for (const [title, action] of [
+      ["Minimize", stores.window.minimize],
+      ["Maximize", stores.window.toggleMaximize],
+      ["Close", stores.window.close],
+    ] as const) {
+      const control = host.querySelector<HTMLButtonElement>(`button[title="${title}"]`)!;
+      expect(control.disabled).toBe(false);
+      await act(async () => control.click());
+      expect(action).toHaveBeenCalledOnce();
+    }
     await act(async () => account.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 })));
     expect(document.querySelector('[role="menu"]:not([hidden])')).not.toBeNull();
     expect(Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).some((item) => !item.disabled)).toBe(true);

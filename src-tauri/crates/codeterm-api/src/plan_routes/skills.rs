@@ -6,7 +6,6 @@ use axum::{
 use serde_json::{json, Value};
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::plan::AgentRef;
 use codeterm_service_core::service::plan::plan_skills::{list_plan_skills, show_plan_skill};
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
@@ -50,10 +49,13 @@ pub async fn retrospective_write(
         return Err(text_err(StatusCode::BAD_REQUEST, "body is required"));
     }
     let now = epoch_ms();
-    let from = body
-        .get("from")
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_else(|| AgentRef::from_tab("unknown"));
+    let from = crate::auth::actor_ref(
+        &state,
+        &headers,
+        body.get("from")
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+    )
+    .map_err(|(status, message)| text_err(status, message))?;
     let store = state.svc.plan_store.clone();
     let stride_id = store
         .add_retrospective(&plan_id, &text, from, now)

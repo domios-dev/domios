@@ -8,9 +8,9 @@ use serde_json::{json, Value};
 
 use crate::routes::AppState;
 use codeterm_service_core::multiplexer::types::AgentRole;
-use codeterm_service_core::plan::{OrchestratorRef, TaskStatus};
+use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::{TaskListFilter, TaskListResult};
-use codeterm_service_core::service::plan::{NewTask, PlanError};
+use codeterm_service_core::service::plan::PlanError;
 use codeterm_types::agent::role_kind::builtins::ORCHESTRATOR;
 
 type TaskRouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
@@ -251,109 +251,6 @@ pub async fn drop_task(
 }
 
 #[derive(Debug, Deserialize)]
-pub struct AddTaskBody {
-    #[serde(default)]
-    files: codeterm_service_core::plan::TaskFiles,
-    name: String,
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    project: String,
-    model: Option<String>,
-    why: Option<String>,
-    #[serde(default)]
-    acceptance_criteria: Vec<String>,
-    test_plan: Option<String>,
-    qa_plan: Option<String>,
-    correctness: Option<String>,
-    body: Option<String>,
-    intent: Option<String>,
-    #[serde(default)]
-    execution_intent: codeterm_service_core::plan::TaskExecutionIntent,
-    assign_tab: Option<String>,
-    owner: Option<OrchestratorRef>,
-}
-
-pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -> TaskRouteResult {
-    let assign_role = body
-        .assign_tab
-        .as_deref()
-        .and_then(|tab| tab_role(&state, tab));
-    let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
-    let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
-    let has_criteria = body
-        .acceptance_criteria
-        .iter()
-        .any(|s| !s.trim().is_empty());
-    let has_test_plan = body
-        .test_plan
-        .as_deref()
-        .is_some_and(|s| !s.trim().is_empty());
-    let has_correctness = body
-        .correctness
-        .as_deref()
-        .is_some_and(|s| !s.trim().is_empty());
-    let assign_tab = body.assign_tab.clone();
-    let task_name = body.name.clone();
-    let (plan_id, task_id) = state
-        .svc
-        .plan_store
-        .add_inbox_task(
-            &body.project,
-            body.owner.unwrap_or_default(),
-            NewTask {
-                files: body.files,
-                name: body.name,
-                kind: body.kind.unwrap_or_else(|| "task".into()),
-                model: body.model,
-                model_rationale: body.why,
-                acceptance_criteria: body.acceptance_criteria,
-                test_plan: body.test_plan,
-                qa_plan: body.qa_plan,
-                correctness: body.correctness,
-                body: body.body.unwrap_or_default(),
-                competition: None,
-                intent: body.intent,
-                execution_intent: body.execution_intent,
-                assigned_tab_id: body.assign_tab,
-                ..Default::default()
-            },
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    if let Some(tab) = assign_tab.as_deref() {
-        state
-            .svc
-            .plan_store
-            .set_task_assignment(&task_id, Some(tab), assign_role, epoch_ms())
-            .map_err(plan_err)?;
-        let description = codeterm_service_core::service::task_tab_description(&task_name, None);
-        state
-            .svc
-            .assign_task_tab_description(tab, &description)
-            .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
-    }
-    state
-        .svc
-        .ui
-        .emit("plan-changed", json!({ "plan_id": plan_id }));
-    Ok(Json(json!({
-        "plan_id": plan_id.clone(),
-        "task_id": task_id.clone(),
-        "key": state.svc.plan_store.task_display_key(&plan_id, &task_id),
-        "_hints": codeterm_service_core::service::plan::hints::task_create_hints(
-            &plan_id,
-            &task_id,
-            false,
-            has_model,
-            has_why,
-            has_criteria,
-            has_test_plan,
-            has_correctness
-        )
-    })))
-}
-
-#[derive(Debug, Deserialize)]
 pub struct CanvasFocusBody {
     task_id: Option<String>,
     tab_id: Option<String>,
@@ -381,6 +278,7 @@ pub async fn canvas_focus(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codeterm_service_core::plan::OrchestratorRef;
     use codeterm_service_core::service::plan::task_queries::{TaskListEmptyReason, TaskSummary};
 
     fn summary() -> TaskSummary {

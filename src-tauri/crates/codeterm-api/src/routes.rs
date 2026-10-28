@@ -596,6 +596,35 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/account/upgrade", post(super::account_routes::upgrade))
         .route("/api/account/portal", post(super::account_routes::portal))
         .route(
+            "/api/account/gift/redeem",
+            post(super::account_routes::redeem_gift_key)
+                .layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/account/neighbors",
+            post(super::account_routes::neighbors),
+        )
+        .route(
+            "/api/account/neighbors/runtime",
+            post(super::account_routes::neighbor_runtime),
+        )
+        .route(
+            "/api/account/neighbors/read",
+            post(super::account_routes::neighbor_read),
+        )
+        .route(
+            "/api/account/neighbors/files",
+            post(super::account_routes::neighbor_files),
+        )
+        .route(
+            "/api/account/neighbors/enabled",
+            post(super::account_routes::neighbors_set_enabled),
+        )
+        .route(
+            "/api/account/billing",
+            post(super::account_routes::billing_operation),
+        )
+        .route(
             "/api/account/plan/refresh",
             post(super::account_routes::refresh_plan),
         )
@@ -609,6 +638,7 @@ pub(super) fn create_router_with_preview_admission(
                 .layer(axum::extract::DefaultBodyLimit::max(32 * 1024)),
         )
         .route("/api/account/status", get(super::account_routes::status))
+        .route("/api/account/backend", get(super::account_routes::backend))
         .route("/api/account/login", post(super::account_routes::login))
         .merge(super::account_routes::debug_login_router())
         .route(

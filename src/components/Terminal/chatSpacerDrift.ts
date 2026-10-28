@@ -55,6 +55,19 @@ export function chatAnchorShift(anchor: ChatShiftAnchor | null, measured: ChatSh
   return anchor == null || measured == null ? 0 : shiftTop(measured) - shiftTop(anchor);
 }
 
+/** Rows above the shift anchor whose measured height differs from the last height their resize notification recorded.
+ *  A notification can arrive a frame late (a resize observer loop defers it); taking a new anchor before it lands would
+ *  fold the growth into the baseline and the shift would never be absorbed. */
+export function unrecordedRowsAbove(rows: readonly ChatShiftAnchor[], heights: readonly number[], anchorIndex: number,
+  recorded: ReadonlyMap<string, number>): number[] {
+  const pending: number[] = [];
+  for (let index = 0; index < Math.min(anchorIndex, rows.length); index++) {
+    const known = recorded.get(rows[index].id);
+    if (known != null && Math.abs(known - heights[index]) > 0.5) pending.push(index);
+  }
+  return pending;
+}
+
 /** The first row that still reaches into the viewport; content above it is what may shift the view. */
 export function chatShiftAnchorAt(rows: readonly ChatShiftAnchor[], heights: readonly number[], scrollTop: number): ChatShiftAnchor | null {
   return rows[chatVisibleAnchorIndex(rows.map((row, index) => ({ ...row, height: heights[index] })), scrollTop)] ?? null;

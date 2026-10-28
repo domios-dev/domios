@@ -23,6 +23,8 @@ use crate::service::ServiceContext;
 
 fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
     MemCronJob {
+        workspace_id: job.workspace_id.clone(),
+        model: job.model.clone(),
         id: job.id.clone(),
         name: job.name.clone(),
         agent: job.agent.clone(),
@@ -73,6 +75,8 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
         let mut job = self.job(id)?;
         let mut view = cron_to_mem(&job);
         update(&mut view);
+        job.workspace_id = view.workspace_id;
+        job.model = view.model;
         job.agent = view.agent;
         job.schedule = view.schedule;
         job.task = view.task;

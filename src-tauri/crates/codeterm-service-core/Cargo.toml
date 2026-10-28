@@ -30,6 +30,7 @@ codeterm-agent-detect = { path = "../codeterm-agent-detect" }
 codeterm-notification-core = { path = "../codeterm-notification-core" }
 codeterm-repowatch = { path = "../codeterm-repowatch" }
 codeterm-account = { path = "../codeterm-account" }
+codeterm-neighbors = { path = "../codeterm-neighbors" }
 codeterm-billing = { path = "../codeterm-billing" }
 codeterm-entitlements = { path = "../codeterm-entitlements" }
 codeterm-analytics = { path = "../codeterm-analytics" }
@@ -75,7 +76,7 @@ fern = "0.7"
 parking_lot = "0.12"
 arc-swap = "1"
 bytes = "1"
-base64 = "0.22"
+base64 = "0.23"
 interprocess = "2"
 sha2 = "0.10"
 # Embedded bundled-plugin bytes for the first-launch bootstrap. The
@@ -88,13 +89,11 @@ dirs = "6"
 axum = { version = "0.8", features = ["multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["catch-panic", "compression-gzip", "cors", "fs", "set-header"] }
-git2 = { version = "0.19", features = ["vendored-openssl"] }
+git2 = { version = "0.20", features = ["vendored-openssl"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "multipart", "stream", "blocking"] }
 async-stream = "0.3"
 futures-core = "0.3"
 futures-util = "0.3"
-# Native async WebSocket framing shares Tokio's runtime; sidecars use loopback without TLS.
-tokio-tungstenite = "0.28"
 futures-executor = "0.3"
 png = "0.17"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
@@ -107,7 +106,7 @@ hostname = "0.4.2"
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.5"
 mdns-sd = "0.11"
-if-addrs = "0.13"
+if-addrs = "0.15"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 aes-gcm = "0.10"
@@ -118,7 +117,7 @@ regex = "1"
 ulid = "1"
 async-trait = "0.1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
-which = "7"
+which = "8"
 wait-timeout = "0.2"
 sqlite-vec = { version = "0.1.9", optional = true }
 ndarray = { version = "0.17", optional = true }

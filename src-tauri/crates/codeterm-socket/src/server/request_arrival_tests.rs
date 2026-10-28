@@ -80,7 +80,14 @@ impl Write for Stream {
     }
 }
 
-fn socket_request(fixture: &ServiceFixture, request: serde_json::Value) -> serde_json::Value {
+fn socket_request(fixture: &ServiceFixture, mut request: serde_json::Value) -> serde_json::Value {
+    fixture
+        .service
+        .ext::<codeterm_service_core::config::ConfigState>()
+        .lock()
+        .api
+        .token = Some("arrival-owner-credential".into());
+    request["credential"] = serde_json::json!("arrival-owner-credential");
     let mut stream = Stream {
         input: io::Cursor::new(format!("{request}\n").into_bytes()),
         output: Vec::new(),

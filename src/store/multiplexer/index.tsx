@@ -1,4 +1,5 @@
 import { createNoticePublisher } from "../../lib/notices";
+import { useContextCompactionObserver } from "../../components/Terminal/useContextCompactionObserver";
 import { tabCloseRejectionNotice } from "./tabCloseRejection";
 import { sendNotificationAnswer, type AnswerResult } from "../../lib/notificationAnswerSend";
 import { isWorkspaceCwdRefusal, spawnErrorMessage } from "../../lib/spawnErrorMessage";
@@ -88,6 +89,7 @@ export function webBootHasSyncCache(): boolean {
 
 export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, null, buildInitialState);
+  useContextCompactionObserver(state.tabs, state.tabStatuses, state.generation > HYDRATED_GENERATION);
   const upsertToast = useCallback(
     (toast: Omit<Notification, "timestamp" | "read">) => {
       dispatch({

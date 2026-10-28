@@ -4,18 +4,6 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
     let platform = current_platform_tag();
     let runtime = provider.agent_runtime();
     let mut settings = provider.settings_schema();
-    if provider.structured_control().is_some() {
-        settings.push(SettingField::Section {
-            title: "Structured control".into(),
-            description: None,
-            fields: vec![SettingField::Toggle {
-                key: "structured_control_enabled".into(),
-                label: "Enable structured control".into(),
-                default: true,
-                description: None,
-            }],
-        });
-    }
     if provider.usage_parser().is_some() {
         let probe_cmd = provider.usage_probe_command().unwrap_or("/usage");
         settings.push(usage_tracking_section(probe_cmd));
@@ -23,13 +11,15 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         settings.push(usage_store_tracking_section());
     }
     ProviderDescriptor {
+        neighbor_concierge: super::neighbor_concierge::describe(provider, platform),
         general_agent_offer_when_absent: provider.general_agent_offer_when_absent(),
         attachments: provider.attachment_capabilities(),
         remote_task: provider.remote_task_capability(),
         agent_runtime: runtime.clone(),
         cli_login: provider.cli_login(),
         supports_session_fork: provider.fork_session_args().is_some(),
-        structured_control: provider.structured_control(),
+        supports_initial_prompt_update_on_resume: provider
+            .supports_initial_prompt_update_on_resume(),
         schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
         cli_status: None,
         id: provider.id().to_string(),

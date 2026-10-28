@@ -33,6 +33,7 @@ import { createPortal } from "react-dom";
 import { isFreeLimitRefusal } from "../billing/freeLimitModel";
 import {remoteProvider, remoteSpawnSelection, type ExecutionLocation} from "../../lib/remoteExecution";
 import {ExecutionLocationPicker} from "./ExecutionLocationPicker";
+import {cloudExecution} from "./cloudExecution";
 
 export function NewSessionPicker({
   workspaceId,
@@ -65,7 +66,7 @@ export function NewSessionPicker({
   const [installMap, setInstallMap] = useState<Record<string, boolean>>({});
   const [choice, setChoice] = useState<NewSessionChoice>(() => choiceForSessionSection(defaultNewSessionChoice(visibleProviders), section));
   const localId = choice.mode === "single" ? choice.providerId : "";
-  const remote = section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
+  const remote = cloudExecution.enabled && section === "workspace" ? remoteProvider(menuProviders, localId) : undefined;
   const location = remote && execution.providerId === localId ? execution.location : "local";
   const environmentId = execution.providerId === localId ? execution.environmentId : "";
   const [busy, setBusy] = useState(false);
@@ -86,7 +87,7 @@ export function NewSessionPicker({
   const hasRestoredRef = useRef(false);
   const remoteRefreshStartedRef = useRef(false);
 
-  const remoteProviderKey = providers
+  const remoteProviderKey = !cloudExecution.enabled ? "" : providers
     .filter((provider) => provider.remote_task)
     .map((provider) => provider.id)
     .join("\0");

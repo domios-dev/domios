@@ -3,7 +3,7 @@ import { useEffect, type ReactNode } from "react";
 import type { PluginUiHostState } from "../../lib/pluginUiHostModel";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { Button } from "../shared/Button";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 
 export function PluginUiHost({ pluginId, state, onRetry, children, height = "100%" }: {
   pluginId: string;
@@ -25,7 +25,7 @@ export function PluginUiHost({ pluginId, state, onRetry, children, height = "100
       {state.status !== "ready" && (
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
           {state.status === "loading" ? (
-            <RegionLoader label="Loading plugin UI" />
+            <Loader label="Loading plugin UI" />
           ) : (
             <div aria-busy={false} role={state.status === "error" ? "alert" : "status"} style={{ fontSize: 12, overflowWrap: "anywhere" }}>
               <InlineErrorNotice error={reason} operation="opening the plugin interface" />

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
-import { Check } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
+import { usePlanRow } from "./usePlanRow";
+import "./planRow.css";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { siteLinks } from "../../../shared/siteLinks";
 import { ActivityDots } from "../shared/ActivityDots";
@@ -14,11 +16,15 @@ import {
   offerIdForPlan,
   offerPrice,
   planCardAction,
+  planChangePrice,
+  planFeatures,
+  type PlanPrice,
   type BillingInterval,
   type PlanCardAction,
   type PlanCatalog,
   type PlanOffer,
 } from "./planCatalog";
+import { LimitAmount } from "./LimitAmount";
 import { usePlanCatalog } from "./planCatalogContext";
 import { usePlanViewed } from "./usePlanViewed";
 import { IDLE_INTENT, type PurchaseIntent } from "./purchaseIntent";
@@ -80,6 +86,9 @@ function useIntentFocus(kind: PurchaseIntentView["kind"] | undefined) {
 }
 
 export interface PlanCardProps {
+  onChangePlan?: (priceId: string, tier: string, direction: "upgrade" | "downgrade") => void;
+  changeDirection?: "upgrade" | "downgrade";
+  changePrice?: PlanPrice | null;
   offer: PlanOffer;
   interval: BillingInterval;
   current?: boolean;
@@ -92,7 +101,7 @@ export interface PlanCardProps {
   manageBusy?: boolean;
 }
 
-export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
+export function PlanCard({ offer, interval, current = false, canPurchase = true, onChoose, onChangePlan, changeDirection, changePrice, intent, onCancel, action: givenAction, onManage, manageBusy = false }: PlanCardProps) {
   const price = offerPrice(offer, interval);
   const action: PlanCardAction = givenAction ?? (price.planKey ? { kind: "choose", planKey: price.planKey } : { kind: "none" });
   const border = offer.recommended ? "border-[var(--ct-accent)]" : "border-[var(--ct-border-subtle)]";
@@ -123,10 +132,10 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
         <p className="m-0 text-xs text-[var(--ct-muted-fg)]">{price.note}</p>
       </div>
       <ul className="m-0 flex flex-1 list-none flex-col gap-1.5 p-0">
-        {offer.features.map((feature) => (
-          <li key={feature} className="flex items-start gap-2 text-xs text-[var(--ct-fg)]">
-            <Check size={14} className="mt-px shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
-            {feature}
+        {planFeatures(offer).map((feature) => (
+          <li key={feature.kind === "limit" ? feature.noun : feature.text} className="flex items-center gap-2 whitespace-nowrap text-xs text-[var(--ct-fg)]">
+            <Check size={14} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
+            {feature.kind === "limit" ? <span><LimitAmount amount={feature.amount} /> {feature.noun}</span> : feature.text}
           </li>
         ))}
       </ul>
@@ -152,8 +161,15 @@ export function PlanCard({ offer, interval, current = false, canPurchase = true,
         </Button>
       ) : action.kind === "manage" && onManage ? (
         <div className="flex flex-col gap-2">
+          {!current && onChangePlan && changeDirection ? <>
+            <Button size="lg" variant="outline" disabled={!canPurchase || manageBusy || !changePrice?.priceId} onClick={() => { if (changePrice?.priceId) onChangePlan(changePrice.priceId, offer.id, changeDirection); }}>
+              {changeDirection === "upgrade" ? "Upgrade" : "Downgrade"} to {offer.name}
+            </Button>
+            <p>{changeDirection === "upgrade" ? "Upgrade now with prorated billing." : "Your current tier stays active until the next renewal."} Keep the same billing interval.</p>
+          </> : <>
           <Button size="lg" variant="outline" disabled={manageBusy} loading={manageBusy} onClick={onManage}>Manage subscription</Button>
-          <p className="m-0 text-xs text-[var(--ct-muted-fg)]">To switch plans, cancel in Manage subscription and choose a new plan after it ends, or contact us.</p>
+          <p className="m-0 text-xs text-[var(--ct-muted-fg)]">Manage billing and cancellation in your subscription portal.</p>
+          </>}
         </div>
       ) : null}
     </section>
@@ -167,11 +183,13 @@ function intentView(intent: PurchaseIntent, signedInAs: string | null): Purchase
 }
 
 /** One card per offer, then the interval switch beside the purchase terms; yearly by default. */
-export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+export function PlanCards({ currentPlan = null, subscribedPlan = null, subscriptionInterval = null, onManage, onChangePlan, manageBusy = false, canPurchase = true, onChoose, catalog, interval: controlledInterval, onIntervalChange, intent = IDLE_INTENT, signedInAs = null, onCancel, viewRequested = false }: {
+  onChangePlan?: PlanCardProps["onChangePlan"];
   viewRequested?: boolean;
   currentPlan?: string | null;
   /** A live paid subscription; while set, other paid cards offer Manage subscription instead of a checkout. */
   subscribedPlan?: string | null;
+  subscriptionInterval?: BillingInterval | null;
   onManage?: () => void;
   manageBusy?: boolean;
   canPurchase?: boolean;
@@ -184,6 +202,7 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage,
   onCancel?: () => void;
 }) {
   const contextCatalog = usePlanCatalog();
+  const row = usePlanRow();
   const viewTarget = usePlanViewed(viewRequested);
   const offers = catalog ?? contextCatalog;
   const [ownInterval, setOwnInterval] = useState<BillingInterval>("year");
@@ -193,23 +212,34 @@ export function PlanCards({ currentPlan = null, subscribedPlan = null, onManage,
   const intentOffer = intent.kind === "idle" ? null : offerIdForPlan(offers, intent.planKey);
   const view = intentView(intent, signedInAs);
   return (
-    <div ref={viewTarget} className="flex flex-col gap-3">
-      <div role="group" aria-label="Subscription plans" className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(200px,1fr))]">
-        {offers.offers.map((offer) => (
-          <PlanCard
-            key={offer.id}
-            offer={offer}
-            interval={interval}
-            current={offer.id === currentOffer}
-            canPurchase={canPurchase}
-            onChoose={onChoose}
-            intent={offer.id === intentOffer ? view : undefined}
-            onCancel={onCancel}
-            action={planCardAction(offers, offer, interval, subscribedPlan)}
-            onManage={onManage}
-            manageBusy={manageBusy}
-          />
-        ))}
+    <div ref={viewTarget} className="flex min-w-0 flex-col gap-5">
+      <div className="ct-plan-row-frame">
+        <div ref={row.row} role="group" aria-label="Subscription plans" tabIndex={0} className="ct-plan-row" onKeyDown={row.onKeyDown} onFocus={row.onFocus}>
+          {offers.offers.map((offer, index) => (
+            <PlanCard
+              key={offer.id}
+              offer={offer}
+              interval={interval}
+              current={offer.id === currentOffer}
+              canPurchase={canPurchase}
+              onChoose={onChoose}
+              intent={offer.id === intentOffer ? view : undefined}
+              onCancel={onCancel}
+              action={planCardAction(offers, offer, interval, subscribedPlan)}
+              onManage={onManage}
+              onChangePlan={offers.changesAvailable && offers.offers.some(entry => entry.id === currentOffer) ? onChangePlan : undefined}
+              changePrice={planChangePrice(offer, subscriptionInterval)}
+              changeDirection={index > offers.offers.findIndex(entry => entry.id === currentOffer) ? "upgrade" : "downgrade"}
+              manageBusy={manageBusy}
+            />
+          ))}
+        </div>
+        {row.edges.previous && <div className="ct-plan-row-edge ct-plan-row-edge-start">
+          <Button size="sm" variant="outline" aria-label="Previous plans" onClick={() => row.move(-1)}><ChevronLeft size={16} aria-hidden="true" /></Button>
+        </div>}
+        {row.edges.next && <div className="ct-plan-row-edge ct-plan-row-edge-end">
+          <Button size="sm" variant="outline" aria-label="Next plans" onClick={() => row.move(1)}><ChevronRight size={16} aria-hidden="true" /></Button>
+        </div>}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
         <BillingIntervalToggle interval={interval} onChange={changeInterval} savings={bestYearlySavings(offers)} />

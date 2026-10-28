@@ -74,6 +74,40 @@ pub(crate) fn spawn_permission_bypass_for(
     Ok(authorize_permission_bypass(registry, provider, requested))
 }
 
+pub(crate) fn spawn_permission_bypass_for_params(
+    svc: &super::ServiceContext,
+    provider: &str,
+    worker: bool,
+    params: &super::SpawnAgentParams,
+) -> Result<Option<PermissionBypassAuthorization>, String> {
+    if params.neighbor_authority.is_some() {
+        return Ok(params
+            .permission_bypass_authorization
+            .clone()
+            .filter(|_| params.permission_bypass_requested(provider)));
+    }
+    spawn_permission_bypass_for(
+        svc,
+        &svc.agent_registry,
+        provider,
+        worker,
+        params.sandbox.is_some(),
+    )
+}
+
+pub(crate) fn spawn_permission_bypass_for_launch(
+    svc: &super::ServiceContext,
+    provider: &str,
+    worker: bool,
+    confined: bool,
+    params: Option<&super::SpawnAgentParams>,
+) -> Result<Option<PermissionBypassAuthorization>, String> {
+    match params.filter(|params| params.neighbor_authority.is_some()) {
+        Some(params) => spawn_permission_bypass_for_params(svc, provider, worker, params),
+        None => spawn_permission_bypass_for(svc, &svc.agent_registry, provider, worker, confined),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -179,6 +179,7 @@ impl AgentProvider for StoredRuntimeProvider {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            runtime_modes: Vec::new(),
             service_tiers: Vec::new(),
             background_processes: false,
             goals: None,
@@ -535,7 +536,7 @@ fn tab_snapshot_restores_a_runtime_stored_middle_segment_between_pty_sessions() 
     assert_eq!(total, 5);
     assert_eq!(
         rows[2].content,
-        "Archived provider conversation is unavailable: Stored runtime history is unavailable for session runtime-session"
+        "Archived provider conversation is unavailable: runtime_history_missing: Stored runtime history is unavailable for session runtime-session"
     );
     assert_eq!(rows[3].system_subtype.as_deref(), Some("provider_handoff"));
     assert_eq!(rows[4].content, "after runtime session");

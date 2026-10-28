@@ -41,6 +41,7 @@ pub mod ports;
 pub mod project_paths;
 pub mod prompts_plan;
 pub mod qa;
+pub mod radar;
 mod readback;
 mod reconcile_fixes;
 pub mod reflection;
@@ -267,6 +268,13 @@ impl PlanStore {
             store.spec_index.write().insert(id, entry);
         }
         store.seed_search_indexes();
+        let now_ms = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        if let Err(error) = store.absorb_legacy_inbox(now_ms) {
+            log::warn!("[radar] legacy inbox plan kept until the next start: {error}");
+        }
         Ok(store)
     }
 

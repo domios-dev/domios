@@ -212,7 +212,7 @@ fn prime_uses_observed_floor_before_deciding_checking_and_its_deadline() {
 
 #[tokio::test]
 async fn issued_in_future_raises_observed_and_expires_cached_grant() {
-    let (activation, newer, older) = signed_paid_revisions_at(ISSUED + 86_400, ISSUED);
+    let (activation, newer, older) = signed_paid_revisions_at(ISSUED + 86_400, ISSUED, "pro");
     let store = Arc::new(MemoryGrants::default());
     let (_, clock) = clock(ISSUED + 60);
     let billing = Billing::new(GrantReplies::new(vec![Ok(older), Ok(newer)])).with_test_grants(

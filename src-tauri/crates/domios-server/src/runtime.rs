@@ -102,13 +102,14 @@ pub fn run(
         },
         native: Arc::new(NoShell),
     });
-    let frontend_dev_url = development_frontend_origin(
+    let (frontend_dev_url, frontend_identifier) = development_frontend_configuration(
         cfg!(debug_assertions),
         matches!(
             &options.instance,
             codeterm_types::server_bootstrap::InstanceSelector::Development { .. }
         ),
-        env!("SERVER_DEV_FRONTEND_ORIGIN"),
+        &std::env::var("CODETERM_VITE_PORT").unwrap_or_default(),
+        &std::env::var("CODETERM_DEV_IDENTIFIER").unwrap_or_default(),
     )?;
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("DOMIOS_VERSION"));
@@ -152,11 +153,7 @@ pub fn run(
     let frontend_native = native_events.clone();
     let frontend_identity = codeterm_api::health_routes::NativeFrontendIdentity {
         port: Arc::new(move || frontend_native.read().as_ref()?.frontend_port()),
-        identifier: if frontend_dev_url.is_some() {
-            env!("SERVER_DEV_IDENTIFIER").to_owned()
-        } else {
-            String::new()
-        },
+        identifier: frontend_identifier,
     };
     let prepared = crate::startup::early_api::PreparedStartup::new(
         frontend_dev_url.as_ref(),
@@ -406,6 +403,26 @@ fn finish_server_control<T>(
     }
 }
 
+fn development_frontend_configuration(
+    debug: bool,
+    development: bool,
+    port: &str,
+    identifier: &str,
+) -> io::Result<(Option<url::Url>, String)> {
+    match codeterm_frontend_shell::development_runtime_frontend(
+        debug,
+        development,
+        port,
+        identifier,
+    )
+    .map_err(io::Error::other)?
+    {
+        Some(frontend) => Ok((Some(frontend.origin), frontend.identifier)),
+        None => Ok((None, String::new())),
+    }
+}
+
+#[cfg(test)]
 fn development_frontend_origin(
     debug: bool,
     development: bool,
@@ -474,7 +491,6 @@ async fn shutdown_signal() -> io::Result<()> {
 fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     use codeterm_service_core::{crash, service::session_persist, startup};
     crash::shutdown::mark_shutting_down_for(crash::shutdown::ShutdownReason::Signal);
-    let sidecars = crash::exit::begin_sidecar_shutdown();
     let surfaces =
         codeterm_service_core::service::surface::begin_surface_shutdown(&running.service);
     let mut errors = Vec::new();
@@ -498,7 +514,6 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
         Err(error) => errors.push(error.to_string()),
     }
     surfaces.wait();
-    sidecars.wait();
     let stopped_git = codeterm_plugins::stop_live_git_children();
     if stopped_git > 0 {
         log::info!(

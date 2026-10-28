@@ -2,6 +2,26 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn macsys_localapi_status_supplies_connected_listener_addresses() {
+    let value = json!({
+        "BackendState": "Running",
+        "Self": {
+            "TailscaleIPs": ["192.0.2.1", "2001:db8::1"],
+            "DNSName": "host.example.ts.net."
+        }
+    });
+    let status = tailscale::project(true, Some(&value));
+    assert_eq!(status.state, TransportState::Connected);
+    assert_eq!(
+        listener_addresses(&status, true, 7685),
+        vec![
+            "192.0.2.1:7685".parse::<SocketAddr>().unwrap(),
+            "[2001:db8::1]:7685".parse::<SocketAddr>().unwrap(),
+        ]
+    );
+}
+
+#[test]
 fn network_transport_projects_backend_states_and_keeps_identity_private() {
     for (backend, expected) in [
         ("Running", TransportState::Connected),

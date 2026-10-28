@@ -9,7 +9,13 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({ options: {
   cdp: { type: "string" }, url: { type: "string" }, out: { type: "string" }, target: { type: "string" },
   strokes: { type: "string", default: "14" }, threshold: { type: "string", default: "8" }, jump: { type: "boolean", default: false },
+  scenario: { type: "string", default: "touch" }, seed: { type: "string", default: "1" }, actions: { type: "string", default: "80" },
 } });
+// "touch" drives finger strokes; "grow" grows and collapses rows like tool cards expanding, pinned and scrolled up;
+// "chaos" mixes it all at random (seeded): strokes and flings both ways, re-pinning, the jump button, new rows arriving
+// and rows growing and collapsing anywhere, also mid-gesture.
+const chaosScenario = values.scenario === "chaos";
+const growScenario = values.scenario === "grow" || chaosScenario;
 if (!values.cdp || !values.url) {
   console.error("usage: trace.mjs --cdp <browser ws> --url <harness url> [--out DIR] [--strokes N] [--threshold PX] [--jump]");
   process.exit(2);
@@ -92,23 +98,256 @@ await evaluate(`(() => {
   window.__frames = [];
   window.__sampling = true;
   let gesture = 0;
+  let touching = false;
   el.addEventListener("touchstart", () => { gesture++; }, { passive: true });
+  document.addEventListener("touchstart", () => { touching = true; }, { passive: true, capture: true });
+  document.addEventListener("touchend", () => { touching = false; }, { passive: true, capture: true });
   const sample = () => {
     if (!window.__sampling) return;
     const origin = el.getBoundingClientRect().top;
     const rows = {};
     for (const row of el.querySelectorAll("[data-chat-window-row]")) {
       const top = row.getBoundingClientRect().top - origin;
-      if (top > -900 && top < el.clientHeight + 900) rows[row.dataset.chatWindowRow] = top;
+      // The grow scenario keeps every mounted row, so a tall row across the top edge stays in view of the metric.
+      if (${growScenario} || (top > -900 && top < el.clientHeight + 900)) rows[row.dataset.chatWindowRow] = top;
     }
-    const anchor = Object.keys(rows).find(id => rows[id] >= 0) ?? Object.keys(rows).at(-1);
-    window.__frames.push({ anchor, anchorTop: rows[anchor], t: performance.now(), scrollTop: el.scrollTop, spacer: el.firstElementChild.getBoundingClientRect().height, gesture, rows });
-    requestAnimationFrame(sample);
+    // Touch strokes track the first row below the top edge; the grow scenario tracks the row the reader is in at the top
+    // edge, since growth inside a row the reader sees pushes only what lies below it.
+    const ids = Object.keys(rows);
+    const anchor = ${growScenario} ? (ids.filter(id => rows[id] <= 0).at(-1) ?? ids[0]) : (ids.find(id => rows[id] >= 0) ?? ids.at(-1));
+    window.__frames.push({ anchor, anchorTop: rows[anchor], t: performance.now(), scrollTop: el.scrollTop, spacer: el.firstElementChild.getBoundingClientRect().height, gesture, rows,
+      gap: el.scrollHeight - el.clientHeight - el.scrollTop, touching, writes: window.__scrollWrites.length, jumpClicks: window.__jumpClicks ?? 0 });
+    next();
   };
-  requestAnimationFrame(sample);
+  // The grow scenario reads each frame after it painted, so a layout the frame corrects before paint is not a jump.
+  const channel = new MessageChannel();
+  channel.port1.onmessage = sample;
+  const next = ${growScenario} ? () => requestAnimationFrame(() => channel.port2.postMessage(0)) : () => requestAnimationFrame(sample);
+  next();
   return true;
 })()`);
 await screenshot("start.png");
+
+if (chaosScenario) {
+  // A seeded generator, so a failing seed replays exactly.
+  let state = Number(values.seed) >>> 0 || 1;
+  const random = () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const pick = (items) => items[Math.floor(random() * items.length)];
+  const between = (low, high) => low + Math.floor(random() * (high - low + 1));
+  const waitFrames = (count) => evaluate(`new Promise((resolve) => { let seen = 0; const tick = () => ++seen >= ${count} ? resolve(true) : requestAnimationFrame(tick); requestAnimationFrame(tick); })`);
+  const where = { above: "(rows) => rows.filter((row) => row.bottom < 0).at(-1)", across: "(rows) => rows.find((row) => row.top < 0 && row.bottom > 0)",
+    inView: "(rows, height) => rows.find((row) => row.top > 40 && row.bottom < height - 40)", last: "(rows) => rows.at(-1)" };
+  const growRow = (picker, px, timing) => evaluate(`(() => {
+    const el = document.getElementById("scroller");
+    const origin = el.getBoundingClientRect().top;
+    const rows = [...el.querySelectorAll("[data-chat-window-row]")].map((row) => {
+      const box = row.getBoundingClientRect();
+      return { index: Number(row.dataset.chatWindowRow.slice(1)), top: box.top - origin, bottom: box.bottom - origin };
+    });
+    const row = (${picker})(rows, el.clientHeight);
+    if (row) window.chatGrow({ index: row.index, px: ${px}, timing: "${timing}" });
+    return row?.index ?? null;
+  })()`);
+  const entries = [];
+  const log = { push: (text) => { entries.push({ text, frame: frameAt }); } };
+  let frameAt = 0;
+  const syncFrame = async () => { frameAt = await evaluate("window.__frames.length"); };
+  // Something happens in the transcript: new rows arrive, or a card grows or collapses somewhere.
+  const event = async () => {
+    await syncFrame();
+    const kind = pick(["append", "append", "stream", "grow", "grow", "collapse"]);
+    const timing = pick(["commit", "effect"]);
+    if (kind === "append") { const count = between(1, 3); await evaluate(`(window.chatAppend(${count}), true)`); log.push(`append ${count}`); return; }
+    const place = kind === "stream" ? "last" : pick(["above", "above", "across", "inView", "last"]);
+    const px = kind === "collapse" ? -between(40, 200) : between(60, 420);
+    const row = await growRow(where[place], px, timing);
+    log.push(`${kind} ${place} m${row} ${px} ${timing}`);
+  };
+  const point = (type, y) => send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: VIEWPORT.width / 2, y, id: 1 }] });
+  // A finger stroke: positive direction pulls the history down (scrolls up), negative pushes toward the latest.
+  const stroke = async (direction, steps, step) => {
+    let y = direction > 0 ? 220 : 680;
+    await point("touchStart", y);
+    for (let index = 0; index < steps; index++) {
+      y = Math.max(40, Math.min(800, y + direction * step));
+      await point("touchMove", y);
+      if (random() < 0.18) await event();
+      await nextFrame();
+    }
+    await point("touchEnd");
+  };
+  for (let action = 0; action < Number(values.actions); action++) {
+    const choice = pick(["up", "up", "down", "down", "fling-up", "fling-down", "idle", "jump", "tap"]);
+    await syncFrame();
+    log.push(`#${action} ${choice}`);
+    if (choice === "up") await stroke(1, between(4, 24), between(6, 22));
+    else if (choice === "down") await stroke(-1, between(4, 30), between(6, 24));
+    else if (choice === "fling-up" || choice === "fling-down") {
+      await stroke(choice === "fling-up" ? 1 : -1, between(3, 6), between(40, 70));
+      for (let index = between(4, 14); index > 0; index--) { if (random() < 0.3) await event(); await nextFrame(); }
+    } else if (choice === "idle") {
+      for (let index = between(2, 10); index > 0; index--) { if (random() < 0.4) await event(); await nextFrame(); }
+    } else if (choice === "tap") { await point("touchStart", 400); await point("touchEnd"); await event(); }
+    else {
+      // The jump button: a deliberate move to the latest, which the metric does not count as a jump.
+      await evaluate(`(() => { const button = document.querySelector("#jump button"); if (!button) return false;
+        window.__jumpClicks = (window.__jumpClicks ?? 0) + 1;
+        button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); return true; })()`);
+    }
+    await waitFrames(between(1, 4));
+  }
+  await waitFrames(20);
+  await screenshot("end.png");
+  const frames = await evaluate("new Promise((resolve) => requestAnimationFrame(() => { window.__sampling = false; resolve(window.__frames); }))");
+  ws.close();
+  // Per painted frame: pinned with no finger down must stay at the bottom; otherwise the content in view must not move
+  // more than the scroll explains (or, in a frame the hook wrote scroll, must not move at all). A jump click is skipped.
+  const failures = [];
+  let pinnedChecks = 0, detachedChecks = 0;
+  for (let index = 1; index < frames.length; index++) {
+    const before = frames[index - 1], after = frames[index];
+    if (after.jumpClicks !== before.jumpClicks) continue;
+    if (before.gap <= 2 && !before.touching && !after.touching) {
+      pinnedChecks++;
+      if (after.gap > 2) failures.push({ frame: index, kind: "left the bottom", gap: Math.round(after.gap) });
+      continue;
+    }
+    const result = sameAnchorLayoutResidual(before, after, limit, false);
+    if (!result) continue;
+    detachedChecks++;
+    // A jump is content that moved on screen by more than the scroll explains. Content held still (the hook's write or
+    // the browser's own scroll anchoring) and content carried by a finger or a fling are both fine.
+    if (Math.abs(result.visualDelta) > limit && Math.abs(result.residual) > limit) failures.push({ frame: index, kind: "content moved", by: Math.round(result.visualDelta), anchor: after.anchor,
+      touching: [before.touching, after.touching], gap: [Math.round(before.gap), Math.round(after.gap)], wrote: after.writes !== before.writes,
+      scroll: Math.round(after.scrollTop - before.scrollTop), spacer: Math.round(after.spacer - before.spacer),
+      near: entries.filter((entry) => entry.frame <= index && entry.frame >= index - 12).map((entry) => `${entry.frame}: ${entry.text}`) });
+  }
+  const summary = { url: values.url, scenario: "chaos", seed: Number(values.seed), actions: Number(values.actions), frames: frames.length,
+    pinnedChecks, detachedChecks, failures: failures.length, firstFailures: failures.slice(0, 8) };
+  if (values.out) writeFileSync(path.join(values.out, "trace.json"), JSON.stringify({ summary, log: entries, failures, frames }));
+  console.log(JSON.stringify(summary, null, 1));
+  process.exit(failures.length > 0 ? 1 : 0);
+}
+
+if (growScenario) {
+  const waitFrames = (count) => evaluate(`new Promise((resolve) => { let seen = 0; const tick = () => ++seen >= ${count} ? resolve(true) : requestAnimationFrame(tick); requestAnimationFrame(tick); })`);
+  const frameCount = () => evaluate("window.__frames.length");
+  // Picks a mounted row by where it sits against the viewport and grows it; returns its index for the collapse.
+  const growRow = (pick, px, timing) => evaluate(`(() => {
+    const el = document.getElementById("scroller");
+    const origin = el.getBoundingClientRect().top;
+    const rows = [...el.querySelectorAll("[data-chat-window-row]")].map((row) => {
+      const box = row.getBoundingClientRect();
+      return { index: Number(row.dataset.chatWindowRow.slice(1)), top: box.top - origin, bottom: box.bottom - origin };
+    });
+    const row = (${pick})(rows, el.clientHeight);
+    if (!row) return null;
+    window.chatGrow({ index: row.index, px: ${px}, timing: "${timing}" });
+    return row.index;
+  })()`);
+  const resize = (index, px, timing) => evaluate(`(window.chatGrow({ index: ${index}, px: ${px}, timing: "${timing}" }), ${index})`);
+  const phases = [];
+  const phase = async (label, kind, act) => {
+    const from = await frameCount();
+    const index = await act();
+    await waitFrames(10);
+    phases.push({ label, kind, index, from, to: await frameCount() });
+    return index;
+  };
+  for (const timing of ["commit", "effect"]) {
+    const last = await phase(`pinned: last row grows (${timing})`, "pinned", () => growRow("(rows) => rows.at(-1)", 320, timing));
+    await phase(`pinned: last row collapses (${timing})`, "pinned", () => resize(last, -320, timing));
+  }
+  // At the bottom with a finger on the glass, a command streams in; the view must not leap when the finger lifts.
+  const touchAt = (type, y) => send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: VIEWPORT.width / 2, y, id: 1 }] });
+  await phase("pinned, finger resting: the last row grows", "detached", async () => { await touchAt("touchStart", 500); return growRow("(rows) => rows.at(-1)", 320, "effect"); });
+  await phase("pinned: the finger lifts after that growth", "detached", async () => { await touchAt("touchEnd"); return null; });
+  await phase("pinned, finger nudging down: the last row grows", "detached", async () => {
+    await touchAt("touchStart", 400);
+    for (let step = 0; step < 8; step++) {
+      await touchAt("touchMove", 400 - step * 4);
+      if (step === 3) await growRow("(rows) => rows.at(-1)", 320, "effect");
+      await nextFrame();
+    }
+    return null;
+  });
+  await phase("pinned: the finger lifts after that nudge", "detached", async () => { await touchAt("touchEnd"); return null; });
+  await evaluate(`(document.getElementById("scroller").scrollTop -= 3000, true)`);
+  await waitFrames(20);
+  for (const timing of ["commit", "effect"]) {
+    const above = await phase(`scrolled up: a row above the view grows (${timing})`, "detached", () => growRow("(rows) => rows.filter((row) => row.bottom < 0).at(-1)", 420, timing));
+    await phase(`scrolled up: that row collapses (${timing})`, "detached", () => resize(above, -420, timing));
+    const straddle = await phase(`scrolled up: the row across the top edge grows (${timing})`, "detached", () => growRow("(rows) => rows.find((row) => row.top < 0 && row.bottom > 0)", 420, timing));
+    await phase(`scrolled up: that row collapses (${timing})`, "detached", () => resize(straddle, -420, timing));
+  }
+  // A finger on the glass owns the gesture; a tap on a card's header is such a touch, and its click expands the card.
+  const touch = (type) => send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: VIEWPORT.width / 2, y: 400, id: 1 }] });
+  const held = await phase("finger resting: a row above the view grows", "detached", async () => { await touch("touchStart"); return growRow("(rows) => rows.filter((row) => row.bottom < 0).at(-1)", 420, "commit"); });
+  await phase("finger lifted after that growth", "detached", async () => { await touch("touchEnd"); return held; });
+  await phase("after a tap: the row across the top edge grows", "detached", async () => { await touch("touchStart"); await touch("touchEnd");
+    return growRow("(rows) => rows.find((row) => row.top < 0 && row.bottom > 0)", 420, "effect"); });
+  await phase("after a tap: a row above the view grows", "detached", async () => { await touch("touchStart"); await touch("touchEnd");
+    return growRow("(rows) => rows.filter((row) => row.bottom < 0).at(-1)", 420, "effect"); });
+  // The owner's case: slightly scrolled up, the finger moving, while command messages arrive and grow.
+  const stroke = async (direction, during) => {
+    let y = direction > 0 ? 200 : 700;
+    await touch("touchStart");
+    await send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: VIEWPORT.width / 2, y, id: 1 }] });
+    for (let step = 0; step < STEPS_PER_STROKE; step++) {
+      y += direction * FINGER_STEP / 2;
+      await send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: VIEWPORT.width / 2, y, id: 1 }] });
+      await during(step);
+      await nextFrame();
+    }
+    await touch("touchEnd");
+  };
+  await evaluate(`(() => { const el = document.getElementById("scroller"); el.scrollTop = el.scrollHeight - el.clientHeight - 600; return true; })()`);
+  await waitFrames(20);
+  for (const direction of [1, -1]) {
+    const way = direction > 0 ? "up the history" : "down";
+    for (const timing of ["commit", "effect"]) {
+      await phase(`finger moving ${way}: only a row above grows (${timing})`, "moving", async () => {
+        await stroke(direction, async (step) => { if (step === 15) await growRow("(rows) => rows.filter((row) => row.bottom < 0).at(-1)", 420, timing); });
+        return null;
+      });
+    }
+    await phase(`finger moving ${way}: the last rows grow and a row above grows`, "moving", async () => {
+      await stroke(direction, async (step) => {
+        if (step % 6 === 2) await growRow("(rows) => rows.at(-1)", 140, "effect");
+        if (step === 15) await growRow("(rows) => rows.filter((row) => row.bottom < 0).at(-1)", 420, "effect");
+        if (step === 22) await growRow("(rows) => rows.find((row) => row.top < 0 && row.bottom > 0)", 300, "commit");
+      });
+      return null;
+    });
+  }
+  await screenshot("end.png");
+  const frames = await evaluate("new Promise((resolve) => requestAnimationFrame(() => { window.__sampling = false; resolve(window.__frames); }))");
+  ws.close();
+  const results = phases.map((entry) => {
+    const span = frames.slice(Math.max(0, entry.from - 1), entry.to);
+    if (entry.kind === "pinned") return { ...entry, maxBottomGap: Math.round(Math.max(...span.map((frame) => frame.gap))) };
+    // While the finger moves, the view follows it; only a shift the scroll does not explain is a jump.
+    if (entry.kind === "moving") {
+      let maxLayoutJump = 0;
+      for (let index = 1; index < span.length; index++) {
+        const result = sameAnchorLayoutResidual(span[index - 1], span[index], limit, false);
+        if (result) maxLayoutJump = Math.max(maxLayoutJump, Math.abs(result.residual));
+      }
+      return { ...entry, maxVisualJump: Math.round(maxLayoutJump) };
+    }
+    let maxVisualJump = 0;
+    for (let index = 1; index < span.length; index++) {
+      const result = sameAnchorLayoutResidual(span[index - 1], span[index], limit, true);
+      if (result) maxVisualJump = Math.max(maxVisualJump, Math.abs(result.visualDelta));
+    }
+    return { ...entry, maxVisualJump: Math.round(maxVisualJump) };
+  });
+  const failed = results.filter((entry) => entry.kind === "pinned" ? entry.maxBottomGap > 2 : entry.maxVisualJump > limit);
+  const summary = { url: values.url, scenario: "grow", frames: frames.length, phases: results.map(({ label, index, maxBottomGap, maxVisualJump }) => ({ label, row: index, maxBottomGap, maxVisualJump })), failed: failed.length };
+  if (values.out) writeFileSync(path.join(values.out, "trace.json"), JSON.stringify({ summary, phases, frames }));
+  console.log(JSON.stringify(summary, null, 1));
+  process.exit(failed.length > 0 ? 1 : 0);
+}
 
 let syntheticClicks = 0;
 for (let stroke = 0; stroke < strokes; stroke++) {

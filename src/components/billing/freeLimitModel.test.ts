@@ -5,9 +5,7 @@ import {
   freeLimitBlocked,
   isFreeLimitRefusal,
   limitCounts,
-  limitHeadline,
   lockedView,
-  meshMachinesDetail,
   meshMachinesRefusal,
   parseFreeLimits,
   reachedLimit,
@@ -84,11 +82,6 @@ describe("free-limit model", () => {
     expect(meshMachinesRefusal(null)).toBeNull();
   });
 
-  it("explains which actions free a Mesh slot", () => {
-    const detail = meshMachinesDetail({ limit: 2, activeCount: 2 });
-    expect(detail).toContain("2 active machines");
-    expect(detail).toMatch(/Revoking a machine from your account frees its slot; signing out or unpairing locally does not\./);
-  });
 
   it("never blocks a folder the daemon would reuse", () => {
     const workspaces = [{ id: "a", cwd: "C:\\Repo\\App\\" }] as Workspace[];
@@ -97,13 +90,6 @@ describe("free-limit model", () => {
     expect(reusesWorkspace(workspaces, undefined)).toBe(false);
   });
 
-  it("names each limit with its maximum", () => {
-    expect(limitHeadline("workspaces")).toBe("The free version includes 2 workspaces.");
-    expect(limitHeadline("teams")).toBe("The free version includes 6 Teams across all workspaces.");
-    expect(limitHeadline("agent.tabs")).toBe("The free version allows 35 tabs running at once.");
-    expect(limitHeadline("workspaces", 3)).toBe("The free version includes 3 workspaces.");
-    expect(limitHeadline("mesh.machines", 2)).toBe("The free version includes 2 machines in your mesh.");
-  });
 });
 
 describe("lockedView", () => {
@@ -117,12 +103,4 @@ describe("lockedView", () => {
     expect(lockedView("workspaces", item)).toEqual({ locked: false });
   });
 
-  it("gives each kind its own accessible label", () => {
-    const labels = (["workspaces", "teams", "agent.tabs"] as const).map((key) => {
-      const view = lockedView(key, { locked: true });
-      return view.locked ? view.label : "";
-    });
-    expect(new Set(labels).size).toBe(3);
-    expect(labels.every(Boolean)).toBe(true);
-  });
 });

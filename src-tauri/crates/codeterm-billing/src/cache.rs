@@ -26,6 +26,21 @@ pub struct Snapshot {
 
 /// Failure bound for the checking state when the first refresh never answers.
 pub const CHECKING_DEADLINE_SECS: u64 = 15;
+
+pub(crate) fn refresh_error_kind(error: &str) -> &'static str {
+    match error {
+        "Installation proof unavailable" => "installation_proof_unavailable",
+        "Billing server unreachable" => "transport",
+        "Invalid billing response" | "Invalid callable response" => "response_decode",
+        "Invalid billing request" | "Invalid installation proof" => "request_encode",
+        "Invalid billing endpoint" => "configuration",
+        "Cloud billing is unavailable: no build-time endpoint configured" => "unconfigured",
+        codeterm_account::session_revocation::SESSION_REVOKED => "session_revoked",
+        "Billing request refused" => "backend_refusal",
+        _ => "provider_failure",
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RefreshEvent {
     SignIn,
@@ -42,6 +57,7 @@ struct Cache {
     snapshot: Snapshot,
     last_focus: Option<Instant>,
     checkout_pending: bool,
+    checkout_event_pending: bool,
     observed: bool,
     verified: Option<VerifiedGrant>,
     loaded: bool,
@@ -157,13 +173,7 @@ impl Billing {
             .grant
             .as_ref()
             .filter(|verdict| verdict.state.retains_grant())
-            .map_or(Plan::Free, |verdict| match verdict.label {
-                codeterm_entitlements::Label::Admin | codeterm_entitlements::Label::Pro => {
-                    Plan::Pro
-                }
-                codeterm_entitlements::Label::Sponsor => Plan::Sponsor,
-                codeterm_entitlements::Label::Free => Plan::Free,
-            });
+            .map_or(Plan::Free, |verdict| Plan::from(&verdict.label));
         snapshot.checking = self.checking(cache);
         snapshot
     }
@@ -227,6 +237,7 @@ impl Billing {
             cache.snapshot = Snapshot::default();
             cache.last_focus = None;
             cache.checkout_pending = false;
+            cache.checkout_event_pending = false;
             cache.observed = false;
             self.rearm.notify_one();
         }
@@ -368,21 +379,34 @@ impl Billing {
             return Err(self.recompute(&cache));
         }
         if event == RefreshEvent::Focus
-            && !cache
+            && !cache.checkout_pending
+            && !cache.checkout_event_pending
+            && (cache
                 .verified
                 .as_ref()
-                .is_some_and(|grant| grant.verdict(self.now()).state == TimeState::Stale)
-            && !cache.checkout_pending
-            && cache
-                .last_focus
-                .is_some_and(|last| now.saturating_duration_since(last) < Duration::from_secs(60))
+                .is_some_and(|grant| grant.verdict(self.now()).state == TimeState::Fresh)
+                || cache.last_focus.is_some_and(|last| {
+                    now.saturating_duration_since(last) < Duration::from_secs(60)
+                }))
         {
             return Err(self.recompute(&cache));
         }
         cache.last_focus = Some(now);
+        let returned = cache.checkout_event_pending
+            && matches!(event, RefreshEvent::Focus | RefreshEvent::CheckoutReturned);
+        if returned {
+            cache.checkout_event_pending = false;
+        }
         cache.checkout_pending = false;
         cache.generation += 1;
-        Ok(cache.generation)
+        let generation = cache.generation;
+        drop(cache);
+        if returned {
+            if let Some(observer) = &self.observer {
+                observer(ProductEvent::CheckoutReturned);
+            }
+        }
+        Ok(generation)
     }
     fn load_grant(
         &self,
@@ -541,12 +565,18 @@ impl Billing {
                         grant: None,
                     };
                 }
-                Err(_) => cache.snapshot.stale = true,
+                Err(error) => {
+                    log::debug!(
+                        "Entitlement refresh failed: kind={}",
+                        refresh_error_kind(&error)
+                    );
+                    cache.snapshot.stale = true;
+                }
             }
         }
         let snapshot = self.recompute(&cache);
         if refreshed {
-            cache.snapshot.entitlements.plan = snapshot.entitlements.plan;
+            cache.snapshot.entitlements.plan = snapshot.entitlements.plan.clone();
         }
         drop(cache);
         self.rearm.notify_one();
@@ -557,7 +587,7 @@ impl Billing {
         {
             if let Some(observer) = &self.observer {
                 observer(ProductEvent::SubscriptionChanged {
-                    plan: snapshot.entitlements.plan,
+                    plan: snapshot.entitlements.plan.clone(),
                     status: snapshot.entitlements.status,
                 });
             }
@@ -574,8 +604,19 @@ impl Billing {
     pub async fn portal_url(&self, session: &codeterm_account::Session) -> Result<url::Url> {
         self.provider.portal_url(session).await
     }
+    pub async fn plan_operation(
+        &self,
+        session: &codeterm_account::Session,
+        operation: PlanOperation,
+    ) -> Result<serde_json::Value> {
+        self.provider.plan_operation(session, operation).await
+    }
     pub fn checkout_browser_opened(&self, session: &codeterm_account::Session, plan: Plan) {
-        self.browser_opened(session);
+        let mut cache = self.cache.lock();
+        self.bind(&mut cache, Some(session));
+        cache.checkout_pending = true;
+        cache.checkout_event_pending = true;
+        drop(cache);
         if let Some(observer) = &self.observer {
             observer(ProductEvent::CheckoutStarted { plan });
         }

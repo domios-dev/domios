@@ -4,7 +4,6 @@ pub struct InstanceEnv {
     pub socket_path: String,
     pub api_url: String,
     pub api_port: String,
-    pub api_token: Option<String>,
     pub cli_path: Option<PathBuf>,
 }
 
@@ -15,7 +14,6 @@ impl InstanceEnv {
             socket_path: crate::paths::socket_display_path(),
             api_url,
             api_port,
-            api_token: api.token,
             cli_path: instance_cli_binary_path(),
         }
     }

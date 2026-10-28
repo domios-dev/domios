@@ -59,7 +59,7 @@ import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
-import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
+import { BusyState } from "../shared/BusyState";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -930,7 +930,7 @@ function TabSessionChatBody({
               }}
             >
               {backfillLoading
-                ? <TabLoadingIndicator label="Searching older messages" compact deferred={false} />
+                ? <BusyState inline hideLabel label="Searching older messages" phase="work" />
                 : olderMessageLabel}
             </button>
           </div>

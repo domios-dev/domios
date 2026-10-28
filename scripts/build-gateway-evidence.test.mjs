@@ -14,7 +14,8 @@ const endpoint = { host: '127.0.0.1', port: 4226 };
 test('cache delta sums language counters and uses hits plus misses as rate denominator', () => {
   const start = cacheSnapshot(fixture.start, endpoint);
   const end = cacheSnapshot(fixture.end, endpoint);
-  assert.deepEqual(cacheDelta(start, end), { requests: 20, hits: 12, misses: 5, non_cacheable: 3, not_cached: { 'crate-type': 2, incremental: 1 }, hit_rate: 12 / 17 });
+  assert.deepEqual(cacheDelta(start, end), { requests: 20, hits: 12, misses: 5, non_cacheable: 3, not_cached: { 'crate-type': 2, incremental: 1 }, hit_rate: 12 / 17,
+    rust_hits: 10, rust_misses: 5, rust_hit_rate: 10 / 15 });
   assert.equal(cacheDelta(start, start).hit_rate, null);
 });
 
@@ -27,6 +28,7 @@ test('unavailable, reset and changed-server counters cannot be presented as a ca
   assert.equal(cacheDelta(start, { ...end, location: 'local' }), null);
   assert.equal(cacheDelta(start, { ...end, endpoint: { port: 4227 } }), null);
   assert.equal(cacheDelta(start, { ...end, not_cached: {} }), null);
+  assert.equal(cacheDelta(start, { ...end, rust_hits: 0 }), null);
   assert.throws(() => cacheSnapshot({ stats: {} }));
 });
 

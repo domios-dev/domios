@@ -9,6 +9,121 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { runDevApp, windowsDevArguments, nativeLocatorRecord, prebuiltReadinessPhase } from '../dev-app-process.mjs';
 import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
+import { rebuildStopPlan } from '../dev-rebuild-stop.mjs';
+
+test('Windows desktop transport delivers runtime frontend identity and excludes inherited credentials', { skip: process.platform !== 'win32', timeout: 20_000 }, () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-desktop-runtime-'));
+  try {
+    const child = path.join(directory, 'child.cjs');
+    const keys = ['CODETERM_VITE_PORT', 'CODETERM_DEV_IDENTIFIER', 'CODETERM_CDP_PORT', 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', 'CODETERM_API_TOKEN', 'CODETERM_API_PORT', 'CODETERM_SOCKET_PATH', 'CT_PRIVATE'];
+    fs.writeFileSync(child, `console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key] ?? null]))));`);
+    const probe = path.join(directory, 'probe.ps1');
+    fs.writeFileSync(probe, `
+$ErrorActionPreference='Stop'
+Add-Type -Path @($env:PROBE_PROCESS_SOURCE, $env:PROBE_DESKTOP_SOURCE)
+$env:CODETERM_DEV='1'
+$env:CODETERM_VITE_PORT='1851'
+$env:CODETERM_DEV_IDENTIFIER='com.domios.dev.transport'
+$env:CODETERM_CDP_PORT='9351'
+$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS='--opaque-runtime-flag'
+$env:CODETERM_API_TOKEN='excluded-fixture-token'
+$env:CODETERM_API_PORT='7685'
+$env:CODETERM_SOCKET_PATH='excluded-fixture-socket'
+$env:CT_PRIVATE='excluded-fixture-value'
+$flags=[Reflection.BindingFlags]'Static,NonPublic'
+$write=[DevDesktop].GetMethod('WriteEnvironment',$flags)
+$read=[DevDesktop].GetMethod('ReadEnvironment',$flags)
+$buffer=[IO.MemoryStream]::new()
+$writer=[IO.BinaryWriter]::new($buffer,[Text.Encoding]::UTF8,$true)
+[void]$write.Invoke($null,[object[]]@($writer))
+$writer.Flush()
+$bytes=$buffer.ToArray()
+foreach ($kind in @('count','key')) {
+  [byte[]]$broken=$bytes.Clone()
+  if ($kind -eq 'count') { [Array]::Clear($broken,0,4) } else { $broken[8]=[byte][char]'X' }
+  $invalid=[IO.BinaryReader]::new([IO.MemoryStream]::new($broken))
+  try { [void]$read.Invoke($null,[object[]]@($invalid)); throw 'Invalid frame accepted' }
+  catch { if ($_.Exception.GetBaseException().Message -notmatch '^DEV environment( key)? refused$') { throw } }
+}
+$buffer.Position=0
+$reader=[IO.BinaryReader]::new($buffer,[Text.Encoding]::UTF8,$true)
+$selected=$read.Invoke($null,[object[]]@($reader))
+$output=[IO.MemoryStream]::new()
+$code=[DevAppProcess]::RunOwned($env:PROBE_NODE,[string[]]@($env:PROBE_CHILD),$output,(Split-Path $env:PROBE_CHILD),$selected,[Threading.CancellationToken]::None)
+if ($code -ne 0) { throw "Probe child exit $code" }
+[Console]::Write([Text.Encoding]::UTF8.GetString($output.ToArray()))
+`);
+    const result = spawnSync('powershell.exe', ['-NoProfile', '-File', probe], { encoding: 'utf8', timeout: 20_000,
+      env: { ...process.env, PROBE_NODE: process.execPath, PROBE_CHILD: child,
+        PROBE_PROCESS_SOURCE: fileURLToPath(new URL('../windows-dev-app.cs', import.meta.url)),
+        PROBE_DESKTOP_SOURCE: fileURLToPath(new URL('../windows-dev-desktop.cs', import.meta.url)) } });
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    assert.deepEqual(JSON.parse(result.stdout), { CODETERM_VITE_PORT: '1851', CODETERM_DEV_IDENTIFIER: 'com.domios.dev.transport',
+      CODETERM_CDP_PORT: '9351', WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--opaque-runtime-flag',
+      CODETERM_API_TOKEN: null, CODETERM_API_PORT: null, CODETERM_SOCKET_PATH: null, CT_PRIVATE: null });
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('DEV shutdown ownership selects the exact native path and preserves foreign and production identities', () => {
+  const client = { pid: 42, created: '123', executable: 'C:/selected/domios-dev-app.exe', parent: 1 };
+  const server = { pid: 43, created: '124', executable: 'C:/selected/domios-server.exe', parent: 1 };
+  const foreign = { pid: 50, created: '125', executable: 'C:/foreign/domios-dev-app.exe', parent: 1 };
+  const production = { pid: 60, created: '126', executable: 'C:/production/domios-app.exe', parent: 1 };
+  const identity = { data: 'C:/fixture/.domios-dev-selected', config: 'C:/fixture/.domios-dev-selected/config.toml' };
+  const ready = { identity, process: server, api_address: '127.0.0.1:17996', epoch: 'epoch', instance_id: 'instance' };
+  const input = {
+    instance: 'selected', data: identity.data, port: 17996, app: client.executable,
+    record: { schema: 3, instance: { name: 'selected', apiPort: '17996', cdpPort: '9496' },
+      artifacts: { app: { path: client.executable }, server: { path: server.executable } } },
+    ready, quit: { ready, client: { process: client, connection: { identity, server_epoch: 'epoch', instance_id: 'instance' } } },
+    processes: [client, server, foreign, production],
+    listeners: [{ pid: server.pid, port: 17996 }, { pid: foreign.pid, port: 17997 }, { pid: production.pid, port: 7685 }],
+  };
+  const before = structuredClone(input);
+  assert.deepEqual(rebuildStopPlan(input), [client, server]);
+  assert.deepEqual(input, before);
+  assert.throws(() => rebuildStopPlan({ ...input, app: foreign.executable }), /identity/);
+  assert.throws(() => rebuildStopPlan({ ...input, port: 7685 }), /production/);
+  assert.throws(() => rebuildStopPlan({ ...input, processes: [{ ...client, created: '999' }, server, foreign, production] }), /identity/);
+});
+
+for (const shutdownExit of [0, 19]) {
+  test(`Windows kill awaits exact instance shutdown before sidecar cleanup, exit=${shutdownExit}`, { timeout: 10_000 }, () => {
+    const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+    const definition = source.match(/^kill_dev\(\) \{[^]*?^\}/m)[0];
+    const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${definition}
+OSTYPE=msys CT_PORT=17996 CT_VITE_PORT=14996 CT_CDP_PORT=9496
+CT_INSTANCE=selected CT_SUFFIX=-selected CT_DATA_DIR='C:/fixture/.domios-dev-selected'
+DEV_FRONT_EXTERNAL=1
+CODETERM_TEST_KILL_DRY_RUN=0 CODETERM_TEST_KILL_CLEAN_REQUEST_ONLY=0
+dev_provenance_record() { printf '%s' 'C:/fixture/selected/provenance.json'; }
+dev_app_path() { printf '%s' 'C:/fixture/selected/domios-dev-app.exe'; }
+node() {
+  if [ "$1" = scripts/dev-rebuild-stop.mjs ]; then
+    printf '%s\\n' "$@"
+    return ${shutdownExit}
+  fi
+  printf '%s\\n' "$@"
+}
+kill_web_watch() { printf '%s\\n' watcher; }
+kill_dev_static_server() { printf '%s\\n' static; }
+windows_dev_leftover_cleanup() { printf '%s\\n' leftovers; }
+request_dev_clean_restart() { exit 91; }
+netstat() { exit 92; }
+taskkill() { exit 93; }
+wait_for_dev_exit() { exit 94; }
+kill_dev
+`], { encoding: 'utf8', timeout: 5_000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, shutdownExit, result.stderr);
+    const shutdown = ['scripts/dev-rebuild-stop.mjs', 'C:/fixture/selected/provenance.json',
+      'C:/fixture/.domios-dev-selected', '17996', 'selected', 'C:/fixture/selected/domios-dev-app.exe'];
+    assert.deepEqual(result.stdout.trim().split(/\r?\n/), shutdownExit === 0
+      ? [...shutdown, 'watcher', 'static', 'leftovers'] : shutdown);
+  });
+}
 
 for (const [flags, survives] of [[0, true], [0x1800, true], [0x2800, false]]) {
   test(`Windows DEV helper job survival, flags=0x${flags.toString(16)}`, { skip: process.platform !== 'win32', timeout: 15_000 }, () => {

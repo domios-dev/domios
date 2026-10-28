@@ -107,11 +107,42 @@ use launch::{require_launch_authority, validate_loaded_settings};
 pub(crate) mod test_support;
 
 pub fn stop_blocking(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    stop_blocking_with(svc, tab, None)
+}
+
+pub(crate) fn stop_confirmed_blocking(
+    svc: &ServiceContext,
+    tab: &str,
+    session: Arc<Session>,
+) -> Result<(), String> {
+    stop_blocking_with(svc, tab, Some(session))
+}
+
+fn stop_blocking_with(
+    svc: &ServiceContext,
+    tab: &str,
+    expected: Option<Arc<Session>>,
+) -> Result<(), String> {
+    if let Some(expected) = expected.as_ref() {
+        if !for_tab(tab)
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, expected))
+        {
+            return Err(RuntimeFailure::Superseded.to_string());
+        }
+    }
     super::login::close_cli(tab);
-    if for_tab(tab).is_none() {
+    if expected.is_none() && for_tab(tab).is_none() {
         return Ok(());
     }
-    let finish = || crate::async_runtime::block_on(stop(svc, tab));
+    let finish = || {
+        crate::async_runtime::block_on(async {
+            match expected {
+                Some(session) => stop_session(svc, tab, session).await,
+                None => stop(svc, tab).await,
+            }
+        })
+    };
     match tokio::runtime::Handle::try_current() {
         Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
             tokio::task::block_in_place(finish)
@@ -145,12 +176,26 @@ pub(crate) fn stop_removed_provider(svc: &ServiceContext, provider: &str) {
 }
 
 pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
-    if let Err(error) = super::capacity_retry::cancel(svc, tab) {
-        log::warn!("[runtime-retry] queued retry cleanup failed for {tab}: {error}");
-    }
     let Some(session) = for_tab(tab) else {
+        cancel_stop_retry(svc, tab);
         return Ok(());
     };
+    stop_session(svc, tab, session).await
+}
+
+async fn stop_session(
+    svc: &ServiceContext,
+    tab: &str,
+    session: Arc<Session>,
+) -> Result<(), String> {
+    if !SESSIONS
+        .lock()
+        .get(tab)
+        .is_some_and(|current| Arc::ptr_eq(current, &session))
+    {
+        return Err(RuntimeFailure::Superseded.to_string());
+    }
+    cancel_stop_retry(svc, tab);
     let permit = session.gate.try_acquire().ok();
     session.gate.close();
     let process = session.process.lock().clone();
@@ -191,6 +236,12 @@ pub async fn stop(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     session.control_changes.send_replace(());
     session.process.close();
     Ok(())
+}
+
+fn cancel_stop_retry(svc: &ServiceContext, tab: &str) {
+    if let Err(error) = super::capacity_retry::cancel(svc, tab) {
+        log::warn!("[runtime-retry] queued retry cleanup failed for {tab}: {error}");
+    }
 }
 
 pub async fn ensure(svc: &ServiceContext, tab: &str) -> Result<Arc<Session>, RuntimeFailure> {
@@ -637,10 +688,12 @@ async fn ensure_locked(
         context.thread_id = Some(thread_id.clone());
         context.settings = settings;
     }
-    bind(svc, session, &thread_id)?;
-    if context.thread_id.is_none() && fork.is_none() {
-        resume::mark_unused(svc, session, &thread_id)?;
-    }
+    bind(
+        svc,
+        session,
+        &thread_id,
+        context.thread_id.is_none() && fork.is_none(),
+    )?;
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
@@ -717,14 +770,14 @@ async fn ensure_locked(
         return Err(reason);
     }
     let first_page_ms = started.elapsed().as_millis();
+    session
+        .thread_loaded
+        .store(true, std::sync::atomic::Ordering::Release);
     super::bootstrap::submit(svc, session, &process).await?;
     inject_abort_note(svc, provider, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
-    session
-        .thread_loaded
-        .store(true, std::sync::atomic::Ordering::Release);
     crate::startup::boot_timing::mark(tab, None, "runtime_ready");
     let reopen = backfill::Reopen {
         started,
@@ -815,13 +868,18 @@ fn validate_binding_inner(
         Err(RuntimeFailure::Superseded)
     }
 }
-fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), RuntimeFailure> {
+fn bind(
+    svc: &ServiceContext,
+    session: &Session,
+    thread: &str,
+    fresh: bool,
+) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
     let mut mux = svc.mux.write();
     let tab = mux
         .get_tab_mut(&context.tab_id)
         .ok_or(RuntimeFailure::Superseded)?;
-    commit_runtime_binding(tab, &context.binding_nonce, thread, |tab| {
+    commit_runtime_binding(tab, &context.binding_nonce, thread, fresh, |tab| {
         svc.publish_boot_stage_transition(
             &context.tab_id,
             tab,
@@ -835,6 +893,7 @@ fn commit_runtime_binding(
     tab: &mut crate::multiplexer::types::Tab,
     nonce: &str,
     thread: &str,
+    fresh: bool,
     publish: impl FnOnce(&crate::multiplexer::types::Tab),
 ) -> Result<(), RuntimeFailure> {
     if tab.session_binding_nonce.as_deref() != Some(nonce)
@@ -847,6 +906,12 @@ fn commit_runtime_binding(
     }
     tab.agent_session_id = Some(thread.into());
     tab.reported_session_binding_nonce = Some(nonce.into());
+    if fresh {
+        let config = tab
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
+        config["unusedThreadId"] = Value::String(thread.into());
+    }
     tab.agent_booting = false;
     crate::service::boot_stage::apply_boot_stage(
         tab,
@@ -965,6 +1030,13 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
                 codeterm_types::pty::BootStage::AgentReady,
                 None,
             );
+            if target
+                .neighbor_authority
+                .as_ref()
+                .is_some_and(|authority| svc.neighbor_friend_paused(&authority.friendship_id))
+            {
+                target.frozen = true;
+            }
         }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = value["state"] == "loading";

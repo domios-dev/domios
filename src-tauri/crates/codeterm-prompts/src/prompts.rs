@@ -148,7 +148,7 @@ pub const MEM_MANAGEMENT: &str = include_str!("../../../prompts/mem_management.m
 pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../../../prompts/general_agent.md");
 
 /// Shared CodeTerm CLI reference — role-neutral. Injected into both the GA
-/// prompt (via {codeterm_cli} placeholder) and the codeterm skill SKILL.md.
+/// prompt (via {codeterm_cli} placeholder) and the domios skill SKILL.md.
 /// Single source of truth so command syntax stays in sync.
 pub const CODETERM_CLI: &str = include_str!("../../../prompts/codeterm_cli.md");
 

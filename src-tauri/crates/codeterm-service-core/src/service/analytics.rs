@@ -32,6 +32,13 @@ pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Optio
     })
 }
 impl ServiceContext {
+    pub async fn set_product_analytics_consent(
+        &self,
+        consent: codeterm_analytics::Consent,
+    ) -> Result<codeterm_analytics::Status, String> {
+        self.analytics_worker().await?.set_consent(consent).await
+    }
+
     pub fn record_product_event(&self, event: Event) {
         if let Some(worker) = self
             .ext::<crate::service::analytics::AnalyticsCell>()
@@ -152,6 +159,9 @@ pub(crate) fn mesh_observer(worker: Worker) -> Arc<dyn Fn(usize) + Send + Sync> 
 pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObserver {
     Arc::new(move |event| {
         let event = match event {
+            codeterm_billing::ProductEvent::CheckoutReturned => Event::CheckoutReturned {
+                outcome: codeterm_analytics::CheckoutOutcome::Returned,
+            },
             codeterm_billing::ProductEvent::SubscriptionChanged { plan, status } => {
                 subscription_event(plan, status)
             }
@@ -159,6 +169,11 @@ pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObser
                 plan: billing_plan(plan),
             },
         };
+        if matches!(event, Event::CheckoutStarted { .. }) {
+            let _ = worker.record_nowait(Event::CheckoutOpened {
+                outcome: codeterm_analytics::CheckoutOutcome::Opened,
+            });
+        }
         let _ = worker.record_nowait(event);
     })
 }
@@ -166,9 +181,7 @@ pub(crate) fn billing_plan(plan: codeterm_billing::Plan) -> codeterm_analytics::
     match plan {
         codeterm_billing::Plan::Free => codeterm_analytics::PlanKey::Free,
         // The analytics catalog has no sponsor key yet; sponsor is reported as the paid tier.
-        codeterm_billing::Plan::Pro | codeterm_billing::Plan::Sponsor => {
-            codeterm_analytics::PlanKey::Pro
-        }
+        _ => codeterm_analytics::PlanKey::Pro,
     }
 }
 pub(crate) fn subscription_event(

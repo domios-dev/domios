@@ -15,12 +15,15 @@ const EPOCH = 'test-v1';
 const SECRET = 'entitlements/test-signing-key';
 const LEASE_SECS = 86_400;
 const REFRESH_SECS = 3_600;
-const MODES = ['free', 'pro', 'sponsor', 'expired', 'offline'];
+const MODES = ['free', 'pro', 'sponsor', 'expired', 'tampered', 'unsigned', 'offline'];
+// Paid verdicts the app must refuse: lease already ended, one signature byte flipped, signature emptied.
+const REFUSED_PAID_MODES = ['expired', 'tampered', 'unsigned'];
 const MODE_FILE = join(tmpdir(), 'domios-dev-issuer-mode');
 
 const usage = `usage:
   node scripts/dev-entitlements-issuer.mjs serve [--port 15200]
   node scripts/dev-entitlements-issuer.mjs smoke
+  node scripts/dev-entitlements-issuer.mjs smoke-refused
   node scripts/dev-entitlements-issuer.mjs mode <${MODES.join('|')}>
   node scripts/dev-entitlements-issuer.mjs mode`;
 
@@ -81,7 +84,7 @@ const PLANS = {
 
 export const verdict = (key, project, mode, uid, inst) => {
   const now = Math.floor(Date.now() / 1000);
-  const plan = PLANS[mode === 'expired' ? 'pro' : mode];
+  const plan = PLANS[REFUSED_PAID_MODES.includes(mode) ? 'pro' : mode];
   const issuedAt = mode === 'expired' ? now - LEASE_SECS - 60 : now;
   const periodEnd = plan.authority === 'free' ? null : now + 30 * 86_400;
   const payload = {
@@ -111,6 +114,8 @@ export const verdict = (key, project, mode, uid, inst) => {
     sub: uid,
   };
   const bytes = Buffer.from(canonical(payload));
+  const signature = sign(null, bytes, key);
+  if (mode === 'tampered') signature[signature.length >> 1] ^= 0x01;
   const caps = {
     max_mesh_machines: plan.limit,
     max_workspaces: plan.limit,
@@ -124,12 +129,33 @@ export const verdict = (key, project, mode, uid, inst) => {
     application_access: { schema_version: 1, authority: plan.authority, full_access: false, ...caps },
     grant: {
       payload: bytes.toString('base64url'),
-      signature: sign(null, bytes, key).toString('base64url'),
+      signature: mode === 'unsigned' ? '' : signature.toString('base64url'),
       key_id: KEY_ID,
       alg: 'Ed25519',
     },
   };
 };
+
+export const verifiesWith = (grant, publicKey) => {
+  try {
+    return verify(null, Buffer.from(grant.payload, 'base64url'), publicKey, Buffer.from(grant.signature, 'base64url'));
+  } catch {
+    return false;
+  }
+};
+
+/** Proves pro verifies with publicKey while tampered and unsigned do not; throws on any other outcome. */
+export const checkRefusedModes = (key, publicKey, project, uid, inst) => {
+  const expected = { pro: true, tampered: false, unsigned: false };
+  for (const [mode, accepted] of Object.entries(expected)) {
+    if (verifiesWith(verdict(key, project, mode, uid, inst).grant, publicKey) !== accepted) {
+      throw new Error(`${mode} verdict ${accepted ? 'failed' : 'passed'} TEST verification`);
+    }
+  }
+  return Object.keys(expected);
+};
+
+const pinnedPublicKey = () => createPublicKey({ key: Buffer.from(SPKI, 'base64'), format: 'der', type: 'spki' });
 
 export const createIssuer = (key, project, readMode = currentMode) =>
   createServer((req, res) => {
@@ -177,12 +203,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const project = secret('DOMIOS_QA_PROJECT_ID');
     if (!project) throw new Error('missing QA project');
     const grant = verdict(loadKey(), project, 'sponsor', uid, inst).grant;
-    const payload = Buffer.from(grant.payload, 'base64url');
-    const publicKey = createPublicKey({ key: Buffer.from(SPKI, 'base64'), format: 'der', type: 'spki' });
-    if (!verify(null, payload, publicKey, Buffer.from(grant.signature, 'base64url'))) throw new Error('invalid TEST signature');
-    const claims = JSON.parse(payload);
+    if (!verifiesWith(grant, pinnedPublicKey())) throw new Error('invalid TEST signature');
+    const claims = JSON.parse(Buffer.from(grant.payload, 'base64url'));
     if (claims.sub !== uid || claims.inst !== inst || claims.aud.project !== project || !claims.perks.sponsor) throw new Error('invalid Sponsor claims');
     console.log('PASS: local-dev-user Sponsor verdict verifies with pinned TEST key and QA project');
+  } else if (command === 'smoke-refused') {
+    const project = secret('DOMIOS_QA_PROJECT_ID');
+    if (!project) throw new Error('missing QA project');
+    checkRefusedModes(loadKey(), pinnedPublicKey(), project, 'local-dev-user', 'smoke-installation');
+    console.log('PASS: pro verifies with the pinned TEST key; tampered and unsigned fail verification');
   } else if (command === 'mode' && rest.length === 0) {
     console.log(currentMode());
   } else if (command === 'mode' && MODES.includes(rest[0])) {

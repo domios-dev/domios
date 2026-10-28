@@ -31,16 +31,15 @@
 
 ## Build, run, test
 
-- Finish a coherent batch of edits, then run applicable checks once. Repeat only checks affected by subsequent changes or failures; use a narrow reproducer during implementation when needed.
-- Read the owning skill first: `dev-run`, `build`, `gates`, `testing`, or `github-release` under `.agents/skills/`.
-- Use named `build.sh` operations; PowerShell uses `.\build.ps1`. All build logic belongs in `build.sh`; PowerShell only forwards. Update the owning skill with reusable recipes and failure recovery.
-- Run builds/tests in Team utility tabs with `--timeout 30m`; use purpose `dev` without a timeout for servers. Follow `utility-shell-reports` for pushed results.
-- Run `build.sh fmt` once per batch, then one verification pass (one `lane-check` call for all touched crates and affected non-Rust checks); on failure, fix all reported errors and recheck only what failed. Cold checks require Orchestrator GO; no worker builds, workspace or reverse-dependency checks without an exact assignment.
-- Workers run their own focused `test-one` and Clippy for touched crates in their lane, queued through the gateway with `--wait-build`, and report results with their SHA; the Orchestrator authorizes them at dispatch and re-runs only the merged-tree check. Rust tests use `scripts/test-capped.sh`; broad regression runs once on the release SHA.
-- Run `fmt-check`, changed TS/JS tests, size/boundary guards, and `pnpm check:api-effects` when effects change. Require zero compiler errors/warnings and report unrun checks honestly.
+- Read the owning skill first (`dev-run`, `build`, `gates`, `testing`, `github-release` under `.agents/skills/`). Use named `build.sh` operations; `.\build.ps1` only forwards. Put reusable recipes and recoveries in the owning skill.
+- Run builds/tests in one-shot Team utility tabs with `--timeout`; servers use purpose `dev` without one. Follow `utility-shell-reports`.
+- Workers run no checks on a shared machine unless dispatch grants them; they list the exact checks. The Orchestrator runs them in canonical after merging.
+- Work in waves: merge and edit everything first, run `build.sh fmt` and generators once, then one verification pass. Never merge or edit sources while a wave compiles. On failure fix everything reported and recheck only what failed.
+- Compile each crate once per wave and profile. A crate with selectors gets one `./build.sh nextest <scope> "test(a) | test(b)"`, which is also its compile check; `lane-check --tests` only covers touched crates without selectors. `check-workspace` runs once per candidate, never `test-one` per selector. Regenerate CLI contracts with `./build.sh cli-docs` only when CLI definitions changed.
+- Also run `fmt-check`, changed TS/JS tests, size/boundary guards, and `pnpm check:api-effects` when effects change. Zero compiler errors/warnings; report unrun checks honestly. Broad regression runs once on the release SHA.
+- Order of proof: merge, `build.sh fmt`, commit, then hand the SHA to live QA at once (its candidate build is the compile check). Long test passes run on a CI dry run (free runners), in parallel, never as a local wave that blocks QA. Live fixes change code, so a full local pass runs only before the release build and only if no CI dry run covered that SHA.
 - A busy gateway is a refusal: continue source work, never poll/retry. `--wait-build` requires intentional blocking. Stop foreground dev before canonical QA; do not evade the gateway with another target directory.
-- Regenerate CLI/other generated contracts through the build skill; never edit generated files manually. Use `build.sh help` for commands.
-- Self-install: Windows uses `install-local`; macOS uses `codeterm update install` with continuation per the build skill. Never replace an installed bundle by hand.
+- Never hand-edit generated files. Self-install: Windows `install-local`; macOS `codeterm update install` with continuation per the build skill.
 
 ## Build speed (worktrees, tests, profiles)
 

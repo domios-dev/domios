@@ -7,6 +7,7 @@ fn only_caller_bound_agent_notify_send_enters_the_bell() {
         (NoticeSource::AgentNotifySend, false, NoticeDestination::Log),
         (NoticeSource::UserConsent, true, NoticeDestination::Bell),
         (NoticeSource::UserConsent, false, NoticeDestination::Bell),
+        (NoticeSource::OwnerEvent, false, NoticeDestination::Bell),
         (NoticeSource::System, true, NoticeDestination::Log),
         (NoticeSource::System, false, NoticeDestination::Log),
     ] {

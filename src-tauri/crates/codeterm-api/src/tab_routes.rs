@@ -93,6 +93,20 @@ pub async fn list_tabs(
             }
         })?;
     let mut local = result.into_json();
+    if crate::auth::caller_peer_id(&state, &headers).is_none() {
+        if let Some(caller) = crate::auth::tab_caller(&state, &headers)
+            .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_forbidden"))?
+        {
+            if state
+                .svc
+                .filter_neighbor_tab_listing(&caller, &mut local)
+                .await
+                .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_capability_denied"))?
+            {
+                return Ok(Json(local));
+            }
+        }
+    }
     let isolated_peer = crate::auth::isolated_caller_peer_id(&state, &headers);
     if let Some(peer_id) = isolated_peer.as_deref() {
         retain_peer_owned_tab_rows(&state, peer_id, &mut local);
@@ -324,7 +338,8 @@ pub async fn create_shell_tab(
         codeterm_service_core::service::tab::validate_tab_title(title)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     }
-    body.creator_tab_id = caller_tab_header(&headers).or(body.creator_tab_id.take());
+    body.creator_tab_id =
+        crate::auth::caller_claim(&state, &headers, body.creator_tab_id.as_deref())?;
     if let Some(timeout) = body.timeout.as_deref() {
         codeterm_service_core::service::utility_deadline_model_parse_timeout(timeout)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
@@ -588,6 +603,18 @@ pub async fn release_remote_ownership(
 }
 
 fn create_shell_error_status(error: &str) -> StatusCode {
+    if error.split_once(':').is_some_and(|(code, _)| {
+        matches!(
+            code,
+            "neighbor_capability_denied"
+                | "neighbor_forbidden"
+                | "neighbor_paused"
+                | "tab_requests_not_allowed"
+                | "neighbor_machine_access_unsupported"
+        )
+    }) {
+        return StatusCode::FORBIDDEN;
+    }
     if error.starts_with("utility_tab_limit:") {
         StatusCode::CONFLICT
     } else if error.starts_with("Unknown Lucide icon") || error.starts_with("timeout requires ") {

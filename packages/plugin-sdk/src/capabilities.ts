@@ -97,12 +97,6 @@ export interface GlanceView {
 
 export type ViewCall = (method: string, args: unknown) => unknown;
 
-export interface StructuredControl {
-  protocol: "codex-app-server";
-  minVersion: string;
-  runtimeModes?: { id: string; displayName: string }[];
-}
-
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 
@@ -894,6 +888,11 @@ export interface AgentTaskResult {
   error?: string;
 }
 
+export interface ChatBackendCloseReceipt {
+  sessionId: string;
+  processExited: true;
+}
+
 export interface ChatBackend {
   runAgentTask?(input: AgentTaskInput): AgentTaskResult;
   abortAgentTask?(runId: string): void;
@@ -909,7 +908,8 @@ export interface ChatBackend {
     cursor: string | null;
     done?: boolean;
   };
-  closeSession(sessionId: string): void;
+  // Confirmed respawn requires an exact session receipt after all owned processes exit.
+  closeSession(sessionId: string): void | ChatBackendCloseReceipt;
   listModels?(): Model[];
   listPresets?(): PresetInfo[];
   // Optional: current live model of a session; omit if the backend tracks none.

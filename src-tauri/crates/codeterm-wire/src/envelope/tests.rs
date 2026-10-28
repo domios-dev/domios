@@ -242,6 +242,20 @@ fn glued_frames_split_without_separators() {
 }
 
 #[test]
+fn neighbor_envelope_parses_as_a_neighbor_frame() {
+    let segments = parse_envelope(
+        r#"<domios from="neighbor" friend="F" friendship="x" message="m" kind="question">opaque body</domios>"#,
+    );
+    assert!(segments.iter().any(|segment| matches!(
+        segment,
+        MessageSegment::Frame {
+            kind: FrameKind::Neighbor,
+            ..
+        }
+    )));
+}
+
+#[test]
 fn every_registered_kind_round_trips_its_wire_name() {
     for kind in FrameKind::ALL {
         assert_eq!(FrameKind::from_wire(kind.as_str()), Some(kind));

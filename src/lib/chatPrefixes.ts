@@ -21,7 +21,7 @@ export function detectChatPrefix(content: string): PrefixMatch | null {
   return collectSlashCommands(content);
 }
 
-export function framePrefix(attrs: Record<string, string>, body: string): PrefixMatch | null {
+export function framePrefix(attrs: Record<string, string>, body: string, tip?: string | null): PrefixMatch | null {
   if (attrs.from === "plugin_config" && attrs.plugin) {
     return {
       origin: {
@@ -62,6 +62,51 @@ export function framePrefix(attrs: Record<string, string>, body: string): Prefix
     const peerId = attrs.peer ?? attrs.mesh;
     if (peerId) return { origin: { kind: "mesh", peerId }, body };
   }
+  if (from === "neighbor" && attrs.friendship && attrs.message) {
+    // The routed envelope carries ids as attributes and the reply instruction as the host tip; the body is only the friend's words.
+    const kind = attrs.kind === "question" || attrs.kind === "answer" || attrs.kind === "refusal" ? attrs.kind : undefined;
+    return {
+      origin: {
+        kind: "neighbor", friendshipId: attrs.friendship, message: attrs.message,
+        ...(attrs.friend ? { friend: attrs.friend } : {}),
+        ...(attrs.label ? { sender: attrs.label } : {}),
+        ...(kind ? { messageKind: kind } : {}),
+        ...(attrs.in_reply_to ? { inReplyTo: attrs.in_reply_to } : {}),
+        ...(tip?.trim() ? { instruction: tip.trim() } : {}),
+      },
+      body: unescapeNeighborText(body),
+    };
+  }
+  const headed = from === "neighbor" && attrs.friendship ? neighborHeader(body) : null;
+  if (headed) {
+    // A header-block frame: "Friend:", "Message:", "Kind:", "In reply to:" lines and the host's reply instruction, then the words.
+    const kind = headed.fields.kind;
+    return {
+      origin: {
+        kind: "neighbor", friendshipId: attrs.friendship,
+        ...(headed.fields.message ? { message: headed.fields.message } : {}),
+        ...(headed.fields.friend ? { friend: headed.fields.friend } : {}),
+        ...(attrs.label ? { sender: attrs.label } : {}),
+        ...(kind === "question" || kind === "answer" || kind === "refusal" ? { messageKind: kind } : {}),
+        ...(headed.fields["in reply to"] ? { inReplyTo: headed.fields["in reply to"] } : {}),
+        ...(headed.instruction || tip?.trim() ? { instruction: headed.instruction || tip!.trim() } : {}),
+      },
+      body: unescapeNeighborText(headed.body),
+    };
+  }
+  if (from === "neighbor" && attrs.friendship) {
+    // A named friend's plain frame opens with the host's one-paragraph instruction; the friend's words follow, escaped.
+    const split = attrs.friend ? body.indexOf("\n\n") : -1;
+    return {
+      origin: {
+        kind: "neighbor", friendshipId: attrs.friendship,
+        ...(attrs.friend ? { friend: attrs.friend } : {}),
+        ...(attrs.label ? { sender: attrs.label } : {}),
+        ...(split >= 0 ? { instruction: unescapeNeighborText(body.slice(0, split)) } : {}),
+      },
+      body: unescapeNeighborText(split >= 0 ? body.slice(split + 2) : body),
+    };
+  }
   if (from === "pebble") {
     return attrs.plugin
       ? { origin: { kind: "plugin", pluginId: attrs.plugin, name: attrs.source }, body }
@@ -94,6 +139,35 @@ export function framePrefix(attrs: Record<string, string>, body: string): Prefix
     };
   }
   return null;
+}
+
+const NEIGHBOR_HEADER_KEYS = new Set(["friend", "friendship", "message", "kind", "in reply to"]);
+
+/** A frame whose first paragraph opens with "Friend:" carries its ids as header lines; other lines of that paragraph are
+ *  the host's instruction. Quoted values read as written. */
+function neighborHeader(body: string): { fields: Record<string, string>; instruction: string; body: string } | null {
+  const split = body.indexOf("\n\n");
+  const head = split >= 0 ? body.slice(0, split) : body;
+  if (!/^Friend:\s/.test(head)) return null;
+  const fields: Record<string, string> = {};
+  const instruction: string[] = [];
+  for (const line of head.split("\n")) {
+    const match = /^([A-Za-z][A-Za-z ]*):\s*(.*)$/.exec(line);
+    const key = match?.[1].toLowerCase();
+    if (match && key && NEIGHBOR_HEADER_KEYS.has(key)) fields[key] = unquote(match[2].trim());
+    else if (line.trim()) instruction.push(line.trim());
+  }
+  return { fields, instruction: instruction.join(" "), body: split >= 0 ? body.slice(split + 2) : "" };
+}
+
+function unquote(value: string): string {
+  if (!value.startsWith("\"")) return value;
+  try { const parsed: unknown = JSON.parse(value); return typeof parsed === "string" ? parsed : value; } catch { return value; }
+}
+
+/** The host escapes a friend's text for the frame; the chat shows it as written. */
+function unescapeNeighborText(text: string): string {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
 function collectSlashCommands(content: string): PrefixMatch | null {
@@ -194,6 +268,8 @@ export function labelFor(origin: ChatOrigin): string {
       return origin.name || origin.pluginId;
     case "mesh":
       return `Mesh · ${origin.peerId.slice(0, 10)}`;
+    case "neighbor":
+      return `From ${origin.friend ?? "a friend"} via Neighbors`;
     case "service":
       return `${origin.service} · ${origin.userId.slice(0, 12)}`;
     case "plugin_config":

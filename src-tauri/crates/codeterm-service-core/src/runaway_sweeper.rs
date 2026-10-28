@@ -218,7 +218,7 @@ mod tests {
             ("/root/repo/target/release/deps/integration_test-deadbeef", true),
             // worktree path (real incident shape)
             (
-                "/Users/rollacode/Developer/codeterm-worktrees/task-x/cli/target/debug/deps/codeterm-b2534ae3cdc1559f",
+                "/Users/example/Developer/codeterm-worktrees/task-x/cli/target/debug/deps/codeterm-b2534ae3cdc1559f",
                 true,
             ),
             ("/usr/bin/cargo", false),

@@ -7,6 +7,9 @@ bench_require python3 curl mktemp mkfifo
 source "$ROOT/evals/_lib/lib.sh"
 
 PAYLOAD_SIZES="${PAYLOAD_SIZES:-4096 16384 36435 65536}"
+PROVIDERS="${PROVIDERS:-claude codex}"
+PROVIDER=""
+TRANSPORT=""
 LONG_PAYLOAD_CHARS="${LONG_PAYLOAD_CHARS:-36435}"
 EVENT_TIMEOUT="${EVENT_TIMEOUT:-90}"
 LOG_EVENT_TIMEOUT="${LOG_EVENT_TIMEOUT:-15}"
@@ -96,46 +99,37 @@ status_value() {
 }
 
 capture_screen() {
+  if [ "$TRANSPORT" != pty ]; then
+    printf 'No terminal: backing=%s\n' "$TRANSPORT"
+    return
+  fi
   dc tab get-text --tab "$1"
 }
 
-wait_for_tui() {
-  local tab="$1" case_dir="$2"
-  local url="$(dev_api_url)/api/output/stream?tab_id=$tab"
-  dev_run python3 "$BENCH/wait_sse.py" "$url" '\x1b\[\?2004h' "$EVENT_TIMEOUT" \
-    >"$case_dir/tui-ready-event.txt" 2>"$case_dir/tui-ready-event.err"
-  local log_offset status
-  log_offset="$(wc -c <"$LOG_FILE")"
-  status="$(status_value "$tab")"
-  if [ "$status" != "idle" ]; then
-    python3 "$BENCH/wait_log.py" "$LOG_FILE" "$log_offset" \
-      "(?i)\\[idle-poll\\].* Idle \\(tab=$tab\\)" "$EVENT_TIMEOUT" \
-      >"$case_dir/status-idle-event.txt" 2>"$case_dir/status-idle-event.err"
-    status="$(status_value "$tab")"
-  fi
-  status_json "$tab" >"$case_dir/status-ready.json"
-  if [ "$status" != "idle" ]; then
-    capture_screen "$tab" >"$case_dir/screen-ready-mismatch.txt" || true
-    echo "FAIL: tab $tab reached bracketed-paste mode but settled status=$status, wanted idle" >&2
-    return 1
-  fi
-}
-
-spawn_codex() {
+spawn_provider() {
   local label="$1" case_dir="$2" spawn tab inspect pty recorded_provider
-  spawn="$(dc agent spawn codex --workspace "$WORKSPACE_ID" --cwd "$ROOT" \
-    --title "pty-long-paste-$label" --description "isolated long-paste submit bench" \
+  spawn="$(dc agent spawn "$PROVIDER" --workspace "$WORKSPACE_ID" --cwd "$ROOT" \
+    --title Paste --description "isolated $PROVIDER long-paste submit bench: $label" \
     --non-user-facing --json)"
   printf '%s\n' "$spawn" >"$case_dir/spawn.json"
   tab="$(printf '%s' "$spawn" | json_value tab_id id)"
   CREATED_TABS+=("$tab")
-  wait_for_tui "$tab" "$case_dir"
+  dev_run python3 "$BENCH/observe.py" ready "$tab" "$case_dir" --timeout "$EVENT_TIMEOUT"
+
   inspect="$(dc tab inspect --tab "$tab" --json)"
   printf '%s\n' "$inspect" >"$case_dir/inspect.json"
-  pty="$(printf '%s' "$inspect" | json_value pty_id)"
+  pty="$(printf '%s' "$inspect" | json_value pty_id || true)"
   recorded_provider="$(printf '%s' "$inspect" | json_value agent_type agentType provider_id provider || true)"
-  printf 'requested_provider=codex\nrecorded_provider=%s\npty=%s\n' \
-    "${recorded_provider:-unresolved}" "$pty" >"$case_dir/provider-selection.txt"
+  python3 -c '
+import json,sys
+rows=json.load(sys.stdin)
+assert len(rows)==1
+tab=rows[0]
+assert tab.get("agent_type")==sys.argv[1], "spawned provider mismatch"
+assert tab.get("backing",{}).get("kind")==sys.argv[2], "spawned transport mismatch"
+' "$PROVIDER" "$TRANSPORT" <<<"$inspect"
+  printf 'requested_provider=%s\nrecorded_provider=%s\ntransport=%s\npty=%s\n' \
+    "$PROVIDER" "${recorded_provider:-unresolved}" "$TRANSPORT" "$pty" >"$case_dir/provider-selection.txt"
   SPAWN_TAB="$tab"
   SPAWN_PTY="$pty"
 }
@@ -170,10 +164,10 @@ start_gate() {
   command="$(agent_python) \"$(agent_gate_path)\" client $port $EVENT_TIMEOUT"
   printf 'Run this exact command immediately as a foreground terminal command:\n%s\nDo not substitute another command and do not finish this turn until it exits.\n' \
     "$command" >"$case_dir/gate-task.txt"
-  dc send --tab "$tab" --require-agent --from-file "$case_dir/gate-task.txt" --actions enter --json \
+  dc send --tab "$tab" --require-agent --from-file "$case_dir/gate-task.txt" --json \
     >"$case_dir/gate-send.json" 2>"$case_dir/gate-send.err"
   if ! read -r event <&8; then
-    echo "FAIL: Codex did not connect to the gate within ${EVENT_TIMEOUT}s" >&2
+    echo "FAIL: $PROVIDER did not connect to the gate within ${EVENT_TIMEOUT}s" >&2
     return 1
   fi
   event="${event%$'\r'}"
@@ -306,6 +300,7 @@ observe_idle_outcome() {
 
 finish_capture() {
   local tab="$1" pty="$2" log_offset="$3" case_dir="$4" source_bytes="$5"
+  if [ "$TRANSPORT" != pty ]; then return; fi
   dc tab capture stop --tab "$tab" --json >"$case_dir/capture-stop.json"
   python3 "$BENCH/summarize_cast.py" "$case_dir/trace.cast" \
     --log "$LOG_FILE" --log-offset "$log_offset" --pty "$pty" \
@@ -316,8 +311,14 @@ finish_capture() {
 assert_case() {
   local tab="$1" case_dir="$2"
   shift 2
-  dc tab chat --tab "$tab" --json >"$case_dir/assert-transcript.json"
-  dev_get "/api/tabs/$tab/chat-send" >"$case_dir/assert-ledger.json"
+  local send_args=() index
+  for ((index=1; index<=$#; index+=2)); do
+    send_args+=(--send "${!index}")
+    local payload_index=$((index + 1))
+    send_args+=(--payload "${!payload_index}")
+  done
+  dev_run python3 "$BENCH/observe.py" settle "$tab" "$case_dir" \
+    --timeout "$EVENT_TIMEOUT" "${send_args[@]}"
   python3 "$BENCH/assert_outcome.py" "$case_dir" "$@"
   bench_assertion
 }
@@ -357,16 +358,16 @@ print_case() {
     cat "$case_dir/transcript-after-turn-summary.txt"
   fi
   echo "--- captured PTY sequence ---"
-  cat "$case_dir/sequence.txt"
+  if [ "$TRANSPORT" = pty ]; then cat "$case_dir/sequence.txt"; fi
   echo
 }
 
 run_case() {
   local label="$1" mode="$2" payload="$3" token="$4"
-  local case_dir="$OUT_DIR/$label"
+  local case_dir="$OUT_DIR/$PROVIDER/$label"
   local tab pty log_offset
   mkdir -p "$case_dir"
-  spawn_codex "$label" "$case_dir"
+  spawn_provider "$label" "$case_dir"
   tab="$SPAWN_TAB"
   pty="$SPAWN_PTY"
   if [ "$mode" = "mid-turn" ]; then
@@ -375,11 +376,21 @@ run_case() {
   else
     capture_screen "$tab" >"$case_dir/screen-precondition.txt"
   fi
-  dc tab capture start --tab "$tab" --out "$case_dir/trace.cast" --json \
-    >"$case_dir/capture-start.json"
-  log_offset="$(wc -c <"$LOG_FILE")"
+  if [ "$TRANSPORT" = pty ]; then
+    dc tab capture start --tab "$tab" --out "$case_dir/trace.cast" --json \
+      >"$case_dir/capture-start.json"
+  fi
+  dev_run python3 "$BENCH/observe.py" anchor "$tab" "$case_dir" --timeout "$EVENT_TIMEOUT"
+  log_offset=0
+  if [ "$TRANSPORT" = pty ]; then log_offset="$(wc -c <"$LOG_FILE")"; fi
   start_send "$tab" "$payload" "$case_dir/send"
   local send_id="$SEND_ID"
+  if [ "$TRANSPORT" != pty ]; then
+    if [ "$mode" = mid-turn ]; then release_gate; fi
+    assert_case "$tab" "$case_dir" "$send_id" "$payload"
+    dc tab close --tab "$tab" >/dev/null
+    return
+  fi
   if wait_first_key "$pty" "$log_offset" "$case_dir/first-key-event.txt"; then
     capture_screen "$tab" >"$case_dir/screen-at-first-key.txt"
   else
@@ -409,16 +420,17 @@ run_case() {
 
 run_recovery_case() {
   local label="long-mid-turn-next-send"
-  local case_dir="$OUT_DIR/$label"
+  local case_dir="$OUT_DIR/$PROVIDER/$label"
   local tab pty log_offset first_send_id second_send_id
   mkdir -p "$case_dir"
-  spawn_codex "$label" "$case_dir"
+  spawn_provider "$label" "$case_dir"
   tab="$SPAWN_TAB"
   pty="$SPAWN_PTY"
   start_gate "$tab" "$case_dir"
   cp "$case_dir/screen-mid-turn-precondition.txt" "$case_dir/screen-precondition.txt"
   dc tab capture start --tab "$tab" --out "$case_dir/trace.cast" --json \
     >"$case_dir/capture-start.json"
+  dev_run python3 "$BENCH/observe.py" anchor "$tab" "$case_dir" --timeout "$EVENT_TIMEOUT"
   log_offset="$(wc -c <"$LOG_FILE")"
   start_send "$tab" "$LONG_PAYLOAD" "$case_dir/send"
   first_send_id="$SEND_ID"
@@ -452,14 +464,13 @@ run_recovery_case() {
 }
 
 health="$(dev_get /api/health)"
+printf '%s\n' "$health" >"$OUT_DIR/health.json"
 build="$(printf '%s' "$health" | json_value build)"
 head="$(git rev-parse HEAD)"
-# Bench-only commits on top of the build are fine; any product source drift is not.
-if ! git merge-base --is-ancestor "$build" "$head" 2>/dev/null \
-  || ! git diff --quiet "$build" "$head" -- . ':(exclude)evals'; then
-  echo "FAIL: dev build $build differs from this checkout's product source at $head" >&2; exit 1
+printf 'execution_sha=%s\nbuild_sha=%s\n' "$head" "$build" >"$OUT_DIR/source-identity.txt"
+if [ "$build" != "$head" ] || [ -n "$(git status --porcelain --untracked-files=normal)" ]; then
+  echo "FAIL: dev build $build must match the clean execution checkout at $head" >&2; exit 1
 fi
-[ -f "$LOG_FILE" ] || { echo "FAIL: dev log not found: $LOG_FILE" >&2; exit 1; }
 
 dc identify --json >"$OUT_DIR/dev-identify.json"
 dc agent providers --json >"$OUT_DIR/providers.json"
@@ -478,12 +489,26 @@ done
 }
 
 echo "run_id=$RUN_ID build=$build payload_sizes=$PAYLOAD_SIZES out=$OUT_DIR"
-run_case short-mid-turn mid-turn "$SHORT_PAYLOAD" "$SHORT_TOKEN"
-run_case "size-${LONG_PAYLOAD_CHARS}-idle" idle "$LONG_PAYLOAD" "$LONG_TOKEN"
-for size in $PAYLOAD_SIZES; do
-  run_case "size-$size-mid-turn" mid-turn "$OUT_DIR/payload-$size.txt" \
-    "SIZE_${size}_${RUN_ID}"
+for PROVIDER in $PROVIDERS; do
+  TRANSPORT="$(python3 -c '
+import json,sys
+entries=[p for p in json.load(open(sys.argv[1])) if p.get("id")==sys.argv[2]]
+assert len(entries)==1, "provider descriptor unavailable or ambiguous"
+transport=entries[0].get("transport")
+assert transport in ("pty","chat_backend"), "unsupported provider transport"
+print(transport)
+' "$OUT_DIR/providers.json" "$PROVIDER")"
+  if [ "$TRANSPORT" = pty ] && [ ! -f "$LOG_FILE" ]; then
+    echo "FAIL: dev log not found: $LOG_FILE" >&2; exit 1
+  fi
+  run_case short-mid-turn mid-turn "$SHORT_PAYLOAD" "$SHORT_TOKEN"
+  for size in $PAYLOAD_SIZES; do
+    for mode in idle mid-turn; do
+      run_case "size-$size-$mode" "$mode" "$OUT_DIR/payload-$size.txt" \
+        "SIZE_${size}_${RUN_ID}"
+    done
+  done
+  if [ "$TRANSPORT" = pty ]; then run_recovery_case; fi
 done
-run_recovery_case
 bench_complete
 echo "COMPLETE: observations are under $OUT_DIR"

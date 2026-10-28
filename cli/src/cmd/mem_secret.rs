@@ -1,4 +1,3 @@
-use crate::cmd::mem::transport::mem_transport_error;
 use crate::cmd::mem_secret_autounlock::{
     arm_unlock_request, json_summary, BackendDeclaration, SaveMasterPasswordOutcome,
 };
@@ -15,6 +14,12 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
             crate::cmd::print::fail(1, format!("failed to build HTTP client: {}", e));
         }
     };
+    if let Err(error) = http.authorize_secrets() {
+        let (status, body) = crate::cmd::mem_secret_failure::transport_failure(&error);
+        let (exit, refusal) = crate::cmd::mem_secret_failure::secret_failure(status, &body)
+            .expect("failed authorization is an error");
+        crate::cmd::print::fail_with(exit, &refusal);
+    }
     let base = base.as_str();
 
     let send_request = |req: crate::local_api::LocalApiRequest| -> (u16, serde_json::Value) {
@@ -24,10 +29,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                 let body: serde_json::Value = r.json().unwrap_or(serde_json::Value::Null);
                 (status, body)
             }
-            Err(e) => (
-                0,
-                serde_json::json!({"error": {"kind": "backend", "message": mem_transport_error(base, &e)}}),
-            ),
+            Err(e) => crate::cmd::mem_secret_failure::transport_failure(&e),
         }
     };
 

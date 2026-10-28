@@ -415,6 +415,31 @@ impl ChatBackendProvider for JsChatBackend {
         Ok(())
     }
 
+    fn close_session_confirmed(
+        &self,
+        session_id: &str,
+        deadline: std::time::Instant,
+    ) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
+        let receipt = super::vm::call_json_interruptible::<
+            crate::chatbackend_provider::ChatBackendCloseReceipt,
+        >(
+            &self.vm,
+            "closeSession",
+            &[json!(session_id)],
+            crate::converter::ConversionCancellation::default(),
+            deadline,
+        )
+        .map_err(|error| map_err("closeSession", error))?;
+        if receipt.session_id != session_id || !receipt.process_exited {
+            return Err(ChatBackendError::Call(
+                "closeSession did not confirm the owned session process exit".into(),
+            ));
+        }
+        self.session_exec_env.lock().remove(session_id);
+        Ok(())
+    }
+
     fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
         let models: Vec<PluginModel> = match call_json(&self.vm, "listModels", &[]) {
             Ok(models) => models,

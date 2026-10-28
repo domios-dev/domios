@@ -116,6 +116,75 @@ pub(in crate::service::agent_runtime) async fn publish_events(
         };
         let chat_item = matches!(runtime, RuntimeEvent::ItemUpdated { .. });
         super::super::capacity_retry::observe(svc, session, &runtime, at).await?;
+        let handling = match &runtime {
+            RuntimeEvent::EvidenceUpdated {
+                thread_id,
+                turn_id,
+                send_id,
+                ..
+            } if Some(thread_id) == context.thread_id.as_ref() => svc
+                .chat_send_ledger
+                .status(send_id)
+                .and_then(|status| status.correlation_id)
+                .and_then(|token| neighbor_message_id(&token).map(str::to_owned))
+                .map(|message| {
+                    (
+                        thread_id.clone(),
+                        turn_id.clone(),
+                        Some(message),
+                        session.context.lock().active_turn_id.as_ref() == Some(turn_id),
+                        session.completions.lock().contains(thread_id, turn_id),
+                    )
+                }),
+            RuntimeEvent::TurnUpdated {
+                thread_id,
+                turn_id: Some(turn),
+                state,
+                ..
+            } if Some(thread_id) == context.thread_id.as_ref() => Some((
+                thread_id.clone(),
+                turn.clone(),
+                None,
+                matches!(
+                    state,
+                    RuntimeTurnState::Working | RuntimeTurnState::NeedsInput
+                ),
+                matches!(state, RuntimeTurnState::Idle),
+            )),
+            _ => None,
+        };
+        if let Some((thread, turn, message, working, finished)) = handling {
+            use crate::service::neighbors::history::handling::State;
+            let failed = matches!(
+                &runtime,
+                RuntimeEvent::TurnUpdated {
+                    detail: Some(RuntimeTurnDetail::Failed),
+                    ..
+                }
+            );
+            let state = if failed {
+                State::Failed
+            } else if finished {
+                State::NoReply
+            } else if working {
+                State::Working
+            } else {
+                State::DeliveredToConcierge
+            };
+            if let Err(error) = svc
+                .neighbor_runtime_handling_event(
+                    &context.tab_id,
+                    &context.binding_nonce,
+                    &thread,
+                    &turn,
+                    message.as_deref(),
+                    state,
+                )
+                .await
+            {
+                log::debug!("[neighbors] incoming runtime handling: {error}");
+            }
+        }
         apply(svc, session, epoch, at, runtime);
         run_completed |= completed_turn
             .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));
@@ -198,6 +267,13 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         }
         RuntimeEvent::ItemUpdated { thread_id, item } if owned(&thread_id) => {
             let item = session.cache.lock().reconcile_live(item, at);
+            crate::flow_trace::SourceCursor::rpc(
+                &context.tab_id,
+                &session.provider,
+                &thread_id,
+                Some(&context.binding_nonce),
+                &item,
+            );
             crate::service::tab_chat::structured_sink::emit_chat_msgs(
                 svc.ui.as_ref(),
                 &context.tab_id,
@@ -220,6 +296,14 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
             {
                 return;
             }
+            svc.chat_send_ledger.trace_rpc_turn(
+                &context.tab_id,
+                &thread_id,
+                &context.binding_nonce,
+                &send_id,
+                &turn_id,
+                &session.provider,
+            );
             if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(
                 &context.tab_id,
                 &thread_id,
@@ -373,3 +457,15 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     }
 }
+
+fn neighbor_message_id(correlation: &str) -> Option<&str> {
+    correlation
+        .strip_prefix("runtime-envelope:neighbor:")?
+        .rsplit('_')
+        .next()
+        .filter(|id| !id.is_empty())
+}
+
+#[cfg(test)]
+#[path = "apply/neighbor_tests.rs"]
+mod neighbor_tests;

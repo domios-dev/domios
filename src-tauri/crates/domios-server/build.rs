@@ -1,3 +1,4 @@
+mod build_frontend;
 #[path = "../../build/plugin_bundles.rs"]
 mod plugin_bundles;
 
@@ -47,19 +48,12 @@ fn main() {
         );
         println!("cargo:rustc-env={key}={value}");
     }
-    println!("cargo:rerun-if-env-changed=CODETERM_SERVER_DEV_FRONTEND_ORIGIN");
-    let frontend = std::env::var("CODETERM_SERVER_DEV_FRONTEND_ORIGIN").unwrap_or_default();
-    assert!(
-        frontend.bytes().all(|byte| byte.is_ascii_graphic()),
-        "Invalid development frontend origin"
-    );
-    println!("cargo:rustc-env=SERVER_DEV_FRONTEND_ORIGIN={frontend}");
-    println!("cargo:rerun-if-env-changed=CODETERM_SERVER_DEV_IDENTIFIER");
-    let identifier = std::env::var("CODETERM_SERVER_DEV_IDENTIFIER").unwrap_or_default();
-    assert!(identifier
-        .bytes()
-        .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte)));
-    println!("cargo:rustc-env=SERVER_DEV_IDENTIFIER={identifier}");
+    for directive in build_frontend::directives(
+        &std::env::var("PROFILE").expect("Cargo build profile"),
+        |key| std::env::var(key).ok(),
+    ) {
+        println!("{directive}");
+    }
     println!("cargo:rerun-if-env-changed=CODETERM_SERVER_CLI_SHA256");
     let worker = std::env::var("CODETERM_SERVER_CLI_SHA256").unwrap_or_default();
     assert!(

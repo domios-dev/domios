@@ -16,6 +16,8 @@ pub const ROUTE_ADMISSION: &str = "accountMeshAdmission";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ProofEndpoint {
+    #[serde(rename = "getEntitlements")]
+    GetEntitlements,
     #[serde(rename = "enrollInstallation")]
     EnrollInstallation,
     #[serde(rename = "meshAdmission")]
@@ -211,6 +213,21 @@ pub struct SessionTarget {
 pub struct SessionRevokedResult {
     pub target_installation_id: String,
     pub revoked_at: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorSessionsTarget {
+    pub installation_id: String,
+    pub cutoff: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorSessionsRevokedResult {
+    pub schema_version: u32,
+    pub revoked_count: u32,
+    pub receiver_disabled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -442,6 +459,10 @@ fn tailnet(ip: IpAddr) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", deny_unknown_fields)]
 pub enum RegistryRefusal {
+    #[serde(rename = "installation_unverified")]
+    InstallationUnverified,
+    #[serde(rename = "cutoff_after_current_session")]
+    CutoffAfterCurrentSession,
     #[serde(rename = "invalid")]
     Invalid,
     #[serde(rename = "unauthenticated")]
@@ -454,6 +475,16 @@ pub enum RegistryRefusal {
     Forbidden,
     #[serde(rename = "conflict")]
     Conflict,
+    #[serde(rename = "key_conflict")]
+    KeyConflict,
+    #[serde(rename = "generation_mismatch")]
+    GenerationMismatch,
+    #[serde(rename = "challenge_invalid")]
+    ChallengeInvalid,
+    #[serde(rename = "enrollment_budget")]
+    EnrollmentBudget,
+    #[serde(rename = "proof_invalid")]
+    ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
     #[serde(rename = "mesh.machines")]

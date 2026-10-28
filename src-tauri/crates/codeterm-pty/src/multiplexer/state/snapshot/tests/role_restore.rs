@@ -26,6 +26,7 @@ fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot 
         team_id: Some("team_residue".into()),
         parent_tab_id: None,
         spawned_by_tab_id: None,
+        neighbor_authority: None,
         report_target_tab_id: None,
         report_target_mesh_peer: None,
         ownership: None,

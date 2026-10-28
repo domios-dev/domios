@@ -327,21 +327,6 @@ fn supervisor_is_disabled() -> bool {
     supervisor_disabled_path().exists()
 }
 
-fn mark_supervisor_enabled() -> Result<(), String> {
-    match std::fs::remove_file(supervisor_disabled_path()) {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
-    }
-}
-
-fn mark_supervisor_disabled() -> Result<(), String> {
-    write_json(
-        &supervisor_disabled_path(),
-        &serde_json::json!({ "disabled_at": now_ts() }),
-    )
-}
-
 fn read_clean_shutdown() -> Option<CleanShutdownRecord> {
     read_json(&recovery_dir().join("last_clean.json"))
 }
@@ -410,54 +395,41 @@ fn default_true() -> bool {
 }
 
 struct SupervisorLock {
-    path: std::path::PathBuf,
+    _file: std::fs::File,
 }
 
 impl SupervisorLock {
     fn acquire() -> Result<Self, String> {
         let path = recovery_dir().join("supervisor.lock");
+        Self::acquire_at(&path)
+    }
+
+    fn acquire_at(path: &std::path::Path) -> Result<Self, String> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        match std::fs::OpenOptions::new()
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
             .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(mut file) => {
-                use std::io::Write;
-                writeln!(file, "{}", std::process::id()).map_err(|e| e.to_string())?;
-                Ok(Self { path })
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|error| format!("open {}: {error}", path.display()))?;
+        file.try_lock().map_err(|error| match error {
+            std::fs::TryLockError::WouldBlock => format!(
+                "another Domios supervisor is already active: {}",
+                path.display()
+            ),
+            std::fs::TryLockError::Error(error) => {
+                format!("lock {}: {error}", path.display())
             }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                if stale_lock(&path) {
-                    let _ = std::fs::remove_file(&path);
-                    return Self::acquire();
-                }
-                Err(format!(
-                    "another Domios supervisor is already active: {}",
-                    path.display()
-                ))
-            }
-            Err(e) => Err(format!("create {}: {}", path.display(), e)),
-        }
+        })?;
+        // Keep the inode and handle: unlinking permits a second lock on a replacement file.
+        use std::io::Write;
+        file.set_len(0).map_err(|error| error.to_string())?;
+        writeln!(file, "{}", std::process::id()).map_err(|error| error.to_string())?;
+        Ok(Self { _file: file })
     }
-}
-
-impl Drop for SupervisorLock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
-}
-
-fn stale_lock(path: &std::path::Path) -> bool {
-    let Ok(raw) = std::fs::read_to_string(path) else {
-        return false;
-    };
-    let Ok(pid) = raw.trim().parse::<u32>() else {
-        return false;
-    };
-    !process_exists(pid)
 }
 
 #[cfg(target_os = "windows")]
@@ -523,53 +495,68 @@ fn default_app_binary() -> Result<std::path::PathBuf, String> {
     })
 }
 
-// ────────────────────────── Windows ──────────────────────────
+fn autostart_home() -> Result<std::path::PathBuf, String> {
+    dirs::home_dir().ok_or_else(|| "home dir not found".into())
+}
 
-#[cfg(target_os = "windows")]
-const WIN_TASK_NAME: &str = "Domios-Autostart";
-
-#[cfg(target_os = "windows")]
 fn enable_autostart(
     binary_override: Option<&str>,
     supervisor_override: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     let bin = resolve_app_binary(binary_override)?;
     let supervisor = resolve_supervisor_binary(supervisor_override)?;
-    mark_supervisor_enabled()?;
-    let bin_str = bin.to_string_lossy().to_string();
-    let supervisor_str = supervisor.to_string_lossy().to_string();
-    let tr = build_windows_task_command(&supervisor_str, &bin_str);
-
-    let _ = run_schtasks(&["/Delete", "/TN", WIN_TASK_NAME, "/F"]);
-    run_schtasks(&[
-        "/Create",
-        "/TN",
-        WIN_TASK_NAME,
-        "/TR",
-        &tr,
-        "/SC",
-        "ONLOGON",
-        "/F",
-        "/RL",
-        "LIMITED",
-    ])?;
-    run_schtasks(&["/Run", "/TN", WIN_TASK_NAME])?;
-
-    Ok(serde_json::json!({
-        "ok": true,
-        "platform": "windows",
-        "task_name": WIN_TASK_NAME,
-        "binary": bin_str,
-        "supervisor": supervisor_str,
-    }))
+    let home = autostart_home()?;
+    codeterm_util::autostart::enable(&home, &crate::data_root(), &supervisor, &bin)?;
+    let mut result = serde_json::json!({"ok":true,"platform":platform_name(),"binary":bin.to_string_lossy(),"supervisor":supervisor.to_string_lossy()});
+    #[cfg(windows)]
+    {
+        result["task_name"] = WIN_TASK_NAME.into();
+    }
+    #[cfg(target_os = "macos")]
+    {
+        result["label"] = MAC_LABEL.into();
+        result["plist"] = mac_plist_path()?.to_string_lossy().into_owned().into();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        result["unit"] = LINUX_UNIT_NAME.into();
+        result["path"] = linux_unit_path()?.to_string_lossy().into_owned().into();
+    }
+    Ok(result)
 }
 
-#[cfg(target_os = "windows")]
 fn disable_autostart() -> Result<serde_json::Value, String> {
-    mark_supervisor_disabled()?;
-    let _ = run_schtasks(&["/End", "/TN", WIN_TASK_NAME]);
-    let _ = run_schtasks(&["/Delete", "/TN", WIN_TASK_NAME, "/F"]);
-    Ok(serde_json::json!({"ok": true, "platform": "windows", "removed": [WIN_TASK_NAME]}))
+    codeterm_util::autostart::disable(&autostart_home()?, &crate::data_root())?;
+    let mut result = serde_json::json!({"ok":true,"platform":platform_name()});
+    #[cfg(windows)]
+    {
+        result["removed"] = serde_json::json!([WIN_TASK_NAME]);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        result["label"] = MAC_LABEL.into();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        result["unit"] = LINUX_UNIT_NAME.into();
+    }
+    Ok(result)
+}
+
+#[cfg(windows)]
+const WIN_TASK_NAME: &str = codeterm_util::autostart::WINDOWS_TASK;
+#[cfg(target_os = "macos")]
+const MAC_LABEL: &str = codeterm_util::autostart::MACOS_LABEL;
+#[cfg(target_os = "linux")]
+const LINUX_UNIT_NAME: &str = codeterm_util::autostart::LINUX_UNIT;
+
+#[cfg(target_os = "macos")]
+fn mac_plist_path() -> Result<std::path::PathBuf, String> {
+    Ok(codeterm_util::autostart::macos_path(&autostart_home()?))
+}
+#[cfg(target_os = "linux")]
+fn linux_unit_path() -> Result<std::path::PathBuf, String> {
+    Ok(codeterm_util::autostart::linux_path(&autostart_home()?))
 }
 
 #[cfg(target_os = "windows")]
@@ -595,105 +582,6 @@ fn autostart_status() -> Result<serde_json::Value, String> {
         "task_name": WIN_TASK_NAME,
         "supervisor": target,
     })))
-}
-
-#[cfg(any(target_os = "windows", test))]
-fn build_windows_task_command(supervisor_path: &str, app_binary: &str) -> String {
-    format!(
-        "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"Start-Process -WindowStyle Hidden -FilePath '{}' -ArgumentList @('system','supervise','--binary','{}')\"",
-        supervisor_path.replace('\'', "''"),
-        app_binary.replace('\'', "''")
-    )
-}
-
-#[cfg(target_os = "windows")]
-fn run_schtasks(args: &[&str]) -> Result<(), String> {
-    let out = std::process::Command::new("schtasks")
-        .args(args)
-        .output()
-        .map_err(|e| format!("schtasks spawn: {}", e))?;
-    if !out.status.success() {
-        return Err(format!(
-            "schtasks {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    Ok(())
-}
-
-// ────────────────────────── macOS ──────────────────────────
-
-#[cfg(target_os = "macos")]
-const MAC_LABEL: &str = "com.domios.app";
-
-#[cfg(target_os = "macos")]
-fn mac_plist_path() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("home dir not found")?;
-    Ok(home
-        .join("Library")
-        .join("LaunchAgents")
-        .join(format!("{}.plist", MAC_LABEL)))
-}
-
-#[cfg(target_os = "macos")]
-fn enable_autostart(
-    binary_override: Option<&str>,
-    supervisor_override: Option<&str>,
-) -> Result<serde_json::Value, String> {
-    let bin = resolve_app_binary(binary_override)?;
-    let supervisor = resolve_supervisor_binary(supervisor_override)?;
-    mark_supervisor_enabled()?;
-    let plist_path = mac_plist_path()?;
-    let body = build_macos_plist(
-        MAC_LABEL,
-        &supervisor.to_string_lossy(),
-        &bin.to_string_lossy(),
-    );
-
-    if let Some(parent) = plist_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
-    }
-    std::fs::write(&plist_path, &body)
-        .map_err(|e| format!("write {}: {}", plist_path.display(), e))?;
-
-    // unload may fail if not loaded — fine.
-    let _ = std::process::Command::new("launchctl")
-        .args(["unload", &plist_path.to_string_lossy()])
-        .output();
-    let out = std::process::Command::new("launchctl")
-        .args(["load", &plist_path.to_string_lossy()])
-        .output()
-        .map_err(|e| format!("launchctl: {}", e))?;
-    if !out.status.success() {
-        return Err(format!(
-            "launchctl load failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    Ok(serde_json::json!({
-        "ok": true,
-        "platform": "macos",
-        "label": MAC_LABEL,
-        "plist": plist_path.to_string_lossy(),
-        "binary": bin.to_string_lossy(),
-        "supervisor": supervisor.to_string_lossy(),
-    }))
-}
-
-#[cfg(target_os = "macos")]
-fn disable_autostart() -> Result<serde_json::Value, String> {
-    mark_supervisor_disabled()?;
-    let plist_path = mac_plist_path()?;
-    if plist_path.exists() {
-        let _ = std::process::Command::new("launchctl")
-            .args(["unload", &plist_path.to_string_lossy()])
-            .output();
-        std::fs::remove_file(&plist_path)
-            .map_err(|e| format!("unlink {}: {}", plist_path.display(), e))?;
-    }
-    Ok(serde_json::json!({"ok": true, "platform": "macos", "label": MAC_LABEL}))
 }
 
 #[cfg(target_os = "macos")]
@@ -724,109 +612,6 @@ fn autostart_status() -> Result<serde_json::Value, String> {
         "loaded": loaded,
         "supervisor": target,
     })))
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn build_macos_plist(label: &str, supervisor_path: &str, binary_path: &str) -> String {
-    let label = xml_escape(label);
-    let supervisor_path = xml_escape(supervisor_path);
-    let binary_path = xml_escape(binary_path);
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>{label}</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>{supervisor_path}</string>
-        <string>system</string>
-        <string>supervise</string>
-        <string>--binary</string>
-        <string>{binary_path}</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <false/>
-    <key>ProcessType</key>
-    <string>Interactive</string>
-</dict>
-</plist>
-"#
-    )
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn xml_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
-}
-
-// ────────────────────────── Linux ──────────────────────────
-
-#[cfg(target_os = "linux")]
-const LINUX_UNIT_NAME: &str = "domios.service";
-
-#[cfg(target_os = "linux")]
-fn linux_unit_path() -> Result<std::path::PathBuf, String> {
-    let home = dirs::home_dir().ok_or("home dir not found")?;
-    Ok(home
-        .join(".config")
-        .join("systemd")
-        .join("user")
-        .join(LINUX_UNIT_NAME))
-}
-
-#[cfg(target_os = "linux")]
-fn enable_autostart(
-    binary_override: Option<&str>,
-    supervisor_override: Option<&str>,
-) -> Result<serde_json::Value, String> {
-    let bin = resolve_app_binary(binary_override)?;
-    let supervisor = resolve_supervisor_binary(supervisor_override)?;
-    mark_supervisor_enabled()?;
-    let unit_path = linux_unit_path()?;
-    let body = build_linux_unit(&supervisor.to_string_lossy(), &bin.to_string_lossy());
-
-    if let Some(parent) = unit_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {}", parent.display(), e))?;
-    }
-    std::fs::write(&unit_path, &body)
-        .map_err(|e| format!("write {}: {}", unit_path.display(), e))?;
-
-    run_systemctl(&["daemon-reload"])?;
-    run_systemctl(&["enable", LINUX_UNIT_NAME])?;
-    run_systemctl(&["start", LINUX_UNIT_NAME])?;
-
-    Ok(serde_json::json!({
-        "ok": true,
-        "platform": "linux",
-        "unit": LINUX_UNIT_NAME,
-        "path": unit_path.to_string_lossy(),
-        "binary": bin.to_string_lossy(),
-        "supervisor": supervisor.to_string_lossy(),
-    }))
-}
-
-#[cfg(target_os = "linux")]
-fn disable_autostart() -> Result<serde_json::Value, String> {
-    mark_supervisor_disabled()?;
-    let unit_path = linux_unit_path()?;
-    let _ = run_systemctl(&["stop", LINUX_UNIT_NAME]);
-    let _ = run_systemctl(&["disable", LINUX_UNIT_NAME]);
-    if unit_path.exists() {
-        std::fs::remove_file(&unit_path)
-            .map_err(|e| format!("unlink {}: {}", unit_path.display(), e))?;
-    }
-    let _ = run_systemctl(&["daemon-reload"]);
-    Ok(serde_json::json!({"ok": true, "platform": "linux", "unit": LINUX_UNIT_NAME}))
 }
 
 #[cfg(target_os = "linux")]
@@ -864,56 +649,12 @@ fn autostart_status() -> Result<serde_json::Value, String> {
     })))
 }
 
-#[cfg(target_os = "linux")]
-fn run_systemctl(args: &[&str]) -> Result<(), String> {
-    let mut full: Vec<&str> = vec!["--user"];
-    full.extend(args.iter().copied());
-    let out = std::process::Command::new("systemctl")
-        .args(&full)
-        .output()
-        .map_err(|e| format!("systemctl spawn: {}", e))?;
-    if !out.status.success() {
-        return Err(format!(
-            "systemctl {:?} failed: {}",
-            args,
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    Ok(())
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn build_linux_unit(supervisor_path: &str, binary_path: &str) -> String {
-    let supervisor_path = systemd_quote(supervisor_path);
-    let binary_path = systemd_quote(binary_path);
-    format!(
-        "[Unit]\n\
-         Description=Domios — terminal multiplexer for AI agents\n\
-         After=graphical-session.target\n\
-         \n\
-         [Service]\n\
-         Type=simple\n\
-         ExecStart={supervisor_path} system supervise --binary {binary_path}\n\
-         Restart=no\n\
-         \n\
-         [Install]\n\
-         WantedBy=default.target\n"
-    )
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn systemd_quote(value: &str) -> String {
-    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
-}
-
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 fn instance_api_token(data_root: &std::path::Path, remote: bool) -> Result<String, String> {
-    if remote {
-        return Err("Instance API credentials are local-only; run on the owning machine".into());
-    }
-    codeterm_util::instance_token::read_at(data_root)?
+    super::host_credentials::read(data_root, remote, None)?
         .ok_or_else(|| "No local instance API credential; start Domios first".into())
 }
 
@@ -922,7 +663,12 @@ fn instance_api_token(data_root: &std::path::Path, remote: bool) -> Result<Strin
 mod token_tests;
 
 pub fn handle_api_token(remote: bool) {
-    match instance_api_token(&crate::data_root(), remote) {
+    let caller = crate::nonempty_env("CODETERM_TAB_ID");
+    let token = super::host_credentials::read(&crate::data_root(), remote, caller.as_deref())
+        .and_then(|token| {
+            token.ok_or_else(|| "No local instance API credential; start Domios first".into())
+        });
+    match token {
         Ok(token) => print!("{token}"),
         Err(error) => crate::cmd::print::fail(if remote { 7 } else { 1 }, error),
     }

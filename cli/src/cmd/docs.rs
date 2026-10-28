@@ -52,8 +52,13 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
     doc!(
         "ACCOUNT",
-        "Domios account sign-in and opt-in product analytics settings",
+        "Domios account sign-in and product analytics settings",
         "../../../prod-docs/ACCOUNT.md"
+    ),
+    doc!(
+        "NEIGHBORS",
+        "Encrypted Neighbor channels, installation keys, gateway permissions and delivery status",
+        "../../../prod-docs/NEIGHBORS.md"
     ),
     doc!(
         "NOTIFICATIONS",

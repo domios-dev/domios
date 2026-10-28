@@ -60,6 +60,117 @@ Sign in using the system browser and wait for completion
 
 Sign out and delete the saved credential
 
+#### `domios account neighbors`
+
+Manage the encrypted Neighbors channel on this machine
+
+#### `domios account neighbors bind`
+
+Bind a friendship to an independent local gateway agent tab
+
+- `<friendship_id>`
+- `--tab`
+
+#### `domios account neighbors delivery-status`
+
+Read pending, delivered or not_delivered from the relay receipt
+
+- `<message_id>`
+
+#### `domios account neighbors deny`
+
+General Agent only: deny this Neighbor's requests
+
+- `<friendship_id>`
+
+#### `domios account neighbors enroll`
+
+Receive all friends here (account takeover); use a friend's UI to move only that friend
+
+- `--confirm-takeover`
+- `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
+
+#### `domios account neighbors flag`
+
+Locally flag a suspicious incoming message for the owner without replying
+
+- `--category`
+- `--friendship`
+- `<message_id>`
+- `--reason` — Short explanation without message text or secrets (at most 280 characters)
+
+#### `domios account neighbors grant`
+
+General Agent only: apply permission edits and restart the concierge fresh
+
+- `--allow-files`
+- `--allow-interactive-content`
+- `--allow-memory`
+- `--allow-tab-requests`
+- `--allowed`
+- `--folder` — Absolute directory, or default to clear the folder override
+- `<friendship_id>`
+- `--from-pad` — Scope text in this tab's pad; omitted keeps the current scope
+- `--machine-access`
+- `--memory-areas` — all or comma-separated taxonomy area names
+- `--workspaces` — none or comma-separated local workspace IDs
+
+#### `domios account neighbors list`
+
+List friendships, local scopes and pending incoming/outgoing requests
+
+#### `domios account neighbors own-keys`
+
+List active own key IDs
+
+#### `domios account neighbors permission`
+
+Read a Neighbor's local permission policy
+
+- `<friendship_id>`
+
+#### `domios account neighbors revoke`
+
+Revoke this machine's Neighbor keys
+
+#### `domios account neighbors rotate`
+
+Rotate this installation's keys and revoke the previous pair
+
+#### `domios account neighbors send`
+
+Encrypt and send one authored message; prints only its ID and status
+
+- `<friendship_id>`
+- `--from-pad`
+- `--in-reply-to`
+- `--kind`
+
+#### `domios account neighbors set-daily-limit`
+
+Set daily incoming messages; null removes the per-friend daily cap
+
+- `--daily-limit`
+- `<friendship_id>`
+
+#### `domios account neighbors set-file-daily-limit`
+
+Set daily incoming file bytes; null restores the 50 MiB default
+
+- `--file-daily-limit-bytes`
+- `<friendship_id>`
+
+#### `domios account neighbors set-limit`
+
+Set this friend's incoming request cap per hour (owner or General)
+
+- `<friendship_id>`
+- `--per-hour`
+
+#### `domios account neighbors status`
+
+Show local channel enrollment and gateway bindings
+
 #### `domios account plan`
 
 Show the current plan and stale-cache marker
@@ -337,7 +448,7 @@ Consume one available reset credit on this exact tab's account
 
 #### `domios analytics`
 
-Manage local opt-in product analytics
+Manage local product analytics (on by default)
 
 #### `domios analytics disable`
 
@@ -345,7 +456,7 @@ Record opt-out consent and clear queued events and identifiers
 
 #### `domios analytics enable`
 
-Record opt-in consent and create an installation identifier
+Turn product analytics on and create an installation identifier
 
 #### `domios analytics status`
 
@@ -419,9 +530,10 @@ Show immutable definition versions
 
 #### `domios blueprint import`
 
-Import a native v2 recipe into the caller's Team (stopped by default)
+Import a native v2 recipe into the caller's scope (stopped by default)
 
 - `<file>`
+- `--scope` — Destination: general, workspace:<id>, or team:<id>; caller must belong to it
 - `--set`
 - `--start` — Start immediately after validation
 - `--stopped`
@@ -881,31 +993,6 @@ Validate a generated essence map and its append-only decisions log
 #### `domios identify`
 
 Show Domios version and system info
-
-#### `domios inbox`
-
-Workspace Inbox — standalone tasks with no plan
-
-#### `domios inbox add`
-
-Add a standalone task to the workspace Inbox
-
-- `--assign-tab`
-- `--body`
-- `--body-file`
-- `--correctness`
-- `--criterion`
-- `--execution-intent`
-- `--intent`
-- `--intent-file`
-- `--model`
-- `--name`
-- `--qa-plan`
-- `--qa-plan-file`
-- `--test-plan`
-- `--type`
-- `--why`
-- `--why-file`
 
 #### `domios integration`
 
@@ -3223,6 +3310,66 @@ Update bundled system provider plugins from the official plugin channel
 Validate a plugin directory without installing it: strict manifest parse (the daemon's deny-unknown-fields PluginManifest), a real QuickJS load of the entry script, then a report of which AgentProvider exports plugin.js implements and which fallbacks serve the rest. Exits non-zero on the first failure, naming it
 
 - `<dir>` — Path to the plugin directory (the folder containing plugin.json)
+
+#### `domios radar`
+
+Workspace Radar — items noticed above plans, pulled into a plan as tasks
+
+#### `domios radar add`
+
+Add an item to this workspace's Radar; the same --source-provider/--source-id refreshes it
+
+- `--body`
+- `--body-file`
+- `--project` — Workspace path; defaults to the current directory
+- `--source-id` — The item's stable id in that system
+- `--source-provider` — System the item came from, such as github or linear
+- `--source-url`
+- `--tag`
+- `--title`
+
+#### `domios radar drop`
+
+Remove a Radar item; a task it was pulled into stays in its plan
+
+- `<item_id>`
+
+#### `domios radar edit`
+
+Edit a Radar item's title, body or tags
+
+- `--body`
+- `--body-file`
+- `--clear-tags`
+- `<item_id>`
+- `--tag` — Replace the tags; repeat for several
+- `--title`
+
+#### `domios radar list`
+
+List this workspace's Radar items, newest first
+
+- `--all-workspaces` — List items of every workspace
+- `--project` — Workspace path; defaults to the current directory
+- `--provider` — Only items from this source provider
+- `--query` — Case-insensitive text in the title or body
+- `--status` — open (default), pulled or all
+- `--tag`
+
+#### `domios radar pull`
+
+Create a linked task for this item in a plan of the same workspace
+
+- `<item_id>`
+- `--plan`
+- `--sections` — Comma-separated section ids or handles
+- `--type` — Task kind; defaults to task
+
+#### `domios radar show`
+
+Show one Radar item
+
+- `<item_id>`
 
 #### `domios rest-api`
 

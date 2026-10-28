@@ -30,9 +30,6 @@ pub(super) fn reserve_binding_nonce(
             .as_deref()
             .is_some_and(|source| Some(source) == resume_session_id)
     });
-    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
-        return svc.ensure_session_binding_nonce(tab_id);
-    }
     match resume_session_id.filter(|_| !fork) {
         Some(session_id) => {
             crate::service::launch_session_detection::register_resume_launch_marker(
@@ -58,7 +55,6 @@ impl LaunchGeneration {
         resume_session_id: Option<&str>,
         reserved_nonce: Option<String>,
     ) -> Result<(), String> {
-        let sidecar = crate::service::codex_rpc::lifecycle::for_tab(&self.tab_id);
         let current = svc
             .mux
             .read()
@@ -78,31 +74,12 @@ impl LaunchGeneration {
         {
             return Err("launch binding changed before registration".into());
         }
-        if sidecar.is_none() {
-            crate::service::codex_rpc::lifecycle::plain_launch(svc, &self.tab_id, &nonce);
-        }
         crate::service::structured_prompt::bind_launch(&self.tab_id, &nonce);
         svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY
             .lock()
             .bind_provider_session(self, nonce.clone());
-        if let Some(sidecar) = sidecar {
-            let session_id = sidecar.thread.lock().clone();
-            svc.set_agent_session_id(&self.tab_id, Some(session_id.clone()));
-            if let Some(tab) = svc.mux.write().get_tab_mut(&self.tab_id) {
-                tab.reported_session_binding_nonce = Some(nonce.clone());
-            }
-            svc.carry_authorized_runtime_restart_binding(&self.tab_id, &session_id, &nonce)
-                .map_err(|error| error.reason)?;
-            record_provider_session(
-                &self.tab_id,
-                &ProviderSessionBinding {
-                    pty_id: self.pty_id.clone(),
-                    binding_nonce: nonce,
-                },
-            );
-        }
         // A relaunched Worker keeps its persisted task binding, but its dispatch
         // handshake was settled by the launch that first started it.
         let startup_owed = !origin.relaunches_existing_agent()
@@ -216,19 +193,6 @@ impl LaunchGeneration {
                 return true;
             }
         }
-        if let Some(nonce) = self.binding_nonce.as_deref() {
-            if crate::service::codex_rpc::recovery::recovering(&self.tab_id, nonce) {
-                return true;
-            }
-            if crate::service::codex_rpc::recovery::try_start(
-                svc,
-                &self.tab_id,
-                nonce,
-                &failure.reason(),
-            ) {
-                return true;
-            }
-        }
         let reason = failure.reason();
         crate::service::launch_diagnostics::log_failure_screen(
             svc,
@@ -258,42 +222,6 @@ impl LaunchGeneration {
         })
     }
 
-    pub(super) fn await_remote_attachment(&self, svc: &ServiceContext) -> bool {
-        if crate::service::codex_rpc::lifecycle::for_tab(&self.tab_id).is_none() {
-            return true;
-        }
-        let Some(nonce) = self.binding_nonce.as_deref() else {
-            return false;
-        };
-        if crate::service::codex_rpc::lifecycle::wait_attached(
-            &self.tab_id,
-            nonce,
-            std::time::Duration::from_secs(30),
-        ) {
-            return true;
-        }
-        crate::service::codex_rpc::recovery::try_start(
-            svc,
-            &self.tab_id,
-            nonce,
-            "remote TUI attachment failed",
-        );
-        if crate::service::codex_rpc::recovery::wait_recovery(&self.tab_id, nonce) {
-            return true;
-        }
-        self.fail(
-            svc,
-            LaunchFailure::ProviderInputNotReady("remote TUI attachment failed".into()),
-        );
-        false
-    }
-
-    pub(super) fn complete_structured_startup(&self, svc: &ServiceContext, consumed: bool) {
-        if let Some(nonce) = self.binding_nonce.as_deref().filter(|_| consumed) {
-            crate::service::codex_rpc::lifecycle::startup_complete(svc, &self.tab_id, nonce);
-        }
-    }
-
     pub(super) fn attempt(&self) -> Option<crate::service::launch_readiness::LaunchAttempt> {
         Some(crate::service::launch_readiness::LaunchAttempt {
             tab_id: self.tab_id.clone(),
@@ -310,6 +238,33 @@ impl LaunchGeneration {
         drop(registry);
         self.log_gate_timing("write", requested, acquired);
         result
+    }
+
+    pub(super) fn reconcile_authenticated_binding(&self, svc: &ServiceContext) -> bool {
+        let Some(attempt) = self.attempt() else {
+            return false;
+        };
+        let registry = LAUNCH_REGISTRY.lock();
+        if !registry.owns(self) {
+            return false;
+        }
+        let authenticated = svc.mux.read().get_tab(&self.tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(attempt.pty_id.as_str())
+                && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
+                && tab.launch_session_authenticated()
+                && tab
+                    .agent_session_id
+                    .as_deref()
+                    .is_some_and(|session| !session.trim().is_empty())
+        });
+        authenticated
+            && registry.record_provider_session(
+                &self.tab_id,
+                &ProviderSessionBinding {
+                    pty_id: attempt.pty_id,
+                    binding_nonce: attempt.binding_nonce,
+                },
+            )
     }
 
     pub fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {

@@ -47,6 +47,7 @@ impl ServiceContext {
         )?;
 
         self.utility_command_finished(tab_id)?;
+        self.rotate_session_binding_nonce(tab_id);
 
         if let Some(ref old_pty_id) = old_pty_id {
             self.pty_ownership.release_pty(old_pty_id);
@@ -69,7 +70,6 @@ impl ServiceContext {
                 reaper.wait_for_restart(Duration::from_secs(5))?;
             }
             self.screen_state.remove(old_pty_id);
-            crate::service::stream_preview::remove(old_pty_id);
         }
 
         let resolved_cwd = cwd.or(current_cwd);

@@ -47,13 +47,14 @@ export interface LocalPairFact {
 }
 
 export type AccountMeshFailure =
+  | { reason: "key_conflict" | "generation_mismatch" | "challenge_invalid" | "enrollment_budget" | "proof_invalid" }
   | { reason: "invalid" | "unauthenticated" | "app-check" | "forbidden" | "conflict" | "authority-unavailable" | "unavailable" }
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }
   | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" | "declined" | "expired" }
   | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" | "reauth_required" };
 
-export type AccountMeshOutcome = { ok: true; result?: { display_name: string; metadata_revision: number } } | { ok: false; failure: AccountMeshFailure };
+export type AccountMeshOutcome = { ok: true; result?: { display_name: string; metadata_revision: number } } | { ok: false; failure: AccountMeshFailure; local_signed_out?: boolean };
 
 /** A genuine free machine-slot refusal from automatic enrollment, held until acknowledged. */
 export interface AccountMeshLimitNotice {
@@ -160,6 +161,7 @@ export const AccountMeshClientProvider = AccountMeshClientContext.Provider;
 export const useAccountMeshClient = () => useContext(AccountMeshClientContext);
 
 const FAILURE_REASONS = new Set<string>([
+  "key_conflict", "generation_mismatch", "challenge_invalid", "enrollment_budget", "proof_invalid",
   "invalid", "unauthenticated", "app-check", "forbidden", "conflict", "authority-unavailable", "unavailable",
   "rate-limited", "mesh.machines", "offline", "peer-unreachable", "handshake-failed", "signed-out",
   "declined", "expired", "revoked", "cancelled", "verification-unavailable", "reauth_required",

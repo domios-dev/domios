@@ -26,6 +26,7 @@ pub mod results;
 pub mod resume;
 pub mod resume_cursor;
 pub mod row_cache;
+mod runtime_snapshot;
 pub mod runtime_stored;
 pub mod session_segments;
 pub mod session_window;
@@ -674,10 +675,6 @@ fn rich_to_chat_msgs_blocks(rich: &RichMessage, fallback_base: &str) -> Vec<Chat
     out
 }
 
-pub(super) fn item_sidecar_owns(tab_id: &str) -> bool {
-    crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some()
-}
-
 /// Stateless normalized-chat read for a tab: parse the whole session
 /// (JSONL or sqlite) into a flat ChatMsg list, return messages[since..].
 /// No tailer spawned. Returns (messages, total_count).
@@ -759,6 +756,10 @@ pub fn tab_current_transcript_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    if let Some(messages) = runtime_snapshot::for_tab(svc, tab_id)? {
+        let total = messages.len();
+        return Ok((messages.into_iter().skip(since).collect(), total));
+    }
     match snapshot_source::for_tab(svc, tab_id)? {
         snapshot_source::SnapshotSource::Stored => {
             return stored_snapshot::read(svc, tab_id, since);
@@ -773,11 +774,6 @@ pub fn tab_current_transcript_snapshot(
     }
     if crate::service::structured_endpoint::sse(tab_id).is_some() {
         let messages = crate::service::structured_prompt::snapshot::read(svc, tab_id)?;
-        let total = messages.len();
-        return Ok((messages.into_iter().skip(since).collect(), total));
-    }
-    if item_sidecar_owns(tab_id) {
-        let (messages, _, _) = crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?;
         let total = messages.len();
         return Ok((messages.into_iter().skip(since).collect(), total));
     }
@@ -901,6 +897,9 @@ pub(crate) fn session_chat_window(
     cwd: &str,
     session_id: &str,
 ) -> Result<(Vec<ChatMsg>, u64), String> {
+    if let Some(snapshot) = runtime_snapshot::for_session(svc, provider_id, cwd, session_id)? {
+        return Ok(snapshot);
+    }
     let structured = svc
         .agent_registry
         .with_provider(provider_id, |p| p.uses_structured_chat())

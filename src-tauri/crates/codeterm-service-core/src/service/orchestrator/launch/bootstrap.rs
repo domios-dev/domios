@@ -20,9 +20,6 @@ pub(super) fn consume(
     if LaunchAttempt::current(&svc.mux, tab_id, pty_id).as_ref() != Some(attempt) {
         return Err("launch bootstrap authority was superseded".into());
     }
-    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
-        return crate::service::codex_rpc::bootstrap::consume(svc, attempt, spec);
-    }
     let agent_cmd = provider;
     {
         let mut mux = svc.mux.write();

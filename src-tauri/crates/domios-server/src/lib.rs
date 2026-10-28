@@ -12,6 +12,10 @@ pub use runtime::{ownership_registry, run};
 mod resources;
 mod worker_observer;
 
+#[cfg(test)]
+#[path = "../build_frontend.rs"]
+mod build_frontend;
+
 mod exact_quit;
 mod native_application_host;
 pub mod pty_child;

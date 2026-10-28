@@ -809,3 +809,24 @@
 .bp-crumbs button:hover { background: color-mix(in srgb, var(--ct-fg) 6%, transparent); color: var(--ct-fg); }
 .bp-crumbs button:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 1px; }
 .bp-crumbs [aria-current="page"] { padding: 2px 6px; color: var(--ct-fg); font-weight: 600; }
+
+/* A cron's own graph: the same nodes laid out as one chain, joined by an exec wire; it stacks when narrow. */
+.cron-flow { container-type: inline-size; }
+.cron-flow__chain { display: flex; align-items: stretch; gap: 28px; margin: 0; padding: 0; list-style: none; }
+.cron-flow__step { position: relative; display: flex; flex: 1 1 0; min-width: 0; }
+.cron-flow__step + .cron-flow__step::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: -28px;
+  width: 28px;
+  border-top: 1.75px solid var(--bp-exec);
+}
+.cron-flow .bp-node { position: relative; flex: 1 1 auto; min-width: 0; }
+.cron-flow .bp-node__header { min-height: 44px; }
+.cron-flow .bp-node__status { min-height: 28px; }
+.cron-flow .bp-node__body[data-kind="prompt"] { margin-bottom: 10px; }
+@container (max-width: 40rem) {
+  .cron-flow__chain { flex-direction: column; gap: 18px; }
+  .cron-flow__step + .cron-flow__step::before { top: -18px; left: 22px; width: 0; height: 18px; border-top: 0; border-left: 1.75px solid var(--bp-exec); }
+}

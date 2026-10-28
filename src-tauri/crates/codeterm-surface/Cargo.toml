@@ -19,7 +19,7 @@ codeterm-util = { path = "../codeterm-util" }
 async-trait = "0.1"
 async-stream = "0.3"
 url = "2"
-base64 = "0.22"
+base64 = "0.23"
 futures-core = "0.3"
 futures-util = "0.3"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }

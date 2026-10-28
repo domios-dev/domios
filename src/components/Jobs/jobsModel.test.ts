@@ -45,7 +45,7 @@ assert.deepEqual(jobsIndicator({ crons: idleCrons, sentinels: sentinelEntries },
 assert.deepEqual(jobsIndicator({ crons: idleCrons, sentinels: sentinelEntries }, NO_JOBS_FILTER), { count: 7, running: 0 }, "machine scope counts every workspace");
 assert.deepEqual(jobsIndicator({ crons: [], sentinels: [] }, workspaceA), { count: 0, running: 0 });
 const activeGraph = { ...crossTeamGraph, nodes: crossTeamGraph.nodes.map((node) => node.identity.id === graph.scenarios[0].root.id ? { ...node, state: "active" } : node) };
-assert.deepEqual(jobsIndicator({ crons: idleCrons, sentinels: blueprintScenarioJobs(activeGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS }) }, workspaceA), { count: 6, running: 1 }, "a live graph is running");
+assert.deepEqual(jobsIndicator({ crons: idleCrons, sentinels: blueprintScenarioJobs(activeGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS }) }, workspaceA), { count: 6, running: 0 }, "a graph that is only watching is not working");
 const runningCron = { ...cron("running-cron", null, "workspace-b", false), last_run: { run_id: "r", started_at: 1, finished_at: null, status: "Running" as const, tab_id: null } };
 assert.deepEqual(jobsIndicator({ crons: [...idleCrons, runningCron], sentinels: [] }, workspaceA), { count: 2, running: 0 }, "another workspace's run stays out of scope");
 assert.deepEqual(jobsIndicator({ crons: [...idleCrons, runningCron], sentinels: [] }, NO_JOBS_FILTER), { count: 4, running: 1 }, "a cron mid-run is running even when disabled");
@@ -71,7 +71,9 @@ assert.deepEqual(jobsForTab(tabJobs, "worker-a").map((job) => job.id), ["scenari
 const liveSentinels = blueprintScenarioJobs({ ...graph, nodes: graph.nodes.map((node) => node.identity.kind === "blueprint" ? { ...node, state: "active" } : node) }, { workspace_id: "workspace-a", team_id: "team-a" });
 assert.equal(jobsForTab(mergeJobs(NO_JOBS_FILTER, [], liveSentinels), "owner-a")[0].state, "active", "a live graph uses the shared active state");
 assert.deepEqual(jobsForTab(tabJobs, "nobody"), []);
-assert.equal(jobStateLabel("running"), "active");
+assert.equal(jobStateLabel("running"), "running");
+assert.equal(jobStateLabel("active"), "active");
+assert.equal(jobStateLabel("Enabled"), "scheduled", "an enabled Cron waiting for its schedule reads calm");
 assert.equal(jobStateLabel("stopped"), "stopped");
 const pipelineGraph = {
   ...graph,
@@ -95,6 +97,7 @@ assert.deepEqual(standalone[0].identity, { kind: "blueprint", id: "standalone", 
 assert.equal(canStopJob(mergeJobs(NO_JOBS_FILTER, [], [], standalone)[0]), true);
 assert.equal(clearableJobs(mergeJobs(NO_JOBS_FILTER, [], [], standalone)).length, 0);
 assert.equal(mergeJobs(NO_JOBS_FILTER, [], [], standalone)[0].state, "running");
+assert.deepEqual(jobsIndicator({ crons: [], sentinels: [], blueprints: standalone }, NO_JOBS_FILTER), { count: 1, running: 1 }, "a Blueprint run in progress is working");
 
 for (const scope of [NO_JOBS_FILTER, { workspaceId: "workspace-a", teamId: null }, { workspaceId: "workspace-b", teamId: null }, { workspaceId: "workspace-a", teamId: "team-a" }]) {
   const listed = mergeJobs(scope, [cron("scoped-cron", "team-a")], [...tabSentinels, foreignScenario], [...pipelines, ...standalone]);

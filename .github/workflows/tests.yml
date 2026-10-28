@@ -89,7 +89,7 @@ jobs:
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,curl,git,node,tar
       - name: Embedded docs and generated contract preflight
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
         run: node scripts/check-ci-docs.mjs
       - name: Select guard change set
         id: change
@@ -113,27 +113,30 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
       - name: Installed application identity
         run: node scripts/check-installed-identity.mjs
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
+      - name: Current tracked tree privacy
+        run: node scripts/check-public-privacy.mjs
+        if: ${{ success() }}
       - name: Archive-portable Rust test paths
         run: node scripts/check-archive-portable-test-paths.mjs
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Check crate layering and the thin native client
         run: bash scripts/check-crate-layering.sh
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Check API docs
         run: bash scripts/check-api-docs.sh
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Check prompt docs
         run: bash scripts/check-prompts-doc.sh
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Scan new commits and working tree
         env:
           SCAN_BASE: ${{ steps.change.outputs.base }}
         run: bash scripts/secret-scan.sh "$SCAN_BASE"
-        if: ${{ !cancelled() }}
+        if: ${{ success() }}
       - name: Require a release branch
         env:
           HEAD_REF: ${{ github.head_ref }}
@@ -149,7 +152,7 @@ jobs:
             exit 1
           fi
           echo "release branch $HEAD_REF"
-        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
+        if: ${{ success() && github.event_name == 'pull_request' && github.base_ref == 'master' }}
     needs: admission
   pr:
     name: Pull request checks
@@ -247,7 +250,7 @@ jobs:
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,curl,git,node
       - name: Fetch fallback run artifact evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: ci-artifact-spool-*
           path: ${{ runner.temp }}/ci-artifact-fallback/${{ github.run_id }}
@@ -260,9 +263,10 @@ jobs:
           SOURCE_SHA: ${{ needs.fast.outputs.source_sha }}
           QUALIFICATION_RESULTS: '{"fast":"${{ needs.fast.result }}","rust":"${{ needs.rust.result }}","warnings":"${{ needs.rust-warnings.result }}"}'
         run: node scripts/ci-qualification.mjs record "$SOURCE_SHA" qualification-rust
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: qualification-${{ needs.fast.outputs.source_sha }}
+          overwrite: true
           path: qualification.json
           if-no-files-found: error
           retention-days: 3

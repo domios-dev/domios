@@ -137,6 +137,7 @@ export function biomeCommand(root) {
 }
 
 function editionForFile(root, filePath, editions) {
+  if (filePath.replaceAll('\\', '/') === 'scripts/cache-rustc-wrapper.rs') return '2021';
   let directory = path.dirname(path.resolve(root, filePath));
   while (directory.startsWith(root)) {
     const manifest = path.join(directory, 'Cargo.toml');

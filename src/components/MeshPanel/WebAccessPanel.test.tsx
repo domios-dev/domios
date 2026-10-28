@@ -71,6 +71,9 @@ expect(Array.from(host.querySelectorAll("button")).map(entry => entry.textConten
 
 await act(async () => root.render(<WebAccessPanel config={config} network={null} serve={null} loading actions={actions} onAction={async () => {}} onSetup={async () => {}} onClose={() => {}} />));
 assert.ok(host.querySelector('[role="status"][aria-label="Loading"]'));
+// While loading, the card already has its loaded shape: a skeleton with the QR square at its final size, so nothing jumps.
+assert.ok(host.querySelector('[data-testid="web-access-skeleton"]'));
+assert.equal((host.querySelector('[data-testid="web-access-skeleton"] .ct-skeleton-block.rounded-\\[var\\(--ct-radius-md\\)\\]') as HTMLElement | null)?.style.width, "258px");
 assert.equal(host.querySelector('[data-testid="web-access-status"]'), null);
 await act(async () => root.unmount());
 });

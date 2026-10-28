@@ -32,6 +32,7 @@ pub use codeterm_cron::schedule::{
     parse_tz, to_6field, validate_schedule, validate_tz, MAX_CONSECUTIVE_FAILURES, STALE_FIRE_MS,
 };
 
+pub use crate::storage::CronCancelReason;
 pub use crud::{CronChange, CronScope};
 pub use crud::{Prepared, RunSession};
 pub use storage::commit;
@@ -60,6 +61,8 @@ pub enum CronRunStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CronRunInfo {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_reason: Option<CronCancelReason>,
     pub run_id: String,
     pub started_at: u64,
     pub finished_at: Option<u64>,

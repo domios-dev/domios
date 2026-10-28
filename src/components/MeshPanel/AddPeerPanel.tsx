@@ -3,8 +3,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { MachineSessionControls } from "./MachineSessionControls";
 import { RefreshCw } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-import { BusySpinner } from "../shared/BusyState";
-import { RegionLoader } from "../shared/RegionLoader";
+import { BusySpinner, BusyState } from "../shared/BusyState";
+import { Loader } from "../shared/Loader";
 import { SettingsPill } from "../Settings/shared";
 import type { MachineRowView, MachineStatus, SelfRowView } from "./accountMachines";
 import { failureMessage } from "./accountMachines";
@@ -135,7 +135,7 @@ export function MachineManagement({ machines }: { machines: MachinesController }
             <p role="status" className={UI_TEXT.meta}>My machines could not be loaded.</p>
             {refresh}
           </div>
-        ) : <RegionLoader label="Loading your machines" className="min-h-40" />}
+        ) : <Loader variant="compact" label="Loading your machines" />}
       </section>
     );
   }
@@ -336,7 +336,7 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
                 aria-label={`Connect ${row.name}`}
                 className={`${UI_BUTTON.accent} ${UI_BUTTON.compact} disabled:opacity-50`}
               >
-                {linking ? <><BusySpinner size={12} /> Connecting…</> : ["declined", "link_expired", "link_failed"].includes(row.status) ? "Try again" : "Connect"}
+                {linking ? <><BusyState inline hideLabel label="Connecting" phase="work" dotSize="micro" /> Connecting…</> :["declined", "link_expired", "link_failed"].includes(row.status) ? "Try again" : "Connect"}
               </button>
             )}
             {(row.status === "over_limit" || row.controls.plans) && (

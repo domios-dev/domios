@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn coalesced_navigation_always_opens_the_latest_event_target() {
+    let mut store = NotificationStore::new(10);
+    let request = |event: &str, target: &str| PushRequest {
+        scope: "opaque-scope".into(),
+        level: NotifyLevel::Verbose,
+        event_key: event.into(),
+        title: "opaque-title".into(),
+        body: None,
+        severity: NotificationSeverity::Info,
+        provenance: NotificationProvenance::default(),
+        per_scope_limit: 0,
+        ask: Ask::offering(Some(vec![NotificationAction::Url {
+            label: "Open".into(),
+            value: target.into(),
+        }])),
+    };
+    let first = store.add_push(request("event-one", "first-target"));
+    let next = store.add_push(request("event-two", "second-target"));
+    assert_eq!(first.id(), next.id());
+    assert_eq!(
+        store.list(false)[0].actions,
+        Some(vec![NotificationAction::Url {
+            label: "Open".into(),
+            value: "second-target".into()
+        }])
+    );
+}
+
+#[test]
 fn test_add_notification() {
     let mut store = NotificationStore::new(100);
     let id = store.add("Test".into(), None, NotificationSeverity::Info, None, None);

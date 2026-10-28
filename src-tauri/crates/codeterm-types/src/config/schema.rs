@@ -11,6 +11,7 @@ use codeterm_notify_types::{NotifyDestination, NotifyLevel};
 
 pub use super::dream_hygiene::DreamHygieneConfig;
 pub use super::model_defaults::ModelDefaultsConfig;
+pub use super::neighbors::NeighborsConfig;
 pub use super::supporter::{
     MemoryRerankConfig, SupporterConfig, SupporterConnection, SupporterSources,
 };
@@ -60,6 +61,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub mesh: MeshConfig,
     #[serde(default)]
+    pub neighbors: NeighborsConfig,
+    #[serde(default)]
     pub updater: UpdaterConfig,
     #[serde(default)]
     pub ui: UiConfig,
@@ -97,6 +100,7 @@ impl Default for AppConfig {
             usage: UsageConfig::default(),
             integrations: IntegrationsConfig::default(),
             mesh: MeshConfig::default(),
+            neighbors: NeighborsConfig::default(),
             updater: UpdaterConfig::default(),
             ui: UiConfig::default(),
             runaway: RunawayConfig::default(),
@@ -571,6 +575,8 @@ pub struct AgentConfig {
     /// One system continue for agent tabs that were mid-turn when Domios stopped.
     pub continue_after_restart: bool,
     pub full_access: Option<bool>,
+    /// Owner-set `read-only` or `workspace-write` limit for delegated launches; unset keeps no limit.
+    pub sandbox_ceiling: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -582,6 +588,7 @@ impl Default for AgentConfig {
             resume_sessions: true,
             continue_after_restart: true,
             full_access: None,
+            sandbox_ceiling: None,
         }
     }
 }

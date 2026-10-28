@@ -98,6 +98,16 @@ impl<T: CallableTransport> CallableRegistry<T> {
             .transport
             .call(route, session.id_token.expose(), data)
             .await;
+        if let Err(failure) = &response {
+            let status = match failure {
+                CallableFailure::Offline => None,
+                CallableFailure::Status { status, .. } => Some(*status),
+            };
+            log::debug!(
+                "Account mesh callable failed: route={route} status={status:?} kind={:?}",
+                refusal(failure)
+            );
+        }
         let body = match response {
             Ok(body) if !is_session_revoked(&body) => body,
             response => {
@@ -119,17 +129,46 @@ impl<T: CallableTransport> CallableRegistry<T> {
                     .unwrap_or(RegistryRefusal::Unavailable));
             }
         };
-        result(body)
+        result(body).inspect_err(|refusal| {
+            log::debug!("Account mesh callable result failed: route={route} kind={refusal:?}");
+        })
     }
 }
 
 #[async_trait]
 impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
+    async fn revoke_prior_sessions(
+        &self,
+        session: &Session,
+        target: &PriorSessionsTarget,
+    ) -> RegistryResult<PriorSessionsRevokedResult> {
+        self.call("revokePriorInstallationSessions", session, target)
+            .await
+    }
     async fn challenge(
         &self,
         session: &Session,
         request: &ChallengeRequest,
     ) -> RegistryResult<String> {
+        if request.endpoint == ProofEndpoint::GetEntitlements {
+            let installation_id = request
+                .body
+                .get("installation_id")
+                .ok_or(RegistryRefusal::Invalid)?;
+            return self
+                .call::<ChallengeResult>(
+                    "issueInstallationChallenge",
+                    session,
+                    &serde_json::json!({
+                        "installation_id": installation_id,
+                        "endpoint": request.endpoint,
+                        "key_id": request.key_id,
+                        "body": request.body,
+                    }),
+                )
+                .await
+                .map(|result| result.nonce);
+        }
         self.call::<ChallengeResult>(ROUTE_CHALLENGE, session, request)
             .await
             .map(|result| result.nonce)

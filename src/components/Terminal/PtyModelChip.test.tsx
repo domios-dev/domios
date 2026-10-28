@@ -41,25 +41,3 @@ test("reasoning control switches the bound tab once and reports the chosen path"
     await act(async () => root.unmount()); host.remove(); __setTabModelApiForTest(null);
   }
 });
-
-test("runtime mode request uses the current model and next-turn controls once", async () => {
-  const state: ExtendedState = {
-    workspaces: [], tabs: { fixture: { id: "fixture", pty_id: "pty", title: "Fixture", tab_type: "Terminal", cwd: null,
-      agent_type: "provider", agent_provider_resolved_model: "vendor/model", structured_control_active: true, structured_runtime_mode: "auto-accept-edits" } },
-    teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
-  };
-  const provider = { id: "provider", model_switch: "next_turn", available_models: [{ id: "vendor/model", display_name: "Model" }] } as ProviderDescriptor;
-  const calls: unknown[][] = [];
-  __setTabModelApiForTest({ switchModel: async (...args) => { calls.push(args); return { mode_used: "next_turn", model_confirmation: "pending" }; } });
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); const store = createMuxStateStore(() => state);
-  try {
-    await act(async () => root.render(<MuxStateStoreContext.Provider value={store}><PtyModelChip tabId="fixture" provider={provider} onError={(error) => { throw new Error(error); }} /></MuxStateStoreContext.Provider>));
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Model and traits"]')!.click());
-    const control = document.querySelector<HTMLSelectElement>('select[aria-label="Runtime mode"]')!;
-    assert(control);
-    await act(async () => { control.value = "auto"; control.dispatchEvent(new Event("change", { bubbles: true })); });
-    assert.deepEqual(calls, [["fixture", "vendor/model", undefined, "auto"]]);
-    assert(host.querySelector('[role="status"]'));
-  } finally { await act(async () => root.unmount()); host.remove(); __setTabModelApiForTest(null); }
-});

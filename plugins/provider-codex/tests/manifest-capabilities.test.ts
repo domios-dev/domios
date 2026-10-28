@@ -13,7 +13,7 @@ function eq(actual: unknown, expected: unknown, name: string) {
 }
 
 const manifest = JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"), "utf8"));
-eq(manifest.spawn.pasteLimitBytes, 4096, "paste limit capability is declared in bytes");
+eq(manifest.spawn.pasteLimitBytes, undefined, "chat-backed Codex declares no PTY paste limit");
 eq(manifest.commands.additionalWritableDirFlag, "--add-dir", "sandbox metadata roots use the declared CLI flag");
 eq(manifest.spawn.sandboxedLinuxLaunch.networkAccessArgs,
   ["-c", "sandbox_workspace_write.network_access=true"],

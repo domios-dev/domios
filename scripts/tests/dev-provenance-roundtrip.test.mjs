@@ -255,6 +255,7 @@ CT_SUFFIX="-watch-test-$$"
 kill_web_watch() { :; }
 dev_resource_dir() { echo target/debug/resources; }
 node() { printf '%s|%s\\n' "$CODETERM_FRONTEND_DEV" "$*" > args.txt; }
+run_outside_tab_job() { shift 3; "$@"; }
 nohup() { "$@"; }
 process_pid_for_cleanup() { echo "$1"; }
 web_watch_pidfile() { echo pid.txt; }
@@ -274,7 +275,7 @@ cat args.txt
 });
 
 const preflight = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)')));
-const preflightHelpers = ['run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
+const preflightHelpers = ['dev_build_phase', 'run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
 for (const externalFrontend of [0, 1]) {
   test(`prebuilt timeout shell preserves ready server and window only in split mode=${externalFrontend}`, () => {
     const start = source.indexOf('      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt');

@@ -1,6 +1,22 @@
 use super::*;
 
 #[test]
+fn package_manager_commands_select_domios_desktop_packages() {
+    for (method, command) in [
+        (
+            InstallMethod::Brew,
+            "brew upgrade --cask domios-dev/domios/domios",
+        ),
+        (InstallMethod::Scoop, "scoop update domios"),
+    ] {
+        assert_eq!(
+            build_update_command(&method, "1.16.1", None).as_deref(),
+            Some(command)
+        );
+    }
+}
+
+#[test]
 fn latest_release_request_bypasses_mutable_github_cache() {
     let request = latest_release_request(&reqwest::Client::new(), "domios-dev/domios")
         .build()

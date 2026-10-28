@@ -121,6 +121,8 @@ export function useChatScroll({
   const userScrollingRef = gesture.userScrolling;
   const resetGesture = gesture.reset;
   const recordGestureScroll = gesture.recordScroll;
+  const holdingView = gesture.holding;
+  const heldView = gesture.held;
 
   if (sessionKeyRef.current !== sessionKey) {
     sessionKeyRef.current = sessionKey;
@@ -306,7 +308,12 @@ export function useChatScroll({
     const observed = observedRef.current;
     const observer = new ResizeObserver(() => {
       if (el.clientHeight === 0) return;
-      if (modeRef.current === "pinned") pinToBottom();
+      // A finger holding a pinned view (longer than a tap) keeps it where it is: content arriving underneath detaches
+      // the view and offers the jump, rather than snapping to the new bottom when the finger lifts. A tap still re-pins.
+      if (modeRef.current === "pinned" && holdingView() && !isChatViewportAtBottom(el)) {
+        setMode("detached", el);
+        updateScrollDown(el);
+      } else if (modeRef.current === "pinned") pinToBottom();
       else if (!prependSnapshotRef.current) holdContentAnchor(el);
     });
     observerRef.current = observer;
@@ -317,7 +324,7 @@ export function useChatScroll({
       observed.clear();
       observerRef.current = null;
     };
-  }, [active, holdContentAnchor, observeContent, pinToBottom]);
+  }, [active, holdContentAnchor, holdingView, observeContent, pinToBottom, setMode, updateScrollDown]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -399,8 +406,11 @@ export function useChatScroll({
       const scrollBy = foldLayoutDrift?.() ?? 0;
       if (scrollBy !== 0) writeScrollTop(el, el.scrollTop + scrollBy);
       el.style.overflowAnchor = chatOverflowAnchorFor(modeRef.current, false);
-      const mode = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
+      const afterScroll = chatViewportModeAfterScroll(modeRef.current, lastViewportRef.current, el, true);
+      // Released after a hold with the bottom moved away underneath: stay put and offer the jump instead of snapping.
+      const mode = afterScroll === "pinned" && heldView() && !isChatViewportAtBottom(el) ? "detached" : afterScroll;
       if (mode !== modeRef.current || shouldCaptureChatAnchor(lastViewportRef.current, el, true)) setMode(mode, el);
+      if (mode === "detached") updateScrollDown(el);
     }
     repairViewport();
   };

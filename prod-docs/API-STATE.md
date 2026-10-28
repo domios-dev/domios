@@ -51,9 +51,10 @@ filler histories, size evidence and hidden-tab metadata. CLI:
 
 #### Web Mirror
 
+The daemon root serves the static web mirror through its fallback when the frontend is available. API requests remain authenticated. `?a11y=1` enables the screen-reader terminal DOM.
+
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/` | — | The Domios web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
 | GET | `/api/mux/state` | — | Published multiplexer snapshot (workspaces/tabs + focus). Writers and rebuilds do not delay reads or cause 503. Genuine storage unavailability still returns 503. Publication sends `mux-state-changed`; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
@@ -194,7 +195,7 @@ After restart, valid recorded provider sessions resume; stale or missing session
 **Outcomes:** HTTP 200: `updating`, `up_to_date`/`no_update`, `command` (Homebrew/Scoop), `browser_opened`, `already_in_flight`, `blocked` or `elevation_required`. The last two include an action reason. Applying is single flight across the process; `already_in_flight` differs from `no_update`. Debian staging contention returns 409.
 **Errors:** 400: invalid/disabled continuation, missing caller/prior check, or malformed channel; 500: blocking-worker or `update_handoff_write_failed`; 502: discovery, signature verification or staging failure; 503 `native_capability_unavailable`: no attached updater. Authentication/protocol middleware can refuse earlier. Install refusals log route, status and reason.
 
-**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/rollacode/codeterm-releases/releases/latest with `domios update install --from-file <installer-path>`. Debian uses the verified staging flow above.
+**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/domios-dev/domios/releases/latest with `domios update install --from-file <installer-path>`. Debian uses the verified staging flow above.
 
 ### Tab-scoped local previews
 
@@ -208,4 +209,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 36 -->
+<!-- revision: 38 -->

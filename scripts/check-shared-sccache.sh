@@ -107,7 +107,7 @@ printf 'PASS CI target paths and developer target isolation\n'
   ct_sccache_status
   [ ! -e "$WORK/events" ]
 ) > "$WORK/status.log"
-grep -Fqx "sccache: shared S3 cache at the private store/sccache" "$WORK/status.log"
+grep -Fqx "sccache: shared S3 cache at the private store (override)/sccache" "$WORK/status.log"
 grep -Eq '^running server: Cache location Local disk:' "$WORK/status.log"
 grep -Eq '^shared endpoint health: 200$' "$WORK/status.log"
 ! grep -Eq 'fixture-access|fixture-secret' "$WORK/status.log"

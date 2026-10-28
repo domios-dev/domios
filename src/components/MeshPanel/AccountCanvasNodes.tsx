@@ -3,7 +3,7 @@ import { Laptop, RefreshCw, UserRound } from "lucide-react";
 import { formatAge } from "../../lib/timeLabels";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import { SettingsPill } from "../Settings/shared";
 import { LockBadge } from "../billing/LockBadge";
 import { lockedDimClass } from "../billing/freeLimitModel";
@@ -100,7 +100,7 @@ function DisconnectControl({ name, instanceId, confirm, busy, onDisconnect }: {
   return (
     <button type="button" onClick={() => confirm ? setAsking(true) : onDisconnect(instanceId)} disabled={busy} aria-busy={busy}
       aria-label={`Disconnect ${name}`} className={COMPACT_GHOST}>
-      {busy ? <><BusySpinner size={12} /> Disconnecting…</> : "Disconnect"}
+      {busy ? <><BusyState inline hideLabel label="Disconnecting" phase="work" dotSize="micro" /> Disconnecting…</> : "Disconnect"}
     </button>
   );
 }
@@ -139,7 +139,7 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
               disabled={action.connecting || action.disabledReason !== null} aria-busy={action.connecting}
               aria-describedby={action.disabledReason ? reasonId : undefined}
               aria-label={`${retry ? "Try again to connect" : "Connect"} ${node.name}`} className={`${COMPACT_ACCENT} disabled:opacity-50`}>
-              {action.connecting ? <><BusySpinner size={12} /> Connecting…</> : retry ? "Try again" : "Connect"}
+              {action.connecting ? <><BusyState inline hideLabel label="Connecting" phase="work" dotSize="micro" /> Connecting…</> : retry ? "Try again" : "Connect"}
             </button>
           )}
           {action?.kind === "plans" && (
@@ -200,7 +200,7 @@ export function AccountStateCard({ card, signingIn, onSignIn, onRetry }: {
   const frame = `${NODE_FRAME} border border-dashed border-[var(--ct-border)]`;
   if (card.kind === "loading") {
     return <section aria-label="My machines" aria-busy="true" className={frame} style={{ width: MACHINE_CARD_WIDTH }}>
-      <div className="flex items-center gap-2 text-[12px] text-[var(--ct-muted-fg)]"><BusySpinner size={13} /> Loading your machines</div>
+      <BusyState inline label="Loading your machines" phase="work" className="text-[12px] text-[var(--ct-muted-fg)]" />
     </section>;
   }
   if (card.kind === "unavailable") {

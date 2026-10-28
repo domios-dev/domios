@@ -5,6 +5,16 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`spawn.launchPermissions.scopedFilesystem` declares session-local tool preapproval:
+`noPromptArgs`, `readAllRules`, `readRootRule`, `writeRootRule`, and
+`additionalDirectoryArgs`. Rule templates take `{path}` in absolute gitignore
+syntax (Unix `//path`, Windows `//c/path`); directory argv uses the literal
+canonical path. `allowRuleArgsFormat` carries each rule. Reject unrepresentable
+pattern roots. Read-only concierges allow native reads and own-pad edits; folder
+concierges allow native reads/edits in the folder plus pad. Unapproved tools are
+denied without prompting. This is provider tool policy, not an OS sandbox; it
+never authorizes full bypass. Fresh/resume/restore derive it from the current
+host-only grant, with native/JS parity. No host filesystem/network API is added.
 `capabilities.remoteTask` declares an execution mode of the same provider. It carries `mode`, `displayName`, `backend`, `availability`, `environments` (`id`, `label`, opaque non-secret `accountRef`), and `followUp`, `cancel`, `applyDiff` flags. The cached descriptor exposes it as `remote_task`. Local/Cloud selection uses this declaration, never a sibling provider or provider IDs. Local runtime and General eligibility remain independent. Native/JS descriptor parity covers this data-only declaration; it adds no host API or confinement grant.
 
 Use the SDK `RemoteTaskController` and `RemoteTaskFileStorage` for durable create claims and exact-task restoration. Storage belongs in the provider's conventional instance data directory, outside the replaceable plugin bundle. The host file lock and atomic write precede creation; an unconfirmed create never replays. A remote mode exposes `viewCall` methods `read`, `submit`, `refresh` for its tab and an ordinary `chatBackend` transcript projection. Refresh is an explicit request; transcript reads do not poll a remote server. Persist the explicit execution mode with the tab launch and binding; restore and view routing must preserve it. Only that mode may open the remote backend; unavailable adapters refuse open and create. Test with an injected deterministic transport and source-attributed fixtures; no real credentials or billable requests belong in tests.
@@ -120,13 +130,20 @@ Every claim below is transcribed from the Rust source of truth:
 
 `spawn.executionSandbox` declares filesystem enforcement per platform and intent.
 Each `readOnly` or `mutating` mode supplies `launchArgs` and an optional
-`runtimeMode`; `{cwd}` expands to the canonical launch directory. Missing
-read-only enforcement refuses dispatch with `unsupportedReason`. Permission
+`runtimeMode`; `{cwd}` expands to the canonical launch directory. An explicit `--sandbox`
+request without a matching mode refuses with `unsupportedReason`; execution
+intent alone never requests confinement. Permission
 prompts or planning modes alone do not establish filesystem confinement.
 Core persists the resolved intent, cwd, arguments, mode and host-owned roots,
 revalidates them on relaunch and rejects runtime overrides. Scoped launches
 reject custom arguments; use typed model and effort controls. Read-only adds
-no writable roots. Mutating roots include the lane, its pad and required Git
+no writable roots for ordinary agents. A provider may declare
+`spawn.executionSandbox.runtimeReadOnlyWritableRootsMode` for a runtime mode
+that enforces only explicit host writable roots while keeping cwd read-only.
+Neighbor concierges use it for their own AgentPad only; the provider must replace
+implicit workspace roots and confirm the exact result before accepting work.
+Neighbor folder launches add only their own pad beside the selected folder.
+Mutating Worker roots include the lane, its pad and required Git
 metadata. Confined mutating launches also persist canonical Cargo home, lane-check
 cache, sccache and pnpm store roots, with lane-local temp exported as TMPDIR/TEMP/TMP.
 The lane cache uses `$CODETERM_RUST_CACHE_ROOT/lanes`, falling back to

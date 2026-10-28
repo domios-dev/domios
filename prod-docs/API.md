@@ -5,11 +5,11 @@ Transports: authenticated REST, local socket JSON-RPC and `domios`.
 
 REST, socket and CLI share authorization, PTY cleanup, events and hierarchy checks.
 
-The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
+The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; each control request also authenticates its credential.
 
 Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `API-TRANSPORT`; peer notice routes: `MESH`.
 
-Human `domios workspace list` shows ordered topology; `tab inspect <id>` inspects one tab. `workspace current --json` returns `{id, source}`, resolving explicit placement, caller tab, validated workspace environment, then focus. No match exits 1; JSON errors go to stdout.
+`domios workspace list`: ordered topology; `tab inspect <id>`: one tab. `workspace current --json` -> `{id,source}` via explicit placement, caller tab, validated workspace env, then focus. No match:exit1; JSON errors:stdout.
 
 POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprints/{id}/webhook/configure` manages its lifecycle for a local authenticated caller. Signing, limits and payload rules: `domios docs BLUEPRINTS` and the integrations reference below.
 
@@ -17,7 +17,7 @@ POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprin
 Base: `http://<host>:7685/api`.
 
 ### Authentication
-The Bearer token lives in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`, never stored in `config.toml`. Local-only `domios system api-token` prints the credential and refuses `--mesh`. Control endpoints require it even on loopback; public health/pairing grants no control.
+Host credential: owner-only `<data_dir>/.secrets`, key `domios.instance:api_token`, never config/tab environment; held by owner Web UI/host services. Each tab's `CODETERM_API_TOKEN` launch credential revokes on close, launch/session replacement or daemon restart; tab IDs/nonces/sender must match. Host UI may select tab context under role/session checks. `domios system api-token`/token links are host-only; export refuses `--mesh`. Loopback control requires auth; public health/pairing grants none.
 
 Default configuration:
 ```toml
@@ -37,9 +37,11 @@ cors = true
 cors_allow_origins = ["https://console.example"]
 ```
 
-Config readback exposes actual and configured listener state through `api_listener.active`, `.configured`, `.restart_required` (enabled, address, CORS/origins, authentication); writes do not imply a runtime rebind. Loopback hosts canonicalize to valid socket/callback URLs; recovery follows the generation contract below. Empty CORS allowlists deny cross-origin requests without disabling the listener; `*` and malformed origins are rejected.
+Readback `api_listener.active`, `.configured`, `.restart_required` expose actual/configured enabled/address/CORS/origins/auth state; writes never imply rebind. Loopback hosts canonicalize to valid socket/callback URLs; recovery uses the generation contract below. Empty CORS lists deny cross-origin access, not the listener; `*`/malformed origins refuse.
 
 ### Endpoints
+
+Route inventories: API-PLAN (plans/tasks), API-TEAMS (authority), API-LIFECYCLE (host/hooks/account/per-friend Neighbor receiving), API-EVENTS (Blueprints/notifications), API-SERVICES (Mesh/plugins).
 
 #### CI failure events
 
@@ -51,7 +53,13 @@ Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness
 
 #### Account machines
 
-Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke` accepts `{installation_id?: string | null}`; omission selects this machine. It signs out the selected installation's account sessions and returns `{ok: true, result: {target_installation_id, revoked_at}}` or the standard typed refusal. The local installation key and saved pairings remain. The UI asks for confirmation before this action.
+Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {installation_id?:string|null}` defaults to this machine. Signs out selected installation sessions; returns `{ok:true,result:{target_installation_id,revoked_at}}` or typed refusal. Installation key/pairings remain; UI confirms first.
+
+#### Neighbor read receipts
+
+`POST /api/account/neighbors/read`: local owner UI only, exactly `{friendship_id, through_message_id}` (64/32 lowercase hex characters). Reports inbound visibility in the open conversation, never history fetching. Tab/Mesh callers refuse; host reports concierge pickup separately. Read-up-to reservations persist before relay dispatch, suppress duplicate/older batches, and stop for paused/ended friends or Neighbors off.
+
+Outgoing Neighbor history entries expose optional `delivered_at` and `read_at` as UNIX milliseconds. `read_at` implies delivery. Accepted sending is one tick, delivered is two ticks, read is two blue ticks. `neighbor-history-changed` carries the affected `friendship_id` after receipt persistence. See `NEIGHBORS` for the signal and catch-up behavior.
 
 #### Local previews
 | Method | Path | Body | Description |
@@ -65,7 +73,7 @@ Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | POST | `/api/automation/blueprints/export` | `{workspace_id, team_id, id}` | Local host `{name, yaml}` authoring file; see BLUEPRINTS. |
 | POST | `/api/automation/blueprints/solutions/show` | `{workspace_id, id}` | Local host read-only saved solution, with the same workspace visibility as solutions/list. Accepts a bare ID or `mem:<id>`. Returns `{document, expanded_calls}`; see below. |
-| POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments}` | Local host apply by name, stopped; recipe is YAML text or the matching document object; see BLUEPRINTS. |
+| POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments, scope?}` | Local host apply by name, stopped; scope is general, workspace:<id>, or team:<id> and must match the caller; recipe is YAML text or the matching document object; see BLUEPRINTS. |
 | GET | `/api/automation/blueprints/project` | Query `workspace_id`, optional `path` | Local host read-only repository listing or bounded source view. No execution or approval. |
 | GET | `/api/automation/blueprints/viewer/history` | Query `workspace_id`, explicit `team_id` (empty for no Team), `id` | Retained definition versions with actual root/callee semantic diffs. |
 | GET | `/api/identify` | — | Version, platform, features |
@@ -78,7 +86,7 @@ Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke
 
 REST listener lifecycle and recovery: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
 
-Saved solution show returns a credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]` under the saved scope and exact hashes. Missing/corrupt/foreign pins expose `pinned_revision_unavailable`; limits of eight levels, 64 calls and 256 KiB expose `budget_exhausted`. Archived/foreign roots and peer-origin requests refuse.
+Saved solution show: redacted `document`, recursive `expanded_calls:[{node,pin:{id,hash},graph,children}]`, saved scope/exact hashes. Missing/corrupt/foreign pins: `pinned_revision_unavailable`; limits8levels/64calls/256KiB: `budget_exhausted`. Archived/foreign roots and peer requests refuse.
 
 #### Workspaces
 | Method | Path | Body | Description |
@@ -133,7 +141,6 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY provider/session without restart; self or bound Plan-owner authority. Modes, caller headers, response and refusals: API-REPAIR. |
 | POST | `/api/tabs/{id}/adopt-agent` | See API-ADOPT | Adopt a live PTY; see API-ADOPT. |
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-CHAT |
-| POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/switch-provider` | `{provider, model?, reasoning_effort?, force?}` | Daemon-owned in-place handoff (also General/self); 202 + operation id; see PROVIDER-SWITCH |
 | GET | `/api/tabs/{id}/agent/switch-provider/{operation}` | `?wait=true` optional | Read pending/running/completed/failed operation and outcome. |
 | GET | `/api/tabs/{id}/agent/provider-history` | `?file=PATH` | Read this tab's archived previous provider transcript. |
@@ -144,9 +151,9 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Set tab role (`Orchestrator` or `Worker`; `Conductor` aliases `Orchestrator`). A `Manager` with `role_profile: "planner"` requires `plan_id`; an omitted `parent_tab_id` resolves to the plan's live Orchestrator owner instead of refusing, and an explicit one wins. |
+| POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Orchestrator/Worker (`Conductor` aliases Orchestrator). Manager with `role_profile:"planner"` requires `plan_id`; omitted parent resolves to its live Orchestrator owner, explicit parent wins. |
 | DELETE | `/api/tabs/{id}/role` | — | Clear role: detach a Worker, or retire an Orchestrator while keeping the final anchor's Team and active Plan for a replacement |
-| GET | `/api/tabs/{id}/status` | — | Tab status (`working` \| `question` \| `idle` \| `error` \| `exited`, the value `tab list` shows) + role + children info, including `pending_prompt` when a numbered provider prompt is active (`question` and `options`). `domios tab status --json` returns the same prompt data. |
+| GET | `/api/tabs/{id}/status` | — | `working`/`question`/`idle`/`error`/`exited` (as in tab list), role, children; active numbered prompt adds `pending_prompt:{question,options}`, also returned by `domios tab status --json`. |
 | POST | `/api/tabs/{id}/report` | `{message, caller_tab_id?, caller_session_id?, session_binding_nonce?, plan_id?, task_id?, status?, ...}` | Send an authenticated hierarchy report. A Plan-authorized task-less reporter uses `plan_id` without `task_id`/`status`; success returns `plan_report` and persists a task-less Plan stride before Orchestrator delivery. |
 | GET | `/api/tabs/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
 | POST | `/api/tabs/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether tab can spawn children |
@@ -167,7 +174,7 @@ Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 #### Batch
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
+| POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Host credential only; execute multiple commands sequentially (see below) |
 
 #### Pasteboard (cross-mesh ephemeral payloads)
 | Method | Path | Body | Description |
@@ -184,12 +191,12 @@ Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 
 #### Plan task mutation authority
 
-Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) carry caller/session/binding/owner-epoch authority (REST: matching `X-CodeTerm-*` headers). Once owned, the caller must match the recorded owner. `GET /api/tasks` and socket `task.list` return the same object: `tasks` plus an optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`, `plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`, `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks exist; consumers ignore unknown kinds and never invent a local explanation.
+Task writes (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) require caller/session/binding/owner-epoch authority, matching `X-CodeTerm-*` REST headers and any recorded owner. `GET /api/tasks`/socket `task.list` return `tasks` and optional `empty_reason.kind`: `plan_not_found`, `plan_archived`, `plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`, `all_tasks_inactive`, `no_match_for_filters`. Tasks present: field absent. Ignore unknown kinds; never invent explanations.
 
-Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `domios plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Callers name themselves with `caller_tab_id`; an unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
+Batch writes (`plan.batch`, `POST /api/plans/{id}/batch`, via `domios plan record`) touching another tab's held task require that holder or plan owner. Credentials establish tab caller; `caller_tab_id` checks consistency, never selects human authority/claims a hold. Refusal writes nothing: `STALE TASK BINDING` (socket `-32003`, REST `403`), `type:"stale_task_binding"`, `attempted_by_tab`, `plan_id`, `task_id`. Bearer permission is not ownership.
 
-A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `ORCHESTRATION`.
+Live authenticated Plan owners may recover `update`/`assign`/`respawn`/`close` after tab disappearance; retirement/recovery is atomic. Mutating dispatch into canonical/another task's lane refuses `-32013`; competition gets one lane/competitor. Successful results carry advisory `safety_nudges`/`_hints`. See `ORCHESTRATION`.
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 231 -->
+<!-- revision: 239 -->

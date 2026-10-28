@@ -9,6 +9,8 @@ Use this skill when a dev launcher or QA run needs to report to an agent tab,
 especially when a named dev instance or a command pipeline can change where a
 bare `domios` call or exit status would go.
 
+Every script run in a utility shell streams its output into the terminal while it runs (owner requirement): pipe each step through `tee <log>` and take the exit status from `${PIPESTATUS[0]}`, print a header line per step, and never redirect a long step only into a file. The owner watches progress in the tab; the log file is a copy.
+
 Open build shells with `--purpose build` and foreground servers with `--purpose dev`. Purpose is retained when restarting the shell. The sidebar command state reports shell marks only; use the readiness and QA receipts below to establish the operation outcome.
 
 Set `--timeout 60m` for tests, QA and builds; leave dev servers unset. Each command-start mark starts a fresh deadline, and a finish mark cancels it. Change the bound for current and future commands with `domios tab timeout --tab <ID> --timeout 60m`; `none` disables both. The current command keeps its original start. On expiry the owned process tree stops through shell restart, the tab stays open, and one owner status names the command, command elapsed and deadline. Idle shells have no deadline; existing owner/Team cleanup still applies.

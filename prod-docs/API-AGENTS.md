@@ -51,7 +51,7 @@ Switch one agent tab to another model. Domios never types a provider model comma
 {"model": "sonnet", "reasoning_effort": "high"}
 ```
 
-An `agentRuntime` Chat provider may apply settings live to the exact bound thread, or declare `next_turn` and apply model/effort on its next turn. Codex structured-control sessions use the live path: a confirmed settings control returns `mode_used: "live"`, `model_confirmation: "observed"`, and `evidence: "live_session_record"`. Runtime modes come from the provider's `structured_control.runtimeModes` capability and require the bound runtime. Settings stay per-thread. Runtime failure is visible and retryable through exact-thread resume; it never selects a terminal fallback. Providers declaring RestartResume keep their idle-only switching contract.
+An `agentRuntime` Chat provider may apply settings live to the exact bound thread, or declare `next_turn` and apply model/effort on its next turn. Runtime sessions use the live path: a confirmed settings control returns `mode_used: "live"`, `model_confirmation: "observed"`, and `evidence: "live_session_record"`. Runtime modes come from the provider's `agent_runtime.runtimeModes` capability and require the bound runtime. Settings stay per-thread. Runtime failure is visible and retryable through exact-thread resume; it never selects a terminal fallback. Providers declaring RestartResume keep their idle-only switching contract.
 
 `reasoning_effort` is checked against the selected model's published effort levels, falling back to the provider's list when the model publishes none. `runtime_mode` is checked against the declared structured-control modes. Both checks happen before runtime control, tab identity updates, or persistence; unsupported values return `400 unsupported_reasoning_effort` or `400 unsupported_runtime_mode` with a `supported` array. On restore, a saved value no longer present in the catalogue is cleared before runtime settings are built; the model's default is used and a warning is logged.
 
@@ -192,4 +192,31 @@ With `background_work_guard` enabled, restarts and restart-based model switches 
 
 `spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.
 
-<!-- revision: 73 -->
+
+## Additional REST routes
+
+Runtime requests remain bound to the target tab's session and epoch. Provider CLI fields: API-CLI.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| DELETE | `/api/remote-workers` | Forget a remote Worker record. |
+| GET | `/api/agents/done` | List completed agent runs. |
+| GET | `/api/agents/providers/{id}/cli` | Read provider CLI status. |
+| GET | `/api/agents/providers/{id}/model-usage` | Read provider model-group usage. |
+| GET | `/api/tabs/{id}/agent/runtime/background-processes` | Read attributed runtime background processes. |
+| POST | `/api/agents/general/complete-first-run` | Complete General first-run setup. |
+| POST | `/api/agents/general/restart` | Restart the protected General Agent. |
+| POST | `/api/agents/general/sessions` | Create an independent General session. |
+| POST | `/api/agents/general/{tab_id}/restart` | Restart a named General session. |
+| POST | `/api/agents/providers/{id}/cli` | Install or update the provider CLI; operation selects the action. |
+| POST | `/api/agents/providers/{id}/install-in-tab` | Install a provider CLI in a utility tab. |
+| POST | `/api/remote-workers` | Record a remote Worker observation. |
+| POST | `/api/tabs/{id}/agent/capabilities/refresh` | Refresh this tab's provider capabilities. |
+| POST | `/api/tabs/{id}/agent/fork` | Fork an owned agent conversation. |
+| POST | `/api/tabs/{id}/agent/runtime/background-processes` | Stop an attributed runtime background process. |
+| POST | `/api/tabs/{id}/agent/runtime/goal` | Set the bound runtime thread goal. |
+| POST | `/api/tabs/{id}/agent/runtime/questions/{item}/answer` | Answer an exact pending runtime question. |
+| POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
+| POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
+
+<!-- revision: 75 -->

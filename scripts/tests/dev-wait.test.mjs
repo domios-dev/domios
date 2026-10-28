@@ -52,10 +52,10 @@ test("DEV web watcher keeps a production-mode bundle with the DEV build flag on 
   const source = (await readFile(new URL("../../build.sh", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
   const watch = source.match(/^start_web_watch\(\) \{\n([\s\S]*?)^\}/m)?.[1];
   assert.ok(watch, "DEV web watcher must exist");
-  const commands = watch.split("\n").filter(line => line.includes('"$vite_entry"'));
+  const commands = watch.replaceAll(/\s*\\\n\s*/g, " ").split("\n").filter(line => line.includes('node "') && line.includes('$vite_entry"'));
   assert.equal(commands.length, 2, "Unix and Windows watcher commands must be covered");
   for (const command of commands) {
-    assert.match(command, /CODETERM_FRONTEND_DEV=1 (?:nohup )?node "\$vite_entry" build --watch/);
+    assert.match(command, /CODETERM_FRONTEND_DEV=1 (?:nohup |run_outside_tab_job --background "[^"\n]+" "\$log" )?node "(?:\$\(pwd -P\)\/)?\$vite_entry" build --watch/);
     assert.doesNotMatch(command, /--mode development|NODE_ENV=development/);
   }
   assert.doesNotMatch(source, /^\s*export\s+(?:NODE_ENV=development|CODETERM_FRONTEND_DEV=1)/m);
@@ -80,6 +80,37 @@ test("release frontend preparation retains the default production build", async 
 const buildSource = readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const healthFunctions = ['dev_health_fields', 'validate_dev_health'].map(name => buildSource.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+for (const watchSetting of ['0', '1', '']) {
+  test(`DEV watcher selection=${watchSetting || 'default'} preserves static serving`, () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'dev-static-selection-'));
+    try {
+      const watcher = buildSource.match(/^start_web_watch\(\) \{[^]*?^\}/m)?.[0];
+      const prebuilt = buildSource.slice(buildSource.indexOf('  dev-prebuilt)'));
+      const launch = prebuilt.match(/^    if \[ "\$\{DEV_FRONT_EXTERNAL:-0\}" != 1 \]; then\n[^]*?^    fi/m)?.[0];
+      assert.ok(watcher);
+      assert.ok(launch);
+      const script = [
+        'set -euo pipefail', watcher,
+        'CODETERM_DEV_WATCH="$1" DEV_FRONT_EXTERNAL=0 CT_SUFFIX=fixture OSTYPE=msys',
+        'kill_web_watch() { echo cleanup >> trace.txt; }',
+        'web_watch_pidfile() { echo fixture.pid; }',
+        'dev_frontend_dir() { echo fixture-dist; }',
+        'run_outside_tab_job() { echo watcher >> trace.txt; }',
+        'start_dev_static_server() { echo static >> trace.txt; }',
+        'dev_build_phase() { :; }', launch,
+      ].join('\n');
+      const result = spawnSync(bash, ['-c', script, '--', watchSetting], {
+        cwd: directory, encoding: 'utf8',
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const trace = readFileSync(path.join(directory, 'trace.txt'), 'utf8').trim().split(/\r?\n/);
+      assert.deepEqual(trace, watchSetting === '0' ? ['cleanup', 'static'] : ['cleanup', 'watcher', 'static']);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
+
 for (const role of ['server', 'combined']) {
   test(`actual DEV health validator preserves exact server identity for ${role}`, () => {
     const sha = 'a'.repeat(40);

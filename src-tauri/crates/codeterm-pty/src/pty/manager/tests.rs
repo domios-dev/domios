@@ -563,14 +563,16 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
 
     let stream_end = eof_rx.recv_timeout(std::time::Duration::from_secs(30));
     eprintln!(
-        "PTY stream end={stream_end:?}, child_exit={:?}",
-        session.child_exit.resolved()
+        "PTY stream end={stream_end:?}, child_exit={:?}, pair_release={}",
+        session.child_exit.resolved(),
+        session.child_exit.release_diagnostic()
     );
     assert!(
         stream_end.is_ok(),
-        "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, child_status={:?}, output={:?}",
+        "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, pair_release={}, child_status={:?}, output={:?}",
         detect_default_shell(),
         session.child_exit.resolved(),
+        session.child_exit.release_diagnostic(),
         session.child.lock().unwrap().try_wait(),
         String::from_utf8_lossy(&output.lock().unwrap())
     );
@@ -965,5 +967,30 @@ fn windows_pty_wrapper_preserves_exact_target_and_environment() {
     assert_eq!(
         command.get_env("OPAQUE_KEY"),
         Some(std::ffi::OsStr::new("opaque-value"))
+    );
+}
+
+#[test]
+fn child_launch_uses_only_its_explicit_tab_credential() {
+    let mut command = CommandBuilder::new("opaque-shell");
+    command.env("CODETERM_API_TOKEN", "inherited-host-secret");
+    command.env("CODETERM_TAB_ID", "inherited-tab");
+    apply_pty_env(&mut command, &HashMap::new());
+    assert_eq!(command.get_env("CODETERM_API_TOKEN"), None);
+    assert_eq!(command.get_env("CODETERM_TAB_ID"), None);
+    apply_pty_env(
+        &mut command,
+        &HashMap::from([
+            ("CODETERM_API_TOKEN".into(), "own-launch-token".into()),
+            ("CODETERM_TAB_ID".into(), "own-tab".into()),
+        ]),
+    );
+    assert_eq!(
+        command.get_env("CODETERM_API_TOKEN"),
+        Some(std::ffi::OsStr::new("own-launch-token"))
+    );
+    assert_eq!(
+        command.get_env("CODETERM_TAB_ID"),
+        Some(std::ffi::OsStr::new("own-tab"))
     );
 }

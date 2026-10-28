@@ -1,15 +1,6 @@
 pub use codeterm_worker_services::launch_diagnostics::{
     log_shell_drop, redact_secrets, tail_bytes, AgentLaunchOrigin,
 };
-pub(crate) fn log_rpc_sidecar(tab: &str) {
-    if let Some(diagnostics) = super::codex_rpc::diagnostics::for_tab(tab) {
-        log::info!(
-            "[launch] tab={tab} structured_control={}",
-            serde_json::to_string(&diagnostics).unwrap_or_default()
-        );
-    }
-}
-
 pub(crate) fn log_launch(
     origin: AgentLaunchOrigin,
     tab_id: &str,

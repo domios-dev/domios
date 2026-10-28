@@ -36,7 +36,7 @@ Neither route promises the recipient *answered*. Replies come through the sender
 | POST | `/api/tabs/{id}/chat-send/dismissals` | `{send_id, send:{id, correlationId, content, sentAtMs, echo?}}` | Delete a retained undelivered user bubble. Cancels queued input atomically against claim; a claimed or written send is only dismissed. Returns the durable receipt. Delivered and system sends are refused; never replays input. |
 | GET | `/api/tabs/{id}/chat` | `?since=N` | Stateless transcript read, resolved from the tab's own session record. `{messages, count, pending}`. A tab with no bound session answers `pending: true` with an empty list — never another tab's transcript. Unknown tab → 404 |
 
-Sleeping tabs read their own persisted transcript without waking or starting a runtime. A runtime tab awaiting its first session returns `200` with `pending: true` and `state: "waking"`; opening or addressing the tab owns waking it. Snapshot failures return JSON `{code, state, error}` with the original reason in `error`; unknown failures use HTTP 500, code `chat_snapshot_failed` and state `failed`. Request refusals preserve their HTTP status with code `chat_snapshot_refused` and state `refused`.
+Sleeping tabs read their own persisted transcript without waking or starting a runtime. A runtime tab awaiting its first session returns `200` with `pending: true` and `state: "waking"`; opening or addressing the tab owns waking it. A newly created, authenticated runtime thread with no turns returns an empty history even before its rollout is materialized. Stored runtime history errors use HTTP 404 with code `chat_history_missing`, HTTP 422 with `chat_history_corrupt`, or HTTP 503 with `chat_history_unavailable`; their states are `missing`, `corrupt`, and `unavailable`. Snapshot failures return JSON `{code, state, error}` with the original reason in `error`; unknown failures use HTTP 500, code `chat_snapshot_failed` and state `failed`. Request refusals preserve their HTTP status with code `chat_snapshot_refused` and state `refused`.
 
 #### Delayed Chat messages
 
@@ -77,4 +77,18 @@ Backfill accepts `offset_kind` (`bytes` or `items`) alongside `before_offset`; p
 
 A transcript read that starts after its source's first record begins with a gap row: `type: "system"`, `systemSubtype: "history_gap"`, `timelineMarker: {kind: "history_gap", source, session_id, before_offset}` with `source` `provider_session` (an archived context epoch) or `chat_backend` (a chat-backend log). `POST /api/tabs/{id}/chat-raw/history` with `{source, session_id, before_offset}` returns `{messages}`: the older page ending at that offset, led by a new gap row while older records remain. The session must be the Tab's own chat-backend session or one of its archived epochs; any other session is refused with 409.
 
-<!-- revision: 9 -->
+
+## Additional REST routes
+
+Chat requests use the target tab's owned session. Bridge thread changes require explicit selection and caller authority.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| DELETE | `/api/tabs/{id}/bridge/thread` | Close its bridge thread. |
+| GET | `/api/tabs/{id}/bridge/thread` | Read the selected tab's bridge-thread state. |
+| POST | `/api/tabs/{id}/bridge/thread` | Open its bridge thread with explicit selection authority. |
+| POST | `/api/tabs/{id}/chat-raw/history` | Read paginated raw chat history. |
+| POST | `/api/tabs/{id}/chat-raw/resume` | Resume raw chat streaming. |
+| POST | `/api/tabs/{id}/chat-send/admissions` | Read admission results for submitted chat sends. |
+
+<!-- revision: 11 -->

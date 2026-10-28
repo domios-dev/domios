@@ -218,6 +218,7 @@ impl MultiplexerState {
                 team_id: tab.and_then(|p| p.team_id.clone()),
                 parent_tab_id: tab.and_then(|p| p.parent_tab_id.clone()),
                 spawned_by_tab_id: tab.and_then(|p| p.spawned_by_tab_id.clone()),
+                neighbor_authority: tab.and_then(|p| p.neighbor_authority.clone()),
                 report_target_tab_id: tab.and_then(|p| p.report_target_tab_id.clone()),
                 report_target_mesh_peer: tab.and_then(|p| p.report_target_mesh_peer.clone()),
                 ownership: tab.and_then(|p| p.ownership.clone()),
@@ -563,6 +564,7 @@ fn install_leaf(
         team_id,
         parent_tab_id,
         spawned_by_tab_id,
+        neighbor_authority,
         report_target_tab_id,
         report_target_mesh_peer,
         ownership,
@@ -652,7 +654,10 @@ fn install_leaf(
         && ownership.is_none();
     let restored_boot_stage = restored_agent_type
         .as_ref()
-        .map(|_| codeterm_types::pty::BootStage::PtyStarting);
+        .map(|_| match &restored_backing {
+            TabBacking::ChatBackend { .. } => codeterm_types::pty::BootStage::AgentLaunching,
+            _ => codeterm_types::pty::BootStage::PtyStarting,
+        });
     let restored_locked = *agent_type_locked || restored_agent_type.is_some();
     tabs.insert(
         tab_id.clone(),
@@ -696,7 +701,7 @@ fn install_leaf(
             pending_model_selection: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
-            structured_control_active: false,
+
             agent_runtime_state: agent_identity
                 .as_ref()
                 .and_then(|identity| identity.agent_runtime_state.clone()),
@@ -758,6 +763,7 @@ fn install_leaf(
             report_target_tab_id: report_target_tab_id.clone(),
             report_target_mesh_peer: report_target_mesh_peer.clone(),
             spawned_by_tab_id: spawned_by_tab_id.clone(),
+            neighbor_authority: neighbor_authority.clone(),
             ownership: ownership.clone(),
             title_level: restored_level,
             chat_view: chat_view.unwrap_or(false),

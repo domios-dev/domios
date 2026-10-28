@@ -15,6 +15,7 @@ use super::AppState;
 mod dismissal;
 pub use dismissal::{chat_send_delete, chat_send_dismissals};
 mod admissions;
+mod neighbor;
 mod preparation;
 pub use admissions::chat_send_admissions;
 
@@ -205,16 +206,6 @@ async fn run_programmatic_delivery<T: Send + 'static>(
 mod lock_tests;
 #[cfg(test)]
 mod mesh_rpc_delivery_tests;
-
-fn pad_write_refusal(tab: &str, detail: String) -> SendRejection {
-    DeliveryError::TabBusyRefused {
-        tab: tab.to_string(),
-        detail: format!(
-            "long message was not sent because recipient AgentPad write failed: {detail}"
-        ),
-    }
-    .into()
-}
 
 /// Error surface for `/send`. Delivery failures serialize the structured
 /// taxonomy so the mesh relay can forward `code` + `bytes_written` verbatim
@@ -457,7 +448,7 @@ pub async fn send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
-    Json(body): Json<SendTextBody>,
+    Json(mut body): Json<SendTextBody>,
 ) -> Result<Json<serde_json::Value>, SendRejection> {
     let svc_token_match = headers
         .get("Authorization")
@@ -475,6 +466,14 @@ pub async fn send_text(
     if svc_token_match.is_none() {
         check_auth(&state, &headers)?;
     }
+    neighbor::authorize_message(
+        &state,
+        &headers,
+        &raw_tab_id,
+        &body,
+        svc_token_match.is_some(),
+    )
+    .await?;
     // Reachability is the FIRST fallible step and the only one allowed to report
     // a missing tab — everything past it has resolved a real target.
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
@@ -482,6 +481,32 @@ pub async fn send_text(
         .map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
         })?;
+    if svc_token_match.is_none() && crate::auth::caller_peer_id(&state, &headers).is_none() {
+        body.source_tab = crate::auth::caller_claim(&state, &headers, body.source_tab.as_deref())
+            .map_err(|(status, message)| SendRejection {
+            status,
+            body: serde_json::json!({"ok":false,"error":{"code":"forbidden","message":message}}),
+        })?;
+        if crate::auth::tab_caller(&state, &headers)
+            .map_err(|_| SendRejection::from((StatusCode::FORBIDDEN, "Invalid caller credential")))?
+            .is_some()
+            && (body.source_peer.is_some() || body.system_context.is_some())
+        {
+            return Err(SendRejection::from((
+                StatusCode::FORBIDDEN,
+                "Tab credentials cannot supply peer or system provenance",
+            )));
+        }
+    } else if svc_token_match.is_some()
+        && (body.source_tab.is_some()
+            || body.source_peer.is_some()
+            || body.system_context.is_some())
+    {
+        return Err(SendRejection::from((
+            StatusCode::FORBIDDEN,
+            "Service push cannot claim a tab sender",
+        )));
+    }
     let owner = state.clone();
     let target = tab_id.clone();
     let source_tab = body.source_tab.clone();
@@ -656,10 +681,13 @@ pub async fn send_text(
                 }
             });
 
-        system_context
+        let envelope = system_context
             .map(codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder)
             .or(source_envelope)
-            .or_else(|| Some(codeterm_service_core::service::messenger::MessageEnvelope::default()))
+            .or_else(|| {
+                Some(codeterm_service_core::service::messenger::MessageEnvelope::default())
+            });
+        envelope.map(|envelope| state.svc.stamp_neighbor_message(envelope))
     })
     .await
     .map_err(|_| {

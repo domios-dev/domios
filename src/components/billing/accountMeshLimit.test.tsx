@@ -4,6 +4,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async () => ({ consent: "off" })) }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
+const billing = vi.hoisted(() => ({ available: true }));
+vi.mock("./useDesktopBilling", () => ({ useDesktopBilling: () => ({
+  loading: false, subscription: billing.available ? { paid_subscription: null } : null,
+}) }));
+
 
 import { AccountMeshRefusalError, openOnMeshRefusal, raiseMeshMachineLimit } from "./accountMeshLimit";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
@@ -16,7 +21,6 @@ import { MachineLimitPaywall } from "../MeshPanel/MachineLimitPaywall";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const MESH = "The free version includes 2 machines in your mesh.";
 const machineLimit = (activeCount = 2, limit = 2) => ({ reason: "mesh.machines", limit, active_count: activeCount });
 
 let root: Root | null = null;
@@ -41,9 +45,9 @@ async function mountModal(upgrade: (planKey: string) => Promise<void> = async ()
 }
 
 const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
-const headline = () => dialog()?.querySelector("h2")?.textContent ?? null;
+const prompt = () => freeLimitGate.current();
 const button = (name: string) => [...document.querySelectorAll("button")].find((candidate) => candidate.textContent === name)!;
-const settle = () => act(async () => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); });
+const settle = () => act(async () => {});
 const click = async (name: string) => {
   await act(async () => { button(name).click(); });
   await settle();
@@ -70,6 +74,7 @@ afterEach(async () => {
   root = null;
   act(() => freeLimitGate.close());
   freeLimitGate.setLimits(null);
+  billing.available = true;
   document.body.replaceChildren();
 });
 
@@ -85,7 +90,7 @@ describe("automatic enroll after sign-in or restore", () => {
     await act(async () => root!.render(<AccountMeshClientProvider value={client}><RefusedMachine /><FreeLimitPlansModal /></AccountMeshClientProvider>));
     expect(dialog()).toBeNull();
     await click("See plans");
-    expect(headline()).toBe(MESH);
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 2 });
     await click("Not now");
     expect(dialog()).toBeNull();
     expect(client.revokeCalls).toEqual([]);
@@ -95,13 +100,13 @@ describe("automatic enroll after sign-in or restore", () => {
   it("a refusal delivered before any Mesh view mounts opens the modal once mounted", async () => {
     raiseMeshMachineLimit({ requestId: requestId(), refusal: machineLimit() });
     await mountModal();
-    expect(headline()).toBe(MESH);
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 2 });
   });
 
   it("a refusal delivered after mount opens it with the server's own maximum", async () => {
     await mountModal();
     await deliver(requestId(), machineLimit(5, 5));
-    expect(headline()).toBe("The free version includes 5 machines in your mesh.");
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 5, activeCount: 5 });
   });
 
   it("the same request replayed by a refresh or remount never reopens or overrides dismissal", async () => {
@@ -109,7 +114,7 @@ describe("automatic enroll after sign-in or restore", () => {
     await mountModal();
     await deliver(id, machineLimit());
     await deliver(id, machineLimit());
-    expect(headline()).toBe(MESH);
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 2 });
     await click("Not now");
     await deliver(id, machineLimit());
     await act(async () => root!.unmount());
@@ -117,14 +122,14 @@ describe("automatic enroll after sign-in or restore", () => {
     await deliver(id, machineLimit());
     expect(dialog()).toBeNull();
     await deliver(requestId(), machineLimit());
-    expect(headline()).toBe(MESH);
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 2 });
   });
 
   it("a paid or dormant local plan payload neither suppresses nor fakes a server machine refusal", async () => {
     await mountModal();
     freeLimitGate.setLimits({ enforcing: false, max: { workspaces: null, teams: null, "agent.tabs": null } });
     await deliver(requestId(), machineLimit());
-    expect(headline()).toBe(MESH);
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 2 });
     await click("Not now");
     freeLimitGate.setLimits({ enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } });
     await deliver(requestId(), { reason: "unavailable" });
@@ -139,7 +144,7 @@ describe("explicit Add or retry", () => {
     let result: unknown = "unset";
     await act(async () => { result = await openOnMeshRefusal(() => machines.add("third-machine")); });
     expect(result).toBeUndefined();
-    expect(headline()).toBe(MESH);
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 2 });
     expect(machines.records).toEqual(["self-paired-relationship", "second-paired-relationship"]);
   });
 
@@ -149,7 +154,7 @@ describe("explicit Add or retry", () => {
     await act(async () => { await openOnMeshRefusal(() => machines.add("third-machine")); });
     await click("Not now");
     await act(async () => { await openOnMeshRefusal(() => machines.add("third-machine")); });
-    expect(headline()).toBe(MESH);
+    expect(prompt()).toMatchObject({ key: "mesh.machines", limit: 2, activeCount: 2 });
     expect(machines.attempts).toHaveLength(2);
   });
 
@@ -166,12 +171,27 @@ describe("explicit Add or retry", () => {
     await mountModal(upgrade);
     const machines = fakeMachines(() => machineLimit());
     await act(async () => { await openOnMeshRefusal(() => machines.add("third-machine")); });
+    expect(button("Upgrade").disabled).toBe(false);
+    expect(button("Manage subscription")).toBeUndefined();
     await click("Upgrade");
-    expect(upgrade).toHaveBeenCalledWith("pro_yearly");
+    expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_yearly");
     expect(dialog()).toBeNull();
     expect(machines.attempts).toHaveLength(1);
     expect(machines.records).not.toContain("third-machine");
   });
+
+  it("keeps Upgrade blocked when the paid subscription readback is unavailable", async () => {
+    const upgrade = vi.fn(async () => {});
+    await mountModal(upgrade);
+    billing.available = false;
+    await deliver(requestId(), machineLimit());
+    expect(button("Upgrade").disabled).toBe(true);
+    expect(button("Manage subscription")).toBeUndefined();
+    await click("Upgrade");
+    expect(upgrade).not.toHaveBeenCalled();
+    expect(dialog()).not.toBeNull();
+  });
+
 });
 
 describe("failures that are not the server's machine limit never open plans", () => {

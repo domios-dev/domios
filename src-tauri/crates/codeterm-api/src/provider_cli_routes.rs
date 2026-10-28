@@ -41,7 +41,7 @@ pub(crate) async fn run(
     (StatusCode, String),
 > {
     check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_owned()))?;
-    let caller = crate::tab_routes::caller_tab_header(&headers).or(body.caller_tab_id);
+    let caller = crate::auth::caller_claim(&state, &headers, body.caller_tab_id.as_deref())?;
     let service = state.svc.clone();
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::provider_cli_actions::launch(

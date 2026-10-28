@@ -12,6 +12,7 @@ use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
 use crate::chatbackend::ChatBackendProvider;
 use crate::multiplexer::commands::MuxState;
+mod close;
 mod liveness;
 mod recovery;
 mod runtime_liveness;
@@ -137,6 +138,19 @@ impl TabReopenGuards {
     pub fn serialized<T>(&self, tab_id: &str, transition: impl FnOnce() -> T) -> T {
         let lock = self.lock_for(tab_id);
         let _held = lock.lock();
+        transition()
+    }
+
+    fn serialized_until<T>(
+        &self,
+        tab_id: &str,
+        deadline: std::time::Instant,
+        transition: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let lock = self.lock_for(tab_id);
+        let _held = lock
+            .try_lock_until(deadline)
+            .ok_or("chat backend close lock deadline")?;
         transition()
     }
 }

@@ -64,6 +64,8 @@ fn cli_identity_includes_version_and_build_sha() {
 #[test]
 fn explicit_port_override_reports_environment_source() {
     let _guard = crate::test_env_lock().lock().unwrap();
+    let previous_tab = std::env::var("CODETERM_TAB_ID").ok();
+    std::env::remove_var("CODETERM_TAB_ID");
     let previous_data = std::env::var("CODETERM_DATA_DIR").ok();
     let previous_instance = std::env::var("CODETERM_INSTANCE").ok();
     let previous_port = std::env::var("CODETERM_API_PORT").ok();
@@ -86,6 +88,7 @@ fn explicit_port_override_reports_environment_source() {
     assert_eq!(instance.value.as_deref(), Some("bench"));
     assert_eq!(instance.source, ResolutionSource::CodeTermInstance);
 
+    restore_env("CODETERM_TAB_ID", previous_tab);
     restore_env("CODETERM_DATA_DIR", previous_data);
     restore_env("CODETERM_INSTANCE", previous_instance);
     restore_env("CODETERM_API_PORT", previous_port);
@@ -250,5 +253,27 @@ fn explicit_dev_with_default_port_cannot_inherit_production_authority() {
         .unwrap()
         .as_deref(),
         Some("selected-dev"),
+    );
+}
+
+#[test]
+fn tab_connections_never_read_owner_authority_or_send_credentials_to_a_foreign_selection() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(root.path().join(".secrets"), "unreadable fixture").unwrap();
+    assert_eq!(
+        resolve_connection_token(root.path(), Some("tab"), Some("launch-token"), false)
+            .unwrap()
+            .as_deref(),
+        Some("launch-token")
+    );
+    assert!(
+        resolve_connection_token(root.path(), Some("tab"), None, false)
+            .unwrap_err()
+            .contains("no launch credential")
+    );
+    assert!(
+        resolve_connection_token(root.path(), Some("tab"), Some("launch-token"), true)
+            .unwrap_err()
+            .contains("another instance")
     );
 }

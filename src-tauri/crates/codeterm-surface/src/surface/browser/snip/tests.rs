@@ -46,6 +46,7 @@ fn ctx(data_dir: &Path) -> SurfaceCallCtx {
     SurfaceCallCtx {
         host: Arc::new(crate::test_support::RecordingSurfaceHost::default()),
         owner_tab_id: None,
+        caller_tab_id: None,
         data_dir: data_dir.to_path_buf(),
         actor: None,
     }

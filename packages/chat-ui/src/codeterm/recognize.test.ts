@@ -74,6 +74,18 @@ eq(recognize("codeterm spec link add pl_1 --spec sp_1")?.path, ["spec", "link", 
 console.log("\n--- templates ---\n");
 import { describeAction, renderTemplate } from "./templates";
 
+for (const action of ["update", "close"]) {
+  for (const task of ["task_opaque123", "opaque-handle", "COD-1879"]) {
+    const invocation = recognize(`domios plan task ${action} pl_opaque ${task}`)!;
+    eq(describeAction(invocation).object, task, `${action} names ${task}`);
+    const shorthand = recognize(`domios plan task ${action} ${task} --${action === "close" ? "result" : "body"} "mentions task_foreign"`)!;
+    eq(describeAction(shorthand).object, task, `${action} shorthand names its target before body references`);
+  }
+}
+eq(describeAction(recognize('domios plan task update pl_opaque task_123 --name "Revised task"')!).object, "Revised task", "task edit uses explicit name");
+eq(describeAction(recognize('domios plan task add pl_opaque --name "Added task"')!).object, "Added task", "task add uses explicit name");
+eq(describeAction(recognize("domios plan task add pl_opaque")!).object, "New task", "task add without a name keeps creation label");
+
 const sent = recognize('codeterm send --tab bda0e267 "hi there"')!;
 eq(renderTemplate(sent).title, "Sent to tab bda0e267", "send title");
 eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send status from result");

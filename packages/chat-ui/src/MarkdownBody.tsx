@@ -7,7 +7,7 @@ import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { attachmentPathName, localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { MarkdownLink } from "./MarkdownLink";
+import { MarkdownLink, markdownUrlTransform } from "./MarkdownLink";
 import remarkGfm from "remark-gfm";
 import { remarkCachedParse } from "./markdownParse";
 import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
@@ -85,13 +85,19 @@ function isBlockCodeNode(node: unknown): boolean {
   return position?.start?.line !== position?.end?.line;
 }
 
+// Untrusted text (a Neighbor's message) must not run: html previews and diagrams render as inert code.
+const InteractivePreviewsContext = React.createContext(true);
+const RUNNABLE_LANGUAGES = new Set(["html", "mermaid"]);
+
 function MarkdownCode({
   node,
   className,
   children,
   ...props
 }: React.ComponentProps<"code"> & { node?: unknown }) {
-  const language = resolveCodeLanguage(className, children);
+  const interactive = useContext(InteractivePreviewsContext);
+  const resolved = resolveCodeLanguage(className, children);
+  const language = !interactive && resolved && RUNNABLE_LANGUAGES.has(resolved.toLowerCase()) ? null : resolved;
   const { "data-code-text": rawText, "data-code-block": rawBlock, ...codeProps } = props as typeof props & { "data-code-text"?: string; "data-code-block"?: boolean | string };
   const plainCode = rawText ?? extractCodeText(children);
   const blockCode = rawBlock === undefined ? isBlockCodeNode(node) : rawBlock === true || rawBlock === "true";
@@ -105,6 +111,9 @@ function MarkdownCode({
           color: "var(--ct-fg)",
           overflowWrap: "anywhere",
           wordBreak: "break-word",
+          // A chip broken across lines keeps its padding and rounded ends on every line instead of being cut at the edge.
+          boxDecorationBreak: "clone",
+          WebkitBoxDecorationBreak: "clone",
         }}
         {...codeProps}
       >
@@ -188,12 +197,15 @@ export function RichMarkdown({
   text,
   fontScale,
   localArtifacts = true,
+  interactivePreviews = true,
   sourcePositions = false,
   planLinks,
 }: {
   text: string;
   fontScale?: number;
   localArtifacts?: boolean;
+  /** False for text from someone else: html and diagram fences stay code instead of running. */
+  interactivePreviews?: boolean;
   /** Stamp original source offsets on the rendered DOM. */
   sourcePositions?: boolean;
   planLinks?: MarkdownPlanLinks;
@@ -355,20 +367,21 @@ export function RichMarkdown({
     [fontScale, h1Text, h2Text, h3Text, localArtifacts],
   );
   const splitParts = parts && parts.length > 1 ? parts : null;
-  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, sourcePositions, Boolean(planLinks?.onOpenPlan), splitParts ? partContext?.id ?? null : null]);
+  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, interactivePreviews, sourcePositions, Boolean(planLinks?.onOpenPlan), splitParts ? partContext?.id ?? null : null]);
   const cachedKeyRef = useRef<string | null>(null);
   const rendered = useMemo(() => {
     const previousKey = cachedKeyRef.current;
     cachedKeyRef.current = cacheKey;
     if (previousKey !== null && previousKey !== cacheKey) forgetMarkdownRender(previousKey);
     return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
+      urlTransform: markdownUrlTransform,
       remarkPlugins: REMARK_PLUGINS,
       rehypePlugins: [...(rehypePlugins ?? []), rehypePlanRefs, ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
       components,
       children: renderedText,
     }));
   }, [cacheKey, renderedText, rehypePlugins, splitParts, components, planLinks?.onOpenPlan]);
-  return <MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownSourceContext.Provider value={renderedText}>{rendered}</MarkdownSourceContext.Provider></MarkdownPlanLinksContext.Provider>;
+  return <InteractivePreviewsContext.Provider value={interactivePreviews}><MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownSourceContext.Provider value={renderedText}>{rendered}</MarkdownSourceContext.Provider></MarkdownPlanLinksContext.Provider></InteractivePreviewsContext.Provider>;
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata];

@@ -27,6 +27,10 @@ pub(super) fn dispatch(
     params: Option<serde_json::Value>,
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
+    // The authenticated boundary applies the Neighbor allowlist before dispatch.
+    if method == "mem.secret.authorize" {
+        return Ok(serde_json::json!({"authorized":true}));
+    }
     if let Some(rejection) = secret_socket_rejection(method) {
         return Err(rejection);
     }

@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.23",
-  "minCodeterm": "1.15.3",
+  "version": "1.14.24",
+  "minCodeterm": "1.17.0",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
@@ -63,7 +63,24 @@
       "nativeSubagentTools": [
         "Agent",
         "Task"
-      ]
+      ],
+      "scopedFilesystem": {
+        "noPromptArgs": [
+          "--permission-mode",
+          "dontAsk"
+        ],
+        "readAllRules": [
+          "Read",
+          "Glob",
+          "Grep"
+        ],
+        "readRootRule": "Read({path}/**)",
+        "writeRootRule": "Edit({path}/**)",
+        "additionalDirectoryArgs": [
+          "--add-dir",
+          "{path}"
+        ]
+      }
     },
     "executionSandbox": {
       "unsupportedReason": "Permission modes and tool rules do not enforce read-only filesystem access for shell commands; use an enforcing provider or an explicit owner-run canonical gate."

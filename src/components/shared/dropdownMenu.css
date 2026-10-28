@@ -282,6 +282,7 @@
 
 .ct-account-head { cursor: default; }
 .ct-account-head .ct-menu-identity { padding-bottom: 6px; }
+.ct-account-head .ct-menu-identity__text { max-width: 15rem; }
 
 .ct-account-plan {
   display: flex;
@@ -316,11 +317,6 @@
   color: var(--ct-muted-fg);
   font-size: 11px;
 }
-.ct-plan-status__dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; }
-.ct-plan-status[data-tone="active"] .ct-plan-status__dot { background: var(--ct-green); }
-.ct-plan-status[data-tone="attention"] { color: color-mix(in srgb, var(--ct-yellow) 70%, var(--ct-fg)); }
-.ct-plan-status[data-tone="attention"] .ct-plan-status__dot { background: var(--ct-yellow); }
-.ct-plan-status[data-tone="inactive"] .ct-plan-status__dot { opacity: 0.6; }
 
 .ct-menu-session {
   display: flex;

@@ -28,9 +28,18 @@ pub struct PtySpawnBody {
 pub async fn pty_spawn(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-    Json(body): Json<PtySpawnBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    Json(mut body): Json<PtySpawnBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?;
+    if let Some(caller) = crate::auth::tab_caller(&state, &headers)
+        .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?
+    {
+        caller
+            .validate_claim(body.tab_id.as_deref())
+            .map_err(|error| crate::plan_quota_status::route_error(StatusCode::FORBIDDEN, error))?;
+        body.tab_id = Some(caller.tab_id);
+    }
     let pty_id = codeterm_commands::commands::spawn_pty_core(
         &state.svc,
         body.command,
@@ -41,7 +50,9 @@ pub async fn pty_spawn(
         body.tab_id,
     )
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    .map_err(|error| {
+        crate::plan_quota_status::route_error(StatusCode::INTERNAL_SERVER_ERROR, error)
+    })?;
     Ok(Json(serde_json::json!({ "pty_id": pty_id })))
 }
 

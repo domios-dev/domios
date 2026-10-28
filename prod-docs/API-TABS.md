@@ -204,4 +204,30 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `domios docs API-MEMORY`.
 
-<!-- revision: 66 -->
+
+## Additional REST routes
+
+Session changes retain caller and binding checks. Provider hook ingress methods: API-LIFECYCLE.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| GET | `/api/tabs/{id}/history` | Read full retained terminal history. |
+| GET | `/api/tabs/{id}/session/binding-state` | Read the tab session binding state. |
+| GET | `/api/tabs/{id}/shell-commands` | Read the tab's shell command records. |
+| GET | `/api/tabs/{id}/todos` | Read the tab checklist. |
+| GET | `/api/tabs/{id}/turn-controls` | Read capability-selected controls for this tab. |
+| POST | `/api/tabs/{id}/capture/start` | Start tab capture. |
+| POST | `/api/tabs/{id}/capture/stop` | Stop tab capture. |
+| POST | `/api/tabs/{id}/children/reorder` | Reorder child tabs. |
+| POST | `/api/tabs/{id}/cwd` | Set a local tab's working directory. |
+| POST | `/api/tabs/{id}/link-pty` | Link the tab to its owned PTY. |
+| POST | `/api/tabs/{id}/release-ownership` | Release remote tab ownership. |
+| POST | `/api/tabs/{id}/rerun-restored-shell` | Explicitly rerun a restored shell command. |
+| POST | `/api/tabs/{id}/session/rebind` | Rebind an existing provider session. |
+| POST | `/api/tabs/{id}/timeout` | Set the utility shell command timeout. |
+| POST | `/api/tabs/{id}/todos/review` | Review a generation and revision of the child checklist. |
+| POST | `/api/workspaces/reorder` | Reorder workspaces. |
+| POST | `/api/workspaces/{id}/tabs/display-order` | Set workspace tab display order. |
+| POST | `/api/workspaces/{id}/tabs/reorder` | Reorder workspace tabs. |
+
+<!-- revision: 67 -->

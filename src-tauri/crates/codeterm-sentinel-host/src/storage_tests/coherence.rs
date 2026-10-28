@@ -46,6 +46,7 @@ fn storage_sentinel_graph_projects_one_committed_scope_with_configured_and_obser
         )
         .unwrap();
     let run = CronRunInfo {
+        cancel_reason: None,
         run_id: "exact-run".into(),
         started_at: 1234,
         finished_at: None,

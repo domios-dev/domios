@@ -70,6 +70,16 @@
   letter-spacing: -0.015em;
 }
 
+/* Loader's compact variant: the same loader for a small panel, with a smaller mark and caption. */
+.brand-state--compact {
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.brand-state--compact .brand-state-copy h2 {
+  font-size: var(--ct-font-size-sm);
+}
+
 .brand-state-copy p {
   margin: 0.35rem 0 0;
   color: var(--ct-muted-fg);
@@ -92,6 +102,7 @@
 }
 
 .brand-connection-card,
+.brand-connection-pill,
 .brand-reconnected {
   display: flex;
   align-items: center;
@@ -109,13 +120,27 @@
   font-weight: 600;
 }
 
+/* The paused pill and the Reconnected notice sit in one place, so recovery reads as the same note resolving. */
+.brand-connection-pill,
 .brand-reconnected {
   position: absolute;
   z-index: 70;
   top: 1rem;
   left: 50%;
+  max-width: calc(100% - 2rem);
   padding: 0.5rem 0.75rem;
   font-size: 0.75rem;
+  white-space: nowrap;
   pointer-events: none;
   transform: translateX(-50%);
+}
+
+.brand-connection-pill {
+  gap: 0.5rem;
+}
+
+.brand-connection-pill-hint {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ct-muted-fg);
 }

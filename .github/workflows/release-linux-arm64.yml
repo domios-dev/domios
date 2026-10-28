@@ -95,7 +95,7 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 10.32.1
           run_install: false
@@ -139,6 +139,8 @@ jobs:
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb "$ART/out/"
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage "$ART/out/"
           cp release-artifacts/domios-headless-* "$ART/out/"
+      - name: Verify compiled analytics production key
+        run: node scripts/check-release-analytics-key.mjs target/domios-package/domios-server/domios-server
       - name: Frozen signer dependencies
         run: pnpm install --frozen-lockfile
       - name: Import temporary release signing material
@@ -186,7 +188,7 @@ jobs:
         if: always()
         uses: ./.github/actions/ci-artifact-spool
       - name: Retain the frozen stage proof
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: release-stage-aarch64-unknown-linux-gnu-${{ github.run_attempt }}
           path: |-

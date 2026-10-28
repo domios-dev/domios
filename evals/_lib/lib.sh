@@ -49,6 +49,14 @@ is_linux()   { case "$OSTYPE" in linux*) return 0;; *) return 1;; esac; }
 
 EVAL_LIB_REQUESTED_INSTANCE="${CODETERM_INSTANCE:-}"
 EVAL_LIB_REQUESTED_API_PORT="${CODETERM_API_PORT:-}"
+# Capture launch identity before composing an owner connection for DEV setup.
+EVAL_LIB_CALLER_TAB_ID="${CODETERM_TAB_ID:-}"
+EVAL_LIB_CALLER_API_TOKEN="${CODETERM_API_TOKEN:-}"
+EVAL_LIB_CALLER_API_URL="${CODETERM_API_URL:-}"
+EVAL_LIB_CALLER_API_PORT="${CODETERM_API_PORT:-}"
+EVAL_LIB_CALLER_SOCKET_PATH="${CODETERM_SOCKET_PATH:-}"
+EVAL_LIB_CALLER_SESSION_ID="${CODETERM_SESSION_ID:-}"
+EVAL_LIB_CALLER_NONCE="${CODETERM_SESSION_BINDING_NONCE:-}"
 EVAL_LIB_DEV_API_PORT=7686
 EVAL_LIB_DEV_VITE_PORT=1420
 EVAL_LIB_DEV_CDP_PORT=9223
@@ -277,7 +285,8 @@ dev_token() {
   local data_dir cli
   data_dir="$(dev_data_dir)" || return 7
   cli="$(dev_bootstrap_cli)" || return 7
-  env -u CODETERM_API_TOKEN -u CODETERM_API_URL \
+  # The calling tab belongs to the parent instance, not this dev instance; its identity must not reach dev.
+  env -u CODETERM_API_TOKEN -u CODETERM_API_URL -u CODETERM_TAB_ID -u CODETERM_SESSION_ID -u CODETERM_SESSION_BINDING_NONCE \
     CODETERM_DATA_DIR="$data_dir" CODETERM_API_PORT="$EVAL_LIB_DEV_API_PORT" \
     "$cli" system api-token || { dev_resolution_error "$data_dir/.secrets" "$data_dir"; return 7; }
 }
@@ -340,10 +349,10 @@ dev_auth_header() {
 # Run ONE child process with the dev connection composed into its environment.
 # Those variables live for that process only, which is what keeps a leaked
 # parent CODETERM_API_PORT from redirecting the call and leaves this shell
-# unchanged. `--as-tab <id>` names the dev tab the child speaks as; the default
+# unchanged. `--as-tab <id>` requires that DEV tab's own launch environment; the default
 # blanks the parent's tab id, which would prefix every send with [from <tab>].
 dev_run() {
-  local caller_tab_id=""
+  local caller_tab_id="" token
   if [ "${1:-}" = "--as-tab" ]; then
     caller_tab_id="${2:-}"
     [ -n "$caller_tab_id" ] || {
@@ -353,6 +362,25 @@ dev_run() {
     shift 2
   fi
   dev_resolve || return 7
+  token="$EVAL_LIB_RESOLVED_API_TOKEN"
+  local -a caller_vars=()
+  if [ -n "$caller_tab_id" ]; then
+    dev_assert_cached_identity || return 7
+    dev_assert_target || return 7
+    if [ "$caller_tab_id" != "$EVAL_LIB_CALLER_TAB_ID" ] ||
+       [ -z "$EVAL_LIB_CALLER_API_TOKEN" ] ||
+       [ "$EVAL_LIB_CALLER_API_TOKEN" = "$EVAL_LIB_RESOLVED_API_TOKEN" ] ||
+       [ "$EVAL_LIB_CALLER_API_PORT" != "$EVAL_LIB_DEV_API_PORT" ] ||
+       [ "$EVAL_LIB_CALLER_SOCKET_PATH" != "$EVAL_LIB_RESOLVED_SOCKET_PATH" ] ||
+       { [ "$EVAL_LIB_CALLER_API_URL" != "$(dev_api_url)" ] &&
+         [ "$EVAL_LIB_CALLER_API_URL" != "http://localhost:$EVAL_LIB_DEV_API_PORT" ]; }; then
+      echo "ERROR [dev-tab]: --as-tab requires the selected DEV tab's own launch credential; run the probe inside that tab, not from a prod or owner shell." >&2
+      return 7
+    fi
+    token="$EVAL_LIB_CALLER_API_TOKEN"
+    caller_vars+=("CODETERM_SESSION_ID=$EVAL_LIB_CALLER_SESSION_ID"
+      "CODETERM_SESSION_BINDING_NONCE=$EVAL_LIB_CALLER_NONCE")
+  fi
   local -a dev_vars=(
     "CODETERM_DEV_API_PORT=$EVAL_LIB_DEV_API_PORT"
     "CODETERM_DEV_INSTANCE=$EVAL_LIB_RESOLVED_INSTANCE"
@@ -362,17 +390,17 @@ dev_run() {
     "CODETERM_API_URL=http://$EVAL_LIB_DEV_HOST:$EVAL_LIB_DEV_API_PORT"
     "CODETERM_VITE_PORT=$EVAL_LIB_DEV_VITE_PORT"
     "CODETERM_CDP_PORT=$EVAL_LIB_DEV_CDP_PORT"
-    "CODETERM_API_TOKEN=$EVAL_LIB_RESOLVED_API_TOKEN"
+    "CODETERM_API_TOKEN=$token"
     "CODETERM_DATA_DIR=$EVAL_LIB_RESOLVED_DATA_DIR"
     "CODETERM_SOCKET_PATH=$EVAL_LIB_RESOLVED_SOCKET_PATH"
     "CODETERM_INSTANCE=$EVAL_LIB_RESOLVED_INSTANCE"
     "CODETERM_DEV_DATA_DIR=$EVAL_LIB_RESOLVED_DATA_DIR"
-    "CODETERM_DEV_AUTH_HEADER=Authorization: Bearer $EVAL_LIB_RESOLVED_API_TOKEN"
+    "CODETERM_DEV_AUTH_HEADER=Authorization: Bearer $token"
     "CODETERM_TAB_ID=$caller_tab_id"
     "CODETERM_PARENT_TAB_ID="
   )
   # A prod tab's own identity (attempt, nonce, session, team, plan, task) must never reach dev.
-  env -u CODETERM_STARTUP_ATTEMPT_ID -u CODETERM_SESSION_BINDING_NONCE -u CODETERM_SESSION_ID     -u CODETERM_TEAM_ID -u CODETERM_PLAN_ID -u CODETERM_TASK_ID -u CODETERM_ATTEMPT_ID     "${dev_vars[@]}" "$@"
+  env -u CODETERM_STARTUP_ATTEMPT_ID -u CODETERM_SESSION_BINDING_NONCE -u CODETERM_SESSION_ID     -u CODETERM_TEAM_ID -u CODETERM_PLAN_ID -u CODETERM_TASK_ID -u CODETERM_ATTEMPT_ID     "${dev_vars[@]}" ${caller_vars[@]+"${caller_vars[@]}"} "$@"
 }
 
 dev_api_url() {
@@ -476,15 +504,14 @@ dev_post() {
 }
 
 dev_post_as_tab() {
-  local tab_id="$1" path="$2" body="${3:-{}}" auth
+  local tab_id="$1" path="$2" body="${3:-}"
   [ -n "$tab_id" ] || { echo "dev_post_as_tab requires tab id" >&2; return 7; }
-  dev_resolve || return 7
-  dev_assert_cached_identity || return 7
-  dev_assert_target || return 7
-  auth="$(dev_auth_header)" || return 7
-  curl -s --fail --max-time 30 -X POST -H "$auth" \
-    -H "X-CodeTerm-Tab-Id: $tab_id" -H "Content-Type: application/json" \
-    --data "$body" "$(dev_api_url)$path"
+  [ -n "$body" ] || body='{}'
+  dev_run --as-tab "$tab_id" bash -c '
+    curl -sS --fail --max-time 30 -X POST -H "$CODETERM_DEV_AUTH_HEADER" \
+      -H "X-CodeTerm-Tab-Id: $CODETERM_TAB_ID" -H "Content-Type: application/json" \
+      --data "$2" "$CODETERM_API_URL$1"
+  ' _ "$path" "$body"
 }
 
 # Run the codeterm CLI against the dev daemon, regardless of what
@@ -523,15 +550,7 @@ dc() {
   fi
   dev_assert_cached_identity || return 7
   if [ -n "$caller_tab_id" ]; then
-    # Plan mutations authenticate the live bound session, not just the tab id.
-    # A plain shell tab has no bound session; under the caller's pipefail a missing match must not abort.
-    local inspect session nonce binding=()
-    inspect="$(dev_run "$cli" tab inspect "$caller_tab_id" --json 2>/dev/null)" || true
-    session="$(printf '%s' "$inspect" | { grep -m1 -oE '"agent_session_id": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
-    nonce="$(printf '%s' "$inspect" | { grep -m1 -oE '"session_binding_nonce": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
-    [ -z "$session" ] || binding+=("CODETERM_SESSION_ID=$session")
-    [ -z "$nonce" ] || binding+=("CODETERM_SESSION_BINDING_NONCE=$nonce")
-    dev_run --as-tab "$caller_tab_id" env ${binding[@]+"${binding[@]}"} "$cli" "$@"
+    dev_run --as-tab "$caller_tab_id" "$cli" "$@"
   else
     dev_run "$cli" "$@"
   fi

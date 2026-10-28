@@ -10,7 +10,7 @@ import { freeLimitGate, upgradePlan, UPGRADE_PLAN_KEY, useFreeLimitPrompt } from
 import { limitHeadline, meshMachinesDetail, type FreeLimitKey } from "./freeLimitModel";
 import { offerIdForPlan, upgradePlanKey, type BillingInterval, type PlanCatalog } from "./planCatalog";
 import { usePlanCatalog } from "./planCatalogContext";
-import { displayedPlan, subscribedPlan } from "./purchaseIntent";
+import { useDesktopBilling } from "./useDesktopBilling";
 import { billingFailureToast } from "../Settings/accountFailureToast";
 import { usePurchaseIntent } from "./usePurchaseIntent";
 
@@ -28,6 +28,8 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
   const identity = account.model.kind === "signed_in" ? account.model.identity : null;
   const signedIn = identity !== null;
   const billing = useAccountPlan(identity?.uid ?? null);
+  const desktopBilling = useDesktopBilling(identity?.uid ?? null);
+  const subscriptionPlan = desktopBilling.subscription?.paid_subscription?.tier ?? null;
   const contextCatalog = usePlanCatalog();
   const offers = catalog ?? contextCatalog;
   const [refusedAsSubscribed, setRefusedAsSubscribed] = useState(false);
@@ -35,16 +37,19 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
     account,
     billing: { plan: billing.plan, planLoad: billing.planLoad, upgrade: (planKey) => onUpgrade(planKey).then(() => null, (failure: unknown) => failure ?? new Error("Checkout did not start")) },
     catalog: offers,
+    subscriptionPlan,
+    ready: !signedIn || desktopBilling.subscription !== null,
+    failed: signedIn && !desktopBilling.loading && desktopBilling.subscription === null,
     notify: publishNotice,
     onCheckoutOpened: onClose,
     onAlreadySubscribed: () => setRefusedAsSubscribed(true),
   });
   const { intent } = purchase;
-  const blocked = purchase.busy || (signedIn && billing.planLoad === "loading");
+  const blocked = purchase.busy || (signedIn && (billing.planLoad === "loading" || desktopBilling.subscription === null));
   const [interval, setInterval] = useState<BillingInterval>("year");
-  const subscribed = subscribedPlan(billing.plan, refusedAsSubscribed);
+  const subscribed = subscriptionPlan ?? (refusedAsSubscribed ? "already_subscribed" : null);
   const manage = async () => {
-    const failure = await billing.manage(() => {});
+    const failure = await billing.manage();
     if (failure) publishNotice(billingFailureToast(failure, "managing your subscription", billing.plan?.status, () => manage()));
   };
   const done = useRef<HTMLButtonElement>(null);
@@ -69,11 +74,11 @@ function PlansModal({ limit, max, detail, onClose, onUpgrade, catalog }: {
     );
   }
   return (
-    <FormDialog titleId={titleId} descriptionId={detail ? descriptionId : undefined} className="max-w-3xl" onCancel={onClose}
+    <FormDialog titleId={titleId} descriptionId={detail ? descriptionId : undefined} className="max-w-5xl" onCancel={onClose}
       onSubmit={(event) => { event.preventDefault(); if (!blocked && !subscribed) purchase.choose(upgradePlanKey(offers, interval) ?? UPGRADE_PLAN_KEY); }}>
       <h2 id={titleId} className="m-0 text-base font-semibold">{limitHeadline(limit, max)}</h2>
       {detail && <p id={descriptionId} className="m-0 text-xs text-[var(--ct-muted-fg)]">{detail}</p>}
-      <PlanCards viewRequested catalog={offers} currentPlan={displayedPlan(billing.plan)} canPurchase={!blocked}
+      <PlanCards viewRequested catalog={offers} currentPlan={subscriptionPlan} canPurchase={!blocked}
         interval={interval} onIntervalChange={setInterval}
         subscribedPlan={subscribed} onManage={() => void manage()} manageBusy={billing.pending}
         onChoose={purchase.choose} intent={intent} onCancel={purchase.cancel}

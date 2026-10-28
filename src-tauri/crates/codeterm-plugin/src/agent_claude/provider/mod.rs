@@ -395,6 +395,10 @@ impl AgentProvider for ClaudeProvider {
         launch::build_resume_command(session_id, skip_permissions)
     }
 
+    fn supports_initial_prompt_update_on_resume(&self) -> bool {
+        true
+    }
+
     fn supports_exact_session_resume(&self) -> bool {
         true
     }

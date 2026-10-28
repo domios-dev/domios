@@ -32,14 +32,14 @@ function response(body: unknown = {}, ok = true) {
 }
 
 const outcome: { failure?: unknown } = {};
-const openPlans = vi.fn();
+let identity = 0;
 
 function Harness() {
-  const billing = useAccountPlan("user");
+  const billing = useAccountPlan(`user-${identity}`);
   return <div>
     <output aria-label="Current plan">{billing.plan?.plan ?? "none"}</output>
     <output aria-label="Billing action state">{billing.pending ? "Opening subscription" : "Ready"}</output>
-    <button type="button" disabled={billing.pending} onClick={() => void billing.manage(openPlans).then((failure) => { outcome.failure = failure; })}>
+    <button type="button" disabled={billing.pending} onClick={() => void billing.manage().then((failure) => { outcome.failure = failure; })}>
       Manage subscription
     </button>
   </div>;
@@ -67,7 +67,8 @@ afterEach(async () => {
     mounted = null;
   }
   network.request.mockReset();
-  openPlans.mockReset();
+  vi.restoreAllMocks();
+  identity++;
   delete outcome.failure;
 });
 
@@ -75,24 +76,12 @@ it.each([
   ["an active paid plan", plan("billing", "pro", "active")],
   ["a past-due paid plan without billing authority", plan("free", "pro", "past_due")],
   ["an admin who also has a paid plan", plan("admin", "sponsor", "active")],
+  ["a free entitlement with a paid subscription", plan("free", "free", "active")],
 ] as const)("Manage subscription opens the billing portal for %s", async (_name, planValue) => {
   const host = await mount(planValue);
   await act(async () => host.querySelector("button")?.click());
 
   expect(billingCalls()).toEqual(["/api/account/portal"]);
-  expect(openPlans).not.toHaveBeenCalled();
-  expect(outcome.failure).toBeNull();
-});
-
-it.each([
-  ["a free plan", plan("free", "free", "active")],
-  ["an admin without a paid plan", plan("admin", "free", "active")],
-] as const)("Manage subscription opens the plans card for %s without calling the portal", async (_name, planValue) => {
-  const host = await mount(planValue);
-  await act(async () => host.querySelector("button")?.click());
-
-  expect(billingCalls()).toEqual([]);
-  expect(openPlans).toHaveBeenCalledTimes(1);
   expect(outcome.failure).toBeNull();
 });
 
@@ -126,4 +115,19 @@ it("an entitlement change re-reads the plan without a window focus", async () =>
 
   expect(host.querySelector('[aria-label="Current plan"]')?.textContent).toBe("pro");
   expect(network.request).toHaveBeenLastCalledWith("/api/account/plan", expect.objectContaining({ method: "GET" }));
+});
+
+it("shares focus refreshes across consumers and uses the focus endpoint once a minute", async () => {
+  let now = 0;
+  vi.spyOn(Date, "now").mockImplementation(() => now);
+  const value = plan("billing", "pro", "active");
+  await mount(value, async () => response(value));
+  await act(async () => mounted!.root.render(<><Harness /><Harness /></>));
+  expect(network.request).toHaveBeenCalledTimes(1);
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(network.request).toHaveBeenCalledTimes(1);
+  now = 60_000;
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(network.request).toHaveBeenCalledTimes(2);
+  expect(network.request).toHaveBeenLastCalledWith("/api/account/plan/refresh?focus=true", { method: "POST" });
 });

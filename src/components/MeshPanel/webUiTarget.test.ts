@@ -90,6 +90,18 @@ assert("route summary distinguishes local network", webRouteLabel("lan"), "Local
 
 assert("bound listener wins over a cached Serve URL", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }, serve()).link, "http://100.64.1.2:7698/#token=secret&relay=self");
 assert("detected IP alone is not a ready listener", webUiListenerReady(network), false);
+const macsysNetwork: NetworkInfo = {
+  api_port: 7685,
+  web_listener: "100.64.0.0:7685",
+  transport: {
+    display_name: "Tailscale", state: "connected", identity: null, network_name: null,
+    addresses: ["100.64.0.0", "fd7a:115c:a1e0::"],
+    peer_listener: true, encrypted: true, setup_actions: [],
+  },
+};
+assert("connected macsys transport with proven listener enables Open and QR", webUiListenerReady(macsysNetwork), true);
+assert("macsys address without proven listener keeps Open and QR unavailable", webUiListenerReady({ ...macsysNetwork, web_listener: null }), false);
+assert("macsys listener supplies the authenticated web target", buildWebUiTarget(config, macsysNetwork).link, "http://100.64.0.0:7685/#token=secret&relay=self");
 assert("bound signed-out listener is ready without Serve", webUiListenerReady({ ...network, web_listener: "100.64.1.2:7698" }), true);
 assert("unhealthy Serve is not ready", webUiListenerReady(network), false);
 assert("ready listener supplies its actual port", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }).link, "http://100.64.1.2:7698/#token=secret&relay=self");

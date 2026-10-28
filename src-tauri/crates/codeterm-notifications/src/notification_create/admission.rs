@@ -2,6 +2,7 @@
 pub enum NoticeSource {
     AgentNotifySend,
     UserConsent,
+    OwnerEvent,
     System,
 }
 
@@ -13,9 +14,8 @@ pub enum NoticeDestination {
 
 pub fn destination(source: NoticeSource, live_agent_caller: bool) -> NoticeDestination {
     match (source, live_agent_caller) {
-        (NoticeSource::UserConsent, _) | (NoticeSource::AgentNotifySend, true) => {
-            NoticeDestination::Bell
-        }
+        (NoticeSource::UserConsent | NoticeSource::OwnerEvent, _)
+        | (NoticeSource::AgentNotifySend, true) => NoticeDestination::Bell,
         _ => NoticeDestination::Log,
     }
 }

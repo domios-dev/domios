@@ -3,23 +3,30 @@ import { TAB_LIMIT_NOUN } from "./limitCopy";
 export type BillingInterval = "month" | "year";
 
 export interface PlanPrice {
+  priceId?: string;
   /** The provider's checkout key for this price, e.g. a Paddle price id or `pro_yearly`. */
   planKey: string;
   amount: number;
   currency: string;
 }
 
+export type PlanLimits = Record<"mesh.machines" | "workspaces" | "mem.items" | "teams" | "agent.tabs" | "neighbors", number | null>;
+
 export interface PlanOffer {
   id: string;
   name: string;
   tagline: string;
   features: string[];
+  limits?: PlanLimits;
   prices: Partial<Record<BillingInterval, PlanPrice>>;
   recommended?: boolean;
+  /** The offer the generic Upgrade action buys when no plan is chosen. */
+  upgradeDefault?: boolean;
 }
 
 export interface PlanCatalog {
   offers: PlanOffer[];
+  changesAvailable?: boolean;
 }
 
 /** Where offers and prices come from: the built-in table now, the billing provider later. */
@@ -38,7 +45,7 @@ export interface OfferPrice {
 export const FREE_LIMITS = {
   "mesh.machines": 2,
   workspaces: 2,
-  "mem.items": 1000,
+  "mem.items": 500,
   teams: 6,
   "agent.tabs": 35,
 } as const;
@@ -48,43 +55,45 @@ export const BUILTIN_PLAN_CATALOG: PlanCatalog = {
   offers: [
     {
       id: "free",
+      limits: { ...FREE_LIMITS, neighbors: 0 },
       name: "Free",
       tagline: "Everything you need on one or two machines.",
-      features: [
-        `${FREE_LIMITS["mesh.machines"]} machines in your mesh`,
-        `${FREE_LIMITS.workspaces} workspaces`,
-        `${FREE_LIMITS["mem.items"]} memory items`,
-        `${FREE_LIMITS.teams} Teams across all workspaces`,
-        `${FREE_LIMITS["agent.tabs"]} ${TAB_LIMIT_NOUN}`,
-      ],
+      features: [],
       prices: {},
     },
     {
       id: "pro",
+      limits: { "mesh.machines": 5, workspaces: 7, "mem.items": 1500, teams: 10, "agent.tabs": 70, neighbors: 5 },
       name: "Pro",
-      tagline: "No limits on machines or workspaces.",
-      features: [
-        "Unlimited machines in your mesh",
-        "Unlimited workspaces",
-        "Unlimited memory items",
-        "Unlimited Teams across all workspaces",
-        "Unlimited concurrent tabs",
-        "Everything in Free",
-      ],
+      tagline: "More room for your agents and Neighbors.",
+      features: [],
       prices: {
-        month: { planKey: "pro_monthly", amount: 5, currency: "USD" },
-        year: { planKey: "pro_yearly", amount: 33.6, currency: "USD" },
+        month: { planKey: "pro_monthly", amount: 9.99, currency: "USD" },
+        year: { planKey: "pro_yearly", amount: 72, currency: "USD" },
+      },
+      upgradeDefault: true,
+    },
+    {
+      id: "max",
+      limits: { "mesh.machines": 12, workspaces: 20, "mem.items": 5000, teams: null, "agent.tabs": null, neighbors: 20 },
+      name: "Max",
+      tagline: "Space for larger projects and Teams.",
+      features: [],
+      prices: {
+        month: { planKey: "max_monthly", amount: 24.99, currency: "USD" },
+        year: { planKey: "max_yearly", amount: 180, currency: "USD" },
       },
       recommended: true,
     },
     {
       id: "sponsor",
+      limits: { "mesh.machines": null, workspaces: null, "mem.items": null, teams: null, "agent.tabs": null, neighbors: null },
       name: "Sponsor",
-      tagline: "Pro, plus a direct line to the people building Domios.",
-      features: ["Everything in Pro", "Sponsor role in Discord", "Priority support"],
+      tagline: "Support the people building Domios.",
+      features: ["Sponsor role in Discord", "Priority support"],
       prices: {
-        month: { planKey: "sponsor_monthly", amount: 29.99, currency: "USD" },
-        year: { planKey: "sponsor_yearly", amount: 199.99, currency: "USD" },
+        month: { planKey: "sponsor_monthly", amount: 75, currency: "USD" },
+        year: { planKey: "sponsor_yearly", amount: 900, currency: "USD" },
       },
     },
   ],
@@ -114,6 +123,16 @@ function parsePrice(value: unknown): PlanPrice | null {
   return { planKey: value.planKey, amount: value.amount, currency: value.currency };
 }
 
+export function parsePlanLimits(value: Record<string, unknown>): PlanLimits {
+  const limits = {} as PlanLimits;
+  for (const key of ["mesh.machines", "workspaces", "mem.items", "teams", "agent.tabs", "neighbors"] as const) {
+    const max = value[key];
+    if (max !== null && (typeof max !== "number" || !Number.isSafeInteger(max) || max < 0)) throw new Error("Invalid tier limit");
+    limits[key] = max;
+  }
+  return limits;
+}
+
 function parseOffer(value: unknown): PlanOffer | null {
   if (!isRecord(value) || !isText(value.id) || !isText(value.name)) return null;
   const prices: PlanOffer["prices"] = {};
@@ -131,7 +150,9 @@ function parseOffer(value: unknown): PlanOffer | null {
     tagline: typeof value.tagline === "string" ? value.tagline : "",
     features: Array.isArray(value.features) ? value.features.filter(isText) : [],
     prices,
+    ...(isRecord(value.limits) ? { limits: parsePlanLimits(value.limits) } : {}),
     ...(value.recommended === true ? { recommended: true } : {}),
+    ...(value.upgradeDefault === true ? { upgradeDefault: true } : {}),
   };
 }
 
@@ -189,9 +210,9 @@ export function planCardAction(catalog: PlanCatalog, offer: PlanOffer, interval:
   return sameOffer && (subscribedPlan === planKey || subscribedPlan === offer.id) ? { kind: "none" } : { kind: "manage" };
 }
 
-/** The recommended offer's checkout key for the interval on screen, falling back to whichever interval it sells. */
+/** The default upgrade offer's checkout key for the interval on screen, falling back to whichever interval it sells. */
 export function upgradePlanKey(catalog: PlanCatalog, interval: BillingInterval): string | null {
-  const prices = catalog.offers.find((offer) => offer.recommended)?.prices;
+  const prices = (catalog.offers.find((offer) => offer.upgradeDefault) ?? catalog.offers.find((offer) => offer.recommended))?.prices;
   return (prices?.[interval] ?? prices?.year ?? prices?.month)?.planKey ?? null;
 }
 
@@ -199,4 +220,26 @@ export function upgradePlanKey(catalog: PlanCatalog, interval: BillingInterval):
 export function offerIdForPlan(catalog: PlanCatalog, plan: string | null | undefined): string {
   if (!plan) return "free";
   return catalog.offers.find((offer) => offer.id === plan || Object.values(offer.prices).some((price) => price?.planKey === plan))?.id ?? plan;
+}
+
+export function planChangePrice(offer: PlanOffer, interval: BillingInterval | null): PlanPrice | null {
+  const price = interval ? offer.prices[interval] : undefined;
+  return price?.priceId ? price : null;
+}
+
+/** A benefit line: a limit keeps its amount apart from the noun, and a null amount means unlimited. */
+export type PlanFeature = { kind: "limit"; amount: number | null; noun: string } | { kind: "text"; text: string };
+
+// Short enough that every line stays on one line in the narrowest plan card.
+const LIMIT_NOUNS: Record<keyof PlanLimits, string> = { "mesh.machines": "machines in your mesh", workspaces: "workspaces",
+  "mem.items": "memory items", teams: "Teams", "agent.tabs": TAB_LIMIT_NOUN, neighbors: "Neighbors" };
+
+export function planFeatures(offer: PlanOffer): PlanFeature[] {
+  const limits = offer.limits;
+  const extras = offer.features.map((text): PlanFeature => ({ kind: "text", text }));
+  if (!limits) return extras;
+  return [...Object.entries(LIMIT_NOUNS).flatMap(([key, noun]): PlanFeature[] => {
+    const amount = limits[key as keyof PlanLimits];
+    return key === "neighbors" && amount === 0 ? [] : [{ kind: "limit", amount, noun }];
+  }), ...extras];
 }

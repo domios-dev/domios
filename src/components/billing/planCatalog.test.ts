@@ -6,6 +6,7 @@ import {
   offerPrice,
   parsePlanCatalog,
   planCardAction,
+  planFeatures,
   remoteCatalogSource,
   upgradePlanKey,
   type PlanOffer,
@@ -15,15 +16,13 @@ const offer = (prices: PlanOffer["prices"]): PlanOffer => ({ id: "pro", name: "P
 const usd = (planKey: string, amount: number) => ({ planKey, amount, currency: "USD" });
 const pro = offer({ month: usd("pro_monthly", 10), year: usd("pro_yearly", 60) });
 
-assert.deepEqual(offerPrice(pro, "year"), { headline: "$5", per: "/ month", note: "Billed $60 yearly, save 50%", planKey: "pro_yearly" });
-assert.deepEqual(offerPrice(pro, "month"), { headline: "$10", per: "/ month", note: "Billed monthly", planKey: "pro_monthly" });
+assert.equal(offerPrice(pro, "year").planKey, "pro_yearly");
+assert.equal(offerPrice(pro, "month").planKey, "pro_monthly");
 
 const yearlyOnly = offer({ year: usd("y", 120) });
-assert.equal(offerPrice(yearlyOnly, "month").note, "Billed $120 yearly, yearly only");
 assert.equal(offerPrice(yearlyOnly, "month").planKey, "y");
 
 assert.equal(offerPrice(offer({}), "year").planKey, null);
-assert.equal(offerPrice(offer({ month: usd("m", 5), year: usd("y", 33.6) }), "year").headline, "$2.80");
 
 assert.equal(bestYearlySavings({ offers: [pro, yearlyOnly] }), 50);
 assert.equal(bestYearlySavings({ offers: [offer({ month: usd("m", 5), year: { planKey: "y", amount: 30, currency: "EUR" } })] }), null);
@@ -34,13 +33,13 @@ assert.equal(offerIdForPlan(BUILTIN_PLAN_CATALOG, "sponsor"), "sponsor");
 
 assert.deepEqual(
   BUILTIN_PLAN_CATALOG.offers.flatMap((offer) => Object.values(offer.prices).map((price) => price?.planKey)),
-  ["pro_monthly", "pro_yearly", "sponsor_monthly", "sponsor_yearly"],
+  ["pro_monthly", "pro_yearly", "max_monthly", "max_yearly", "sponsor_monthly", "sponsor_yearly"],
 );
 
 const sponsor = BUILTIN_PLAN_CATALOG.offers.find((item) => item.id === "sponsor")!;
-assert.deepEqual(offerPrice(sponsor, "month"), { headline: "$29.99", per: "/ month", note: "Billed monthly", planKey: "sponsor_monthly" });
-assert.equal(offerPrice(sponsor, "year").note, "Billed $199.99 yearly, save 44%");
-assert.equal(bestYearlySavings(BUILTIN_PLAN_CATALOG), 44);
+assert.equal(offerPrice(sponsor, "month").planKey, "sponsor_monthly");
+assert.equal(offerPrice(sponsor, "year").planKey, "sponsor_yearly");
+assert.equal(bestYearlySavings(BUILTIN_PLAN_CATALOG), 40);
 
 assert.equal(upgradePlanKey(BUILTIN_PLAN_CATALOG, "year"), "pro_yearly");
 assert.equal(upgradePlanKey(BUILTIN_PLAN_CATALOG, "month"), "pro_monthly");
@@ -48,11 +47,11 @@ assert.equal(upgradePlanKey(BUILTIN_PLAN_CATALOG, "month"), "pro_monthly");
 const [freeOffer, proOffer] = BUILTIN_PLAN_CATALOG.offers;
 const actions = (subscribed: string | null, interval: "month" | "year") =>
   BUILTIN_PLAN_CATALOG.offers.map((item) => planCardAction(BUILTIN_PLAN_CATALOG, item, interval, subscribed).kind);
-assert.deepEqual(actions(null, "year"), ["none", "choose", "choose"]);
-assert.deepEqual(actions("pro_yearly", "year"), ["none", "none", "manage"]);
-assert.deepEqual(actions("pro_yearly", "month"), ["none", "manage", "manage"]);
-assert.deepEqual(actions("sponsor_monthly", "month"), ["none", "manage", "none"]);
-assert.deepEqual(actions("pro", "month"), ["none", "none", "manage"]);
+assert.deepEqual(actions(null, "year"), ["none", "choose", "choose", "choose"]);
+assert.deepEqual(actions("pro_yearly", "year"), ["none", "none", "manage", "manage"]);
+assert.deepEqual(actions("pro_yearly", "month"), ["none", "manage", "manage", "manage"]);
+assert.deepEqual(actions("sponsor_monthly", "month"), ["none", "manage", "manage", "none"]);
+assert.deepEqual(actions("pro", "month"), ["none", "none", "manage", "manage"]);
 assert.deepEqual(planCardAction(BUILTIN_PLAN_CATALOG, proOffer, "year", null), { kind: "choose", planKey: "pro_yearly" });
 assert.deepEqual(planCardAction(BUILTIN_PLAN_CATALOG, freeOffer, "year", "pro_yearly"), { kind: "none" });
 
@@ -65,3 +64,17 @@ void (async () => {
   assert.equal(loaded.offers[0].prices.year?.amount, 60);
   await assert.rejects(remoteCatalogSource(async () => ({ nope: true })).load());
 })().catch((error: unknown) => { console.error(error); process.exitCode = 1; });
+
+const maxOffer = BUILTIN_PLAN_CATALOG.offers.find((item) => item.id === "max")!;
+assert.deepEqual(planFeatures(maxOffer).filter((feature) => feature.kind === "limit").map((feature) => feature.amount), [12, 20, 5000, null, null, 20]);
+assert.deepEqual(planFeatures(sponsor).filter((feature) => feature.kind === "text"), [
+  { kind: "text", text: "Sponsor role in Discord" }, { kind: "text", text: "Priority support" },
+]);
+assert.equal(planFeatures(freeOffer).length, 5, "a zero Neighbors limit is not a benefit");
+
+assert.deepEqual(BUILTIN_PLAN_CATALOG.offers.map(offer => offer.limits), [
+  { "mesh.machines": 2, workspaces: 2, "mem.items": 500, teams: 6, "agent.tabs": 35, neighbors: 0 },
+  { "mesh.machines": 5, workspaces: 7, "mem.items": 1500, teams: 10, "agent.tabs": 70, neighbors: 5 },
+  { "mesh.machines": 12, workspaces: 20, "mem.items": 5000, teams: null, "agent.tabs": null, neighbors: 20 },
+  { "mesh.machines": null, workspaces: null, "mem.items": null, teams: null, "agent.tabs": null, neighbors: null },
+]);

@@ -22,6 +22,7 @@ import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
+import { isCronRunning } from "../Jobs/jobsModel";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
@@ -30,6 +31,7 @@ import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./Sid
 import { surfaceAttachmentsByOwner } from "./surfaceAttachmentModel";
 import { AgentChecklistDisclosure, type ChecklistToggle } from "./AgentChecklist";
 import { showsChecklist } from "./agentChecklistModel";
+import { useNeighborGatewayIds } from "../Neighbors/neighborGateways";
 
 import {
   addableTeamRoles,
@@ -165,9 +167,11 @@ export function SidebarWorkspaceTabs({
   onOpenSentinelJob,
 }: SidebarWorkspaceTabsProps) {
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
+  const conciergeIds = useNeighborGatewayIds();
+  // A tab bound to a Neighbor lives under that Neighbor, wherever it was created.
   const sortedTabs = useMemo(
-    () => visibleWorkspaceTabs(allSortedTabs, tabs),
-    [allSortedTabs, tabs],
+    () => visibleWorkspaceTabs(allSortedTabs, tabs).filter((tab) => !conciergeIds.has(tab.id)),
+    [allSortedTabs, tabs, conciergeIds],
   );
   const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
   // Workspace-wide so a surface follows its owner into a Team card even when the surface carries no team.
@@ -351,7 +355,7 @@ export function SidebarWorkspaceTabs({
         workingManagerCount={managers.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
         workingAgentCount={agents.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
         workingTerminalCount={terminals.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
-        workingCronCount={teamCrons.filter(job => job.last_run?.status === "Running" || job.last_run?.status === "AwaitingOwnerPrompt").length}
+        workingCronCount={teamCrons.filter(isCronRunning).length}
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>

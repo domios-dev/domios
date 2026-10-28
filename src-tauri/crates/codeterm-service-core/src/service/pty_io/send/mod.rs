@@ -409,62 +409,50 @@ impl ServiceContext {
             delivery.provider_id,
             delivery.pty_id
         );
-        crate::service::codex_rpc::send::route_or_pty(
-            crate::service::codex_rpc::send::try_send_to_pty(
-                self,
-                &delivery.pty_id,
-                &crate::service::messenger::AgentInput::Framed(frame.clone()),
-            )
-            .map(|result| result.map_err(|error| error.ledger_message())),
-            || {
-                let strategy = self
-                    .agent_registry
-                    .with_provider(&delivery.provider_id, |provider| {
-                        provider.verify_submit_strategy()
-                    })
-                    .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let marker_capability = self
-                    .agent_registry
-                    .with_provider(&delivery.provider_id, |provider| {
-                        provider
-                            .paste_capability()
-                            .filter(|capability| capability.marks_routed_messages)
-                    })
-                    .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-                let input = prepare_routed_input(&frame.to_frame(), marker_capability.as_ref());
-                let body = input.body;
-                let framed = crate::service::messenger::Messenger::restore_framed_delivery(&body)?;
-                let track_exact_session_turn = !body.is_empty()
-                    && matches!(
-                        &strategy,
-                        crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
-                    );
-                let claim = super::submit_transaction::claim_submit_cycle(&delivery.pty_id);
-                super::submit_transaction::submit_text_with_key_claimed(
-                    self,
-                    &delivery.pty_id,
-                    &crate::service::messenger::AgentInput::Framed(framed),
-                    false,
-                    None,
-                    true,
-                    b"\r",
-                    strategy,
-                    crate::service::inject_verify::VerifyOpts {
-                        require_prompt_first: false,
-                        verify_echo: false,
-                        verify_submit: true,
-                        ..Default::default()
-                    },
-                    Some(delivery.permit),
-                    track_exact_session_turn,
-                    claim,
-                )
-                .and_then(|result| require_submission_result(result, track_exact_session_turn))
-                .map_err(|error| {
-                    DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
-                })
+        let strategy = self
+            .agent_registry
+            .with_provider(&delivery.provider_id, |provider| {
+                provider.verify_submit_strategy()
+            })
+            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
+        let marker_capability = self
+            .agent_registry
+            .with_provider(&delivery.provider_id, |provider| {
+                provider
+                    .paste_capability()
+                    .filter(|capability| capability.marks_routed_messages)
+            })
+            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
+        let input = prepare_routed_input(&frame.to_frame(), marker_capability.as_ref());
+        let body = input.body;
+        let framed = crate::service::messenger::Messenger::restore_framed_delivery(&body)?;
+        let track_exact_session_turn = !body.is_empty()
+            && matches!(
+                &strategy,
+                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
+            );
+        let claim = super::submit_transaction::claim_submit_cycle(&delivery.pty_id);
+        super::submit_transaction::submit_text_with_key_claimed(
+            self,
+            &delivery.pty_id,
+            &crate::service::messenger::AgentInput::Framed(framed),
+            false,
+            None,
+            true,
+            b"\r",
+            strategy,
+            crate::service::inject_verify::VerifyOpts {
+                require_prompt_first: false,
+                verify_echo: false,
+                verify_submit: true,
+                ..Default::default()
             },
+            Some(delivery.permit),
+            track_exact_session_turn,
+            claim,
         )
+        .and_then(|result| require_submission_result(result, track_exact_session_turn))
+        .map_err(|error| DeliveryError::from_injection(&delivery.pty_id, error).ledger_message())
     }
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
@@ -639,12 +627,7 @@ impl ServiceContext {
         claim: super::submit_transaction::SubmitCycleClaim,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
-        let rpc = submit
-            .then(|| crate::service::codex_rpc::send::try_send_to_pty(self, pty_id, text))
-            .flatten();
-        crate::service::codex_rpc::send::route_or_pty(rpc, || {
-            self.deliver_plain_pty_input_claimed(pty_id, text, submit, claim, enqueued)
-        })
+        self.deliver_plain_pty_input_claimed(pty_id, text, submit, claim, enqueued)
     }
 
     fn deliver_plain_pty_input_claimed(
@@ -704,6 +687,37 @@ impl ServiceContext {
         };
         let rendered = prepared.text();
         let text = rendered.as_ref();
+        if submit && agent_type.is_none() {
+            let bytes = super::submit_transaction::live_command_input(
+                text,
+                self.screen_state.bracketed_paste_mode(pty_id),
+            );
+            let (payload, _) = super::submit_transaction::shell_dispatch(&bytes);
+            let on_queued = |_: usize| {
+                if let Some(callback) = &enqueued {
+                    callback();
+                }
+            };
+            let result = super::submit_transaction::submit_shell_dispatch(
+                self,
+                pty_id,
+                &payload,
+                text,
+                claim,
+                Some(&on_queued),
+            );
+            if result.is_ok()
+                || matches!(
+                    &result,
+                    Err(crate::service::inject_verify::InjectionError::SubmitNeverConfirmed { .. })
+                )
+            {
+                self.feed_input_parser(pty_id, text, true);
+            }
+            return result
+                .map(|_| ())
+                .map_err(|error| DeliveryError::from_injection(delivery_target, error));
+        }
         let typed_follow_up = (submit
             && !matches!(prepared, crate::service::messenger::AgentInput::Framed(_)))
         .then(|| self.typed_follow_up_for_agent(agent_type.as_deref(), text))
@@ -1106,7 +1120,7 @@ impl ServiceContext {
     }
 }
 
-/// A shell produces no agent submit evidence, so its send completes once written.
+/// Shell submissions use their own command-start evidence transaction.
 pub(in crate::service::pty_io) fn plain_input_verify_opts(
     submit: bool,
     agent: bool,

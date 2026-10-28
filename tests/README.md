@@ -101,6 +101,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-events` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-events` | `.agents/skills/gates/SKILL.md` |
 | `rust-config` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-config` | `.agents/skills/gates/SKILL.md` |
 | `rust-secrets` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-secrets` | `.agents/skills/gates/SKILL.md` |
+| `rust-neighbors` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-neighbors` | `.agents/skills/gates/SKILL.md` |
 | `rust-keepawake` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-keepawake` | `.agents/skills/gates/SKILL.md` |
 | `rust-cron` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-cron` | `.agents/skills/gates/SKILL.md` |
 | `rust-shutdown` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-shutdown` | `.agents/skills/gates/SKILL.md` |
@@ -166,6 +167,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `eval-upgrade-restore` | eval | mixed | manual | yes | yes | 1800 | single | `bash evals/upgrade-restore/run.sh` | `evals/upgrade-restore/README.md` |
 | `eval-watcher-health` | eval | mixed | manual | yes | yes | 1800 | single | `bash evals/watcher-health/run.sh` | `evals/watcher-health/README.md` |
 | `eval-web-mirror-switch-sync` | eval | mixed | manual | yes | no | 1800 | single | `bash evals/web-mirror-switch-sync/run.sh` | `evals/web-mirror-switch-sync/README.md` |
+| `eval-neighbor-friend-receiving` | eval | mixed | manual | yes | yes | 1800 | single | `bash evals/neighbor-friend-receiving/run.sh` | `evals/neighbor-friend-receiving/README.md` |
 
 ## Test-looking files
 

@@ -12,7 +12,7 @@ After a committed restoration, rollback must preserve the current nonce and rece
 
 ### Durable task keys and references
 
-Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`, and `POST /api/tasks` return `key`.
+Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add` and `POST /api/plans/{id}/tasks` return `key`.
 
 `plan task add|update --group <key>` declares an unknown group with its key as label (`plan groups set` relabels), so `plan groups close` accepts every group a heartbeat names.
 
@@ -62,45 +62,7 @@ domios plan task assign <plan> <task> --tab <tab-id> [--mesh <peer>]
 
 This stores `assigned_tab_id`, `lane.tab_id` and `peer` as structured fields and reads them back. An explicit remote peer has no local-liveness requirement and never inherits the identity of a same-named local tab. A local assignment requires the target's verified live session binding and a pending task before creating its attempt; missing binding or an active/review-held task refuses without mutation. Ordinary assignment never clears a review hold; use review continuation or the genuine respawn lifecycle. A fresh attempt still requires its own task ACK. `domios plan task show` renders an `executor: tab <id> on peer <peer> (role <role>)` line. Never record an executor in a pause reason or other free text; nothing reads it. `plan task update` has no assign flag: assignment is execution authority, outside Planner writes.
 
-### Recovering a tab-gone task
-
-When a Worker's tab is gone, its owner epoch is stale by definition, so the epoch never blocks recovery. The **live authenticated Plan owner** may `cancel`, `pend`, reassign, respawn, or **dispatch** such a task. The recovery retires the stale attempt in the *same* transition that clears the dead owner identity, so no half-applied state is observable and a later `dispatch_ready` for the retired attempt is rejected instead of resurrecting ownership. A non-owner, non-epoch caller is still refused.
-
-Plan ownership is proven against the caller's **live tab binding**: tab present, agent session live, binding nonce both stored and reported back, and that tab recorded as the plan's owner with Team-Orchestrator authority. It is never proven from the owner record's `session_id`, so an Orchestrator whose session moved by restore, compaction, or provider relaunch stays its own plan's owner.
-
-Both Plan-owner paths are gated on **closed verb allowlists**: recovery verbs are a subset of the verbs where the Plan owner has authority over a task it does not hold. A verb asserting the *caller's own* task binding, such as a Worker report, is on neither list and can never ride the recovery hatch. Refusals carry a stable `data.type` naming the blocking state, so a tab-gone task is never reported as a stale epoch.
-
-A genuine respawn preserves predecessor reports and review evidence, retires the prior attempt, and enters pending startup. Runtime readiness precedes the awaiting-ACK label; only the fresh Worker's ACK starts execution.
-
-Dispatch refuses `paused`, `done`, `cancelled`, and `in_review` tasks before spawning. Explicit dispatch of a blocked task clears it to pending in the same mutation that reserves its attempt and records the prior block reason in a plan stride. Respawn also clears a blocked task atomically and records that reason; respawn is additionally the supported way to replace an attempt held in review.
-
-Plan writes require the caller's live bound session. When the caller presents its own launch nonce while binding is still in flight, the daemon waits for the binding event through the startup deadline. A timed-out write returns `data.type = "session_binding_pending"` with `data.retryable = true`; a settled launch without a registered session remains the distinct `plan_binding_session_unregistered` error.
-
-### Bouncing a cleaned terminal review generation
-
-The existing authenticated review-bounce transition can recover a cleaned terminal generation when its original closed-attempt selector finds zero candidates. A unique original match keeps its existing behavior, and multiple original matches remain an ambiguity refusal.
-
-The recovery requires an `in_review` task with no assigned executor, peer, or remaining lane tab, workspace, worktree, or branch, and `cleanup_status: done`. Every attempt must be closed and noncompetitive. Persisted attempt order must agree with strictly increasing, present assignment times; duplicate identities, overlapping generations, and contradictory times refuse selection. Only the last appended generation is considered, and it must have a nonblank executor session and binding nonce, an ACK, a persisted own-session `in_review` report, and ordered assignment, ACK, report, closure, and retirement facts. Continuation round metadata must describe the current review round, and replay labels or continuation-state conflicts refuse the fallback. An incomplete terminal generation blocks the transition even when an earlier generation has a valid report.
-
-A successful bounce records one review evidence item and milestone, advances the review round and credit through the existing transaction, marks the selected predecessor `executor_gone`, and returns the task to pending with no continuation. The transaction preserves historical reports, launch metadata, and closure and retirement times. The retired executor receives no delivery; fresh placement follows ordinary dispatch. Refusals leave task, review credit, and milestones unchanged. This contract adds no command or wire fields.
-
-This verb requires the live owning Orchestrator's top-level `caller_tab_id` and `session_binding_nonce`; `session_id` is optional under existing current-tab resolution. `from` remains attribution only and never supplies authority. The v3 gate refuses v2 clients before dispatch with `-32002`, `data.type = "version_skew"`, and the recovery command.
-
-### Review credit repair and evidence reporters
-
-`domios plan review delegate <plan> <task> --qa-tab <tab>` hands an `in_review` task to a direct child QA: only that bound session may accept or bounce it, with a non-empty evidence note; the verdict consumes the grant, which never authorizes hold, dispatch or other transitions.
-
-`domios plan review reconcile-credit <plan> --reason "<incident evidence>"` auditably repairs review credit leaked by older builds. Credit repair and capacity classification require the live bound Orchestrator session and record an immutable plan stride. For task-less review or canonical-QA evidence, the live Plan owner runs `domios plan review authorize-reporter <plan> <tab> --class review|canonical_qa`; that exact session gains evidence-only authority and reports with `domios agent report --plan <plan>` and no task/status, producing a Plan stride and an ordinary owner event without a task transition. Missing, foreign, rebound, task-bound, or stale-owner grants fail before persistence or delivery. A fresh shell may omit `CODETERM_SESSION_ID`: evidence reporting resolves the registered tab session only with a matching stored and hook-reported nonce; never inject another tab's session.
-
-Planner spawns (CLI, REST, service) resolve an omitted `--parent-tab` from the Plan owner before provisioning; a missing owner refuses with no tab created.
-
-### Task-bound plan skill reads
-
-An omitted `--plan` on `domios plan skill` uses the authenticated caller's Team active plan. Inherited launch plan, task, and attempt values do not override that live binding. An explicit `--plan` reads the named plan without rebinding the Team; a read of another plan records no current-task skill-load receipt.
-
-The caller supplies its tab and binding nonce. The daemon derives its session only when the issued and session-reported nonces match; a supplied session must match too. Same-plan task evidence requires exactly one current assignment and an exact announced content digest. Explicit task or attempt conflicts, ambiguous assignments, unannounced skills, and changed bytes refuse.
-
-Dispatch announces the manifest in its brief. For a supported existing-tab assignment, an authenticated `domios agent ack` returns the current manifest and its brief, recording that announcement on the current attempt before a load can be recorded. Repeating ACK retains an existing announcement and ACK; it never copies predecessor loads or replaces an announced digest. A startup ACK can still precede runtime binding; the first ACK returns only the manifest already announced by dispatch. Repeated ACK can complete both missing attempt binding fields only with retained launch authority for the exact creator, Team, task/attempt, owner epoch, PTY and nonce, plus the current session's matching issued and reported nonce. A verified session occupying the tab cannot mint that authority. The guarded write preserves ACK/timestamps, history, manifest, loads, status and lane. Exact already-bound equality is idempotent; partial, foreign, ambiguous, closed or retired ownership, absent/finalized launch proof and unannounced or changed manifests refuse without repair. A refusal returns `plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan, task and attempt identifiers. Report those identifiers to the Orchestrator for launch-proven binding repair; this operation never rearms finalized launches or assigns a replacement attempt.
+Execution recovery, review credit and task-bound skill-read authority: API-TEAMS.
 
 ### A spawned Worker is not an accepted dispatch
 
@@ -116,8 +78,106 @@ The Plan Orchestrator can create child tasks beneath an in-progress task with `d
 
 
 
+### Workspace Radar
+
+Radar holds items noticed in a workspace before any plan owns them. An item has an `rd_` id, a title, an optional body and tags, a status (`open` or `pulled`) and an optional source identity: `provider`, `external_id`, `url`. Items persist one file each beside the plan database and belong to the workspace root of the path that created them. Adding an item whose `(provider, external_id)` already exists in that workspace refreshes the title, body, tags and URL of the same item and returns `created: false`; this is the seam an integration uses to import from GitHub, Linear or similar systems without duplicates.
+
+Socket methods: `radar.add` (`project`, `title`, optional `body`, `tags`, `source_provider` with `source_id`, `source_url`), `radar.list` (optional `project`, `status` of `open` (default), `pulled` or `all`, `tag`, `provider`, `query`), `radar.show`, `radar.update` (`item_id` plus any of `title`, `body`, `tags`), `radar.drop` and `radar.pull` (`item_id`, `plan_id`, optional `type`, `sections`). CLI: `domios radar add|list|show|edit|drop|pull`. Local integrations without the socket reach the same methods through the authenticated loopback `POST /api/cli/rpc` route.
+
+`radar.pull` creates one task in an active plan of the item's own workspace, under the same caller authority as `plan.task.add`. The task takes the item's title and body; a GitHub issue URL in the source becomes the task's external reference. The item becomes `pulled` and records `{plan_id, task_id, pulled_at}`; a second pull is refused with that link. Dropping an item deletes it and never touches a task it was pulled into. The earlier hidden Inbox plan and `domios inbox add` are gone: on start, every task of that legacy plan becomes an open Radar item, with its criteria, plans and legacy state folded into the body, and the hidden plan is deleted.
+
 ### Lane cleanup progress
 
 `plan.lanes_clean` accepts optional `stream: true` and returns `{job_id}` immediately. The cleanup runs outside the async runtime. `plan.lanes_clean_next` with `{job_id, cursor: 0}` waits for events, then returns `{events, cursor, done, result}`. Each event contains `{lane, finished}`; pass the returned cursor to receive the next events. A final response contains the ordinary `{plan_id, dry_run, lanes}` result and retires the job. Without `stream`, the call returns that final result directly. Dry runs remain available while confirmed cleanup runs; overlapping mutations for the same plan are refused. The existing owner authorization applies to confirmation and fetch.
 
-<!-- revision: 38 -->
+
+## Additional REST routes
+
+Task writes require current caller, session and binding authority (API). Execution recovery and review authority: API-TEAMS.
+
+| Method | Path | Operation |
+|--------|------|-----------|
+| DELETE | `/api/plans/{id}` | Delete a plan. |
+| DELETE | `/api/plans/{id}/elements/{element_id}` | Remove a canvas element. |
+| DELETE | `/api/plans/{id}/links/{to}` | Unlink plans. |
+| DELETE | `/api/plans/{id}/notes/{element_id}` | Remove a canvas element. |
+| DELETE | `/api/plans/{id}/sections/{sid}` | Remove a section. |
+| DELETE | `/api/plans/{id}/spec-links/{spec_id}` | Unlink a specification. |
+| DELETE | `/api/plans/{id}/tasks/{tid}` | Remove a task. |
+| DELETE | `/api/plans/{id}/tasks/{tid}/milestones/{ms_id}` | Remove a milestone. |
+| DELETE | `/api/specs/{id}/sections/{sid}` | Remove a section. |
+| GET | `/api/efforts/{id}` | Read an effort. |
+| GET | `/api/plans` | List plans in the selected scope. |
+| GET | `/api/plans/{id}` | Read a plan. |
+| GET | `/api/plans/{id}/attachments` | Read plan attachments. |
+| GET | `/api/plans/{id}/control-loop` | Read the control-loop configuration. |
+| GET | `/api/plans/{id}/coverage` | Read section coverage. |
+| GET | `/api/plans/{id}/decision` | List decisions. |
+| GET | `/api/plans/{id}/handoffs` | List plan handoffs. |
+| GET | `/api/plans/{id}/handoffs/show` | Read a plan handoff. |
+| GET | `/api/plans/{id}/loops/{lid}` | Read loop status. |
+| GET | `/api/plans/{id}/next` | Read the next planned work. |
+| GET | `/api/plans/{id}/pause/preview` | Preview pause effects. |
+| GET | `/api/plans/{id}/reconcile` | Read reconciliation findings. |
+| GET | `/api/plans/{id}/resume/preview` | Preview resume effects. |
+| GET | `/api/plans/{id}/skills` | List announced plan skills. |
+| GET | `/api/plans/{id}/skills/{slug}` | Read an announced skill. |
+| GET | `/api/plans/{id}/state` | Read plan state. |
+| GET | `/api/specs` | List specifications. |
+| GET | `/api/specs/{id}` | Read a specification. |
+| GET | `/api/specs/{id}/links` | List specification links. |
+| GET | `/api/tasks` | List tasks in the selected scope. |
+| GET | `/api/tasks/{id}` | Read a task. |
+| PATCH | `/api/plans/{id}` | Update plan metadata and goal fields. |
+| PATCH | `/api/plans/{id}/elements/{element_id}` | Update a canvas element. |
+| PATCH | `/api/plans/{id}/layout` | Set canvas layout. |
+| PATCH | `/api/plans/{id}/loops/{lid}` | Update loop settings. |
+| PATCH | `/api/plans/{id}/notes/{element_id}` | Update a canvas note. |
+| PATCH | `/api/plans/{id}/sections/{sid}` | Update a section. |
+| PATCH | `/api/plans/{id}/tasks/{tid}` | Update task structure or authorized execution fields. |
+| PATCH | `/api/plans/{id}/tasks/{tid}/milestones/{ms_id}` | Update a milestone. |
+| PATCH | `/api/specs/{id}/sections/{sid}` | Update a section. |
+| POST | `/api/canvas/focus` | Focus the task canvas. |
+| POST | `/api/efforts/{id}/links` | Link an effort. |
+| POST | `/api/plans` | Create a plan. |
+| POST | `/api/plans/resolve-refs` | Resolve plan and task references. |
+| POST | `/api/plans/{id}/archive` | Archive the plan. |
+| POST | `/api/plans/{id}/batch` | Apply a batch of plan operations. |
+| POST | `/api/plans/{id}/claim` | Claim plan ownership. |
+| POST | `/api/plans/{id}/control-loop` | Set the control-loop configuration. |
+| POST | `/api/plans/{id}/control-loop/run` | Run the control loop. |
+| POST | `/api/plans/{id}/decision` | Ask a decision question. |
+| POST | `/api/plans/{id}/decision/{gid}/answer` | Answer a decision. |
+| POST | `/api/plans/{id}/decision/{gid}/escalate` | Escalate a decision. |
+| POST | `/api/plans/{id}/disown` | Release plan ownership. |
+| POST | `/api/plans/{id}/elements` | Add a canvas element. |
+| POST | `/api/plans/{id}/groups` | Set task groups. |
+| POST | `/api/plans/{id}/handoffs` | Create a plan handoff. |
+| POST | `/api/plans/{id}/ingest` | Ingest structured plan content. |
+| POST | `/api/plans/{id}/kinds` | Set task kinds. |
+| POST | `/api/plans/{id}/links` | Link plans. |
+| POST | `/api/plans/{id}/loops` | Create a plan loop. |
+| POST | `/api/plans/{id}/loops/{lid}/record` | Record loop progress. |
+| POST | `/api/plans/{id}/loops/{lid}/stop` | Stop a plan loop. |
+| POST | `/api/plans/{id}/mode` | Set plan mode. |
+| POST | `/api/plans/{id}/notes` | Add a canvas note. |
+| POST | `/api/plans/{id}/pause` | Pause plan execution. |
+| POST | `/api/plans/{id}/project` | Set the project root. |
+| POST | `/api/plans/{id}/resume` | Resume plan execution. |
+| POST | `/api/plans/{id}/retrospective` | Record a retrospective. |
+| POST | `/api/plans/{id}/sections` | Add a section. |
+| POST | `/api/plans/{id}/spec-links` | Link a specification. |
+| POST | `/api/plans/{id}/tag-facets` | Set tag facets. |
+| POST | `/api/plans/{id}/tasks` | Create a task. |
+| POST | `/api/plans/{id}/tasks/{tid}/adopt-checkpoint` | Adopt an interrupted task checkpoint. |
+| POST | `/api/plans/{id}/tasks/{tid}/assign` | Assign a task executor. |
+| POST | `/api/plans/{id}/tasks/{tid}/close` | Close a task. |
+| POST | `/api/plans/{id}/tasks/{tid}/milestones` | Add a task milestone. |
+| POST | `/api/plans/{id}/transfer` | Transfer plan ownership. |
+| POST | `/api/plans/{id}/unarchive` | Unarchive the plan. |
+| POST | `/api/specs` | Create a specification. |
+| POST | `/api/specs/{id}/sections` | Add a section. |
+| POST | `/api/tasks/{id}/drop` | Drop task ownership. |
+| POST | `/api/tasks/{id}/take` | Take task ownership. |
+
+<!-- revision: 40 -->

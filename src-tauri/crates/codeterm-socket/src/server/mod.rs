@@ -5,12 +5,16 @@ mod agent_commands;
 mod blueprint;
 mod bridge;
 mod canvas;
+#[cfg(test)]
+mod credential_tests;
 mod cron;
 mod dispatch;
 mod error_codes;
 mod local_api;
 mod mem;
 mod model_errors;
+#[cfg(test)]
+mod model_provider_authority_tests;
 mod model_providers;
 mod notification;
 mod orchestration;
@@ -45,6 +49,7 @@ pub(crate) mod plan_task_dispatch;
 mod plan_task_rpc;
 mod plan_time;
 pub(crate) mod protocol;
+mod radar;
 mod receiver_target;
 mod remote_team_rpc;
 mod remote_worker_policy;
@@ -60,6 +65,9 @@ mod team;
 mod workspace;
 
 pub(crate) use dispatch::{dispatch_mesh_rpc, dispatch_service_rpc};
+
+#[cfg(test)]
+mod neighbor_tests;
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 
@@ -95,6 +103,8 @@ struct JsonRpcRequest {
     jsonrpc: String,
     id: Option<serde_json::Value>,
     method: String,
+    #[serde(default)]
+    credential: String,
     params: Option<serde_json::Value>,
     /// Lenient by design: any non-integer value gates as the oldest protocol.
     #[serde(default)]
@@ -129,6 +139,8 @@ impl JsonRpcResponse {
     }
 
     fn error(id: Option<serde_json::Value>, code: i32, message: String) -> Self {
+        let data = (code == -32003 && message.starts_with("neighbor_capability_denied:"))
+            .then(|| serde_json::json!({"reason":"neighbor_capability_denied"}));
         Self {
             jsonrpc: "2.0".to_string(),
             id,
@@ -136,7 +148,7 @@ impl JsonRpcResponse {
             error: Some(JsonRpcError {
                 code,
                 message,
-                data: None,
+                data,
             }),
             after_response: None,
         }
@@ -513,6 +525,23 @@ fn respond_to_request(
     {
         object.remove("authenticated_mesh_peer_id");
     }
+    if let Err(message) = svc.bind_local_rpc(&req.credential, &req.method, &mut local_params) {
+        return JsonRpcResponse::error(id, -32003, message);
+    }
+    if let Err(message) = codeterm_service_core::async_runtime::block_on(
+        svc.authorize_neighbor_rpc_credential(&req.credential, &req.method, local_params.as_ref()),
+    ) {
+        return JsonRpcResponse::error(id, -32003, message);
+    }
+    match codeterm_service_core::async_runtime::block_on(svc.neighbor_rpc_discovery(
+        &req.credential,
+        &req.method,
+        local_params.as_ref(),
+    )) {
+        Ok(Some(value)) => return JsonRpcResponse::success(id, value),
+        Ok(None) => {}
+        Err(message) => return JsonRpcResponse::error(id, -32003, message),
+    }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -734,6 +763,7 @@ mod tests {
             .record_run(
                 &job_id,
                 CronRunInfo {
+                    cancel_reason: None,
                     run_id: "rpc-complete-run".into(),
                     started_at: 1,
                     finished_at: None,
@@ -755,8 +785,15 @@ mod tests {
             .set_ext::<codeterm_service_core::CronWake>(wake)
             .is_ok());
 
+        fixture
+            .service
+            .ext::<codeterm_service_core::config::ConfigState>()
+            .lock()
+            .api
+            .token = Some("flush-owner-credential".into());
         let request = serde_json::json!({
             "jsonrpc": "2.0",
+            "credential": "flush-owner-credential",
             "id": 1,
             "protocol_version": protocol::PROTOCOL_VERSION,
             "method": "cron.complete",

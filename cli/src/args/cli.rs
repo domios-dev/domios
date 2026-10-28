@@ -16,7 +16,6 @@ use super::debug::DebugAction;
 use super::delayed::DelayedAction;
 use super::effort::EffortAction;
 use super::essence_map::EssenceMapAction;
-use super::inbox::InboxAction;
 use super::integration::IntegrationAction;
 use super::mem::MemAction;
 use super::misc::{
@@ -28,6 +27,7 @@ use super::pad::PadAction;
 use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
+use super::radar::RadarAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
@@ -82,7 +82,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: super::account::AccountAction,
     },
-    /// Manage local opt-in product analytics
+    /// Manage local product analytics (on by default)
     Analytics {
         #[command(subcommand)]
         action: super::analytics::AnalyticsAction,
@@ -416,10 +416,10 @@ pub enum Commands {
         action: TaskAction,
     },
 
-    /// Workspace Inbox — standalone tasks with no plan
-    Inbox {
+    /// Workspace Radar — items noticed above plans, pulled into a plan as tasks
+    Radar {
         #[command(subcommand)]
-        action: InboxAction,
+        action: RadarAction,
     },
 
     /// Canvas control commands

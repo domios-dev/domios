@@ -78,6 +78,11 @@ pub struct Session {
     pub id_token: Secret,
     pub expires_at: Option<u64>,
 }
+
+#[async_trait]
+pub trait SessionAdmission: Send + Sync {
+    async fn admit(&self, session: &Session) -> Result<()>;
+}
 pub struct Tokens {
     pub session: Session,
     pub refresh_token: Secret,

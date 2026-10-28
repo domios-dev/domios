@@ -1,6 +1,6 @@
 export const COMPOSER_MIN_HEIGHT = 20;
 export const COMPOSER_HEIGHT_EPSILON = 2;
-export const COMPOSER_MAX_HEIGHT = 440;
+export const COMPOSER_MAX_HEIGHT = 420;
 
 export function composerHeight(el: HTMLTextAreaElement, maxPx = COMPOSER_MAX_HEIGHT): number {
   return clampComposerHeight(el.scrollHeight, maxPx);
@@ -11,16 +11,39 @@ function clampComposerHeight(measured: number, maxPx: number): number {
   return Math.min(Math.max(measured, COMPOSER_MIN_HEIGHT), Math.max(maxPx, COMPOSER_MIN_HEIGHT));
 }
 
+export function resolveComposerAutosize(input: {
+  focused: boolean;
+  selectionStart: number;
+  selectionEnd: number;
+  textLength: number;
+  contentPx: number;
+  maxPx: number;
+  priorScrollTop: number;
+}) {
+  const editorPx = clampComposerHeight(input.contentPx, input.maxPx);
+  const maxScrollTop = Math.max(0, input.contentPx - editorPx);
+  const revealEnd = input.focused && input.selectionStart === input.selectionEnd && input.selectionEnd === input.textLength;
+  const scrollTop = revealEnd ? maxScrollTop : Math.max(0, Math.min(input.priorScrollTop, maxScrollTop));
+  return { contentPx: input.contentPx, editorPx, scrollTop };
+}
+
 export function measureComposerAutosize(textarea: HTMLTextAreaElement, shell: HTMLElement | null, maxPx = COMPOSER_MAX_HEIGHT) {
+  const selection = {
+    focused: textarea.ownerDocument.activeElement === textarea,
+    selectionStart: textarea.selectionStart,
+    selectionEnd: textarea.selectionEnd,
+    textLength: textarea.value.length,
+    priorScrollTop: textarea.scrollTop,
+  };
   const frozenHeight = shell?.offsetHeight ?? 0;
   const freeze = shell != null && frozenHeight > 0;
   const previousMinHeight = shell?.style.minHeight ?? "";
   if (freeze) shell.style.minHeight = `${frozenHeight}px`;
   try {
     textarea.style.height = `${COMPOSER_MIN_HEIGHT}px`;
-    const contentPx = textarea.scrollHeight;
-    const editorPx = clampComposerHeight(contentPx, maxPx);
+    const { contentPx, editorPx, scrollTop } = resolveComposerAutosize({ ...selection, contentPx: textarea.scrollHeight, maxPx });
     textarea.style.height = `${editorPx}px`;
+    textarea.scrollTop = scrollTop;
     return { contentPx, editorPx };
   } finally {
     if (freeze) shell.style.minHeight = previousMinHeight;

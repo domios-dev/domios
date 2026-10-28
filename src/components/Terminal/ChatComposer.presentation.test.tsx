@@ -84,6 +84,24 @@ test("attachments remain accessible without composer model controls", async () =
   });
 });
 
+test("the clock opens scheduling for the current long draft without sending it", async () => {
+  await withComposer([], async (host) => {
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea')!;
+    const draft = "A long draft\n".repeat(80);
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(editor, draft);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const clock = host.querySelector<HTMLButtonElement>('button[aria-label="Schedule send"]');
+    assert(clock, "the scheduling control remains available with long text");
+    await act(async () => clock.click());
+    const dialog = document.querySelector('[role="dialog"]');
+    assert(dialog, "the clock opens the scheduling dialog");
+    assert.equal(dialog.querySelector('textarea')?.value, draft.trim());
+    assert.equal(editor.value, draft, "opening scheduling preserves the draft");
+  });
+});
+
 test("attachments retain accessible removal and the exact original path", async () => {
   const path = "C:\\fixture\\Screenshot.PNG";
   await withComposer([path], async (host, removed) => {

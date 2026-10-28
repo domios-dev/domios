@@ -37,6 +37,14 @@ impl LocalApiClient {
         }
     }
 
+    pub(crate) fn authorize_secrets(&self) -> Result<(), LocalApiError> {
+        let mut client = self
+            .client
+            .lock()
+            .map_err(|_| LocalApiError::new("local API client lock poisoned"))?;
+        authorize_secrets_rpc(&mut *client)
+    }
+
     pub fn get(&self, url: impl AsRef<str>) -> LocalApiRequest {
         self.request("GET", url)
     }
@@ -126,8 +134,8 @@ impl LocalApiRequest {
             .client
             .lock()
             .map_err(|_| LocalApiError::new("local API client lock poisoned"))?
-            .call("api.request", Some(params))
-            .map_err(LocalApiError::new)?;
+            .call_detailed("api.request", Some(params))
+            .map_err(LocalApiError::from_rpc)?;
         LocalApiResponse::from_value(value)
     }
 }
@@ -205,21 +213,54 @@ impl LocalApiResponse {
 }
 
 #[derive(Debug)]
-pub struct LocalApiError(String);
+pub struct LocalApiError {
+    message: String,
+    refusal: Option<crate::cmd::print::CliError>,
+}
 
 impl LocalApiError {
     fn new(error: impl ToString) -> Self {
-        Self(error.to_string())
+        Self {
+            message: error.to_string(),
+            refusal: None,
+        }
+    }
+
+    pub(crate) fn from_rpc(error: crate::client::SocketCallError) -> Self {
+        let message = error.to_string();
+        let error = crate::cmd::print::CliError::from(error);
+        Self {
+            message,
+            refusal: error.neighbor_refusal(),
+        }
+    }
+
+    pub(crate) fn neighbor_refusal(&self) -> Option<&crate::cmd::print::CliError> {
+        self.refusal.as_ref()
     }
 }
 
 impl std::fmt::Display for LocalApiError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(&self.0)
+        formatter.write_str(&self.message)
     }
 }
 
 impl std::error::Error for LocalApiError {}
+
+fn authorize_secrets_rpc(client: &mut impl crate::client::RpcClient) -> Result<(), LocalApiError> {
+    let response = client
+        .call_detailed("mem.secret.authorize", Some(serde_json::json!({})))
+        .map_err(LocalApiError::from_rpc)?;
+    if response
+        .get("authorized")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return Err(LocalApiError::new("Secret authorization was not confirmed"));
+    }
+    Ok(())
+}
 
 fn local_path(url: &str) -> String {
     if url.starts_with("/api/") {
@@ -257,3 +298,7 @@ mod tests {
         assert_eq!(response.text().unwrap(), "{\"error\":\"busy\"}");
     }
 }
+
+#[cfg(test)]
+#[path = "local_api/secret_tests.rs"]
+mod secret_tests;

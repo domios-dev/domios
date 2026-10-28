@@ -70,7 +70,15 @@ impl Worker {
 
     pub async fn set_consent(&self, consent: Consent) -> Result<Status, String> {
         let (sender, receiver) = oneshot::channel();
-        self.send(Command::Consent(consent, sender))?;
+        if consent == Consent::Off {
+            let commands = self.sender.clone();
+            tokio::task::spawn_blocking(move || commands.send(Command::Consent(consent, sender)))
+                .await
+                .map_err(|_| "analytics consent unavailable")?
+                .map_err(|_| "analytics worker stopped")?;
+        } else {
+            self.send(Command::Consent(consent, sender))?;
+        }
         receiver.await.map_err(|_| "analytics worker stopped")?
     }
 

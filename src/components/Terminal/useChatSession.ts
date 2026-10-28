@@ -453,6 +453,7 @@ export function useChatSession({
 
   const view = useChatWindowView({
     tabId,
+    agentSessionId,
     windowKey,
     transcript,
     attachedAuthority: snapshotBinding === `${windowKey}|${sessionBindingNonce ?? ""}`
@@ -819,7 +820,7 @@ export function useChatSession({
 
   return {
     ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
-    error,
+    error: error ?? view.compactionFailure ?? null,
     attachmentState,
     snapshotReady: snapshotBinding === `${windowKey}|${sessionBindingNonce ?? ""}`,
     /** Set = the wait is over and it failed; the view reports it rather than

@@ -703,6 +703,8 @@ fn from_agent_params_carries_model_into_spec() {
     let params = SpawnAgentParams {
         execution_mode: None,
         context_files: None,
+        neighbor_authority: None,
+        neighbor_machine_access: None,
         context_skills: None,
         agent: Some("codex".into()),
         agent_name: None,
@@ -792,6 +794,7 @@ fn planned_effort_survives_host_owned_params_spec_pipeline() {
     let params = SpawnAgentParams {
         execution_mode: None,
         context_files: None,
+        neighbor_authority: None,
         context_skills: None,
         agent: Some("claude".into()),
         planned_reasoning_effort: Some("high".into()),
@@ -868,6 +871,8 @@ fn from_agent_params_preserves_can_spawn_option() {
     let mut p = SpawnAgentParams {
         execution_mode: None,
         context_files: None,
+        neighbor_authority: None,
+        neighbor_machine_access: None,
         context_skills: None,
         agent: Some("claude".into()),
         agent_name: None,
@@ -946,6 +951,8 @@ fn from_agent_params_carries_activate_into_spec() {
     let mut p = SpawnAgentParams {
         execution_mode: None,
         context_files: None,
+        neighbor_authority: None,
+        neighbor_machine_access: None,
         context_skills: None,
         agent: Some("claude".into()),
         agent_name: None,

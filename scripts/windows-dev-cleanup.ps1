@@ -8,7 +8,7 @@ param(
   [Parameter(Mandatory = $true)][int] $VitePort,
   [Parameter(Mandatory = $true)][int] $ApiPort,
   [Parameter(Mandatory = $true)][int] $CdpPort,
-  [Parameter(Mandatory = $false)][int[]] $OwnedProcessIds = @(),
+  [Parameter(Mandatory = $false)][string[]] $OwnedProcessRecords = @(),
   [switch] $OwnedOnly,
   [switch] $KeepVite,
   [string] $FixturePath,
@@ -28,6 +28,7 @@ $dataDirPath = [IO.Path]::GetFullPath($DataDir)
 $nodeModules = Join-Path $rootPath "node_modules"
 
 if ($FixturePath) {
+  if (-not $PlanOnly) { throw 'Process fixtures require PlanOnly; refusing live cleanup' }
   $fixture = Get-Content -Raw -LiteralPath $FixturePath | ConvertFrom-Json
   $all = @($fixture.processes)
   $listeners = @($fixture.listeners)
@@ -72,9 +73,52 @@ while ($cursorPid -gt 0 -and $selfAncestry.Add($cursorPid)) {
 }
 
 $victimRoots = New-Object System.Collections.Generic.HashSet[int]
-foreach ($procId in @($OwnedProcessIds)) {
-  if ($procId -gt 0 -and -not $selfAncestry.Contains($procId) -and $parentByPid.ContainsKey($procId)) {
+$pinned = @{}
+$identities = @{}
+$skipped = New-Object System.Collections.Generic.List[string]
+if (-not $FixturePath) {
+  Add-Type -Path (Join-Path $PSScriptRoot 'windows-dev-rebuild-process.cs')
+}
+function Get-ProcessIdentity($row) {
+  $procId = [int]$row.ProcessId
+  if ($identities.ContainsKey($procId)) { return $identities[$procId] }
+  if ($FixturePath) {
+    $identity = @{ pid = $procId; created = [string]$row.created; executable = [string]$row.ExecutablePath }
+  } else {
+    $process = [DevRebuildProcess]::Open($procId)
+    if ($null -eq $process) { throw 'process already exited' }
+    try {
+      $identity = @{ pid = $procId; created = $process.Created; executable = $process.Executable }
+      if (-not (Remove-VerbatimPrefix $identity.executable).Equals((Remove-VerbatimPrefix ([string]$row.ExecutablePath)), [StringComparison]::OrdinalIgnoreCase) -or
+          [decimal]::Truncate([decimal]$identity.created / 10) -ne [decimal]::Truncate(([datetime]$row.CreationDate).ToUniversalTime().ToFileTimeUtc() / [decimal]10)) {
+        throw 'process changed since snapshot'
+      }
+      $pinned[$procId] = $process
+    } catch { $process.Dispose(); throw }
+  }
+  if (-not $identity.executable -or $identity.created -notmatch '^\d+$') { throw 'process identity unavailable' }
+  $identities[$procId] = $identity
+  return $identity
+}
+function Skip-Process([string]$reason) {
+  $skipped.Add($reason)
+  Write-Warning "DEV cleanup skipped: $reason"
+}
+foreach ($recordPath in $OwnedProcessRecords) {
+  try {
+    $record = Get-Content -Raw -LiteralPath $recordPath | ConvertFrom-Json
+    $procId = [int]$record.pid
+    if ($procId -le 0 -or $selfAncestry.Contains($procId)) { throw 'invalid or ancestor PID' }
+    $row = $all | Where-Object { [int]$_.ProcessId -eq $procId } | Select-Object -First 1
+    if (-not $row) { throw 'recorded process exited' }
+    $identity = Get-ProcessIdentity $row
+    if ($identity.created -cne [string]$record.created -or -not $record.executable -or
+        -not (Remove-VerbatimPrefix $identity.executable).Equals((Remove-VerbatimPrefix ([string]$record.executable)), [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'recorded PID identity mismatch'
+    }
     [void]$victimRoots.Add($procId)
+  } catch {
+    Skip-Process "identity record '$recordPath': $($_.Exception.Message)"
   }
 }
 if (-not $OwnedOnly) {
@@ -155,13 +199,20 @@ if (-not $OwnedOnly) {
 
 $selected = New-Object System.Collections.Generic.HashSet[int]
 function Add-ProcessTree {
-  param([int] $ProcessId)
-  if ($ProcessId -le 0 -or -not $selected.Add($ProcessId)) {
+  param([int] $ProcessId, [long] $ParentCreated = 0)
+  if ($ProcessId -le 0 -or $selfAncestry.Contains($ProcessId) -or $selected.Contains($ProcessId)) {
     return
   }
+  try {
+    $row = $all | Where-Object { [int]$_.ProcessId -eq $ProcessId } | Select-Object -First 1
+    if (-not $row) { throw 'process exited' }
+    $identity = Get-ProcessIdentity $row
+    if ([long]$identity.created -lt $ParentCreated) { throw 'child predates parent incarnation' }
+  } catch { Skip-Process "PID ${ProcessId}: $($_.Exception.Message)"; return }
+  [void]$selected.Add($ProcessId)
   if ($childrenByParent.ContainsKey($ProcessId)) {
     foreach ($child in $childrenByParent[$ProcessId]) {
-      Add-ProcessTree -ProcessId ([int]$child.ProcessId)
+      Add-ProcessTree -ProcessId ([int]$child.ProcessId) -ParentCreated ([long]$identity.created)
     }
   }
 }
@@ -170,6 +221,7 @@ foreach ($procId in @($victimRoots)) {
 }
 
 if ($PlanOnly) {
+  foreach ($process in $pinned.Values) { $process.Dispose() }
   [pscustomobject]@{
     instance = $Instance
     identifier = $Identifier
@@ -178,6 +230,7 @@ if ($PlanOnly) {
     cdp_port = $CdpPort
     victim_roots = @($victimRoots | Sort-Object)
     selected_processes = @($selected | Sort-Object)
+    skipped = @($skipped)
   } | ConvertTo-Json -Depth 4
   exit 0
 }
@@ -185,7 +238,7 @@ if ($PlanOnly) {
 $seen = @{}
 function Stop-ProcessTree {
   param([int] $ProcessId)
-  if ($ProcessId -le 0 -or $seen.ContainsKey($ProcessId)) {
+  if ($ProcessId -le 0 -or $seen.ContainsKey($ProcessId) -or -not $selected.Contains($ProcessId)) {
     return
   }
   $seen[$ProcessId] = $true
@@ -194,8 +247,13 @@ function Stop-ProcessTree {
       Stop-ProcessTree -ProcessId ([int]$child.ProcessId)
     }
   }
-  Stop-Process -Id $ProcessId -Force -Confirm:$false -ErrorAction SilentlyContinue
+  try { [DevRebuildProcess]::Stop($pinned[$ProcessId], 10000) }
+  catch { Skip-Process "PID ${ProcessId}: $($_.Exception.Message)" }
 }
-foreach ($procId in @($victimRoots)) {
-  Stop-ProcessTree -ProcessId $procId
+try {
+  foreach ($procId in @($victimRoots)) {
+    Stop-ProcessTree -ProcessId $procId
+  }
+} finally {
+  foreach ($process in $pinned.Values) { $process.Dispose() }
 }

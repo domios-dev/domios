@@ -100,9 +100,6 @@ fn apply_document(
         if let Some(refusal) = service.tab_write_lock(&caller.tab) {
             return Err(refusal.to_string().into());
         }
-        if caller.team.is_none() {
-            return Err("Blueprint apply requires a caller in a Team".into());
-        }
         let mut document: codeterm_blueprint_types::blueprint_document::Document =
             serde_json::from_value(definition.clone()).map_err(|error| ApplyError::Validation {
                 checks: vec![FieldCheck::new("", Err(error.to_string()))],
@@ -117,11 +114,7 @@ fn apply_document(
             });
         }
         codeterm_sentinel::seal_code::document(&mut document, std::path::Path::new(&caller.cwd))?;
-        let document = service.mem.pin_blueprint_calls(
-            &format!("blueprints:{}", caller.workspace),
-            caller.team.as_deref().ok_or("Call requires a Team")?,
-            document,
-        )?;
+        let document = crate::blueprint_calls::pin_document(service, caller, document)?;
         let definition = serde_json::to_value(&document).map_err(|error| error.to_string())?;
         let handle = service
             .host_extension::<Handle>()
@@ -175,11 +168,8 @@ fn apply_document(
             && document.result.port.is_some()
         {
             if dry_run {
-                let call_drift = service.mem.blueprint_call_drift(
-                    &format!("blueprints:{}", caller.workspace),
-                    caller.team.as_deref().ok_or("Call requires a Team")?,
-                    document.clone(),
-                )?;
+                let call_drift =
+                    crate::blueprint_calls::call_drift(service, caller, document.clone())?;
                 return Ok(
                     json!({"action":"check", "dry_run":true,"after":definition,"diagnostics":diagnostics,"call_drift":call_drift}),
                 );
@@ -189,9 +179,9 @@ fn apply_document(
                     .into(),
             );
         }
-        let call_drift = serde_json::to_value(service.mem.blueprint_call_drift(
-            &format!("blueprints:{}", caller.workspace),
-            caller.team.as_deref().ok_or("Call requires a Team")?,
+        let call_drift = serde_json::to_value(crate::blueprint_calls::call_drift(
+            service,
+            caller,
             document.clone(),
         )?)
         .map_err(|error| error.to_string())?;

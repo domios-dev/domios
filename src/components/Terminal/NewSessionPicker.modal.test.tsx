@@ -61,6 +61,7 @@ vi.mock("../../lib/nativeBridge", () => ({
 import { TransportError } from "../../lib/transportClient";
 import { invoke } from "../../lib/bridge";
 import { NewSessionPicker } from "./NewSessionPicker";
+import { cloudExecution } from "./cloudExecution";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -89,6 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  cloudExecution.enabled = true;
   if (root) await act(async () => root!.unmount());
   root = null;
   host.remove();
@@ -331,7 +333,19 @@ it("offers folder relocation instead of session or team start for a missing work
   expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
 });
 
+it("hides Cloud execution while it is disabled, without refreshing remote providers", async () => {
+  cloudExecution.enabled = false;
+  Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
+    backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
+    environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
+  }} as never);
+  await renderPicker({fullAccess: false});
+  expect(dialog().querySelector('input[name="execution-location"]')).toBeNull();
+  expect(vi.mocked(invoke)).not.toHaveBeenCalledWith("refresh_provider_models", {providerId: "opencode"});
+});
+
 it("offers Remote only through declared capability and spawns the selected environment without local model controls", async () => {
+  expect(cloudExecution.enabled).toBe(true);
   Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
     backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
     environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
@@ -349,6 +363,7 @@ it("offers Remote only through declared capability and spawns the selected envir
 });
 
 it("keeps an empty remote environment list actionable and refuses spawn", async () => {
+  cloudExecution.enabled = true;
   Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
     backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"}, environments: [], followUp: false, cancel: false, applyDiff: false,
   }} as never);
@@ -360,6 +375,7 @@ it("keeps an empty remote environment list actionable and refuses spawn", async 
 });
 
 it("shows Cloud only under Codex and explains its unavailable environment state", async () => {
+  cloudExecution.enabled = true;
   const reason = "Sign in to Codex to discover Cloud environments.";
   fixture.providers.providers = [{ id: "codex", display_name: "Codex", available_models: [], reasoning_efforts: [],
     remote_task: { backend: "chatgpt-cloud-tasks", mode: "cloud", displayName: "Cloud",

@@ -778,3 +778,22 @@ fn launch_spec_declaration_does_not_take_the_vm_lock() {
     query.join().unwrap();
     assert_eq!(observed, Ok(true));
 }
+
+#[test]
+fn interruptible_call_refuses_a_busy_vm_at_its_deadline() {
+    let vm = PluginVm::from_source(
+        "close-lock-deadline",
+        "module.exports.default = { closeSession() { return null; } };".into(),
+    )
+    .unwrap();
+    let held = vm.inner.lock();
+    let result = super::call_json_interruptible::<serde_json::Value>(
+        &vm,
+        "closeSession",
+        &[],
+        crate::converter::ConversionCancellation::default(),
+        std::time::Instant::now(),
+    );
+    drop(held);
+    assert!(matches!(result, Err(VmError::AsyncJobTimedOut)));
+}

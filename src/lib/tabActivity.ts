@@ -20,7 +20,7 @@ export interface TabActivity {
   status: TabStatus;
   state: AgentState["state"];
   subtype?: TabAgentState["subtype"];
-  phase: "thinking" | "streaming" | "work";
+  phase: "thinking" | "streaming" | "compacting" | "work";
   active: boolean;
   canStop: boolean;
   quiet: boolean;
@@ -35,6 +35,25 @@ const questionLabels: Record<NonNullable<TabAgentState["subtype"]>, string> = {
 };
 
 const idleOutcomeLabels: Record<string, string> = { interrupted: "Interrupted", failed: "Turn failed" };
+
+const QUOTED_PROGRAM = /^\s*"((?:[^"\\]|\\.)*)"/;
+
+/** A provider command line reads as its program name, not an escaped absolute path. */
+export function readableActivityLine(line: string): string {
+  const quoted = QUOTED_PROGRAM.exec(line);
+  const program = quoted ? quoted[1] : line.trim().split(/\s+/, 1)[0] ?? "";
+  if (!/[\\/]/.test(program)) return line.trim();
+  const name = program.replace(/\\\\/g, "\\").split(/[\\/]/).pop()?.replace(/\.(exe|cmd|bat)$/i, "") ?? program;
+  const rest = quoted ? line.slice(quoted[0].length) : line.trim().slice(program.length);
+  return `${name}${rest}`.trim();
+}
+
+/** A pending approval whose question is a raw command line shows as the question kind instead. */
+function questionText(question: string | null | undefined): string | null {
+  const text = question?.trim();
+  if (!text) return null;
+  return readableActivityLine(text) === text ? text : null;
+}
 
 const startingStages = new Set<Tab["boot_stage"]>([
   "pty_starting", "pty_spawned", "reader_ready", "shell_ready", "agent_launching",
@@ -97,17 +116,18 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
   const state = quiet ? "quiet" : kind === "working" ? "working" : kind === "waiting-on-user" ? "question" : "idle";
   const matchingLive = kind !== "starting" && kind !== "failed" && live?.state === state;
   const subtype = state === "question" && matchingLive ? live?.subtype : undefined;
-  const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming") ? live.phase : "work";
-  const question = kind === "waiting-on-user" ? tab?.pending_prompt?.question?.trim() : null;
+  const phase = kind === "working" && matchingLive && (live?.phase === "thinking" || live?.phase === "streaming" || live?.phase === "compacting") ? live.phase : "work";
+  const question = kind === "waiting-on-user" ? questionText(tab?.pending_prompt?.question) : null;
   const providerReason = kind !== "working" && kind !== "starting" && kind !== "failed"
     ? providerErrorReason(tab?.provider_signals?.api_error) : null;
-  const providerLine = matchingLive ? live?.status_line?.trim() || null : null;
-  const genericWork = kind === "working" && !utility && !providerLine;
+  const statusLine = matchingLive ? live?.status_line?.trim() : null;
+  const providerLine = statusLine ? readableActivityLine(statusLine) : null;
+  const genericWork = kind === "working" && !utility && !providerLine && phase !== "compacting";
   const lastTurnMs = kind === "idle" && matchingLive && typeof live?.elapsed_ms === "number" ? live.elapsed_ms : undefined;
   const label = question || providerReason || (utility && !launching && kind !== "failed" ? shellStateLabel(shell)
-    : providerLine
+    : phase === "compacting" ? "Compacting context…" : providerLine
       || (kind === "failed" ? status === "Dead" ? "Ended" : "Launch failed" : kind === "starting" ? "Starting…"
-        : kind === "working" ? matchingLive && live?.phase === "compacting" ? "Compacting" : "Working"
+        : kind === "working" ? "Working"
           : kind === "idle" && matchingLive && live?.phase && idleOutcomeLabels[live.phase] ? idleOutcomeLabels[live.phase]
           : kind === "waiting-on-user" ? questionLabels[subtype ?? "unknown"]
           : quiet ? "Session quiet — rebind to continue" : ""));

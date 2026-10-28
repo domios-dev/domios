@@ -37,7 +37,7 @@ pub(super) fn inspect_stray_sidecars(
                     root.join(".domios")
                         .join("plans")
                         .join(bucket)
-                        .join(plan_stem(&plan_id))
+                        .join(&plan_id)
                         .join("plan.yaml")
                 })
         })
@@ -122,14 +122,6 @@ fn path_key(path: &Path) -> String {
 #[cfg(not(windows))]
 fn path_key(path: &Path) -> PathBuf {
     path.to_path_buf()
-}
-
-fn plan_stem(id: &str) -> &str {
-    if id == "inbox" {
-        "_inbox"
-    } else {
-        id
-    }
 }
 
 pub(super) fn inspect_plan(path: &Path, plan: &Value, kind: &str) -> Vec<Finding> {

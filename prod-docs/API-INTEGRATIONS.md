@@ -184,7 +184,7 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **Fields.** `model` overrides the provider's default model (valid ids from `/api/agents/providers`). `jitter_max_ms`: omitted = 10% of the interval up to 30 min, `0` = exact, positive = requested cap in ms, limited to half the schedule interval. `tz`: IANA zone, omitted = UTC, invalid zones rejected, DST handled. `timeout_seconds` overrides `memory.worker_timeout_seconds` for this job; `0` on update clears it.
 
-**`CronRunStatus` enum:** `Running`, `AwaitingOwnerPrompt`, `Success`, `Failed`, `Cancelled`. A cron waiting on an owner prompt uses `AwaitingOwnerPrompt`; `POST /api/crons/:id/cancel` cancels both running states.
+**`CronRunStatus` enum:** `Running`, `AwaitingOwnerPrompt`, `Success`, `Failed`, `Cancelled`. Run objects expose optional `cancel_reason`: `user_cancel`, `superseded`, `restart_reconcile`, `timeout`, or `owner_closed`. Explicit cancel records `user_cancel`; startup orphan reconciliation records `restart_reconcile`. Historical runs without evidence of a cause omit it. A cron waiting on an owner prompt uses `AwaitingOwnerPrompt`; `POST /api/crons/:id/cancel` cancels both running states.
 
 **Hidden spawn:** cron runs no longer create visible tabs. Each run spawns a **hidden tab**; observe progress via the cron tabl / `cron_read_log`, not as a regular tab. A prompt that blocks the run reaches its creator tab when one is recorded, otherwise it notifies the user. Completed oneshot jobs are removed while their run history remains available by job ID. When done, the agent calls `domios cron complete --run-id UUID` (socket method `cron.complete`). Logs are saved to `~/.domios/crons/<job_id>/<run_id>.log` with SUMMARY and RAW OUTPUT sections.
 
@@ -201,19 +201,8 @@ Recurring schedules must contain exactly five fields and have a fire time within
 | POST | `/api/tabs/{id}/permission-auto-confirm` | `{enabled}` | Opt the tab in/out of auto-confirming provider permission prompts the provider positively recognizes (`permissionPromptResponse`) and a hook PermissionRequest backs. Persisted in the session snapshot; journaled. Returns `{ok, tab_id, enabled}`. CLI: `domios tab auto-confirm on\|off`. |
 | GET | `/api/tabs/{id}/permission-auto-confirm` | — | `{tab_id, enabled, recent}` — `recent` holds the last auto-confirmations (`tool_name`, `option_label`, `rule`, `question`, `options`, `prompt_fingerprint`, `session_id`, `confirmed_at_ms`). CLI: `domios tab auto-confirm status`. |
 
-#### Git
-| Method | Path | Body / Query | Description |
-|--------|------|------|-------------|
-| GET | `/api/git/graph` | — | Commit graph for configured repositories |
-| GET | `/api/git/commit/{sha}/files` | — | Files changed by a commit |
-| GET | `/api/git/commit/{sha}/diff` | — | Diff for a commit |
-| GET | `/api/git/workdir-diff` | — | Current working tree diff |
-| GET | `/api/git/workdir-files` | — | Current working tree changed-file list |
-| POST | `/api/git/revert-file` | `{path}` | Revert one file through the API guardrails |
-| GET | `/api/git/repos` | — | Known repositories |
-
 ## Related documents
 
 Service registration, health, usage, logs, and activity: `domios docs API-SERVICES`. Notifications and webhooks: `domios docs API-TABS`. Secret storage and updates: `domios docs API-STATE`.
 
-<!-- revision: 35 -->
+<!-- revision: 37 -->

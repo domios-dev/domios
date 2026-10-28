@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Usage: secret-scan.sh [BASE_SHA]
-# Scans BASE_SHA..HEAD (all history when BASE_SHA is empty or all zeros) plus the working tree.
+# Usage: secret-scan.sh BASE_SHA
+# Scans BASE_SHA..HEAD plus the working tree; a missing base is refused.
 # Findings are always redacted; the script never prints a secret value.
 set -euo pipefail
 
@@ -27,17 +27,18 @@ install_gitleaks() {
   export PATH
 }
 
-command -v gitleaks >/dev/null || install_gitleaks
-
 base="${1:-}"
 common=(--config .gitleaks.toml --redact --no-banner --verbose)
 
 if [[ -z "$base" || "$base" =~ ^0+$ ]]; then
-  log_opts=(--log-opts=--all)
+  echo "secret-scan: a nonzero base commit is required" >&2
+  exit 2
 else
   git cat-file -e "${base}^{commit}" 2>/dev/null || { echo "secret-scan: base ${base} not fetched; use fetch-depth: 0" >&2; exit 2; }
   log_opts=("--log-opts=${base}..HEAD")
 fi
+
+command -v gitleaks >/dev/null || install_gitleaks
 
 gitleaks git "${common[@]}" "${log_opts[@]}" .
 gitleaks dir "${common[@]}" .

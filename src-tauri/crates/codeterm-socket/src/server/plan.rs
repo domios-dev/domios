@@ -263,6 +263,12 @@ pub(super) fn dispatch(
                 message: "params required".to_string(),
                 data: None,
             })?;
+            svc.authorize_batch_completions(&id, body)
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
             let result = apply_batch_rpc(store, &id, body, now)?;
             emit_plan_changed(svc, &id);
             serde_json::to_value(result).map_err(|e| JsonRpcError {

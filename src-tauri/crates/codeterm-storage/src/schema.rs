@@ -55,6 +55,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE workspaces ADD COLUMN created_at_ms INTEGER CHECK (created_at_ms IS NULL OR created_at_ms >= 0);",
     "ALTER TABLE blueprint_runtime ADD COLUMN admission_json TEXT CHECK (admission_json IS NULL OR length(admission_json) <= 4194304);",
     blueprint_evidence::SCHEMA,
+    cron::CANCEL_REASON_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

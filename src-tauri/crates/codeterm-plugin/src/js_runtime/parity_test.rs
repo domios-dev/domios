@@ -30,6 +30,8 @@ mod raw_arguments;
 mod remote_tasks;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
+#[path = "parity_test/scoped_filesystem.rs"]
+mod scoped_filesystem;
 #[path = "parity_test/session_resume.rs"]
 mod session_resume;
 use inline_fixture::{load_inline_js, load_inline_js_with_manifest};
@@ -67,10 +69,10 @@ mod plugin_lifecycle;
 mod provider_compat;
 #[path = "parity_test/rotterdom.rs"]
 mod rotterdom;
+#[path = "parity_test/runtime_modes.rs"]
+mod runtime_modes;
 #[path = "parity_test/sqlite_fixture.rs"]
 mod sqlite_fixture;
-#[path = "parity_test/structured_control.rs"]
-mod structured_control;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
@@ -146,6 +148,23 @@ fn host_owned_capabilities_native_js_parity() {
         native.execution_sandbox_capability(),
         js.execution_sandbox_capability()
     );
+    assert_eq!(
+        native.launch_permission_capability(),
+        js.launch_permission_capability()
+    );
+    for read_all in [false, true] {
+        for root in ["C:/opaque root", "/opaque root"] {
+            assert_eq!(
+                native
+                    .launch_permission_capability()
+                    .unwrap()
+                    .scoped_filesystem_args(read_all, &[root.into()], &[root.into()]),
+                js.launch_permission_capability()
+                    .unwrap()
+                    .scoped_filesystem_args(read_all, &[root.into()], &[root.into()]),
+            );
+        }
+    }
     for platform in ["macos", "linux", "windows", "unknown"] {
         assert_eq!(js.update_command(platform), native.update_command(platform));
     }
@@ -1008,10 +1027,9 @@ fn paste_limit_capability_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
-    // 4096 lies above passing short cells and below cn20's first failing 8192-byte cell.
     let codex = load_js("codex");
-    assert_eq!(codex.paste_limit_bytes(), Some(4096));
-    assert_eq!(codex.describe().paste_limit_bytes, Some(4096));
+    assert_eq!(codex.paste_limit_bytes(), None);
+    assert_eq!(codex.describe().paste_limit_bytes, None);
     assert_eq!(load_js("claude").paste_limit_bytes(), None);
     assert_eq!(load_js("opencode").paste_limit_bytes(), None);
 }
@@ -1143,6 +1161,8 @@ mod launch_artifacts;
 mod no_native_fallback_recursion;
 
 mod availability;
+#[path = "parity_test/chat_close.rs"]
+mod chat_close;
 mod codex;
 mod codex_launch_session;
 mod codex_user_images;

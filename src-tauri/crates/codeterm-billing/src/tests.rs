@@ -136,7 +136,7 @@ fn envelope_inner_records_are_exact() {
         ("/schema_version", serde_json::json!(3)),
         ("/billing/schema_version", serde_json::json!(2)),
         ("/application_access/schema_version", serde_json::json!(2)),
-        ("/billing/plan", serde_json::json!("private")),
+        ("/billing/plan", serde_json::json!("")),
         ("/billing_inventory", serde_json::json!("unknown")),
         ("/application_access/authority", serde_json::json!("root")),
         ("/billing/period_end", serde_json::json!(-1)),
@@ -194,7 +194,15 @@ async fn requires_inventory_keeps_previous_entitlements_stale() {
 }
 #[test]
 fn entitlements_reject_unknown_plan() {
-    assert!(serde_json::from_value::<Entitlements>(serde_json::json!({"plan":"private","status":"active","current_period_end":0,"cancel_at_period_end":false})).is_err());
+    let value = serde_json::json!({"plan":"private","status":"active","current_period_end":0,"cancel_at_period_end":false});
+    let parsed = serde_json::from_value::<Entitlements>(value.clone()).unwrap();
+    assert_eq!(parsed.plan, Plan::Paid("private".into()));
+    assert_eq!(serde_json::to_value(parsed).unwrap(), value);
+    for invalid in ["".to_string(), "x".repeat(129), "bad\ntier".to_string()] {
+        let mut invalid_value = value.clone();
+        invalid_value["plan"] = invalid.into();
+        assert!(serde_json::from_value::<Entitlements>(invalid_value).is_err());
+    }
 }
 #[tokio::test]
 async fn stale_cache_transport_failure() {
@@ -245,42 +253,6 @@ async fn signed_out_returns_free() {
     );
     assert_eq!(*provider.calls.lock(), 1);
 }
-#[tokio::test]
-async fn explicit_focus_refresh_throttled_checkout_bypasses() {
-    let provider = Arc::new(adapters::fake::Fake::default());
-    let billing = Billing::new(provider.clone());
-    let session = session("owner");
-    let now = Instant::now();
-    billing
-        .refresh(Some(&session), RefreshEvent::SignIn, now)
-        .await;
-    billing
-        .refresh(
-            Some(&session),
-            RefreshEvent::Focus,
-            now + Duration::from_secs(59),
-        )
-        .await;
-    assert_eq!(*provider.calls.lock(), 1);
-    billing
-        .refresh(
-            Some(&session),
-            RefreshEvent::Focus,
-            now + Duration::from_secs(60),
-        )
-        .await;
-    assert_eq!(*provider.calls.lock(), 2);
-    billing.browser_opened(&session);
-    billing
-        .refresh(
-            Some(&session),
-            RefreshEvent::Focus,
-            now + Duration::from_secs(61),
-        )
-        .await;
-    assert_eq!(*provider.calls.lock(), 3);
-}
-
 #[tokio::test]
 async fn late_fetch_cannot_restore_signed_out_entitlement() {
     struct Delayed {
@@ -360,6 +332,8 @@ fn checkout_keys_map_to_entitlement_plans_and_reject_plan_names() {
     for (key, plan) in [
         ("pro_monthly", Plan::Pro),
         ("pro_yearly", Plan::Pro),
+        ("max_monthly", Plan::Max),
+        ("max_yearly", Plan::Max),
         ("sponsor_monthly", Plan::Sponsor),
         ("sponsor_yearly", Plan::Sponsor),
     ] {
@@ -623,42 +597,6 @@ async fn verdict_recomputes_half_open_windows_and_offline_access() {
 }
 
 #[tokio::test]
-async fn focus_bypasses_throttle_while_stale_checkout_still_bypasses() {
-    let provider = GrantReplies::new(vec![Ok(paid_grant())]);
-    let (now, clock) = clock(1_700_000_060);
-    let billing = Billing::new(provider.clone()).with_test_grants(
-        activation("fixture-online-v1"),
-        "fixture-installation",
-        Arc::new(MemoryGrants::default()),
-        clock,
-    );
-    let user = session("fixture-user");
-    let focus = Instant::now();
-    billing
-        .refresh(Some(&user), RefreshEvent::SignIn, focus)
-        .await;
-    billing
-        .refresh(Some(&user), RefreshEvent::Focus, focus)
-        .await;
-    assert_eq!(provider.count(), 1);
-    for instant in [1_700_003_600, 1_700_086_399] {
-        now.store(instant, std::sync::atomic::Ordering::SeqCst);
-        let snapshot = billing
-            .refresh(Some(&user), RefreshEvent::Focus, focus)
-            .await;
-        assert!(snapshot.stale);
-        assert!(snapshot.grant.is_some());
-        assert!(billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
-    }
-    assert_eq!(provider.count(), 3);
-    now.store(1_700_000_060, std::sync::atomic::Ordering::SeqCst);
-    billing
-        .refresh(Some(&user), RefreshEvent::CheckoutReturned, focus)
-        .await;
-    assert_eq!(provider.count(), 4);
-}
-
-#[tokio::test]
 async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
     let user = session("fixture-user");
     let raw = paid_grant().grant.unwrap();
@@ -785,7 +723,10 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
         let inst = vector.caller_context["installation_id"].as_str().unwrap();
         let requested_inst = vector.request["installation_id"].as_str().unwrap();
         let id = codeterm_account::InstallationId::parse(requested_inst.into()).unwrap();
-        let provider = Arc::new(adapters::cloud::Cloud::fixture(&address, id));
+        let provider = Arc::new(
+            adapters::cloud::Cloud::fixture(&address, id)
+                .with_installation_proofs(Arc::new(producer_proof::FixtureProof)),
+        );
         let (_, clock) = clock(vector.caller_context["now"].as_u64().unwrap());
         let store = Arc::new(MemoryGrants::default());
         let billing = Billing::new(provider).with_test_grants(
@@ -823,11 +764,14 @@ async fn producer_vectors_replay_exact_response_bytes_through_cloud_and_cache() 
         for request in requests {
             assert_eq!(
                 request,
-                serde_json::json!({"data":{"installation_id":requested_inst}})
+                serde_json::json!({"data":{"installation_id":requested_inst,"installation_proof":producer_proof::proof()}})
             );
         }
     }
 }
+
+#[path = "producer_proof.rs"]
+mod producer_proof;
 
 #[tokio::test]
 async fn policy_refusal_refetches_once_then_stays_free() {
@@ -1005,12 +949,13 @@ fn single_grant_verification_timing() {
 }
 
 fn signed_paid_revisions() -> (codeterm_entitlements::Activation, Reading, Reading) {
-    signed_paid_revisions_at(1_700_000_000, 1_700_000_000)
+    signed_paid_revisions_at(1_700_000_000, 1_700_000_000, "pro")
 }
 
 fn signed_paid_revisions_at(
     newer_issued: u64,
     older_issued: u64,
+    label: &str,
 ) -> (codeterm_entitlements::Activation, Reading, Reading) {
     use base64::{
         engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
@@ -1041,6 +986,13 @@ fn signed_paid_revisions_at(
             .unwrap(),
     )
     .unwrap();
+    payload["label"] = label.into();
+    if !matches!(label, "pro" | "sponsor") {
+        activation.policy_version = 2;
+        payload["policy_version"] = serde_json::json!(2);
+        payload["limits"]["teams"] = serde_json::json!({"max":8,"scope":"installation"});
+        payload["limits"]["agent.tabs"] = serde_json::json!({"max":64,"scope":"installation"});
+    }
     let mut sign = |revision, issued| {
         for (field, delta) in [
             ("issued_at", 0),
@@ -1153,3 +1105,8 @@ mod startup;
 
 #[path = "observer_tests.rs"]
 mod observer;
+
+#[path = "refresh_error_tests.rs"]
+mod refresh_error;
+
+mod focus;
