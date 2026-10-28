@@ -30,6 +30,7 @@ pub mod js_runtime;
 pub(crate) mod json_boolean_record;
 pub mod jsonl_window;
 pub mod local_recording;
+pub mod media_delivery;
 pub mod model_catalog;
 pub mod model_providers;
 pub mod permission_prompt;

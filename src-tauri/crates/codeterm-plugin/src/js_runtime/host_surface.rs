@@ -1,5 +1,7 @@
-//! Sandbox audit: no FS, env or network reach; it acts only inside `onAgentCommand`, on the
-//! calling agent's own stream surface of this plugin, and only with the `surfaces` grant.
+//! Host API audit: `call` requires `surfaces` and a host-scoped onAgentCommand caller;
+//! core resolves ownership, declared verbs and attribution before returning a view dispatch.
+//! `invalidate` needs the same grant plus an opted-in declaration and exact live instance.
+//! It accepts at most 1024 bytes of identity only, never FS paths, command data or credentials.
 
 use std::cell::RefCell;
 use std::sync::Arc;
@@ -59,6 +61,19 @@ pub(crate) fn surface_call(sandbox: &PluginSandbox, verb: &str, args_json: &str)
     }
 }
 
+pub(crate) fn surface_invalidate(sandbox: &PluginSandbox, identity_json: &str) -> String {
+    if !sandbox.surfaces_allowed() {
+        return err(SURFACE_DENIED);
+    }
+    if identity_json.len() > 1024 {
+        return err("surface invalidation exceeds 1024 bytes");
+    }
+    match sandbox.service() {
+        Some(service) => service.surface_invalidate_json(sandbox.plugin_id(), identity_json),
+        None => err("host service unavailable"),
+    }
+}
+
 pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result<(), VmError> {
     let sb = sandbox.clone();
     host.set(
@@ -67,7 +82,15 @@ pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result
             surface_call(&sb, &verb, &args_json)
         }),
     )
-    .map_err(|e| VmError::Script(format!("set surfaceCall: {e}")))
+    .map_err(|e| VmError::Script(format!("set surfaceCall: {e}")))?;
+    let sb = sandbox.clone();
+    host.set(
+        "surfaceInvalidate",
+        Func::new(move |identity_json: String| -> String {
+            surface_invalidate(&sb, &identity_json)
+        }),
+    )
+    .map_err(|e| VmError::Script(format!("set surfaceInvalidate: {e}")))
 }
 
 #[cfg(test)]

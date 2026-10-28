@@ -408,10 +408,12 @@ export interface HostLocalRecording {
   setEnabled(enabled: boolean): LocalRecordingStatus | LocalRecordingRefusal | null;
 }
 
-// Acts on the calling agent's own stream surface; only inside onAgentCommand, with the `surfaces` grant.
+// Acts on the calling agent's authorized surface; only inside onAgentCommand, with the `surfaces` grant.
 export interface HostSurface {
   // Returns the JSON text `{ "result": string }` or `{ "error": string }`.
   call(verb: string, argsJson: string): string;
+  /** Identity only; plugin identity comes from the sandbox. Returns {ok:true} or {error}. */
+  invalidate(identity: { surface: string; instance: string; tab: string }): { ok: true } | { error: string };
 }
 
 export interface HostProgressOpts {

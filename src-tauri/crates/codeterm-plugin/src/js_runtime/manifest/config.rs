@@ -658,7 +658,7 @@ pub struct PermissionsConfig {
     /// Whether a spawned agent may route `domios plugin <id> <verb>` to this plugin's `onAgentCommand` (the inverse seam).
     #[serde(default, rename = "agent_commands", alias = "agentCommands")]
     pub agent_commands: bool,
-    /// Whether `host.surface.call` may drive the calling agent's own stream surface of this plugin.
+    /// Whether host surface calls and declared view state invalidations are permitted.
     #[serde(default)]
     pub surfaces: bool,
     /// Whether the plugin may create/manage workspaces via `host.workspace*`.

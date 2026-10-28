@@ -91,6 +91,7 @@ pub mod transport_tabs;
 pub mod updater_routes;
 pub mod usage_routes;
 pub mod web_plugin_routes;
+mod plugin_media_routes;
 pub mod web_routes;
 pub mod webhook_routes;
 pub mod workspace_routes;

@@ -322,6 +322,7 @@ fn event_matches_tab(event: &crate::events::SystemEvent, tab_id: Option<&str>) -
         | SystemEvent::TabFocused { tab_id: id }
         | SystemEvent::TabClosed { tab_id: id }
         | SystemEvent::SurfaceActivity { tab_id: id, .. }
+        | SystemEvent::SurfaceStateInvalidated { tab: id, .. }
         | SystemEvent::AgentStarted { tab_id: id, .. }
         | SystemEvent::AgentIdle { tab_id: id, .. } => id == tab_id,
         _ => false,

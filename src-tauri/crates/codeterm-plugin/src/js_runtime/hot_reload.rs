@@ -153,6 +153,7 @@ impl CapabilityRegistries {
             );
         }
         if caps.view || caps.remote_task.is_some() {
+            crate::media_delivery::revoke_plugin(&id);
             self.view.register(
                 id.clone(),
                 Arc::new(
@@ -161,7 +162,8 @@ impl CapabilityRegistries {
                         id.clone(),
                         caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
                     )
-                    .with_host_actions(caps.view_host_actions.clone()),
+                    .with_host_actions(caps.view_host_actions.clone())
+                    .with_media_delivery(caps.media_delivery.clone()),
                 ),
             );
         }
@@ -235,6 +237,7 @@ impl CapabilityRegistries {
     }
 
     fn deregister_common(&self, id: &str) {
+        crate::media_delivery::revoke_plugin(id);
         self.decision_model.unregister(id);
         self.transcribe.unregister(id);
         self.converter.unregister(id);

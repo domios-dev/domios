@@ -453,3 +453,15 @@ async fn web_tab_close_refuses_a_protected_tab_with_a_typed_status() {
     state.svc.mux.write().abort_tab_close(&reservation);
     assert_eq!(locked.0, StatusCode::CONFLICT);
 }
+
+#[test]
+fn view_state_invalidations_match_only_the_exact_surface_tab_subscription() {
+    let event = crate::events::SystemEvent::SurfaceStateInvalidated {
+        plugin: "studio".into(),
+        surface: "board".into(),
+        instance: "one".into(),
+        tab: "surface-tab".into(),
+    };
+    assert!(super::event_matches_tab(&event, Some("surface-tab")));
+    assert!(!super::event_matches_tab(&event, Some("other-tab")));
+}

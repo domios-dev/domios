@@ -11,6 +11,7 @@ pub(crate) mod runtime;
 pub use runtime::sse_payload as runtime_sse_payload;
 mod stream_ops;
 mod transport;
+mod view;
 
 pub(crate) use activity::{is_agent_method, SurfaceActivityGate};
 pub use exit::{begin_surface_shutdown, SurfaceShutdown};
