@@ -1,4 +1,5 @@
 mod firestore;
+pub use firestore::control::ControlListener;
 mod pause;
 mod receiver;
 pub const PENDING_COUNT_LIMIT: u64 = 100;

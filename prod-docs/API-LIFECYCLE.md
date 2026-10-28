@@ -49,7 +49,7 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/account/gift/redeem` | Local signed-in redemption: `{key, expected_uid}`; returns the server plan, duration and expiry receipt after signed entitlement refresh. No key generation. |
 | POST | `/api/account/neighbors` | Local owner manages channels; authenticated General may list or set_limit {friendship_id,per_hour}, but cannot request/respond/remove. |
 | POST | `/api/account/neighbors/enabled` | Turn Neighbors on or off on this machine (`{"enabled": bool}`); off stops receiving and sending until turned back on. |
-| POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. |
+| POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. Failed/missing receiver/account watches stop reception and invalidate snapshots. Key mutations invalidate operation caches; each batch reads peer keys once and verifies every message. On starts watches outside network work; off/sign-out cancel startup. No polling/warmup. |
 | POST | `/api/account/neighbors/read` | Local owner UI only: mark a friend's messages read up to `through_message_id` (`{friendship_id, through_message_id}`). |
 | POST | `/api/account/neighbors/files` | Owner/General manage files; bound concierges may resolve permitted saved handles. Payloads below. |
 | POST | `/api/analytics/consent` | Set analytics consent. |
@@ -114,4 +114,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

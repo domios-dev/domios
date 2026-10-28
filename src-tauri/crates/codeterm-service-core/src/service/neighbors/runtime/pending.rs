@@ -88,45 +88,51 @@ pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::
     Ok(())
 }
 
-pub(super) async fn run(session: &listener::Session) {
-    for attempt in 0..=3 {
-        if attempt > 0 {
-            session.state(ListenerState::Reconnecting);
-            let retry = tokio::select! {
-                biased;
-                _ = session.stopped() => Err(Error::Revoked),
-                result = session.retry_after_failure(attempt) => result,
-            };
-            if retry.is_err() {
-                return;
-            }
+struct PendingWatch<'a> {
+    session: &'a listener::Session,
+    progress: AtomicU64,
+}
+#[async_trait::async_trait]
+impl ReceptionEvents for PendingWatch<'_> {
+    fn failure(&self, error: Error) {
+        self.session.failure(error);
+    }
+    fn state(&self, state: ListenerState) {
+        if state == ListenerState::Receiving {
+            self.progress.fetch_add(1, Ordering::AcqRel);
         }
-        session.state(ListenerState::Connecting);
-        let result = observe(session).await;
-        session
+        self.session.state(state);
+    }
+    async fn retry_after_failure(&self, attempt: usize) -> codeterm_neighbors::Result<()> {
+        self.session.retry_after_failure(attempt).await
+    }
+}
+#[async_trait::async_trait]
+impl codeterm_neighbors::supervisor::DocumentSession for PendingWatch<'_> {
+    fn progress(&self) -> u64 {
+        self.progress.load(Ordering::Acquire)
+    }
+    async fn stopped(&self) {
+        self.session.stopped().await;
+    }
+    async fn listen(&self) -> codeterm_neighbors::Result<()> {
+        let result = observe(self.session, self).await;
+        self.session
             .service
             .neighbor_cell()
             .pending_counts
             .lock()
-            .remove(&session.friendship);
-        let _ = publish(session).await;
-        if let Err(error) = result {
-            session.failure(error);
-        }
-        match result {
-            Err(
-                Error::Transport
-                | Error::Firestore { .. }
-                | Error::ListenProtocol { .. }
-                | Error::SecretStore
-                | Error::LocalKeyUnavailable,
-            ) if attempt < 3 => {}
-            _ => {
-                session.state(ListenerState::Stopped);
-                return;
-            }
-        }
+            .remove(&self.session.friendship);
+        let _ = publish(self.session).await;
+        result
     }
+}
+pub(super) async fn run(session: &listener::Session) {
+    let watch = PendingWatch {
+        session,
+        progress: AtomicU64::new(0),
+    };
+    let _ = codeterm_neighbors::supervisor::supervise_documents(&watch).await;
 }
 
 #[derive(Default)]
@@ -155,14 +161,20 @@ type CountFuture<'a> = std::pin::Pin<
     Box<dyn std::future::Future<Output = codeterm_neighbors::Result<u64>> + Send + 'a>,
 >;
 
-async fn observe(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+async fn observe(
+    session: &listener::Session,
+    events: &dyn ReceptionEvents,
+) -> codeterm_neighbors::Result<()> {
     tokio::select! {
-        result = observe_count(session) => result,
+        result = observe_count(session,events) => result,
         result = super::files::prefetch(session) => result,
     }
 }
 
-async fn observe_count(session: &listener::Session) -> codeterm_neighbors::Result<()> {
+async fn observe_count(
+    session: &listener::Session,
+    events: &dyn ReceptionEvents,
+) -> codeterm_neighbors::Result<()> {
     session.prepare().await?;
     let mut stopped = session.stopped.clone();
     let mut inbox = tokio::select! {
@@ -188,7 +200,7 @@ async fn observe_count(session: &listener::Session) -> codeterm_neighbors::Resul
                     .lock()
                     .insert(session.friendship.clone(), result?.min(codeterm_neighbors::adapter::PENDING_COUNT_LIMIT));
                 publish(session).await?;
-                session.state(ListenerState::Receiving);
+                events.state(ListenerState::Receiving);
                 if recount.completed() { count = Some(Box::pin(session.transport.pending_count(&session.friendship))); }
             }
             result = inbox.next() => {

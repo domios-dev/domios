@@ -7,7 +7,10 @@ mod tests;
 use super::{annotate_list, runtime::callable::Calls, same_session, storage::Metadata};
 use crate::service::{account::AccountCell, ServiceContext};
 use codeterm_neighbors::{
-    adapter::FirebaseTransport, registry::RegistrySignal, supervisor::ListenerState, Error, Result,
+    adapter::FirebaseTransport,
+    registry::RegistrySignal,
+    supervisor::{supervise_documents, DocumentSession, ListenerState, ReceptionEvents},
+    Error, Result,
 };
 use serde_json::json;
 use std::sync::{
@@ -82,6 +85,9 @@ struct Session {
     generation: u64,
     transport: FirebaseTransport,
     metadata: Metadata,
+    shutdown: watch::Receiver<bool>,
+    retry: Arc<Notify>,
+    progress: AtomicU64,
 }
 
 impl Session {
@@ -101,14 +107,10 @@ impl Session {
 
     fn state(&self, status: ListenerState) {
         if self.current().is_ok() {
-            if matches!(status, ListenerState::Stopped | ListenerState::Reconnecting) {
-                self.service.forget_neighbor_registry();
-                self.service.stop_neighbor_listeners();
+            if status == ListenerState::Receiving {
+                self.progress.fetch_add(1, Ordering::AcqRel);
             }
-            self.service.ui.emit(
-                "neighbors-watch-status",
-                json!({"uid":self.transport.uid,"status":status}),
-            );
+            self.service.neighbor_watch_state("account", status, None);
         }
     }
 
@@ -232,7 +234,7 @@ async fn run(
     service: ServiceContext,
     account: Arc<codeterm_account::Account>,
     generation: u64,
-    mut shutdown: watch::Receiver<bool>,
+    shutdown: watch::Receiver<bool>,
     retry: Arc<Notify>,
 ) -> Result<()> {
     let expected = account
@@ -284,52 +286,62 @@ async fn run(
         generation,
         transport,
         metadata,
+        shutdown,
+        retry,
+        progress: AtomicU64::new(0),
     };
-    let mut seen = session
-        .metadata
-        .read("registry-notifications.json".into())
-        .await?
-        .unwrap_or_default();
-    for attempt in 0..=3 {
-        if attempt > 0 {
-            session.state(ListenerState::Reconnecting);
-            tokio::select! {
-                biased;
-                _ = stopped(&mut shutdown) => return Err(Error::Revoked),
-                _ = retry.notified() => {}
-            }
+    supervise_documents(&session).await
+}
+
+#[async_trait::async_trait]
+impl ReceptionEvents for Session {
+    fn state(&self, status: ListenerState) {
+        Session::state(self, status);
+    }
+    fn failure(&self, error: Error) {
+        if self.current().is_err() {
+            return;
         }
-        session.current()?;
-        session.state(ListenerState::Connecting);
-        let result = async {
-            let mut listener = session.transport.listen_registry().await?;
-            let mut revisions = delivery::Revisions::default();
-            loop {
-                let signal = listener.next().await?.ok_or(Error::Transport)?;
-                let Some(catch_up) = revisions.observe(signal.revision) else {
-                    continue;
-                };
-                if catch_up || signal.delivery.is_none() && signal.read.is_none() && !signal.ignored
-                {
-                    session.refresh(&signal, &mut seen).await?;
-                }
-                session.delivery(&signal, catch_up).await?;
-                session.state(ListenerState::Receiving);
+        self.service.forget_neighbor_registry();
+        self.service.neighbor_watch_failure("account", error);
+    }
+    async fn retry_after_failure(&self, attempt: usize) -> Result<()> {
+        tokio::select! {
+            _ = self.retry.notified() => {},
+            _ = codeterm_neighbors::supervisor::reconnect_backoff(attempt) => {},
+        }
+        self.current()
+    }
+}
+
+#[async_trait::async_trait]
+impl DocumentSession for Session {
+    fn progress(&self) -> u64 {
+        self.progress.load(Ordering::Acquire)
+    }
+    async fn stopped(&self) {
+        stopped(&mut self.shutdown.clone()).await;
+    }
+    async fn listen(&self) -> Result<()> {
+        self.current()?;
+        let mut seen = self
+            .metadata
+            .read("registry-notifications.json".into())
+            .await?
+            .unwrap_or_default();
+        let mut listener = self.transport.listen_registry().await?;
+        let mut revisions = delivery::Revisions::default();
+        loop {
+            let signal = listener.next().await?.ok_or(Error::Transport)?;
+            self.current()?;
+            let Some(catch_up) = revisions.observe(signal.revision) else {
+                continue;
+            };
+            if catch_up || signal.delivery.is_none() && signal.read.is_none() && !signal.ignored {
+                self.refresh(&signal, &mut seen).await?;
             }
-        };
-        let outcome = tokio::select! {
-            biased;
-            _ = stopped(&mut shutdown) => Err(Error::Revoked),
-            result = result => result,
-        };
-        match outcome {
-            Err(Error::Transport | Error::Firestore { .. } | Error::ListenProtocol { .. })
-                if attempt < 3 => {}
-            outcome => {
-                session.state(ListenerState::Stopped);
-                return outcome;
-            }
+            self.delivery(&signal, catch_up).await?;
+            self.state(ListenerState::Receiving);
         }
     }
-    Err(Error::Transport)
 }
