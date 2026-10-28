@@ -7,11 +7,12 @@ test("materialized surface bridge accepts only host invalidations and unsubscrib
   const source = readFileSync(new URL("../src-tauri/crates/codeterm-api/src/web_plugin_routes.rs", import.meta.url), "utf8");
   const script = source.match(/const PLUGIN_BRIDGE_JS: &str = r#"([\s\S]*?)"#;/)[1]
     .replace("__CT_SURFACE__", JSON.stringify({surface:"board",instance:"one",tab:"tab"}));
-  let receive;
+  const listeners = [];
+  const receive = (event) => listeners.forEach((listener) => listener(event));
   const messages = [];
   const parent = {postMessage: message => messages.push(message)};
   const sandbox = {parent, document:{body:null, documentElement:{style:{}},readyState:"loading",addEventListener(){}},
-    addEventListener: (event, callback) => { assert.equal(event,"message"); receive = callback; }};
+    addEventListener: (event, callback) => { assert.equal(event,"message"); listeners.push(callback); }};
   sandbox.window = sandbox;
   runInNewContext(script, sandbox);
   let count = 0;
