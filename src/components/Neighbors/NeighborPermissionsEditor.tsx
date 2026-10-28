@@ -81,7 +81,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const problem = draft ? permissionProblem(draft) : null;
   const edit = (patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
-    <Segmented<TrustPreset> aria-label="Trust" value={awaitingFolder ? "collaborator" : draft ? trustPresetOf(draft, dailyValue) : "custom"} height={28} options={TRUST_OPTIONS}
+    <Segmented<TrustPreset> aria-label="Trust" className="neighbor-trust" value={awaitingFolder ? "collaborator" : draft ? trustPresetOf(draft, dailyValue) : "custom"} height={28} options={TRUST_OPTIONS}
       onChange={preset => {
         if (!draft || saving || preset === "custom") return;
         const applied = applyTrustPreset(preset, draft);
@@ -92,7 +92,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     <SettingsSection title="Requests">
     <SwitchTile label={`Allow requests from ${name}`} hint="Their agents may ask yours for help."
       checked={draft?.allowed === true} onChange={allowed => { if (draft && !saving) edit({ allowed }); }} />
-    <FormRow label="What they may ask" htmlFor={scopeField} hint="Plain words your concierge follows.">
+    <FormRow className="neighbor-field" label="What they may ask" htmlFor={scopeField} hint="Plain words your concierge follows.">
       <textarea id={scopeField} className={`${UI_INPUT.full} neighbor-textarea`} rows={4} disabled={!draft || saving}
         placeholder={draft ? "Nothing allowed yet" : "Reading their permissions"} value={draft?.scope ?? ""} onChange={event => edit({ scope: event.currentTarget.value })} />
     </FormRow>
@@ -173,7 +173,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       void onSaveDailyLimit(dailyValue).then(() => setSavedDaily(dailyValue))
         .catch((failure: unknown) => setDailyError(failure instanceof Error ? failure.message : "The daily limit could not be saved."));
     }}>
-      <FormRow label="Messages per day" htmlFor={dailyField}
+      <FormRow className="neighbor-field" label="Messages per day" htmlFor={dailyField}
         hint={dailyValid ? "Empty for no limit." : "Use a whole number from 1 to 10000, or leave it empty."}>
         <div className="neighbor-limit__row">
           <input id={dailyField} type="number" min={1} max={10000} step={1} inputMode="numeric" placeholder="No limit"
@@ -186,7 +186,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </form>
     <FileDailyLimit neighbor={neighbor} name={name} onSave={onSaveFileDailyLimit} />
     <form className="neighbor-limit" onSubmit={event => { event.preventDefault(); if (validNeighborLimit(limit)) void onLimit(limit); }}>
-      <FormRow label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
+      <FormRow className="neighbor-field" label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
         <div className="neighbor-limit__row">
           <input id={limitField} type="number" min={1} max={200} step={1} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limit}
             onChange={event => setLimit(event.currentTarget.valueAsNumber)} />
@@ -219,7 +219,7 @@ function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: 
     setError(null);
     void onSave(bytes).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file limit could not be saved."));
   }}>
-    <FormRow label="Files per day from this friend" htmlFor={field} hint={valid ? hint : `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.`}>
+    <FormRow className="neighbor-field" label="Files per day from this friend" htmlFor={field} hint={valid ? hint : `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.`}>
       <div className="neighbor-limit__row">
         <input id={field} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={`${FILE_LIMIT_MIB} MiB`}
           className={`${UI_INPUT.compact} neighbor-limit__input`} value={value} aria-invalid={!valid} disabled={!onSave}

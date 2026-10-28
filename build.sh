@@ -3708,6 +3708,7 @@ LOCK_STORM_PY
     cargo clean --manifest-path src-tauri/Cargo.toml
     ;;
   kill)
+    if named_dev_isolated; then export CARGO_TARGET_DIR="$(named_dev_target_dir)"; fi
     kill_dev
     echo "Done."
     ;;

@@ -8,9 +8,38 @@ import { spawnSync } from 'node:child_process';
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const helpers = ['named_dev_target_dir', 'named_dev_isolated', 'configure_named_dev_cache', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
-  'tauri_debug_dir', 'dev_built_app_path', 'dev_app_path'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
+  'tauri_debug_dir', 'dev_built_app_path', 'dev_app_path', 'kill_dev', 'dev_provenance_record'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
 const dev = source.slice(source.indexOf('  dev)\n'), source.indexOf('  e2e)\n'));
+const kill = source.slice(source.indexOf('  kill)\n'), source.indexOf('  dev-server)\n'));
 const prebuilt = source.slice(source.indexOf('  dev-prebuilt)\n'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)\n')));
+
+for (const instance of ['', 'first-proof', 'second-proof']) {
+  test(`shutdown selects the launched artifact before checking its identity; instance=${instance || 'default'}`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helpers}
+OSTYPE=msys
+CT_INSTANCE="$1" CT_INSTANCE_KEY="$1" CT_PORT=17999 CT_SUFFIX=
+CT_DATA_DIR="$PWD/data"
+CARGO_BUILD_TARGET=
+if [ -n "$CT_INSTANCE" ]; then CARGO_TARGET_DIR=foreign-target; else unset CARGO_TARGET_DIR; fi
+node() { [ "$1" = scripts/dev-rebuild-stop.mjs ]; printf 'app=%s\\n' "$6"; }
+kill_web_watch() { :; }
+kill_dev_static_server() { :; }
+windows_dev_leftover_cleanup() { :; }
+case kill in
+${kill}
+esac
+`, '--', instance], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const app = result.stdout.split('\n').find(line => line.startsWith('app=')).slice(4);
+    if (instance) {
+      assert.ok(app.endsWith(`/src-tauri/target/dev-instances/${instance}/debug/domios-dev-app.exe`), app);
+      assert.ok(!app.includes('foreign-target'), app);
+    } else {
+      assert.equal(app, 'src-tauri/target/debug/domios-dev-app.exe');
+    }
+  });
+}
 
 for (const platform of ['windows','linux']) for (const wait of [0, 1]) {
   test(`named DEV build and standalone prebuilt use checkout artifacts; platform=${platform}, wait=${wait}`, () => {

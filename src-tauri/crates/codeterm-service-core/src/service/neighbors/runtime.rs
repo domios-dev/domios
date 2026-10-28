@@ -47,6 +47,7 @@ pub struct NeighborRuntimeCell {
     control_cancel: tokio::sync::Notify,
     bootstrapped: std::sync::atomic::AtomicBool,
     restoration: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    file_advertised_generation: tokio::sync::Mutex<Option<u64>>,
 }
 
 #[derive(Deserialize)]
@@ -659,7 +660,7 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
-        let status = if recover_keys {
+        let mut status = if recover_keys {
             self.refresh_neighbor_receiver(&registry, &scope, generation)
                 .await?
         } else {
@@ -699,6 +700,15 @@ impl ServiceContext {
         {
             return Err(Error::LocalKeyUnavailable.to_string());
         }
+        if let Some(local) = recovered.as_ref() {
+            if self.advertise_neighbor_files(&registry, &status, local, generation).await.map_err(|error| error.to_string())? {
+                status = self.refresh_neighbor_receiver_readonly(&registry, generation).await?;
+                if !status.receiving_here() {
+                    self.stop_neighbor_listeners();
+                    return Ok(());
+                }
+            }
+        }
         drop(recovered);
         if !settings.enabled {
             let mut recovered_settings = settings.clone();
@@ -722,13 +732,30 @@ impl ServiceContext {
             return Ok(());
         }
         self.require_neighbor_generation(generation)?;
+        let friendships = friends["friends"]
+            .as_array()
+            .ok_or("Invalid Neighbors response")?;
+        for friend in friendships {
+            if let Some(friendship) = friend["friendship_id"].as_str().filter(|id| hex_id(id, 64)) {
+                if settings
+                    .bindings
+                    .get(friendship)
+                    .is_some_and(|tab| self.validate_neighbor_gateway(tab).is_ok())
+                {
+                    self.restore_neighbor_concierge(&metadata, &transport.uid, friendship)
+                        .await?;
+                    self.require_neighbor_generation(generation)?;
+                }
+            }
+        }
+        let settings = metadata
+            .settings()
+            .await
+            .map_err(|error| error.to_string())?;
         let listener_generation = self
             .neighbor_cell()
             .listener_generation
             .load(Ordering::Acquire);
-        let friendships = friends["friends"]
-            .as_array()
-            .ok_or("Invalid Neighbors response")?;
         for friend in friendships {
             let friendship = friend["friendship_id"]
                 .as_str()

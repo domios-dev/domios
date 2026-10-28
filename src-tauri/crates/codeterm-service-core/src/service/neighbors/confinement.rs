@@ -53,7 +53,10 @@ fn sandbox_label(
     };
     match capability.resolve(&intent, platform, runtime) {
         Ok(Some(_)) => Ok(Some(label.into())),
-        _ => Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string()),
+        _ if access == MachineAccess::Folder => {
+            sandbox_label(capability, platform, runtime, MachineAccess::ReadOnly)
+        }
+        _ => Ok(None),
     }
 }
 
@@ -78,13 +81,13 @@ impl ServiceContext {
                     .map(|policy| policy.intent.clone()),
             )
         };
-        let _ = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
-        if !bound_launch_matches(
-            actual_cwd.as_deref(),
-            intent,
-            permission.machine_access,
-            cwd,
-        ) {
+        let sandbox = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
+        let effective_access = match sandbox.as_deref() {
+            Some("read-only") => MachineAccess::ReadOnly,
+            Some(_) => MachineAccess::Folder,
+            None => MachineAccess::Full,
+        };
+        if !bound_launch_matches(actual_cwd.as_deref(), intent, effective_access, cwd) {
             return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
         }
         Ok(())

@@ -6,6 +6,15 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+export function cargoBuildDirectory(manifest, { env = process.env, cwd = process.cwd() } = {}) {
+  const metadata = JSON.parse(execFileSync('cargo', ['metadata', '--offline', '--no-deps',
+    '--format-version=1', '--manifest-path', manifest], { env, cwd, encoding: 'utf8' }));
+  if (typeof metadata.build_directory !== 'string' || !path.isAbsolute(metadata.build_directory)) {
+    throw new Error('Cargo metadata did not report an absolute build directory');
+  }
+  return metadata.build_directory;
+}
+
 export function prepareCacheWrapper({ env = process.env } = {}) {
   const source = fileURLToPath(new URL('./cache-rustc-wrapper.rs', import.meta.url));
   const compilerName = process.platform === 'win32' ? 'rustc.exe' : 'rustc';
@@ -43,5 +52,6 @@ export function prepareCacheWrapper({ env = process.env } = {}) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  console.log(prepareCacheWrapper());
+  console.log(process.argv[2] === '--build-directory'
+    ? cargoBuildDirectory(process.argv[3] || 'src-tauri/Cargo.toml') : prepareCacheWrapper());
 }

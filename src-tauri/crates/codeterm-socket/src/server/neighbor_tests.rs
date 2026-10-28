@@ -190,6 +190,7 @@ fn own_pad_resolution_unblocks_named_reply_admission_and_foreign_pads_stay_denie
 #[test]
 fn concierge_self_discovery_and_todo_reads_expose_only_the_allowed_surface() {
     let (fixture, concierge, token) = fixture();
+    fixture.install_seeded_storage_desk();
     assert_eq!(
         request(&fixture, &token, "system.identify", None)
             .result

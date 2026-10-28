@@ -5,6 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { cargoBuildDirectory, prepareCacheWrapper } from '../cache-rustc-wrapper.mjs';
 
 test('identical compiler wrappers share identity across checkout paths; changed source stays isolated', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-wrapper-identity-'));
@@ -51,6 +52,52 @@ test('identical compiler wrappers share identity across checkout paths; changed 
       artifacts.push(fs.readFileSync(path.join(directory, 'libtracked.rlib')));
     }
     assert.ok(!artifacts[0].equals(artifacts[1]), 'tracked build directories must retain their actual values');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('configured build directories produce equal generated metadata and downstream Rust cache hits', { timeout: 120000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-configured-build-'));
+  const env = { ...process.env, CARGO_HOME: path.join(root, 'cargo'), CARGO_INCREMENTAL: '0' };
+  delete env.CARGO_BUILD_BUILD_DIR;
+  try {
+    fs.mkdirSync(path.join(root, '.cargo'));
+    fs.mkdirSync(path.join(root, 'src'));
+    fs.copyFileSync(new URL('../../rust-toolchain.toml', import.meta.url), path.join(root, 'rust-toolchain.toml'));
+    fs.writeFileSync(path.join(root, 'Cargo.toml'), '[package]\nname="cache-configured-fixture"\nversion="0.0.0"\nedition="2021"\n[workspace]\n');
+    fs.writeFileSync(path.join(root, 'src/lib.rs'), 'pub fn value() {}\n');
+    const source = path.join(root, 'generated.rs');
+    fs.writeFileSync(source, 'include!(concat!(env!("OUT_DIR"), "/private.rs"));\npub const EXPLICIT: Option<&str> = option_env!("CARGO_BUILD_BUILD_DIR");\n');
+    const consumer = path.join(root, 'consumer.rs');
+    fs.writeFileSync(consumer, 'pub fn value() -> generated_fixture::Generated { generated_fixture::Generated }\n');
+    const wrapper = prepareCacheWrapper({ env });
+    const compiler = fs.readFileSync(wrapper.replace(/(?:\.exe)?$/, '.compiler'), 'utf8');
+    const hits = () => JSON.parse(execFileSync('sccache', ['--show-stats', '--stats-format', 'json'], { env, encoding: 'utf8' })).stats.cache_hits.counts.Rust || 0;
+    const metadata = [];
+    for (const name of ['a', 'b']) {
+      const build = path.join(root, `build-${name}`);
+      fs.writeFileSync(path.join(root, '.cargo/config.toml'), `[build]\nbuild-dir=${JSON.stringify(build)}\n`);
+      const resolved = cargoBuildDirectory('Cargo.toml', { env, cwd: root });
+      assert.equal(path.resolve(resolved), path.resolve(build));
+      assert.equal(env.CARGO_BUILD_BUILD_DIR, undefined);
+      const output = path.join(build, 'debug/build/generated-opaque/out');
+      const deps = path.join(build, 'debug/deps');
+      fs.mkdirSync(output, { recursive: true });
+      fs.mkdirSync(deps, { recursive: true });
+      fs.writeFileSync(path.join(output, 'private.rs'), 'pub struct Generated;\n');
+      const settings = { ...env, CARGO_TARGET_DIR: path.join(root, `final-${name}`), CODETERM_CACHE_BUILD_DIRECTORY: resolved, OUT_DIR: output };
+      execFileSync(wrapper, [compiler, '--crate-name', 'generated_fixture', '--crate-type', 'rlib',
+        '--edition=2021', '--emit=link,metadata,dep-info', '--out-dir', deps, source], { env: settings });
+      metadata.push(fs.readFileSync(path.join(deps, 'libgenerated_fixture.rmeta')));
+      delete settings.OUT_DIR;
+      const before = hits();
+      execFileSync(wrapper, [compiler, '--crate-name', 'downstream', '--crate-type', 'rlib',
+        '--edition=2021', '--emit=link,dep-info', '--extern', `generated_fixture=${path.join(deps, 'libgenerated_fixture.rlib')}`,
+        '--out-dir', deps, consumer], { env: settings });
+      if (name === 'b') assert.equal(hits() - before, 1, 'a new configured build directory must reuse its downstream Rust crate');
+    }
+    assert.ok(metadata[0].equals(metadata[1]), 'generated Rust metadata must not contain the physical build-directory distinction');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

@@ -55,6 +55,7 @@ const LEAF_FIELDS: &[&str] = &[
     "team_id",
     "parent_tab_id",
     "spawned_by_tab_id",
+    "neighbor_authority",
     "report_target_tab_id",
     "report_target_mesh_peer",
     "ownership",
@@ -167,6 +168,7 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         | "shell_profile"
         | "close_restore"
         | "ownership"
+        | "neighbor_authority"
         | "model_fallback"
         | "model_identity_mismatch"
         | "watcher"

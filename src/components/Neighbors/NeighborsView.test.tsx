@@ -900,6 +900,20 @@ it("opens the friend window at Permissions when another surface asks for it", as
   expect(hasButton("Save permissions")).toBe(true);
 });
 
+it("still opens the friend window when the Neighborhood mounts before the account resolves", async () => {
+  openNeighborPage("pair");
+  account.model = { kind: "pending" };
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
+  account.model = signedIn;
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')?.textContent).toContain("Ada");
+});
+
 it("keeps focus inside the friend window and hands it back to the friend's node on close", async () => {
   await render();
   await act(async () => button("Ada, connected").click());

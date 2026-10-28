@@ -212,6 +212,11 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
+        self.refuse_neighbor_descendant_launch(&[
+            params.spawned_by_tab_id.as_deref(),
+            params.creator_tab_id.as_deref(),
+            params.parent_tab_id.as_deref(),
+        ])?;
         self.validate_remote_spawn(&params)?;
         crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());

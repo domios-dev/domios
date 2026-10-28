@@ -184,13 +184,13 @@ Foreground launch stays in its Dev shell and owns the client process.
 
 Server reload/staging tool updates also use `dev-server`; native source and
 Tauri/Cargo configuration changes still require `dev`. Named DEV CLI artifacts
-build into the instance target alongside the app under distinct binary names.
-Named `dev` and `dev-server` disable incremental compilation and select the
-portable compiler-cache wrapper automatically. Workspace libraries can then hit
-machine sccache across instance targets; incremental rustc requests cannot.
-Cargo retains the machine's configured build directory and per-instance final
-artifacts. The first build seeds the changed compiler configuration; instance
-specific server identity and binary linking still require work.
+build alongside the app in the instance target under distinct binary names.
+Named `dev` and `dev-server` use nonincremental Rust compilation and the portable
+compiler-cache wrapper automatically. Cargo keeps its configured intermediate
+directory; runnable artifacts stay isolated per instance. Generated-source
+metadata uses the same virtual prefix across configured build directories.
+The first run seeds the new cache configuration; instance-specific server
+identity and binary linking still require work.
 
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.
@@ -468,6 +468,8 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 ---
 
 ## Troubleshooting log (grow this as things break)
+
+- **Named `kill` refuses its own launched instance with `Uncertain DEV instance identity`.** Shutdown must select the same checkout-local `dev-instances/<name>` target as the build before deriving the client path. The guard previously received the default target while provenance pinned the named target. Use the corrected `build.sh kill` from the instance's original checkout with its explicit instance and port; all process, epoch, data, production and foreign-instance checks remain active.
 
 - **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under `<checkout>/src-tauri/target/dev-instances/<instance-key>`, for both foreground and `--wait`; `dev-prebuilt` resolves the same checkout target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with the same explicit instance and private port to create the new artifacts and provenance, then reuse them with `dev-prebuilt`. Separate instance targets keep a second instance from overwriting the default instance's running executable. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
 

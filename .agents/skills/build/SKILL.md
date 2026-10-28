@@ -96,12 +96,15 @@ working directories and per-worktree isolation stay intact; basedir rewriting
 remains disabled. Compiler identity and wrapper source select an immutable
 native launcher, including on Windows, without cmd.exe argument-length limits.
 
-Generated Rust source locations under an explicit Cargo target map to a
+Generated Rust source locations under an explicit target or configured Cargo
+build directory map to a
 machine-stable virtual output prefix under the existing Cargo-home wrapper
 cache. Identical wrapper source and toolchain share one immutable launcher
 across checkouts; its key does not include the script's checkout path.
 Otherwise Serde's generated `private.rs` path changes its `.rmeta` bytes and
 invalidates every dependent cache entry.
+The policy resolves the configured build directory through Cargo metadata;
+it neither changes that directory nor exports a new Cargo driver value.
 The policy version and prefix enter the cache key; `OUT_DIR` itself remains
 tracked and its runtime string value is preserved. Dep-info still names the
 real generated files. The proxy is named `sccache` and forwards C/C++ compilers
@@ -127,13 +130,12 @@ populated-cache measurement.
 
 Named `dev` and `dev-server` select nonincremental compilation and the portable
 compiler-cache wrapper automatically. Incremental workspace libraries otherwise
-bypass sccache entirely; the wrapper avoids target-directory-only misses when
-Cargo invokes rustc for a second instance. Cargo keeps the machine's configured
-build directory and final outputs stay under
-`src-tauri/target/dev-instances/<name>`. Use the normal named operations; the
-first run seeds the changed configuration. Instance-specific server identity
-and binary linking still require work. Canonical QA and lane-check retain their
-own incremental and build-directory policies.
+bypass sccache entirely. Cargo retains the machine's configured build directory,
+and final artifacts remain under `src-tauri/target/dev-instances/<name>`.
+The first run seeds the changed configuration; matching Rust libraries can then
+hit across checkouts through the gateway. Instance-specific server identity and
+binary linking still require work. Use normal named operations; canonical QA
+and lane-check retain their own profile and isolation policies.
 
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores
 incremental diagnostics in `node_modules/.cache`; Vite builds in a temporary
