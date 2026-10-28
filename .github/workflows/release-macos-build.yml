@@ -214,6 +214,9 @@ jobs:
             --tree-log "release-artifacts/build-logs/$target/closure.txt" \
             --bundle "$bundle" --output-dir "$ART"
 
+      - name: Verify compiled analytics production key
+        run: node scripts/check-release-analytics-key.mjs target/domios-package/domios-server/domios-server
+
       - name: Smoke built release bundle
         run: node scripts/release-bundle-smoke.mjs macos "$ART" "${{ inputs.source_ref }}"
 
