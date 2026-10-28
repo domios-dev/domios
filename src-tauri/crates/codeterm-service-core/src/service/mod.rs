@@ -228,7 +228,6 @@ pub mod blocking;
 pub use blocking::run as blocking_run;
 pub(crate) mod restored_launch;
 pub mod store;
-pub(crate) mod stream_preview;
 pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub mod supporter;

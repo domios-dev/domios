@@ -215,9 +215,6 @@ struct PtySubmitTransport<'a> {
     wake_tx: SyncSender<SubmitCycleSignal>,
     wake_rx: Receiver<SubmitCycleSignal>,
     _session_evidence_watcher: RefCell<Option<notify::RecommendedWatcher>>,
-    /// Stream-preview turn signal fires once per transaction, at the first
-    /// successful submit-key enqueue. Signal only — never gates delivery.
-    turn_signaled: std::cell::Cell<bool>,
     recovery_refusal: Cell<Option<&'static str>>,
 }
 
@@ -609,9 +606,6 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             }
         );
         result.map_err(|error| injection_write_error(self.pty_id, error))?;
-        if !self.turn_signaled.replace(true) {
-            crate::service::stream_preview::begin_turn(self.pty_id);
-        }
         if self.permit.is_some() {
             crate::pty::capture::CaptureRegistry::global().tap_input(self.pty_id, "pty.write", key);
         }
@@ -929,7 +923,6 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
         wake_tx,
         wake_rx,
         _session_evidence_watcher: RefCell::new(None),
-        turn_signaled: std::cell::Cell::new(false),
         deferred_ready_seen: Cell::new(false),
         recovery_refusal: Cell::new(None),
     };

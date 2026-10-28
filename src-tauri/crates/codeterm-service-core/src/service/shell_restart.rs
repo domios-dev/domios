@@ -70,7 +70,6 @@ impl ServiceContext {
                 reaper.wait_for_restart(Duration::from_secs(5))?;
             }
             self.screen_state.remove(old_pty_id);
-            crate::service::stream_preview::remove(old_pty_id);
         }
 
         let resolved_cwd = cwd.or(current_cwd);
