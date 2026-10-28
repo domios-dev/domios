@@ -99,6 +99,7 @@ Listener preparation wakes the bound unpaused concierge on this receiving machin
 ## Sending, delivery and history
 
 Send once from your pad; retain its ID. Replies link to original messages, never tab addresses.
+Empty/whitespace-only text refuses `empty_body` before submission; nothing was sent. File-only sends are valid. Stop after a pad-write failure; never pipe a missing file into send.
 
 ```bash
 domios account neighbors send FRIENDSHIP_ID --from-pad request.md
@@ -169,4 +170,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 46 -->
+<!-- revision: 47 -->

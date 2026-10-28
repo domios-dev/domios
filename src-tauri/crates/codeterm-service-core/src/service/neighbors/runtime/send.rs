@@ -213,6 +213,22 @@ async fn prepare_outgoing_body(
     body: OutboundBody,
     in_reply_to: Option<&str>,
 ) -> codeterm_neighbors::Result<(Zeroizing<String>, Vec<String>)> {
+    let empty = match &body {
+        OutboundBody::Granted(text) => text.trim().is_empty(),
+        OutboundBody::Files { text, paths } => text.trim().is_empty() && paths.is_empty(),
+        OutboundBody::Refusal => false,
+    };
+    if empty {
+        return Err(Error::EmptyBody);
+    }
+    if kind != Kind::Refusal {
+        match &body {
+            OutboundBody::Granted(text) | OutboundBody::Files { text, .. } => {
+                codeterm_neighbors::wire::validate_message_size(text)?;
+            }
+            OutboundBody::Refusal => {}
+        }
+    }
     if matches!(kind, Kind::Answer | Kind::Refusal) {
         let history = metadata.history(friendship).await?;
         let target = in_reply_to.and_then(|id| {

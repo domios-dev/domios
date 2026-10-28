@@ -1,6 +1,164 @@
 use super::*;
 
 #[test]
+fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads() {
+    use crate::{
+        multiplexer::{state::MultiplexerState, types::NeighborAuthority},
+        service::{test_fixture::ServiceFixture, SpawnAgentParams},
+    };
+    for access in [
+        MachineAccess::ReadOnly,
+        MachineAccess::Folder,
+        MachineAccess::Full,
+    ] {
+        for lifecycle in ["fresh", "resumed", "restored"] {
+            let (mut mux, tab_id) = MultiplexerState::new();
+            mux.get_tab_mut(&tab_id).unwrap().neighbor_authority = Some(NeighborAuthority {
+                uid: "owner".into(),
+                friendship_id: "a".repeat(64),
+                root_tab_id: None,
+            });
+            let fixture = ServiceFixture::new(mux);
+            let svc = &fixture.service;
+            svc.agent_registry
+                .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+            let mut params = SpawnAgentParams {
+                resume_session_id: (lifecycle != "fresh").then(|| "opaque-session".into()),
+                ..Default::default()
+            };
+            params.neighbor_authority = svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .neighbor_authority
+                .clone();
+            svc.configure_neighbor_launch_access("claude", access, &mut params)
+                .unwrap();
+            assert_eq!(
+                params.permission_bypass_requested("claude"),
+                access == MachineAccess::Full
+            );
+            for global in [false, true] {
+                fixture.set_agent_full_access(global);
+                assert_eq!(
+                    crate::service::permission_policy::spawn_permission_bypass_for_launch(
+                        svc,
+                        "claude",
+                        false,
+                        false,
+                        Some(&params)
+                    )
+                    .unwrap()
+                    .is_some(),
+                    access == MachineAccess::Full
+                );
+                let mut forged = params.clone();
+                forged.skip_permissions = Some(true);
+                forged.permission_bypass_authorization = None;
+                assert!(
+                    crate::service::permission_policy::spawn_permission_bypass_for_launch(
+                        svc,
+                        "claude",
+                        false,
+                        false,
+                        Some(&forged)
+                    )
+                    .unwrap()
+                    .is_none()
+                );
+            }
+            fixture.set_agent_full_access(false);
+            let pad = svc.ensure_agent_pad(&tab_id).unwrap();
+            std::fs::write(pad.path().join("reply.txt"), "opaque reply").unwrap();
+            let mut recorded = crate::multiplexer::types::RestorableLaunchParameters::default();
+            recorded.captured = true;
+            recorded.permission_bypass_requested = params.permission_bypass_requested("claude");
+            svc.mux
+                .write()
+                .get_tab_mut(&tab_id)
+                .unwrap()
+                .restorable_launch = recorded.clone();
+            let snapshot = svc.mux.read().to_session_snapshot();
+            *svc.mux.write() = MultiplexerState::from_session_snapshot(&snapshot);
+            let restored =
+                crate::service::restored_launch::restore_permission_bypass_authorization(
+                    svc,
+                    &svc.agent_registry,
+                    &tab_id,
+                    "claude",
+                    &recorded,
+                )
+                .unwrap();
+            assert_eq!(restored.is_some(), access == MachineAccess::Full);
+            assert!(svc
+                .ensure_agent_pad(&tab_id)
+                .unwrap()
+                .path()
+                .join("reply.txt")
+                .is_file());
+        }
+    }
+}
+
+#[test]
+fn full_launch_without_provider_authorization_is_refused_instead_of_prompting() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("opaque-no-bypass"),
+    ));
+    let mut params = crate::service::SpawnAgentParams::default();
+    assert_eq!(
+        fixture
+            .service
+            .configure_neighbor_launch_access("opaque-no-bypass", MachineAccess::Full, &mut params)
+            .unwrap_err(),
+        codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+    );
+}
+
+#[test]
+fn legacy_full_concierge_without_bypass_requires_reconciliation() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("claude".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    let cwd = fixture.temp.path().to_string_lossy().into_owned();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .cwd = Some(cwd.clone());
+    let permission = Permission {
+        machine_access: MachineAccess::Full,
+        ..Default::default()
+    };
+    assert!(fixture
+        .service
+        .validate_neighbor_bound_launch(&tab_id, &permission, &cwd)
+        .is_err());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .restorable_launch
+        .permission_bypass_requested = true;
+    fixture
+        .service
+        .validate_neighbor_bound_launch(&tab_id, &permission, &cwd)
+        .unwrap();
+}
+
+#[test]
 fn bound_launch_matches_effective_sandbox_and_working_folder() {
     assert!(!bound_launch_matches(
         Some("friend"),

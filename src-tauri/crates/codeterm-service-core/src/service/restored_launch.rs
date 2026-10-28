@@ -163,6 +163,23 @@ pub fn restore_permission_bypass_authorization(
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
     }
+    if launch.captured
+        && launch.permission_bypass_requested
+        && launch.execution_sandbox.is_none()
+        && svc
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.neighbor_authority.is_some())
+    {
+        return Ok(
+            crate::service::permission_policy::authorize_permission_bypass(
+                registry,
+                provider_id,
+                true,
+            ),
+        );
+    }
     let worker = svc
         .mux
         .read()

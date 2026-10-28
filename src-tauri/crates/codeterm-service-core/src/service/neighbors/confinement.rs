@@ -61,13 +61,32 @@ fn sandbox_label(
 }
 
 impl ServiceContext {
+    pub(crate) fn configure_neighbor_launch_access(
+        &self,
+        provider: &str,
+        access: MachineAccess,
+        params: &mut crate::service::SpawnAgentParams,
+    ) -> std::result::Result<(), String> {
+        let authorization = crate::service::permission_policy::authorize_permission_bypass(
+            &self.agent_registry,
+            provider,
+            access == MachineAccess::Full,
+        );
+        if access == MachineAccess::Full && authorization.is_none() {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
+        params.skip_permissions = Some(authorization.is_some());
+        params.permission_bypass_authorization = authorization;
+        Ok(())
+    }
+
     pub(super) fn validate_neighbor_bound_launch(
         &self,
         tab_id: &str,
         permission: &Permission,
         cwd: &str,
     ) -> std::result::Result<(), String> {
-        let (provider, actual_cwd, policy) = {
+        let (provider, actual_cwd, policy, bypass) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("Neighbor concierge is missing")?;
             (
@@ -76,8 +95,12 @@ impl ServiceContext {
                     .ok_or("Neighbor concierge has no provider")?,
                 tab.cwd.clone(),
                 tab.restorable_launch.execution_sandbox.clone(),
+                tab.restorable_launch.permission_bypass_requested,
             )
         };
+        if permission.machine_access == MachineAccess::Full && !bypass {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
         let sandbox = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
         let effective_access = match sandbox.as_deref() {
             Some("read-only") => MachineAccess::ReadOnly,

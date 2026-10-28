@@ -176,13 +176,12 @@ impl ServiceContext {
                 current_friend == &friendship && current == &permission
             })
             .ok_or(DENIED)?;
+        self.configure_neighbor_launch_access(&provider, permission.machine_access, params)?;
         params.agent = Some(provider);
         params.workspace_id = Some(workspace);
         params.cwd = Some(cwd);
         params.sandbox = sandbox;
         params.execution_intent = None;
-        params.skip_permissions = Some(false);
-        params.permission_bypass_authorization = None;
         params.neighbor_authority = Some(child_authority);
         params.spawned_by_tab_id = Some(caller.tab_id.clone());
         params.creator_tab_id = Some(caller.tab_id.clone());

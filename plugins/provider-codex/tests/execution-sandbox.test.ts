@@ -53,6 +53,23 @@ for (const [mode, type, approval] of [["full-access", "dangerFullAccess", "never
 }
 console.log("Codex execution sandbox: 11 operation mappings passed");
 
+const fullSettings: RuntimeSettings = {mode:"full-access",additionalDirectories:["/own-pad"]};
+for (const operation of [
+  {kind:"openThread" as const,instructions:"opaque",settings:fullSettings},
+  {kind:"resumeThread" as const,threadId:"opaque-thread",instructions:"opaque",settings:fullSettings},
+  {kind:"submitTurn" as const,threadId:"opaque-thread",sendId:"opaque-send",input:{text:"opaque",attachments:[]},settings:fullSettings},
+]) {
+  const result=plain(provider.runtimePlan({...context,settings:fullSettings},operation));
+  if (result.action.kind !== "request") throw new Error("Missing full-access request");
+  const params=result.action.call.params as Record<string,unknown>;
+  assert.equal(params.approvalPolicy,"never");
+  if (operation.kind === "submitTurn") {
+    assert.equal((params.sandboxPolicy as Record<string,unknown>).type,"dangerFullAccess");
+  } else {
+    assert.equal(params.sandbox,"danger-full-access");
+  }
+}
+
 const padSettings: RuntimeSettings = {mode:capability.runtimeReadOnlyWritableRootsMode!,additionalDirectories:["/own-pad"],networkAccess:false};
 assert.equal(padSettings.mode,"read-only-with-writable-roots");
 for (const operation of [

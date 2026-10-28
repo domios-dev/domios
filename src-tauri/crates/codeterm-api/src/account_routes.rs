@@ -397,7 +397,9 @@ fn neighbor_failure(message: String) -> Response {
         ) => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
-        Some("limit_out_of_range" | "reply_target_unknown") => StatusCode::BAD_REQUEST,
+        Some("limit_out_of_range" | "reply_target_unknown" | "empty_body") => {
+            StatusCode::BAD_REQUEST
+        }
         Some(
             "invalid_request"
             | "neighbor_machine_access_unsupported"
