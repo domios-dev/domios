@@ -23,7 +23,7 @@ impl ServiceContext {
         envelope
     }
 
-    fn require_neighbor_workspace_target(
+    pub(super) fn require_neighbor_workspace_target(
         &self,
         permission: &Permission,
         friendship: &str,
