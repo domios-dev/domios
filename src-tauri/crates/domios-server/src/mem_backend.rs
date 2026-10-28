@@ -30,7 +30,10 @@ pub fn open_configured(
             return Ok(store);
         }
     }
-    let url = postgres_url(secrets::build_active_store(&config.secrets, registry))?;
+    let url = postgres_url(secrets::build_active_store(
+        &config.integrations.secrets,
+        registry,
+    ))?;
     MemBackendOpener {
         data_dir,
         postgres_url: url.as_ref().map(|url| url.expose_secret()),

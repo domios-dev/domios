@@ -107,7 +107,7 @@ pub fn execute(options: &Options) -> Result<serde_json::Value, MigrationError> {
         toml::from_str(&text).map_err(|error| format!("memory_migration_config: {error}"))?;
     let secret_registry = Arc::new(secrets::SecretRegistry::new());
     let url = postgres_url(secrets::build_active_store(
-        &config.secrets,
+        &config.integrations.secrets,
         &secret_registry,
     ))?;
     let opener = MemBackendOpener {
