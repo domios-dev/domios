@@ -3,6 +3,7 @@ use crate::{multiplexer::state::MultiplexerState, service::test_fixture::Service
 
 fn entry(id: usize, direction: &str, kind: Kind, reply: Option<String>) -> Entry {
     Entry {
+        handling: Default::default(),
         direction: direction.into(),
         author: Author::Person(if direction == "in" { "friend" } else { "me" }.into()),
         sender_uid: "opaque-sender".into(),

@@ -66,7 +66,7 @@ async fn local_reads_bypass_blocked_network_owner_and_return_metadata() {
             _ = requests.recv() => panic!("Local reads cannot enter the blocked network queue"),
         }
         let result = service
-            .neighbor_local_metadata(&command, &metadata)
+            .neighbor_local_metadata(&command, &metadata, service.neighbor_history_generation())
             .await
             .unwrap();
         match command {

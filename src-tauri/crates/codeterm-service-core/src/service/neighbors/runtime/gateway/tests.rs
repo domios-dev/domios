@@ -30,6 +30,7 @@ fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
         friendship: "b".repeat(64),
         tab: tab.clone(),
         generation: 0,
+        history_generation: 0,
         stopped,
     };
     assert_eq!(gateway.current(), Err(Error::Gateway));
@@ -76,6 +77,7 @@ async fn disabled_gateway_never_admits_or_records_a_message() {
         friendship: "f".into(),
         tab: "missing".into(),
         generation: 0,
+        history_generation: 0,
         stopped,
     };
     let golden: serde_json::Value = serde_json::from_str(include_str!(concat!(
