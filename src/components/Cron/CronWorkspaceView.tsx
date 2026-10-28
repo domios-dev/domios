@@ -85,6 +85,10 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
   const target = job.report_target_tab_id
     ? `Reports to Tab ${job.report_target_tab_id}`
     : "Runs in a private cron worker";
+  // The automation graph is a Team's; a cron without a Team has no graph to show, so it offers none.
+  const teamId = typeof job.team_id === "string" && job.team_id ? job.team_id : null;
+  const hasGraph = automation !== undefined || teamId !== null;
+  const graphShown = showAutomation && hasGraph;
 
   return (
     <section className="h-full overflow-y-auto bg-[var(--ct-bg)]" aria-label={job.role === "curator" ? "Curator rounds" : `Cron ${job.name}`}>
@@ -95,9 +99,9 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
           <h2 className="break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{job.role === "curator" ? "Curator rounds" : job.name}</h2>
           <p className="text-xs text-[var(--ct-muted-fg)]">Cron · {target}</p>
         </div>
-        <button type="button" aria-pressed={showAutomation} onClick={() => setShowAutomation(!showAutomation)} className={AUTOMATION_TOOL}>{showAutomation ? "Cron details" : "Automation graph"}</button>
+        {hasGraph && <button type="button" aria-pressed={graphShown} onClick={() => setShowAutomation(!graphShown)} className={AUTOMATION_TOOL}>{graphShown ? "Cron details" : "Automation graph"}</button>}
       </header>
-      {showAutomation ? (automation ? <AutomationGraphView {...automation} /> : job.team_id === undefined ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} /> : <HostAutomationGraph workspace_id={job.workspace_id} team_id={job.team_id} />) : <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
+      {graphShown ? (automation ? <AutomationGraphView {...automation} /> : <HostAutomationGraph workspace_id={job.workspace_id} team_id={teamId} />) : <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
         <CronDrawerSection service={service} machineName="This machine" onUpdate={() => void refresh()} actionAdapter={actionAdapter} />
       </div>}
     </section>

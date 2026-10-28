@@ -38,6 +38,7 @@ const CRON_ID = "cron-1";
 let failCronRead = false;
 let cronReadAttempts = 0;
 let cronRunFinished: (() => void) | null = null;
+let cronTeam: string | null = "team_x";
 
 // Mirrors the fully allowed cron projection returned by mesh_inventory_list.
 // The component must consume this map rather than deriving its own.
@@ -47,7 +48,7 @@ function cronJob(): CronJob {
     name: "Nightly sync",
     description: null,
     workspace_id: "team_x",
-    team_id: "team_x",
+    team_id: cronTeam,
     schedule: "*/5 * * * *",
     enabled: true,
     agent: "claude",
@@ -266,6 +267,20 @@ test("injected automation entry opens authoritative graph and returns to ordinar
     assert(host.textContent?.includes("Trigger now"), "ordinary cron controls restored");
     assert(transport.unsubscribeCount === 1, "graph subscription released");
   } finally { await act(async () => root.unmount()); }
+});
+
+test("a cron without a Team offers no automation graph and never the Team-unavailable copy", async () => {
+  const calls: string[] = [];
+  cronTeam = null;
+  const { host, root } = await render(CRON_ID, adapter({}, calls), calls);
+  try {
+    assert(!Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Automation graph"), "no graph entry for a team-less cron");
+    assert(!host.textContent?.includes("Team is unavailable"), "no Team error for a scope without a Team");
+    assert(host.textContent?.includes("Trigger now"), "ordinary cron controls stay");
+  } finally {
+    cronTeam = "team_x";
+    await act(async () => root.unmount());
+  }
 });
 
 async function main() {
