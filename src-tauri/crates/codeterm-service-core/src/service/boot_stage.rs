@@ -584,10 +584,13 @@ impl ServiceContext {
             return;
         }
         self.finish_boot_stage_transition(&attempt.tab_id, stage, Some(reason));
-        self.retire_provisional_launch(&attempt.tab_id, &crate::service::ProviderSessionBinding {
-            pty_id: attempt.pty_id.clone(),
-            binding_nonce: attempt.binding_nonce.clone(),
-        });
+        self.retire_provisional_launch(
+            &attempt.tab_id,
+            &crate::service::ProviderSessionBinding {
+                pty_id: attempt.pty_id.clone(),
+                binding_nonce: attempt.binding_nonce.clone(),
+            },
+        );
     }
 
     /// Retire a provisional launch on authoritative late readiness from the
@@ -730,8 +733,8 @@ impl ServiceContext {
 mod in_tab_launch_tests;
 
 #[cfg(test)]
-mod publish_tests;
-#[cfg(test)]
 mod late_binding_tests;
+#[cfg(test)]
+mod publish_tests;
 #[cfg(test)]
 mod tests;
