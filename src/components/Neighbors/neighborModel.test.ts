@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { parseNeighbors, validNeighborLimit } from "./neighborModel";
-import { readableBody, refusalLine } from "./neighborConversationModel";
+import { conciergeWork, readableBody, refusalLine } from "./neighborConversationModel";
 import type { HistoryEntry } from "./neighborConciergeClient";
 
 it("accepts the server's locked registry so Free can manage existing connections", () => {
@@ -39,6 +39,22 @@ it("drops the agent's attachment lines only for files that show as chips", () =>
   expect(readableBody(body, new Set([shown]))).toBe(`Here you go\n[Neighbor attachment: data.bin (9 bytes), handle ${missing}]`);
   expect(readableBody(body, new Set([shown, missing]))).toBe("Here you go");
   expect(readableBody(body, new Set())).toBe(body);
+});
+
+it("marks each friend message with your concierge's standing, and work only on the newest open one", () => {
+  const ask = (message_id: string, extra: Partial<HistoryEntry> = {}): HistoryEntry => ({ direction: "in", kind: "question", author: "friend", body: "?", at: 1, message_id, ...extra });
+  const entries: HistoryEntry[] = [
+    ask("a"), ask("b", { outcome: "refused", reason: "No" }),
+    ask("c"), { direction: "out", kind: "answer", author: { agent: "tab", name: "Concierge" }, body: "!", at: 2, message_id: "r", in_reply_to: "c" },
+    ask("d"),
+  ];
+  const working = conciergeWork(entries, { working: true, missing: false });
+  expect(working.get("b")).toEqual({ work: "refused" });
+  expect(working.get("c")).toEqual({ work: "answered", reply: "r" });
+  expect(working.get("d")).toEqual({ work: "working" });
+  expect(working.has("a")).toBe(false);
+  expect(conciergeWork(entries, { working: false, missing: true }).get("d")).toEqual({ work: "waiting" });
+  expect(conciergeWork(entries, { working: false, missing: false }).has("d")).toBe(false);
 });
 
 it("explains each delivery refusal in plain words and says when to retry only when it is known", () => {

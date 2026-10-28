@@ -1455,11 +1455,56 @@ button.neighbor-file:hover {
 }
 
 /* Under a message, Check delivery reads as part of the quiet meta line, not as a full button. */
-.neighbor-msg__meta .ct-btn {
+.neighbor-msg__meta .ct-btn,
+.neighbor-work .ct-btn,
+.neighbor-chat__working .ct-btn {
   min-height: 0;
   padding: 0 0.35rem;
   font-size: 10.5px;
   line-height: 1.4;
+}
+
+/* Your concierge's standing on a friend's message: one quiet line under it, a tone only where it settled. */
+.neighbor-work,
+.neighbor-chat__working {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+}
+
+.neighbor-chat__working {
+  justify-content: center;
+}
+
+.neighbor-work__icon {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.8;
+}
+
+.neighbor-work[data-work="refused"],
+.neighbor-work[data-work="failed"] {
+  color: color-mix(in srgb, var(--ct-red) 75%, var(--ct-muted-fg));
+}
+
+.neighbor-work__reply {
+  padding: 0 0.25rem;
+  border: 0;
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.neighbor-work__reply:hover {
+  color: var(--ct-fg);
 }
 
 .neighbor-permissions .ct-settings-section + .ct-settings-section,

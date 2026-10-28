@@ -49,7 +49,32 @@ export function authorKind(entry: HistoryEntry): AuthorKind {
   return entry.kind === "answer" || entry.kind === "refusal" ? "friend-agent" : "friend";
 }
 
-const ATTACHMENT_LINE = /^\[Neighbor attachment: .* \(\d+ bytes\), handle ([0-9a-f]+)\]$/;
+/** Where your concierge stands on a message from your friend. */
+export type ConciergeWork = "working" | "answered" | "refused" | "no_reply" | "failed" | "waiting";
+
+export const CONCIERGE_WORK_LINE: Record<ConciergeWork, string> = {
+  working: "Your concierge is working", answered: "Answered", refused: "Declined", no_reply: "No reply needed",
+  failed: "Couldn't reach your concierge", waiting: "Waiting for a concierge on this machine",
+};
+
+/** Each friend message's standing, with the reply it links to; working and waiting mark only the newest message still open. */
+export function conciergeWork(entries: readonly HistoryEntry[], concierge: { working: boolean; missing: boolean }): Map<string, { work: ConciergeWork; reply?: string }> {
+  const replies = new Map<string, string>();
+  for (const entry of entries) if (entry.direction === "out" && entry.in_reply_to) replies.set(entry.in_reply_to, entry.message_id);
+  const work = new Map<string, { work: ConciergeWork; reply?: string }>();
+  let open: string | null = null;
+  for (const entry of entries) {
+    if (authorKind(entry) !== "friend") continue;
+    const reply = replies.get(entry.message_id);
+    if (entry.outcome === "refused") work.set(entry.message_id, { work: "refused", ...(reply ? { reply } : {}) });
+    else if (entry.outcome === "answered" || reply) work.set(entry.message_id, { work: "answered", ...(reply ? { reply } : {}) });
+    else open = entry.message_id;
+  }
+  if (open && (concierge.working || concierge.missing)) work.set(open, { work: concierge.working ? "working" : "waiting" });
+  return work;
+}
+
+const ATTACHMENT_LINE =/^\[Neighbor attachment: .* \(\d+ bytes\), handle ([0-9a-f]+)\]$/;
 
 /** The words a person reads: the agent's attachment lines go when their files show as chips, and stay as the only trace otherwise. */
 export function readableBody(body: string, fileIds: ReadonlySet<string>): string {

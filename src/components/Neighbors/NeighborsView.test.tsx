@@ -420,7 +420,7 @@ it("shows the conversation with a refused question, its linked refusal and deliv
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
   const log = document.querySelector('[role="log"]')!;
   expect(log.textContent).toContain("Can you share the deploy keys?");
-  expect(log.textContent).toContain("refused: Secrets are off limits");
+  expect(log.textContent).toContain("Declined: Secrets are off limits");
   expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
   expect(log.textContent).toContain("delivered");
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
@@ -1021,6 +1021,24 @@ it("keeps writing open to a friend you paused and offers Resume", async () => {
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
   await act(async () => button("Resume").click());
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", false);
+});
+
+it("shows your concierge working on the friend's open message and stops that exact tab", async () => {
+  const idle = mux.tabs["tab-gateway"];
+  (mux.tabs as Record<string, unknown>)["tab-gateway"] = { ...idle, agent_type: "claude", agent_session_id: "session", pty_id: "pty-gateway", boot_stage: "agent_ready", agent_state: { state: "working" } };
+  try {
+    const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1" }]);
+    const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
+    const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+      claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host); mounted = { root, host };
+    await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+    expect(document.getElementById("neighbor-msg-m1")?.textContent).toContain("Your concierge is working");
+    expect(document.querySelector(".neighbor-chat__working")?.textContent).toContain("Your concierge is working for Ada");
+    await act(async () => document.querySelector<HTMLButtonElement>('#neighbor-msg-m1 button[aria-label="Stop your concierge"]')!.click());
+    expect(bridge.invoke).toHaveBeenCalledWith("interrupt_agent", { ptyId: "pty-gateway", tabId: "tab-gateway" });
+  } finally { mux.tabs["tab-gateway"] = idle; }
 });
 
 it("closes the composer while the friend has paused messages from you", async () => {
