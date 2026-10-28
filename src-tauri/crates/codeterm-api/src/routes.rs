@@ -638,6 +638,7 @@ pub(super) fn create_router_with_preview_admission(
                 .layer(axum::extract::DefaultBodyLimit::max(32 * 1024)),
         )
         .route("/api/account/status", get(super::account_routes::status))
+        .route("/api/account/backend", get(super::account_routes::backend))
         .route("/api/account/login", post(super::account_routes::login))
         .merge(super::account_routes::debug_login_router())
         .route(
