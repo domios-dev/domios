@@ -55,6 +55,44 @@ and talks to the plugin through `ct.invoke`, exactly like
 the panel view. One plugin view can serve several surfaces by reading
 `surface`, and several open copies of one surface by reading `instance`.
 
+### Host actions from a view
+
+A view can ask the host to act on the user's behalf through `ct.host`, but only
+for the actions its manifest declares in `capabilities.viewHostActions`
+(`copyText`, `saveAs`, `reveal`; it requires `view`):
+
+- `ct.host.copyText(text)` puts plain text on the clipboard.
+- `ct.host.saveAs(mediaHandle, suggestedName)` saves one of the plugin's own
+  media files: the desktop app asks where with the system save dialog, the web
+  mirror downloads it.
+- `ct.host.reveal(mediaHandle)` shows that file in the system file manager. The
+  web mirror refuses it.
+
+Each call resolves to `{ ok: true }` or `{ ok: false, code, reason }` and never
+throws. `denied` means there was no user gesture, the action is not declared,
+the user cancelled, or the handle does not belong to this frame;
+`unavailable` means the host cannot act here; `invalid` means a malformed
+argument. Call them from a click or key handler. The host's check is a
+recent-activation heuristic, not proof that one fresh click asked for one
+effect: copyText and reveal act only when the view is shown, its frame holds
+focus and the app had user activation within the browser's short activation
+window, all observed by the app itself. A view that is hidden or does not hold
+focus is refused. One call runs at a time per frame, and calls are rate-limited
+to one effect per second (`denied` / `busy`); the limit bounds repeats, it does
+not prove a new gesture. saveAs gets its real per-intent confirmation from the
+system save dialog (on the web mirror, the browser's download). Every copy shows
+a "Copied from <plugin>" notice that the plugin cannot hide. A frame hidden,
+closed, reloaded, navigated or replaced while a call is pending gets `denied` /
+`stale`, and nothing happens. `ct.host.availability()` resolves to
+`{ copyText, saveAs, reveal }` booleans saying what this app can perform here
+(the web mirror cannot reveal; a page without a clipboard cannot copy). Use it
+to hide an action, not to probe one; it grants nothing, and every call is still
+checked. `denied` with `media_expired` means this frame's access to the file
+lapsed, not that the file is gone: reopen the result to get a fresh handle.
+A media handle is the opaque handle
+the host issued to this frame; a reloaded frame gets new handles. The view never
+sees or sends a file path.
+
 ## Opening, listing and closing
 
 ```bash
@@ -208,4 +246,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

@@ -123,6 +123,7 @@
   "src/components/Snake/simulation.test.ts",
   "src/components/Canvas/missionControl/BoardSpendChart.test.tsx",
   "src/components/Extensions/PluginView.activation.test.tsx",
+  "src/lib/pluginViewHostActions.test.ts",
   "src/components/Extensions/PluginList.loadError.test.tsx",
   "src/components/Extensions/PluginList.updates.test.tsx",
   "src/lib/pluginSnapshotStore.test.ts",

@@ -14,7 +14,8 @@ use super::{
     agent_done_routes, agent_routes, ai_helper_routes, bridge_routes, clipboard_routes,
     config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
-    notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
+    notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_host_action_routes,
+    plugin_tab_menu_routes,
     pty_routes, services_routes, session_routes, stream_mux, surface_routes, tab_agent_routes,
     tab_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
     usage_routes, web_routes, webhook_routes, workspace_routes,
@@ -795,6 +796,14 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/plugins/glance", post(web_routes::plugin_glance))
         .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
         .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
+        .route(
+            "/api/plugins/view-host-action",
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action),
+        )
+        .route(
+            "/api/plugins/view-host-action/download",
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action_download),
+        )
         .route(
             "/api/plugins/tab-menu",
             get(plugin_tab_menu_routes::tab_menu),

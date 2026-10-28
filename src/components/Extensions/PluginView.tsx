@@ -7,7 +7,7 @@ import { invokePluginWithConsent } from "../../lib/pluginConsent";
  * The iframe holds no capability: its only channel is postMessage to us, and we
  * forward each call to the host (which stamps the plugin id + checks permissions).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { listen, type UnlistenFn } from "../../lib/bridge";
 import { type DaemonApiConfig } from "../../lib/webApi";
 import { PluginUiHost } from "./PluginUiHost";
@@ -18,8 +18,28 @@ import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
 import { surfaceInvalidationMatches } from "../../lib/surfaceInvalidation";
 import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
+import { createViewHostGate, performViewHostAction, viewHostSupport, type ViewHostGate } from "../../lib/pluginViewHostActions";
+import { viewHostDeps } from "../../lib/pluginViewHostDeps";
+import { getPluginSnapshotState } from "../../lib/pluginSnapshotStore";
 
 type ApiCfg = DaemonApiConfig;
+
+/** How long the host's "Copied from …" receipt stays on the view. */
+const COPY_NOTICE_MS = 2500;
+const COPY_NOTICE_STYLE: CSSProperties = {
+  position: "absolute",
+  left: "50%",
+  bottom: 12,
+  transform: "translateX(-50%)",
+  padding: "4px 10px",
+  borderRadius: 999,
+  background: "var(--ct-bg-elev, var(--ct-surface))",
+  border: "1px solid var(--ct-border-default, rgba(255,255,255,0.12))",
+  color: "var(--ct-fg)",
+  fontSize: "var(--ct-font-size-sm, 0.8125rem)",
+  whiteSpace: "nowrap",
+  pointerEvents: "none",
+};
 
 /** Every theme token the app derives, so shared components render inside a plugin UI as they do in the app. */
 export const PLUGIN_THEME_VARS = Object.keys(themeToCSS(DEFAULT_THEME));
@@ -61,6 +81,30 @@ export function PluginView({
   const activeRef = useRef(active);
   activeRef.current = active;
   const [runtime, setRuntime] = useState<{ path: string; state: PluginUiHostState } | null>(null);
+  // Host actions are fenced by a document generation that only ever grows: hiding the view, a new
+  // document, any load of the frame (reload or navigation keeps the same WindowProxy) and unmount
+  // end every pending request, which never becomes current again. Each generation gets its own gate.
+  const generationRef = useRef(0);
+  const hostGate = useRef<ViewHostGate>(createViewHostGate());
+  const invalidateHostActions = useCallback(() => {
+    generationRef.current += 1;
+    hostGate.current = createViewHostGate();
+  }, []);
+  // The host's own, non-suppressible receipt for a clipboard write the plugin asked for.
+  // A fresh object per copy, so a repeated copy restarts the notice instead of being swallowed.
+  const [copiedFrom, setCopiedFrom] = useState<{ name: string } | null>(null);
+  const announceCopy = useCallback(() => {
+    const plugin = getPluginSnapshotState().snapshot.plugins.find((item) => item.id === pluginId);
+    setCopiedFrom({ name: plugin?.display_name || pluginId });
+  }, [pluginId]);
+  useEffect(() => {
+    if (!copiedFrom) return;
+    const timer = setTimeout(() => setCopiedFrom(null), COPY_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [copiedFrom]);
+  useEffect(() => {
+    if (!active) invalidateHostActions();
+  }, [active, invalidateHostActions]);
 
   // A hot-reloaded plugin ships a new bundle, but the iframe keeps the one it
   // already loaded until its src changes, so the reload has to bust it.
@@ -101,7 +145,8 @@ export function PluginView({
 
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
   const documentPath = `${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`;
-  const { html, media, dispose: disposeDocument, error: documentError } = usePluginDocument(documentPath);
+  const { html, media, dispose: disposeDocument, frameToken, error: documentError } = usePluginDocument(documentPath);
+  useEffect(() => invalidateHostActions, [documentPath, frameToken, invalidateHostActions]);
   const state = pluginUiDocumentState(html, documentError, runtime?.path === documentPath ? runtime.state : { status: "loading" });
 
   const onMessage = useCallback(
@@ -117,11 +162,35 @@ export function PluginView({
       if (m.__ctReady) {
         win.postMessage({ __ctTheme: themeCss() }, "*");
         win.postMessage({ __ctActive: activeRef.current }, "*");
+        win.postMessage({ __ctHostSupport: viewHostSupport(viewHostDeps()) }, "*");
         if (surface) win.postMessage({ __ctSurfaceStateChanged: true }, "*");
         return;
       }
       if (m.__ctClose) {
         onClose?.();
+        return;
+      }
+      if (m.__ctHost != null) {
+        // Observed by the app before any await, never taken from the frame.
+        const intent = {
+          shown: activeRef.current,
+          frameFocused: iframeRef.current !== null && document.activeElement === iframeRef.current,
+          activated: globalThis.navigator?.userActivation?.isActive === true,
+        };
+        // The request belongs to this document generation; hide, reload, navigation and disposal end it for good.
+        const generation = generationRef.current;
+        const isCurrent = () => generationRef.current === generation && iframeRef.current?.contentWindow === win && activeRef.current;
+        const deps = viewHostDeps();
+        const writeText = deps.writeText;
+        const announced = writeText && {
+          ...deps,
+          writeText: async (text: string) => {
+            await writeText(text);
+            announceCopy();
+          },
+        };
+        const result = await performViewHostAction(pluginId, frameToken ?? null, m, intent, announced || deps, isCurrent, hostGate.current);
+        if (isCurrent()) win.postMessage({ __ctReply: m.__ctHost, result }, "*");
         return;
       }
       if (m.__ctMedia != null) {
@@ -153,7 +222,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath, surface, media],
+    [pluginId, cwd, onClose, documentPath, surface, media, frameToken, announceCopy],
   );
 
   useEffect(() => {
@@ -204,6 +273,7 @@ export function PluginView({
         data-plugin-id={pluginId}
         srcDoc={html}
         onLoad={() => {
+          invalidateHostActions();
           if (loadedDocument.current === documentPath) {
             disposeDocument?.();
             setReloadNonce((nonce) => nonce + 1);
@@ -214,6 +284,7 @@ export function PluginView({
         sandbox="allow-scripts"
         style={{ flex: 1, width: "100%", border: "none", background: "var(--ct-bg)", display: "block", height: "100%" }}
       />}
+      {copiedFrom && <div role="status" data-testid="plugin-view-copied" style={COPY_NOTICE_STYLE}>Copied from {copiedFrom.name}</div>}
     </PluginUiHost>
   );
 

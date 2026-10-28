@@ -1047,6 +1047,32 @@ export interface SurfaceContribution {
   chrome?: Record<string, unknown>;
 }
 
+// ── viewHostActions (plugin.json `capabilities.viewHostActions`; requires `view`) ──
+
+// The user-gesture actions the view page may ask for through `ct.host`; each named once.
+export type ViewHostAction = "copyText" | "saveAs" | "reveal";
+
+// `denied`: no recent activation in this shown, focused view; undeclared; cancelled; `busy` (one
+// call at a time, at most one effect per second); `stale` (the frame was hidden or replaced
+// meanwhile); or media this frame does not own.
+// `unavailable`: the host cannot act here (the web mirror has no file manager).
+// `invalid`: malformed text, handle or arguments.
+export type ViewHostResult = { ok: true } | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
+
+// What this app instance can perform here (the web mirror has no file manager, an insecure origin no
+// clipboard). It grants nothing: the declaration, gesture and media ownership are checked on each use.
+export type ViewHostAvailability = Record<ViewHostAction, boolean>;
+
+// `window.ct.host` inside the view page. Call the actions from a click or key handler: the host checks
+// its own user activation. Media handles are the host-issued ones this frame received; never paths.
+export interface ViewHostBridge {
+  // Resolves once the host has said what it supports; read it to hide an action, never to probe one.
+  availability(): Promise<ViewHostAvailability>;
+  copyText(text: string): Promise<ViewHostResult>;
+  saveAs(mediaHandle: string, suggestedName?: string): Promise<ViewHostResult>;
+  reveal(mediaHandle: string): Promise<ViewHostResult>;
+}
+
 // ── onAgentCommand (the inverse seam) ──
 
 export interface AgentCommandCtx {

@@ -9,13 +9,14 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::vm::{call_json, PluginVm};
-use crate::js_runtime::WebhookReceiverKind;
+use crate::js_runtime::{ViewHostAction, WebhookReceiverKind};
 use crate::view_host::{ViewError, ViewProvider};
 
 pub struct JsViewProvider {
     vm: Arc<PluginVm>,
     id: String,
     webhook_receiver_kind: Option<WebhookReceiverKind>,
+    host_actions: Vec<ViewHostAction>,
     media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
 }
 
@@ -35,8 +36,15 @@ impl JsViewProvider {
             vm,
             id: id.into(),
             webhook_receiver_kind,
+            host_actions: Vec::new(),
             media_delivery: None,
         }
+    }
+
+    /// The manifest's `viewHostActions`, the only gesture actions the host performs for this view.
+    pub fn with_host_actions(mut self, host_actions: Vec<ViewHostAction>) -> Self {
+        self.host_actions = host_actions;
+        self
     }
 }
 
@@ -48,6 +56,10 @@ impl ViewProvider for JsViewProvider {
 
     fn webhook_receiver_kind(&self) -> Option<WebhookReceiverKind> {
         self.webhook_receiver_kind
+    }
+
+    fn host_actions(&self) -> &[ViewHostAction] {
+        &self.host_actions
     }
 
     fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> { self.media_delivery.clone().filter(|value| value.valid()) }

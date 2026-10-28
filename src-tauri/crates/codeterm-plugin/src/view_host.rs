@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::capability::CapabilityRegistry;
-use crate::js_runtime::WebhookReceiverKind;
+use crate::js_runtime::{ViewHostAction, WebhookReceiverKind};
 
 #[derive(Debug)]
 pub enum ViewError {
@@ -34,6 +34,11 @@ pub trait ViewProvider: Send + Sync {
     /// The webhook capability served by this view, when it has one.
     fn webhook_receiver_kind(&self) -> Option<WebhookReceiverKind> {
         None
+    }
+
+    /// The user-gesture host actions the plugin declared for its view; nothing else is performed.
+    fn host_actions(&self) -> &[ViewHostAction] {
+        &[]
     }
 
     fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> { None }

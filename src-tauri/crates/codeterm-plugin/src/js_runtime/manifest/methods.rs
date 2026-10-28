@@ -64,6 +64,7 @@ impl PluginManifest {
         }
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
+        manifest.capabilities.validate_view_host_actions()?;
         for source in manifest.capabilities.record_sources.values() {
             source.validate()?;
         }

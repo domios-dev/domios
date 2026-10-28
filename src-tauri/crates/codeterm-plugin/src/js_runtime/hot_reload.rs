@@ -156,11 +156,15 @@ impl CapabilityRegistries {
             crate::media_delivery::revoke_plugin(&id);
             self.view.register(
                 id.clone(),
-                Arc::new(super::JsViewProvider::with_webhook_receiver(
-                    vm.clone(),
-                    id.clone(),
-                    caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
-                ).with_media_delivery(caps.media_delivery.clone())),
+                Arc::new(
+                    super::JsViewProvider::with_webhook_receiver(
+                        vm.clone(),
+                        id.clone(),
+                        caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
+                    )
+                    .with_host_actions(caps.view_host_actions.clone())
+                    .with_media_delivery(caps.media_delivery.clone()),
+                ),
             );
         }
         if caps.chat_backend.enabled()
