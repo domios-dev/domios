@@ -68,7 +68,7 @@ it("nests each concierge under its Neighbor; the Neighbor opens your conversatio
   }
 });
 
-it("offers the concierge actions: change agent, view permissions, edit with General and pause", async () => {
+it("offers the concierge actions: change agent, view permissions, edit with General and disable", async () => {
   await renderSection([neighbor], { pair: "tab-gateway" });
   await act(async () => { button("Actions for Ada's concierge").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
   const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);

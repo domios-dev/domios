@@ -40,8 +40,8 @@ eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", via: "concie
   "a named friend's frame folds the host instruction away and shows their words as written");
 eq(framePrefix({ from: "neighbor", friendship: "f1" }, "Plain\n\nwords"), { origin: { kind: "neighbor", friendshipId: "f1" }, body: "Plain\n\nwords" },
   "an unnamed friend's frame carries no instruction to split off");
-eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", message: "m2", kind: "answer", in_reply_to: "m1" }, "Yes,\n\nall green &amp; merged", "Reply with domios neighbors reply."),
-  { origin: { kind: "neighbor", friendshipId: "f1", message: "m2", friend: "Ada", messageKind: "answer", inReplyTo: "m1", instruction: "Reply with domios neighbors reply." },
+eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", message: "m2", kind: "answer", in_reply_to: "m1" }, "Yes,\n\nall green &amp; merged", "opaque-no-reply-tip-7f9"),
+  { origin: { kind: "neighbor", friendshipId: "f1", message: "m2", friend: "Ada", messageKind: "answer", inReplyTo: "m1", instruction: "opaque-no-reply-tip-7f9" },
     body: "Yes,\n\nall green & merged" },
   "the routed envelope keeps the whole body and takes the reply instruction from the tip");
 eq(framePrefix({ from: "neighbor", friendship: "f1", label: "uid-ada", tab: "" },

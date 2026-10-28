@@ -393,7 +393,7 @@ it("sets machine access: the folder with its honest note, and a warning for full
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ machine_access: "full" }));
 });
 
-it("shows the runtime's own-pad note for a saved read-only concierge", async () => {
+it("shows concise read-only limits and keeps the runtime's full note under Details", async () => {
   const runtimeClient = runtime();
   vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Questions", allow_tab_requests: false, machine_access: "read_only",
     folder_enforcement: { writes: "pad_only", reads: "not_confined", note: "Writes only its own pad; reads are not confined." } });
@@ -404,7 +404,11 @@ it("shows the runtime's own-pad note for a saved read-only concierge", async () 
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
   await act(async () => button("Ada, connected").click());
-  expect(document.body.textContent).toContain("Writes only its own pad; reads are not confined.");
+  expect(document.body.textContent).toContain("Only its own notes folder is writable. Reads are not restricted.");
+  const details = Array.from(document.querySelectorAll("details")).find(element => element.textContent?.includes("Writes only its own pad; reads are not confined."));
+  expect(details?.querySelector("summary")?.textContent).toBe("Details");
+  expect(details?.open).toBe(false);
+  expect(details?.querySelector("p")?.textContent).toBe("Writes only its own pad; reads are not confined.");
   expect(document.body.textContent).not.toContain("changes nothing on this machine");
 });
 

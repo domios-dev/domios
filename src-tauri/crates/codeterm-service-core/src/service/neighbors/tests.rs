@@ -133,17 +133,31 @@ fn only_the_authenticated_general_session_can_author_permissions() {
 
 #[test]
 fn neighbor_frames_preserve_provenance_without_a_local_reply_route() {
-    use crate::service::messenger::{MessageEnvelope, Messenger};
+    use crate::service::messenger::{MessageEnvelope, Messenger, NeighborMessage};
+    let friendship = "a".repeat(64);
+    let message_id = "b".repeat(32);
     let envelope = MessageEnvelope {
-        from_neighbor: Some("opaque-friendship".into()),
+        from_neighbor: Some(friendship.clone()),
+        neighbor_friend: Some("opaque-friend".into()),
+        neighbor_message: Some(NeighborMessage {
+            message_id: message_id.clone(),
+            kind: codeterm_neighbors::wire::Kind::Question,
+            in_reply_to: None,
+        }),
         from_label: "opaque-peer".into(),
         ..Default::default()
     };
     let frame = Messenger::from(envelope).routed_frame("opaque-body");
     let message = codeterm_wire::domios::parse_message(&frame.to_message()).unwrap();
     assert_eq!(message.attr("from"), Some("neighbor"));
-    assert_eq!(message.attr("friendship"), Some("opaque-friendship"));
+    assert_eq!(message.attr("friendship"), Some(friendship.as_str()));
+    assert_eq!(message.attr("friend"), Some("opaque-friend"));
+    assert_eq!(message.attr("message"), Some(message_id.as_str()));
+    assert_eq!(message.attr("kind"), Some("question"));
     assert_eq!(message.body, "opaque-body");
-    assert!(frame.suffix.is_empty());
+    assert!(frame.suffix.contains(&format!(
+        "domios account neighbors send {friendship} --kind answer --in-reply-to {message_id}"
+    )));
+    assert!(!frame.suffix.contains("--tab"));
     assert!(message.attr("mesh").is_none());
 }
