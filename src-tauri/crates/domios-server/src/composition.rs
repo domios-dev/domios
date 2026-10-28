@@ -384,6 +384,11 @@ pub(crate) fn compose_observed(
     );
     codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
     let service_state: ServiceState = svc_ctx;
+    // Account observers may wake bound concierges; establish lazy state before any can run.
+    codeterm_service_core::service::lazy_restore::initialize(
+        &service_state,
+        states.config.lock().restore.active_window_hours,
+    );
     if let Some(observer) = worker_observer {
         service_state
             .ext::<Arc<mem::supervisor::Supervisor>>()
@@ -451,10 +456,6 @@ pub(crate) fn compose_observed(
     let _ = codeterm_service_core::async_runtime::block_on(service_state.billing());
     service_state.sync_limit_gate();
     codeterm_service_core::service::agent_runtime::restore_all(&service_state);
-    codeterm_service_core::service::lazy_restore::initialize(
-        &service_state,
-        states.config.lock().restore.active_window_hours,
-    );
 
     {
         let service = service_state.clone();

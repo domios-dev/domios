@@ -137,7 +137,7 @@ async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activat
     concierge.session_binding_nonce = Some("opaque-restored-nonce".into());
     concierge.reported_session_binding_nonce = Some("opaque-restored-nonce".into());
     concierge.restored_from_snapshot = true;
-    concierge.frozen = true;
+    concierge.frozen = false;
     concierge.boot_stage = Some(codeterm_types::pty::BootStage::PtyStarting);
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
@@ -147,6 +147,8 @@ async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activat
     settings.bindings.insert(friend.clone(), tab.clone());
     metadata.save_settings(settings).await.unwrap();
     service.tag_neighbor_root("owner", &friend, &tab).unwrap();
+    crate::service::lazy_restore::initialize(service, 0);
+    assert!(service.mux.read().get_tab(&tab).unwrap().frozen);
     let calls = Arc::new(AtomicUsize::new(0));
     let invoked = calls.clone();
     let captured = service.clone();
