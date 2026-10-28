@@ -16,6 +16,18 @@ fn needs_key_recovery(
 }
 
 impl ServiceContext {
+    pub(super) async fn advertise_neighbor_files(&self, registry: &FirebaseRegistry, status: &ReceiverStatus, keys: &codeterm_neighbors::crypto::PrivateKeys, generation: u64) -> codeterm_neighbors::Result<bool> {
+        if !status.receiving_here() { return Ok(false); }
+        let mut advertised = self.neighbor_cell().file_advertised_generation.lock().await;
+        self.require_neighbor_history_generation(generation)?;
+        if *advertised == Some(generation) { return Ok(false); }
+        let changed = registry.advertise_file_support(status, keys).await?;
+        self.require_neighbor_history_generation(generation)?;
+        *advertised = Some(generation);
+        if changed { self.neighbor_cell().receiver.lock().take(); }
+        Ok(changed)
+    }
+
     #[cfg(any(test, not(feature = "test-support")))]
     pub(super) fn spawn_neighbor_restoration(
         &self,
