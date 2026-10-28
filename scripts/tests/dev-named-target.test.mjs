@@ -13,6 +13,36 @@ const dev = source.slice(source.indexOf('  dev)\n'), source.indexOf('  e2e)\n'))
 const kill = source.slice(source.indexOf('  kill)\n'), source.indexOf('  dev-server)\n'));
 const prebuilt = source.slice(source.indexOf('  dev-prebuilt)\n'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)\n')));
 
+for (const [platform, refused] of [['linux', false], ['darwin', false], ['msys', false], ['msys', true]]) {
+  test(`daemon shutdown precedes watcher cleanup; platform=${platform}, refused=${refused}`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helpers}
+OSTYPE="$1" CT_PORT=17999 CT_VITE_PORT=1529 CT_SUFFIX=-test CT_INSTANCE=test
+CT_DATA_DIR=/absent-kill-order-fixture DEV_FRONT_EXTERNAL=1
+dev_provenance_record() { echo record; }
+dev_app_path() { echo app; }
+lsof() { echo 12345; }
+screen() { :; }
+request_dev_clean_restart() { echo shutdown-request; }
+wait_for_dev_exit() { echo pinned-exit; }
+node() { echo verified-shutdown; [ "$2" = record ]; [ "$REFUSED" = false ]; }
+kill_web_watch() { echo watcher-stop; }
+kill_dev_static_server() { :; }
+windows_dev_leftover_cleanup() { :; }
+REFUSED="$2"
+kill_dev
+`, '--', platform, String(refused)], { encoding: 'utf8' });
+    const events = result.stdout.trim().split('\n');
+    if (platform === 'msys') {
+      assert.equal(result.status, refused ? 1 : 0, result.stderr);
+      assert.deepEqual(events, refused ? ['verified-shutdown'] : ['verified-shutdown', 'watcher-stop']);
+    } else {
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(events, ['shutdown-request', 'pinned-exit', 'watcher-stop']);
+    }
+  });
+}
+
 for (const instance of ['', 'first-proof', 'second-proof']) {
   test(`shutdown selects the launched artifact before checking its identity; instance=${instance || 'default'}`, () => {
     const result = spawnSync(bash, ['-c', `set -euo pipefail

@@ -189,8 +189,9 @@ Named `dev` and `dev-server` use nonincremental Rust compilation and the portabl
 compiler-cache wrapper automatically. Cargo keeps its configured intermediate
 directory; runnable artifacts stay isolated per instance. Generated-source
 metadata uses the same virtual prefix across configured build directories.
-The first run seeds the new cache configuration; instance-specific server
-identity and binary linking still require work.
+Existing Cargo-fresh intermediates retain their previous metadata until rebuilt;
+the build skill covers scoped invalidation for an approved cache measurement.
+Instance-specific server identity and binary linking still require work.
 
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.
