@@ -2084,12 +2084,11 @@ check_queue_run() {
   return "$status"
 }
 
-# Resolve the tauri dev config. For a named instance, generate a derived config
-# whose devUrl points at this instance's frontend static port.
+# Instance-specific settings are applied to the Tauri context at startup.
 dev_conf_path() {
   local base="src-tauri/tauri.dev.conf.json"
-  local out="src-tauri/tauri.dev.conf${CT_SUFFIX:--runtime}.json"
-  node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('$base','utf8'));const defaults='--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection';const cdp='--remote-debugging-port=$CT_CDP_PORT';let args=process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS||cdp;if(!args.includes('--remote-debugging-port='))args=[args,cdp].filter(Boolean).join(' ');if(!args.includes('--disable-features='))args=[defaults,args].filter(Boolean).join(' ');c.identifier=process.env.CODETERM_DEV_IDENTIFIER;c.build=c.build||{};c.build.beforeDevCommand=null;c.build.devUrl='http://127.0.0.1:'+process.env.CODETERM_VITE_PORT;c.app=c.app||{};c.app.windows=c.app.windows&&c.app.windows.length?c.app.windows:[{}];c.app.windows[0]={...c.app.windows[0],additionalBrowserArgs:args};fs.writeFileSync('$out',JSON.stringify(c,null,2));" >&2
+  local out="src-tauri/tauri.dev.conf-runtime.json"
+  node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('$base','utf8'));c.build=c.build||{};c.build.beforeDevCommand=null;const bytes=JSON.stringify(c,null,2);if(!fs.existsSync('$out')||fs.readFileSync('$out','utf8')!==bytes)fs.writeFileSync('$out',bytes);" >&2
   echo "$out"
 }
 

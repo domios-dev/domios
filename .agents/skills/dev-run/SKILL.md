@@ -191,12 +191,15 @@ directory; runnable artifacts stay isolated per instance. Generated-source
 metadata uses the same virtual prefix across configured build directories.
 Existing Cargo-fresh intermediates retain their previous metadata until rebuilt;
 the build skill covers scoped invalidation for an approved cache measurement.
-Instance-specific server identity and binary linking still require work.
+Source and CLI artifact changes can still relink the roots.
 
 Debug Development servers resolve the frontend port and identifier from the
 launch environment (`CODETERM_VITE_PORT`, `CODETERM_DEV_IDENTIFIER`). These values
 are validated at startup and do not enter the server's compiler inputs. Release
 build directives and the compiled CLI artifact hash retain their existing role.
+The native client applies the same validated runtime identity and frontend URL,
+plus browser/CDP settings, before constructing Tauri. Named instances share stable
+Tauri compile configuration while keeping their runnable artifacts isolated.
 
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.

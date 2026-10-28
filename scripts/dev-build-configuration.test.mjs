@@ -9,6 +9,34 @@ import { devBuildConfiguration, assertServerFeatureConfiguration } from './dev-b
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 
+test('named instances share stable Tauri compiler configuration and preserve release config', () => {
+  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
+  const configure = source.match(/^dev_conf_path\(\) \{[\s\S]*?^\}/m)[0];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-tauri-config-'));
+  try {
+    fs.mkdirSync(path.join(directory, 'src-tauri'));
+    const base = { identifier: 'com.domios.dev', build: { devUrl: 'http://127.0.0.1:1420', beforeDevCommand: 'opaque' }, app: { windows: [{ additionalBrowserArgs: '--opaque-base' }] } };
+    fs.writeFileSync(path.join(directory, 'src-tauri/tauri.dev.conf.json'), JSON.stringify(base));
+    const release = fs.readFileSync(path.join(root, 'src-tauri/tauri.conf.json'));
+    fs.writeFileSync(path.join(directory, 'src-tauri/tauri.conf.json'), release);
+    const observed = [];
+    for (const [instance, port] of [['first', '1821'], ['second', '1822']]) {
+      const result = spawnSync(bash, ['-c', `set -euo pipefail
+${configure}
+CT_SUFFIX="-$1"
+export CODETERM_DEV_IDENTIFIER="com.domios.dev.$1" CODETERM_VITE_PORT="$2" CODETERM_CDP_PORT="$2"
+dev_conf_path
+`, '--', instance, port], { cwd: directory, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      const file = path.join(directory, result.stdout.trim());
+      observed.push({ bytes: fs.readFileSync(file, 'utf8'), mtime: fs.statSync(file).mtimeMs });
+    }
+    assert.deepEqual(observed[0], observed[1]);
+    assert.deepEqual(JSON.parse(observed[0].bytes), { ...base, build: { ...base.build, beforeDevCommand: null } });
+    assert.ok(fs.readFileSync(path.join(directory, 'src-tauri/tauri.conf.json')).equals(release));
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+});
+
 test('product feature arguments omit Cargo default markers and enable only selected package features', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
   const fn = source.match(/^configure_product_cargo\(\) \{[\s\S]*?^\}/m)[0];
