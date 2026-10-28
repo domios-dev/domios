@@ -213,11 +213,24 @@ async fn prepare_outgoing_body(
     body: OutboundBody,
     in_reply_to: Option<&str>,
 ) -> codeterm_neighbors::Result<(Zeroizing<String>, Vec<String>)> {
-    if kind == Kind::Refusal {
-        let target = in_reply_to.ok_or(Error::ReplyTargetUnknown)?;
-        if !metadata.has_incoming(friendship, target).await? {
+    if matches!(kind, Kind::Answer | Kind::Refusal) {
+        let history = metadata.history(friendship).await?;
+        let target = in_reply_to.and_then(|id| {
+            history
+                .entries
+                .iter()
+                .find(|entry| entry.direction == "in" && entry.message_id == id)
+        });
+        if target.is_some_and(|entry| {
+            entry.handling.handling_state == Some(super::super::history::handling::State::Stopped)
+        }) {
+            return Err(Error::ReplyTargetStopped);
+        }
+        if kind == Kind::Refusal && target.is_none() {
             return Err(Error::ReplyTargetUnknown);
         }
+    }
+    if kind == Kind::Refusal {
         let body = match body {
             OutboundBody::Granted(body) => body,
             OutboundBody::Refusal => {

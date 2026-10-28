@@ -410,6 +410,7 @@ fn neighbor_failure(message: String) -> Response {
         Some(
             "receiver_elsewhere"
             | "friendship_ended"
+            | "reply_target_stopped"
             | "receiver_revision_stale"
             | "not_receiver"
             | "recipient_not_receiving"
