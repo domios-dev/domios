@@ -139,3 +139,106 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
     }
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn authoritative_grants_precede_scope_and_preserve_opaque_area_workspace_and_folder_arguments() {
+    let friend = "a".repeat(64);
+    let area = "opaque-area-73a";
+    let workspace = "opaque-workspace-67b";
+    let scope = "opaque-topic-fragment-2c9\nopaque-topic-fragment-84d";
+    let permission = Permission {
+        allowed: true,
+        scope: scope.into(),
+        allow_memory: true,
+        memory_areas: Some(vec![area.into()]),
+        allow_files: true,
+        allow_tab_requests: true,
+        workspaces: Some(vec![workspace.into()]),
+        machine_access: codeterm_neighbors::permissions::MachineAccess::Folder,
+        folder: Some("C:/opaque-folder-91f".into()),
+        ..Default::default()
+    };
+    let initial = initial_prompt(&friend, &permission);
+    let first = initial.lines().next().unwrap();
+    let grants: Value = serde_json::from_str(first).unwrap();
+    assert_eq!(grants["allow_memory"], true);
+    assert_eq!(grants["memory_areas"], json!([area]));
+    assert!(grants.get("scope").is_none());
+    assert_eq!(
+        grants["commands"]["memory_search"],
+        json!([["domios", "mem", "search", "<query>", "--area", area]])
+    );
+    assert_eq!(
+        grants["commands"]["memory_get"],
+        json!(["domios", "mem", "get", "<item_id>"])
+    );
+    assert!(grants["commands"]["memory_wake_up"].is_null());
+    assert_eq!(
+        grants["commands"]["tab_list"],
+        json!([["domios", "tab", "list", "--workspace", workspace]])
+    );
+    assert!(grants["commands"]["agent_spawn"][0]
+        .as_array()
+        .unwrap()
+        .windows(2)
+        .any(|args| args == [json!("--workspace"), json!(workspace)]));
+    assert_eq!(grants["machine_access"], "folder");
+    assert_eq!(grants["folder"], "C:/opaque-folder-91f");
+    let files = grants["commands"]["file_reads"].as_array().unwrap();
+    assert_eq!(files.len(), 2);
+    assert!(files[1].as_str().unwrap().contains("\"launch\":false"));
+    assert!(files
+        .iter()
+        .all(|command| command.as_str().unwrap().contains(&friend)));
+    let encoded_scope = serde_json::to_string(scope).unwrap();
+    assert!(initial.find(&encoded_scope).unwrap() > first.len());
+    assert_eq!(initial.matches(&encoded_scope).count(), 1);
+}
+
+#[test]
+fn disabled_grants_have_no_read_or_spawn_commands_and_area_defaults_stay_distinct() {
+    for allowed in [false, true] {
+        for memory in [false, true] {
+            for areas in [None, Some(vec![]), Some(vec!["opaque-area-c01".into()])] {
+                let permission = Permission {
+                    allowed,
+                    allow_memory: memory,
+                    memory_areas: areas.clone(),
+                    allow_files: false,
+                    allow_tab_requests: false,
+                    machine_access: codeterm_neighbors::permissions::MachineAccess::None,
+                    scope: "opaque-scope-e0a".into(),
+                    ..Default::default()
+                };
+                let initial = initial_prompt(&"b".repeat(64), &permission);
+                let grants: Value = serde_json::from_str(initial.lines().next().unwrap()).unwrap();
+                let active = allowed && memory;
+                assert_eq!(grants["allow_memory"], active);
+                assert_eq!(
+                    !grants["commands"]["memory_search"]
+                        .as_array()
+                        .unwrap()
+                        .is_empty(),
+                    active && areas.as_ref().is_none_or(|areas| !areas.is_empty())
+                );
+                assert_eq!(
+                    grants["commands"]["memory_wake_up"].is_array(),
+                    active && areas.is_none()
+                );
+                assert_eq!(
+                    grants["commands"]["memory_get"].is_array(),
+                    active && areas.as_ref().is_none_or(|areas| !areas.is_empty())
+                );
+                assert!(grants["commands"]["file_reads"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty());
+                assert!(grants["commands"]["agent_spawn"]
+                    .as_array()
+                    .unwrap()
+                    .is_empty());
+                assert!(grants["commands"]["machine_read"].is_null());
+            }
+        }
+    }
+}
