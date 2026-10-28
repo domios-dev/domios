@@ -15,8 +15,10 @@ use super::AppState;
 mod dismissal;
 pub use dismissal::{chat_send_delete, chat_send_dismissals};
 mod admissions;
+mod neighbor;
 mod preparation;
 pub use admissions::chat_send_admissions;
+use preparation::pad_write_refusal;
 
 fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
     if detail.starts_with("admission_unknown:") {
@@ -205,16 +207,6 @@ async fn run_programmatic_delivery<T: Send + 'static>(
 mod lock_tests;
 #[cfg(test)]
 mod mesh_rpc_delivery_tests;
-
-fn pad_write_refusal(tab: &str, detail: String) -> SendRejection {
-    DeliveryError::TabBusyRefused {
-        tab: tab.to_string(),
-        detail: format!(
-            "long message was not sent because recipient AgentPad write failed: {detail}"
-        ),
-    }
-    .into()
-}
 
 /// Error surface for `/send`. Delivery failures serialize the structured
 /// taxonomy so the mesh relay can forward `code` + `bytes_written` verbatim
@@ -475,6 +467,14 @@ pub async fn send_text(
     if svc_token_match.is_none() {
         check_auth(&state, &headers)?;
     }
+    neighbor::authorize_message(
+        &state,
+        &headers,
+        &raw_tab_id,
+        &body,
+        svc_token_match.is_some(),
+    )
+    .await?;
     // Reachability is the FIRST fallible step and the only one allowed to report
     // a missing tab — everything past it has resolved a real target.
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
@@ -682,10 +682,13 @@ pub async fn send_text(
                 }
             });
 
-        system_context
+        let envelope = system_context
             .map(codeterm_service_core::service::messenger::MessageEnvelope::codeterm_reminder)
             .or(source_envelope)
-            .or_else(|| Some(codeterm_service_core::service::messenger::MessageEnvelope::default()))
+            .or_else(|| {
+                Some(codeterm_service_core::service::messenger::MessageEnvelope::default())
+            });
+        envelope.map(|envelope| state.svc.stamp_neighbor_message(envelope))
     })
     .await
     .map_err(|_| {

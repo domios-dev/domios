@@ -6,6 +6,7 @@ use codeterm_neighbors::permissions::Permission;
 mod fixture;
 mod memory;
 mod self_reads;
+mod workspaces;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Capability {
@@ -18,6 +19,8 @@ pub enum Capability {
     Lifecycle,
     SelfRead,
     Discovery,
+    TabList,
+    TabSend,
     Route,
     Denied,
 }
@@ -33,6 +36,16 @@ impl Capability {
             Self::Spawn => "tab_requests_not_allowed",
             Self::Files if permission.allowed && permission.allow_files => return Ok(()),
             Self::Files => "neighbor_files_not_allowed",
+            Self::TabList | Self::TabSend
+                if permission.allowed
+                    && permission
+                        .workspaces
+                        .as_ref()
+                        .is_some_and(|ids| !ids.is_empty()) =>
+            {
+                return Ok(())
+            }
+            Self::TabList | Self::TabSend => "neighbor_capability_denied",
             Self::Neighbor
             | Self::Report
             | Self::Answer
@@ -56,6 +69,8 @@ pub fn rpc_capability(method: &str) -> Option<Capability> {
         }
         "agent.report" => Capability::Report,
         "tab.agent_pad" | "tab.todo.list" => Capability::SelfRead,
+        "tab.list" => Capability::TabList,
+        "tab.send_text" => Capability::TabSend,
         "system.identify" | "system.capabilities" => Capability::Discovery,
         "api.request" => Capability::Route,
         _ => Capability::Denied,
@@ -69,6 +84,15 @@ pub fn http_capability(method: &str, path: &str) -> Option<Capability> {
         Some(Capability::Neighbor)
     } else if method == "POST" && path == "/api/account/neighbors/files" {
         Some(Capability::Files)
+    } else if method == "GET" && path == "/api/tabs" {
+        Some(Capability::TabList)
+    } else if method == "POST"
+        && path
+            .strip_prefix("/api/tabs/")
+            .and_then(|rest| rest.strip_suffix("/send"))
+            .is_some_and(|id| !id.is_empty() && !id.contains('/'))
+    {
+        Some(Capability::TabSend)
     } else if method == "POST" && path.starts_with("/api/tabs/") && path.ends_with("/report") {
         Some(Capability::Report)
     } else if method == "POST" && lifecycle_hook(path) {
@@ -404,7 +428,7 @@ impl ServiceContext {
         let path = path.split('?').next().unwrap_or(path);
         let capability =
             http_capability(&method.to_ascii_uppercase(), path).unwrap_or(Capability::Denied);
-        let Some((_, permission)) = self
+        let Some((friendship, permission)) = self
             .neighbor_capability_permission_for(
                 caller,
                 !matches!(capability, Capability::Lifecycle | Capability::SelfRead),
@@ -414,6 +438,13 @@ impl ServiceContext {
             return Ok(());
         };
         capability.require(&permission)?;
+        if matches!(capability, Capability::TabSend) {
+            let target = path
+                .strip_prefix("/api/tabs/")
+                .and_then(|rest| rest.strip_suffix("/send"))
+                .ok_or("neighbor_capability_denied")?;
+            self.require_neighbor_workspace_target(&permission, &friendship, target)?;
+        }
         if matches!(capability, Capability::MemoryRead) {
             let item = path.strip_prefix("/api/mem/items/");
             self.authorize_neighbor_memory_operation(&permission, path == "/api/mem/wake-up", item)
@@ -455,7 +486,7 @@ impl ServiceContext {
             rpc_capability(method),
             Some(Capability::SelfRead | Capability::Discovery)
         );
-        let Some((_, permission)) = self
+        let Some((friendship, permission)) = self
             .neighbor_capability_permission_for(&caller, !own_launch_hook && !intrinsic)
             .await?
         else {
@@ -469,6 +500,12 @@ impl ServiceContext {
         }
         let capability = rpc_capability(method).unwrap_or(Capability::Denied);
         capability.require(&permission)?;
+        if matches!(capability, Capability::TabSend) {
+            let target = params
+                .and_then(|params| params["tab_id"].as_str())
+                .ok_or("neighbor_capability_denied: Missing target")?;
+            self.require_neighbor_workspace_target(&permission, &friendship, target)?;
+        }
         if matches!(capability, Capability::SelfRead)
             && params.and_then(|params| params["tab_id"].as_str()) != Some(caller.tab_id.as_str())
         {
