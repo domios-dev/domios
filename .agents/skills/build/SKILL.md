@@ -148,6 +148,26 @@ configured compile-time project values, rebuilding mesh and server consumers.
 Firebase keys remain scoped to server compilation; release configuration and
 the entitlement verification policy retain their existing behavior.
 
+Local `dev` and `dev-server` read build secrets from the main checkout's ignored
+`.env`, resolved through Git's common directory. Lanes read that same local file;
+never copy it into a lane, CI job, archive or artifact. Values remain private to
+the launcher until their existing compiler phase needs them. Release and CI keep
+their existing secure sources and never load this file.
+
+Run `./build.sh dev-env` once to create it from the configured vault, and rerun
+after rotating a build key. The operation preserves unrelated entries, atomically
+updates the build entries, refuses CI or a Git-tracked path, and limits access to
+the current user (mode 0600 on Unix, protected user-only ACL on Windows). It prints
+key names only. Verify exclusion with `git check-ignore .env` in the main
+checkout. Missing configuration reports the missing key name without its value.
+The keys are `DOMIOS_FIREBASE_API_KEY`, `DOMIOS_FIREBASE_PROJECT_ID`,
+`DOMIOS_FIREBASE_APP_ID`, `DOMIOS_ACCOUNT_REDEEM_URL`, `DOMIOS_QA_PROJECT_ID`,
+`DOMIOS_QA_FIREBASE_API_KEY`, `DOMIOS_QA_FIREBASE_APP_ID`,
+`DOMIOS_BILLING_FUNCTIONS_URL`, `DOMIOS_SCCACHE_S3_ACCESS_KEY`,
+`DOMIOS_SCCACHE_S3_SECRET_KEY` and `DOMIOS_CI_STORE_ENDPOINT`. The cache keys are
+needed only when the machine selects shared cache storage; a pinned local cache
+keeps its existing behavior.
+
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores
 incremental diagnostics in `node_modules/.cache`; Vite builds in a temporary
 directory there and promotes successful output into `dist`. Equal output bytes

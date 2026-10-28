@@ -29,6 +29,7 @@ set -e
 
 source scripts/dev-notify.sh
 source scripts/firebase-build-config.sh
+source scripts/local-build-env.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
@@ -47,6 +48,7 @@ if [ "$CMD" = dev-back ]; then
 fi
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
+if ct_uses_local_build_env; then ct_load_local_build_env || exit 2; fi
 if [ "$CMD" = test-related ]; then
   local related_shell="$BASH"
   if command -v cygpath >/dev/null 2>&1; then related_shell="$(cygpath -w "$BASH")"; fi
@@ -2746,6 +2748,7 @@ Domios build commands
 
   dev                         Start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
+  dev-env                     Create or refresh the ignored local build .env from the vault once
   dev-back                    DEV server + native window; the frontend comes from dev-front
   dev-front                   DEV frontend on Vite with hot reload (pair with dev-back)
   dev-server                  Rebuild/reload only the selected DEV server; keep the window
@@ -2820,6 +2823,9 @@ EOF
     ;;
   env)
     # Already loaded above. Use: source build.sh env
+    ;;
+  dev-env)
+    CODETERM_ENV_VAULT_CLI="${DEV_NOTIFY_PARENT_CLI:-codeterm}" node scripts/local-build-env.mjs create
     ;;
   gc)
     if [ "$#" -gt 2 ] || { [ "$#" -eq 2 ] && [ "$2" != "--dry-run" ]; }; then
