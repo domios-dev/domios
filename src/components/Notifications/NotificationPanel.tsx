@@ -9,7 +9,6 @@ import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificati
 import { notificationLevel, notificationTone } from "../../lib/notifyLevels";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
-import { openNeighbor } from "../Neighbors/neighborFocus";
 
 const NOTIFICATION_SKELETON_ROWS = [78, 64, 70];
 
@@ -46,10 +45,8 @@ export function NotificationPanel({
   const handleClick = useCallback(
     (notif: Notification) => {
       if (!notif.read) onMarkRead(notif.id);
-      // A Neighbor message belongs to the friend's conversation, not to the concierge tab that raised it.
-      const neighbor = notif.actions?.flatMap((action) => action.type === "url" && action.value ? [neighborNotificationTarget(action.value)] : [])
-        .find((target): target is string => target !== null);
-      if (neighbor) openNeighbor(neighbor);
+      const neighbor = notif.actions?.find((action) => action.type === "url" && action.value && neighborNotificationTarget(action.value));
+      if (neighbor) void runNotificationAction(neighbor);
       else if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
     },
     [onJumpToTab, onMarkRead],

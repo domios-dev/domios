@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import type { Notification } from "../../lib/types";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { NotificationPanel } from "./NotificationPanel";
+import { takeNeighborFocus } from "../Neighbors/neighborFocus";
 
 let checked = 0;
 
@@ -216,6 +217,10 @@ async function run() {
   const neighborPanel = await render({ ...asked, id: "neighbor-1", answer: undefined, actions: [{ type: "url", label: "Open", value: `domios://neighbor/${friendship}` }] });
   await act(async () => (neighborPanel.querySelector('[data-testid="notification-row"]') as HTMLElement).click());
   assert(opened.includes(`neighbor:${friendship}`), "a Neighbor notification row opens the friend conversation, not the concierge tab");
+  const settingsPanel = await render({ ...asked, id: "neighbor-settings", answer: undefined, actions: [{ type: "url", label: "Review", value: `domios://neighbor/${friendship}/permissions` }] });
+  await act(async () => (settingsPanel.querySelector('[data-testid="notification-row"]') as HTMLElement).click());
+  const focus = takeNeighborFocus();
+  assert(opened.includes("neighbors") && focus?.id === friendship && focus.section === "permissions", "a settings notice opens the exact friend's permissions");
   window.removeEventListener("codeterm:open-panel", onPanel as unknown as Parameters<typeof window.removeEventListener>[1]);
 
   await act(async () => root.unmount());

@@ -7,6 +7,8 @@ import { MarkdownDescription } from "../components/Extensions/MarkdownDescriptio
 const native = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("@tauri-apps/api/core", () => ({ invoke: native.invoke }));
 import { createNativeBridge } from "./nativeBridge";
+import { neighborNotificationTarget } from "./notificationActions";
+import { takeNeighborFocus } from "../components/Neighbors/neighborFocus";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 let root: Root | undefined;
@@ -86,4 +88,53 @@ it("preserves explicit link handlers", async () => {
   await activate(host.querySelector("a")!);
   expect(explicit).toHaveBeenCalledOnce();
   expect(open).not.toHaveBeenCalled();
+});
+
+it.each([true, false])("opens General's Neighbor section replies inside the app (native=%s)", async (isNative) => {
+  const bridge = createNativeBridge(isNative);
+  configureMarkdownLinkOpener((href) => bridge.openUrl(href), (href) => neighborNotificationTarget(href) !== null);
+  const browser = vi.spyOn(window, "open");
+  const id = (isNative ? "c" : "d").repeat(64);
+  for (const section of ["permissions", "concierge"] as const) {
+    const url = `domios://neighbor/${id}/${section}`;
+    await render(<RichMarkdown text={`[Review friend](${url})`} />);
+    const link = host.querySelector("a")!;
+    expect(link.getAttribute("href")).toBe(url);
+    await activate(link);
+    expect(takeNeighborFocus()).toEqual({ id, section });
+    await act(async () => root?.unmount());
+    root = undefined;
+    host.remove();
+  }
+  await expect(openMarkdownLink(`domios://neighbor/${id}/settings`)).rejects.toThrow();
+  expect(native.invoke).not.toHaveBeenCalled();
+  expect(browser).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("keeps unsafe links in friend messages inert (interactivePreviews=%s)", async (interactivePreviews) => {
+  const bridge = createNativeBridge(true);
+  configureMarkdownLinkOpener((href) => bridge.openUrl(href), (href) => neighborNotificationTarget(href) !== null);
+  const browser = vi.spyOn(window, "open");
+  const urls = [
+    "javascript:unsafe",
+    "file:///private/report",
+    "domios://settings",
+    `domios://neighbor/${"e".repeat(64)}/settings`,
+    `domios://neighbor/${"E".repeat(64)}/permissions`,
+    `domios://neighbor/${"e".repeat(64)}/permissions?grant=true`,
+  ];
+  const text = urls.flatMap((url, index) => [
+    `[friend link ${index}](${url})`,
+    `<a href="${url}">friend HTML link ${index}</a>`,
+  ]).join("\n\n");
+  await render(<RichMarkdown text={text} localArtifacts={false} interactivePreviews={interactivePreviews} />);
+  const links = Array.from(host.querySelectorAll("a"));
+  expect(links).toHaveLength(urls.length * 2);
+  for (const link of links) {
+    expect(link.getAttribute("href") || "").toBe("");
+    await activate(link);
+  }
+  expect(takeNeighborFocus()).toBeNull();
+  expect(native.invoke).not.toHaveBeenCalled();
+  expect(browser).not.toHaveBeenCalled();
 });
