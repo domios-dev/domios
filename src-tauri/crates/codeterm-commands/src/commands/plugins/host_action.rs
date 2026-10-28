@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use codeterm_service_core::plugin::js_runtime::ViewHostAction;
 use codeterm_service_core::plugin_media::{
-    valid_media_handle, MediaRefusal, OpenedMedia, PluginMediaResolver, PluginMediaResolverHandle,
+    valid_media_handle, FrameMedia, MediaRefusal, OpenedMedia, PluginMediaResolver,
 };
 use codeterm_service_core::view_host::{ViewRegistry, ViewRegistryHandle};
 use serde::Deserialize;
@@ -71,7 +71,7 @@ fn open_media(resolver: Option<&dyn PluginMediaResolver>, media: MediaRef<'_>) -
         .ok_or_else(|| refused("invalid", "handle"))?;
     let frame = media
         .frame
-        .filter(|frame| !frame.is_empty())
+        .filter(|frame| valid_media_handle(frame))
         .ok_or_else(|| refused("invalid", "frame"))?;
     let resolver = resolver.ok_or_else(|| refused("unavailable", "media_handles"))?;
     resolver
@@ -158,14 +158,9 @@ pub(super) fn open_download(
     open_media(resolver, media)
 }
 
-fn resolver(svc: &codeterm_service_core::service::ServiceState) -> Option<&dyn PluginMediaResolver> {
-    svc.try_ext::<PluginMediaResolverHandle>()
-        .map(|handle| handle.0.as_ref())
-}
-
 /// Shared by the desktop app and the web mirror (`POST /api/plugins/view-host-action`).
 pub fn view_host_action(svc: &codeterm_service_core::service::ServiceState, request: HostActionRequest) -> Value {
-    perform(svc.ext::<ViewRegistryHandle>(), resolver(svc), request)
+    perform(svc.ext::<ViewRegistryHandle>(), Some(&FrameMedia), request)
 }
 
 /// Backs `POST /api/plugins/view-host-action/download`.
@@ -176,7 +171,7 @@ pub fn view_host_download(
     handle: Option<&str>,
 ) -> Result<OpenedMedia, Value> {
     let media = MediaRef { plugin_id, frame, handle };
-    open_download(svc.ext::<ViewRegistryHandle>(), resolver(svc), media)
+    open_download(svc.ext::<ViewRegistryHandle>(), Some(&FrameMedia), media)
 }
 
 #[cfg(test)]

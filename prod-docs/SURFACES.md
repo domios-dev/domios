@@ -72,13 +72,18 @@ Each call resolves to `{ ok: true }` or `{ ok: false, code, reason }` and never
 throws. `denied` means there was no user gesture, the action is not declared,
 the user cancelled, or the handle does not belong to this frame;
 `unavailable` means the host cannot act here; `invalid` means a malformed
-argument. Call them from a click or key handler: the host acts only when the
-view is shown, its frame holds focus and the app has user activation, all
-observed by the app itself, so a click elsewhere in the app never authorizes a
-background view. One gesture yields one effect: a second call while one runs,
-or within a second after one acted, answers `denied` / `busy`. A frame closed,
-reloaded or replaced while a call is pending gets `denied` / `stale`, and
-nothing happens. `ct.host.availability()` resolves to
+argument. Call them from a click or key handler. The host's check is a
+recent-activation heuristic, not proof that one fresh click asked for one
+effect: copyText and reveal act only when the view is shown, its frame holds
+focus and the app had user activation within the browser's short activation
+window, all observed by the app itself. A view that is hidden or does not hold
+focus is refused. One call runs at a time per frame, and calls are rate-limited
+to one effect per second (`denied` / `busy`); the limit bounds repeats, it does
+not prove a new gesture. saveAs gets its real per-intent confirmation from the
+system save dialog (on the web mirror, the browser's download). Every copy shows
+a "Copied from <plugin>" notice that the plugin cannot hide. A frame hidden,
+closed, reloaded, navigated or replaced while a call is pending gets `denied` /
+`stale`, and nothing happens. `ct.host.availability()` resolves to
 `{ copyText, saveAs, reveal }` booleans saying what this app can perform here
 (the web mirror cannot reveal; a page without a clipboard cannot copy). Use it
 to hide an action, not to probe one; it grants nothing, and every call is still

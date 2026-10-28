@@ -1052,8 +1052,9 @@ export interface SurfaceContribution {
 // The user-gesture actions the view page may ask for through `ct.host`; each named once.
 export type ViewHostAction = "copyText" | "saveAs" | "reveal";
 
-// `denied`: no gesture in this shown, focused view; undeclared; cancelled; `busy` (one effect per
-// gesture); `stale` (the frame was replaced meanwhile); or media this frame does not own.
+// `denied`: no recent activation in this shown, focused view; undeclared; cancelled; `busy` (one
+// call at a time, at most one effect per second); `stale` (the frame was hidden or replaced
+// meanwhile); or media this frame does not own.
 // `unavailable`: the host cannot act here (the web mirror has no file manager).
 // `invalid`: malformed text, handle or arguments.
 export type ViewHostResult = { ok: true } | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };

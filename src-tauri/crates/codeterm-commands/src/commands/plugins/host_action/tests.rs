@@ -56,7 +56,8 @@ impl PluginMediaResolver for StubMedia {
 
 const HANDLE: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const EXPIRED: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
-const FRAME: &str = "frame-generation-1";
+const FRAME: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+const RELOADED_FRAME: &str = "2222222222222222222222222222222222222222222222222222222222222222";
 
 fn media_ref<'a>(plugin_id: &'a str, frame: &'a str) -> MediaRef<'a> {
     MediaRef {
@@ -182,8 +183,11 @@ fn media_actions_need_the_frame_that_owns_the_handle() {
     let mut frameless = request("studio", ViewHostAction::Reveal);
     frameless.frame = None;
     assert_eq!(perform(&registry, Some(&resolver), frameless), refusal("invalid", "frame"));
+    let mut malformed = request("studio", ViewHostAction::Reveal);
+    malformed.frame = Some("frame-generation-1".into());
+    assert_eq!(perform(&registry, Some(&resolver), malformed), refusal("invalid", "frame"));
     let mut reloaded = request("studio", ViewHostAction::Reveal);
-    reloaded.frame = Some("frame-generation-2".into());
+    reloaded.frame = Some(RELOADED_FRAME.into());
     assert_eq!(
         perform(&registry, Some(&resolver), reloaded),
         refusal("denied", "media_foreign")

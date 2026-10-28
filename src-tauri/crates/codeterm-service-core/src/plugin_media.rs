@@ -1,32 +1,10 @@
 //! Seam between plugin view host actions and plugin-owned media files.
 //!
-//! The media delivery capability issues opaque handles and installs a
-//! [`PluginMediaResolverHandle`] at startup; host actions only ever see a file
-//! the resolver has already opened under the plugin's own data directory, so
-//! they never reopen a path a symlink could have swapped. Until a resolver is
-//! installed, media host actions answer `unavailable`.
+//! Host actions only ever see a file media delivery has already opened under
+//! the plugin's own data directory for the exact frame generation that owns the
+//! handle, so they never reopen a path a symlink could have swapped.
 
-use std::path::PathBuf;
-use std::sync::Arc;
-
-/// A plugin media file, opened and confined by the resolver.
-pub struct OpenedMedia {
-    pub file: std::fs::File,
-    /// Shown to the file manager by `reveal`; never read or written through.
-    pub path: PathBuf,
-    /// Display name the plugin registered; host actions sanitize it again.
-    pub file_name: String,
-    pub content_type: String,
-}
-
-/// Why a handle does not open; deliberately says nothing about which plugin owns it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MediaRefusal {
-    Unknown,
-    Expired,
-    Foreign,
-}
+pub use codeterm_plugin::media_delivery::{MediaRefusal, OpenedMedia};
 
 pub trait PluginMediaResolver: Send + Sync {
     /// Open the file behind a host-issued handle for the plugin the host (never the frame) names,
@@ -35,12 +13,18 @@ pub trait PluginMediaResolver: Send + Sync {
     fn open(&self, plugin_id: &str, frame: &str, handle: &str) -> Result<OpenedMedia, MediaRefusal>;
 }
 
-/// Service extension slot the media delivery capability fills.
-pub struct PluginMediaResolverHandle(pub Arc<dyn PluginMediaResolver>);
+/// The production resolver: media delivery's atomic frame-ownership check and confined open.
+pub struct FrameMedia;
 
-/// The handle shape the host issues: 64 lowercase hex characters. Anything else is refused unread.
+impl PluginMediaResolver for FrameMedia {
+    fn open(&self, plugin_id: &str, frame: &str, handle: &str) -> Result<OpenedMedia, MediaRefusal> {
+        codeterm_plugin::media_delivery::open_frame_media(plugin_id, frame, handle)
+    }
+}
+
+/// The handle and frame-token shape the host issues: 64 lowercase hex characters. Anything else is refused unread.
 pub fn valid_media_handle(handle: &str) -> bool {
-    handle.len() == 64 && handle.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    codeterm_plugin::media_delivery::valid_token(handle)
 }
 
 #[cfg(test)]
@@ -55,5 +39,11 @@ mod tests {
         assert!(!valid_media_handle(&format!("{}/", "a".repeat(63))));
         assert!(!valid_media_handle("../../etc/passwd"));
         assert!(!valid_media_handle(""));
+    }
+
+    #[test]
+    fn frame_media_refuses_a_frame_the_store_never_issued() {
+        let handle = "a".repeat(64);
+        assert!(FrameMedia.open("studio", &"b".repeat(64), &handle).is_err());
     }
 }

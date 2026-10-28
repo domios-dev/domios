@@ -13,7 +13,7 @@ export type ViewHostActionName = (typeof VIEW_HOST_ACTIONS)[number];
 export type ViewHostRefusalCode = "denied" | "unavailable" | "invalid";
 export type ViewHostResult = { ok: true } | { ok: false; code: ViewHostRefusalCode; reason: string };
 
-/** Longest text a view may put on the clipboard in one gesture. */
+/** Longest text a view may put on the clipboard in one call. */
 export const MAX_COPY_TEXT = 100_000;
 const MAX_FILE_NAME = 120;
 
@@ -76,10 +76,11 @@ export function safeFileName(raw: unknown): string {
 }
 
 /**
- * Whether a request may act, judged only from what the app itself observes when it arrives:
- * the view is shown, its own iframe holds focus (so the activation came from inside that frame,
- * not from app chrome or a sibling view, whose clicks move focus elsewhere), and the app has
- * transient user activation. A boolean sent by the frame is never consulted.
+ * What the app itself observes when a request arrives: the view is shown, its own iframe holds
+ * focus, and the app has transient user activation. This is the owner-accepted recent-activation
+ * heuristic, not proof that one fresh click inside this frame asked for this effect: activation
+ * lasts the browser's activation window and focus filters most, not all, foreign activation.
+ * A boolean sent by the frame is never consulted. saveAs relies on the save dialog for intent.
  */
 export interface ViewHostIntent {
   shown: boolean;
@@ -91,7 +92,7 @@ export function intentGesture(intent: ViewHostIntent): boolean {
   return intent.shown && intent.frameFocused && intent.activated;
 }
 
-/** One request at a time per frame, and a short pause after each effect, so one gesture yields one effect. */
+/** A rate limit, not a gesture detector: one request at a time per frame, at most one effect per interval. */
 export const VIEW_HOST_COOLDOWN_MS = 1000;
 
 export function createViewHostGate(now: () => number = () => Date.now()) {

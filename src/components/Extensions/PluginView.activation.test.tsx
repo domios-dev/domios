@@ -259,6 +259,61 @@ describe("plugin view activation", () => {
     expect(hostDeps.writeText).not.toHaveBeenCalled();
     expect(reply).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 4 }), "*");
   });
+
+  /** Sends a copy request from the current frame whose declaration check stays pending until `answer`. */
+  async function pendingCopy(id: number) {
+    // Let the frame's own first load land before the request, as it does before any user click.
+    await act(async () => { await new Promise((settle) => setTimeout(settle, 0)); });
+    const frame = host!.querySelector("iframe")!;
+    const ownWindow = frame.contentWindow!;
+    const reply = vi.spyOn(ownWindow, "postMessage");
+    hostDeps.call.mockClear();
+    hostDeps.writeText.mockClear();
+    let answer!: (value: unknown) => void;
+    hostDeps.call.mockImplementationOnce(() => new Promise((done) => { answer = done; }));
+    focusFrame(frame);
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: ownWindow, data: { __ctHost: id, action: "copyText", args: { text: "late" } },
+      })));
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    expect(hostDeps.call).toHaveBeenCalledTimes(1);
+    return { frame, ownWindow, reply, answer: (value: unknown) => answer(value) };
+  }
+
+  it("never revives a request across hide and reactivate, even with the same frame", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} active embedded />);
+    const pending = await pendingCopy(5);
+    await act(async () => root!.render(<PluginView pluginId="studio" api={undefined} active={false} embedded />));
+    await act(async () => root!.render(<PluginView pluginId="studio" api={undefined} active embedded />));
+    expect(host!.querySelector("iframe")).toBe(pending.frame);
+    await act(async () => pending.answer({ ok: true }));
+    expect(hostDeps.writeText).not.toHaveBeenCalled();
+    expect(pending.reply).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 5 }), "*");
+  });
+
+  it("ends a pending request when the same frame reloads or navigates", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const pending = await pendingCopy(6);
+    // A reload or navigation inside the frame keeps the WindowProxy; only the element's load reveals it.
+    await act(async () => pending.frame.dispatchEvent(new Event("load")));
+    await act(async () => pending.answer({ ok: true }));
+    expect(hostDeps.writeText).not.toHaveBeenCalled();
+    expect(pending.reply).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 6 }), "*");
+  });
+
+  it("shows its own Copied notice after every copy a plugin asks for", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const pending = await pendingCopy(7);
+    expect(host!.querySelector('[data-testid="plugin-view-copied"]')).toBeNull();
+    await act(async () => pending.answer({ ok: true }));
+    expect(hostDeps.writeText).toHaveBeenCalledWith("late");
+    expect(host!.querySelector('[data-testid="plugin-view-copied"]')?.textContent).toBe("Copied from studio");
+    expect(pending.reply).toHaveBeenCalledWith({ __ctReply: 7, result: { ok: true } }, "*");
+  });
 });
 
 describe("view surface invalidation", () => {

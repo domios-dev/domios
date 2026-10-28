@@ -130,7 +130,7 @@ describe("plugin view host actions", () => {
     expect(calls).toEqual([]);
   });
 
-  it("refuses activation that came from app chrome, a sibling view or a hidden view", async () => {
+  it("refuses recent activation unless the view is shown and its frame holds focus", async () => {
     const { fake, calls } = deps();
     // A click elsewhere still leaves the app activated, but focus is not in the asking frame.
     expect(await run(fake, "copyText", { text: "x" }, { shown: true, frameFocused: false, activated: true }))
@@ -188,7 +188,8 @@ describe("plugin view host actions", () => {
     expect(calls).toHaveLength(1);
   });
 
-  it("gives one effect per gesture: concurrent asks wait, and the next needs the pause to pass", async () => {
+  // A rate limit, not a gesture detector: once the interval passes, the same activation may act again.
+  it("rate-limits effects: one call at a time and at most one effect per interval", async () => {
     let now = 0;
     const gate = createViewHostGate(() => now);
     const { fake } = deps([{ ok: true }, { ok: true }]);
