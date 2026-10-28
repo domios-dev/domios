@@ -1,4 +1,4 @@
-use crate::args::account::NeighborAction;
+use crate::args::account::{NeighborAction, NeighborLimit};
 use crate::cmd::print::{fail, fail_http, print_human};
 use serde_json::{json, Value};
 use zeroize::Zeroizing;
@@ -11,6 +11,40 @@ fn authored(path: &str) -> Zeroizing<String> {
 
 pub(super) fn handle(json_mode: bool, action: NeighborAction) {
     let listing = matches!(action, NeighborAction::List);
+    let (path, command) = request(action);
+    let client =
+        crate::build_local_api().unwrap_or_else(|_| fail(1, "Local Neighbor service unavailable"));
+    let response = client
+        .post(path)
+        .json(&command)
+        .send()
+        .unwrap_or_else(|_| fail(1, "Local Neighbor request failed"));
+    let status = response.status();
+    let body = response
+        .text()
+        .unwrap_or_else(|_| fail(1, "Invalid Neighbor response"));
+    if !status.is_success() {
+        fail_http(1, status.as_u16(), &body);
+    }
+    let result: Value =
+        serde_json::from_str(&body).unwrap_or_else(|_| fail(1, "Invalid Neighbor response"));
+    if json_mode {
+        println!("{result}");
+    } else if listing {
+        println!("{}", render_list(&result));
+    } else {
+        print_human(&result);
+    }
+}
+
+fn limit_value(limit: NeighborLimit) -> Value {
+    match limit {
+        NeighborLimit::Default => Value::Null,
+        NeighborLimit::Value(value) => json!(value),
+    }
+}
+
+fn request(action: NeighborAction) -> (&'static str, Value) {
     let command = match action {
         NeighborAction::Flag {
             message_id,
@@ -19,7 +53,31 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
             reason,
         } => flag_command(message_id, friendship, category, reason)
             .unwrap_or_else(|error| fail(1, error)),
-        NeighborAction::List => json!({"operation":"list"}),
+        NeighborAction::List => return ("/api/account/neighbors", json!({"operation":"list"})),
+        NeighborAction::SetLimit {
+            friendship_id,
+            per_hour,
+        } => {
+            return (
+                "/api/account/neighbors",
+                json!({"operation":"set_limit","friendship_id":friendship_id,"per_hour":per_hour}),
+            )
+        }
+        NeighborAction::SetDailyLimit {
+            friendship_id,
+            daily_limit,
+        } => json!({
+            "operation":"set_daily_limit","friendship_id":friendship_id,"daily_limit":limit_value(daily_limit),
+        }),
+        NeighborAction::SetFileDailyLimit {
+            friendship_id,
+            file_daily_limit_bytes,
+        } => {
+            return (
+                "/api/account/neighbors/files",
+                json!({"operation":"set_daily_limit","friendship_id":friendship_id,"file_daily_limit_bytes":limit_value(file_daily_limit_bytes)}),
+            )
+        }
         NeighborAction::Status => json!({"operation":"status"}),
         NeighborAction::Enroll {
             confirm_takeover,
@@ -60,33 +118,7 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
             json!({"operation":"delivery_status","message_id":message_id})
         }
     };
-    let client =
-        crate::build_local_api().unwrap_or_else(|_| fail(1, "Local Neighbor service unavailable"));
-    let response = client
-        .post(if listing {
-            "/api/account/neighbors"
-        } else {
-            "/api/account/neighbors/runtime"
-        })
-        .json(&command)
-        .send()
-        .unwrap_or_else(|_| fail(1, "Local Neighbor request failed"));
-    let status = response.status();
-    let body = response
-        .text()
-        .unwrap_or_else(|_| fail(1, "Invalid Neighbor response"));
-    if !status.is_success() {
-        fail_http(1, status.as_u16(), &body);
-    }
-    let result: Value =
-        serde_json::from_str(&body).unwrap_or_else(|_| fail(1, "Invalid Neighbor response"));
-    if json_mode {
-        println!("{result}");
-    } else if listing {
-        println!("{}", render_list(&result));
-    } else {
-        print_human(&result);
-    }
+    ("/api/account/neighbors/runtime", command)
 }
 
 fn flag_command(
