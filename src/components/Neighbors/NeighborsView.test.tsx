@@ -747,6 +747,21 @@ it("sets machine access: the folder with its honest note, and a warning for full
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ machine_access: "full" }));
 });
 
+it("shows the runtime's own-pad note for a saved read-only concierge", async () => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "Questions", allow_tab_requests: false, machine_access: "read_only",
+    folder_enforcement: { writes: "pad_only", reads: "not_confined", note: "Writes only its own pad; reads are not confined." } });
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
+  await act(async () => button("Ada, connected").click());
+  expect(document.body.textContent).toContain("Writes only its own pad; reads are not confined.");
+  expect(document.body.textContent).not.toContain("changes nothing on this machine");
+});
+
 it("blocks files from one friend with a zero daily file limit", async () => {
   const filesClient = { send: vi.fn(), list: vi.fn(async () => ({ folder: "/neighbors/ada", files: [] })), open: vi.fn(), openFolder: vi.fn(async () => {}),
     setDailyLimit: vi.fn(async () => {}), usage: vi.fn(async () => null), onFilesChanged: vi.fn(async () => () => {}) };

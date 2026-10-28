@@ -128,7 +128,9 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
           });
         }}>Choose folder</Button>
       </div>}
-      {access === "read_only" && !awaitingFolder && <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>}
+      {/* A saved read-only concierge may still write its own pad; the runtime's note for that saved state says so. */}
+      {access === "read_only" && !awaitingFolder && <p className="neighbor-note">
+        {baseline?.machine_access === "read_only" && baseline.folder_enforcement?.writes === "pad_only" ? baseline.folder_enforcement.note : "Looks things up; changes nothing on this machine."}</p>}
       {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning">Their requests can change anything your agents on this machine can reach.</p>}
       {access === "folder" && <div className="neighbor-folder">
         <div className="min-w-0">

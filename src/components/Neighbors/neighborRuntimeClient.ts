@@ -45,7 +45,7 @@ export interface NeighborPermission {
   machine_access?: MachineAccess;
   /** Read-only: the folder actually in effect, and how much of it the platform enforces. */
   effective_folder?: string;
-  folder_enforcement?: { writes: "provider_sandbox" | "unrestricted" | "advisory"; reads: "not_confined"; network?: "disabled" | "not_confined"; note: string };
+  folder_enforcement?: { writes: "provider_sandbox" | "pad_only" | "unrestricted" | "advisory"; reads: "not_confined"; network?: "disabled" | "not_confined"; note: string };
 }
 export interface NeighborReceipt {
   message_id: string;
