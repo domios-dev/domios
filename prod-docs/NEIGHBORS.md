@@ -88,9 +88,9 @@ General asks trust level, proposes one preset, explains it before saving, and of
 
 Creation needs a workspace even for Trusted friend. Resolve real IDs/taxonomy areas; show `folder_enforcement.note` and command/read/advisory limits. Before launch, descendants inherit immutable friendship root, allowlist/current grants, access/folder and own-pad exception. They cannot become General/edit grants. Custom args, foreign resumes, existing-tab claims, shell tabs, Team/plan/mesh dispatch refuse. Permission edits retire descendants; concierge replacement/closure closes them into Recently Closed, retaining friendship history/files.
 
-Before Apply, General says "Applying restarts <friend>'s concierge." Batch all permission edits into one `set_permission`: one restart, scope/grants/refusal rules in initial system/developer instructions, not per turn. `supports_initial_prompt_update_on_resume` enables same-session history-preserving updates (Claude/Codex/OpenCode); others start fresh, retaining friend history. Restore uses persisted instructions/reconciles older launches before turns. Failed restart means failed Apply. Structured grants decide tool access; scope narrows topics/sharing. Initial instructions list exact permitted reads; try an in-scope read before refusing. Daemon area/limit checks still apply.
+Before Apply, General says "Applying restarts <friend>'s concierge with a fresh session." Batch all permission edits into one `set_permission`: one restart, scope/grants/refusal rules in initial system/developer instructions, not per turn. Every Apply starts a new provider session with the new initial instructions: agent context is dropped, `history_retained:false`; the friend's Domios conversation stays. Unchanged-digest daemon restore resumes the existing session. Changed context starts fresh before new turns. Failed restart means failed Apply. Structured grants decide tool access; scope narrows topics/sharing. Initial instructions list exact permitted reads; try an in-scope read before refusing. Daemon area/limit checks still apply.
 
-Status `concierges[friendship_id].initial_context_digest` and permission `initial_context_digest`: bound context SHA-256 only. Unchanged: no restart; changed: restart once, resume when supported.
+Status `concierges[friendship_id].initial_context_digest` and permission `initial_context_digest`: bound context SHA-256 only. Unchanged: retain session; changed: start fresh once.
 
 Turns use `<domios from="neighbor" friend="NAME" friendship="FRIENDSHIP_ID" message="MESSAGE_ID" kind="question" in_reply_to="OPTIONAL_MESSAGE_ID">BODY<tip>HOST_REPLY_INSTRUCTION</tip></domios>` with Messenger escaping; omit absent linkage. Answer/refusal tips forbid reply and suggest flags. Questions/tab requests reach concierge; linked owner replies stay in conversation; agent replies target only their exact live authenticated author. Unknown/unavailable/cross-friend targets never fall back. Confirmed delivery saves private tab/session/nonce flag provenance; uncertainty never replays. Owner replies admit without concierge; waiting questions preserve cursor.
 
@@ -169,4 +169,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

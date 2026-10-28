@@ -260,7 +260,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     {problem && changed && <p role="alert" className="neighbor-note">{problem}</p>}
     {error && <InlineErrorNotice error={error} operation="saving Neighbor permissions" role="alert" />}
     <div className="neighbor-apply">
-      {changed && <p className="neighbor-note neighbor-apply__note">Applying restarts {name}'s concierge.</p>}
+      {changed && <p className="neighbor-note neighbor-apply__note">Applying restarts {name}'s concierge with a fresh session.</p>}
       <div className="neighbor-apply__actions">
         <Button size="sm" variant="accent" onClick={onEditWithGeneral}>Edit with General</Button>
         <span className="ml-auto" />

@@ -64,11 +64,12 @@ impl ServiceContext {
         .await?;
         self.require_neighbor_history_generation(generation)
             .map_err(|error| error.to_string())?;
+        let digest = initial_prompt::digest(friendship, &permission);
+        let same_context = settings.initial_context_digest(friendship) == Some(digest.as_str());
         if self
             .validate_neighbor_bound_launch(tab_id, &permission, &cwd)
             .is_ok()
-            && settings.initial_context_digest(friendship)
-                == Some(initial_prompt::digest(friendship, &permission).as_str())
+            && same_context
         {
             return Ok(());
         }
@@ -85,7 +86,9 @@ impl ServiceContext {
                     .or(tab.restorable_launch.requested_model.clone()),
             )
         };
-        let resume = self.neighbor_initial_context_resume(tab_id);
+        let resume = same_context
+            .then(|| self.neighbor_initial_context_resume(tab_id))
+            .flatten();
         let options = self.neighbor_launch_options(&settings, friendship);
         self.replace_neighbor_concierge_with(
             metadata,

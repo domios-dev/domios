@@ -260,7 +260,7 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(scope, "Questions about our shared project");
     scope.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  expect(document.body.textContent).toContain("Applying restarts Ada's concierge.");
+  expect(document.body.textContent).toContain("Applying restarts Ada's concierge with a fresh session.");
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", { allowed: true, scope: "Questions about our shared project", allow_tab_requests: false });
 });

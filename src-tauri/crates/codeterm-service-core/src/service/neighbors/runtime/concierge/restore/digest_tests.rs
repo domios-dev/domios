@@ -6,7 +6,7 @@ use std::sync::{
 };
 
 #[tokio::test]
-async fn resumable_providers_reconcile_stable_digest_and_resume_once_per_real_change() {
+async fn resumable_providers_keep_unchanged_sessions_but_start_fresh_for_changed_context() {
     for provider in ["opaque-provider-one", "opaque-provider-two"] {
         let (mut mux, general) = MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&general).unwrap();
@@ -90,16 +90,16 @@ async fn resumable_providers_reconcile_stable_digest_and_resume_once_per_real_ch
                 |actual_provider, _, cwd, grant, resume, options| async move {
                     invoked.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(actual_provider.as_deref(), Some(provider));
-                    assert_eq!(resume.as_deref(), Some("opaque-same-session"));
+                    assert!(resume.is_none());
                     assert_eq!(grant.scope, "opaque-updated-scope");
                     assert_eq!(options.reasoning_effort.as_deref(), Some("opaque-effort"));
                     assert_eq!(options.service_tier.as_deref(), Some("opaque-tier"));
                     let mut mux = service.mux.write();
-                    assert!(mux.get_tab(&old).is_none());
+                    assert!(mux.get_tab(&old).is_some());
                     let new = mux.create_tab(&workspace).unwrap();
                     let tab = mux.get_tab_mut(&new).unwrap();
                     tab.agent_type = actual_provider;
-                    tab.agent_session_id = resume;
+                    tab.agent_session_id = Some("opaque-fresh-session".into());
                     tab.cwd = Some(cwd);
                     // A provider's saved prompt representation is not the binding identity.
                     tab.restorable_launch.identity_instructions =
@@ -133,7 +133,7 @@ async fn resumable_providers_reconcile_stable_digest_and_resume_once_per_real_ch
                 .unwrap()
                 .agent_session_id
                 .as_deref(),
-            Some("opaque-same-session")
+            Some("opaque-fresh-session")
         );
         assert_eq!(
             saved.initial_context_digest(&friend),
@@ -154,5 +154,38 @@ async fn resumable_providers_reconcile_stable_digest_and_resume_once_per_real_ch
             initial_prompt::digest(&friend, &permission)
         );
         assert!(!status.to_string().contains("opaque-updated-scope"));
+        let repair = current.clone();
+        service.mux.write().get_tab_mut(&repair).unwrap().cwd = Some("opaque-stale-folder".into());
+        let ws = service.mux.read().find_workspace_for_tab(&repair).unwrap();
+        service
+            .restore_neighbor_concierge_with(
+                &metadata,
+                "owner",
+                &friend,
+                |provider, _, cwd, _, resume, _| async move {
+                    assert_eq!(resume.as_deref(), Some("opaque-fresh-session"));
+                    let mut mux = service.mux.write();
+                    assert!(mux.get_tab(&repair).is_none());
+                    let id = mux.create_tab(&ws).unwrap();
+                    let tab = mux.get_tab_mut(&id).unwrap();
+                    tab.agent_type = provider;
+                    tab.agent_session_id = resume;
+                    tab.cwd = Some(cwd);
+                    Ok(id)
+                },
+            )
+            .await
+            .unwrap();
+        let saved = metadata.settings().await.unwrap();
+        assert_eq!(
+            service
+                .mux
+                .read()
+                .get_tab(&saved.bindings[&friend])
+                .unwrap()
+                .agent_session_id
+                .as_deref(),
+            Some("opaque-fresh-session")
+        );
     }
 }
