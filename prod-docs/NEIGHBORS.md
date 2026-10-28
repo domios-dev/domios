@@ -31,7 +31,7 @@ Owner edits grants in friend view; only authenticated General may view/author th
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
 domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md
-domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md --allow-tab-requests
+domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md --allow-tab-requests true
 domios account neighbors deny FRIENDSHIP_ID
 domios account neighbors bind FRIENDSHIP_ID --tab GATEWAY_TAB_ID
 ```
@@ -74,6 +74,27 @@ Owner/General set their inbound limits. Include `friendship_id`; POST routes are
 | File bytes/day | `/files`: `set_daily_limit` / `file_daily_limit_bytes` | `null` = 50 MiB default; 0 blocks files | `set-file-daily-limit ID --file-daily-limit-bytes N` |
 
 For two incoming requests/hour: `domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2`. Use literal `null` instead of N only where supported. Limit edits are separate from permission Apply.
+
+## General permission command
+
+Read the current policy with permission; batch edits into one grant command. Only mentioned fields change. Boolean flags require true or false; false turns a grant off. Scope comes from a pad file. Supplying --from-pad also enables allowed unless --allowed false is explicit.
+
+~~~bash
+domios account neighbors permission FRIENDSHIP_ID
+domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md --allow-memory false
+domios account neighbors grant FRIENDSHIP_ID --allow-memory true --memory-areas project,team
+domios account neighbors grant FRIENDSHIP_ID --memory-areas all
+~~~
+
+Grant flags: --allowed, --allow-memory, --allow-files, --allow-tab-requests and --allow-interactive-content take true/false. --memory-areas takes all (null), none (empty list), or comma-separated taxonomy names. --workspaces takes none (null, no access) or comma-separated actual local IDs. --folder takes an absolute path or default (null). --machine-access takes none/read_only/folder/full; none still refuses unsupported confinement. Set folder access and its folder together. Unknown fields/values or invalid combinations refuse with a typed error; no permission is saved.
+
+~~~bash
+domios account neighbors grant FRIENDSHIP_ID --folder /absolute/project --machine-access folder --workspaces WORKSPACE_ID --allow-tab-requests true --allow-files true --allow-interactive-content false
+domios account neighbors grant FRIENDSHIP_ID --folder default --machine-access read_only --workspaces none
+domios account neighbors deny FRIENDSHIP_ID
+~~~
+
+Deny sets only allowed=false, preserving the other settings. The runtime set_permission operation accepts a partial permission object with the same fields; explicit null clears folder, memory_areas or workspaces. An omitted field retains its saved value. Both UI and CLI use the same Apply path: successful edits replace the concierge with a fresh session. Limits remain the separate commands above.
 
 ## Concierge setup and Apply
 
@@ -170,4 +191,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

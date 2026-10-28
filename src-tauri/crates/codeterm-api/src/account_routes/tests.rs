@@ -831,3 +831,15 @@ async fn empty_neighbor_body_is_a_typed_presend_bad_request() {
         .unwrap()
         .contains("nothing was sent"));
 }
+
+#[tokio::test]
+async fn invalid_neighbor_permission_has_typed_bad_request_response() {
+    let response = neighbor_failure("invalid_request: Invalid Neighbor request".into());
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "invalid_request");
+    assert_eq!(body["reason"], "invalid_request");
+}
