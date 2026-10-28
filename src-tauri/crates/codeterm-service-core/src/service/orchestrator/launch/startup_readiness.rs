@@ -2,7 +2,6 @@ use super::{LaunchFailure, LaunchGeneration, LAUNCH_REGISTRY};
 use crate::service::boot_stage::BootStage;
 use crate::service::launch_readiness::LaunchSettlement;
 use crate::service::ServiceContext;
-use std::time::Duration;
 
 #[cfg(any(test, feature = "test-support"))]
 pub fn launch_waits_for_first_turn_binding(
@@ -117,7 +116,7 @@ pub(super) fn emit_agent_ready(
     svc: &ServiceContext,
     settlement: LaunchSettlement,
 ) -> Result<(), String> {
-    let session_authenticated = launch.await_provider_ack(Duration::ZERO);
+    let session_authenticated = launch.reconcile_authenticated_binding(svc);
     if !settlement.authorizes_agent_ready(session_authenticated) {
         if let Some(attempt) = launch.attempt() {
             svc.retire_public_send_launch_attempt(&attempt);

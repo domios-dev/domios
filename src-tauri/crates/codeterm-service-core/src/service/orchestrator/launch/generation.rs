@@ -240,6 +240,26 @@ impl LaunchGeneration {
         result
     }
 
+    pub(super) fn reconcile_authenticated_binding(&self, svc: &ServiceContext) -> bool {
+        let Some(attempt) = self.attempt() else {
+            return false;
+        };
+        let registry = LAUNCH_REGISTRY.lock();
+        if !registry.owns(self) {
+            return false;
+        }
+        let authenticated = svc.mux.read().get_tab(&self.tab_id).is_some_and(|tab| {
+            tab.pty_id.as_deref() == Some(attempt.pty_id.as_str())
+                && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
+                && tab.launch_session_authenticated()
+                && tab.agent_session_id.as_deref().is_some_and(|session| !session.trim().is_empty())
+        });
+        authenticated && registry.record_provider_session(&self.tab_id, &ProviderSessionBinding {
+            pty_id: attempt.pty_id,
+            binding_nonce: attempt.binding_nonce,
+        })
+    }
+
     pub fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {
         let mut ready = self.provider_ack.ready.lock();
         if *ready {
