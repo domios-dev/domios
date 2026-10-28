@@ -249,7 +249,7 @@ pub fn build_snapshot_filtered(
                 snapshot.index.push(RefEntry {
                     reference,
                     role: role.to_string(),
-                    name: truncate_chars(&name, NAME_LIMIT),
+                    name: name.clone(),
                     backend_node_id: backend,
                 });
             }

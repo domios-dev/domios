@@ -1,4 +1,4 @@
-use super::{AxNode, AxValue};
+use super::{collapse_whitespace, AxNode, AxValue};
 use std::collections::{HashMap, HashSet};
 
 pub fn unique<'a>(
@@ -10,11 +10,8 @@ pub fn unique<'a>(
         !n.ignored
             && n.role.as_ref().map(AxValue::as_str) == Some(role)
             && name.is_none_or(|name| {
-                n.name
-                    .as_ref()
-                    .map(AxValue::as_str)
-                    .unwrap_or("")
-                    .eq_ignore_ascii_case(name)
+                collapse_whitespace(n.name.as_ref().map(AxValue::as_str).unwrap_or(""))
+                    .eq_ignore_ascii_case(&collapse_whitespace(name))
             })
     });
     let first = matches.next().ok_or("not_found: no matching element")?;

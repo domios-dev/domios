@@ -115,3 +115,16 @@ fn snapshot_caps_output_even_when_the_caller_requests_an_unbounded_limit() {
         .text
         .contains(&format!("truncated at {MAX_LINES} lines")));
 }
+
+#[test]
+fn bounded_display_preserves_full_names_for_legacy_role_locators() {
+    let name = "x".repeat(150);
+    let snapshot = build_snapshot(&controls(&[&name]), 20);
+    assert_eq!(snapshot.items[0].name.len(), NAME_LIMIT);
+    assert_eq!(
+        resolve_target(Some(&snapshot), &["button", &name])
+            .unwrap()
+            .backend_node_id,
+        1
+    );
+}

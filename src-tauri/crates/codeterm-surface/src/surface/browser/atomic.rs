@@ -67,7 +67,10 @@ impl BrowserRuntime {
     ) -> Result<String, String> {
         let args = parse(args, fill)?;
         let epoch = self.evaluate(page, BEGIN, false).await?;
-        let capture = self.shared.begin_snapshot(page.session_id())?;
+        let capture = self
+            .shared
+            .begin_snapshot(page.session_id())
+            .map_err(|_| "stale: browser session changed")?;
         self.send(page, "Accessibility.enable", json!({})).await?;
         let tree = self
             .send(page, "Accessibility.getFullAXTree", json!({}))

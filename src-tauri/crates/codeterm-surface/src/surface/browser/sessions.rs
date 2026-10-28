@@ -83,11 +83,8 @@ impl BrowserRuntime {
         self.shared.bind(&page);
         self.shared
             .update(|state| state.profile = opened.profile.clone());
-        self.shared.remember_profile(if args.ephemeral {
-            ""
-        } else {
-            &opened.profile
-        });
+        self.shared
+            .remember_profile(if args.ephemeral { "" } else { &opened.profile });
         self.refresh_profiles().await;
         let page = self.ensure_page().await?;
         self.goto(&page, &format!("{}/web/", args.origin)).await?;

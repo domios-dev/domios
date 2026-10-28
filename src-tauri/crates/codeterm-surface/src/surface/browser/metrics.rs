@@ -127,7 +127,11 @@ impl BrowserRuntime {
             if let Some(viewport) = options.viewport {
                 self.apply_metrics(viewport).await?;
             }
-            let metrics = self.send(&page, "Page.getLayoutMetrics", json!({})).await?;
+            let metrics = if options.metrics {
+                self.send(&page, "Page.getLayoutMetrics", json!({})).await?
+            } else {
+                serde_json::Value::Null
+            };
             (self.screenshot_base64(&page, options.full).await?, metrics)
         };
         let name = super::inbox::evidence_file_name(

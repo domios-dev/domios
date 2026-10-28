@@ -26,3 +26,16 @@ fn scoped_locators_refuse_ambiguity_and_exclude_other_dialogs() {
         .unwrap_err()
         .starts_with("not_found:"));
 }
+
+#[test]
+fn scoped_names_follow_snapshot_whitespace_normalization() {
+    let nodes: Vec<AxNode> = serde_json::from_value(json!([
+        {"nodeId":"a","role":{"value":"button"},"name":{"value":"Save\n  draft"},"backendDOMNodeId":7}
+    ])).unwrap();
+    assert_eq!(
+        unique(&nodes, "button", Some("Save draft"))
+            .unwrap()
+            .backend_dom_node_id,
+        Some(7)
+    );
+}
