@@ -147,6 +147,8 @@ async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activat
     settings.bindings.insert(friend.clone(), tab.clone());
     metadata.save_settings(settings).await.unwrap();
     service.tag_neighbor_root("owner", &friend, &tab).unwrap();
+    let restored_settings = metadata.settings().await.unwrap();
+    service.remember_neighbor_concierge_accounts("owner", &restored_settings);
     crate::service::lazy_restore::initialize(service, 0);
     assert!(service.mux.read().get_tab(&tab).unwrap().frozen);
     let calls = Arc::new(AtomicUsize::new(0));
