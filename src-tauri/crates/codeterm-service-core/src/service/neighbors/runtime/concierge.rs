@@ -202,27 +202,13 @@ impl ServiceContext {
                 .map_err(launch_error)?;
         }
         let (provider, model) = previous.unwrap_or_default();
-        let resume_session = old
-            .as_deref()
-            .and_then(|id| self.neighbor_initial_context_resume(id));
         self.stop_neighbor_listeners();
-        let history_retained = resume_session.is_some();
-        if history_retained {
-            if let Some(old) = &old {
-                self.retire_neighbor_children(old)
-                    .await
-                    .map_err(|_| Error::Gateway)?;
-                self.close_tab_async(old)
-                    .await
-                    .map_err(|_| Error::Gateway)?;
-            }
-        }
         let created = match create(
             provider,
             model,
             cwd,
             permission.clone(),
-            resume_session,
+            None,
             options.clone(),
         )
         .await
@@ -232,15 +218,6 @@ impl ServiceContext {
                 log::debug!(
                     "[neighbors] permission apply restart friendship={friendship}: {error}"
                 );
-                if history_retained {
-                    settings.bindings.remove(friendship);
-                    settings.initial_contexts.remove(friendship);
-                    metadata.save_settings(settings).await?;
-                    self.ui.emit(
-                        "neighbor-agent-changed",
-                        json!({"friendship_id":friendship,"gateway_tab":null}),
-                    );
-                }
                 return Err(launch_error(error));
             }
         };
@@ -302,7 +279,7 @@ impl ServiceContext {
             "neighbor-permission-changed",
             json!({"friendship_id":friendship}),
         );
-        Ok(json!({"status":"saved","gateway_tab":gateway_tab,"history_retained":history_retained}))
+        Ok(json!({"status":"saved","gateway_tab":gateway_tab,"history_retained":false}))
     }
 
     fn neighbor_initial_context_resume(&self, id: &str) -> Option<String> {

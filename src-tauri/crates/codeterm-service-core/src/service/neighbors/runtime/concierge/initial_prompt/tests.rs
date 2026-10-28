@@ -84,8 +84,19 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
     let workspace = mux.find_workspace_for_tab(&general).unwrap();
     let fixture = ServiceFixture::new(mux);
     let service = &fixture.service;
+    service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("opaque-resumable-provider")
+            .with_initial_prompt_resume(),
+    ));
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friend = "a".repeat(64);
+    let mut conversation = metadata.history(&friend).await.unwrap();
+    conversation.entries.push(serde_json::from_value(json!({"direction":"in","author":"friend","sender_uid":"peer","body":"opaque-retained-message","at":1,"message_id":"c".repeat(32),"kind":"question","handling_state":"no_reply"})).unwrap());
+    metadata
+        .write(format!("history-{friend}.json"), conversation)
+        .await
+        .unwrap();
+    let retained = metadata.history_page(&friend, None, 50).await.unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut previous: Option<String> = None;
     for scope in ["opaque-apply-one", "opaque-apply-two"] {
@@ -96,6 +107,13 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
             allow_memory: false,
             ..Default::default()
         };
+        let prior_session = previous.as_deref().and_then(|id| {
+            service
+                .mux
+                .read()
+                .get_tab(id)
+                .and_then(|tab| tab.agent_session_id.clone())
+        });
         let expected = initial_prompt(&friend, &permission);
         let invoked = calls.clone();
         let ws = workspace.clone();
@@ -113,6 +131,8 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
                     let mut mux = service.mux.write();
                     let id = mux.create_tab(&ws).unwrap();
                     let tab = mux.get_tab_mut(&id).unwrap();
+                    tab.agent_type = Some("opaque-resumable-provider".into());
+                    tab.agent_session_id = Some(format!("opaque-session-{}", grant.scope));
                     tab.cwd = Some(cwd);
                     tab.restorable_launch.identity_instructions = Some(expected);
                     Ok(id)
@@ -120,7 +140,21 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
             )
             .await
             .unwrap();
+        assert_eq!(result["history_retained"], false);
         let gateway = result["gateway_tab"].as_str().unwrap();
+        let fresh_session = service
+            .mux
+            .read()
+            .get_tab(gateway)
+            .unwrap()
+            .agent_session_id
+            .clone();
+        assert!(fresh_session.is_some());
+        assert_ne!(fresh_session, prior_session);
+        assert_eq!(
+            metadata.history_page(&friend, None, 50).await.unwrap(),
+            retained
+        );
         assert!(prompt_matches(
             service.mux.read().get_tab(gateway).unwrap(),
             &friend,
@@ -133,9 +167,13 @@ async fn each_permission_apply_creates_once_with_the_complete_new_initial_contex
         let saved = metadata.settings().await.unwrap();
         assert_eq!(
             serde_json::to_value(saved.permissions[&friend].clone()).unwrap(),
-            serde_json::to_value(permission).unwrap()
+            serde_json::to_value(&permission).unwrap()
         );
         assert_eq!(saved.bindings[&friend], gateway);
+        assert_eq!(
+            saved.initial_context_digest(&friend),
+            Some(digest(&friend, &permission).as_str())
+        );
     }
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
