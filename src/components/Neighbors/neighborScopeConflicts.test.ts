@@ -27,6 +27,18 @@ it("flags changes asked for under read-only access, but not changes to prose", (
   expect(grants("Fix the failing tests in the repo.")).toEqual(["writes"]);
   expect(grants("Fix the failing tests in the repo.", { machine_access: "full" })).toEqual([]);
   expect(grants("Write a short summary of the release.")).toEqual([]);
+  expect(grants("Write a summary of the project.")).toEqual([]);
+  expect(grants("Write code for the parser.")).toEqual(["writes"]);
+});
+
+it("compares paths lexically: dot segments resolve, POSIX keeps case, Windows drives ignore it, and home is never guessed", () => {
+  const outsideOf = (folder: string, scope: string) => scopeConflicts({ ...base, machine_access: "folder", folder, scope }).map(conflict => conflict.line);
+  expect(outsideOf("/allowed", "Read /allowed/../private/keys.")).toEqual(["The scope names /allowed/../private/keys outside the allowed folder."]);
+  expect(outsideOf("/allowed", "Read /allowed/./docs/../notes.")).toEqual([]);
+  expect(outsideOf("/home/me/project", "Read /home/me/Project/src.")).toEqual(["The scope names /home/me/Project/src outside the allowed folder."]);
+  expect(outsideOf("C:\\Work\\App", "Read c:/work/app/src and C:\\WORK\\APP.")).toEqual([]);
+  expect(outsideOf("/home/me/project", "Read ~/project/notes.")).toEqual([]);
+  expect(outsideOf("~/project", "Read ~/other.")).toEqual(["The scope names ~/other outside the allowed folder."]);
 });
 
 it("names a path outside the granted folder, and accepts the folder and paths inside it", () => {
