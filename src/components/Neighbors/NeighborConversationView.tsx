@@ -9,6 +9,7 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
+import { RegionLoader } from "../shared/RegionLoader";
 import { UI_PANEL } from "../shared/design";
 import { ActivityDots } from "../shared/ActivityDots";
 import { AgentIcon } from "../AgentIcon";
@@ -124,6 +125,8 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const [historyEnded, setEnded] = useState(false);
   const ended = historyEnded || removed;
   const [error, setError] = useState<string | null>(null);
+  // Until the first history read succeeds there is nothing to call empty: a loader, or its failure with a retry.
+  const [historyFailure, setHistoryFailure] = useState<string | null>(null);
   const [notify, changeNotify] = useNeighborNotify(conciergeClient, friendship, friend.notify, setError);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -138,8 +141,14 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       setEnded(page.ended);
       if (!paged.current) { paged.current = true; setBefore(page.next_before); }
       setError(null);
-    } catch (failure: unknown) { setError(failure instanceof Error ? failure.message : "The conversation could not be loaded."); }
+      setHistoryFailure(null);
+    } catch (failure: unknown) {
+      const message = failure instanceof Error ? failure.message : "The conversation could not be loaded.";
+      if (paged.current) setError(message);
+      else setHistoryFailure(message);
+    }
   }, [conciergeClient, friendship]);
+  const retryHistory = () => { setHistoryFailure(null); void loadLatest(); };
 
   useEffect(() => {
     void loadLatest();
@@ -245,7 +254,10 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     }}>
       <div className="neighbor-chat__column" role="log" aria-label={`Conversation with ${name}`}>
         {before && <div className="neighbor-chat__earlier"><Button size="sm" onClick={() => { void loadEarlier(); }}>Show earlier messages</Button></div>}
-        {(entries === null || entries.length === 0) && !error && <div className="neighbor-chat__empty">
+        {entries === null && !historyFailure && <RegionLoader label="Loading the conversation" className="min-h-48" />}
+        {entries === null && historyFailure && <InlineErrorNotice error={historyFailure} operation={`loading your conversation with ${name}`}
+          actions={[{ label: "Retry", onClick: retryHistory }]} />}
+        {entries !== null && entries.length === 0 && !error && <div className="neighbor-chat__empty">
           <p className="neighbor-me__title">{removed ? "No longer connected" : "No messages yet"}</p>
           <p className="neighbor-me__hint">{removed ? `You and ${name} are no longer Neighbors.` : `Say hi to ${name}. Your concierge answers their agents within the permissions you set.`}</p>
         </div>}

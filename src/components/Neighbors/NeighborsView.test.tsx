@@ -633,6 +633,23 @@ it("opens a remembered friend's conversation at once, and checks a pending deliv
   expect(runtimeClient.deliveryStatus).toHaveBeenCalledExactlyOnceWith("p".repeat(32));
 });
 
+it("loads a conversation before calling it empty, and retries a failed first read", async () => {
+  const conciergeClient = concierge([]);
+  let fail!: (error: Error) => void;
+  vi.mocked(conciergeClient.history).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  expect(document.body.textContent).not.toContain("No messages yet");
+  expect(document.querySelector(".ct-deferred-loader")).not.toBeNull();
+  await act(async () => fail(new Error("history unavailable")));
+  expect(document.body.textContent).not.toContain("No messages yet");
+  expect(document.querySelector(".ct-deferred-loader")).toBeNull();
+  await act(async () => button("Retry").click());
+  expect(document.body.textContent).toContain("No messages yet");
+  expect(hasButton("Retry")).toBe(false);
+});
+
 it("runs a friend's html only once the owner allowed interactive content from them", async () => {
   const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "```html\n<p>hi</p>\n```", at: 1700000000000, message_id: "i1" }];
   const runtimeClient = runtime();
