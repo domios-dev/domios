@@ -45,7 +45,7 @@ async function fixture(t, run) {
   writeFileSync(contract, 'pub const API_VERSION: u32 = 3;\npub const BOOTSTRAP_PROTOCOL: u32 = 2;\n');
   const cargoLog = path.join(repo, 'server.jsonl'), cliLog = path.join(repo, 'cli.jsonl'), treeLog = path.join(repo, 'tree.txt');
   const build = 'b'.repeat(40);
-  const artifact = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'], src_path: serverSource }, executable: server, profile: { test: false }, features: ['embeddings'] };
+  const artifact = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'], src_path: serverSource }, executable: server, profile: { test: false }, features: ['embeddings', 'mem-postgres'] };
   const finish = { reason: 'build-finished', success: true };
   writeFileSync(cargoLog, [artifact, { reason: 'build-script-executed', package_id: 'domios-server', env: [['BUILD_SHA', build], ['SERVER_CLI_SHA256', digest(cli)]] }, finish].map(JSON.stringify).join('\n'));
   writeFileSync(cliLog, [{ ...artifact, executable: cli, target: { ...artifact.target, name: 'codeterm', src_path: cliSource } }, finish].map(JSON.stringify).join('\n'));

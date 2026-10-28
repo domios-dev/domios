@@ -106,62 +106,21 @@ pub fn compose_embed_text(
     format!("{}\n\n{}", header, body)
 }
 
-fn query_missing_vectors(
-    conn: &rusqlite::Connection,
-    blobs: &std::path::Path,
-) -> Vec<(String, String)> {
-    let Ok(_read) = super::manager_search::UntouchedRead::begin(conn) else {
-        return Vec::new();
-    };
-    let Ok(mut statement) = conn.prepare(
-        "SELECT m.id FROM mem_items m LEFT JOIN mem_vectors v ON v.mem_id=m.id
-         WHERE v.mem_id IS NULL AND m.kind != 'archived'",
-    ) else {
-        return Vec::new();
-    };
-    let Ok(rows) = statement.query_map([], |row| row.get::<_, String>(0)) else {
-        return Vec::new();
-    };
-    rows.flatten()
-        .filter_map(|id| {
-            let item = super::store::get(conn, &id, blobs).ok()??;
-            body_is_embeddable(&item.body).then(|| {
-                let text = compose_item_embed_text(
-                    &item.kind,
-                    &item.title,
-                    item.area.as_deref(),
-                    &item.tags,
-                    &item.body,
-                    item.source.as_deref(),
-                    item.summary.as_deref(),
-                );
-                (id, text)
-            })
-        })
-        .collect()
-}
-
 impl MemManager {
     /// Catch-up for items missing vectors and items left vector pending.
     /// Spawns a background thread; returns immediately.
     pub fn reindex_missing(self: &Arc<Self>) {
         self.backfill_pending();
-        let db_path = self.db_path.clone();
-        let blobs_dir = self.blobs_dir.clone();
+        let store = match self.store.background_store() {
+            Ok(store) => store,
+            Err(error) => {
+                log::warn!("[mem] reindex catch-up: {error}");
+                return;
+            }
+        };
         let embedder = self.embedder.clone();
         std::thread::spawn(move || {
-            embeddings::ensure_extension_registered();
-            let conn = match rusqlite::Connection::open(&db_path) {
-                Ok(c) => {
-                    let _ = c.busy_timeout(std::time::Duration::from_secs(5));
-                    c
-                }
-                Err(e) => {
-                    log::warn!("[mem] reindex catch-up: conn: {}", e);
-                    return;
-                }
-            };
-            let missing = query_missing_vectors(&conn, &blobs_dir);
+            let missing = store.missing_item_vectors();
             if missing.is_empty() {
                 log::info!("[mem] reindex catch-up: nothing missing");
                 return;
@@ -171,7 +130,11 @@ impl MemManager {
                 missing.len()
             );
             for (id, embed_text) in missing {
-                match embeddings::index_with(&conn, &embedder, &id, &embed_text) {
+                match store.store_vectors(
+                    &crate::backend::WriteContext::system("reindex"),
+                    &id,
+                    embedder.passages(&embeddings::chunk_text(&embed_text)),
+                ) {
                     Ok(()) => log::info!("[mem] reindex direct: indexed {}", id),
                     Err(e) => log::warn!("[mem] reindex direct {}: {}", id, e),
                 }

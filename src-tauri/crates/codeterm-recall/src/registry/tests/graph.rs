@@ -30,18 +30,22 @@ pub(super) fn graph_seeded() -> SeededBackend {
         graph_ids.push(id);
     }
     let recall_linked = backend.ids[0].clone();
-    backend.mem.with_conn(|conn| {
-        // Raw insert: `graph_create_entity` also embeds, which would spawn the embedder.
-        conn.execute(
-            "INSERT INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
-             VALUES (?1, 'Tech', 'global', '{}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
-            [ENTITY],
-        )
-        .unwrap();
-        for from in graph_ids.iter().chain([&recall_linked]) {
-            codeterm_mem::graph::insert_relation(
-                conn,
-                &Relation {
+    backend
+        .mem
+        .seed_graph(
+            &[(
+                codeterm_mem::Entity {
+                    id: ENTITY.into(),
+                    entity_type: "Tech".into(),
+                    scope: "global".into(),
+                    properties: json!({}),
+                },
+                "2026-01-01T00:00:00Z".into(),
+            )],
+            &graph_ids
+                .iter()
+                .chain([&recall_linked])
+                .map(|from| Relation {
                     from_id: from.clone(),
                     relation_type: "mentions".into(),
                     to_id: ENTITY.into(),
@@ -51,11 +55,10 @@ pub(super) fn graph_seeded() -> SeededBackend {
                     confidence: 1.0,
                     properties: json!({}),
                     reason: None,
-                },
-            )
-            .unwrap();
-        }
-    });
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
     backend.ids.extend(graph_ids);
     backend
 }

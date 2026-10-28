@@ -9,7 +9,7 @@ import { macDevSigning, signMacDevServer, sealMacDevBundle } from './dev-macos-b
 import { createRequire } from 'node:module';
 const { bundledCliName } = createRequire(import.meta.url)('./bundle-cli.js');
 
-export const SERVER_FEATURES = ['domios-server/embeddings'];
+export const SERVER_FEATURES = ['domios-server/embeddings', 'domios-server/mem-postgres'];
 export function assertServerClosure(packages) {
   if (!packages.some(row => row.startsWith('domios-server '))) throw new Error('Server dependency root missing');
   const forbidden = packages.filter(row => /^(?:tauri(?:-| )|wry(?: |$)|webview(?:2)?(?:-| )|web-view(?:-| )|webkit2gtk(?:-| )|codeterm-client-shell(?: |$))/.test(row));
@@ -27,7 +27,7 @@ export function artifactReceipt({ cargoLog, treeLog, build, target, resources, p
   assertServerClosure(dependency_packages);
   const executable = serverArtifact(messages);
   const artifact = messages.find(message => message.reason === 'compiler-artifact' && message.executable && realpathSync.native(message.executable) === executable);
-  if (JSON.stringify([...artifact.features].sort()) !== JSON.stringify(['embeddings'])) throw new Error('Unexpected server artifact feature selection');
+  if (JSON.stringify([...artifact.features].sort()) !== JSON.stringify(['embeddings', 'mem-postgres'])) throw new Error('Unexpected server artifact feature selection');
   if (path.basename(executable) !== `domios-server${platform === 'win32' ? '.exe' : ''}`) throw new Error('Unexpected server executable filename');
   return { executable, executable_sha256: createHash('sha256').update(readFileSync(executable)).digest('hex'), build, target, profile: 'dev', features: SERVER_FEATURES, resources: realpathSync.native(resources), dependency_packages };
 }

@@ -22,6 +22,7 @@ pub const PASS1_SQL: &str = r#"
 SELECT id FROM mem_items
 WHERE is_pinned_wakeup = 1
   AND kind != 'archived'
+  AND author_kind != 'neighbor'
   AND id != 'preference_identity'
   AND (scope = 'global' OR (?1 IS NOT NULL AND scope = ?1))
 ORDER BY importance DESC, evidence_count DESC, updated_at DESC
@@ -40,6 +41,7 @@ SELECT
     CASE WHEN updated_at > datetime('now', '-30 days') THEN 1 ELSE 0 END AS recent_30d
 FROM mem_items
 WHERE is_pinned_wakeup = 0
+  AND author_kind != 'neighbor'
   AND id != 'preference_identity'
   AND kind IN ('rule','preference','peer','fact','summary','skill','learning')
   AND (scope = 'global' OR (?1 IS NOT NULL AND scope = ?1))
