@@ -6,7 +6,7 @@ use codeterm_neighbors::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: usize = 768 * 1024;
@@ -101,8 +101,8 @@ pub(super) struct History {
     pub read_receipt_through: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_requested_through: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub received_acknowledged_through: Option<String>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub acknowledged_messages: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outgoing_read_through: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -139,7 +139,10 @@ impl History {
                 .len()
                 > MAX_BYTES
         {
-            self.entries.remove(0);
+            let removed = self.entries.remove(0);
+            if removed.direction == "in" {
+                self.acknowledged_messages.remove(&removed.message_id);
+            }
         }
         Ok(())
     }

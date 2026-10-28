@@ -127,7 +127,7 @@ impl ServiceContext {
         self.require_neighbor_history_generation(generation)?;
         let mut history = metadata.history(friendship).await?;
         if history.ended { return Ok(()); }
-        let changed = history.acknowledge_through(message);
+        let changed = history.acknowledge_message(message);
         let pending = history.pending_read_through();
         if changed { metadata.write(format!("history-{friendship}.json"),history).await?; }
         drop(guard);
