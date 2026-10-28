@@ -1,6 +1,6 @@
 use super::Metadata;
 use crate::service::{
-    messenger::{Delivery, MessageEnvelope, Messenger},
+    messenger::{Delivery, Messenger},
     ServiceContext,
 };
 use async_trait::async_trait;
@@ -12,6 +12,8 @@ use codeterm_neighbors::{
 };
 use zeroize::Zeroizing;
 
+mod replies;
+pub(super) use replies::Target;
 #[cfg(test)]
 mod tests;
 
@@ -20,6 +22,7 @@ pub(super) struct Gateway {
     pub metadata: Metadata,
     pub friendship: String,
     pub tab: String,
+    pub reply_target: Option<Target>,
     pub generation: u64,
     pub history_generation: u64,
     pub stopped: tokio::sync::watch::Receiver<bool>,
@@ -41,16 +44,16 @@ impl ServiceContext {
     pub(super) async fn prepare_neighbor_gateway(&self, tab_id: &str) -> Result<()> {
         self.validate_neighbor_gateway(tab_id)
             .map_err(|_| Error::Gateway)?;
+        let service = self.clone();
+        let tab = tab_id.to_owned();
+        tokio::task::spawn_blocking(move || service.wake_frozen_tab(&tab))
+            .await
+            .map_err(|_| Error::Gateway)?
+            .map_err(|error| {
+                log::debug!("[neighbors] concierge wake tab={tab_id}: {error}");
+                Error::Gateway
+            })?;
         if crate::service::agent_runtime::requested_for_tab(self, tab_id) {
-            let service = self.clone();
-            let tab = tab_id.to_owned();
-            tokio::task::spawn_blocking(move || service.wake_frozen_tab(&tab))
-                .await
-                .map_err(|_| Error::Gateway)?
-                .map_err(|error| {
-                    log::debug!("[neighbors] concierge wake tab={tab_id}: {error}");
-                    Error::Gateway
-                })?;
             crate::service::agent_runtime::engine::ensure(self, tab_id)
                 .await
                 .map_err(|error| {
@@ -87,6 +90,12 @@ impl NeighborGateway for Gateway {
         message: &InboxMessage,
         plaintext: Zeroizing<String>,
     ) -> Result<GatewayReceipt> {
+        if matches!(
+            message.doc.envelope.kind,
+            codeterm_neighbors::wire::Kind::Answer | codeterm_neighbors::wire::Kind::Refusal
+        ) {
+            return self.deliver_reply(message, plaintext).await;
+        }
         let history_generation = self.history_generation;
         self.current()?;
         if self
@@ -106,7 +115,7 @@ impl NeighborGateway for Gateway {
             Resume::Delivered => return Ok(GatewayReceipt::Delivered),
             Resume::Wait(delivery_id) => {
                 return self
-                    .await_pending(message, path.to_owned(), delivery_id, events)
+                    .await_pending(message, path.to_owned(), delivery_id, events, None)
                     .await
             }
             Resume::WrongGateway => return Err(Error::Gateway),
@@ -170,7 +179,7 @@ impl NeighborGateway for Gateway {
                 .neighbor_handling_delivery(
                     &self.metadata,
                     &self.friendship,
-                    &message.id,
+                    &message.doc.envelope.message_id,
                     state,
                     reason,
                     self.history_generation,
@@ -263,8 +272,16 @@ impl Gateway {
             .get_tab(&self.tab)
             .and_then(|tab| tab.neighbor_authority.as_ref())
             .is_some_and(|authority| {
-                authority.friendship_id != self.friendship || authority.root_tab_id.is_some()
+                authority.friendship_id != self.friendship
+                    || self.reply_target.is_none() && authority.root_tab_id.is_some()
             })
+        {
+            return Err(Error::Gateway);
+        }
+        if self
+            .reply_target
+            .as_ref()
+            .is_some_and(|target| !self.target_current(target))
         {
             return Err(Error::Gateway);
         }
@@ -290,28 +307,23 @@ impl Gateway {
         events: tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
     ) -> Result<GatewayReceipt> {
         self.current()?;
-        if self.service.neighbor_friend_paused(&self.friendship) {
+        if self.delivery_muted() {
             return Err(Error::RecipientPaused);
         }
-        self.service
-            .validate_neighbor_gateway(&self.tab)
-            .map_err(|_| Error::Gateway)?;
+        if self.reply_target.is_none() {
+            self.service
+                .validate_neighbor_gateway(&self.tab)
+                .map_err(|_| Error::Gateway)?;
+        }
+        let target = self.delivery_target(&self.tab).ok_or(Error::Gateway)?;
         let name = self
             .service
             .neighbor_cell_names()
             .get(&self.friendship)
             .cloned()
             .unwrap_or_else(|| "Neighbor".into());
-        let body = Zeroizing::new(super::concierge::initial_prompt::compact_message(
-            &name, message, plaintext,
-        ));
-        let envelope = MessageEnvelope {
-            from_label: message.doc.envelope.sender_uid.clone(),
-            from_neighbor: Some(self.friendship.clone()),
-            id: Some(format!("neighbor:{}", message.id)),
-            context: Some("neighbor-request".into()),
-            ..Default::default()
-        };
+        let body = Zeroizing::new(plaintext.to_owned());
+        let envelope = super::concierge::initial_prompt::message_envelope(&name, message);
         let framed_bytes = Messenger::from(envelope.clone())
             .framed_delivery(&body)
             .to_message()
@@ -335,25 +347,39 @@ impl Gateway {
         }
         self.save_receipt(message, &path, ReceiptState::Claimed)
             .await?;
-        self.service
-            .prepare_neighbor_handling(
-                &self.metadata,
-                &self.friendship,
-                &message.id,
-                &self.tab,
-                self.history_generation,
-            )
-            .await?;
+        if self.reply_target.is_none() {
+            self.service
+                .prepare_neighbor_handling(
+                    &self.metadata,
+                    &self.friendship,
+                    &message.doc.envelope.message_id,
+                    &self.tab,
+                    self.history_generation,
+                )
+                .await?;
+        }
         let service = self.service.clone();
         let tab = self.tab.clone();
         let friendship = self.friendship.clone();
         let generation = self.generation;
+        let expected = target.clone();
+        let muted = self.delivery_muted();
         let outcome = tokio::task::spawn_blocking(move || {
             service
                 .require_neighbors_enabled()
                 .map_err(|error| (error, false))?;
-            if service.neighbor_friend_paused(&friendship) {
+            if muted
+                || service.neighbor_friend_paused(&friendship)
+                    && service
+                        .mux
+                        .read()
+                        .get_tab(&tab)
+                        .is_some_and(|tab| tab.neighbor_authority.is_some())
+            {
                 return Err((Error::RecipientPaused, false));
+            }
+            if !expected.matches(&service) {
+                return Err((Error::Gateway, false));
             }
             if service
                 .neighbor_cell()
@@ -377,16 +403,7 @@ impl Gateway {
             Ok(Delivery::Pty { .. } | Delivery::ChatBackend { .. }) => {
                 self.save_receipt(message, &path, ReceiptState::Delivered)
                     .await?;
-                self.service
-                    .neighbor_handling_delivery(
-                        &self.metadata,
-                        &self.friendship,
-                        &message.id,
-                        super::super::history::handling::State::DeliveredToConcierge,
-                        None,
-                        self.history_generation,
-                    )
-                    .await?;
+                self.confirm_delivery(message, Some(target)).await?;
                 Ok(GatewayReceipt::Delivered)
             }
             Ok(Delivery::Pending { delivery_id }) => {
@@ -398,7 +415,7 @@ impl Gateway {
                     },
                 )
                 .await?;
-                self.await_pending(message, path.to_owned(), delivery_id, events)
+                self.await_pending(message, path.to_owned(), delivery_id, events, Some(target))
                     .await
             }
             Ok(Delivery::Unconfirmed { .. }) | Err((_, true)) => {
@@ -441,6 +458,7 @@ impl Gateway {
         path: String,
         delivery_id: String,
         mut events: tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
+        target: Option<Target>,
     ) -> Result<GatewayReceipt> {
         let wait = async {
             loop {
@@ -489,16 +507,7 @@ impl Gateway {
             Ok(Ok(())) => {
                 self.save_receipt(message, &path, ReceiptState::Delivered)
                     .await?;
-                self.service
-                    .neighbor_handling_delivery(
-                        &self.metadata,
-                        &self.friendship,
-                        &message.id,
-                        super::super::history::handling::State::DeliveredToConcierge,
-                        None,
-                        self.history_generation,
-                    )
-                    .await?;
+                self.confirm_delivery(message, target).await?;
                 Ok(GatewayReceipt::Delivered)
             }
             _ => Ok(GatewayReceipt::SubmitUnconfirmed),

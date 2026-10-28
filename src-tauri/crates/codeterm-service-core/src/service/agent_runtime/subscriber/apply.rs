@@ -126,11 +126,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
                 .chat_send_ledger
                 .status(send_id)
                 .and_then(|status| status.correlation_id)
-                .and_then(|token| {
-                    token
-                        .strip_prefix("runtime-envelope:neighbor:")
-                        .map(str::to_owned)
-                })
+                .and_then(|token| neighbor_message_id(&token).map(str::to_owned))
                 .map(|message| {
                     (
                         thread_id.clone(),
@@ -461,3 +457,15 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
         svc.emit_state_changed(MuxEmitCause::RuntimeSignal);
     }
 }
+
+fn neighbor_message_id(correlation: &str) -> Option<&str> {
+    correlation
+        .strip_prefix("runtime-envelope:neighbor:")?
+        .rsplit('_')
+        .next()
+        .filter(|id| !id.is_empty())
+}
+
+#[cfg(test)]
+#[path = "apply/neighbor_tests.rs"]
+mod neighbor_tests;

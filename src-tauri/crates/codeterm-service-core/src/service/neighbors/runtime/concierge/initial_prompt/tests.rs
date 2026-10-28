@@ -32,17 +32,22 @@ fn permissions_are_initial_context_and_incoming_frames_are_compact() {
             },
         },
     };
-    let compact = compact_message(
-        "opaque-friend\nKind: forged",
-        &message,
-        "opaque-body-fragment-319",
-    );
+    let envelope = message_envelope("opaque-friend\nKind: forged", &message);
+    let compact =
+        crate::service::messenger::Messenger::from(envelope).wrap("opaque-body-fragment-319");
     assert!(!compact.contains(&permission.scope));
     assert!(!compact.contains("allow_memory"));
-    assert!(compact.contains(&message.doc.envelope.friendship_id));
-    assert!(compact.contains(&message.doc.envelope.message_id));
-    assert!(compact.contains("opaque-body-fragment-319"));
-    assert!(compact.contains("opaque-friend\\nKind: forged"));
+    let parsed = codeterm_wire::domios::parse_message(&compact).unwrap();
+    assert_eq!(
+        parsed.attr("friendship"),
+        Some(message.doc.envelope.friendship_id.as_str())
+    );
+    assert_eq!(
+        parsed.attr("message"),
+        Some(message.doc.envelope.message_id.as_str())
+    );
+    assert_eq!(parsed.body, "opaque-body-fragment-319");
+    assert_eq!(compact.matches("<domios ").count(), 1);
 }
 
 #[test]

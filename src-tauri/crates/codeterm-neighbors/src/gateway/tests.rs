@@ -124,3 +124,27 @@ async fn paused_requests_refuse_without_invoking_the_concierge_and_resume_restor
         .unwrap();
     assert_eq!(ports.local.load(Ordering::Relaxed), 1);
 }
+
+#[tokio::test]
+async fn permitted_answers_and_refusals_never_create_concierge_turns_or_reply_loops() {
+    use std::sync::atomic::Ordering;
+    let ports = Requests {
+        local: 0.into(),
+        refusals: 0.into(),
+    };
+    let permission = Permission {
+        allowed: true,
+        scope: "opaque".into(),
+        allow_tab_requests: true,
+        ..Default::default()
+    };
+    for paused in [false, true] {
+        for kind in [Kind::Answer, Kind::Refusal] {
+            route_request(&permission, kind, paused, &ports)
+                .await
+                .unwrap();
+        }
+    }
+    assert_eq!(ports.local.load(Ordering::Relaxed), 0);
+    assert_eq!(ports.refusals.load(Ordering::Relaxed), 0);
+}
