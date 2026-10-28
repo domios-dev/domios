@@ -808,6 +808,13 @@ button {
   filter: brightness(1.05);
 }
 
+/* A disabled primary reads as unavailable rather than a dimmed call to action; a pending one keeps its accent. */
+.ct-btn-primary:disabled:not([aria-busy="true"]) {
+  background: color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  color: var(--ct-muted-fg);
+  filter: none;
+}
+
 
 .ct-btn-outline {
   background: transparent;

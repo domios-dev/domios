@@ -4,9 +4,12 @@ import { jobsMachineOptions } from "./jobsMachineModel";
 
 export function JobsMachineFilter({ value, peers, onChange }: { value: string; peers: readonly PairedPeer[]; onChange: (value: string) => void }) {
   const options = jobsMachineOptions(peers);
-  return <DropdownSelect aria-label="Machine" prefix="Machine" data-testid="jobs-machine" className="min-w-0 max-w-full" value={value} onChange={onChange}
-    options={[
-      ...(options.some((option) => option.id === value) ? [] : [{ value, label: "Unavailable machine" }]),
-      ...options.map((option) => ({ value: option.id, label: option.name, ...(option.online ? {} : { badge: "offline" }) })),
-    ]} />;
+  // Content-width beside its label, so the chevron stays with the machine's name instead of the row's far edge.
+  return <div className="w-fit min-w-0 max-w-full shrink-0">
+    <DropdownSelect aria-label="Machine" prefix="Machine" data-testid="jobs-machine" className="min-w-0 max-w-full" value={value} onChange={onChange}
+      options={[
+        ...(options.some((option) => option.id === value) ? [] : [{ value, label: "Unavailable machine" }]),
+        ...options.map((option) => ({ value: option.id, label: option.name, ...(option.online ? {} : { badge: "offline" }) })),
+      ]} />
+  </div>;
 }
