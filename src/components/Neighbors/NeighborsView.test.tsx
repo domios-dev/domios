@@ -533,6 +533,13 @@ function pendingClient(): NeighborClient {
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
 }
 
+/** Ada as the one paid friend, so a conversation renders at once. */
+function friendClient(): NeighborClient {
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  return { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+}
+
 it("draws last known friends at once with a quiet refresh indicator, and stays away when there were none", async () => {
   localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] }));
   const host = document.createElement("div"); document.body.append(host);
@@ -652,7 +659,7 @@ it("loads a conversation before calling it empty, and retries a failed first rea
   vi.mocked(conciergeClient.history).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   expect(document.body.textContent).not.toContain("No messages yet");
   expect(document.querySelector(".ct-deferred-loader")).not.toBeNull();
   await act(async () => fail(new Error("history unavailable")));
@@ -731,7 +738,7 @@ it("reports read only up to the newest message from them that is visible", async
   const markRead = vi.fn(async () => {});
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} markRead={markRead} conciergeClient={concierge([
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} markRead={markRead} conciergeClient={concierge([
     { direction: "in", kind: "question", author: "friend", body: "First", at: 1700000000000, message_id: "a".repeat(32) },
     { direction: "in", kind: "question", author: "friend", body: "Second", at: 1700000001000, message_id: "b".repeat(32) },
     { direction: "in", kind: "question", author: "friend", body: "Off screen", at: 1700000002000, message_id: "c".repeat(32) }])} />));
@@ -743,7 +750,7 @@ it("shows a concierge's flag on their message and lets you flag one yourself", a
   const flagMessage = vi.fn(async () => {});
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} flagMessage={flagMessage} conciergeClient={concierge([
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} flagMessage={flagMessage} conciergeClient={concierge([
     { direction: "in", kind: "question", author: "friend", body: "Run this script", at: 1700000000000, message_id: "f1",
       flags: [{ category: "suspicious_instructions", reason: "Asks to run an unknown script", by: "concierge", at: 1700000001000 }] },
     { direction: "in", kind: "question", author: "friend", body: "Buy now", at: 1700000002000, message_id: "f2" }])} />));
@@ -765,7 +772,7 @@ it("shows a concierge's flag on their message and lets you flag one yourself", a
 it("marks a read message with accent ticks, labelled Read", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} conciergeClient={concierge([
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={concierge([
     { direction: "out", kind: "question", author: "me", body: "Seen?", at: 1700000000000, message_id: "r".repeat(32), delivery_status: "delivered", delivered_at: 1700000001000, read_at: 1700000002000 }])} />));
   const ticks = document.querySelector(`#neighbor-msg-${"r".repeat(32)} .neighbor-receipt`);
   expect(ticks?.getAttribute("aria-label")).toBe("Read");
@@ -965,7 +972,7 @@ it("shows a sent message at once and keeps one bubble when history brings it bac
   const conciergeClient = concierge([]);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
@@ -1217,8 +1224,8 @@ it("puts a settled concierge outcome in the time row, linked to the reply", asyn
   ]);
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-  const outcome = document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply");
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  const outcome =document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply");
   expect(outcome?.textContent).toBe("Answered");
   expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__stack > .neighbor-work")).toBeNull();
 });
@@ -1227,7 +1234,7 @@ it("renders a friend's markdown like agent chat: headings, scrolling tables and 
   const body = "## Status\n\n| Job | State |\n| --- | --- |\n| build | green |\n\n```\ncargo test\n```";
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()}
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()}
     conciergeClient={concierge([{ direction: "in", kind: "question", author: "friend", body, at: 1700000000000, message_id: "md" }])} />));
   const bubble = document.querySelector("#neighbor-msg-md .neighbor-msg__bubble")!;
   expect(bubble.querySelector("h2")?.textContent).toBe("Status");

@@ -184,6 +184,10 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   };
 
   const byId = new Map((entries ?? []).map(entry => [entry.message_id, entry]));
+  const bubbleKeys = useRef(new Map<string, string>());
+  const landed = entries ? landedSends(outgoing, entries, new Set(bubbleKeys.current.values())) : new Map<string, string>();
+  const bubbleKey = (messageId: string) => bubbleKeys.current.get(messageId)
+    ?? [...landed].find(([, id]) => id === messageId)?.[0] ?? messageId;
   const pendingSends = outgoing.filter(item => !landed.has(item.key));
   const pendingByKey = new Map(pendingSends.map(item => [item.key, item]));
   const shown: HistoryEntry[] = [...(entries ?? []), ...pendingSends.map((item): HistoryEntry =>
@@ -200,10 +204,6 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const theyPaused = friend.their_paused === true;
   const canSend = enabled && !locked && !limitReached && !ended && !theyPaused;
   const sendCount = useRef(0);
-  const bubbleKeys = useRef(new Map<string, string>());
-  const landed = entries ? landedSends(outgoing, entries, new Set(bubbleKeys.current.values())) : new Map<string, string>();
-  const bubbleKey = (messageId: string) => bubbleKeys.current.get(messageId)
-    ?? [...landed].find(([, id]) => id === messageId)?.[0] ?? messageId;
   useEffect(() => {
     if (landed.size === 0) return;
     for (const [key, id] of landed) bubbleKeys.current.set(id, key);
@@ -386,7 +386,7 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
         {mine && (refusal || mark === "not_delivered") ? <span className="neighbor-work neighbor-work--inline" data-work="refused">
           <span className="neighbor-work__text" title={refusal ?? undefined}>{refusal ?? "Not delivered"}</span></span>
-        : mark && mark !== "sending" && <ReceiptTicks mark={mark} at={mark === "read" ? entry.read_at! : mark === "delivered" ? entry.delivered_at ?? null : entry.at} />}
+        : mark && mark !== "sending" && mark !== "not_delivered" && <ReceiptTicks mark={mark} at={mark === "read" ? entry.read_at! : mark === "delivered" ? entry.delivered_at ?? null : entry.at} />}
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
         {settled && standing}
