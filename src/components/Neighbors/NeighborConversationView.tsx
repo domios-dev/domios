@@ -31,7 +31,7 @@ import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborComposer } from "./NeighborComposer";
 import { useConciergeStatus } from "./useConciergeStatus";
-import { neighborRuntimeClient, NeighborRuntimeFailure, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { FINAL_REFUSALS, neighborRuntimeClient, NeighborRuntimeFailure, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { useNeighbors } from "./useNeighbors";
 import { readNeighborCache, type CachedFriend } from "./neighborListCache";
 import { useNeighborPermission } from "./useNeighborPermission";
@@ -224,7 +224,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
         const resetsAt = refused?.resets_at === undefined ? undefined : refused.resets_at < 1e12 ? refused.resets_at * 1000 : refused.resets_at;
         const line = refused ? refusalLine({ direction: "out", kind: "question", author: "me", body: "", at: Date.now(), message_id: "", reason: refused.reason,
           limit: refused.limit, resets_at: resetsAt, retry_after_seconds: refused.retry_after_seconds }, name, Date.now()) : null;
-        settleSend(key, { state: "failed", reason: line ?? failure.message });
+        settleSend(key, { state: "failed", reason: line ?? failure.message, ...(FINAL_REFUSALS.has(failure.reason) ? { final: true } : {}) });
       } else settleSend(key, { uncertain: true });
     }
     await loadLatest();
@@ -316,7 +316,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
                 canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />}
               settled={shownStanding.has(entry.message_id) && settledWork(shownStanding.get(entry.message_id)!.work)}
               quietOutcome={work.get(entry.message_id)?.work === "no_reply" ? CONCIERGE_WORK_LINE.no_reply : undefined}
-              outgoing={pending && { state: pending.state, reason: pending.reason, onRetry: () => retrySend(pending) }}
+              outgoing={pending && { state: pending.state, reason: pending.reason, onRetry: pending.final ? undefined : () => retrySend(pending) }}
               onFlag={entry.direction === "in" && !pending ? () => setFlagging(entry.message_id) : undefined} />
           </Fragment>;
         })}
@@ -353,7 +353,7 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
   /** Your concierge's standing on this message: inside the time row once settled, its own line while under way. */
   standing?: ReactNode; settled?: boolean;
   /** A send history has not shown yet: the shared delivery dot, or the refusal that proved it never went out. */
-  outgoing?: { state: "sending" | "failed"; reason?: string; onRetry: () => void };
+  outgoing?: { state: "sending" | "failed"; reason?: string; onRetry?: () => void };
   /** Messages from them can be flagged by you from their menu. */
   onFlag?: () => void;
   /** An outcome too quiet for a line of its own ("No reply needed"), kept in the time's tooltip. */

@@ -42,6 +42,8 @@ export interface OutgoingSend {
   messageId?: string;
   uncertain?: boolean;
   reason?: string;
+  /** Refused for good: nothing went out and sending it again cannot succeed, so the bubble offers no Retry. */
+  final?: boolean;
 }
 
 /** Which sends history now holds, as send key to message id, each history entry claimed once. */

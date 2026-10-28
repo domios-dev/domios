@@ -42,4 +42,6 @@ it("keeps size and tab-request refusals typed", async () => {
   await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "message_too_large", limit: 32752, message: "At most 32752 UTF-8 bytes" });
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "tab_requests_not_allowed", message: "Tab requests are not allowed" }), { status: 403 }));
   await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "tab_requests_not_allowed" });
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "reply_target_stopped", message: "The owner stopped this request; nothing was sent" }), { status: 409 }));
+  await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "reply_target_stopped", message: "The owner stopped this request; nothing was sent" });
 });
