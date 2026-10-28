@@ -153,6 +153,7 @@ fn refusal(body: &Value) -> Error {
         Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
         Some("not_receiver") => Error::NotReceiver,
         Some("recipient_not_receiving") => Error::RecipientNotReceiving,
+        Some("recipient_paused") => Error::RecipientPaused,
         Some("recipient_locked") => Error::RecipientLocked,
         Some(reason @ ("rate_limited" | "aggregate_limited")) => {
             match body

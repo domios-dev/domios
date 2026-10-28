@@ -43,6 +43,7 @@ impl Rejection {
             Error::Locked => "friends_locked",
             Error::RecipientLocked => "recipient_locked",
             Error::RecipientNotReceiving => "recipient_not_receiving",
+            Error::RecipientPaused => "recipient_paused",
             _ => return None,
         };
         Some(rejection)
@@ -75,6 +76,7 @@ impl Rejection {
             "friends_locked" => "your plan does not allow this channel".into(),
             "recipient_locked" => "their plan does not allow this channel".into(),
             "recipient_not_receiving" => "recipient is not receiving".into(),
+            "recipient_paused" => "recipient paused messages from you".into(),
             _ => "send was refused".into(),
         }
     }

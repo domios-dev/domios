@@ -32,6 +32,7 @@ fn definite_rejections_preserve_metadata_and_uncertain_sends_stay_pending() {
         (Error::Locked, "friends_locked"),
         (Error::RecipientLocked, "recipient_locked"),
         (Error::RecipientNotReceiving, "recipient_not_receiving"),
+        (Error::RecipientPaused, "recipient_paused"),
     ] {
         let rejection = Rejection::from_error(error).unwrap();
         let receipt = rejection.receipt("message");

@@ -4,6 +4,19 @@ mod neighbor_authority;
 mod neighbor_files;
 
 #[tokio::test]
+async fn recipient_pause_returns_a_typed_conflict_without_limit_metadata() {
+    let response = neighbor_failure(codeterm_neighbors::Error::RecipientPaused.to_string());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["reason"], "recipient_paused");
+    assert_eq!(body["code"], "recipient_paused");
+    assert!(body.get("limit").is_none());
+}
+
+#[tokio::test]
 async fn aggregate_daily_send_limit_returns_429_with_limit_and_reset() {
     let response = neighbor_failure(
         "aggregate_daily_limited: {\"limit\":500,\"resets_at\":1793145600}".into(),

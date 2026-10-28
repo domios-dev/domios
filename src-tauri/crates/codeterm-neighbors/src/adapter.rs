@@ -1,4 +1,5 @@
 mod firestore;
+mod pause;
 mod receiver;
 pub const PENDING_COUNT_LIMIT: u64 = 100;
 pub use receiver::{Enrollment, ReceiverStatus};

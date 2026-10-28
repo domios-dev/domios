@@ -182,6 +182,7 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
                 | "receiver_changed"
                 | "message_delivered"
                 | "message_expired"
+                | "pause_changed"
         )
     ) {
         return Ok(RegistrySignal {
@@ -239,9 +240,21 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         }
         _ => None,
     };
+    let pause = if kind == "pause_changed" {
+        if !request.is_null() || field("at")?.as_u64().is_none() {
+            return Err(Error::InvalidEnvelope);
+        }
+        Some(crate::registry::PauseSignal {
+            friendship_id: friendship.as_str().ok_or(Error::InvalidEnvelope)?.into(),
+            paused: field("paused")?.as_bool().ok_or(Error::InvalidEnvelope)?,
+        })
+    } else {
+        None
+    };
     Ok(RegistrySignal {
         revision,
         delivery,
+        pause,
         ignored: false,
         accepted,
         receiver_revision,
