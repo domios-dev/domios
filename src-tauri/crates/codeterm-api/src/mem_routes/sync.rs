@@ -32,27 +32,10 @@ pub async fn mem_sync_status(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let conn = state
+    let status = state
         .svc
         .mem
-        .try_conn_for(std::time::Duration::from_millis(500))
+        .sync_status(std::time::Duration::from_millis(500))
         .ok_or((StatusCode::SERVICE_UNAVAILABLE, "mem busy".to_string()))?;
-    let total: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM mem_items WHERE source_path IS NOT NULL",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-    let stale: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM mem_items WHERE source_path IS NOT NULL AND tags_json LIKE '%source-missing%'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap_or(0);
-    Ok(Json(serde_json::json!({
-        "tracked_files": total,
-        "stale_files": stale,
-    })))
+    Ok(Json(status))
 }

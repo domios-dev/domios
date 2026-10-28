@@ -77,13 +77,7 @@ pub async fn mem_dream(
         let svc = state.svc.clone();
         let hygiene = state.svc.configuration().memory.dream_hygiene;
         let calib = tokio::task::spawn_blocking(move || {
-            svc.mem.with_conn(|conn| {
-                codeterm_service_core::mem_ops::calibration::run_nightly_calibration(
-                    conn,
-                    &hygiene,
-                    chrono::Utc::now(),
-                )
-            })
+            svc.mem.nightly_calibration(&hygiene, chrono::Utc::now())
         })
         .await
         .map_err(|e| {
@@ -133,7 +127,7 @@ async fn run_recluster_inline(
     state: &AppState,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use codeterm_service_core::mem::dreaming::recluster::{
-        run_recluster_phase_with_lock, AnthropicCaller,
+        run_recluster_phase_with_store, AnthropicCaller,
     };
 
     // Recluster uses the fixed Claude model catalog rather than an agent-provider ladder.
@@ -154,9 +148,8 @@ async fn run_recluster_inline(
         .join("mem")
         .join("dream-plans");
 
-    let conn_mutex = state.svc.mem.conn();
     let caller = AnthropicCaller;
-    let report = run_recluster_phase_with_lock(conn_mutex, &model, &plan_dir, &caller).await;
+    let report = run_recluster_phase_with_store(&state.svc.mem, &model, &plan_dir, &caller).await;
 
     match report {
         Ok(r) => Ok(Json(
@@ -175,64 +168,20 @@ pub async fn mem_dream_diary(
     let offset = p.offset.unwrap_or(0);
     let limit = p.limit.unwrap_or(30).clamp(1, 100);
     let svc = state.svc.clone();
-    tokio::task::spawn_blocking(move || {
-        svc.mem
-            .with_conn(|conn| diary_page(conn, svc.mem.blobs_dir(), offset, limit))
-    })
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("diary join: {e}"),
-        )
-    })?
-    .map(Json)
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
+    tokio::task::spawn_blocking(move || svc.mem.diary_page(offset, limit))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("diary join: {e}"),
+            )
+        })?
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
-fn diary_page(
-    conn: &rusqlite::Connection,
-    blobs_dir: &std::path::Path,
-    offset: usize,
-    limit: usize,
-) -> Result<serde_json::Value, String> {
-    let total: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM mem_items WHERE kind = 'daily' AND area = '_dreams'",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| format!("count dream diary: {e}"))?;
-    let mut stmt = conn
-        .prepare(
-            "SELECT id FROM mem_items
-             WHERE kind = 'daily' AND area = '_dreams'
-             ORDER BY created_at DESC, id DESC
-             LIMIT ?1 OFFSET ?2",
-        )
-        .map_err(|e| format!("prepare dream diary: {e}"))?;
-    let ids = stmt
-        .query_map(rusqlite::params![limit as i64, offset as i64], |row| {
-            row.get::<_, String>(0)
-        })
-        .map_err(|e| format!("query dream diary: {e}"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("read dream diary: {e}"))?;
-    let items = ids
-        .iter()
-        .map(|id| {
-            codeterm_service_core::mem::store::get(conn, id, blobs_dir)
-                .and_then(|item| item.ok_or_else(|| format!("dream diary item {id} disappeared")))
-                .and_then(|item| serde_json::to_value(item).map_err(|e| e.to_string()))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let next_offset = (offset + items.len() < total as usize).then_some(offset + items.len());
-    Ok(serde_json::json!({
-        "items": items,
-        "total": total,
-        "next_offset": next_offset,
-    }))
-}
+#[cfg(test)]
+use codeterm_mem::backend::sqlite::diary_page;
 
 #[cfg(test)]
 mod tests {

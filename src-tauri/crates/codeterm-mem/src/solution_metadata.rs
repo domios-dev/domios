@@ -1,6 +1,5 @@
-use crate::{store, MemManager, NewMemItem};
+use crate::{MemManager, NewMemItem};
 use codeterm_blueprint_types::blueprint_memory::{CuratorEvidence, Entry, Evidence};
-use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -49,55 +48,6 @@ pub struct SolutionMetadata {
     pub evidence: BTreeMap<String, OutcomeCounts>,
 }
 
-pub(crate) fn initialize(conn: &Connection) -> Result<(), String> {
-    conn.execute_batch("CREATE TABLE IF NOT EXISTS solution_metadata (item_id TEXT PRIMARY KEY REFERENCES mem_items(id) ON DELETE CASCADE, metadata_json TEXT NOT NULL);").map_err(|error| error.to_string())?;
-    let ids = {
-        let mut statement = conn.prepare("SELECT id FROM mem_items WHERE kind IN ('skill','archived') AND (source='blueprint-library' OR (EXISTS (SELECT 1 FROM json_each(tags_json) WHERE value='curator') AND EXISTS (SELECT 1 FROM json_each(tags_json) WHERE value LIKE 'confidence:%'))) AND NOT EXISTS (SELECT 1 FROM solution_metadata WHERE item_id=mem_items.id)").map_err(|error| error.to_string())?;
-        let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|error| error.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?
-    };
-    let single_intent = {
-        let mut statement = conn.prepare("SELECT item_id FROM solution_metadata WHERE json_extract(metadata_json,'$.blueprint') IS NOT NULL AND json_extract(metadata_json,'$.blueprint.intents') IS NULL").map_err(|error| error.to_string())?;
-        let rows = statement
-            .query_map([], |row| row.get::<_, String>(0))
-            .map_err(|error| error.to_string())?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|error| error.to_string())?
-    };
-    for id in ids.into_iter().chain(single_intent) {
-        store::delete_with_reason(conn, &id, Some("obsolete solution metadata shape"))?;
-    }
-    crate::blueprint_library::initialize(conn)
-}
-
-pub(crate) fn read(conn: &Connection, id: &str) -> Result<Option<SolutionMetadata>, String> {
-    let json = conn
-        .query_row(
-            "SELECT metadata_json FROM solution_metadata WHERE item_id=?1",
-            [id],
-            |row| row.get::<_, String>(0),
-        )
-        .optional()
-        .map_err(|error| error.to_string())?;
-    json.map(|json| {
-        serde_json::from_str(&json)
-            .map_err(|error| format!("invalid solution metadata for {id}: {error}"))
-    })
-    .transpose()
-}
-
-pub(crate) fn write(
-    conn: &Connection,
-    id: &str,
-    metadata: &SolutionMetadata,
-) -> Result<(), String> {
-    conn.execute("INSERT INTO solution_metadata(item_id,metadata_json) VALUES (?1,?2) ON CONFLICT(item_id) DO UPDATE SET metadata_json=excluded.metadata_json",params![id,serde_json::to_string(metadata).map_err(|error| error.to_string())?]).map_err(|error| error.to_string())?;
-    Ok(())
-}
-
 impl SolutionMetadata {
     pub(crate) fn set_entry(&mut self, entry: &Entry) {
         self.blueprint = Some(BlueprintMetadata {
@@ -128,7 +78,7 @@ impl SolutionMetadata {
         }
     }
 
-    fn observe_curator(&mut self, proof: &CuratorEvidence, now: i64) {
+    pub(crate) fn observe_curator(&mut self, proof: &CuratorEvidence, now: i64) {
         let curator = self.curator.get_or_insert_with(|| CuratorMetadata {
             confidence: Confidence::Low,
             observed_at: now,
@@ -186,7 +136,7 @@ impl SolutionMetadata {
 
 impl MemManager {
     pub fn solution_metadata(&self, id: &str) -> Result<Option<SolutionMetadata>, String> {
-        read(&self.conn.lock(), id)
+        self.store.solution_metadata(id)
     }
 
     pub fn curator_skill_covers(&self, id: &str, body: &str) -> Result<bool, String> {
@@ -201,60 +151,20 @@ impl MemManager {
 
     pub fn save_curator_skill(
         &self,
-        mut item: NewMemItem,
+        item: NewMemItem,
         improve: Option<&str>,
         proof: CuratorEvidence,
         now: i64,
     ) -> Result<String, String> {
         self.guard_commit()?;
-        let conn = self.conn.lock();
-        let tx = conn
-            .unchecked_transaction()
-            .map_err(|error| error.to_string())?;
-        let mut metadata = match improve {
-            Some(id) => read(&tx, id)?.unwrap_or_default(),
-            None => SolutionMetadata::default(),
-        };
-        metadata.content_fingerprint =
-            Some(codeterm_blueprint_types::blueprint_memory::curator::fingerprint(&item.body));
-        metadata.observe_curator(&proof, now);
-        item.body.push_str(&format!(
-            "\n\nCurator evidence: {}{}",
-            proof.episodes.join(" "),
-            if proof.granted {
-                format!(" grant:{}:{}", proof.plan, proof.round)
-            } else {
-                String::new()
-            }
-        ));
-        item.tags
-            .retain(|tag| !tag.starts_with("curator:candidate:"));
-        item.tags.extend(["curator".into(), proof.plan]);
-        let id = if let Some(id) = improve {
-            if store::get(&tx, id, &self.blobs_dir)?.is_none() {
-                return Err("covered skill disappeared".into());
-            }
-            store::update(
-                &tx,
-                id,
-                &store::MemUpdate {
-                    body: Some(item.body),
-                    tags: Some(item.tags),
-                    ..Default::default()
-                },
-                &self.blobs_dir,
-            )?;
-            id.to_owned()
-        } else {
-            store::insert(&tx, &item, &self.blobs_dir)?
-        };
-        write(&tx, &id, &metadata)?;
-        tx.commit().map_err(|error| error.to_string())?;
-        drop(conn);
+        let ctx = Self::write_context();
+        let author = ctx.default_system_author("curator");
+        let id =
+            self.store
+                .curator_skill_save(&ctx.with_author(author), item, improve, proof, now)?;
         self.refresh_embedding(&id);
         Ok(id)
     }
 }
-
 #[cfg(test)]
 mod tests;
