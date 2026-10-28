@@ -83,8 +83,7 @@ generic expansion; changing optimization or codegen units trades runtime behavio
 for compile time and needs separate measurements. Preserve tuned profiles,
 embeddings, warning checks, package resources and signing policy.
 
-A native compiler wrapper enables reuse across targets. Named DEV selects it
-automatically; fresh release targets retain the opt-in:
+An opt-in native compiler wrapper enables reuse across fresh release targets:
 `CODETERM_PORTABLE_COMPILER_CACHE=1 ./build.sh release-bundle --fresh-target ...`.
 Sccache 0.17 otherwise hashes `CARGO_TARGET_DIR` and `CARGO_INCREMENTAL` for every
 crate, even when only Cargo uses them. The wrapper moves these two driver
@@ -109,7 +108,7 @@ Run `./build.sh cache-wrapper-check` for a real-cache fixture proving relocation
 hits, tracked-variable misses, unset values, compiler probes and error exits.
 It also proves identical generated-source metadata, a downstream consumer hit,
 unchanged runtime `OUT_DIR` strings and a real C compiler cache hit.
-Release use remains opt-in until measured on the other build machines. Keep
+The feature remains opt-in until measured on the other build machines. Keep
 compiler-cache capacity large enough for the release graph; once populated,
 new empty Cargo targets can reuse cacheable crates. Initial population still
 requires compilation. Binaries, proc macros and crates using generated absolute
@@ -117,16 +116,6 @@ paths can remain non-cacheable or miss; do not promise a fully cold time from a
 populated-cache measurement.
 
 ## Rebuild cost
-
-Named `dev` and `dev-server` select nonincremental compilation and the portable
-compiler-cache wrapper automatically. Incremental workspace libraries otherwise
-bypass sccache entirely; the wrapper avoids target-directory-only misses when
-Cargo invokes rustc for a second instance. Cargo keeps the machine's configured
-build directory and final outputs stay under
-`src-tauri/target/dev-instances/<name>`. Use the normal named operations; the
-first run seeds the changed configuration. Instance-specific server identity
-and binary linking still require work. Canonical QA and lane-check retain their
-own incremental and build-directory policies.
 
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores
 incremental diagnostics in `node_modules/.cache`; Vite builds in a temporary

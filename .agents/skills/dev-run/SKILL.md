@@ -184,13 +184,7 @@ Foreground launch stays in its Dev shell and owns the client process.
 
 Server reload/staging tool updates also use `dev-server`; native source and
 Tauri/Cargo configuration changes still require `dev`. Named DEV CLI artifacts
-build into the instance target alongside the app under distinct binary names.
-Named `dev` and `dev-server` disable incremental compilation and select the
-portable compiler-cache wrapper automatically. Workspace libraries can then hit
-machine sccache across instance targets; incremental rustc requests cannot.
-Cargo retains the machine's configured build directory and per-instance final
-artifacts. The first build seeds the changed compiler configuration; instance
-specific server identity and binary linking still require work.
+build into the instance target's `cli/` child so the native build cannot overwrite them.
 
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.

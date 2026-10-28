@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-const helpers = ['named_dev_target_dir', 'named_dev_isolated', 'configure_named_dev_cache', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
+const helpers = ['named_dev_target_dir', 'named_dev_isolated', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
   'tauri_debug_dir', 'dev_built_app_path', 'dev_app_path'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
 const dev = source.slice(source.indexOf('  dev)\n'), source.indexOf('  e2e)\n'));
 const prebuilt = source.slice(source.indexOf('  dev-prebuilt)\n'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)\n')));
@@ -34,11 +34,7 @@ stop_dev_before_replacement() { :; }
 enter_cargo_gateway() { :; }
 prepare_dev_frontend_dist() { :; }
 ensure_deps() { :; }
-cargo() {
-  [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY" ]
-  [ "$CARGO_INCREMENTAL" = 0 ]
-  [ "$CODETERM_PORTABLE_COMPILER_CACHE" = 1 ]
-}
+cargo() { [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY" ]; }
 cli_profile_binary() { echo unused; }
 cli_file_sha256_or_status() { echo unused; }
 install_cli_to() { :; }
