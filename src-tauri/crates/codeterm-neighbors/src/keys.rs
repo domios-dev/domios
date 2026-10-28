@@ -188,6 +188,14 @@ impl InstallationKeys<'_> {
             return self.promote_candidate(true, rng).await;
         }
         if let Some(keys) = self.load().await? {
+            if !self
+                .registry
+                .active_key_ids()
+                .await?
+                .contains(&keys.verifier_key_id(self.uid))
+            {
+                return self.promote_candidate(true, rng).await;
+            }
             let id = self
                 .registry
                 .enroll(&keys.signing_spki(), &keys.encryption_spki(), true)

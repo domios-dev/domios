@@ -42,6 +42,15 @@ impl ProviderRegistry {
     /// into a plugin VM.
     pub fn describe_all(&self) -> Vec<ProviderDescriptor> {
         let mut out = self.agents.list_descriptors();
+        for descriptor in &mut out {
+            if descriptor.remote_task.is_some() {
+                if let Some(remote) = self.chat_backends.descriptor(&descriptor.id) {
+                    descriptor.remote_task = remote.remote_task;
+                    descriptor.catalogue_version =
+                        descriptor.catalogue_version.max(remote.catalogue_version);
+                }
+            }
+        }
         let mut ids = self.chat_backends.ids();
         ids.sort();
         for id in ids {

@@ -96,14 +96,13 @@ fn request(action: NeighborAction) -> (&'static str, Value) {
         }
         NeighborAction::Grant {
             friendship_id,
-            from_pad,
-            allow_tab_requests,
+            fields,
         } => {
-            let scope = authored(&from_pad);
-            json!({"operation":"set_permission","friendship_id":friendship_id,"permission":{"allowed":true,"scope":scope.as_str(),"allow_tab_requests":allow_tab_requests}})
+            let scope = fields.from_pad.as_deref().map(authored);
+            grant_command(friendship_id, fields, scope.as_deref().map(String::as_str))
         }
         NeighborAction::Deny { friendship_id } => {
-            json!({"operation":"set_permission","friendship_id":friendship_id,"permission":{"allowed":false,"scope":"","allow_tab_requests":false}})
+            json!({"operation":"set_permission","friendship_id":friendship_id,"permission":{"allowed":false}})
         }
         NeighborAction::Send {
             friendship_id,
@@ -186,6 +185,52 @@ fn render_list(result: &Value) -> String {
         }
     }
     lines.join("\n")
+}
+
+fn grant_command(
+    friendship_id: String,
+    fields: crate::args::account::NeighborGrant,
+    scope: Option<&str>,
+) -> Value {
+    let mut permission = serde_json::Map::new();
+    if let Some(scope) = scope {
+        permission.insert("scope".into(), json!(scope));
+        permission.insert("allowed".into(), json!(true));
+    }
+    for (field, value) in [
+        ("allowed", fields.allowed),
+        ("allow_memory", fields.allow_memory),
+        ("allow_files", fields.allow_files),
+        ("allow_tab_requests", fields.allow_tab_requests),
+        (
+            "allow_interactive_content",
+            fields.allow_interactive_content,
+        ),
+    ] {
+        if let Some(value) = value {
+            permission.insert(field.into(), json!(value));
+        }
+    }
+    if let Some(value) = fields.memory_areas {
+        permission.insert("memory_areas".into(), json!(value.0));
+    }
+    if let Some(value) = fields.workspaces {
+        permission.insert("workspaces".into(), json!(value.0));
+    }
+    if let Some(value) = fields.folder {
+        permission.insert(
+            "folder".into(),
+            if value == "default" {
+                Value::Null
+            } else {
+                json!(value)
+            },
+        );
+    }
+    if let Some(value) = fields.machine_access {
+        permission.insert("machine_access".into(), json!(value));
+    }
+    json!({"operation":"set_permission","friendship_id":friendship_id,"permission":permission})
 }
 
 #[cfg(test)]

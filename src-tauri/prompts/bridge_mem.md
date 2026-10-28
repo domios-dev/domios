@@ -20,6 +20,6 @@
 
 ## Where to find more
 
-- Provider skill `codeterm` has the full command catalog for kinds, filters, graph queries, search fallbacks, pin/learn, calibration, keepawake, dreaming, sessions and skill folders. The short “codeterm skill” mem item is only a stub.
+- Provider skill `domios` has the full command catalog for kinds, filters, graph queries, search fallbacks, pin/learn, calibration, keepawake, dreaming, sessions and skill folders. The short “codeterm skill” mem item is only a stub.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

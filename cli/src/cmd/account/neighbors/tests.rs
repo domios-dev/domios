@@ -280,3 +280,149 @@ fn stopped_reply_keeps_the_typed_presend_reason() {
         .unwrap()
         .contains("nothing was sent"));
 }
+
+fn grant_fields(flags: &[&str]) -> crate::args::account::NeighborGrant {
+    let mut args = vec!["domios", "account", "neighbors", "grant", "friend"];
+    args.extend_from_slice(flags);
+    let cli = Cli::try_parse_from(args).unwrap();
+    let crate::Commands::Account {
+        action:
+            crate::args::account::AccountAction::Neighbors {
+                action: crate::args::account::NeighborAction::Grant { fields, .. },
+            },
+    } = cli.command
+    else {
+        panic!("Expected grant")
+    };
+    fields
+}
+
+#[test]
+fn grant_request_builder_covers_each_permission_field_without_implicit_resets() {
+    for (flags, expected) in [
+        (
+            vec!["--allowed", "false"],
+            serde_json::json!({"allowed":false}),
+        ),
+        (
+            vec!["--allow-memory", "false"],
+            serde_json::json!({"allow_memory":false}),
+        ),
+        (
+            vec!["--allow-memory", "true"],
+            serde_json::json!({"allow_memory":true}),
+        ),
+        (
+            vec!["--memory-areas", "project,team"],
+            serde_json::json!({"memory_areas":["project","team"]}),
+        ),
+        (
+            vec!["--memory-areas", "all"],
+            serde_json::json!({"memory_areas":null}),
+        ),
+        (
+            vec!["--memory-areas", "none"],
+            serde_json::json!({"memory_areas":[]}),
+        ),
+        (
+            vec!["--allow-files", "false"],
+            serde_json::json!({"allow_files":false}),
+        ),
+        (
+            vec!["--folder", "/project"],
+            serde_json::json!({"folder":"/project"}),
+        ),
+        (
+            vec!["--folder", "default"],
+            serde_json::json!({"folder":null}),
+        ),
+        (
+            vec!["--allow-tab-requests", "true"],
+            serde_json::json!({"allow_tab_requests":true}),
+        ),
+        (
+            vec!["--allow-tab-requests", "false"],
+            serde_json::json!({"allow_tab_requests":false}),
+        ),
+        (
+            vec!["--allow-interactive-content", "true"],
+            serde_json::json!({"allow_interactive_content":true}),
+        ),
+        (
+            vec!["--workspaces", "one,two"],
+            serde_json::json!({"workspaces":["one","two"]}),
+        ),
+        (
+            vec!["--workspaces", "none"],
+            serde_json::json!({"workspaces":null}),
+        ),
+        (
+            vec!["--machine-access", "read_only"],
+            serde_json::json!({"machine_access":"read_only"}),
+        ),
+        (
+            vec!["--machine-access", "folder"],
+            serde_json::json!({"machine_access":"folder"}),
+        ),
+        (
+            vec!["--machine-access", "full"],
+            serde_json::json!({"machine_access":"full"}),
+        ),
+        (
+            vec!["--machine-access", "none"],
+            serde_json::json!({"machine_access":"none"}),
+        ),
+    ] {
+        let command = super::grant_command("friend".into(), grant_fields(&flags), None);
+        assert_eq!(
+            command,
+            serde_json::json!({
+                "operation":"set_permission", "friendship_id":"friend", "permission":expected
+            })
+        );
+    }
+    let fields = grant_fields(&["--from-pad", "scope.md", "--allow-memory", "false"]);
+    assert_eq!(
+        super::grant_command("friend".into(), fields, Some("Approved scope"))["permission"],
+        serde_json::json!({"allowed":true,"scope":"Approved scope","allow_memory":false})
+    );
+    let fields = grant_fields(&["--from-pad", "scope.md", "--allowed", "false"]);
+    assert_eq!(
+        super::grant_command("friend".into(), fields, Some("Scope"))["permission"],
+        serde_json::json!({"allowed":false,"scope":"Scope"})
+    );
+    assert_eq!(
+        super::request(crate::args::account::NeighborAction::Deny {
+            friendship_id: "friend".into()
+        })
+        .1["permission"],
+        serde_json::json!({"allowed":false})
+    );
+}
+
+#[test]
+fn grant_refuses_unknown_boolean_access_and_malformed_selections() {
+    for flags in [
+        vec!["--allow-memory", "maybe"],
+        vec!["--allowed", "1"],
+        vec!["--machine-access", "admin"],
+        vec!["--memory-areas", "project,,team"],
+        vec!["--memory-areas", "all,project"],
+        vec!["--workspaces", "all"],
+        vec!["--workspaces", ""],
+        vec!["--unknown", "true"],
+        vec!["--allow-tab-requests"],
+    ] {
+        let mut args = vec!["domios", "account", "neighbors", "grant", "friend"];
+        args.extend(flags);
+        let error = Cli::try_parse_from(args)
+            .err()
+            .expect("Expected typed clap error");
+        assert!(matches!(
+            error.kind(),
+            clap::error::ErrorKind::ValueValidation
+                | clap::error::ErrorKind::InvalidValue
+                | clap::error::ErrorKind::UnknownArgument
+        ));
+    }
+}
