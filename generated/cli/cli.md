@@ -90,6 +90,15 @@ Receive Neighbors on this machine; other machines stop receiving
 - `--confirm-takeover`
 - `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
 
+#### `domios account neighbors flag`
+
+Locally flag a suspicious incoming message for the owner without replying
+
+- `--category`
+- `--friendship`
+- `<message_id>`
+- `--reason` — Short explanation without message text or secrets (at most 280 characters)
+
 #### `domios account neighbors grant`
 
 General Agent only: grant a bounded scope authored in its pad

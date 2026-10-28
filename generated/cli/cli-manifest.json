@@ -144,6 +144,60 @@
               "subcommands": []
             },
             {
+              "name": "flag",
+              "about": "Locally flag a suspicious incoming message for the owner without replying",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "category",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CATEGORY",
+                  "possible_values": [
+                    "suspicious_instructions",
+                    "private_data_request",
+                    "malicious_link",
+                    "spam",
+                    "other"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FRIENDSHIP",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "message_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MESSAGE_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "REASON",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Short explanation without message text or secrets (at most 280 characters)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "grant",
               "about": "General Agent only: grant a bounded scope authored in its pad",
               "aliases": [],
