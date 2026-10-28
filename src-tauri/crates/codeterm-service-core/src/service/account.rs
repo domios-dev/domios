@@ -135,6 +135,11 @@ impl super::ServiceContext {
                     .with_session_admission(Arc::new(logout::SignInAdmission(self.weak_self()))),
                 );
                 let _ = account.refresh().await;
+                if let Some(session) = account.session().await {
+                    if self.sync_product_analytics(&session, None).await.is_err() {
+                        log::debug!("[analytics] consent bridge unavailable");
+                    }
+                }
                 #[cfg(not(any(test, feature = "test-support")))]
                 credentials.start_migration(
                     self.secrets.clone(),
@@ -231,6 +236,11 @@ impl super::ServiceContext {
             .map_err(|e| e.to_string());
         self.ui.emit("account-changed", serde_json::Value::Null);
         let status = status?;
+        if let Some(session) = self.account().await?.session().await {
+            if self.sync_product_analytics(&session, None).await.is_err() {
+                log::debug!("[analytics] consent bridge unavailable");
+            }
+        }
         if let Ok(mesh) = self.account_mesh().await {
             mesh.mesh.enrollment_signed_in();
         }

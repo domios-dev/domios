@@ -353,3 +353,43 @@ fn evicted_first_run_is_reemitted_on_next_start() {
     );
     assert!(!engine.state.first_run_recorded);
 }
+#[tokio::test]
+async fn new_funnel_events_keep_the_local_device_and_uid_and_obey_withdrawal() {
+    let dir = tempfile::tempdir().unwrap();
+    let recording = Arc::new(Mutex::new(sinks::fake::Recording::default()));
+    let mut engine = recording_engine(dir.path().join("settings.json"), recording.clone());
+    engine.consent(Consent::On).unwrap();
+    engine
+        .identity(Some("fixture-Firebase_uid".into()))
+        .unwrap();
+    let device = engine.state.device_id.unwrap();
+    let events = [
+        Event::LimitReachedShown {
+            resource: crate::Resource::Workspaces,
+        },
+        Event::UpgradeClicked {
+            source: crate::UpgradeSource::LimitDialog,
+        },
+        Event::CheckoutOpened {
+            outcome: crate::CheckoutOutcome::Opened,
+        },
+        Event::CheckoutReturned {
+            outcome: crate::CheckoutOutcome::Returned,
+        },
+        Event::NeighborMessageSent { count: 1 },
+        Event::FileShared { count: 2 },
+    ];
+    for event in &events {
+        assert!(engine.enqueue(event.clone(), 1).unwrap());
+    }
+    engine.deliver(1).unwrap();
+    let batches = recording.lock().unwrap();
+    let delivered: Vec<_> = batches.batches.iter().flatten().collect();
+    assert_eq!(delivered.len(), events.len());
+    assert!(delivered.iter().all(|event| event.device_id == device
+        && event.user_id.as_deref() == Some("fixture-Firebase_uid")));
+    drop(batches);
+    engine.consent(Consent::Off).unwrap();
+    assert!(!engine.enqueue(events[0].clone(), 2).unwrap());
+    assert!(engine.state.device_id.is_none());
+}

@@ -57,6 +57,7 @@ struct Cache {
     snapshot: Snapshot,
     last_focus: Option<Instant>,
     checkout_pending: bool,
+    checkout_event_pending: bool,
     observed: bool,
     verified: Option<VerifiedGrant>,
     loaded: bool,
@@ -236,6 +237,7 @@ impl Billing {
             cache.snapshot = Snapshot::default();
             cache.last_focus = None;
             cache.checkout_pending = false;
+            cache.checkout_event_pending = false;
             cache.observed = false;
             self.rearm.notify_one();
         }
@@ -378,6 +380,7 @@ impl Billing {
         }
         if event == RefreshEvent::Focus
             && !cache.checkout_pending
+            && !cache.checkout_event_pending
             && (cache
                 .verified
                 .as_ref()
@@ -389,9 +392,21 @@ impl Billing {
             return Err(self.recompute(&cache));
         }
         cache.last_focus = Some(now);
+        let returned = cache.checkout_event_pending
+            && matches!(event, RefreshEvent::Focus | RefreshEvent::CheckoutReturned);
+        if returned {
+            cache.checkout_event_pending = false;
+        }
         cache.checkout_pending = false;
         cache.generation += 1;
-        Ok(cache.generation)
+        let generation = cache.generation;
+        drop(cache);
+        if returned {
+            if let Some(observer) = &self.observer {
+                observer(ProductEvent::CheckoutReturned);
+            }
+        }
+        Ok(generation)
     }
     fn load_grant(
         &self,
@@ -597,7 +612,11 @@ impl Billing {
         self.provider.plan_operation(session, operation).await
     }
     pub fn checkout_browser_opened(&self, session: &codeterm_account::Session, plan: Plan) {
-        self.browser_opened(session);
+        let mut cache = self.cache.lock();
+        self.bind(&mut cache, Some(session));
+        cache.checkout_pending = true;
+        cache.checkout_event_pending = true;
+        drop(cache);
         if let Some(observer) = &self.observer {
             observer(ProductEvent::CheckoutStarted { plan });
         }

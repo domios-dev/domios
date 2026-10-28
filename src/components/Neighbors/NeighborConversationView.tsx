@@ -1,3 +1,4 @@
+import { useReadReceiptAnalytics } from "./useReadReceiptAnalytics";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, Check, CheckCheck, Flag, Paperclip } from "lucide-react";
 import { ChatDaySeparator, formatMessageTime, ReplyQuote, RichMarkdown } from "@codeterm/chat-ui";
@@ -423,9 +424,11 @@ const RECEIPT_LABEL: Record<Exclude<ReceiptMark, "sending" | "not_delivered">, s
 
 /** One grey tick once sent, two once delivered, two in the accent once read; the tooltip says when. */
 function ReceiptTicks({ mark, at }: { mark: Exclude<ReceiptMark, "sending" | "not_delivered">; at: number | null }) {
+  const element = useRef<HTMLSpanElement>(null);
+  useReadReceiptAnalytics(element, mark === "read");
   const label = RECEIPT_LABEL[mark];
   const Icon = mark === "sent" ? Check : CheckCheck;
-  return <span role="img" className="neighbor-receipt" data-mark={mark} aria-label={label}
+  return <span ref={element} role="img" className="neighbor-receipt" data-mark={mark} aria-label={label}
     title={at === null ? label : `${label} ${new Date(at).toLocaleString()}`}>
     <Icon size={13} strokeWidth={2.25} aria-hidden="true" />
   </span>;

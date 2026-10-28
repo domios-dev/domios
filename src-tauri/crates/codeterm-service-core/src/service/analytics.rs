@@ -2,6 +2,7 @@ use super::ServiceContext;
 use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
 
+mod bridge;
 pub(crate) mod update_confirm;
 
 pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);
@@ -152,6 +153,9 @@ pub(crate) fn mesh_observer(worker: Worker) -> Arc<dyn Fn(usize) + Send + Sync> 
 pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObserver {
     Arc::new(move |event| {
         let event = match event {
+            codeterm_billing::ProductEvent::CheckoutReturned => Event::CheckoutReturned {
+                outcome: codeterm_analytics::CheckoutOutcome::Returned,
+            },
             codeterm_billing::ProductEvent::SubscriptionChanged { plan, status } => {
                 subscription_event(plan, status)
             }
@@ -159,6 +163,11 @@ pub(crate) fn billing_observer(worker: Worker) -> codeterm_billing::ProductObser
                 plan: billing_plan(plan),
             },
         };
+        if matches!(event, Event::CheckoutStarted { .. }) {
+            let _ = worker.record_nowait(Event::CheckoutOpened {
+                outcome: codeterm_analytics::CheckoutOutcome::Opened,
+            });
+        }
         let _ = worker.record_nowait(event);
     })
 }
