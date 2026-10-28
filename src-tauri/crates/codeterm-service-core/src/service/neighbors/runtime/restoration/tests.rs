@@ -1,5 +1,6 @@
 use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+mod file_support;
 
 #[test]
 fn readonly_startup_requires_the_exact_local_receiver_key_and_no_pending_cleanup() {
