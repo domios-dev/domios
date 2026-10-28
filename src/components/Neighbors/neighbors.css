@@ -823,25 +823,6 @@
   padding-left: 30px;
 }
 
-.sidebar-neighbor-concierge__menu {
-  display: flex;
-  border: 0;
-  padding: 0 2px;
-  background: transparent;
-}
-
-@media (hover: hover) {
-  .sidebar-neighbor-concierge .sidebar-neighbor-concierge__menu {
-    opacity: 0;
-    transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
-  }
-
-  .sidebar-neighbor-concierge:hover .sidebar-neighbor-concierge__menu,
-  .sidebar-neighbor-concierge:focus-within .sidebar-neighbor-concierge__menu {
-    opacity: 1;
-  }
-}
-
 .neighbor-permissions {
   display: flex;
   flex-direction: column;

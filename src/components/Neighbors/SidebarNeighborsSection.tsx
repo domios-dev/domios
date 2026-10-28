@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createRef, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Bot, Pause } from "lucide-react";
 import { AgentIcon } from "../AgentIcon";
 import { ActiveTabPill } from "../Sidebar/ActiveTabPill";
@@ -55,6 +55,13 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const isPaused = usePausedFriends(conciergeClient);
   const lastIdentity = useRef<string | null>(null);
+  // Each friend row is its menu's long-press and right-click target, as an ordinary tab row is.
+  const rowRefs = useRef(new Map<string, RefObject<HTMLDivElement | null>>());
+  const rowRef = (friendship: string) => {
+    let ref = rowRefs.current.get(friendship);
+    if (!ref) { ref = createRef<HTMLDivElement>(); rowRefs.current.set(friendship, ref); }
+    return ref;
+  };
   // Until the fresh list arrives, draw the friends this account had last time; an empty past keeps the section away.
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
   const loading = identity !== null && neighbors.list === null;
@@ -122,7 +129,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
       const pauseItem = { label: `${paused ? "Enable" : "Disable"} ${name}`, onClick: () => togglePaused(friend, paused) };
       return <li key={friend.friendship_id}>
         <SurfaceOwnerBlock ownerId={`neighbor:${friend.friendship_id}`} attachments={concierge ? [concierge] : []} compact={false}
-          renderOwner={() => <div className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined} data-paused={paused || undefined}>
+          renderOwner={() => <div ref={rowRef(friend.friendship_id)} className={`${ROW} ${rowPadding}`} data-active={activeChat === friend.friendship_id || undefined} data-paused={paused || undefined}>
             <button type="button" className={`sidebar-tab-activation flex flex-1 items-center min-w-0 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
               aria-label={`Open ${name}`} aria-current={activeChat === friend.friendship_id ? "page" : undefined}
               onClick={() => openNeighbor(friend.friendship_id)}>
@@ -138,7 +145,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
                 </span>
               </span>
             </button>
-            <DropdownMenu className="sidebar-neighbor-concierge__menu" menuLabel={`${name} actions`}
+            <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={rowRef(friend.friendship_id)} menuLabel={`${name} actions`}
               items={[pauseItem, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]}
               trigger={<RowMenuButton label={`Actions for ${name}`} title="Friend actions" touchMode={touchMode} />} />
           </div>}
@@ -158,8 +165,9 @@ function ConciergeRow({ tab, friendName, text, touchMode, activity, paused, paus
   active: boolean; onOpen: () => void; onChangeAgent: () => void; onViewPermissions: () => void; onEditWithGeneral: () => void;
 }) {
   const label = `${friendName}'s concierge`;
+  const row = useRef<HTMLDivElement>(null);
   // An open concierge chat highlights like any open tab: the same pill, full-strength text, aria-current.
-  return <div className={`${active ? ROW.replace(" sidebar-tab-dimmed", "") : ROW} relative sidebar-neighbor-concierge ${touchMode ? "min-h-9 pl-5 pr-2 py-1" : "pr-2 py-0.5"}`}
+  return <div ref={row} className={`${active ? ROW.replace(" sidebar-tab-dimmed", "") : ROW} relative sidebar-neighbor-concierge ${touchMode ? "min-h-9 pl-5 pr-2 py-1" : "pr-4 py-0.5"}`}
     data-paused={paused || undefined} data-tab-active={active || undefined}>
     {active && <ActiveTabPill />}
     <button type="button" className="sidebar-tab-activation relative z-[1] flex flex-1 items-center min-w-0 gap-2 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer"
@@ -174,7 +182,7 @@ function ConciergeRow({ tab, friendName, text, touchMode, activity, paused, paus
         <span className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{activity}</span>
       </span>
     </button>
-    <DropdownMenu className="sidebar-neighbor-concierge__menu" menuLabel={`${label} actions`}
+    <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={row} menuLabel={`${label} actions`}
       items={[
         { label: "Change agent", onClick: onChangeAgent },
         { label: "View permissions", onClick: onViewPermissions },

@@ -548,6 +548,12 @@ it("highlights an open concierge chat like an open tab, without the friend row",
   expect(button("Open Ada's concierge").getAttribute("aria-current")).toBeNull();
 });
 
+it("gives the friend and concierge rows the sidebar's own hover kebab", async () => {
+  await renderSection([{ ...neighbor, gateway_tab: "tab-gateway" }]);
+  expect(button("Actions for Ada").closest(".sidebar-tab-kebab")).not.toBeNull();
+  expect(button("Actions for Ada's concierge").closest(".sidebar-tab-kebab")).not.toBeNull();
+});
+
 it("remembers only names, avatars and the concierge binding, and forgets them on sign-out", async () => {
   await renderSection([{ ...neighbor, gateway_tab: "tab-gateway", my_daily_limit: 5 }]);
   const stored = JSON.parse(localStorage.getItem("domios.neighbors.last-known:owner")!);
