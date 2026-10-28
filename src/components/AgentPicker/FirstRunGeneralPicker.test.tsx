@@ -387,3 +387,50 @@ it("updates the mounted first-run picker after turning OFF in General and return
     await act(async () => root.unmount()); host.remove();
   }
 });
+
+
+it("keeps confirmed OFF after an unmounted toggle's delayed ON response resolves", async () => {
+  const { AnalyticsToggle } = await import("../Settings/AnalyticsToggle");
+  const on = { consent: "on", queued: 0, has_device_id: true, has_user_id: false };
+  const off = { consent: "off", queued: 0, has_device_id: false, has_user_id: false };
+  let stored = off;
+  let finishOn!: (value: typeof on) => void;
+  const deferredOn = new Promise<typeof on>(resolve => { finishOn = resolve; });
+  const publications: Array<string | undefined> = [];
+  const observe = (event: Event) => publications.push((event as CustomEvent<{ status: typeof on | null }>).detail.status?.consent);
+  localJson.mockImplementation(async (method: string, _path: string, body?: { consent: string }) => {
+    if (method !== "POST") return stored;
+    if (body?.consent === "on") { stored = on; return deferredOn; }
+    expect(body).toEqual({ consent: "off" }); stored = off; return off;
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const screen = (toggle: string | null) => <>
+    <FirstRunGeneralPicker providers={[]} />
+    {toggle !== null && <AnalyticsToggle key={toggle} />}
+  </>;
+  window.addEventListener("codeterm:analytics-consent-changed", observe);
+  try {
+    await act(async () => root.render(screen("A")));
+    const picker = host.querySelector('[data-testid="first-run-general-picker"]')!;
+    const toggle = () => host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Share product analytics"]')!;
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    await act(async () => toggle().click());
+    expect(localJson).toHaveBeenCalledWith("POST", "/api/analytics/consent", { consent: "on" });
+    await act(async () => root.render(screen(null)));
+    await act(async () => root.render(screen("B")));
+    expect(toggle().getAttribute("aria-checked")).toBe("true");
+    await act(async () => toggle().click());
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    expect(publications.at(-1)).toBe("off");
+    const confirmed = [...publications];
+    await act(async () => finishOn(on));
+    expect(publications).toEqual(confirmed);
+    expect(toggle().getAttribute("aria-checked")).toBe("false");
+    expect(host.querySelector('[data-testid="first-run-general-picker"]')).toBe(picker);
+    expect(picker.textContent).not.toContain("Product analytics is on.");
+  } finally {
+    window.removeEventListener("codeterm:analytics-consent-changed", observe);
+    await act(async () => root.unmount()); host.remove();
+  }
+});
