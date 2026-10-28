@@ -69,7 +69,7 @@ impl MemManager {
 
     fn reembed_plan_in(&self, conn: &rusqlite::Connection) -> Result<SwitchPlan, String> {
         Ok(SwitchPlan {
-            blueprints: crate::blueprint_library::index::indexed_items(conn)?.len() as u64,
+            blueprints: crate::backend::sqlite::blueprint::index::indexed_items(conn)?.len() as u64,
             items: self.reembed_item_targets(conn)?.len() as u64,
             entities: self.reembed_entity_targets(conn)?.len() as u64,
             docs: if self.docs_dir.is_some() {

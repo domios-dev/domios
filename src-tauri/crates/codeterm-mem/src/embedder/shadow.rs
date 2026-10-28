@@ -122,9 +122,13 @@ impl MemManager {
 
     fn shadow_units(&self, conn: &Connection) -> Result<Vec<Unit>, String> {
         let mut units = Vec::new();
-        for id in crate::blueprint_library::index::indexed_items(conn)? {
+        for id in crate::backend::sqlite::blueprint::index::indexed_items(conn)? {
             units.push(Unit {
-                texts: crate::blueprint_library::enrichment::blueprint_vector_texts(conn, &id)?,
+                texts: crate::backend::sqlite::blueprint::vector_projection(conn, &id)?
+                    .map(|(row, intents)| {
+                        crate::blueprint_library::enrichment::blueprint_vector_texts(&row, &intents)
+                    })
+                    .unwrap_or_default(),
                 id,
                 blueprint: true,
             });

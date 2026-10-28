@@ -1,10 +1,12 @@
 use super::*;
 use std::path::Path;
 
+pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS blueprint_v1_cleanup_receipt (id INTEGER PRIMARY KEY CHECK(id=1), removed_count INTEGER NOT NULL, completed_at TEXT NOT NULL)";
+
 pub(crate) fn remove_v1(conn: &Connection, blobs: &Path) -> Result<usize, String> {
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS blueprint_v1_cleanup_receipt (id INTEGER PRIMARY KEY CHECK(id=1), removed_count INTEGER NOT NULL, completed_at TEXT NOT NULL)").map_err(|e| e.to_string())?;
+    tx.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
     let completed: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM blueprint_v1_cleanup_receipt)",

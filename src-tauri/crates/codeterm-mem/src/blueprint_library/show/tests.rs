@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::params;
 use serde_json::{json, Value};
 
 const AREA: &str = "blueprints:workspace";
