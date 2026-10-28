@@ -5,7 +5,7 @@ import { describeSchedule, formatFuture, formatTime } from "../../lib/formatters
 import { AgentIcon } from "../AgentIcon";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { CronRunHistory } from "../MeshPanel/CronDrawerSection/CronRunHistory";
-import { runStatusLabel, runTone } from "../MeshPanel/CronDrawerSection/parts";
+import { runOutcomeLabel, runTone } from "../MeshPanel/CronDrawerSection/parts";
 import { createMeshResourceActionAdapter, type MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
 import type { Service } from "../MeshPanel/types";
 
@@ -55,7 +55,7 @@ export function CronFlowView({ job, service, target, actionAdapter = defaultAdap
         state={job.enabled ? undefined : "paused"} /></li>
       <li className="cron-flow__step"><FlowNode type="agent" icon={!curator && job.agent ? <AgentIcon providerId={job.agent} className="text-[14px]" /> : <Bot size={14} />}
         title={curator ? "Curator round" : "Agent task"} subtitle={agent} body={curator ? undefined : job.task}
-        status={last ? `${runStatusLabel(last.status)} · ${formatTime(last.started_at)}` : "No runs yet"} tone={last ? runTone(last.status) : "var(--ct-muted-fg)"} state={nodeState(last?.status)} /></li>
+        status={last ? `${runOutcomeLabel(last)} · ${formatTime(last.started_at)}` : "No runs yet"} tone={last ? runTone(last.status) : "var(--ct-muted-fg)"} state={nodeState(last?.status)} /></li>
       <li className="cron-flow__step"><FlowNode type="result" icon={<Send size={14} />} title="Report" subtitle={target}
         status={job.report_target_tab_id ? "Delivered to that tab" : "Kept with the run"} tone="var(--ct-muted-fg)" /></li>
     </ol>

@@ -2,10 +2,13 @@ import type { CSSProperties } from "react";
 import { CalendarClock, Pause, Pencil, Play, Square } from "lucide-react";
 import { describeSchedule, formatFuture, formatTime } from "../../../lib/formatters";
 import type { InventoryOperation, Service } from "../types";
-import { CRON_DANGER, CRON_DANGER_TONE, CRON_LABEL, CRON_PILL, CRON_PRIMARY, CronCard, runStatusLabel, Unavailable } from "./parts";
+import type { CronRunInfo } from "../../../lib/types";
+import { CRON_DANGER, CRON_DANGER_TONE, CRON_LABEL, CRON_PILL, CRON_PRIMARY, CronCard, runOutcomeLabel, runStatusLabel, Unavailable } from "./parts";
 
 export interface CronScheduleCardProps {
   service: Service;
+  /** The cron's own last run, when read; it names why a cancelled run stopped. */
+  lastRun?: CronRunInfo | null;
   busy: boolean;
   running: boolean;
   editing: boolean;
@@ -36,7 +39,8 @@ export function CronScheduleCard(props: CronScheduleCardProps) {
     <p className="ct-job-section__lead">{service.schedule ? describeSchedule(service.schedule) : "Schedule not set"}</p>
     <dl className="ct-detail__lane">
       <div><dt>Next run</dt><dd>{nextRun}</dd></div>
-      <div><dt>Last run</dt><dd>{service.last_run_status ? runStatusLabel(service.last_run_status) : "Not recorded"}</dd></div>
+      <div><dt>Last run</dt><dd>{!service.last_run_status ? "Not recorded"
+        : props.lastRun?.status === service.last_run_status ? runOutcomeLabel(props.lastRun) : runStatusLabel(service.last_run_status)}</dd></div>
       {!editing && <div><dt>Expression</dt><dd className="flex flex-wrap items-center gap-2">
         <code className="ct-detail__mono">{service.schedule ?? "—"}</code>
         <button type="button" onClick={props.onEdit} disabled={busy || !can("update_schedule")} className={CRON_PILL} title={reason("update_schedule") ?? "Edit schedule"}><Pencil size={12} aria-hidden="true" />Edit</button>

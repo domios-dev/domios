@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { History } from "lucide-react";
 import { formatTime } from "../../../lib/formatters";
 import type { CronRunInfo } from "../../../lib/types";
-import { CronCard, formatRunDuration, runStatusLabel, runTone, Unavailable } from "./parts";
+import { CronCard, formatRunDuration, runOutcomeLabel, runTone, Unavailable } from "./parts";
 
 export function CronRunHistory({ runs, allowed, reason, onOpen, runLabel }: { runs: readonly CronRunInfo[]; allowed: boolean; reason?: string; onOpen: (run: CronRunInfo) => void; runLabel?: string }) {
   const listed = allowed && runs.length > 0;
@@ -11,7 +11,7 @@ export function CronRunHistory({ runs, allowed, reason, onOpen, runLabel }: { ru
       : runs.length === 0 ? <p className="ct-job-note">No runs yet</p>
       : <ol aria-label="Run history" className="ct-rows">{runs.map((run) => {
         const started = formatTime(run.started_at);
-        const label = `${runLabel ? `${runLabel} · ` : ""}${runLabel && run.summary ? run.summary : runStatusLabel(run.status)}`;
+        const label = `${runLabel ? `${runLabel} · ` : ""}${runLabel && run.summary ? run.summary : runOutcomeLabel(run)}`;
         const live = run.status === "Running" || run.status === "AwaitingOwnerPrompt";
         const content = <>
           <span className="ct-detail__dot" data-live={live || undefined} style={{ "--ct-detail-tone": runTone(run.status) } as CSSProperties} aria-hidden="true" />

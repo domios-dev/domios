@@ -216,6 +216,24 @@ test("a background refresh failure keeps loaded cron details without an alert", 
   failCronRead = false;
 });
 
+test("a cancelled run names why it stopped, and a run without a reason stays plain Cancelled", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(CRON_ID, adapter({
+    history: async () => {
+      calls.push("history");
+      return [
+        { run_id: "run-old", started_at: 50, finished_at: 60, status: "Cancelled", tab_id: null },
+        { run_id: "run-new", started_at: 100, finished_at: 160, status: "Cancelled", tab_id: null, cancel_reason: "superseded" },
+      ];
+    },
+  }, calls), calls, "Cancelled");
+  try {
+    const rows = Array.from(host.querySelectorAll('[aria-label="Run history"] li')).map((row) => row.textContent ?? "");
+    assert(rows.some((row) => row.includes("Superseded by a newer run")), "the typed reason reads in words");
+    assert(rows.some((row) => row.includes("Cancelled") && !row.includes("Superseded")), "no reason keeps the plain status");
+  } finally { await act(async () => root.unmount()); }
+});
+
 test("an owner prompt remains visible in history and exposes cancel while active", async () => {
   const calls: string[] = [];
   const { host, root } = await render(CRON_ID, adapter({
