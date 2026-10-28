@@ -516,6 +516,21 @@
   border-radius: 12px;
 }
 
+/* The scope grows by its corner grip, height only; the browser's own handle would also drag the width. */
+.neighbor-scope {
+  position: relative;
+  --ct-corner-grip-radius: 12px;
+}
+
+.neighbor-scope .neighbor-textarea {
+  display: block;
+  resize: none;
+}
+
+.neighbor-scope:hover .ct-corner-grip::before {
+  opacity: 0.55;
+}
+
 .neighbor-receipts {
   display: flex;
   flex-direction: column;

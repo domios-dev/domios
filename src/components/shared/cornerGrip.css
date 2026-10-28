@@ -1,0 +1,62 @@
+/* A resize grip drawn as the card's own corner: an arc tracing its radius, shown on hover, focus and drag. */
+.ct-corner-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.ct-corner-grip::before {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 22px;
+  height: 22px;
+  border-right: 3px solid var(--ct-muted-fg);
+  border-bottom: 3px solid var(--ct-muted-fg);
+  border-bottom-right-radius: var(--ct-corner-grip-radius, 16px);
+  opacity: 0;
+  transition: opacity 150ms ease, border-color 150ms ease;
+}
+
+.ct-corner-grip--left {
+  right: auto;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.ct-corner-grip--left::before {
+  right: auto;
+  left: 0;
+  border-right: 0;
+  border-left: 3px solid var(--ct-muted-fg);
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: var(--ct-corner-grip-radius, 16px);
+}
+
+/* Height only: the grip never changes width. */
+.ct-corner-grip--vertical {
+  cursor: ns-resize;
+}
+
+.ct-corner-grip:hover::before,
+.ct-corner-grip:active::before,
+.ct-corner-grip:focus-visible::before {
+  opacity: 1;
+  border-color: var(--ct-accent);
+}
+
+.ct-corner-grip:focus-visible {
+  outline: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-corner-grip::before { transition: none; }
+}

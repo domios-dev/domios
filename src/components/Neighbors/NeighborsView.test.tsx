@@ -918,6 +918,18 @@ it("saves a cleared daily message limit as no limit", async () => {
   expect(conciergeClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", null);
 });
 
+it("grows the scope field by its corner grip, height only, and remembers it for this friend", async () => {
+  await render();
+  await act(async () => button("Ada, connected").click());
+  const scope = document.querySelector<HTMLTextAreaElement>(".neighbor-permissions textarea")!;
+  const grip = button("Resize what they may ask; use arrow keys");
+  await act(async () => { grip.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true })); });
+  await act(async () => { grip.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true })); });
+  expect(scope.style.height).toBe("136px");
+  expect(scope.style.width).toBe("");
+  expect(localStorage.getItem("domios.neighbors.scope-height:pair")).toBe("136");
+});
+
 it("stages edits until Apply, and Cancel puts every field back", async () => {
   const conciergeClient = concierge([]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, my_daily_limit: 5 }], incoming: [], outgoing: [] };

@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "../shared/Button";
+import { CornerResizeGrip, useVerticalResize } from "../shared/CornerResizeGrip";
 import { FormRow } from "../shared/FormRow";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { SettingsSection, SwitchTile } from "../Settings/shared";
@@ -20,6 +21,19 @@ const ACCESS_OPTIONS: { value: MachineAccess; label: string }[] = [
 ];
 
 const SCOPE_LIMIT = 8192;
+const SCOPE_HEIGHT = { min: 72, max: 480 };
+const scopeHeightKey = (friendship: string) => `domios.neighbors.scope-height:${friendship}`;
+
+function readScopeHeight(friendship: string): number | null {
+  try {
+    const value = Number(localStorage.getItem(scopeHeightKey(friendship)));
+    return Number.isFinite(value) && value > 0 ? value : null;
+  } catch { return null; }
+}
+
+function writeScopeHeight(friendship: string, height: number) {
+  try { localStorage.setItem(scopeHeightKey(friendship), String(height)); } catch { /* Storage can be unavailable in a private viewer. */ }
+}
 const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allowed === b.allowed && a.scope === b.scope
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
@@ -76,6 +90,10 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const fileChanged = onSaveFileDailyLimit !== undefined && fileBytes !== savedFileLimit;
   const limitChanged = limit !== savedLimit;
   const scopeField = useId();
+  // The scope field keeps the height the owner dragged it to, per friend.
+  const [storedScopeHeight] = useState(() => readScopeHeight(neighbor.friendship_id));
+  const scopeResize = useVerticalResize<HTMLTextAreaElement>({ min: SCOPE_HEIGHT.min, max: SCOPE_HEIGHT.max, initial: storedScopeHeight,
+    onResized: height => writeScopeHeight(neighbor.friendship_id, height) });
   const limitField = useId();
   const [awaitingFolder, setAwaitingFolder] = useState(false);
   const [incoming, setIncoming] = useState<NeighborPermission | null>(null);
@@ -125,8 +143,12 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     <SwitchTile label={`Allow requests from ${name}`} hint="Their agents may ask yours for help."
       checked={draft?.allowed === true} onChange={allowed => { if (draft && !saving) edit({ allowed }); }} />
     <FormRow className="neighbor-field" label="What they may ask" htmlFor={scopeField} hint="Plain words your concierge follows.">
-      <textarea id={scopeField} className={`${UI_INPUT.full} neighbor-textarea`} rows={4} disabled={!draft || saving}
-        placeholder={draft ? "Nothing allowed yet" : "Reading their permissions"} value={draft?.scope ?? ""} onChange={event => edit({ scope: event.currentTarget.value })} />
+      <div className="neighbor-scope">
+        <textarea ref={scopeResize.target} id={scopeField} className={`${UI_INPUT.full} neighbor-textarea`} rows={4} disabled={!draft || saving}
+          style={scopeResize.height === null ? undefined : { height: `${scopeResize.height}px` }}
+          placeholder={draft ? "Nothing allowed yet" : "Reading their permissions"} value={draft?.scope ?? ""} onChange={event => edit({ scope: event.currentTarget.value })} />
+        <CornerResizeGrip vertical aria-label="Resize what they may ask; use arrow keys" {...scopeResize.grip} />
+      </div>
     </FormRow>
     <SwitchTile label={`Show interactive content from ${name}`} hint="Runs their html and diagrams. Only for people you trust."
       checked={draft?.allow_interactive_content === true} onChange={allow_interactive_content => { if (draft && !saving) edit({ allow_interactive_content }); }} />
