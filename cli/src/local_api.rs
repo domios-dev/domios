@@ -212,13 +212,19 @@ pub struct LocalApiError {
 
 impl LocalApiError {
     fn new(error: impl ToString) -> Self {
-        Self { message: error.to_string(), refusal: None }
+        Self {
+            message: error.to_string(),
+            refusal: None,
+        }
     }
 
     pub(crate) fn from_rpc(error: crate::client::SocketCallError) -> Self {
         let message = error.to_string();
         let error = crate::cmd::print::CliError::from(error);
-        Self { message, refusal: error.neighbor_refusal() }
+        Self {
+            message,
+            refusal: error.neighbor_refusal(),
+        }
     }
 
     pub(crate) fn neighbor_refusal(&self) -> Option<&crate::cmd::print::CliError> {

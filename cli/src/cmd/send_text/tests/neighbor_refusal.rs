@@ -9,7 +9,9 @@ impl RpcClient for Denied {
         Err(SocketCallError::Rpc(RpcError {
             code: -32003,
             message: "neighbor_capability_denied: This concierge cannot enumerate tabs".into(),
-            data: Some(json!({"reason":"neighbor_capability_denied","tabs":[{"id":"foreign-private-tab","title":"foreign-private-title"}]})),
+            data: Some(
+                json!({"reason":"neighbor_capability_denied","tabs":[{"id":"foreign-private-tab","title":"foreign-private-title"}]}),
+            ),
         }))
     }
 }
@@ -17,7 +19,10 @@ impl RpcClient for Denied {
 #[test]
 fn denied_send_preflight_preserves_neighbor_refusal_instead_of_unknown_target() {
     let error = super::super::probe_tab_kind(&mut Denied, "target").unwrap_err();
-    assert_eq!(error.message, "neighbor_capability_denied: This concierge cannot enumerate tabs");
+    assert_eq!(
+        error.message,
+        "neighbor_capability_denied: This concierge cannot enumerate tabs"
+    );
     let mut out = Vec::new();
     let mut err = Vec::new();
     crate::cmd::print::write_cli_error(true, &error, &mut out, &mut err);

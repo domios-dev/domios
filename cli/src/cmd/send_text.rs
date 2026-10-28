@@ -318,7 +318,10 @@ fn refuse_raw_shell_message(require_agent: bool) -> String {
     }
 }
 
-fn probe_tab_kind(client: &mut impl crate::client::RpcClient, tab_id: &str) -> Result<TabKind, crate::cmd::print::CliError> {
+fn probe_tab_kind(
+    client: &mut impl crate::client::RpcClient,
+    tab_id: &str,
+) -> Result<TabKind, crate::cmd::print::CliError> {
     let params = serde_json::json!({ "focused_workspace": false });
     match client.call_detailed("tab.list", Some(params)) {
         Ok(value) => Ok(value
@@ -412,7 +415,10 @@ fn send_text_to_targets(
         if !resolved_text.trim().is_empty() {
             let kind = match probe_tab_kind(client, tab_id) {
                 Ok(kind) => kind,
-                Err(error) => { failures.push((tab_id.clone(), error.message)); continue; }
+                Err(error) => {
+                    failures.push((tab_id.clone(), error.message));
+                    continue;
+                }
             };
             if let SendEligibility::Refuse(msg) =
                 decide_send_eligibility(kind, resolved_text, require_agent, to_shell)
@@ -601,7 +607,8 @@ pub fn handle_send_text(
     }
     let tab_id = resolve_tab(client, tab);
     if !resolved_text.trim().is_empty() {
-        let kind = probe_tab_kind(client, &tab_id).unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
+        let kind = probe_tab_kind(client, &tab_id)
+            .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
         if let SendEligibility::Refuse(msg) =
             decide_send_eligibility(kind, &resolved_text, require_agent, to_shell)
         {
