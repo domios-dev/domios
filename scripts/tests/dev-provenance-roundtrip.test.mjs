@@ -255,6 +255,7 @@ CT_SUFFIX="-watch-test-$$"
 kill_web_watch() { :; }
 dev_resource_dir() { echo target/debug/resources; }
 node() { printf '%s|%s\\n' "$CODETERM_FRONTEND_DEV" "$*" > args.txt; }
+run_outside_tab_job() { shift 3; "$@"; }
 nohup() { "$@"; }
 process_pid_for_cleanup() { echo "$1"; }
 web_watch_pidfile() { echo pid.txt; }

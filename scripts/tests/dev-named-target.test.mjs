@@ -13,6 +13,45 @@ const dev = source.slice(source.indexOf('  dev)\n'), source.indexOf('  e2e)\n'))
 const kill = source.slice(source.indexOf('  kill)\n'), source.indexOf('  dev-server)\n'));
 const prebuilt = source.slice(source.indexOf('  dev-prebuilt)\n'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)\n')));
 
+for (const helper of ['start_web_watch', 'start_dev_static_server']) {
+  test(`Windows ${helper} leaves the tab job and records the actual child identity`, () => {
+    const functions = ['run_outside_tab_job', helper].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${functions}
+OSTYPE=msys CT_SUFFIX=-fixture CT_VITE_PORT=14997
+cygpath() { printf '%s\\n' "$2"; }
+web_watch_pidfile() { echo owned-watcher.json; }
+dev_static_pidfile() { echo owned-static.json; }
+dev_frontend_dir() { echo /fixture/instance/dist; }
+kill_web_watch() { :; }
+kill_dev_static_server() { :; }
+powershell.exe() { printf 'BREAKAWAY=%s\\n' "$BREAKAWAY_COMMAND_LINE"; printf 'ARG=%s\\n' "$@"; }
+node() { echo UNSAFE_CONTAINED_NODE; return 1; }
+${helper}
+`], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /windows-breakaway-run\.ps1/);
+    assert.match(result.stdout, /ARG=-ProcessRecord\nARG=owned-(?:watcher|static)\.json/);
+    assert.match(result.stdout, helper === 'start_web_watch' ? /BREAKAWAY=.*vite\.js.*build.*--watch/ : /BREAKAWAY=.*dev-static-server\.mjs/);
+    assert.doesNotMatch(result.stdout, /UNSAFE_CONTAINED_NODE/);
+  });
+}
+
+test('background breakaway refusal never launches a contained frontend fallback', () => {
+  const helper = source.match(/^run_outside_tab_job\(\) \{[\s\S]*?^\}/m)[0];
+  const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helper}
+OSTYPE=msys
+cygpath() { printf '%s\\n' "$2"; }
+powershell.exe() { return 250; }
+node() { echo UNSAFE_CONTAINED_NODE; }
+run_outside_tab_job --background /fixture/owned.json /fixture/frontend.log node /fixture/server.mjs
+`], { encoding: 'utf8' });
+  assert.equal(result.status, 250, result.stderr);
+  assert.match(result.stderr, /refuses detached DEV frontend launch/);
+  assert.doesNotMatch(result.stdout, /UNSAFE_CONTAINED_NODE/);
+});
+
 for (const [platform, refused] of [['linux', false], ['darwin', false], ['msys', false], ['msys', true]]) {
   test(`daemon shutdown precedes watcher cleanup; platform=${platform}, refused=${refused}`, () => {
     const result = spawnSync(bash, ['-c', `set -euo pipefail

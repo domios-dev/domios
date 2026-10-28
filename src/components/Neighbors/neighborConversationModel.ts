@@ -1,5 +1,5 @@
 import { formatUntil } from "../../lib/timeLabels";
-import type { HistoryEntry } from "./neighborConciergeClient";
+import type { HandlingState, HistoryEntry } from "./neighborConciergeClient";
 
 /** Pages arrive newest first; the conversation reads oldest first, one copy per message id. */
 export function mergeHistory(current: readonly HistoryEntry[], page: readonly HistoryEntry[]): HistoryEntry[] {
@@ -36,7 +36,7 @@ export function refusalLine(entry: HistoryEntry, friendName: string, now: number
     case "friends_locked": return "Not delivered: your plan pauses Neighbor messages.";
     case "recipient_locked": return `Not delivered: ${friendName}'s plan pauses their Neighbor messages.`;
     case "recipient_not_receiving": return `Not delivered: ${friendName} is not receiving right now.`;
-    case "recipient_paused": return `Not delivered: ${friendName} paused messages from you.`;
+    case "recipient_paused": return `Not delivered: ${friendName} disabled messages from you.`;
     default: return null;
   }
 }
@@ -49,7 +49,42 @@ export function authorKind(entry: HistoryEntry): AuthorKind {
   return entry.kind === "answer" || entry.kind === "refusal" ? "friend-agent" : "friend";
 }
 
-const ATTACHMENT_LINE = /^\[Neighbor attachment: .* \(\d+ bytes\), handle ([0-9a-f]+)\]$/;
+/** Where your concierge stands on a message from your friend. */
+export type ConciergeWork = HandlingState;
+
+export const CONCIERGE_WORK_LINE: Record<ConciergeWork, string> = {
+  delivered_to_concierge: "With your concierge", working: "Your concierge is working", answered: "Answered", refused: "Declined",
+  no_reply: "No reply needed", failed: "Couldn't reach your concierge", waiting: "Waiting for a concierge on this machine", stopped: "Stopped",
+};
+
+/** States your concierge is still busy with; Stop applies to them. */
+export const activeWork = (work: ConciergeWork) => work === "delivered_to_concierge" || work === "working";
+
+export interface ConciergeWorkEntry { work: ConciergeWork; reply?: string; reason?: string }
+
+/** Each friend message's standing from the runtime's handling state, with the reply it links to.
+ *  Before a runtime reports handling, the concierge tab's activity marks only the newest open message. */
+export function conciergeWork(entries: readonly HistoryEntry[], concierge: { working: boolean; missing: boolean }): Map<string, ConciergeWorkEntry> {
+  const replies = new Map<string, string>();
+  for (const entry of entries) if (entry.direction === "out" && entry.in_reply_to) replies.set(entry.in_reply_to, entry.message_id);
+  const work = new Map<string, ConciergeWorkEntry>();
+  const reported = entries.some(entry => entry.handling_state !== undefined);
+  let open: string | null = null;
+  for (const entry of entries) {
+    if (authorKind(entry) !== "friend") continue;
+    const reply = replies.get(entry.message_id);
+    const reason = entry.handling_reason ?? entry.reason;
+    const settled = (state: ConciergeWork) => work.set(entry.message_id, { work: state, ...(reply ? { reply } : {}), ...(reason ? { reason } : {}) });
+    if (entry.handling_state) settled(entry.handling_state);
+    else if (entry.outcome === "refused") settled("refused");
+    else if (entry.outcome === "answered" || reply) settled("answered");
+    else open = entry.message_id;
+  }
+  if (!reported && open && (concierge.working || concierge.missing)) work.set(open, { work: concierge.working ? "working" : "waiting" });
+  return work;
+}
+
+const ATTACHMENT_LINE =/^\[Neighbor attachment: .* \(\d+ bytes\), handle ([0-9a-f]+)\]$/;
 
 /** The words a person reads: the agent's attachment lines go when their files show as chips, and stay as the only trace otherwise. */
 export function readableBody(body: string, fileIds: ReadonlySet<string>): string {

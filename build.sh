@@ -2110,6 +2110,11 @@ dev_conf_path() {
 
 # A Team dev tab lets processes leave its kill-on-close job; the DEV window must, so restarting the tab keeps it.
 run_outside_tab_job() {
+  local background_record="" background_log=""
+  if [ "${1:-}" = --background ]; then
+    background_record="$2" background_log="$3"
+    shift 3
+  fi
   if [[ "$OSTYPE" != msys* && "$OSTYPE" != cygwin* ]]; then
     "$@"
     return
@@ -2120,12 +2125,24 @@ run_outside_tab_job() {
     [[ "$arg" == /* ]] && arg="$(cygpath -w "$arg")"
     line+="\"$arg\" "
   done
-  log="$(mktemp)"
+  local -a background_args=()
+  if [ -n "$background_record" ]; then
+    log="$background_log"
+    background_args=(-ProcessRecord "$(cygpath -w "$background_record")")
+  else
+    log="$(mktemp)"
+  fi
   BREAKAWAY_COMMAND_LINE="$line" powershell.exe -NoProfile -ExecutionPolicy Bypass \
-    -File "$(cygpath -w scripts/windows-breakaway-run.ps1)" -Log "$(cygpath -w "$log")" || status=$?
-  cat "$log"
-  rm -f "$log"
+    -File "$(cygpath -w scripts/windows-breakaway-run.ps1)" -Log "$(cygpath -w "$log")" ${background_args[@]+"${background_args[@]}"} || status=$?
+  if [ -z "$background_record" ]; then
+    cat "$log"
+    rm -f "$log"
+  fi
   if [ "$status" = 250 ]; then
+    if [ -n "$background_record" ]; then
+      echo "ERROR: this tab's job refuses detached DEV frontend launch; no contained fallback." >&2
+      return 250
+    fi
     echo "This tab's job refuses breakaway; the DEV window stays tied to this tab."
     "$@"
     return
@@ -2325,13 +2342,8 @@ windows_dev_leftover_cleanup() {
   fi
   command -v powershell.exe >/dev/null 2>&1 || command -v powershell >/dev/null 2>&1 || return
 
-  local root_win target_debug_win data_dir_win cleanup_script ps pid
-  local -a owned_pids=() cleanup_args
-  for pid in "$@"; do
-    if [[ "$pid" =~ ^[0-9]+$ ]] && [ "$pid" -gt 0 ]; then
-      owned_pids+=("$pid")
-    fi
-  done
+  local root_win target_debug_win data_dir_win cleanup_script ps
+  local -a cleanup_args
   root_win="$(pwd -W 2>/dev/null || pwd)"
   target_debug_win="$(cat "$(dev_target_record)" 2>/dev/null || true)"
   if [ -z "$target_debug_win" ]; then
@@ -2349,13 +2361,13 @@ windows_dev_leftover_cleanup() {
     -TargetDebug "$target_debug_win" -DataDir "$data_dir_win" -Identifier "$CT_IDENTIFIER" -Instance "$CT_INSTANCE"
     -VitePort "$CT_VITE_PORT" -ApiPort "$CT_PORT" -CdpPort "$CT_CDP_PORT"
   )
-  if [ "${#owned_pids[@]}" -gt 0 ]; then
-    cleanup_args+=(-OwnedProcessIds "${owned_pids[@]}" -OwnedOnly)
+  if [ "$#" -gt 0 ]; then
+    cleanup_args+=(-OwnedProcessRecords "$(cygpath -w "$1")" -OwnedOnly)
   fi
   if [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ]; then
     cleanup_args+=(-KeepVite)
   fi
-  "${cleanup_args[@]}" 2>/dev/null || true
+  "${cleanup_args[@]}" || true
 }
 
 # Provenance must hash the bytes the prebuilt watcher regenerates for this HEAD, not a prior session's dist/.
@@ -2377,7 +2389,13 @@ start_web_watch() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_FRONTEND_DEV=1 node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 run_outside_tab_job --background "$(web_watch_pidfile)" "$log" \
+        node "$(pwd -P)/$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)"
+      spawn_status=$?
+      set -e
+      [ "$spawn_status" -eq 0 ] || return "$spawn_status"
+      echo "Web bundle watcher started outside tab job (identity $(web_watch_pidfile), log $log)"
+      return
       ;;
     *)
       CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
@@ -2405,7 +2423,13 @@ start_dev_static_server() {
   set +e
   case "$OSTYPE" in
     msys*|cygwin*|win32)
-      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
+      CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" run_outside_tab_job --background "$(dev_static_pidfile)" "$log" \
+        node "$(pwd -P)/scripts/dev-static-server.mjs"
+      spawn_status=$?
+      set -e
+      [ "$spawn_status" -eq 0 ] || return "$spawn_status"
+      echo "Dev static server started outside tab job (devUrl port $CT_VITE_PORT, identity $(dev_static_pidfile), log $log)"
+      return
       ;;
     *)
       CODETERM_DEV_STATIC_DIST="$(dev_frontend_dir)" nohup node scripts/dev-static-server.mjs </dev/null >> "$log" 2>&1 &
@@ -2428,7 +2452,7 @@ kill_web_watch() {
   pidfile="$(web_watch_pidfile)"
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     if [ -f "$pidfile" ]; then
-      windows_dev_leftover_cleanup "$(managed_pid_from_file "$pidfile")"
+      windows_dev_leftover_cleanup "$pidfile"
       rm -f "$pidfile"
     fi
   elif [ -f "$pidfile" ]; then
@@ -2443,7 +2467,7 @@ kill_dev_static_server() {
   pidfile="$(dev_static_pidfile)"
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     if [ -f "$pidfile" ]; then
-      windows_dev_leftover_cleanup "$(managed_pid_from_file "$pidfile")"
+      windows_dev_leftover_cleanup "$pidfile"
       rm -f "$pidfile"
     fi
   elif [ -f "$pidfile" ]; then

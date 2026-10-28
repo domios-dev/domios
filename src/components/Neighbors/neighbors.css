@@ -516,6 +516,21 @@
   border-radius: 12px;
 }
 
+/* The scope grows by its corner grip, height only; the browser's own handle would also drag the width. */
+.neighbor-scope {
+  position: relative;
+  --ct-corner-grip-radius: 12px;
+}
+
+.neighbor-scope .neighbor-textarea {
+  display: block;
+  resize: none;
+}
+
+.neighbor-scope:hover .ct-corner-grip::before {
+  opacity: 0.55;
+}
+
 .neighbor-receipts {
   display: flex;
   flex-direction: column;
@@ -806,25 +821,6 @@
 
 .sidebar-neighbor-concierge {
   padding-left: 30px;
-}
-
-.sidebar-neighbor-concierge__menu {
-  display: flex;
-  border: 0;
-  padding: 0 2px;
-  background: transparent;
-}
-
-@media (hover: hover) {
-  .sidebar-neighbor-concierge .sidebar-neighbor-concierge__menu {
-    opacity: 0;
-    transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
-  }
-
-  .sidebar-neighbor-concierge:hover .sidebar-neighbor-concierge__menu,
-  .sidebar-neighbor-concierge:focus-within .sidebar-neighbor-concierge__menu {
-    opacity: 1;
-  }
 }
 
 .neighbor-permissions {
@@ -1455,16 +1451,81 @@ button.neighbor-file:hover {
 }
 
 /* Under a message, Check delivery reads as part of the quiet meta line, not as a full button. */
-.neighbor-msg__meta .ct-btn {
+.neighbor-msg__meta .ct-btn,
+.neighbor-work .ct-btn,
+.neighbor-chat__working .ct-btn {
   min-height: 0;
   padding: 0 0.35rem;
   font-size: 10.5px;
   line-height: 1.4;
 }
 
-.neighbor-permissions .ct-settings-section + .ct-settings-section,
-.neighbor-permissions .neighbor-confirm__actions + .ct-settings-section {
+/* Your concierge's standing on a friend's message: one quiet line under it, a tone only where it settled. */
+.neighbor-work,
+.neighbor-chat__working {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ct-muted-fg);
+  font-size: 10.5px;
+}
+
+.neighbor-chat__working {
+  justify-content: center;
+}
+
+.neighbor-work__icon {
+  display: inline-flex;
+  flex: none;
+  opacity: 0.8;
+}
+
+.neighbor-work[data-work="refused"],
+.neighbor-work[data-work="failed"] {
+  color: color-mix(in srgb, var(--ct-red) 75%, var(--ct-muted-fg));
+}
+
+.neighbor-work__reply {
+  padding: 0 0.25rem;
+  border: 0;
+  border-radius: var(--ct-radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.neighbor-work__reply:hover {
+  color: var(--ct-fg);
+}
+
+.neighbor-permissions .ct-settings-section + .ct-settings-section {
   margin-top: 0.4rem;
+}
+
+/* One Apply for the whole card: what applying costs sits right above the buttons that do it. */
+.neighbor-apply {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 8%, transparent);
+}
+
+.neighbor-apply__note {
+  text-align: right;
+}
+
+.neighbor-apply__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .neighbor-folder--needed {

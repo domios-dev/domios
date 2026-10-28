@@ -1,6 +1,11 @@
-# Runs $env:BREAKAWAY_COMMAND_LINE outside the calling tab's kill-on-close job and waits for it.
-# Exit code 250 means the job refused breakaway; the caller then runs the command in place.
-param([Parameter(Mandatory = $true)][string]$Log)
+# Runs outside the tab job; ProcessRecord returns after recording the detached child's identity.
+# Exit code 250 means breakaway was refused; background launches must not fall back to containment.
+param(
+  [Parameter(Mandatory = $true)][string]$Log,
+  [string]$ProcessRecord
+)
+
+$ErrorActionPreference = 'Stop'
 
 Add-Type -TypeDefinition @'
 using System;
@@ -26,12 +31,16 @@ public static class DomiosBreakaway {
     [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
     [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr handle, out uint code);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr handle, uint code);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessTimes(IntPtr handle, out long created, out long exited, out long kernel, out long user);
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    static extern bool QueryFullProcessImageName(IntPtr handle, uint flags, StringBuilder name, ref int length);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
 
     const uint BreakawayFromJob = 0x01000000, NewProcessGroup = 0x00000200, NoWindow = 0x08000000;
     const int UseStdHandles = 0x100, AccessDenied = 5;
 
-    public static int Run(string commandLine, string log) {
+    public static int Run(string commandLine, string log, Action<int, string, string> record) {
         using (var file = new FileStream(log, FileMode.Append, FileAccess.Write, FileShare.ReadWrite)) {
             var handle = file.SafeFileHandle.DangerousGetHandle();
             SetHandleInformation(handle, 1, 1);
@@ -47,15 +56,39 @@ public static class DomiosBreakaway {
                 var error = Marshal.GetLastWin32Error();
                 return error == AccessDenied ? 250 : 251;
             }
-            WaitForSingleObject(info.process, 0xFFFFFFFF);
-            uint code;
-            GetExitCodeProcess(info.process, out code);
-            CloseHandle(info.thread);
-            CloseHandle(info.process);
-            return (int)code;
+            try {
+                if (record != null) {
+                    long created, exited, kernel, user;
+                    int length = 32768;
+                    var image = new StringBuilder(length);
+                    if (!GetProcessTimes(info.process, out created, out exited, out kernel, out user) ||
+                        !QueryFullProcessImageName(info.process, 0, image, ref length))
+                        throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "Record detached DEV process identity");
+                    record(info.processId, created.ToString(System.Globalization.CultureInfo.InvariantCulture), image.ToString());
+                    return 0;
+                }
+                WaitForSingleObject(info.process, 0xFFFFFFFF);
+                uint code;
+                GetExitCodeProcess(info.process, out code);
+                return (int)code;
+            } catch {
+                TerminateProcess(info.process, 1);
+                throw;
+            } finally {
+                CloseHandle(info.thread);
+                CloseHandle(info.process);
+            }
         }
     }
 }
 '@
 
-exit [DomiosBreakaway]::Run($env:BREAKAWAY_COMMAND_LINE, $Log)
+$record = $null
+if ($ProcessRecord) {
+  $record = [Action[int, string, string]] {
+    param($processId, $created, $executable)
+    @{ pid = $processId; created = $created; executable = $executable } |
+      ConvertTo-Json -Compress | Set-Content -LiteralPath $ProcessRecord -Encoding UTF8
+  }
+}
+exit [DomiosBreakaway]::Run($env:BREAKAWAY_COMMAND_LINE, $Log, $record)

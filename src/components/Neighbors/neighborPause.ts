@@ -39,13 +39,13 @@ export function setFriendPaused(client: NeighborConciergeClient, friendship: str
   void client.setPaused(friendship, paused).then(saved => { if (latest.get(friendship) === change) publish(friendship, saved); }, (failure: unknown) => {
     if (latest.get(friendship) !== change) return;
     publish(friendship, current);
-    onError(failure instanceof Error ? failure.message : paused ? "The friend could not be paused." : "The friend could not be resumed.");
+    onError(failure instanceof Error ? failure.message : paused ? "The friend could not be disabled." : "The friend could not be enabled.");
   });
 }
 
-/** Pausing is one way: it stops their messages to you and leaves yours to them. */
-export const pausedLine = (name: string) => `You paused ${name}. They can't write to you until you resume; you can still write to them.`;
-export const theyPausedLine = (name: string) => `${name} paused messages from you.`;
+/** Disabling (the runtime's pause) is one way: it stops their messages to you and leaves yours to them. */
+export const pausedLine = (name: string) => `You disabled ${name}. They can't write to you until you enable them again; you can still write to them.`;
+export const theyPausedLine = (name: string) => `${name} disabled messages from you.`;
 
 /** Forget local pause changes; they belong to the account they were made in. */
 export function resetPausedFriends() {

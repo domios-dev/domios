@@ -35,6 +35,12 @@ for (const [attrs, origin] of [
   eq(framePrefix(attrs, "opaque body"), { origin, body: "opaque body" }, `structured origin ${attrs.from}`);
 }
 eq(framePrefix({ from: "tab" }, "opaque"), null, "missing Tab identity stays unknown");
+eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", via: "concierge", label: "uid-ada" }, "Host instruction for Ada.\n\nIs 2 &lt; 3 &amp;&amp; true?\n\nThanks"),
+  { origin: { kind: "neighbor", friendshipId: "f1", friend: "Ada", sender: "uid-ada", instruction: "Host instruction for Ada." }, body: "Is 2 < 3 && true?\n\nThanks" },
+  "a named friend's frame folds the host instruction away and shows their words as written");
+eq(framePrefix({ from: "neighbor", friendship: "f1" }, "Plain\n\nwords"), { origin: { kind: "neighbor", friendshipId: "f1" }, body: "Plain\n\nwords" },
+  "an unnamed friend's frame carries no instruction to split off");
+eq(labelFor({ kind: "neighbor", friendshipId: "f1", friend: "Ada" }), "From Ada via Neighbors", "neighbor label names the friend");
 eq(labelFor({ kind: "system", context: "  SyStEm  " }), "System", "duplicate System context is omitted");
 eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw strings are never routed by TS");
 

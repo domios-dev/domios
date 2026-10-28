@@ -786,7 +786,8 @@ export const Sidebar = memo(function Sidebar({
                   onOpenJobs={onOpenWorkspaceAutomation}
                 />
               )}
-              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat} />}
+              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
+                activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (

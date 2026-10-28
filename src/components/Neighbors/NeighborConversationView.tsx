@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Bot, Paperclip } from "lucide-react";
 import { ChatDaySeparator, formatMessageTime, ReplyQuote, RichMarkdown } from "@codeterm/chat-ui";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
@@ -10,14 +10,19 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
 import { UI_PANEL } from "../shared/design";
+import { ActivityDots } from "../shared/ActivityDots";
+import { AgentIcon } from "../AgentIcon";
 import { useMuxSelector } from "../../store/multiplexer";
+import { tabActivity } from "../../lib/tabActivity";
+import type { Tab } from "../../lib/types";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
-import { authorKind, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, readableBody, refusalLine, speaker } from "./neighborConversationModel";
+import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, readableBody, refusalLine, speaker, type ConciergeWorkEntry } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
+import { useNeighborGateway } from "./neighborGateways";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
 import { NeighborComposer } from "./NeighborComposer";
@@ -95,6 +100,20 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       .finally(() => setChecking(null));
   };
   const concierge = useConciergeStatus(runtimeClient, enabled)[friendship] ?? null;
+  // The runtime's handling state says when the concierge works; until a runtime reports it, the bound tab's activity stands in.
+  const tabStatuses = useMuxSelector(state => state.tabStatuses);
+  const gatewayId = useNeighborGateway(friendship) ?? concierge?.gateway_tab ?? friend.gateway_tab ?? null;
+  const conciergeTab: Tab | undefined = gatewayId ? tabs[gatewayId] : undefined;
+  const tabWorking = enabled && conciergeTab !== undefined && tabActivity(conciergeTab, tabStatuses[conciergeTab.id]).kind === "working";
+  const [stopping, setStopping] = useState(false);
+  // Stopping goes through the runtime, so the entries it was handling come back as stopped.
+  const stopConcierge = () => {
+    if (stopping) return;
+    setStopping(true);
+    void conciergeClient.stopConcierge(friendship).then(() => loadLatest(),
+      (failure: unknown) => setError(failure instanceof Error ? failure.message : "Your concierge could not be stopped."))
+      .finally(() => setStopping(false));
+  };
   const setUpWithGeneral = () => {
     void askGeneralAgent({ workspaces, tabs }, permissionInterviewTask({ name, friendshipId: friendship }))
       .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The General Agent could not be reached."));
@@ -147,6 +166,9 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   };
 
   const byId = new Map((entries ?? []).map(entry => [entry.message_id, entry]));
+  const work = conciergeWork(entries ?? [], { working: tabWorking, missing: enabled && concierge?.concierge_missing === true && !conciergeTab });
+  const conciergeWorking = enabled && [...work.values()].some(entry => activeWork(entry.work));
+  const scrollTo = (messageId: string) => document.getElementById(`neighbor-msg-${messageId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
   // Your agents speak in your bubble; the caption names which one: the General Agent, or this friend's concierge.
   const agentLabel = (entry: HistoryEntry) => typeof entry.author === "object" && tabs[entry.author.agent]?.protected ? "General" : "Your concierge";
   const allowance = typeof friend.their_daily_limit === "number" ? { limit: friend.their_daily_limit, sent: friend.sent_today ?? 0 } : null;
@@ -237,7 +259,9 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
               files={filesOf(entry)}
               onOpenFile={file => { void filesClient.open(friendship, file.file_id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file could not be opened.")); }} grouped={!day && continuesGroup(entry, index > 0 ? entries![index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
               checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: readableBody(quoted.body, new Set(filesOf(quoted).map(file => file.file_id))) } : null}
-              onOpenQuoted={() => document.getElementById(`neighbor-msg-${entry.in_reply_to}`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
+              onOpenQuoted={() => scrollTo(entry.in_reply_to!)}
+              footer={work.has(entry.message_id) && <ConciergeWorkLine work={work.get(entry.message_id)!} tab={conciergeTab}
+                canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />} />
           </Fragment>;
         })}
       </div>
@@ -248,20 +272,26 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       {!ended && limitReached && enabled && !locked && <p role="status" className="neighbor-note neighbor-chat__limit">Limit reached: {name} allows {allowance!.limit} {allowance!.limit === 1 ? "message" : "messages"} a day. Ask them to raise it.</p>}
       {!ended && paused && <div role="status" className="neighbor-note neighbor-chat__limit neighbor-chat__paused">
         <span>{pausedLine(name)}</span>
-        <Button size="sm" onClick={() => setFriendPaused(conciergeClient, friendship, false, true, setError)}>Resume</Button>
+        <Button size="sm" onClick={() => setFriendPaused(conciergeClient, friendship, false, true, setError)}>Enable</Button>
       </div>}
       {!ended && theyPaused && <p role="status" className="neighbor-note neighbor-chat__limit">{theyPausedLine(name)}</p>}
+      {!ended && conciergeWorking && <div role="status" className="neighbor-note neighbor-chat__limit neighbor-chat__working">
+        <ConciergeIcon tab={conciergeTab} />
+        <span>Your concierge is working for {name}</span>
+        <ActivityDots size="small" tone="muted" />
+        <Button size="compact" className="ml-auto" loading={stopping} aria-label="Stop your concierge" onClick={stopConcierge}>Stop</Button>
+      </div>}
       <NeighborComposer name={name} disabled={!canSend} sending={sending} onError={setError}
-        placeholder={ended ? "This connection has ended" : !enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : theyPaused ? `${name} paused messages from you`
+        placeholder={ended ? "This connection has ended" : !enabled ? "Neighbors is off" : locked ? "Messages are paused by your plan" : theyPaused ? `${name} disabled messages from you`
           : limitReached ? "Daily limit reached" : `Message ${name}`}
         onSend={send} onSendFiles={sendFiles} />
     </div>
   </div>;
 }
 
-function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted }: {
+function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, footer }: {
   entry: HistoryEntry; friend: ConversationFriend; friendName: string; agentLabel: string; files: NeighborFile[]; onOpenFile: (file: NeighborFile) => void; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
-  quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
+  quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void; footer?: ReactNode;
 }) {
   const time = formatMessageTime(entry.at);
   const author = authorKind(entry);
@@ -297,10 +327,32 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
           {sent ? "sent" : DELIVERY_LABEL[entry.delivery_status]}</span>}
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
-        {!mine && entry.outcome === "refused" && <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />refused{entry.reason ? `: ${entry.reason}` : ""}</span>}
-        {!mine && entry.outcome === "answered" && <span className="neighbor-status"><span className="neighbor-dot" data-tone="ok" aria-hidden="true" />answered</span>}
       </p>
+      {footer}
     </div>
+  </div>;
+}
+
+function ConciergeIcon({ tab }: { tab: Tab | undefined }) {
+  return <span className="neighbor-work__icon" aria-hidden="true">
+    {tab?.agent_type ? <AgentIcon providerId={tab.agent_type} className="text-[12px]" /> : <Bot size={12} />}</span>;
+}
+
+/** Where your concierge stands on a friend's message, as one quiet line under it; Stop interrupts it while it works. */
+function ConciergeWorkLine({ work, tab, canStop, stopping, onStop, onOpenReply }: {
+  work: ConciergeWorkEntry; tab: Tab | undefined; canStop: boolean; stopping: boolean; onStop: () => void; onOpenReply: (messageId: string) => void;
+}) {
+  const line = CONCIERGE_WORK_LINE[work.work];
+  const active = activeWork(work.work);
+  // Only a settled refusal or failure names its reason; an answer links to the reply instead.
+  const reason = (work.work === "refused" || work.work === "failed") && work.reason ? `: ${work.reason}` : "";
+  return <div className="neighbor-work" data-work={work.work} role={active || work.work === "waiting" ? "status" : undefined}>
+    <ConciergeIcon tab={tab} />
+    {work.work === "answered" && work.reply
+      ? <button type="button" className="neighbor-work__reply ct-liquid-interactive" onClick={() => onOpenReply(work.reply!)}>{line}</button>
+      : <span className="min-w-0">{line}{reason}</span>}
+    {work.work === "working" && <ActivityDots size="small" tone="muted" />}
+    {active && canStop && <Button size="compact" loading={stopping} aria-label="Stop your concierge" onClick={onStop}>Stop</Button>}
   </div>;
 }
 
@@ -339,7 +391,7 @@ function fileRefusal(failure: unknown, name: string): string {
     case "files_disabled": return `${name} does not accept files.`;
     case "recipient_files_unsupported": return `${name}'s Domios cannot receive files yet.`;
     case "file_rate_limited": return "Too many files right now. Try again shortly.";
-    case "recipient_paused": return `Not sent: ${name} paused messages from you.`;
+    case "recipient_paused": return `Not sent: ${name} disabled messages from you.`;
     default: return failure.message;
   }
 }

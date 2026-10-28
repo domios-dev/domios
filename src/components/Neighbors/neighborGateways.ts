@@ -22,3 +22,8 @@ function subscribe(listener: () => void) {
 export function useNeighborGatewayIds(): ReadonlySet<string> {
   return useSyncExternalStore(subscribe, () => gatewayIds);
 }
+
+/** The concierge tab bound to one friendship, as the sidebar last reconciled it. */
+export function useNeighborGateway(friendship: string): string | null {
+  return useSyncExternalStore(subscribe, () => bindings[friendship] ?? null);
+}
