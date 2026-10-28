@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { act, Profiler, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { AppConfig } from "../../lib/types";
 import { pipelineContractGolden } from "../Automation/blueprintContract.testdata";
 import { FixtureTransport } from "../Automation/fixtures.testdata";
 import { viewerPipeline } from "../Automation/blueprintViewer.testdata";
@@ -94,16 +93,17 @@ async function main() {
   }
   try {
     await deletedBlueprint();
-    const settings = () => <SettingsPanel config={{} as AppConfig} onUpdateConfig={async () => undefined} onClose={() => undefined} />;
+    const { defaultConfig } = await import("../../hooks/useConfig");
+    const settings = () => <SettingsPanel config={defaultConfig()} onUpdateConfig={async () => undefined} onClose={() => undefined} />;
     let panel = await mount(settings());
-    const privacy = [...panel.host.querySelectorAll("button")].find((button) => button.textContent?.includes("Privacy"));
-    assert.ok(privacy);
-    await act(async () => privacy.click());
+    const general = [...panel.host.querySelectorAll("button")].find((button) => button.textContent?.includes("General"));
+    assert.ok(general);
+    await act(async () => general.click());
     assert.equal(panel.host.querySelector('[role="dialog"]')?.getAttribute("aria-labelledby"), "codeterm-settings-title");
     await panel.close();
     panel = await mount(settings());
-    assert.equal(panel.host.querySelector("#codeterm-settings-title")?.textContent, "Privacy");
-    assert.ok(panel.host.querySelector('[role="switch"][aria-label="Share product analytics"]'));
+    assert.equal(panel.host.querySelector("#codeterm-settings-title")?.textContent, "General");
+    assert.equal(panel.host.querySelector('[role="switch"]')?.getAttribute("aria-label"), "Share product analytics");
     await panel.close();
     console.log("navigationReload: Settings section restored");
 

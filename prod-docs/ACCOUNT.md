@@ -34,11 +34,11 @@ Encrypted channels between accounts are managed in General > Neighbors and throu
 
 ## Product analytics
 
-Product analytics is off by default. Settings > Privacy or `domios analytics status|enable|disable` records opt-in consent. Turning it off clears queued events and installation/account identifiers. If the analytics service is unavailable, the app holds the queue; analytics status reports `vendor_available=false`. Delivery follows the consent gate, the closed product event catalog below, and a bounded retry policy.
+Desktop product analytics is on by default only when local settings are absent. The single toggle at the top of Settings > General, or `domios analytics status|enable|disable`, controls only desktop-originated events to Amplitude. OFF stops local delivery, clears queued events and analytics identifiers, and persists across restarts. No account, network, server consent update or withdrawal retry is needed. Server-side funnel events such as payment, trial and churn are independent of this local setting. Analytics never shows a dialog, banner or toast. The first-run screen shows "Product analytics is on. Turn off in Settings." only when local status is ON; Settings links to General, and returning after OFF hides the line.
 
-Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Sign-out removes it from subsequent events; events already queued keep the identity that owned them. Sign-in while analytics is off does not persist an analytics account ID. Opting in while signed in attaches the current account ID. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
+Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Account identity is attached locally; the desktop sends no server identity-linking calls. Sign-out removes the UID from subsequent events; queued events retain the identity that owned them. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
 
-Prompts, messages, terminal output, paths, workspace or tab names, email addresses, display names, session IDs, peer identities, credentials and arbitrary plugin model or provider names are never included. Custom providers become `other`; models are never collected. No emitter can bypass the consent gate: consent off prevents queueing and analytics network delivery, clears queued events and analytics identifiers, and a later opt-in creates a new random installation ID. Settings > Privacy > What we collect shows the same closed catalog.
+Prompts, messages, terminal output, paths, workspace or tab names, email addresses, display names, session IDs, peer identities, credentials and arbitrary plugin model or provider names are never included. Custom providers become `other`; models are never collected. No emitter can bypass the consent gate: consent off prevents queueing and analytics network delivery, clears queued events and analytics identifiers, and a later opt-in creates a new random installation ID. The closed catalog is listed below.
 
 Managed app updates report only their kind after the requested app version is running. Frontend updates report only their kind after enrolled clients prove health and activation is saved. Plan creation follows successful persistence. Pairing and workspace creation carry the saved post-change counts. Checkout follows a successful browser open; subscription changes follow authoritative entitlement refresh, with unchanged plan/status and failed refreshes suppressed.
 
@@ -68,6 +68,15 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 | `plan_created` | None |
 | `active_day` | `mesh_machines`: u32, `workspaces`: u32 |
 | `feature_used` | `feature`: Feature |
+| `limit_reached_shown` | `resource`: Resource |
+| `upgrade_clicked` | `source`: UpgradeSource |
+| `checkout_opened` | `outcome`: CheckoutOutcome |
+| `checkout_returned` | `outcome`: CheckoutOutcome |
+| `friend_added` | `count`: u32 |
+| `neighbor_message_sent` | `count`: u32 |
+| `file_shared` | `count`: u32 |
+| `read_receipt_shown` | `count`: u32 |
+| `settings_viewed` | `section`: SettingsSection |
 
 - **Platform:** `macos`, `windows`, `linux`
 - **AuthProvider:** `local`, `fake`, `firebase`
@@ -76,6 +85,10 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 - **Role:** `general`, `orchestrator`, `planner`, `worker`, `manager`, `supporter`, `none`, `other`
 - **UpdateKind:** `app`, `frontend`
 - **Feature:** `dreaming_run`, `cron_created`, `blueprint_created`, `theme_changed`, `telegram_bridge_used`, `voice_input_used`, `plugin_installed`, `team_created`, `memory_saved`, `web_ui_opened`
+- **Resource:** `workspaces`, `teams`, `agent_tabs`, `mesh_machines`, `memory_items`, `neighbors`
+- **UpgradeSource:** `limit_dialog`, `account_settings`
+- **CheckoutOutcome:** `opened`, `returned`, `failed`
+- **SettingsSection:** `root`, `account`, `privacy`, `general`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
 - **ProviderId:** `claude`, `codex`, `cursor`, `opencode`, `other`
 <!-- analytics-catalog:end -->
 
@@ -104,4 +117,4 @@ Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, l
 
 Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
 
-<!-- revision: 19 -->
+<!-- revision: 22 -->

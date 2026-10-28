@@ -1,5 +1,4 @@
 import {
-  Shield,
   UserRound,
   Sliders,
   Bell,
@@ -15,7 +14,6 @@ import type { HelpSettingsTarget } from "../../help/types";
 
 export type SectionId =
   | "account"
-  | "privacy"
   | "general"
   | "notifications"
   | "agents"
@@ -35,7 +33,6 @@ export interface SettingsSection {
 // (secrets lives in the Extensions surface but still needs a breadcrumb icon).
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   account: UserRound,
-  privacy: Shield,
   general: Sliders,
   notifications: Bell,
   agents: Bot,
@@ -52,7 +49,6 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "general", label: "General", desc: "Theme, fonts, messengers, keybindings", icon: SECTION_ICONS.general },
   { id: "notifications", label: "Notifications", desc: "The bell, desktop alerts, sound, and where each level may go", icon: SECTION_ICONS.notifications },
   { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-provider config", icon: SECTION_ICONS.agents },
-  { id: "privacy", label: "Privacy", desc: "Optional product analytics", icon: SECTION_ICONS.privacy },
   { id: "jobs", label: "Jobs", desc: "Crons and Blueprints on this machine", icon: SECTION_ICONS.jobs },
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped", icon: SECTION_ICONS.logs },
   { id: "guide", label: "Guide", desc: "What Domios is and how to work with it", icon: SECTION_ICONS.guide },

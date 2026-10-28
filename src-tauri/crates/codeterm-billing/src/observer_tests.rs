@@ -1,6 +1,38 @@
 use super::*;
 
 #[tokio::test]
+async fn checkout_return_counts_once_on_focus_and_excludes_the_customer_portal() {
+    let events = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let recorded = events.clone();
+    let billing = Billing::new(Arc::new(adapters::fake::Fake::default()))
+        .with_observer(Arc::new(move |event| recorded.lock().push(event)));
+    let user = session("fixture-user");
+    billing.browser_opened(&user);
+    billing
+        .refresh(Some(&user), RefreshEvent::Focus, Instant::now())
+        .await;
+    assert!(!events
+        .lock()
+        .iter()
+        .any(|event| matches!(event, ProductEvent::CheckoutReturned)));
+    billing.checkout_browser_opened(&user, Plan::Pro);
+    billing
+        .refresh(Some(&user), RefreshEvent::Focus, Instant::now())
+        .await;
+    billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
+        .await;
+    assert_eq!(
+        events
+            .lock()
+            .iter()
+            .filter(|event| matches!(event, ProductEvent::CheckoutReturned))
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn subscription_observer_uses_verified_plan_and_deduplicates_unsigned_changes() {
     let events = Arc::new(parking_lot::Mutex::new(Vec::new()));
     let recorded = events.clone();
