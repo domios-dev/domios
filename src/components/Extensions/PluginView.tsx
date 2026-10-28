@@ -16,6 +16,7 @@ import { usePluginDocument } from "./usePluginDocument";
 import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
+import { surfaceInvalidationMatches } from "../../lib/surfaceInvalidation";
 import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
 
 type ApiCfg = DaemonApiConfig;
@@ -83,6 +84,21 @@ export function PluginView({
     };
   }, [pluginId]);
 
+  useEffect(() => {
+    if (!surface) return;
+    let alive = true;
+    let unlisten: UnlistenFn | undefined;
+    listen<unknown>("surface-state-invalidated", (event) => {
+      if (alive && surfaceInvalidationMatches(event.payload, pluginId, surface)) {
+        iframeRef.current?.contentWindow?.postMessage({ __ctSurfaceStateChanged: true }, "*");
+      }
+    }).then((release) => {
+      if (alive) unlisten = release;
+      else release();
+    }).catch(() => undefined);
+    return () => { alive = false; unlisten?.(); };
+  }, [pluginId, surface?.surfaceId, surface?.instanceId, surface?.tabId]);
+
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
   const documentPath = `${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`;
   const { html, error: documentError } = usePluginDocument(documentPath);
@@ -101,6 +117,7 @@ export function PluginView({
       if (m.__ctReady) {
         win.postMessage({ __ctTheme: themeCss() }, "*");
         win.postMessage({ __ctActive: activeRef.current }, "*");
+        if (surface) win.postMessage({ __ctSurfaceStateChanged: true }, "*");
         return;
       }
       if (m.__ctClose) {
@@ -126,7 +143,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath],
+    [pluginId, cwd, onClose, documentPath, surface],
   );
 
   useEffect(() => {

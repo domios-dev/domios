@@ -185,7 +185,16 @@ impl PluginHostCtx for AnalyticsHost {
         recording_reply(self.recordings.set_enabled(plugin_id, enabled))
     }
     fn surface_call_json(&self, plugin_id: &str, caller: &str, verb: &str, args: &str) -> String {
+        if verb == "view-probe" {
+            return json!({"view_dispatch":{"context":{"surface":"board","instance":"instance-one",
+                "tab":"surface-tab","owner":"owner-tab","actor":caller,"actorLabel":"Visitor"},
+                "verb":verb,"args":serde_json::from_str::<Value>(args).unwrap()}})
+            .to_string();
+        }
         json!({ "result": format!("{plugin_id}|{caller}|{verb}|{args}") }).to_string()
+    }
+    fn surface_invalidate_json(&self, plugin: &str, identity: &str) -> String {
+        json!({"ok":true,"plugin":plugin,"identity":serde_json::from_str::<Value>(identity).unwrap()}).to_string()
     }
 }
 
@@ -282,6 +291,8 @@ fn analytics_host_query_needs_the_analytics_grant_and_keeps_nulls() {
 const SURFACE_PROBE_PLUGIN: &str = r#"module.exports.default = {
     onAgentCommand(ctx) { return JSON.parse(host.surface.call(ctx.verb, JSON.stringify(ctx.args))); },
     outside() { return JSON.parse(host.surface.call("status", "[]")); },
+    onSurfaceCall(context, verb, args) { return JSON.stringify({context:context,verb:verb,args:args}); },
+    invalidate(identity) { return host.surface.invalidate(identity); },
 }"#;
 
 fn surface_probe(surfaces: bool) -> Arc<PluginVm> {
@@ -335,4 +346,52 @@ fn surface_call_needs_the_surfaces_grant() {
         .on_agent_command("tab-7", "status", &[], None)
         .unwrap_err();
     assert_eq!(error, crate::js_runtime::host_surface::SURFACE_DENIED);
+}
+
+#[test]
+fn view_surface_active_vm_dispatch_matches_native_port_context_without_relocking() {
+    use crate::agent_commands::AgentCommandProvider;
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
+    let vm = surface_probe(true);
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let native: Value = serde_json::from_str(&host.surface_call_json(
+        "surface-probe",
+        "tab-7",
+        "view-probe",
+        r#"["opaque-input"]"#,
+    ))
+    .unwrap();
+    let handler = crate::js_runtime::JsAgentCommandHandler::new(vm, "surface-probe", true);
+    let out = handler
+        .on_agent_command("tab-7", "view-probe", &["opaque-input".into()], None)
+        .unwrap();
+    let materialized: Value = serde_json::from_str(&out.result).unwrap();
+    assert_eq!(materialized, native["view_dispatch"]);
+}
+
+#[test]
+fn view_invalidation_uses_sandbox_plugin_identity_without_agent_scope_and_is_bounded() {
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
+    let vm = surface_probe(true);
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let identity = json!({"surface":"board","instance":"instance-one","tab":"surface-tab"});
+    let native: Value =
+        serde_json::from_str(&host.surface_invalidate_json("surface-probe", &identity.to_string()))
+            .unwrap();
+    assert_eq!(
+        call_json::<Value>(&vm, "invalidate", &[identity.clone()]).unwrap(),
+        native
+    );
+    let denied = surface_probe(false);
+    assert!(denied.set_service(Arc::downgrade(&host)));
+    assert_eq!(
+        call_json::<Value>(&denied, "invalidate", &[identity]).unwrap()["error"],
+        crate::js_runtime::host_surface::SURFACE_DENIED
+    );
+    assert!(
+        call_json::<Value>(&vm, "invalidate", &[json!({"tab":"x".repeat(1025)})])
+            .unwrap()
+            .get("error")
+            .is_some()
+    );
 }

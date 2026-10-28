@@ -126,3 +126,39 @@ describe("plugin view activation", () => {
     expect(listeners.has(KPI_RECORDED_EVENT)).toBe(false);
   });
 });
+
+describe("view surface invalidation", () => {
+  it("refreshes only the exact plugin frame instance and unsubscribes on close", async () => {
+    const surface = { surfaceId: "board", instanceId: "one", tabId: "surface-one" };
+    await mount(<PluginView pluginId="studio" api={undefined} surface={surface} />);
+    const frame = host!.querySelector("iframe")!;
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    const emit = listeners.get("surface-state-invalidated")!;
+    const own = { plugin: "studio", surface: "board", instance: "one", tab: "surface-one" };
+    for (const wrong of [{plugin:"other"},{surface:"other"},{instance:"old"},{tab:"other"}]) {
+      await act(async () => emit({payload:{...own,...wrong}}));
+    }
+    expect(post).not.toHaveBeenCalled();
+    await act(async () => emit({payload:own}));
+    expect(post).toHaveBeenCalledWith({__ctSurfaceStateChanged:true}, "*");
+    await act(async () => root!.unmount());
+    root = null;
+    expect(listeners.has("surface-state-invalidated")).toBe(false);
+    post.mockClear();
+    await act(async () => emit({payload:own}));
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("reopened frames ignore the previous instance and catch up on their own readiness", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} surface={{surfaceId:"board",instanceId:"one",tabId:"tab"}} />);
+    await act(async () => root!.render(<PluginView pluginId="studio" api={undefined} surface={{surfaceId:"board",instanceId:"two",tabId:"tab"}} />));
+    const frame = host!.querySelector("iframe")!;
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    await act(async () => listeners.get("surface-state-invalidated")!({payload:{plugin:"studio",surface:"board",instance:"one",tab:"tab"}}));
+    expect(post).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {source:window,data:{__ctReady:true}})));
+    expect(post).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {source:frame.contentWindow,data:{__ctReady:true}})));
+    expect(post).toHaveBeenCalledWith({__ctSurfaceStateChanged:true}, "*");
+  });
+});

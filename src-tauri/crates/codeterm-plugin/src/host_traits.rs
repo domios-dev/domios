@@ -89,7 +89,7 @@ pub trait PluginHostCtx: Send + Sync {
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool;
 
     // ── Surfaces ────────────────────────────────────────────────────────
-    /// Runs one verb on `caller`'s own stream surface of `plugin_id`; `{ result }` or `{ error }`.
+    /// Runs one verb on `caller`'s authorized surface of `plugin_id`; `{ result }` or `{ error }`.
     fn surface_call_json(
         &self,
         _plugin_id: &str,
@@ -97,6 +97,11 @@ pub trait PluginHostCtx: Send + Sync {
         _verb: &str,
         _args_json: &str,
     ) -> String {
+        r#"{"error":"surfaces_unavailable"}"#.to_string()
+    }
+
+    /// Invalidates only a declared view instance owned by this plugin. Identity JSON is bounded.
+    fn surface_invalidate_json(&self, _plugin_id: &str, _identity_json: &str) -> String {
         r#"{"error":"surfaces_unavailable"}"#.to_string()
     }
 
