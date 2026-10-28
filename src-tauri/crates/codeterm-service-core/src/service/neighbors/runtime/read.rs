@@ -62,11 +62,7 @@ impl ServiceContext {
         let paused = self.neighbor_effective_pause(&settings, &friendship) || their_paused;
         let requested = history.request_read_through(&through, enabled, paused);
         let through = history.pending_read_through().unwrap_or(through);
-        let reserved = history.reserve_read_through(
-            &through,
-            enabled,
-            paused,
-        );
+        let reserved = history.reserve_read_through(&through, enabled, paused);
         if !reserved && !requested {
             return Ok(
                 json!({"friendship_id":friendship,"through_message_id":through,"sent":false}),
@@ -79,7 +75,9 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         drop(_guard);
         if !reserved {
-            return Ok(json!({"friendship_id":friendship,"through_message_id":through,"sent":false}));
+            return Ok(
+                json!({"friendship_id":friendship,"through_message_id":through,"sent":false}),
+            );
         }
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
@@ -122,16 +120,36 @@ impl ServiceContext {
         });
     }
 
-    pub(in crate::service::neighbors) async fn commit_neighbor_incoming_ack(&self, metadata: &Metadata, friendship: &str, message: &str, generation: u64) -> codeterm_neighbors::Result<()> {
-        let guard = self.extensions.get_or_init(HistoryCell::default).0.lock().await;
-        self.require_neighbor_history_generation(generation)?;
+    pub(in crate::service::neighbors) async fn commit_neighbor_incoming_ack(
+        &self,
+        metadata: &Metadata,
+        friendship: &str,
+        message: &str,
+        generation: u64,
+    ) -> codeterm_neighbors::Result<()> {
+        let guard = self
+            .extensions
+            .get_or_init(HistoryCell::default)
+            .0
+            .lock()
+            .await;
+        self.require_neighbor_generation(generation)
+            .map_err(|_| Error::Revoked)?;
         let mut history = metadata.history(friendship).await?;
-        if history.ended { return Ok(()); }
+        if history.ended {
+            return Ok(());
+        }
         let changed = history.acknowledge_message(message);
         let pending = history.pending_read_through();
-        if changed { metadata.write(format!("history-{friendship}.json"),history).await?; }
+        if changed {
+            metadata
+                .write(format!("history-{friendship}.json"), history)
+                .await?;
+        }
         drop(guard);
-        if let Some(through) = pending { self.queue_neighbor_read(friendship,through,generation); }
+        if let Some(through) = pending {
+            self.queue_neighbor_read(friendship, through, generation);
+        }
         Ok(())
     }
 }

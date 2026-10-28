@@ -24,7 +24,9 @@ fn durable_neighbor_provenance_reaches_restored_drain_submit_without_attachments
     let reservation = store
         .reserve(
             authority,
-            Some(format!("runtime-envelope:neighbor:opaque_sender_{message_id}")),
+            Some(format!(
+                "runtime-envelope:neighbor:opaque_sender_{message_id}"
+            )),
             || fixture.service.chat_send_ledger.reserve_identity(),
         )
         .unwrap();
