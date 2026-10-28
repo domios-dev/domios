@@ -117,7 +117,7 @@
             },
             {
               "name": "enroll",
-              "about": "Receive Neighbors on this machine; other machines stop receiving",
+              "about": "Receive all friends here (account takeover); use a friend's UI to move only that friend",
               "aliases": [],
               "args": [
                 {

@@ -45,6 +45,7 @@ impl SpawnAgentParams {
             starter_prompt: Default::default(),
             // Neighbor authority is host-owned; callers can never supply it.
             neighbor_authority: None,
+            neighbor_machine_access: None,
             task_id: json_str(params, "task_id"),
             task_launch_authority: None,
             remote_task_binding: None,

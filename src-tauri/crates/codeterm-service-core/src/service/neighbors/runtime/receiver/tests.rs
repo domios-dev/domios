@@ -151,9 +151,14 @@ async fn failed_receiver_watch_keeps_reconnecting_cause_and_visible_exhaustion()
     assert_eq!(service.neighbor_cell().failures.lock()[&friend]["code"], 13);
     {
         let events = observed.lock();
-        assert_eq!(events[0],json!({"receiver_unavailable":true,"friend_receivers_version":1}));
+        assert_eq!(
+            events[0],
+            json!({"receiver_unavailable":true,"friend_receivers_version":1})
+        );
         assert!(!events[1..].is_empty());
-        assert!(events[1..].iter().all(|event| event["status"] == "reconnecting" && !event["error"].is_null()));
+        assert!(events[1..]
+            .iter()
+            .all(|event| event["status"] == "reconnecting" && !event["error"].is_null()));
     }
     service.neighbor_watch_failure(
         "control",

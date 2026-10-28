@@ -94,7 +94,9 @@ impl ServiceContext {
         }
         match self
             .neighbor_operation(owner::Operation::Files {
-                command, caller: caller.map(str::to_owned), nonce: nonce.map(str::to_owned),
+                command,
+                caller: caller.map(str::to_owned),
+                nonce: nonce.map(str::to_owned),
             })
             .await?
         {
@@ -110,7 +112,9 @@ impl ServiceContext {
         generation: u64,
     ) -> Result<Value, String> {
         self.require_neighbor_generation(generation)?;
-        if caller.is_some() { self.require_neighbor_general(caller, nonce)?; }
+        if caller.is_some() {
+            self.require_neighbor_general(caller, nonce)?;
+        }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         self.require_neighbor_generation(generation)?;
         let friendship = command.friendship().to_owned();

@@ -339,7 +339,16 @@ async fn real_history_route_refuses_other_friendships_without_identity_headers()
         tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
         id
     };
-    fixture.seed_neighbor_concierge(&foreign,&"b".repeat(64),serde_json::from_value(serde_json::json!({"allowed":true,"scope":"opaque foreign fixture"})).unwrap()).await;
+    fixture
+        .seed_neighbor_concierge(
+            &foreign,
+            &"b".repeat(64),
+            serde_json::from_value(
+                serde_json::json!({"allowed":true,"scope":"opaque foreign fixture"}),
+            )
+            .unwrap(),
+        )
+        .await;
     let router = crate::routes::create_router(state);
     for (friendship, status) in [
         ("a".repeat(64), StatusCode::OK),

@@ -85,7 +85,7 @@ General Agent only: deny this Neighbor's requests
 
 #### `domios account neighbors enroll`
 
-Receive Neighbors on this machine; other machines stop receiving
+Receive all friends here (account takeover); use a friend's UI to move only that friend
 
 - `--confirm-takeover`
 - `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale

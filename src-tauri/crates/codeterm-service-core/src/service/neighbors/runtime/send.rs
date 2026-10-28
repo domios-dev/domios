@@ -1,5 +1,5 @@
-use super::*;
 use super::authority::SendAuthority;
+use super::*;
 
 impl ServiceContext {
     pub(super) async fn send_neighbor(

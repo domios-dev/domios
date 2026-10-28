@@ -101,7 +101,11 @@ impl ServiceContext {
                     .await
                     .map(Outcome::Value)
             }
-            Operation::Files { command, caller, nonce } => self
+            Operation::Files {
+                command,
+                caller,
+                nonce,
+            } => self
                 .neighbor_files_owned(command, caller.as_deref(), nonce.as_deref(), generation)
                 .await
                 .map(Outcome::Value),

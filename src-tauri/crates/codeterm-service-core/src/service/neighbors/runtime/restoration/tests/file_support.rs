@@ -80,7 +80,7 @@ async fn startup_advertises_files_once_with_the_current_revision_and_no_takeover
     assert_eq!(data["installation_id"], "machine");
     assert_eq!(data["expected_receiver_revision"], 7);
     assert_eq!(data["takeover"], false);
-    assert_eq!(data["features"], json!(["files.v1","receivers.friend.v1"]));
+    assert_eq!(data["features"], json!(["files.v1", "receivers.friend.v1"]));
     assert_eq!(data["public_key_spki_b64"], keys.signing_spki());
     assert_eq!(
         data["encryption_public_key_spki_b64"],
