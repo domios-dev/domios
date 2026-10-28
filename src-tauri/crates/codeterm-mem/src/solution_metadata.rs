@@ -206,53 +206,55 @@ impl MemManager {
         proof: CuratorEvidence,
         now: i64,
     ) -> Result<String, String> {
-        self.guard_commit()?;
-        let conn = self.conn.lock();
-        let tx = conn
-            .unchecked_transaction()
-            .map_err(|error| error.to_string())?;
-        let mut metadata = match improve {
-            Some(id) => read(&tx, id)?.unwrap_or_default(),
-            None => SolutionMetadata::default(),
-        };
-        metadata.content_fingerprint =
-            Some(codeterm_blueprint_types::blueprint_memory::curator::fingerprint(&item.body));
-        metadata.observe_curator(&proof, now);
-        item.body.push_str(&format!(
-            "\n\nCurator evidence: {}{}",
-            proof.episodes.join(" "),
-            if proof.granted {
-                format!(" grant:{}:{}", proof.plan, proof.round)
+        store::with_default_system_author("curator", || {
+            self.guard_commit()?;
+            let conn = self.conn.lock();
+            let tx = conn
+                .unchecked_transaction()
+                .map_err(|error| error.to_string())?;
+            let mut metadata = match improve {
+                Some(id) => read(&tx, id)?.unwrap_or_default(),
+                None => SolutionMetadata::default(),
+            };
+            metadata.content_fingerprint =
+                Some(codeterm_blueprint_types::blueprint_memory::curator::fingerprint(&item.body));
+            metadata.observe_curator(&proof, now);
+            item.body.push_str(&format!(
+                "\n\nCurator evidence: {}{}",
+                proof.episodes.join(" "),
+                if proof.granted {
+                    format!(" grant:{}:{}", proof.plan, proof.round)
+                } else {
+                    String::new()
+                }
+            ));
+            item.tags
+                .retain(|tag| !tag.starts_with("curator:candidate:"));
+            item.tags.extend(["curator".into(), proof.plan]);
+            let id = if let Some(id) = improve {
+                if store::get(&tx, id, &self.blobs_dir)?.is_none() {
+                    return Err("covered skill disappeared".into());
+                }
+                store::update(
+                    &tx,
+                    id,
+                    &store::MemUpdate {
+                        body: Some(item.body),
+                        tags: Some(item.tags),
+                        ..Default::default()
+                    },
+                    &self.blobs_dir,
+                )?;
+                id.to_owned()
             } else {
-                String::new()
-            }
-        ));
-        item.tags
-            .retain(|tag| !tag.starts_with("curator:candidate:"));
-        item.tags.extend(["curator".into(), proof.plan]);
-        let id = if let Some(id) = improve {
-            if store::get(&tx, id, &self.blobs_dir)?.is_none() {
-                return Err("covered skill disappeared".into());
-            }
-            store::update(
-                &tx,
-                id,
-                &store::MemUpdate {
-                    body: Some(item.body),
-                    tags: Some(item.tags),
-                    ..Default::default()
-                },
-                &self.blobs_dir,
-            )?;
-            id.to_owned()
-        } else {
-            store::insert(&tx, &item, &self.blobs_dir)?
-        };
-        write(&tx, &id, &metadata)?;
-        tx.commit().map_err(|error| error.to_string())?;
-        drop(conn);
-        self.refresh_embedding(&id);
-        Ok(id)
+                store::insert(&tx, &item, &self.blobs_dir)?
+            };
+            write(&tx, &id, &metadata)?;
+            tx.commit().map_err(|error| error.to_string())?;
+            drop(conn);
+            self.refresh_embedding(&id);
+            Ok(id)
+        })
     }
 }
 

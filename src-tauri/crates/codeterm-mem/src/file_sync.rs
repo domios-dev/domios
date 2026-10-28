@@ -216,7 +216,11 @@ fn sync_one(conn: &Connection, item: &TrackedItem) -> Result<(SyncAction, Option
 
     conn.execute(
         "UPDATE mem_items SET body_inline = ?1, body_blob_path = NULL, \
-         source_size = ?2, source_mtime = ?3, updated_at = ?4 \
+         source_size = ?2, source_mtime = ?3, updated_at = ?4,
+         author_uid = CASE WHEN author_kind='neighbor' THEN author_uid ELSE NULL END,
+         author_friendship = CASE WHEN author_kind='neighbor' THEN author_friendship ELSE NULL END,
+         author_label = CASE WHEN author_kind='neighbor' THEN author_label ELSE 'file-sync' END,
+         author_kind = CASE WHEN author_kind='neighbor' THEN author_kind ELSE 'system' END \
          WHERE id = ?5",
         rusqlite::params![
             &content,
@@ -259,19 +263,7 @@ fn read_tracked_source(path: &Path, size: u64) -> Result<String, String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn file_sync_bounded_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("tracked.txt");
-        std::fs::write(&path, vec![b'x'; TRACKED_SOURCE_READ_LIMIT as usize + 1]).unwrap();
-        let size = std::fs::metadata(&path).unwrap().len();
-        let error = read_tracked_source(&path, size).unwrap_err();
-        assert!(error.contains("4194304"));
-    }
-}
+mod tests;
 
 fn add_tag(conn: &Connection, item_id: &str, tag: &str) -> Result<(), String> {
     let current: String = conn

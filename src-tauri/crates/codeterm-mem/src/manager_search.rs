@@ -1,8 +1,6 @@
 //! Mem search and recall operations.
 
-use super::{
-    embeddings, layers, rerank, search, store, MemManager, SearchHit, SearchQuery, WakeUpOptions,
-};
+use super::{embeddings, rerank, search, store, MemManager, SearchHit, SearchQuery, WakeUpOptions};
 
 impl MemManager {
     /// Hybrid recall: RRF fusion of FTS5 + vector results; FTS-only while the
@@ -17,42 +15,18 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
-        let (embedding, conn) = self.query_under_conn(&q.query);
-        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_ref())
+        self.store.recall(q, cfg, &self.embedder, true)
     }
 
     pub fn vector_recall(&self, query: &str, k: usize) -> Result<Vec<(String, f64)>, String> {
-        let (vector, conn) = self.query_under_conn(query);
-        let vector = vector.ok_or_else(|| "query embedding unavailable".to_string())?;
-        embeddings::recall_vector(&conn, &vector, k)
-    }
-
-    /// Embed outside the connection lock; a publication swaps the model under
-    /// that lock, so one re-embed with the newly published model suffices.
-    fn query_under_conn(
-        &self,
-        text: &str,
-    ) -> (
-        Option<crate::embedder::StampedVector>,
-        parking_lot::MutexGuard<'_, rusqlite::Connection>,
-    ) {
-        let embedding = self.embedder.query(text);
-        let conn = self.conn.lock();
-        if embedding
-            .as_ref()
-            .is_none_or(|vector| vector.identity == self.embedder.identity())
-        {
-            return (embedding, conn);
-        }
-        drop(conn);
-        let embedding = self.embedder.query(text);
-        (embedding, self.conn.lock())
+        self.store.vector_recall(query, k, &self.embedder)
     }
 
     /// Embed outside the connection lock, then store under it.
     pub fn index_embedding(&self, id: &str, body: &str) -> Result<(), String> {
         let vectors = self.embedder.passages(&embeddings::chunk_text(body));
-        embeddings::store_vectors(&self.conn.lock(), id, vectors)
+        self.store
+            .store_vectors(&Self::write_context(), id, vectors)
     }
 
     pub(crate) fn reembed_item_targets(
@@ -138,8 +112,7 @@ impl MemManager {
     }
 
     pub fn search(&self, q: &SearchQuery) -> Result<Vec<SearchHit>, String> {
-        let conn = self.conn.lock();
-        search::run(&conn, q, &self.blobs_dir)
+        self.store.search(q, true)
     }
 
     pub fn search_with_rerank(
@@ -156,9 +129,7 @@ impl MemManager {
         q: &SearchQuery,
         cfg: &search::SearchConfig,
     ) -> Result<Vec<SearchHit>, String> {
-        let (embedding, conn) = self.query_under_conn(&q.query);
-        let _read = UntouchedRead::begin(&conn)?;
-        search::hybrid_rrf_with_embedding(&conn, q, &self.blobs_dir, cfg, embedding.as_ref())
+        self.store.recall(q, cfg, &self.embedder, false)
     }
 
     /// `search_with_rerank` that records no access for its overfetched candidates.
@@ -178,13 +149,7 @@ impl MemManager {
     ) -> Result<Vec<SearchHit>, String> {
         let mut overfetch = q.clone();
         overfetch.limit = Some(q.limit.unwrap_or(5).max(20));
-        let candidates = {
-            let conn = self.conn.lock();
-            let _read = (!record_access)
-                .then(|| UntouchedRead::begin(&conn))
-                .transpose()?;
-            search::run(&conn, &overfetch, &self.blobs_dir)?
-        };
+        let candidates = self.store.search(&overfetch, record_access)?;
         let reranker = rerank::build(rerank_cfg);
         Ok(reranker.rerank(&q.query, candidates, q.limit.unwrap_or(5)))
     }
@@ -195,44 +160,21 @@ impl MemManager {
         q: &SearchQuery,
         m: usize,
     ) -> Result<Vec<SearchHit>, String> {
-        let conn = self.conn.lock();
-        let _read = UntouchedRead::begin(&conn)?;
-        let mut hits = Vec::new();
-        for id in search::graph_source::graph_candidates(&conn, q, m)? {
-            if let Some(item) = store::get(&conn, &id, &self.blobs_dir)? {
-                hits.push(SearchHit { item, score: 0.0 });
-            }
-        }
-        Ok(hits)
+        self.store.graph_candidates(q, m)
     }
 
     /// Record one access per distinct id, exactly as one hydrating read would.
     pub fn record_access(&self, ids: &[String]) -> Result<(), String> {
-        let conn = self.conn.lock();
-        let now = chrono::Utc::now().to_rfc3339();
-        let mut seen = std::collections::HashSet::new();
-        for id in ids.iter().filter(|id| seen.insert(id.as_str())) {
-            store::touch_access(&conn, id, &now).map_err(|e| format!("record access: {e}"))?;
-        }
-        Ok(())
+        self.store.record_access(&Self::write_context(), ids)
     }
 
     /// Read-only access counter; `get` would itself count as an access.
     pub fn access_count(&self, id: &str) -> Result<Option<i64>, String> {
-        use rusqlite::OptionalExtension;
-        let conn = self.conn.lock();
-        conn.query_row(
-            "SELECT access_count FROM mem_items WHERE id = ?1",
-            [id],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|e| format!("read access_count: {e}"))
+        self.store.access_count(id)
     }
 
     pub fn wake_up(&self, opts: &WakeUpOptions) -> Result<String, String> {
-        let conn = self.conn.lock();
-        layers::generate(&conn, opts, &self.blobs_dir)
+        self.store.wake_up(opts)
     }
 }
 
