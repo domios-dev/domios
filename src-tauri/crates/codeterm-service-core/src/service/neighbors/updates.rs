@@ -1,6 +1,6 @@
 mod delivery;
-mod read;
 mod notifications;
+mod read;
 #[cfg(test)]
 mod tests;
 
@@ -309,7 +309,8 @@ async fn run(
                 let Some(catch_up) = revisions.observe(signal.revision) else {
                     continue;
                 };
-                if catch_up || signal.delivery.is_none() && signal.read.is_none() && !signal.ignored {
+                if catch_up || signal.delivery.is_none() && signal.read.is_none() && !signal.ignored
+                {
                     session.refresh(&signal, &mut seen).await?;
                 }
                 session.delivery(&signal, catch_up).await?;

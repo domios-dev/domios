@@ -71,10 +71,15 @@ fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {
     assert_eq!(events[0]["stage"], "agent_ready");
     assert_eq!(events[0]["agent_booting"], false);
     assert_eq!(events[0]["session_bound"], true);
-    assert_eq!(tab.agent_runtime_config.as_ref().unwrap()["unusedThreadId"], "thread");
+    assert_eq!(
+        tab.agent_runtime_config.as_ref().unwrap()["unusedThreadId"],
+        "thread"
+    );
     assert_eq!(tab.agent_session_id.as_deref(), Some("thread"));
     let mut rejected_events = 0;
-    assert!(commit_runtime_binding(tab, "stale", "thread", true, |_| rejected_events += 1).is_err());
+    assert!(
+        commit_runtime_binding(tab, "stale", "thread", true, |_| rejected_events += 1).is_err()
+    );
     assert_eq!(rejected_events, 0);
 }
 

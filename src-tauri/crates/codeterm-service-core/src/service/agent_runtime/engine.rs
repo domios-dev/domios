@@ -688,7 +688,12 @@ async fn ensure_locked(
         context.thread_id = Some(thread_id.clone());
         context.settings = settings;
     }
-    bind(svc, session, &thread_id, context.thread_id.is_none() && fork.is_none())?;
+    bind(
+        svc,
+        session,
+        &thread_id,
+        context.thread_id.is_none() && fork.is_none(),
+    )?;
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
@@ -863,7 +868,12 @@ fn validate_binding_inner(
         Err(RuntimeFailure::Superseded)
     }
 }
-fn bind(svc: &ServiceContext, session: &Session, thread: &str, fresh: bool) -> Result<(), RuntimeFailure> {
+fn bind(
+    svc: &ServiceContext,
+    session: &Session,
+    thread: &str,
+    fresh: bool,
+) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
     let mut mux = svc.mux.write();
     let tab = mux
@@ -897,7 +907,9 @@ fn commit_runtime_binding(
     tab.agent_session_id = Some(thread.into());
     tab.reported_session_binding_nonce = Some(nonce.into());
     if fresh {
-        let config = tab.agent_runtime_config.get_or_insert_with(|| serde_json::json!({}));
+        let config = tab
+            .agent_runtime_config
+            .get_or_insert_with(|| serde_json::json!({}));
         config["unusedThreadId"] = Value::String(thread.into());
     }
     tab.agent_booting = false;

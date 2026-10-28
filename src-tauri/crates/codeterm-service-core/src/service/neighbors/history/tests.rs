@@ -3,6 +3,9 @@ use crate::{multiplexer::state::MultiplexerState, service::test_fixture::Service
 
 fn entry(id: usize, direction: &str, kind: Kind, reply: Option<String>) -> Entry {
     Entry {
+        received_by: None,
+        flags: Vec::new(),
+        flag_callers: Vec::new(),
         handling: Default::default(),
         direction: direction.into(),
         author: Author::Person(if direction == "in" { "friend" } else { "me" }.into()),

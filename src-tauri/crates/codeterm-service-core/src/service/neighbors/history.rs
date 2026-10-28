@@ -20,8 +20,21 @@ pub(super) enum Author {
     Agent { agent: String, name: String },
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(super) struct ReceivedBy {
+    pub tab_id: String,
+    pub session_id: String,
+    pub binding_nonce: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Entry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received_by: Option<ReceivedBy>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<super::flags::MessageFlag>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flag_callers: Vec<String>,
     #[serde(default, flatten)]
     pub handling: handling::Handling,
     pub direction: String,
@@ -166,10 +179,14 @@ impl History {
         let entries: Vec<_> = self.entries[start..end]
             .iter()
             .rev()
-            .filter_map(|entry| {
-                let mut value = serde_json::to_value(entry).ok()?;
-                value.as_object_mut()?.remove("handling_owner");
-                Some(value)
+            .map(|entry| {
+                let mut value = json!(entry);
+                if let Some(object) = value.as_object_mut() {
+                    object.remove("received_by");
+                    object.remove("flag_callers");
+                    object.remove("handling_owner");
+                }
+                value
             })
             .collect();
         let next = (start > 0).then(|| self.entries[start].message_id.clone());
@@ -224,6 +241,23 @@ impl Metadata {
             .map_err(|_| Error::CursorStore)
     }
 
+    pub(super) async fn incoming_received_by(
+        &self,
+        friendship: &str,
+        message_id: &str,
+    ) -> Result<Option<ReceivedBy>> {
+        if !hex_id(message_id, 32) {
+            return Err(Error::InvalidEnvelope);
+        }
+        Ok(self
+            .history(friendship)
+            .await?
+            .entries
+            .into_iter()
+            .find(|entry| entry.direction == "in" && entry.message_id == message_id)
+            .and_then(|entry| entry.received_by))
+    }
+
     pub(super) async fn has_incoming(&self, friendship: &str, message_id: &str) -> Result<bool> {
         Ok(self
             .history(friendship)
@@ -238,6 +272,52 @@ impl Metadata {
 pub(crate) struct HistoryCell(pub(super) tokio::sync::Mutex<()>);
 
 impl ServiceContext {
+    pub(super) async fn stamp_neighbor_received_by(
+        &self,
+        metadata: &Metadata,
+        friendship: &str,
+        message_id: &str,
+        received_by: ReceivedBy,
+        generation: u64,
+    ) -> Result<()> {
+        let _guard = self
+            .extensions
+            .get_or_init(HistoryCell::default)
+            .0
+            .lock()
+            .await;
+        self.require_neighbor_history_generation(generation)?;
+        let mut history = metadata.history(friendship).await?;
+        let entry = history
+            .entries
+            .iter_mut()
+            .find(|entry| entry.direction == "in" && entry.message_id == message_id)
+            .ok_or(Error::InvalidEnvelope)?;
+        if let Some(previous) = &entry.received_by {
+            return if previous == &received_by {
+                Ok(())
+            } else {
+                Err(Error::Gateway)
+            };
+        }
+        {
+            let mux = self.mux.read();
+            let current = mux.get_tab(&received_by.tab_id).ok_or(Error::Gateway)?;
+            if !current.launch_session_authenticated()
+                || current.agent_session_id.as_deref() != Some(received_by.session_id.as_str())
+                || current.session_binding_nonce.as_deref()
+                    != Some(received_by.binding_nonce.as_str())
+            {
+                return Err(Error::Gateway);
+            }
+        }
+        entry.received_by = Some(received_by);
+        self.require_neighbor_history_generation(generation)?;
+        metadata
+            .write(format!("history-{friendship}.json"), history)
+            .await
+    }
+
     pub(super) async fn refresh_active_neighbor_history(
         &self,
         metadata: &Metadata,
@@ -396,7 +476,8 @@ impl ServiceContext {
             return Ok(());
         };
         let accepted_retry = entry.submission == Some(Submission::Refused)
-            && (receipt.submission == Some(Submission::Accepted) || receipt.delivery.read_at.is_some());
+            && (receipt.submission == Some(Submission::Accepted)
+                || receipt.delivery.read_at.is_some());
         let status = match (entry.delivery_status, receipt.delivery.status) {
             (Some(DeliveryStatus::Delivered), _) => DeliveryStatus::Delivered,
             (Some(DeliveryStatus::NotDelivered), DeliveryStatus::Pending) if !accepted_retry => {
@@ -404,8 +485,13 @@ impl ServiceContext {
             }
             (_, status) => status,
         };
-        let status = if receipt.delivery.read_at.is_some() { DeliveryStatus::Delivered } else { status };
-        let timestamps_changed = receipt.delivery.delivered_at.is_some() && entry.delivered_at.is_none()
+        let status = if receipt.delivery.read_at.is_some() {
+            DeliveryStatus::Delivered
+        } else {
+            status
+        };
+        let timestamps_changed = receipt.delivery.delivered_at.is_some()
+            && entry.delivered_at.is_none()
             || receipt.delivery.read_at.is_some() && entry.read_at.is_none();
         if entry.delivery_status == Some(status)
             && !timestamps_changed
@@ -418,8 +504,12 @@ impl ServiceContext {
             return Ok(());
         }
         entry.delivery_status = Some(status);
-        if entry.delivered_at.is_none() { entry.delivered_at = receipt.delivery.delivered_at.or(receipt.delivery.read_at); }
-        if entry.read_at.is_none() { entry.read_at = receipt.delivery.read_at; }
+        if entry.delivered_at.is_none() {
+            entry.delivered_at = receipt.delivery.delivered_at.or(receipt.delivery.read_at);
+        }
+        if entry.read_at.is_none() {
+            entry.read_at = receipt.delivery.read_at;
+        }
         if accepted_retry {
             entry.reason = None;
             entry.limit = None;
@@ -457,7 +547,9 @@ impl ServiceContext {
             .write(format!("history-{friendship}.json"), history)
             .await?;
         self.remember_neighbor_handling(friendship, handling, generation);
-        if let Some(through) = read_through { self.queue_neighbor_read(friendship, through, generation); }
+        if let Some(through) = read_through {
+            self.queue_neighbor_read(friendship, through, generation);
+        }
         self.ui.emit(
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),

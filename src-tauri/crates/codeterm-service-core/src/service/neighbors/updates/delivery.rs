@@ -48,7 +48,10 @@ impl Metadata {
             {
                 if entry.direction == "out"
                     && entry.sender_uid == uid
-                    && matches!(entry.delivery_status, Some(DeliveryStatus::Pending | DeliveryStatus::Delivered))
+                    && matches!(
+                        entry.delivery_status,
+                        Some(DeliveryStatus::Pending | DeliveryStatus::Delivered)
+                    )
                     && entry.read_at.is_none()
                     && codeterm_neighbors::wire::hex_id(&entry.message_id, 32)
                 {
@@ -89,8 +92,12 @@ impl ServiceContext {
             metadata,
             &signal.message_id,
             HistoryReceipt {
-                delivery: codeterm_neighbors::wire::DeliveryResult { status: signal.status, reason: None,
-                    delivered_at: (signal.status == DeliveryStatus::Delivered).then_some(signal.at), read_at: None },
+                delivery: codeterm_neighbors::wire::DeliveryResult {
+                    status: signal.status,
+                    reason: None,
+                    delivered_at: (signal.status == DeliveryStatus::Delivered).then_some(signal.at),
+                    read_at: None,
+                },
                 rejection: None,
                 submission: Some(Submission::Accepted),
             },
@@ -119,7 +126,11 @@ impl Session {
                 .await?;
         }
         if let Some(read) = &signal.read {
-            if !self.service.apply_neighbor_read_signal(&self.metadata, &self.transport.uid, read, generation).await? {
+            if !self
+                .service
+                .apply_neighbor_read_signal(&self.metadata, &self.transport.uid, read, generation)
+                .await?
+            {
                 catch_up = true;
             }
         }
