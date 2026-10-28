@@ -12,6 +12,13 @@ fn authored(path: &str) -> Zeroizing<String> {
 pub(super) fn handle(json_mode: bool, action: NeighborAction) {
     let listing = matches!(action, NeighborAction::List);
     let command = match action {
+        NeighborAction::Flag {
+            message_id,
+            friendship,
+            category,
+            reason,
+        } => flag_command(message_id, friendship, category, reason)
+            .unwrap_or_else(|error| fail(1, error)),
         NeighborAction::List => json!({"operation":"list"}),
         NeighborAction::Status => json!({"operation":"status"}),
         NeighborAction::Enroll {
@@ -80,6 +87,23 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
     } else {
         print_human(&result);
     }
+}
+
+fn flag_command(
+    message_id: String,
+    friendship: String,
+    category: String,
+    reason: String,
+) -> Result<Value, String> {
+    if reason.trim().is_empty()
+        || reason.chars().count() > 280
+        || reason.chars().any(char::is_control)
+    {
+        return Err("Flag reason must be a short summary of 1 through 280 characters without message text or secrets".into());
+    }
+    Ok(
+        json!({"operation":"flag_message","message_id":message_id,"friendship_id":friendship,"category":category,"reason":reason}),
+    )
 }
 
 fn render_list(result: &Value) -> String {

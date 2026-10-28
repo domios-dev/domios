@@ -43,6 +43,9 @@ pub(super) fn incoming(
     let mut handling = super::history::handling::Handling::default();
     handling.set(State::Waiting, reason, now());
     super::history::Entry {
+        received_by: None,
+        flags: Vec::new(),
+        flag_callers: Vec::new(),
         handling,
         direction: "in".into(),
         author: super::history::Author::Person("friend".into()),

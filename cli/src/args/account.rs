@@ -22,6 +22,17 @@ pub enum AccountAction {
 
 #[derive(Subcommand)]
 pub enum NeighborAction {
+    /// Locally flag a suspicious incoming message for the owner without replying
+    Flag {
+        message_id: String,
+        #[arg(long)]
+        friendship: String,
+        #[arg(long, value_parser = ["suspicious_instructions", "private_data_request", "malicious_link", "spam", "other"])]
+        category: String,
+        /// Short explanation without message text or secrets (at most 280 characters)
+        #[arg(long)]
+        reason: String,
+    },
     /// List friendships, local scopes and pending incoming/outgoing requests
     List,
     /// Show local channel enrollment and gateway bindings

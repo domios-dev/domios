@@ -759,3 +759,38 @@ async fn refusal_preflight_errors_report_nothing_sent_and_keep_byte_counts() {
         }
     }
 }
+
+#[tokio::test]
+async fn neighbor_flags_have_a_typed_local_api_contract_without_body_fields() {
+    use codeterm_service_core::service::neighbors::{FlagCategory, NeighborRuntimeCommand};
+    let request = serde_json::json!({"operation":"flag_message","friendship_id":"a".repeat(64),"message_id":"1".repeat(32),"category":"spam","reason":"Unsolicited repetition"});
+    let command: NeighborRuntimeCommand = serde_json::from_value(request.clone()).unwrap();
+    assert!(matches!(
+        command,
+        NeighborRuntimeCommand::FlagMessage {
+            category: FlagCategory::Spam,
+            ..
+        }
+    ));
+    let mut invalid = request.clone();
+    invalid["body"] = serde_json::json!("private content");
+    assert!(serde_json::from_value::<NeighborRuntimeCommand>(invalid).is_err());
+    let mut invalid = request;
+    invalid["category"] = serde_json::json!("unknown");
+    assert!(serde_json::from_value::<NeighborRuntimeCommand>(invalid).is_err());
+    for (reason, status) in [
+        ("invalid_flag", StatusCode::BAD_REQUEST),
+        ("neighbor_flag_limit", StatusCode::CONFLICT),
+        ("neighbor_forbidden", StatusCode::FORBIDDEN),
+    ] {
+        let response = neighbor_failure(format!("{reason}: Local flag refused"));
+        assert_eq!(response.status(), status);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes).unwrap()["reason"],
+            reason
+        );
+    }
+}
