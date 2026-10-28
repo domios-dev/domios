@@ -8,6 +8,7 @@ use super::MemStats;
 pub(super) const INLINE_BODY_LIMIT: usize = 2048;
 
 pub mod area_merge;
+mod author;
 mod blob;
 mod crud;
 mod pinned;
@@ -17,27 +18,16 @@ mod schema;
 #[cfg(test)]
 mod tests;
 
+pub use author::*;
 pub use crud::*;
 pub use pinned::*;
 pub use query::*;
 pub use schema::init_schema;
 
-// Use a thread-local actor label so callers don't pass `changed_by` on every mutation.
-// REST handlers, workers, and dreaming wrap store calls in `with_changed_by`; default is `"user"`.
-
 thread_local! {
     static CHANGED_BY: std::cell::RefCell<String> = std::cell::RefCell::new(String::from("user"));
 }
 
-/// Run `f` with the given actor label installed as the current thread-local
-/// `changed_by`. The previous label is restored when the closure returns.
-///
-/// Callers:
-/// - REST handlers pass `"user"` (default — no guard needed for plain user
-///   requests, but a worker-bearing request overrides it).
-/// - Extraction workers pass `"worker:extract"`.
-/// - Dreaming passes `"dreaming:rem"`.
-/// - Agents may pass `"agent:<id>"`.
 pub fn with_changed_by<F, R>(label: &str, f: F) -> R
 where
     F: FnOnce() -> R,
@@ -83,6 +73,7 @@ pub fn current_write_worker() -> Option<String> {
 /// `None` when not applicable (e.g. `old_*` on create, `new_*` on delete).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
+    pub author: MemAuthor,
     pub id: i64,
     pub item_id: String,
     pub changed_at: String,
@@ -129,14 +120,15 @@ pub fn history_log(
     new: &HistorySnapshot,
     reason: Option<&str>,
 ) {
+    let author = current_author();
     let changed_by = current_changed_by();
     let now = chrono::Utc::now().to_rfc3339();
     let res = conn.execute(
         r#"INSERT INTO mem_item_history
            (item_id, changed_at, changed_by, change_type,
             old_title, new_title, old_body, new_body,
-            old_importance, new_importance, old_kind, new_kind, reason)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"#,
+            old_importance, new_importance, old_kind, new_kind, reason, author_kind, author_uid, author_friendship, author_label)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)"#,
         params![
             item_id,
             &now,
@@ -151,6 +143,7 @@ pub fn history_log(
             &old.kind,
             &new.kind,
             reason,
+            author.kind.as_str(), author.account_uid, author.friendship_id, author.label,
         ],
     );
     if let Err(e) = res {
@@ -164,7 +157,8 @@ pub fn get_item_history(conn: &Connection, item_id: &str) -> Result<Vec<HistoryE
         .prepare(
             r#"SELECT id, item_id, changed_at, changed_by, change_type,
                       old_title, new_title, old_body, new_body,
-                      old_importance, new_importance, old_kind, new_kind, reason
+                      old_importance, new_importance, old_kind, new_kind, reason,
+                      author_kind, author_uid, author_friendship, author_label
                FROM mem_item_history
                WHERE item_id = ?1
                ORDER BY changed_at ASC, id ASC"#,
@@ -173,6 +167,7 @@ pub fn get_item_history(conn: &Connection, item_id: &str) -> Result<Vec<HistoryE
     let rows = stmt
         .query_map(params![item_id], |r| {
             Ok(HistoryEntry {
+                author: MemAuthor::from_row(r, 14)?,
                 id: r.get(0)?,
                 item_id: r.get(1)?,
                 changed_at: r.get(2)?,
@@ -331,6 +326,7 @@ pub struct NewMemItem {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemItem {
+    pub author: MemAuthor,
     pub id: String,
     pub uid: String,
     pub kind: String,

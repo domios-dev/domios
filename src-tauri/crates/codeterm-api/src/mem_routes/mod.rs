@@ -111,3 +111,19 @@ pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem
         serde_json::to_value(&event).unwrap_or(serde_json::Value::Null),
     );
 }
+
+pub(super) fn memory_author(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<codeterm_service_core::mem::store::MemAuthor, (axum::http::StatusCode, String)> {
+    let caller = crate::auth::tab_caller(state, headers)?;
+    Ok(
+        codeterm_service_core::mem_ops::author::mem_author_for_caller(
+            &state.svc,
+            caller.as_ref().map(|c| c.tab_id.as_str()),
+        ),
+    )
+}
+
+#[cfg(test)]
+mod tests;

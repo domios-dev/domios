@@ -156,6 +156,19 @@ pub fn run_merge(
         .ok_or_else(|| MergeError::NotFound(format!("mem item {} not found", req.lesser)))?;
     let keeper = item_row(conn, req.keeper)?
         .ok_or_else(|| MergeError::NotFound(format!("mem item {} not found", req.keeper)))?;
+    let lesser_author = store::item_author(conn, req.lesser)
+        .map_err(MergeError::Internal)?
+        .ok_or_else(|| MergeError::NotFound(req.lesser.into()))?;
+    let keeper_author = store::item_author(conn, req.keeper)
+        .map_err(MergeError::Internal)?
+        .ok_or_else(|| MergeError::NotFound(req.keeper.into()))?;
+    let merged_author = if lesser_author.is_neighbor() {
+        lesser_author
+    } else {
+        keeper_author
+    };
+    store::guard_instruction(&merged_author, &keeper.kind, keeper.pinned)
+        .map_err(MergeError::Refused)?;
     if lesser.pinned {
         return Err(MergeError::Refused(format!(
             "{} is pinned; a pinned item is never merged away",
@@ -191,6 +204,7 @@ pub fn run_merge(
     conn.execute_batch("BEGIN")
         .map_err(|e| MergeError::Internal(e.to_string()))?;
     let applied = (|| -> Result<bool, String> {
+        let prior_keeper_author = store::item_author(conn, req.keeper)?.ok_or("keeper missing")?;
         let body_updated = match req.body {
             Some(body) => with_changed_by(actor, || {
                 let patch = MemUpdate {
@@ -201,6 +215,22 @@ pub fn run_merge(
             })?,
             None => false,
         };
+        if merged_author.is_neighbor() {
+            conn.execute("UPDATE mem_items SET author_kind=?2,author_uid=?3,author_friendship=?4,author_label=?5 WHERE id=?1",
+                params![req.keeper, merged_author.kind.as_str(), merged_author.account_uid, merged_author.friendship_id, merged_author.label]).map_err(|e| e.to_string())?;
+            if !body_updated && prior_keeper_author != merged_author {
+                store::with_author(prior_keeper_author, || {
+                    store::history_log(
+                        conn,
+                        req.keeper,
+                        "update",
+                        &Default::default(),
+                        &Default::default(),
+                        Some("fields=author"),
+                    )
+                });
+            }
+        }
         let reason = format!("{relation} {from} -> {to}");
         archive_item(
             conn,
