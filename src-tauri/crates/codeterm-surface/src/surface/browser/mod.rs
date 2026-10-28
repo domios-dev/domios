@@ -1,11 +1,13 @@
 mod accessible_wait;
 mod atomic;
 mod calls;
+mod domios_instance;
 mod grab;
 mod heuristics;
 mod inbox;
 mod input;
 mod metrics;
+mod output;
 mod page;
 mod redaction;
 mod resume;
@@ -331,6 +333,20 @@ impl BrowserRuntime {
         Ok(())
     }
 
+    fn remember_secret(&self, secret: &str) -> Result<(), String> {
+        if secret.is_empty() {
+            return Err("empty_browser_secret".into());
+        }
+        let mut secrets = self.secrets.lock();
+        if !secrets.iter().any(|known| known == secret) {
+            if secrets.len() >= 128 {
+                return Err("Browser secret limit reached; reopen the Browser".into());
+            }
+            secrets.push(secret.to_string());
+        }
+        Ok(())
+    }
+
     fn next_grab_id(&self) -> String {
         let mut grabs = self.grabs.lock();
         grabs.seq += 1;
@@ -402,13 +418,7 @@ impl SurfaceRuntime for BrowserRuntime {
             if secret.is_empty() || args.len() < 2 {
                 return Err("Secret typing needs a target and nonempty stdin text".into());
             }
-            let mut secrets = self.secrets.lock();
-            if !secrets.contains(secret) {
-                if secrets.len() >= 128 {
-                    return Err("Secret typing limit reached; reopen the Browser".into());
-                }
-                secrets.push(secret.clone());
-            }
+            self.remember_secret(secret)?;
         }
         self.run_verb(ctx, verb, args)
             .await

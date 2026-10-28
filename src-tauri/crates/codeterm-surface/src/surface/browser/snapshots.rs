@@ -1,7 +1,8 @@
 use super::BrowserRuntime;
 use codeterm_browser::{
     snapshot::{
-        build_snapshot_filtered, parse_full_ax_tree, query, sensitive, DEFAULT_MAX_LINES, MAX_LINES,
+        build_snapshot_with_text, parse_full_ax_tree, query, sensitive, DEFAULT_MAX_LINES,
+        MAX_LINES,
     },
     PageChannel,
 };
@@ -13,6 +14,7 @@ pub(super) struct Options {
     pub scope: Option<String>,
     pub actions: bool,
     pub limit: usize,
+    pub with_text: bool,
 }
 
 pub(super) fn parse(args: &[String]) -> Result<Options, String> {
@@ -21,11 +23,13 @@ pub(super) fn parse(args: &[String]) -> Result<Options, String> {
         scope: None,
         actions: false,
         limit: DEFAULT_MAX_LINES,
+        with_text: false,
     };
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
             "--json" => out.json = true,
+            "--with-text" => out.with_text = true,
             "--actions-only" => out.actions = true,
             "--scope" => {
                 i += 1;
@@ -78,7 +82,13 @@ impl BrowserRuntime {
         if let Some(scope) = &options.scope {
             nodes = query::scoped(&nodes, scope)?;
         }
-        let snapshot = build_snapshot_filtered(&nodes, options.limit, &capture, options.actions);
+        let snapshot = build_snapshot_with_text(
+            &nodes,
+            options.limit,
+            &capture,
+            options.actions,
+            options.with_text,
+        );
         let state = self.shared.state();
         let result = if options.json {
             json!({"page":{"title":state.title.chars().take(200).collect::<String>(),"url":state.url.chars().take(2000).collect::<String>()},"scope":options.scope,"items":snapshot.items,"truncated":snapshot.truncated,"maxItems":options.limit}).to_string()

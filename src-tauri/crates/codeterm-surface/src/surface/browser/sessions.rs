@@ -101,35 +101,44 @@ impl BrowserRuntime {
             return Err("profile_mismatch: reopen the requested session".into());
         }
         let page = self.ensure_page().await?;
-        let origin = self.evaluate(&page, "location.origin", false).await?;
-        if origin.as_str() != Some(options.origin.as_str()) {
+        self.connect_token(&page, &options.origin, token).await
+    }
+
+    pub(super) async fn connect_token(
+        &self,
+        page: &codeterm_browser::PageChannel,
+        expected_origin: &str,
+        token: &str,
+    ) -> Result<String, String> {
+        let origin = self.evaluate(page, "location.origin", false).await?;
+        if origin.as_str() != Some(expected_origin) {
             return Err(
                 "origin_unconfirmed: wait for the requested origin before connecting".into(),
             );
         }
-        self.send(&page, "DOMStorage.enable", json!({})).await?;
-        self.send(&page,"DOMStorage.setDOMStorageItem",json!({"storageId":{"securityOrigin":options.origin,"isLocalStorage":true},"key":format!("codeterm-web-token:{}",options.origin),"value":token})).await?;
+        self.send(page, "DOMStorage.enable", json!({})).await?;
+        self.send(page,"DOMStorage.setDOMStorageItem",json!({"storageId":{"securityOrigin":expected_origin,"isLocalStorage":true},"key":format!("codeterm-web-token:{}",expected_origin),"value":token})).await?;
         let stored = self
             .send(
-                &page,
+                page,
                 "DOMStorage.getDOMStorageItems",
-                json!({"storageId":{"securityOrigin":options.origin,"isLocalStorage":true}}),
+                json!({"storageId":{"securityOrigin":expected_origin,"isLocalStorage":true}}),
             )
             .await?;
-        let key = format!("codeterm-web-token:{}", options.origin);
+        let key = format!("codeterm-web-token:{}", expected_origin);
         if !stored
             .get("entries")
             .and_then(|v| v.as_array())
             .is_some_and(|entries| {
                 entries.iter().any(|entry| {
                     entry.get(0).and_then(|v| v.as_str()) == Some(key.as_str())
-                        && entry.get(1).and_then(|v| v.as_str()) == Some(token.as_str())
+                        && entry.get(1).and_then(|v| v.as_str()) == Some(token)
                 })
             })
         {
             return Err("token_storage_unconfirmed: inspect before continuing".into());
         }
-        self.navigate(&page, super::input::NavAction::Reload, None)
+        self.navigate(page, super::input::NavAction::Reload, None)
             .await?;
         Ok(
             "connection token stored for the requested origin; snapshot to verify authentication"

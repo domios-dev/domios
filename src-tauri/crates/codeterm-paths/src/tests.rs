@@ -103,3 +103,13 @@ fn paths_equal_ignores_verbatim_drive_and_unc_prefixes() {
         r"\\server\share\lane"
     ));
 }
+
+#[test]
+fn explicit_dev_paths_are_named_without_inherited_overrides() {
+    assert!(explicit_development_data_dir("qa-lane")
+        .unwrap()
+        .ends_with(".domios-dev-qa-lane"));
+    for name in ["", "../prod", "UPPER", "qa/other", "qa_other"] {
+        assert!(explicit_development_data_dir(name).is_err());
+    }
+}

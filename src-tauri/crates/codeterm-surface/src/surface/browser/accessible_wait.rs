@@ -21,6 +21,12 @@ pub(super) enum State {
     Hidden,
     Enabled,
     Expanded,
+    Checked,
+    Unchecked,
+    Pressed,
+    Unpressed,
+    Selected,
+    Unselected,
 }
 
 pub(super) fn duration(raw: &str) -> Result<Duration, String> {
@@ -61,6 +67,12 @@ pub(super) fn parse(args: &[String]) -> Result<AccessibleWait, String> {
                     "hidden" => State::Hidden,
                     "enabled" => State::Enabled,
                     "expanded" => State::Expanded,
+                    "checked" => State::Checked,
+                    "unchecked" => State::Unchecked,
+                    "pressed" => State::Pressed,
+                    "unpressed" => State::Unpressed,
+                    "selected" => State::Selected,
+                    "unselected" => State::Unselected,
                     _ => return Err("invalid_wait_state".into()),
                 })
             }
@@ -85,6 +97,28 @@ pub(super) fn expanded(node: &AxNode) -> Option<bool> {
         .and_then(Value::as_bool)
 }
 
+pub(super) fn control_matches(node: &AxNode, state: State) -> bool {
+    let (property, wanted) = match state {
+        State::Checked => ("checked", true),
+        State::Unchecked => ("checked", false),
+        State::Pressed => ("pressed", true),
+        State::Unpressed => ("pressed", false),
+        State::Selected => ("selected", true),
+        State::Unselected => ("selected", false),
+        _ => return false,
+    };
+    let actual = node
+        .properties
+        .iter()
+        .find(|p| p.name == property)
+        .and_then(|p| p.value.value.as_ref());
+    match actual {
+        Some(Value::Bool(value)) => *value == wanted,
+        Some(Value::String(value)) => value == if wanted { "true" } else { "false" },
+        _ => false,
+    }
+}
+
 impl BrowserRuntime {
     async fn accessible_condition(
         &self,
@@ -103,6 +137,12 @@ impl BrowserRuntime {
         };
         match wait.state {
             State::Expanded => Ok(expanded(target) == Some(true)),
+            State::Checked
+            | State::Unchecked
+            | State::Pressed
+            | State::Unpressed
+            | State::Selected
+            | State::Unselected => Ok(control_matches(target, wait.state)),
             State::Enabled => Ok(!target
                 .properties
                 .iter()

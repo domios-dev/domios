@@ -200,6 +200,12 @@ impl BrowserRuntime {
     async fn open_verb(&self, args: &[String]) -> Result<String, String> {
         if args
             .iter()
+            .any(|a| a == "--domios-instance" || a == "--api-port")
+        {
+            return self.open_domios_instance(args).await;
+        }
+        if args
+            .iter()
             .any(|a| matches!(a.as_str(), "--origin" | "--ephemeral" | "--expect-build"))
         {
             return self.open_session(args).await;
@@ -252,7 +258,11 @@ impl BrowserRuntime {
             "back" => self.history_step(page, NavAction::Back).await,
             "forward" => self.history_step(page, NavAction::Forward).await,
             "reload" => self.history_step(page, NavAction::Reload).await,
-            "snapshot" => self.snapshot_verb(page, args).await,
+            "snapshot" => {
+                let (args, output) = super::output::parse(args)?;
+                let text = self.snapshot_verb(page, &args).await?;
+                self.output_verb(ctx, output, text).await
+            }
             "expand" | "collapse" => self.disclosure_verb(page, args, verb == "expand").await,
             "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
                 self.atomic_action(page, args, verb == "fill").await
@@ -294,15 +304,17 @@ impl BrowserRuntime {
                 Ok("scrolled (re-snapshot to see new content)".into())
             }
             "text" => {
+                let (args, output) = super::output::parse(args)?;
                 let limit = parse_limit(args.first(), DEFAULT_TEXT_LIMIT);
                 let expression =
                     format!("document.body ? document.body.innerText.slice(0, {limit}) : \"\"");
                 let value = self.evaluate(page, &expression, false).await?;
-                Ok(value
+                let text = value
                     .as_str()
                     .filter(|text| !text.is_empty())
                     .unwrap_or("(empty page)")
-                    .to_string())
+                    .to_string();
+                self.output_verb(ctx, output, text).await
             }
             "wait" if args.iter().any(|a| a == "--role") => {
                 self.wait_accessible(page, super::accessible_wait::parse(args)?)
