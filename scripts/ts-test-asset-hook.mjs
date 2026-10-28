@@ -28,3 +28,7 @@ for (const extension of ASSET_EXTENSIONS) {
     module.exports = filename;
   };
 }
+
+Module._extensions[".css"] = (module) => {
+  module.exports = {};
+};
