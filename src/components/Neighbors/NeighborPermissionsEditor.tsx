@@ -13,6 +13,7 @@ import { applyTrustPreset, TRUST_OPTIONS, trustPresetOf, type TrustPreset } from
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import { PERMISSION_WORKSPACES, type MachineAccess, type NeighborPermission } from "./neighborRuntimeClient";
+import { scopeConflicts } from "./neighborScopeConflicts";
 
 const ACCESS_OPTIONS: { value: MachineAccess; label: string }[] = [
   { value: "read_only", label: "Read only" },
@@ -125,6 +126,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     setBaseline(permission); setDraft(permission); setIncoming(null);
   }, [permission]);
   const problem = draft ? permissionProblem(draft) : null;
+  const conflicts = draft ? scopeConflicts(draft) : [];
   // Every edit waits here until Apply sends it; permission changes restart the concierge, limits do not.
   const staged = changed || dailyChanged || fileChanged || limitChanged;
   const blocked = (changed && problem !== null) || !dailyValid || !fileValid || !validNeighborLimit(limit);
@@ -258,6 +260,10 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </div>
     </SettingsSection>
     {problem && changed && <p role="alert" className="neighbor-note">{problem}</p>}
+    {/* The concierge follows the switches, so prose that promises more is only pointed out; Apply stays available. */}
+    {conflicts.length > 0 && <div role="status" className="neighbor-scope-conflicts">
+      {conflicts.map(conflict => <p key={conflict.grant} className="neighbor-note">{conflict.line}</p>)}
+    </div>}
     {error && <InlineErrorNotice error={error} operation="saving Neighbor permissions" role="alert" />}
     <div className="neighbor-apply">
       {changed && <p className="neighbor-note neighbor-apply__note">Applying restarts {name}'s concierge with a fresh session.</p>}

@@ -493,6 +493,8 @@ succeeded in one job before any failure/cancellation. Missing/unverifiable bound
 never inferred from asset presence or release ownership.
 Included-history resolution prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
 alias of the same version, resolves fully qualified tag refs, and still requires verified publication boundaries.
+Associated PRs come from closed PRs sorted by update time, filtered by included merge SHA.
+The scan ends at history exhaustion or two days before the boundary commit date; hitting its page bound first refuses.
 
 ## Handoff and closeout
 
@@ -509,4 +511,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

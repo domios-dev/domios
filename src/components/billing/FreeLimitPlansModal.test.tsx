@@ -103,7 +103,7 @@ describe("plans modal", () => {
     expect(freeLimitGate.limits()?.max.workspaces).toBe(3);
   });
 
-  it("records a consented plan view only when the limit modal opens", async () => {
+  it("records a consented plan view and limit notice only when the limit modal opens", async () => {
     fetches.localJson.mockResolvedValue({ consent: "on" });
     await render(async () => {});
     expect(fetches.localJson).not.toHaveBeenCalled();
@@ -111,6 +111,8 @@ describe("plans modal", () => {
     expect(fetches.localJson.mock.calls).toEqual([
       ["GET", "/api/analytics/status"],
       ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
+      ["GET", "/api/analytics/status"],
+      ["POST", "/api/analytics/event", { event_type: "limit_reached_shown", event_properties: { resource: "workspaces" } }],
     ]);
   });
 

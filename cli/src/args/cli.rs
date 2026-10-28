@@ -82,7 +82,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: super::account::AccountAction,
     },
-    /// Manage local opt-in product analytics
+    /// Manage local product analytics (on by default)
     Analytics {
         #[command(subcommand)]
         action: super::analytics::AnalyticsAction,
