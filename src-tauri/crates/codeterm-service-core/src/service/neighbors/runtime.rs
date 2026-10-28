@@ -701,8 +701,14 @@ impl ServiceContext {
             return Err(Error::LocalKeyUnavailable.to_string());
         }
         if let Some(local) = recovered.as_ref() {
-            if self.advertise_neighbor_files(&registry, &status, local, generation).await.map_err(|error| error.to_string())? {
-                status = self.refresh_neighbor_receiver_readonly(&registry, generation).await?;
+            if self
+                .advertise_neighbor_files(&registry, &status, local, generation)
+                .await
+                .map_err(|error| error.to_string())?
+            {
+                status = self
+                    .refresh_neighbor_receiver_readonly(&registry, generation)
+                    .await?;
                 if !status.receiving_here() {
                     self.stop_neighbor_listeners();
                     return Ok(());
