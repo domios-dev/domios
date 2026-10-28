@@ -95,6 +95,10 @@ impl crate::service::test_fixture::ServiceFixture {
     pub async fn load_neighbor_restore_settings(&self, uid: &str) {
         let metadata = Metadata::new(self.service.account_data_root().unwrap(), uid);
         let settings = metadata.settings().await.unwrap();
+        for friendship in settings.bindings.keys() {
+            self.service
+                .set_neighbor_friend_receiver_for_test(friendship, Some(true), 1);
+        }
         self.service
             .remember_neighbor_concierge_accounts(uid, &settings);
     }
@@ -138,6 +142,8 @@ impl crate::service::test_fixture::ServiceFixture {
         friendship: &str,
         permission: Permission,
     ) {
+        self.service
+            .set_neighbor_friend_receiver_for_test(friendship, Some(true), 1);
         let account = self
             .service
             .ext::<crate::service::account::AccountCell>()

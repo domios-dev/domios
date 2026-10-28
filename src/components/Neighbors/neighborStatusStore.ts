@@ -24,9 +24,16 @@ export function resetNeighborStatus() {
 
 /** Receiver fields only move forward: a read answered before a newer receiver event keeps that event's state. */
 function keepNewerReceiver(fresh: NeighborStatusSnapshot, current: NeighborStatusSnapshot | undefined): NeighborStatusSnapshot {
-  if (!current || current.receiver_status_known === false || current.revision <= fresh.revision) return fresh;
-  const { receiving_here, receiver_machine_label, receiving_enabled, revision } = current;
-  return { ...fresh, receiving_here, receiver_machine_label, receiving_enabled, revision, receiver_status_known: true };
+  if (!current) return fresh;
+  let next = fresh;
+  if (current.receiver_status_known !== false && current.revision > fresh.revision) {
+    const { receiving_here, receiver_machine_label, receiving_enabled, revision } = current;
+    next = { ...next, receiving_here, receiver_machine_label, receiving_enabled, revision, receiver_status_known: true };
+  }
+  if (current.friend_receivers_version !== undefined && current.friend_receivers_version > (fresh.friend_receivers_version ?? -1)) {
+    next = { ...next, friend_receivers: current.friend_receivers, friend_receivers_version: current.friend_receivers_version };
+  }
+  return next;
 }
 
 /**
@@ -53,11 +60,27 @@ export function useNeighborStatus(client: NeighborRuntimeClient, active: boolean
     const reread = () => { store.read(load, true).then(show, () => {}); };
     void client.subscribe(event => {
       if (!store.value) { reread(); return; }
-      if ("receiver_unavailable" in event) { store.write({ ...store.value, receiver_status_known: false }); return; }
+      if ("receiver_unavailable" in event) {
+        if (event.friend_receivers_version !== undefined && event.friend_receivers_version < (store.value.friend_receivers_version ?? -1)) return;
+        if (typeof event.friendship_id === "string") {
+          const receivers = { ...store.value.friend_receivers };
+          delete receivers[event.friendship_id];
+          store.write({ ...store.value, friend_receivers: receivers, friend_receivers_version: event.friend_receivers_version ?? store.value.friend_receivers_version });
+        } else { store.write({ ...store.value, receiver_status_known: false, friend_receivers: {}, friend_receivers_version: event.friend_receivers_version ?? store.value.friend_receivers_version }); }
+        return;
+      }
       if (!receiverState(event)) return;
+      if (typeof event.friendship_id === "string") {
+        if (event.friend_receivers_version !== undefined && event.friend_receivers_version < (store.value.friend_receivers_version ?? -1)) return;
+        const { receiving_here, receiver_machine_label, receiving_enabled, revision, source } = event;
+        store.write({ ...store.value, friend_receivers_version: event.friend_receivers_version ?? store.value.friend_receivers_version, friend_receivers: { ...store.value.friend_receivers,
+          [event.friendship_id]: { receiving_here, receiver_machine_label, receiving_enabled, revision, source } } });
+        reread();
+        return;
+      }
       const { receiving_here, receiver_machine_label, receiving_enabled, revision } = event;
       store.write({ ...store.value, receiving_here, receiver_machine_label, receiving_enabled, revision, receiver_status_known: true });
-      // Moving the receiver changes every concierge's state too, which only a fresh read reports.
+      // An account change may remove overrides, so reread the effective friendship rows too.
       reread();
     }).then(keep);
     void listen<unknown>("neighbor-concierge-status", event => {

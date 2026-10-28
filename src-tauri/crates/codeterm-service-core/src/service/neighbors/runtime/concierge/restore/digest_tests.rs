@@ -19,6 +19,12 @@ async fn contradictory_advisory_bypass_is_repaired_once_into_a_fresh_nonfull_ses
             tab.session_binding_nonce = Some("old-nonce".into());
             tab.restorable_launch.permission_bypass_requested = true;
             let fixture = ServiceFixture::new(mux);
+            fixture
+                .service
+                .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+            fixture
+                .service
+                .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
             fixture.set_agent_full_access(global);
             let service = &fixture.service;
             service.agent_registry.register_provider(Box::new(
@@ -130,6 +136,12 @@ async fn resumable_providers_keep_unchanged_sessions_but_start_fresh_for_changed
         tab.restorable_launch.identity_instructions =
             Some("opaque-role-onboarding-without-assignment".into());
         let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+        fixture
+            .service
+            .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
         let service = &fixture.service;
         service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new(provider).with_initial_prompt_resume(),

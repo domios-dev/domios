@@ -30,6 +30,7 @@ impl ServiceContext {
         let candidates: std::collections::BTreeSet<_> = settings
             .bindings
             .into_keys()
+            .chain(settings.dormant_concierges.into_keys())
             .chain(self.neighbor_listener_friendships())
             .collect();
         for friendship in candidates {
@@ -63,6 +64,8 @@ impl ServiceContext {
             .await?;
         let mut settings = metadata.settings().await?;
         settings.paused.remove(friendship);
+        settings.dormant_concierges.remove(friendship);
+        settings.concierge_receivers.remove(friendship);
         self.neighbor_cell().pauses.forget(friendship);
         if let Some(tab) = settings.bindings.get(friendship).cloned() {
             self.retire_neighbor_children(&tab)

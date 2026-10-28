@@ -7,6 +7,7 @@ pub struct Acceptance {
 }
 
 pub struct DeliverySignal {
+    pub reason: Option<crate::wire::DeliveryReason>,
     pub friendship_id: String,
     pub message_id: String,
     pub status: crate::wire::DeliveryStatus,
@@ -34,6 +35,7 @@ pub struct RegistrySignal {
     pub pause: Option<PauseSignal>,
     pub ignored: bool,
     pub receiver_revision: Option<u64>,
+    pub receiver_friendship: Option<String>,
     pub accepted: Vec<Acceptance>,
     pub removed: Vec<String>,
 }

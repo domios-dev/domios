@@ -93,6 +93,7 @@ async fn read_before_delivery_survives_and_a_hidden_read_requests_bounded_catchu
                 .unwrap();
         }
         let delivery = DeliverySignal {
+            reason: None,
             friendship_id: friendship.clone(),
             message_id: message.clone(),
             status: DeliveryStatus::Delivered,

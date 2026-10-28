@@ -47,9 +47,11 @@ impl ServiceContext {
                     .chars()
                     .take(48)
                     .collect();
-                Some(
-                    json!({"friendship_id":id,"displayName":name,"since":friend["since"].as_u64(),"my_paused":friend["my_paused"].as_bool().unwrap_or_else(|| self.neighbor_friend_paused(id)),"their_paused":friend["their_paused"].as_bool().unwrap_or(false)}),
-                )
+                let mut row = json!({"friendship_id":id,"displayName":name,"since":friend["since"].as_u64(),"my_paused":friend["my_paused"].as_bool().unwrap_or_else(|| self.neighbor_friend_paused(id)),"their_paused":friend["their_paused"].as_bool().unwrap_or(false)});
+                for field in ["my_receiver", "peer_receiver"] {
+                    if let Some(value) = friend.get(field) { row[field] = value.clone(); }
+                }
+                Some(row)
             })
             .collect::<Vec<_>>();
         *self.neighbor_cell().registry_snapshot.lock() = Some(

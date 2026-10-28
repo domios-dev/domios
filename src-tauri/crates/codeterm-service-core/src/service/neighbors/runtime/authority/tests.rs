@@ -24,6 +24,8 @@ async fn paused_concierge_cannot_send_or_unpause_but_owner_and_general_can_still
     settings.bindings.insert(friend.clone(), concierge.clone());
     settings.paused.insert(friend.clone());
     metadata.save_settings(settings).await.unwrap();
+    service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    service.set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     for command in [
         NeighborRuntimeCommand::Send {
             friendship_id: friend.clone(),
@@ -87,6 +89,8 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
     settings.bindings.insert(friend_a.clone(), a.clone());
     settings.bindings.insert(friend_b.clone(), b.clone());
     metadata.save_settings(settings).await.unwrap();
+    service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    service.set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     for (friendship, message) in [(&friend_a, "1".repeat(32)), (&friend_b, "2".repeat(32))] {
         let entry = serde_json::from_value(json!({"direction":"out","author":"me","sender_uid":"owner","body":"opaque","at":1,"message_id":message,"kind":"question","delivery_status":"pending"})).unwrap();
         service
@@ -203,6 +207,8 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
     let mut settings = metadata.settings().await.unwrap();
     settings.bindings.clear();
     metadata.save_settings(settings).await.unwrap();
+    service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+    service.set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
     assert!(service
         .authorize_neighbor_metadata(&command, Some(&a), Some(&format!("nonce-{a}")), &metadata)
         .await

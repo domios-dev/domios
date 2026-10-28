@@ -1,6 +1,16 @@
 use super::*;
 
 #[test]
+fn friend_receiver_refusals_preserve_feature_key_and_machine_slot_reasons() {
+    for (reason,expected) in [("feature_unsupported",Error::FeatureUnsupported),("key_revoked",Error::Revoked),
+        ("key_not_found",Error::KeyNotFound),("receiver_revision_stale",Error::ReceiverRevisionStale),("not_receiver",Error::NotReceiver)] {
+        assert_eq!(refusal(&json!({"error":{"details":{"reason":reason}}})),expected);
+    }
+    assert_eq!(refusal(&json!({"error":{"details":{"reason":"key_limit","limit":5,"active":5}}})),Error::KeyLimit { limit:5,active:5 });
+    assert_eq!(refusal(&json!({"error":{"details":{"reason":"key_limit","limit":5}}})),Error::Refused);
+}
+
+#[test]
 fn recipient_pause_remains_a_typed_refusal_for_messages_and_file_grants() {
     assert_eq!(
         refusal(

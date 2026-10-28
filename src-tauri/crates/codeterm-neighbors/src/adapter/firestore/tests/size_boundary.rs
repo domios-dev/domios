@@ -122,6 +122,8 @@ async fn text_size_boundaries_round_trip_send_firestore_receive_and_body_parse()
             cursor: Mutex::default(),
             events: Mutex::default(),
             peers: PeerKeys {
+                peer_receiver: None,
+                my_receiver: None,
                 friendship_id: envelope.friendship_id.clone(),
                 peer_uid: envelope.sender_uid.clone(),
                 keys: vec![PeerKey {

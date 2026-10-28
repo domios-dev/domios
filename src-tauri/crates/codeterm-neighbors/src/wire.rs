@@ -164,7 +164,14 @@ pub struct PeerKeys {
     pub friendship_id: String,
     pub peer_uid: String,
     pub keys: Vec<PeerKey>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer_receiver: Option<PeerReceiver>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub my_receiver: Option<EffectiveReceiver>,
 }
+
+mod receiver;
+pub use receiver::{EffectiveReceiver, PeerReceiver, ReceiverSource};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
@@ -227,6 +234,7 @@ pub enum DeliveryStatus {
 #[serde(rename_all = "snake_case")]
 pub enum DeliveryReason {
     KeyRevoked,
+    ReceiverMoved,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

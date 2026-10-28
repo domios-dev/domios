@@ -309,11 +309,11 @@ it("tells the old machine that receiving moved, and warns before taking it over"
   const runtimeClient = runtime();
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   await render("paid", { runtimeClient });
-  expect(document.body.textContent).toContain("Receiving moved to Studio");
-  await act(async () => button("Receive here").click());
+  expect(document.body.textContent).toContain("Receiving on Studio");
+  await act(async () => button("Receive all friends here").click());
   expect(document.querySelector('[aria-label="Receive on this machine"]')?.textContent)
-    .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
-  await act(async () => button("Receive Neighbor messages here").click());
+    .toContain("Studio will stop receiving Neighbor messages.");
+  await act(async () => button("Receive all friends here").click());
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
 });
 
@@ -328,8 +328,8 @@ it.each([
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   vi.mocked(runtimeClient.enroll).mockRejectedValue(new NeighborRuntimeFailure(reason, message));
   await render("paid", { runtimeClient });
-  await act(async () => button("Receive here").click());
-  await act(async () => button("Receive Neighbor messages here").click());
+  await act(async () => button("Receive all friends here").click());
+  await act(async () => button("Receive all friends here").click());
   const alert = document.querySelector('[role="alert"]');
   const diagnostic = Array.from(alert?.querySelectorAll("*") ?? [])
     .find(node => node.textContent === `${reason}: ${displayed}` && !node.closest("details"));
@@ -347,8 +347,8 @@ it.each([
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   vi.mocked(runtimeClient.enroll).mockRejectedValue(failure);
   await render("paid", { runtimeClient });
-  await act(async () => button("Receive here").click());
-  await act(async () => button("Receive Neighbor messages here").click());
+  await act(async () => button("Receive all friends here").click());
+  await act(async () => button("Receive all friends here").click());
   const alert = document.querySelector('[role="alert"]');
   expect(alert?.textContent).toContain("Receiving could not move here. Try again.");
   expect(alert?.textContent).not.toContain("opaque-secret");
@@ -361,11 +361,11 @@ it("requires a fresh confirmation if receiving moves while the active takeover p
   vi.mocked(runtimeClient.subscribe).mockImplementation(async handler => { changed = handler; return () => {}; });
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   await render("paid", { runtimeClient });
-  await act(async () => button("Receive here").click());
+  await act(async () => button("Receive all friends here").click());
   await act(async () => changed?.({ receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5 }));
-  await act(async () => button("Receive Neighbor messages here").click());
+  await act(async () => button("Receive all friends here").click());
   expect(runtimeClient.enroll).not.toHaveBeenCalled();
-  await act(async () => button("Receive Neighbor messages here").click());
+  await act(async () => button("Receive all friends here").click());
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(5);
 });
 
@@ -395,7 +395,7 @@ it("says nothing about receiving until the daemon knows", async () => {
     receiver_status_known: false } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
   await render("paid", { runtimeClient });
   expect(document.body.textContent).not.toContain("Receiver not chosen yet");
-  expect(hasButton("Receive here")).toBe(false);
+  expect(hasButton("Receive all friends here")).toBe(false);
 });
 
 it("turns off reading memory and files for one friend and saves it", async () => {

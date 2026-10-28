@@ -74,6 +74,7 @@ export function refusalLine(entry: HistoryEntry, friendName: string, now: number
     case "friends_locked": return "Not delivered: your plan pauses Neighbor messages.";
     case "recipient_locked": return `Not delivered: ${friendName}'s plan pauses their Neighbor messages.`;
     case "recipient_not_receiving": return `Not delivered: ${friendName} is not receiving right now.`;
+    case "receiver_moved": return `Not delivered: ${friendName}'s receiving machine changed.`;
     case "recipient_paused": return `Not delivered: ${friendName} disabled messages from you.`;
     default: return null;
   }
