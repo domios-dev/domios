@@ -117,6 +117,8 @@ Account signals apply delivery/read/expiry and emit `neighbor-history-changed`. 
 
 Read means an inbound row is actually visible to the recipient owner in the open conversation, or concierge persisted handling reaches working/answered/refused/no_reply. Concierge delivery alone is not read. Owner UI uses `POST /api/account/neighbors/read {friendship_id,through_message_id}`; history fetch never implies visibility and agents cannot claim it. Host pickup uses the same monotonic read-up-to path. Paused/ended/off emit none. Durable reservations suppress duplicate/older batches, including uncertain relay responses.
 
+Read emission waits for the recipient's delivery ACK to return successfully and its ACK boundary to persist locally. Visibility or concierge pickup before ACK remains pending; the ACK event releases it without a timer. A later delivery signal preserves an existing read timestamp and any covering read cursor. An unread delivery signal gets one status probe; discovering a read hidden by the latest-only account signal triggers the same bounded catch-up described above.
+
 Recipient `friendsRead {installation_id,friendship_id,through_message_id}` emits `message_read {schema_version:1,revision,event_id,request_id:null,friendship_id,message_id,at}`; anchor=message_id, server Unix milliseconds=at. No text/files/manifest/key. Sender marks through anchor read; status catch-up restores missed read times.
 
 ## Incoming handling and stopping
@@ -166,4 +168,4 @@ Inbound default50 MiB/friend/UTC day; set0..52428800 bytes, zero blocks new file
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->

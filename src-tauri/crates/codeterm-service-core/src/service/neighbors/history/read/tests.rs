@@ -8,6 +8,7 @@ fn fixture_history(direction: &str) -> History {
 #[test]
 fn read_up_to_is_monotonic_and_reserves_one_receipt_for_each_new_batch() {
     let mut history = fixture_history("in");
+    history.acknowledge_through(&format!("{:032x}",3));
     let emitted = [2, 2, 1, 3, 2]
         .into_iter()
         .filter(|id| history.reserve_read_through(&format!("{id:032x}"), true, false))
@@ -18,9 +19,38 @@ fn read_up_to_is_monotonic_and_reserves_one_receipt_for_each_new_batch() {
     assert!(!restored.reserve_read_through(&format!("{:032x}", 3), true, false));
     assert!(!restored.reserve_read_through(&"f".repeat(32), true, false));
     let mut bounded = fixture_history("in");
+    bounded.acknowledge_through(&format!("{:032x}",3));
     assert!(bounded.reserve_read_through(&format!("{:032x}", 1), true, false));
     bounded.entries.remove(0);
     assert!(bounded.reserve_read_through(&format!("{:032x}", 3), true, false));
+}
+
+#[test]
+fn visible_before_ack_waits_for_the_ack_event_without_consuming_the_read_cursor() {
+    let mut history = fixture_history("in");
+    let through = format!("{:032x}",2);
+    assert!(history.request_read_through(&through,true,false));
+    assert!(!history.reserve_read_through(&through,true,false));
+    assert!(history.read_receipt_through.is_none());
+    assert_eq!(history.pending_read_through(),Some(through.clone()));
+    assert!(history.acknowledge_through(&format!("{:032x}",1)));
+    assert!(!history.reserve_read_through(&through,true,false));
+    assert!(history.acknowledge_through(&through));
+    assert!(history.reserve_read_through(&through,true,false));
+    assert!(history.pending_read_through().is_none());
+    assert!(!history.reserve_read_through(&through,true,false));
+}
+
+#[test]
+fn ack_before_visibility_and_durable_ack_proof_allow_one_read_emission() {
+    let mut history = fixture_history("in");
+    let through = format!("{:032x}",2);
+    history.acknowledge_through(&through);
+    let mut history: History = serde_json::from_slice(&serde_json::to_vec(&history).unwrap()).unwrap();
+    assert!(history.request_read_through(&through,true,false));
+    assert!(history.reserve_read_through(&through,true,false));
+    assert!(!history.reserve_read_through(&through,true,false));
+    assert!(!history.reserve_read_through(&format!("{:032x}",3),true,false));
 }
 
 #[test]
@@ -31,6 +61,7 @@ fn off_paused_and_ended_friendships_never_reserve_a_read_receipt() {
         (true, false, true),
     ] {
         let mut history = fixture_history("in");
+        history.acknowledge_through(&format!("{:032x}",3));
         history.ended = ended;
         assert!(!history.reserve_read_through(&format!("{:032x}", 3), enabled, paused));
         assert!(history.read_receipt_through.is_none());

@@ -99,6 +99,14 @@ impl From<DeliveryStatus> for HistoryReceipt {
 pub(super) struct History {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub read_receipt_through: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_requested_through: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received_acknowledged_through: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outgoing_read_through: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outgoing_read_at: Option<u64>,
     pub ended: bool,
     #[serde(default)]
     pub active_since: Option<u64>,
