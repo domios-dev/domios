@@ -101,6 +101,8 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
             format!("[api]\nhost = \"127.0.0.1\"\nport = {}\n", address.port()),
         )
         .unwrap();
+        let instance = format!("report-{}", uuid::Uuid::new_v4());
+        let socket = format!("domios-dev-{instance}.sock");
         let mut command = Command::new(codeterm_bin::codeterm_bin());
         for (key, _) in std::env::vars() {
             if key.starts_with("CODETERM_") {
@@ -108,11 +110,9 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
             }
         }
         command
+            .env("CODETERM_INSTANCE", &instance)
             .env("CODETERM_DATA_DIR", scratch.path())
-            .env(
-                "CODETERM_SOCKET_PATH",
-                format!("codeterm-report-{}.sock", uuid::Uuid::new_v4()),
-            )
+            .env("CODETERM_SOCKET_PATH", socket)
             .env("CODETERM_API_URL", format!("http://{address}"))
             .env("CODETERM_API_PORT", address.port().to_string())
             .env("CODETERM_API_TOKEN", "fixture-token")
