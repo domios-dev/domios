@@ -367,8 +367,8 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
     <div className="neighbor-msg__stack">
       {author === "my-agent" && !grouped && <p className="neighbor-msg__caption">{agentLabel}</p>}
       {entry.kind === "tab_request" && <p className="neighbor-note">asked to open a tab</p>}
-      {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
       <div className={mine ? "ct-user-bubble neighbor-msg__bubble" : "neighbor-msg__bubble"}>
+        {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
         <RichMarkdown text={readableBody(entry.body, new Set(files.map(file => file.file_id)))} localArtifacts={false} interactivePreviews={interactive} />
         {outgoing ? <ChatDeliveryState state={outgoing.state} onRetry={outgoing.onRetry} /> : mark === "sending" && <ChatDeliveryState state="sending" />}
       </div>

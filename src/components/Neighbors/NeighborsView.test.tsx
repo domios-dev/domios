@@ -426,6 +426,8 @@ it("shows the conversation with a refused question, its linked refusal and deliv
   expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply")?.textContent).toBe("Declined");
   expect(log.textContent).not.toContain("Declined: Secrets are off limits");
   expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
+  // The quote opens the reply bubble, as in agent chat, rather than sitting above it.
+  expect(document.querySelector('#neighbor-msg-m2 .neighbor-msg__bubble > [data-testid="reply-quote"]')).not.toBeNull();
   expect(document.querySelector("#neighbor-msg-m2 .neighbor-receipt")?.getAttribute("aria-label")).toBe("Delivered");
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
