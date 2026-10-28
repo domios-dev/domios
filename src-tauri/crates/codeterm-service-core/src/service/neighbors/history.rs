@@ -241,6 +241,7 @@ impl Metadata {
             .map_err(|_| Error::CursorStore)
     }
 
+    #[cfg(test)]
     pub(super) async fn incoming_received_by(
         &self,
         friendship: &str,

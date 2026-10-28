@@ -808,10 +808,6 @@ button {
   filter: brightness(1.05);
 }
 
-.ct-btn-primary .ct-busy-ring {
-  border-color: color-mix(in srgb, currentColor 30%, transparent);
-  border-top-color: currentColor;
-}
 
 .ct-btn-outline {
   background: transparent;

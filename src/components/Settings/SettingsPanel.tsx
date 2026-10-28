@@ -15,6 +15,7 @@ import {
   Keyboard,
 } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
+import { Loader } from "../shared/Loader";
 
 import { Toggle, SettingsPage, SettingsCard } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
@@ -64,7 +65,7 @@ function MachineJobsView({ onClose }: { onClose: () => void }) {
   const tabs = useMuxSelector(selectTabs);
   const teams = useMuxSelector(selectTeams);
   const ready = useMuxSelector(selectNavigationReady);
-  return ready ? <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} /> : <p role="status">Reading jobs…</p>;
+  return ready ? <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} /> : <Loader label="Reading jobs…" />;
 }
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */

@@ -990,6 +990,27 @@
   font-size: 10.5px;
 }
 
+.neighbor-msg__bubble-row {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.neighbor-msg[data-side="out"] .neighbor-msg__bubble-row {
+  flex-direction: row-reverse;
+}
+
+.neighbor-msg__bubble-row > .neighbor-msg__bubble {
+  min-width: 0;
+}
+
+.neighbor-msg__menu {
+  flex: none;
+  margin-top: 0.25rem;
+}
+
 /* A message's own menu stays out of the way until you point at the message; touch keeps it shown. */
 @media (hover: hover) {
   .neighbor-msg__menu { opacity: 0; transition: opacity var(--ct-duration-fast) ease; }

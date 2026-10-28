@@ -1,6 +1,6 @@
 import { ShieldCheck, ShieldAlert } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import { tailscalePrompt, type TailscaleState } from "./tailscaleSetup";
 import type { NetworkIdentity } from "./networkTransport";
 
@@ -20,7 +20,7 @@ function Actions({ tailscale, machine, ariaLabel }: { tailscale: CanvasTailscale
     <div className="flex flex-wrap items-center gap-3 pt-0.5">
       <button type="button" onClick={() => tailscale.onSetup(machine)} disabled={tailscale.launching} aria-busy={tailscale.launching}
         aria-label={ariaLabel} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
-        {tailscale.launching ? <><BusySpinner size={12} /> Opening…</> : "Set up with General agent"}
+        {tailscale.launching ? <><BusyState inline hideLabel label="Opening" phase="work" dotSize="micro" /> Opening…</> : "Set up with General agent"}
       </button>
       <button type="button" onClick={tailscale.onInstall} className={MANUAL_LINK}>Set up manually</button>
     </div>

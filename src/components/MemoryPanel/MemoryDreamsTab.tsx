@@ -6,13 +6,12 @@ import { listen } from "../../lib/bridge";
 import {
   Moon,
   Play,
-  Loader2,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { authHeaders } from "./memoryApi";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
@@ -287,7 +286,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
           >
             {running || inflight ? (
               <>
-                <BusySpinner icon={Loader2} size={13} />
+                <BusyState inline hideLabel label={inflight ? "Dreaming" : "Starting"} phase="work" dotSize="micro" />
                 {inflight ? "Dreaming…" : "Starting…"}
               </>
             ) : (

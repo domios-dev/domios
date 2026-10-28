@@ -2,7 +2,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { invoke, listen } from "../../lib/bridge";
-import { BusySpinner } from "../shared/BusyState";
+import { BusySpinner, BusyState } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
 import type { RecentPush } from "./MeshCanvas";
@@ -12,7 +12,7 @@ import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { meshDataUnavailable, meshHeaderState } from "./meshProjection";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -228,7 +228,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
             {header.kind === "unavailable"
               ? <span role="status">Mesh data is unavailable.</span>
               : header.kind === "loading"
-                ? <DeferredLoader state="present" aria-busy="true">Loading peers</DeferredLoader>
+                ? <DeferredLoader state="present" aria-busy="true"><BusyState inline label="Loading peers" phase="work" /></DeferredLoader>
                 : `${header.count} peer${header.count === 1 ? "" : "s"}`}
           </div>
           {activeTab !== "inventory" && <button
@@ -268,7 +268,7 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         )}
         {activeTab === "inventory" && !graphReady && !unavailable && (
           <section aria-label="Mesh inventory" aria-busy="true" className="absolute inset-0 flex items-center justify-center">
-            <RegionLoader label="Loading mesh" />
+            <Loader label="Loading mesh" />
           </section>
         )}
         {activeTab === "inventory" && graphReady && (

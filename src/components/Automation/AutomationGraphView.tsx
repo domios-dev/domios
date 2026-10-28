@@ -1,4 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { BusyState } from "../shared/BusyState";
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, Network } from "lucide-react";
 import { focusEntry, focusLost } from "./focus";
@@ -16,7 +17,7 @@ export interface AutomationGraphViewProps {
 
 export function AutomationNotices({ state, noun }: { state: AutomationSnapshot; noun: string }) {
   return <>
-    {state.loading && <p role="status" className="px-4 py-3 text-[var(--ct-muted-fg)]">Reading {noun}…</p>}
+    {state.loading && <BusyState inline label={`Reading ${noun}…`} phase="work" className="px-4 py-3 text-[var(--ct-muted-fg)]" />}
     {state.failed && !state.graph && <p role="status" className="px-4 py-3 text-[var(--ct-muted-fg)]">{noun} are unavailable.</p>}
     {state.graph?.truncated && <InlineErrorNotice error={{ code: "automation_incomplete", raw: "" }} />}
     {state.graph?.quarantined?.length ? (

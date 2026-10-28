@@ -2,7 +2,9 @@ use super::*;
 use crate::service::{general_agent, SpawnAgentParams, SpawnIdentityProvenance};
 
 pub(super) mod initial_prompt;
+mod options;
 mod restore;
+use super::super::storage::ConciergeOptions;
 
 pub(super) fn launch_error(error: String) -> Error {
     if error.starts_with("neighbor_machine_access_unsupported:") {
@@ -59,6 +61,7 @@ impl ServiceContext {
             super::super::storage::InitialContext {
                 gateway_tab: gateway.into(),
                 digest: initial_prompt::digest(friendship, &permission),
+                launch_options: Some(self.neighbor_tab_options(gateway)),
             },
         );
         metadata.save_settings(settings).await?;
@@ -113,14 +116,41 @@ impl ServiceContext {
         self.validate_neighbor_memory_areas(&permission).await?;
         transport.peer_keys(friendship).await?;
         self.require_neighbor_history_generation(generation)?;
+        let settings = metadata.settings().await?;
+        let provider = settings
+            .bindings
+            .get(friendship)
+            .and_then(|id| {
+                self.mux
+                    .read()
+                    .get_tab(id)
+                    .and_then(|tab| tab.agent_type.clone())
+            })
+            .unwrap_or_else(|| self.configuration().general_agent.agent_provider.clone());
+        let model = settings.bindings.get(friendship).and_then(|id| {
+            self.mux.read().get_tab(id).and_then(|tab| {
+                tab.agent_session_model
+                    .clone()
+                    .or(tab.agent_provider_resolved_model.clone())
+                    .or(tab.restorable_launch.requested_model.clone())
+            })
+        });
+        self.validate_neighbor_launch_options(
+            &provider,
+            model.as_deref(),
+            &self.neighbor_launch_options(&settings, friendship),
+        )
+        .map_err(|_| Error::InvalidRequest)?;
         self.apply_neighbor_permission_with(
             metadata,
             &transport.uid,
             friendship,
             permission,
             generation,
-            |provider, model, cwd, permission, resume| {
-                self.create_neighbor_concierge(friendship, provider, model, cwd, permission, resume)
+            |provider, model, cwd, permission, resume, options| {
+                self.create_neighbor_concierge(
+                    friendship, provider, model, cwd, permission, resume, options,
+                )
             },
         )
         .await
@@ -136,7 +166,14 @@ impl ServiceContext {
         create: F,
     ) -> codeterm_neighbors::Result<Value>
     where
-        F: FnOnce(Option<String>, Option<String>, String, Permission, Option<String>) -> Fut,
+        F: FnOnce(
+            Option<String>,
+            Option<String>,
+            String,
+            Permission,
+            Option<String>,
+            ConciergeOptions,
+        ) -> Fut,
         Fut: std::future::Future<Output = Result<String, String>>,
     {
         let cwd = super::super::confinement::prepare_folder(metadata, friendship, &permission)
@@ -146,6 +183,7 @@ impl ServiceContext {
         let mut settings = metadata.settings().await?;
         self.remember_neighbor_concierge_accounts(uid, &settings);
         let old = settings.bindings.get(friendship).cloned();
+        let options = self.neighbor_launch_options(&settings, friendship);
         let previous = {
             let mux = self.mux.read();
             old.as_ref().and_then(|id| mux.get_tab(id)).map(|tab| {
@@ -179,7 +217,16 @@ impl ServiceContext {
                     .map_err(|_| Error::Gateway)?;
             }
         }
-        let created = match create(provider, model, cwd, permission.clone(), resume_session).await {
+        let created = match create(
+            provider,
+            model,
+            cwd,
+            permission.clone(),
+            resume_session,
+            options.clone(),
+        )
+        .await
+        {
             Ok(tab) => Some(tab),
             Err(error) => {
                 log::debug!(
@@ -215,6 +262,7 @@ impl ServiceContext {
                 super::super::storage::InitialContext {
                     gateway_tab: tab.clone(),
                     digest: initial_prompt::digest(friendship, &permission),
+                    launch_options: Some(options.clone()),
                 },
             );
         }
@@ -278,11 +326,13 @@ impl ServiceContext {
         cwd: String,
         permission: Permission,
         resume_session_id: Option<String>,
+        options: ConciergeOptions,
     ) -> Result<String, String> {
         let workspace = general_agent::general_workspace_id(&self.mux.read())
             .ok_or("General workspace is unavailable")?;
         let config = self.configuration();
         let provider = provider.unwrap_or_else(|| config.general_agent.agent_provider.clone());
+        self.validate_neighbor_launch_options(&provider, model.as_deref(), &options)?;
         let sandbox = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
         let chat_backend = matches!(
             self.provider_registry.transport_of(&provider),
@@ -309,6 +359,8 @@ impl ServiceContext {
                     agent: Some(provider),
                     resume_session_id,
                     model,
+                    reasoning_effort: options.reasoning_effort,
+                    speed: options.service_tier,
                     workspace_id: Some(workspace),
                     cwd: Some(cwd),
                     sandbox,
@@ -341,10 +393,19 @@ impl ServiceContext {
         friendship: &str,
         provider: Option<String>,
         model: Option<String>,
+        options: ConciergeOptions,
     ) -> Result<String, String> {
-        self.replace_neighbor_concierge_with(metadata, friendship, false, |cwd, permission| {
-            self.create_neighbor_concierge(friendship, provider, model, cwd, permission, None)
-        })
+        self.replace_neighbor_concierge_with(
+            metadata,
+            friendship,
+            false,
+            options.clone(),
+            |cwd, permission| {
+                self.create_neighbor_concierge(
+                    friendship, provider, model, cwd, permission, None, options,
+                )
+            },
+        )
         .await
     }
 
@@ -353,6 +414,7 @@ impl ServiceContext {
         metadata: &Metadata,
         friendship: &str,
         retire_before_create: bool,
+        options: ConciergeOptions,
         create: F,
     ) -> Result<String, String>
     where
@@ -411,6 +473,7 @@ impl ServiceContext {
             super::super::storage::InitialContext {
                 gateway_tab: tab.clone(),
                 digest: initial_prompt::digest(friendship, &permission),
+                launch_options: Some(options),
             },
         );
         if let Err(error) = metadata.save_settings(settings.clone()).await {

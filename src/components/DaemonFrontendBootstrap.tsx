@@ -2,8 +2,8 @@ import { frontendCheckpointClientId, frontendUpdateDiagnostic } from "../lib/fro
 import { frontendApiContract } from "../lib/frontendApiContract";
 import { frontendBootDiagnostic } from "../lib/frontendBootDiagnostic";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 import { BrandState } from "./brand/BrandState";
+import { Loader } from "./shared/Loader";
 import { bootstrapStatusModel } from "./bootstrapStatusModel";
 import { baseDaemonTransport, FRONTEND_BOOT_KEY, onDaemonTransport } from "../lib/daemonBootstrap";
 import { initializeBrowserFrontendUpdates } from "../lib/frontendUpdate/browser";
@@ -75,9 +75,8 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
     return () => { ++generation; startupWait?.abort(); stop(); dispose?.(); };
   }, []);
   if (ready) return children;
-  const status = <BrandState model={bootstrapStatusModel(startupFailed, startupPhase)} />;
+  const status = bootstrapStatusModel(startupFailed, startupPhase);
+  if (status.kind !== "loading") return <div className="fixed inset-0"><BrandState model={status} /></div>;
   // The index.html cover owns the first seconds; only a reconnect after a ready app defers so a fast one never flashes.
-  return wasReady.current && !startupFailed
-    ? <DeferredLoader state="present" className="fixed inset-0">{status}</DeferredLoader>
-    : <div className="fixed inset-0">{status}</div>;
+  return <Loader variant="fullscreen" label={status.label} detail={status.detail} deferred={wasReady.current} />;
 }

@@ -34,6 +34,11 @@ fn provider_descriptor_round_trip() {
         cli_login: None,
         supports_session_fork: false,
         supports_initial_prompt_update_on_resume: false,
+        neighbor_concierge: codeterm_plugin::provider::NeighborConciergeCapability {
+            supported: true,
+            machine_access: vec!["read_only".into(), "full".into()],
+            enforced_machine_access: vec!["read_only".into()],
+        },
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: "test".into(),

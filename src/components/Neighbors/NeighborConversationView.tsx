@@ -9,7 +9,7 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { ChatDeliveryState } from "../Terminal/ChatDeliveryState";
 import { UI_PANEL } from "../shared/design";
 import { ActivityDots } from "../shared/ActivityDots";
@@ -24,7 +24,7 @@ import { flagLine, NeighborFlagDialog } from "./NeighborFlagDialog";
 import { useNeighborReadReceipt } from "./useNeighborReadReceipt";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
-import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, landedSends, mergeHistory, readableBody, receiptMark, refusalLine, speaker, type ConciergeWorkEntry, type OutgoingSend, type ReceiptMark } from "./neighborConversationModel";
+import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, landedSends, mergeHistory, readableBody, receiptMark, refusalLine, shownWork, speaker, type ConciergeWorkEntry, type OutgoingSend, type ReceiptMark } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { useNeighborGateway } from "./neighborGateways";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
@@ -194,6 +194,8 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     ({ direction: "out", kind: "question", author: "me", body: item.body, at: item.at, message_id: item.key }))];
   const work = conciergeWork(entries ?? [], { working: tabWorking, missing: enabled && concierge?.concierge_missing === true && !conciergeTab });
   const conciergeWorking = enabled && [...work.values()].some(entry => activeWork(entry.work));
+  // The calm view of that standing: outcomes on their messages, the work under way once, "no reply needed" nowhere.
+  const shownStanding = shownWork(work, (entries ?? []).map(entry => entry.message_id));
   const scrollTo = (messageId: string) => document.getElementById(`neighbor-msg-${messageId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
   // Your agents speak in your bubble; the caption names which one: the General Agent, or this friend's concierge.
   const agentLabel = (entry: HistoryEntry) => typeof entry.author === "object" && tabs[entry.author.agent]?.protected ? "General" : "Your concierge";
@@ -291,7 +293,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     }}>
       <div className="neighbor-chat__column" role="log" aria-label={`Conversation with ${name}`}>
         {before && <div className="neighbor-chat__earlier"><Button size="sm" onClick={() => { void loadEarlier(); }}>Show earlier messages</Button></div>}
-        {entries === null && !historyFailure && <RegionLoader label="Loading the conversation" className="min-h-48" />}
+        {entries === null && !historyFailure && <Loader label="Loading the conversation" />}
         {entries === null && historyFailure && <InlineErrorNotice error={historyFailure} operation={`loading your conversation with ${name}`}
           actions={[{ label: "Retry", onClick: retryHistory }]} />}
         {entries !== null && entries.length === 0 && pendingSends.length === 0 && !error && <div className="neighbor-chat__empty">
@@ -310,9 +312,10 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
               onOpenFile={file => { void filesClient.open(friendship, file.file_id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file could not be opened.")); }} grouped={!day && continuesGroup(entry, index > 0 ? shown[index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
               checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: readableBody(quoted.body, new Set(filesOf(quoted).map(file => file.file_id))) } : null}
               onOpenQuoted={() => scrollTo(entry.in_reply_to!)}
-              standing={work.has(entry.message_id) && <ConciergeWorkLine work={work.get(entry.message_id)!} tab={conciergeTab}
+              standing={shownStanding.has(entry.message_id) && <ConciergeWorkLine work={shownStanding.get(entry.message_id)!} tab={conciergeTab}
                 canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />}
-              settled={work.has(entry.message_id) && settledWork(work.get(entry.message_id)!.work)}
+              settled={shownStanding.has(entry.message_id) && settledWork(shownStanding.get(entry.message_id)!.work)}
+              quietOutcome={work.get(entry.message_id)?.work === "no_reply" ? CONCIERGE_WORK_LINE.no_reply : undefined}
               outgoing={pending && { state: pending.state, reason: pending.reason, onRetry: () => retrySend(pending) }}
               onFlag={entry.direction === "in" && !pending ? () => setFlagging(entry.message_id) : undefined} />
           </Fragment>;
@@ -344,7 +347,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   </div>;
 }
 
-function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled, outgoing, onFlag }: {
+function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled, outgoing, onFlag, quietOutcome }: {
   entry: HistoryEntry; friend: ConversationFriend; friendName: string; agentLabel: string; files: NeighborFile[]; onOpenFile: (file: NeighborFile) => void; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
   quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
   /** Your concierge's standing on this message: inside the time row once settled, its own line while under way. */
@@ -353,6 +356,8 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
   outgoing?: { state: "sending" | "failed"; reason?: string; onRetry: () => void };
   /** Messages from them can be flagged by you from their menu. */
   onFlag?: () => void;
+  /** An outcome too quiet for a line of its own ("No reply needed"), kept in the time's tooltip. */
+  quietOutcome?: string;
 }) {
   const time = formatMessageTime(entry.at);
   const author = authorKind(entry);
@@ -376,14 +381,19 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
     <div className="neighbor-msg__stack">
       {author === "my-agent" && !grouped && <p className="neighbor-msg__caption">{agentLabel}</p>}
       {entry.kind === "tab_request" && <p className="neighbor-note">asked to open a tab</p>}
-      <div className={mine ? "ct-user-bubble neighbor-msg__bubble" : "neighbor-msg__bubble"}>
-        {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
-        <RichMarkdown text={readableBody(entry.body, new Set(files.map(file => file.file_id)))} localArtifacts={false} interactivePreviews={interactive} />
-        {outgoing ? <ChatDeliveryState state={outgoing.state} onRetry={outgoing.onRetry} /> : mark === "sending" && <ChatDeliveryState state="sending" />}
+      {/* The message's own menu sits beside its bubble, shown on hover, as in other messengers. */}
+      <div className="neighbor-msg__bubble-row">
+        <div className={mine ? "ct-user-bubble neighbor-msg__bubble" : "neighbor-msg__bubble"}>
+          {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
+          <RichMarkdown text={readableBody(entry.body, new Set(files.map(file => file.file_id)))} localArtifacts={false} interactivePreviews={interactive} />
+          {outgoing ? <ChatDeliveryState state={outgoing.state} onRetry={outgoing.onRetry} /> : mark === "sending" && <ChatDeliveryState state="sending" />}
+        </div>
+        {onFlag && <DropdownMenu className="neighbor-msg__menu" menuLabel="Message actions" items={[{ label: "Flag message…", onClick: onFlag }]}
+          trigger={<RowMenuButton label={`Actions for this message from ${friendName}`} title="Message actions" />} />}
       </div>
       {files.length > 0 && <div className="neighbor-files" role="list" aria-label="Files">{files.map(file => <FileChip key={file.file_id} file={file} onOpen={onOpenFile} />)}</div>}
       <p className="neighbor-msg__meta">
-        <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
+        <time dateTime={new Date(entry.at).toISOString()} title={`${new Date(entry.at).toLocaleString()}${quietOutcome ? `. ${quietOutcome}` : ""}`}>{time}</time>
         {mine && (refusal || mark === "not_delivered") ? <span className="neighbor-work neighbor-work--inline" data-work="refused">
           <span className="neighbor-work__text" title={refusal ?? undefined}>{refusal ?? "Not delivered"}</span></span>
         : mark && mark !== "sending" && mark !== "not_delivered" && <ReceiptTicks mark={mark} at={mark === "read" ? entry.read_at! : mark === "delivered" ? entry.delivered_at ?? null : entry.at} />}
@@ -392,8 +402,6 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
         {settled && standing}
         {flagged && <span className="neighbor-work neighbor-work--inline" data-work="flagged">
           <Flag size={11} aria-hidden="true" /><span className="neighbor-work__text" title={flagged.detail}>{flagged.text}</span></span>}
-        {onFlag && <DropdownMenu className="neighbor-msg__menu" menuLabel="Message actions" items={[{ label: "Flag message…", onClick: onFlag }]}
-          trigger={<RowMenuButton label={`Actions for this message from ${friendName}`} title="Message actions" />} />}
       </p>
       {!settled && standing}
     </div>

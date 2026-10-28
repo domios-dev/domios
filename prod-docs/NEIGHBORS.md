@@ -1,6 +1,6 @@
 # Encrypted Neighbors
 
-Neighbors encrypt account-to-account messages. Manage connections in Neighborhood/Neighbors sidebar. Free retains/accepts/configures/removes friends; messaging stays upgrade-locked.
+Neighbors encrypt account messages. Neighborhood/sidebar manage friends. Free retains/accepts/configures/removes them; messaging stays upgrade-locked.
 
 Neighbors defaults on per instance. Off immediately stops receive/send/request notices without restart, retaining connections/keys/scopes/listing. Sends/grants/binding/admission refuse `neighbors_disabled`. On resumes signed-in listeners; sign-out revokes this installation's receiving keys.
 
@@ -24,7 +24,7 @@ Failed streams use fresh authentication/durable cursor for at most3 reconnect at
 
 Receiver/registry snapshots last until watch/account changes; failed/missing watches invalidate them and stop reception. Receiving mutations invalidate receiver state; own-key/receiver reads share a per-operation cache invalidated before mutations. Each batch reads peer keys once, verifies every message, and never caches keys across batches without trusted rotation/revocation signals. On starts watches outside the send/mutation queue with a server-matching local key. Repair/sign-out cleanup serialize before admission; off/sign-out cancel startup. Events use actual progress, no polling/warmup.
 
-Runtime operations below use `POST /api/account/neighbors/runtime`.
+Runtime API: `POST /api/account/neighbors/runtime`.
 
 ## Authority and permissions
 
@@ -38,7 +38,11 @@ domios account neighbors deny FRIENDSHIP_ID
 domios account neighbors bind FRIENDSHIP_ID --tab GATEWAY_TAB_ID
 ```
 
-Saving grants creates/binds a concierge. Provider/model replacement retains scope/limits. Independent agents bind only with matching initial instructions/folder/confinement; General/Team/role-bound agents cannot be gateways. No broader launch reuse. Host-owned authority attaches before launch and persists; restart/sign-out/role changes or missing/ended bindings never grant unrestricted access.
+Saving grants creates/binds a concierge; provider/model replacement retains scope/limits. Independent agents require matching instructions/folder/confinement; General/Team/role-bound agents cannot bind. Never reuse broader launches. Host-owned authority persists from prelaunch; restart/sign-out/role changes/ended bindings never grant unrestricted access.
+
+`change_agent`: `provider`, optional `model`, provider effort ID `reasoning_effort`, declared tier ID `service_tier` (`default`=Standard). Omitted=provider defaults; unsupported choices refuse before replacement. Restore/Apply retain choices. Result/`status.concierges[friendship_id]` expose effort/tier fields, null for defaults.
+
+Provider `neighbor_concierge:{supported,machine_access,enforced_machine_access}` is platform-specific. Select supported access; enforced subset distinguishes confinement/advisory, detailed in `folder_enforcement.note`. None supports `none`.
 
 Default-deny applies to the authenticated credential at socket, HTTP RPC and direct HTTP entry points; headers/body claims cannot widen it. Allowed: own-friend history/send/retry/delivery status, report/answer own requests, granted memory reads and own-friend attachment reads. Nonce-bound session-start/stop/context/permission hooks report only on their tab, including launch; they add no authority or permission-prompt approval. Other operations (secrets, memory writes, receiver keys, configuration, cron, mesh, plugins, bridges, notifications) return403 `neighbor_capability_denied`.
 
@@ -55,7 +59,7 @@ Default-deny applies to the authenticated credential at socket, HTTP RPC and dir
 
 `read_only` uses a supported provider read-only sandbox but still permits commands and this OS user's file reads. `folder` requires an explicit folder and prefers workspace-write, falling back to read-only confinement. Without either sandbox, the launch is advisory: cwd does not confine reads/writes. `full` explicitly removes sandboxing. Folder/access edits replace the concierge; startup reconciles older mismatched launches.
 
-Permission/status projections add `effective_folder` and `folder_enforcement:{writes,reads,network,note}`. Writes: `pad_only` for a supported read-only own-AgentPad exception, `provider_sandbox` for folder sandbox, `unrestricted` for full, otherwise `advisory`. Read-only keeps the friend folder read-only; folder mode allows it plus own pad. No other pads, caches or Git metadata are added. Reads are `not_confined`; network is `disabled` only when explicitly confirmed, otherwise `not_confined`. Show the note's roots/platform limits. Grants do not prevent shell reads of plaintext OS files. Without writable-pad support, send stdin with `domios account neighbors send FRIENDSHIP_ID --from-pad -`.
+Permission/status: `effective_folder`, `folder_enforcement:{writes,reads,network,note}`. Writes: `pad_only` (supported read-only own-pad exception), `provider_sandbox` (folder), `unrestricted` (full), else `advisory`. Read-only keeps friend folder read-only; folder mode permits it plus own pad, never other pads/caches/Git metadata. Reads:`not_confined`; network:`disabled` only if confirmed, else `not_confined`. Show note roots/platform limits; grants cannot prevent shell reads of plaintext OS files. Without writable pad, use `domios account neighbors send FRIENDSHIP_ID --from-pad -`.
 
 Denied calls request a polite refusal linked by current `message_id` as `in_reply_to`, never latest-history guessing. Permission-off/disallowed requests auto-refuse before agent involvement. Generic path/browse routes refuse; use own-friend handles. CLI: `error.code:refused`, specific `error.reason`, bounded explanation, exit1. Secret outages: exit6, no structured payloads. `domios mem secret` checks payload-free `mem.secret.authorize` first: concierge gets `neighbor_capability_denied`/RPC-32003/exit1 before stdin/vault/backend. Others still require secret authentication.
 
@@ -103,7 +107,7 @@ Denied requests get polite linked refusals without local data access. Concierge 
 
 Refusal replies must target an incoming message in this friendship's local history and fit1024 UTF-8 bytes. `reply_target_unknown`400 and `refusal_too_long`413 (`limit`,`actual`) prove nothing was sent/appended. Shorten an oversized refusal and resend once; this is not uncertain delivery. Denied tab requests use403 `tab_requests_not_allowed`; other denied grants use `neighbor_permission_denied`, with automatic linked refusal before concierge involvement.
 
-Owner/General runtime operation `set_daily_limit` accepts `{friendship_id,daily_limit:20}`; null removes it. Friend rows expose `my_daily_limit`,`their_daily_limit`,`sent_today`. Recipient daily-limit rejection gives `not_delivered`, `reason:neighbor_daily_limit`,`limit`,`resets_at` Unix seconds, retained in history; ask recipient to raise it. Linked answers/refusals send `in_reply_to` for the server's once-per-inbound-message exemption; clients never decide locally.
+Owner/General `set_daily_limit {friendship_id,daily_limit:20}`; null removes it. Friend fields:`my_daily_limit,their_daily_limit,sent_today`. Recipient-limit failure: `not_delivered,reason:neighbor_daily_limit,limit,resets_at` (Unix seconds), retained in history; ask recipient to raise limit. Replies send `in_reply_to` for server-only once-per-inbound exemption.
 
 Receiving lifecycle (enroll/rotate/revoke/takeover) is owner-only. General reads status/edits grants/sends across friends. Other agents get history/send/retry only for their live binding; delivery status requires a local outgoing row. Other tabs cannot read status/list friends/control receiving:403 `neighbor_forbidden`. History/grant/notification-preference/status reads use local files/cache outside the network queue with unchanged auth checks, no Firestore refresh. `receiver_status_known:false` means no snapshot; receiver/registry events update it.
 
@@ -125,7 +129,7 @@ Owner/General `{operation:"stop_concierge",friendship_id}` on runtime API bypass
 
 ## Notifications, flags and pause
 
-Per-friend `notify` defaults `in_app`; alternatives off/in_app_and_bridges. Bridges use configured channels/audiences/limits. Owner/General runtime reads `{operation:"notification_preference",friendship_id}` or writes `{operation:"set_notification_preference",friendship_id,notify}`; both return `{friendship_id,notify}`. Lists include notify, status notification_preferences, changes `neighbor-notification-changed`. Incoming messages/refusals show at most120 first-line characters plus Open Neighbor. Full/outgoing bodies never become previews; off/sign-out stop notices.
+`notify`: default in_app, or off/in_app_and_bridges using configured channels/audiences/limits. Owner/General runtime `notification_preference {friendship_id}` / `set_notification_preference {friendship_id,notify}` return `{friendship_id,notify}`. Lists:notify; status:notification_preferences; event:`neighbor-notification-changed`. Incoming/refusal notices:120first-line characters maximum + Open Neighbor. No full/outgoing body previews; off/sign-out stop notices.
 
 An agent send rejected by daily/hourly/plan limits or a non-receiving recipient gives metadata-only owner notice under that friend's preference: reply/message identity, refusal and supplied reset/retry timing. Owner sends stay silent. History/receipts retain `reason`,`limit`,`resets_at`,`retry_after_seconds` when supplied. Uncertain pending submissions produce no rejection notice.
 
@@ -162,4 +166,4 @@ Inbound default50 MiB/friend/UTC day; set0..52428800 bytes, zero blocks new file
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

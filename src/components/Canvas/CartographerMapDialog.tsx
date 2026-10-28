@@ -4,6 +4,7 @@ import { parseVoiceMessage } from "@codeterm/chat-ui";
 import type { ProviderDescriptor } from "../../lib/types";
 import { isProviderSelectable } from "../../lib/providerAvailability";
 import { FormDialog } from "../shared/FormDialog";
+import { BusyState } from "../shared/BusyState";
 import { UI_BUTTON } from "../shared/design";
 import { OrchestrationRoleRow } from "../Sidebar/OrchestrationPairForm";
 import { ComposerTextInput } from "../Terminal/ComposerTextInput";
@@ -111,7 +112,7 @@ export function CartographerMapDialog(props: CartographerMapDialogProps) {
         {source.label}
       </label>)}
     </fieldset>
-    {props.loading && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Loading providers and models…</p>}
+    {props.loading && <BusyState inline label="Loading providers and models…" phase="work" className="text-xs text-[var(--ct-muted-fg)]" />}
     {props.catalogueError && props.providers.length === 0 && (
       <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Provider choices are unavailable right now.</p>
     )}

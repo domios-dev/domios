@@ -1,6 +1,7 @@
 import { useCallback, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { Circle, CircleAlert, CircleCheck, CircleDot, CircleMinus, ListChecks } from "lucide-react";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { BusyState } from "../shared/BusyState";
 import { ChecklistItemDetail } from "./ChecklistItemDetail";
 import type { Plan } from "../Canvas/types";
 import { useAgentChecklist } from "./useAgentChecklists";
@@ -54,7 +55,7 @@ function AgentChecklistRegion({ id, tabId, title, plans }: { id: string; tabId: 
     <section id={id} role="region" aria-label={`Checklist of ${title}`} className="sidebar-agent-checklist">
       {view.status === "ready" && view.checklist?.proposal?.state === "proposed" && <p role="status" className="sidebar-agent-checklist__note">Not reviewed yet</p>}
       {view.status === "loading" ? (
-        <p className="sidebar-agent-checklist__note">Loading checklist</p>
+        <BusyState inline label="Loading checklist" phase="work" className="sidebar-agent-checklist__note" />
       ) : view.status === "error" ? (
         <p className="sidebar-agent-checklist__note">Checklist unavailable</p>
       ) : items.length === 0 ? (
