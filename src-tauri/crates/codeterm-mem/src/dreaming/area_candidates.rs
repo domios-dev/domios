@@ -92,7 +92,7 @@ pub(super) fn candidate_pairs(areas: &[AreaSummary]) -> Vec<(&AreaSummary, &Area
     pairs
 }
 
-pub(super) fn render_candidates(conn: &Connection) -> Result<Option<String>, String> {
+pub(crate) fn render_candidates(conn: &Connection) -> Result<Option<String>, String> {
     let areas = read_areas(conn)?;
     let pairs = candidate_pairs(&areas);
     if pairs.is_empty() {

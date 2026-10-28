@@ -95,6 +95,15 @@ script tests run through `node scripts/test-catalogue.mjs run --entry <id>`
 (`node-script-tests`, `python-script-tests`); a single file still runs with
 `node --test <file>`.
 
+The canonical `./build.sh nextest mem-postgres` scope selects only
+`codeterm-mem-postgres`. Every database fixture owns a disposable schema and
+requires `DOMIOS_TEST_POSTGRES_URL` from the local pgvector test container.
+When the variable is set, the scope passes `--run-ignored all`; otherwise it
+lists the database cases as ignored by name and runs only its pure unit cases.
+An explicitly forced fixture with no URL fails setup. Runtime results from
+this scope do not establish BlueprintStore or EngineStore parity until their
+explicit refusals have been replaced and those contracts are included.
+
 Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
 
 A change that moves Rust tests between modules or crates proves no test was

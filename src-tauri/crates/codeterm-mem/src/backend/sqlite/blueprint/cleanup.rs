@@ -1,10 +1,12 @@
 use super::*;
 use std::path::Path;
 
+pub(super) const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS blueprint_v1_cleanup_receipt (id INTEGER PRIMARY KEY CHECK(id=1), removed_count INTEGER NOT NULL, completed_at TEXT NOT NULL)";
+
 pub(crate) fn remove_v1(conn: &Connection, blobs: &Path) -> Result<usize, String> {
     let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS blueprint_v1_cleanup_receipt (id INTEGER PRIMARY KEY CHECK(id=1), removed_count INTEGER NOT NULL, completed_at TEXT NOT NULL)").map_err(|e| e.to_string())?;
+    tx.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
     let completed: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM blueprint_v1_cleanup_receipt)",
@@ -60,7 +62,7 @@ pub(crate) fn remove_v1(conn: &Connection, blobs: &Path) -> Result<usize, String
         }
         tx.execute("DELETE FROM relations WHERE from_id=?1 OR to_id=?1", [id])
             .map_err(|e| e.to_string())?;
-        tx.execute("INSERT INTO mem_item_history(item_id,changed_at,changed_by,change_type,old_title,old_body,reason) VALUES (?1,datetime('now'),'system:blueprint-v2','delete',?2,?3,'Obsolete v1 Blueprint solution removed; native v2 required')",params![id,title,body]).map_err(|e| e.to_string())?;
+        tx.execute("INSERT INTO mem_item_history(item_id,changed_at,changed_by,change_type,old_title,old_body,reason,author_kind,author_label) VALUES (?1,datetime('now'),'system:blueprint-v2','delete',?2,?3,'Obsolete v1 Blueprint solution removed; native v2 required','system','blueprint-v2')",params![id,title,body]).map_err(|e| e.to_string())?;
         tx.execute("DELETE FROM mem_items WHERE id=?1", [id])
             .map_err(|e| e.to_string())?;
     }
