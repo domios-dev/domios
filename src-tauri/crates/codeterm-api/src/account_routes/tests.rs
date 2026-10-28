@@ -798,7 +798,9 @@ async fn neighbor_flags_have_a_typed_local_api_contract_without_body_fields() {
 
 #[tokio::test]
 async fn stopped_reply_is_a_typed_presend_conflict() {
-    let response = neighbor_failure(codeterm_neighbors::Error::ReplyTargetStopped.to_string());
+    let response = neighbor_failure(
+        "reply_target_stopped: The owner stopped this request; nothing was sent".into(),
+    );
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
