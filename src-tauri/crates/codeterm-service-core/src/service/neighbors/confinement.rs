@@ -9,6 +9,14 @@ use codeterm_neighbors::{
 use codeterm_types::plan::ExecutionIntent;
 use serde_json::{json, Value};
 
+pub(super) struct RestoreGrant {
+    generation: u64,
+    uid: String,
+    friendship: String,
+    nonce: String,
+    full: bool,
+}
+
 pub(super) async fn prepare_folder(
     metadata: &Metadata,
     friendship: &str,
@@ -61,13 +69,123 @@ fn sandbox_label(
 }
 
 impl ServiceContext {
+    pub(super) fn clear_neighbor_restore_grants(&self, uid: &str) {
+        self.neighbor_cell()
+            .restore_grants
+            .lock()
+            .retain(|_, grant| grant.uid != uid);
+    }
+
+    pub(super) fn remember_neighbor_restore_grant(&self, tab_id: &str, full: bool) {
+        let grant = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return;
+            };
+            let Some(authority) = &tab.neighbor_authority else {
+                return;
+            };
+            if authority.root_tab_id.is_some() {
+                return;
+            }
+            let Some(nonce) = &tab.session_binding_nonce else {
+                return;
+            };
+            RestoreGrant {
+                generation: self.neighbor_history_generation(),
+                uid: authority.uid.clone(),
+                friendship: authority.friendship_id.clone(),
+                nonce: nonce.clone(),
+                full,
+            }
+        };
+        self.neighbor_cell()
+            .restore_grants
+            .lock()
+            .insert(tab_id.into(), grant);
+    }
+
+    pub(crate) fn prepare_neighbor_restore_grant(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        params: &crate::service::SpawnAgentParams,
+    ) -> std::result::Result<(), String> {
+        if params.neighbor_authority.is_none() {
+            return Ok(());
+        }
+        let matches = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.neighbor_authority == params.neighbor_authority);
+        if !matches
+            || params.skip_permissions.is_none()
+            || params.skip_permissions == Some(true)
+                && !params.permission_bypass_requested(provider)
+        {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
+        self.remember_neighbor_restore_grant(tab_id, params.permission_bypass_requested(provider));
+        Ok(())
+    }
+
+    pub(crate) fn require_neighbor_restore_grant(
+        &self,
+        tab_id: &str,
+        bypass: bool,
+    ) -> std::result::Result<(), String> {
+        let mux = self.mux.read();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return Ok(());
+        };
+        let Some(authority) = &tab.neighbor_authority else {
+            return Ok(());
+        };
+        let root = authority.root_tab_id.as_deref().unwrap_or(tab_id);
+        let nonce = mux
+            .get_tab(root)
+            .and_then(|tab| tab.session_binding_nonce.as_deref());
+        let grants = self.neighbor_cell().restore_grants.lock();
+        if grants.get(root).is_some_and(|grant| {
+            grant.generation == self.neighbor_history_generation()
+                && grant.uid == authority.uid
+                && grant.friendship == authority.friendship_id
+                && Some(grant.nonce.as_str()) == nonce
+                && grant.full == bypass
+        }) {
+            Ok(())
+        } else {
+            Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string())
+        }
+    }
+
+    pub(crate) fn configure_neighbor_launch_access(
+        &self,
+        provider: &str,
+        access: MachineAccess,
+        params: &mut crate::service::SpawnAgentParams,
+    ) -> std::result::Result<(), String> {
+        let authorization = crate::service::permission_policy::authorize_permission_bypass(
+            &self.agent_registry,
+            provider,
+            access == MachineAccess::Full,
+        );
+        if access == MachineAccess::Full && authorization.is_none() {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
+        params.skip_permissions = Some(authorization.is_some());
+        params.permission_bypass_authorization = authorization;
+        Ok(())
+    }
+
     pub(super) fn validate_neighbor_bound_launch(
         &self,
         tab_id: &str,
         permission: &Permission,
         cwd: &str,
     ) -> std::result::Result<(), String> {
-        let (provider, actual_cwd, policy) = {
+        let (provider, actual_cwd, policy, bypass) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("Neighbor concierge is missing")?;
             (
@@ -76,8 +194,12 @@ impl ServiceContext {
                     .ok_or("Neighbor concierge has no provider")?,
                 tab.cwd.clone(),
                 tab.restorable_launch.execution_sandbox.clone(),
+                tab.restorable_launch.permission_bypass_requested,
             )
         };
+        if (permission.machine_access == MachineAccess::Full) != bypass {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
         let sandbox = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
         let effective_access = match sandbox.as_deref() {
             Some("read-only") => MachineAccess::ReadOnly,

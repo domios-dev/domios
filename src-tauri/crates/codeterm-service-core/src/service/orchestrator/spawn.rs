@@ -558,12 +558,8 @@ impl ServiceContext {
             .get_tab(&tab_id)
             .is_some_and(|tab| tab.role == Some(crate::multiplexer::types::AgentRole::Worker));
         let permission_bypass_authorization =
-            crate::service::permission_policy::spawn_permission_bypass_for(
-                self,
-                &self.agent_registry,
-                &agent_cmd,
-                worker,
-                params.sandbox.is_some(),
+            crate::service::permission_policy::spawn_permission_bypass_for_params(
+                self, &agent_cmd, worker, &params,
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
         params.skip_permissions = Some(permission_bypass);

@@ -1,7 +1,6 @@
 use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 use codeterm_neighbors::permissions::MachineAccess;
-use codeterm_plugin::provider::{ExecutionSandboxCapability, ExecutionSandboxMode};
 
 async fn fixture(access: MachineAccess) -> (ServiceFixture, String, String) {
     let (mut mux, general) = MultiplexerState::new();
@@ -14,21 +13,24 @@ async fn fixture(access: MachineAccess) -> (ServiceFixture, String, String) {
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.reported_session_binding_nonce = Some("own-nonce".into());
     let fixture = ServiceFixture::new(mux);
+    let manifest = codeterm_plugin::js_runtime::PluginManifest::from_json_str(&serde_json::json!({
+        "id":"opaque-provider","version":"1.0.0","displayName":"Fixture",
+        "capabilities":{"agentProvider":true},
+        "commands":{"autoApproveFlags":["opaque-full"]},
+        "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},
+            "executionSandbox":{"platforms":["windows","macos","linux"],
+                "readOnly":{"launchArgs":["opaque-read"],"runtimeMode":"opaque-read"},
+                "mutating":{"launchArgs":["opaque-folder"],"runtimeMode":"opaque-folder"}}}
+    }).to_string()).unwrap();
+    let vm = std::sync::Arc::new(
+        codeterm_plugin::js_runtime::PluginVm::from_source(
+            "opaque-provider",
+            "module.exports={}".into(),
+        )
+        .unwrap(),
+    );
     fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("opaque-provider").with_execution_sandbox(
-            ExecutionSandboxCapability {
-                platforms: vec![crate::agent::provider::current_platform_tag().into()],
-                read_only: Some(ExecutionSandboxMode {
-                    launch_args: vec!["opaque-read".into()],
-                    runtime_mode: Some("opaque-read".into()),
-                }),
-                mutating: Some(ExecutionSandboxMode {
-                    launch_args: vec!["opaque-folder".into()],
-                    runtime_mode: Some("opaque-folder".into()),
-                }),
-                ..Default::default()
-            },
-        ),
+        codeterm_plugin::js_runtime::JsProvider::new(manifest, vm),
     ));
     fixture
         .seed_neighbor_concierge(
@@ -51,123 +53,161 @@ async fn fixture(access: MachineAccess) -> (ServiceFixture, String, String) {
 
 #[tokio::test]
 async fn descendants_inherit_each_machine_level_and_keep_the_original_root_authority() {
-    for (access, expected) in [
-        (MachineAccess::ReadOnly, Some("read-only")),
-        (MachineAccess::Folder, Some("workspace-write")),
-        (MachineAccess::Full, None),
-    ] {
-        let (fixture, root, project) = fixture(access).await;
-        let service = &fixture.service;
-        let mut params = SpawnAgentParams {
-            spawned_by_tab_id: Some(root.clone()),
-            workspace_id: Some(project.clone()),
-            sandbox: Some("workspace-write".into()),
-            ..Default::default()
-        };
-        assert!(service
-            .inherit_neighbor_agent_spawn(&mut params)
-            .await
-            .unwrap());
-        let authority = params.neighbor_authority.clone().unwrap();
-        assert_eq!(authority.friendship_id, "a".repeat(64));
-        assert_eq!(authority.root_tab_id.as_deref(), Some(root.as_str()));
-        assert_eq!(params.sandbox.as_deref(), expected);
-        assert_eq!(params.skip_permissions, Some(false));
-        assert!(params
-            .cwd
-            .as_ref()
-            .is_some_and(|cwd| std::path::Path::new(cwd).is_absolute()));
-        let child = {
-            let mut mux = service.mux.write();
-            let child = mux.create_tab(&project).unwrap();
-            let tab = mux.get_tab_mut(&child).unwrap();
-            tab.agent_type = Some("opaque-provider".into());
-            tab.agent_session_id = Some("child-session".into());
-            tab.session_binding_nonce = Some("child-nonce".into());
-            tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
-            tab.neighbor_authority = Some(authority.clone());
-            child
-        };
-        let mut grandchild = SpawnAgentParams {
-            creator_tab_id: Some(child.clone()),
-            workspace_id: Some(project.clone()),
-            ..Default::default()
-        };
-        assert!(service
-            .inherit_neighbor_agent_spawn(&mut grandchild)
-            .await
-            .unwrap());
-        assert_eq!(grandchild.neighbor_authority, Some(authority));
-        assert_eq!(grandchild.parent_tab_id.as_deref(), Some(child.as_str()));
-        let token = service
-            .frontend_pty_env(Some(&child))
-            .remove("CODETERM_API_TOKEN")
-            .unwrap();
-        for (friendship, allowed) in [("a".repeat(64), true), ("b".repeat(64), false)] {
-            let command = crate::service::neighbors::runtime::NeighborRuntimeCommand::History {
-                friendship_id: friendship,
-                before: None,
-                limit: Some(1),
-            };
-            assert_eq!(
-                service
-                    .neighbor_runtime(command, Some(&child), Some("child-nonce"))
-                    .await
-                    .is_ok(),
-                allowed
-            );
-        }
-        assert!(service
-            .authorize_neighbor_rpc_credential(&token, "mem.search", None)
-            .await
-            .is_ok());
-        for method in [
-            "mem.secret.get",
-            "mem.save",
-            "plugin:opaque.execute",
-            "notification.create",
-            "config.set",
-            "mesh.relay",
+    for global in [false, true] {
+        for (access, expected) in [
+            (MachineAccess::ReadOnly, Some("read-only")),
+            (MachineAccess::Folder, Some("workspace-write")),
+            (MachineAccess::Full, None),
         ] {
-            assert!(
-                service
-                    .authorize_neighbor_rpc_credential(&token, method, None)
-                    .await
-                    .is_err(),
-                "{method}"
+            let (fixture, root, project) = fixture(access).await;
+            fixture.set_agent_full_access(global);
+            let service = &fixture.service;
+            let mut params = SpawnAgentParams {
+                spawned_by_tab_id: Some(root.clone()),
+                workspace_id: Some(project.clone()),
+                sandbox: Some("workspace-write".into()),
+                ..Default::default()
+            };
+            assert!(service
+                .inherit_neighbor_agent_spawn(&mut params)
+                .await
+                .unwrap());
+            let authority = params.neighbor_authority.clone().unwrap();
+            assert_eq!(authority.friendship_id, "a".repeat(64));
+            assert_eq!(authority.root_tab_id.as_deref(), Some(root.as_str()));
+            assert_eq!(params.sandbox.as_deref(), expected);
+            assert_eq!(params.skip_permissions, Some(access == MachineAccess::Full));
+            assert_eq!(
+                params.permission_bypass_authorization.is_some(),
+                access == MachineAccess::Full
             );
+            assert_eq!(
+                params.permission_bypass_requested("opaque-provider"),
+                access == MachineAccess::Full
+            );
+            assert!(params
+                .cwd
+                .as_ref()
+                .is_some_and(|cwd| std::path::Path::new(cwd).is_absolute()));
+            let child = {
+                let mut mux = service.mux.write();
+                let child = mux.create_tab(&project).unwrap();
+                let tab = mux.get_tab_mut(&child).unwrap();
+                tab.agent_type = Some("opaque-provider".into());
+                tab.agent_session_id = Some("child-session".into());
+                tab.session_binding_nonce = Some("child-nonce".into());
+                tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+                tab.neighbor_authority = Some(authority.clone());
+                child
+            };
+            let mut grandchild = SpawnAgentParams {
+                creator_tab_id: Some(child.clone()),
+                workspace_id: Some(project.clone()),
+                ..Default::default()
+            };
+            assert!(service
+                .inherit_neighbor_agent_spawn(&mut grandchild)
+                .await
+                .unwrap());
+            assert_eq!(grandchild.neighbor_authority, Some(authority));
+            assert_eq!(grandchild.parent_tab_id.as_deref(), Some(child.as_str()));
+            assert_eq!(
+                grandchild.skip_permissions,
+                Some(access == MachineAccess::Full)
+            );
+            assert_eq!(
+                grandchild.permission_bypass_authorization.is_some(),
+                access == MachineAccess::Full
+            );
+            assert_eq!(
+                grandchild.permission_bypass_requested("opaque-provider"),
+                access == MachineAccess::Full
+            );
+            let token = service
+                .frontend_pty_env(Some(&child))
+                .remove("CODETERM_API_TOKEN")
+                .unwrap();
+            for (friendship, allowed) in [("a".repeat(64), true), ("b".repeat(64), false)] {
+                let command = crate::service::neighbors::runtime::NeighborRuntimeCommand::History {
+                    friendship_id: friendship,
+                    before: None,
+                    limit: Some(1),
+                };
+                assert_eq!(
+                    service
+                        .neighbor_runtime(command, Some(&child), Some("child-nonce"))
+                        .await
+                        .is_ok(),
+                    allowed
+                );
+            }
+            assert!(service
+                .authorize_neighbor_rpc_credential(&token, "mem.search", None)
+                .await
+                .is_ok());
+            for method in [
+                "mem.secret.get",
+                "mem.save",
+                "plugin:opaque.execute",
+                "notification.create",
+                "config.set",
+                "mesh.relay",
+            ] {
+                assert!(
+                    service
+                        .authorize_neighbor_rpc_credential(&token, method, None)
+                        .await
+                        .is_err(),
+                    "{method}"
+                );
+            }
+            for candidate in [params, grandchild.clone()] {
+                let copy = service.clone();
+                let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(candidate);
+                let prepared = tokio::task::spawn_blocking(move || {
+                    let mut spec = spec;
+                    let _gate = copy.neighbor_tab_launch_guard(&spec).unwrap();
+                    copy.prepare_neighbor_tab_spawn(&mut spec).unwrap();
+                    spec
+                })
+                .await
+                .unwrap();
+                assert_eq!(
+                    prepared.to_agent_params().unwrap().neighbor_authority,
+                    grandchild.neighbor_authority
+                );
+                assert_eq!(prepared.cwd, grandchild.cwd);
+                let prepared_params = &prepared.chatbackend_launch.as_ref().unwrap().params;
+                assert_eq!(
+                    prepared_params.skip_permissions,
+                    Some(access == MachineAccess::Full)
+                );
+                assert_eq!(
+                    prepared_params.permission_bypass_authorization.is_some(),
+                    access == MachineAccess::Full
+                );
+                assert_eq!(
+                    prepared_params.permission_bypass_requested("opaque-provider"),
+                    access == MachineAccess::Full
+                );
+            }
+            let replacement = service.mux.write().create_tab(&project).unwrap();
+            fixture
+                .seed_neighbor_concierge(
+                    &replacement,
+                    &"a".repeat(64),
+                    Permission {
+                        allowed: true,
+                        scope: "opaque replacement".into(),
+                        ..Default::default()
+                    },
+                )
+                .await;
+            assert!(service
+                .authorize_neighbor_rpc_credential(&token, "mem.search", None)
+                .await
+                .is_err());
         }
-        let copy = service.clone();
-        let spec = crate::service::spawn::SpawnTabSpec::from_agent_params(params);
-        let prepared = tokio::task::spawn_blocking(move || {
-            let mut spec = spec;
-            let _gate = copy.neighbor_tab_launch_guard(&spec).unwrap();
-            copy.prepare_neighbor_tab_spawn(&mut spec).unwrap();
-            spec
-        })
-        .await
-        .unwrap();
-        assert_eq!(
-            prepared.to_agent_params().unwrap().neighbor_authority,
-            grandchild.neighbor_authority
-        );
-        assert_eq!(prepared.cwd, grandchild.cwd);
-        let replacement = service.mux.write().create_tab(&project).unwrap();
-        fixture
-            .seed_neighbor_concierge(
-                &replacement,
-                &"a".repeat(64),
-                Permission {
-                    allowed: true,
-                    scope: "opaque replacement".into(),
-                    ..Default::default()
-                },
-            )
-            .await;
-        assert!(service
-            .authorize_neighbor_rpc_credential(&token, "mem.search", None)
-            .await
-            .is_err());
     }
 }
 

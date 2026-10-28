@@ -18,6 +18,7 @@ pub enum Error {
     RefusalTooLong { limit: u64, actual: u64 },
     ReplyTargetUnknown,
     ReplyTargetStopped,
+    EmptyBody,
     TabRequestsNotAllowed,
     PermissionDenied,
     MachineAccessUnsupported,
@@ -106,6 +107,7 @@ impl std::fmt::Display for Error {
         f.write_str(match self {
             Self::InvalidEnvelope => "Invalid Neighbor envelope",
             Self::ReplyTargetStopped => "reply_target_stopped: The owner stopped this request; nothing was sent",
+            Self::EmptyBody => "empty_body: The message is empty; nothing was sent. Provide text or an attachment.",
             Self::ReplyTargetUnknown => "reply_target_unknown: Nothing was sent. Reply to an incoming message in this friendship's local history",
             Self::TabRequestsNotAllowed => "tab_requests_not_allowed: Tab requests are not allowed for this Neighbor",
             Self::PermissionDenied => "neighbor_permission_denied: This request is outside the Neighbor permission grant",

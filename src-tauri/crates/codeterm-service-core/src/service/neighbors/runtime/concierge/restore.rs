@@ -56,6 +56,10 @@ impl ServiceContext {
             .get(friendship)
             .cloned()
             .unwrap_or_default();
+        self.remember_neighbor_restore_grant(
+            tab_id,
+            permission.machine_access == codeterm_neighbors::permissions::MachineAccess::Full,
+        );
         let cwd = crate::service::neighbors::confinement::prepare_folder(
             metadata,
             friendship,
@@ -86,7 +90,14 @@ impl ServiceContext {
                     .or(tab.restorable_launch.requested_model.clone()),
             )
         };
-        let resume = same_context
+        let unsafe_bypass = permission.machine_access
+            != codeterm_neighbors::permissions::MachineAccess::Full
+            && self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
+        let resume = (same_context && !unsafe_bypass)
             .then(|| self.neighbor_initial_context_resume(tab_id))
             .flatten();
         let options = self.neighbor_launch_options(&settings, friendship);

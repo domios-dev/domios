@@ -36,6 +36,8 @@ pub struct NeighborRuntimeCell {
     pub(super) launches: Arc<super::launch_fence::State>,
     pub(super) pauses: super::pause::State,
     pub(super) concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
+    pub(super) restore_grants:
+        parking_lot::Mutex<HashMap<String, super::confinement::RestoreGrant>>,
     registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
     pub(super) generation: AtomicU64,
@@ -307,6 +309,8 @@ impl ServiceContext {
             return self.stop_neighbor_concierge(friendship_id).await;
         }
         if let NeighborRuntimeCommand::Send { body, .. } = &command {
+            codeterm_neighbors::wire::validate_nonempty_text(body)
+                .map_err(|error| error.to_string())?;
             codeterm_neighbors::wire::validate_message_size(body)
                 .map_err(|error| error.to_string())?;
         }
@@ -940,6 +944,7 @@ impl ServiceContext {
         self.neighbor_cell().names.lock().clear();
         self.neighbor_cell().pauses.clear();
         self.neighbor_cell().handling.clear();
+        self.neighbor_cell().restore_grants.lock().clear();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();
         }

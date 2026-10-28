@@ -325,6 +325,8 @@ impl ServiceContext {
             .session()
             .await
             .ok_or("Neighbor account is signed out")?;
+        let mut access = SpawnAgentParams::default();
+        self.configure_neighbor_launch_access(&provider, permission.machine_access, &mut access)?;
         let spawned = self
             .spawn_agent_with_state_change(
                 SpawnAgentParams {
@@ -341,7 +343,8 @@ impl ServiceContext {
                     workspace_id: Some(workspace),
                     cwd: Some(cwd),
                     sandbox,
-                    skip_permissions: Some(false),
+                    skip_permissions: access.skip_permissions,
+                    permission_bypass_authorization: access.permission_bypass_authorization,
                     title: Some("Concierge".into()),
                     title_provenance: Some(SpawnIdentityProvenance::UserSupplied),
                     description: Some(format!("Handles requests from Neighbor {friendship}")),

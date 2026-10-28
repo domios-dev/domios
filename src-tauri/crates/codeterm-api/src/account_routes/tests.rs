@@ -813,3 +813,21 @@ async fn stopped_reply_is_a_typed_presend_conflict() {
         .unwrap()
         .contains("nothing was sent"));
 }
+
+#[tokio::test]
+async fn empty_neighbor_body_is_a_typed_presend_bad_request() {
+    let response = neighbor_failure(
+        "empty_body: The message is empty; nothing was sent. Provide text or an attachment.".into(),
+    );
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "empty_body");
+    assert_eq!(body["reason"], "empty_body");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("nothing was sent"));
+}
