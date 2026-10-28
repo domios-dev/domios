@@ -9,7 +9,10 @@ import type { FrameKind } from "./gen/FrameKind";
 interface Fixture { name: string; source: string; raw: string; route: string; quoted?: boolean; segments: MessageSegment[] }
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Fixture[];
 const hostMarkup = ["<domios", "<tip>", "pasted by Domios", "<pasted_content"];
-const frameKinds: readonly FrameKind[] = ["tab", "report", "system", "reminder", "mesh", "telegram", "pebble", "plugin", "plugin_config", "system_prompt", "voice"];
+const frameKinds: Record<FrameKind, true> = {
+  tab: true, report: true, system: true, reminder: true, mesh: true, telegram: true, pebble: true,
+  plugin: true, plugin_config: true, system_prompt: true, voice: true, neighbor: true,
+};
 const expectedRows: Record<string, number> = {
   "system header with trailing Windows path": 1, "owner merged screenshot": 2, "voice transcript echo": 1, paste: 1, attachment: 1,
   "two frames in one record": 2, "fenced example": 1, "unclosed tag": 1, "inline frame after owner text": 2,
@@ -20,7 +23,7 @@ const expectedRows: Record<string, number> = {
   "claude paste queue-operation with CRLF": 1, "report frame": 1, "system frame with context": 1, "notification answer": 1,
   "recurring reminder frame": 1, "mesh frame with peer": 1, "three glued frames": 3, "owner text glued to a report frame": 2,
   "pad-substituted body": 1, "owner text with trailing pasted marker": 1, "pasted voice note": 1, "unknown sender kind": 1,
-  "opening tag cut before its close": 1,
+  "opening tag cut before its close": 1, "neighbor question with host tip": 1,
 };
 
 function displayed(segments: readonly MessageSegment[]): string[] {
@@ -40,7 +43,7 @@ for (const fixture of fixtures) {
   const rows = envelopeRows(fixture.segments);
   assert.equal(rows.length, expectedRows[fixture.name], fixture.name);
   for (const segment of fixture.segments) {
-    if (segment.type === "frame") assert.ok(frameKinds.includes(segment.kind), `${fixture.name}: ${segment.kind}`);
+    if (segment.type === "frame") assert.ok(frameKinds[segment.kind], `${fixture.name}: ${segment.kind}`);
   }
   if (fixture.quoted) continue;
   for (const text of [...displayed(fixture.segments), ...rows.flatMap((row) => displayed(row.segments))]) {
