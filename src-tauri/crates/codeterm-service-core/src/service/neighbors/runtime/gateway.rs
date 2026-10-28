@@ -85,6 +85,13 @@ impl ServiceContext {
 
 #[async_trait]
 impl NeighborGateway for Gateway {
+    async fn acknowledged(&self, message: &InboxMessage, result: codeterm_neighbors::wire::DeliveryResult) -> Result<()> {
+        if result.status == codeterm_neighbors::wire::DeliveryStatus::Delivered {
+            self.service.commit_neighbor_incoming_ack(&self.metadata, &self.friendship, &message.doc.envelope.message_id, self.history_generation).await?;
+        }
+        Ok(())
+    }
+
     async fn deliver(
         &self,
         message: &InboxMessage,

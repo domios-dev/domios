@@ -54,6 +54,9 @@ pub enum GatewayReceipt {
 
 #[async_trait]
 pub trait NeighborGateway: Send + Sync {
+    async fn acknowledged(&self, _message: &InboxMessage, _result: DeliveryResult) -> Result<()> {
+        Ok(())
+    }
     async fn deliver(
         &self,
         message: &InboxMessage,
@@ -203,6 +206,7 @@ impl Receiver<'_> {
         if status.status == DeliveryStatus::Pending {
             return Err(Error::Transport);
         }
+        self.gateway.acknowledged(message, status).await?;
         self.cursors.save(self.friendship_id, &cursor).await?;
         Ok(if status.status == DeliveryStatus::Delivered {
             ReceiveOutcome::Delivered
