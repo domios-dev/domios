@@ -101,7 +101,7 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
       try { return JSON.parse(detail); } catch { return null; }
     })();
     const reason = record(failure) && (["message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere"] as const).find(reason => reason === failure.code);
-    const message = (reason && REFUSAL_LINES[reason]) ?? (record(failure) && typeof failure.message === "string" ? failure.message : detail);
+    const message = (reason ? REFUSAL_LINES[reason] : undefined) ?? (record(failure) && typeof failure.message === "string" ? failure.message : detail);
     const limit = record(failure) && typeof failure.limit === "number" ? failure.limit : undefined;
     // A sending limit (HTTP 429) names its delivery reason and reset, which the conversation explains like a refused receipt.
     const refusal = record(failure) && typeof failure.reason === "string" && DELIVERY_REFUSALS.includes(failure.reason)
