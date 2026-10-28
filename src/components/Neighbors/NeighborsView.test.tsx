@@ -328,6 +328,15 @@ it("offers the concierge actions: change agent, view permissions, edit with Gene
   expect(takeNeighborFocus()).toEqual({ id: "pair", section: "permissions" });
 });
 
+it("changes the concierge with the shared agent row instead of bespoke dropdowns", async () => {
+  await render("paid");
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Set up concierge").click());
+  expect(document.querySelector('[data-testid="orchestration-role-agent"]')).not.toBeNull();
+  expect(document.querySelector('[role="dialog"] select')).toBeNull();
+  expect(document.body.textContent).toContain("Change Ada's concierge");
+});
+
 it("saves permissions directly and refuses an allowed grant without a scope", async () => {
   const conciergeClient = { history: vi.fn(async () => ({ entries: [], next_before: null, ended: false })), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
     onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
