@@ -70,7 +70,10 @@ pub async fn acknowledge_inbound(
     message: &InboxMessage,
 ) -> Result<DeliveryResult> {
     let result = transport
-        .ack(&message.doc.envelope.sender_uid, &message.doc.envelope.message_id)
+        .ack(
+            &message.doc.envelope.sender_uid,
+            &message.doc.envelope.message_id,
+        )
         .await?;
     if result.status == DeliveryStatus::Pending {
         return Err(Error::Transport);

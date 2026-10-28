@@ -67,17 +67,39 @@ impl Metadata {
 }
 
 impl ServiceContext {
-    pub(super) async fn catch_up_neighbor_delivered_read(&self, metadata: &Metadata, transport: &dyn NeighborTransport, uid: &str, signal: &DeliverySignal, generation: u64) -> Result<bool> {
-        if signal.status != DeliveryStatus::Delivered { return Ok(false); }
+    pub(super) async fn catch_up_neighbor_delivered_read(
+        &self,
+        metadata: &Metadata,
+        transport: &dyn NeighborTransport,
+        uid: &str,
+        signal: &DeliverySignal,
+        generation: u64,
+    ) -> Result<bool> {
+        if signal.status != DeliveryStatus::Delivered {
+            return Ok(false);
+        }
         let history = metadata.history(&signal.friendship_id).await?;
-        if !history.entries.iter().any(|entry| entry.direction=="out" && entry.sender_uid==uid && entry.message_id==signal.message_id && entry.read_at.is_none()) { return Ok(false); }
+        if !history.entries.iter().any(|entry| {
+            entry.direction == "out"
+                && entry.sender_uid == uid
+                && entry.message_id == signal.message_id
+                && entry.read_at.is_none()
+        }) {
+            return Ok(false);
+        }
         self.require_neighbors_enabled()?;
         self.require_neighbor_history_generation(generation)?;
         let status = transport.delivery_status(&signal.message_id).await?;
         let missed_read = status.read_at.is_some();
         self.require_neighbors_enabled()?;
         self.require_neighbor_history_generation(generation)?;
-        self.update_neighbor_history_status(metadata,&signal.message_id,status.into(),generation).await?;
+        self.update_neighbor_history_status(
+            metadata,
+            &signal.message_id,
+            status.into(),
+            generation,
+        )
+        .await?;
         Ok(missed_read)
     }
 
@@ -89,18 +111,12 @@ impl ServiceContext {
         generation: u64,
     ) -> Result<()> {
         self.require_neighbor_history_generation(generation)?;
-        let history = metadata
-            .history(&signal.friendship_id)
-            .await?;
-        if !history
-            .entries
-            .iter()
-            .any(|entry| {
-                entry.direction == "out"
-                    && entry.sender_uid == uid
-                    && entry.message_id == signal.message_id
-            })
-        {
+        let history = metadata.history(&signal.friendship_id).await?;
+        if !history.entries.iter().any(|entry| {
+            entry.direction == "out"
+                && entry.sender_uid == uid
+                && entry.message_id == signal.message_id
+        }) {
             return Ok(());
         }
         self.update_neighbor_history_status(
@@ -140,7 +156,16 @@ impl Session {
                 )
                 .await?;
             if !catch_up {
-                catch_up = self.service.catch_up_neighbor_delivered_read(&self.metadata,&self.transport,&self.transport.uid,delivery,generation).await?;
+                catch_up = self
+                    .service
+                    .catch_up_neighbor_delivered_read(
+                        &self.metadata,
+                        &self.transport,
+                        &self.transport.uid,
+                        delivery,
+                        generation,
+                    )
+                    .await?;
             }
         }
         if let Some(read) = &signal.read {
@@ -172,6 +197,6 @@ impl Session {
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod order_tests;
+#[cfg(test)]
+mod tests;

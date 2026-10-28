@@ -252,12 +252,19 @@ impl LaunchGeneration {
             tab.pty_id.as_deref() == Some(attempt.pty_id.as_str())
                 && tab.session_binding_nonce.as_deref() == Some(attempt.binding_nonce.as_str())
                 && tab.launch_session_authenticated()
-                && tab.agent_session_id.as_deref().is_some_and(|session| !session.trim().is_empty())
+                && tab
+                    .agent_session_id
+                    .as_deref()
+                    .is_some_and(|session| !session.trim().is_empty())
         });
-        authenticated && registry.record_provider_session(&self.tab_id, &ProviderSessionBinding {
-            pty_id: attempt.pty_id,
-            binding_nonce: attempt.binding_nonce,
-        })
+        authenticated
+            && registry.record_provider_session(
+                &self.tab_id,
+                &ProviderSessionBinding {
+                    pty_id: attempt.pty_id,
+                    binding_nonce: attempt.binding_nonce,
+                },
+            )
     }
 
     pub fn await_provider_ack(&self, timeout: std::time::Duration) -> bool {

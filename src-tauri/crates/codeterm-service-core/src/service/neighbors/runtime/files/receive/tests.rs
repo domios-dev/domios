@@ -19,18 +19,23 @@ impl AuthenticatedCall for Calls {
         self.trace.lock().unwrap().push(route.into());
         assert_eq!(data["installation_id"], "machine");
         if route == "friendsAck" {
-            assert_eq!(data["sender_uid"],"sender");
-            assert_eq!(data["message_id"],envelope().message_id);
+            assert_eq!(data["sender_uid"], "sender");
+            assert_eq!(data["message_id"], envelope().message_id);
             return Ok(json!({"status":"delivered","delivered_at":1000}));
         }
         if route == "friendsRead" {
             let envelope = envelope();
-            assert_eq!(data["friendship_id"],envelope.friendship_id);
-            assert_eq!(data["through_message_id"],envelope.message_id);
+            assert_eq!(data["friendship_id"], envelope.friendship_id);
+            assert_eq!(data["through_message_id"], envelope.message_id);
             let saved = self.metadata.history(&envelope.friendship_id).await?;
             assert!(saved.acknowledged_messages.contains(&envelope.message_id));
-            assert_eq!(saved.read_receipt_through.as_deref(),Some(envelope.message_id.as_str()));
-            return Ok(json!({"schema_version":1,"friendship_id":envelope.friendship_id,"through_message_id":envelope.message_id,"read_at":2000}));
+            assert_eq!(
+                saved.read_receipt_through.as_deref(),
+                Some(envelope.message_id.as_str())
+            );
+            return Ok(
+                json!({"schema_version":1,"friendship_id":envelope.friendship_id,"through_message_id":envelope.message_id,"read_at":2000}),
+            );
         }
         assert_eq!(data["file_id"], self.file.file_id);
         assert_eq!(data["sender_uid"], "sender");
@@ -127,30 +132,74 @@ async fn file_bearing_answer_saves_confirms_acks_and_commits_proof_before_read()
         .unwrap()
         .contains("key_b64u"));
 
-    let body = AttachmentBody::new("opaque answer".into(),vec![file]);
+    let body = AttachmentBody::new("opaque answer".into(), vec![file]);
     let encoded = body.encode(&binding(&envelope)).unwrap();
-    let visible = AttachmentBody::parse(&encoded,&binding(&envelope)).unwrap().unwrap().agent_text();
+    let visible = AttachmentBody::parse(&encoded, &binding(&envelope))
+        .unwrap()
+        .unwrap()
+        .agent_text();
     let message = InboxMessage {
-        id:format!("{}_{}",envelope.sender_uid,envelope.message_id),
-        doc:codeterm_neighbors::wire::InboxDocument { envelope:envelope.clone(),signature:"already-verified".into(),
-            received_at:Timestamp { seconds:1,nanoseconds:0 },expires_at:Timestamp { seconds:100,nanoseconds:0 } },
+        id: format!("{}_{}", envelope.sender_uid, envelope.message_id),
+        doc: codeterm_neighbors::wire::InboxDocument {
+            envelope: envelope.clone(),
+            signature: "already-verified".into(),
+            received_at: Timestamp {
+                seconds: 1,
+                nanoseconds: 0,
+            },
+            expires_at: Timestamp {
+                seconds: 100,
+                nanoseconds: 0,
+            },
+        },
     };
     let generation = service.neighbor_history_generation();
-    service.append_neighbor_history(&metadata,&envelope.friendship_id,
-        crate::service::neighbors::handling::incoming(&message,&visible,None),generation).await.unwrap();
+    service
+        .append_neighbor_history(
+            &metadata,
+            &envelope.friendship_id,
+            crate::service::neighbors::handling::incoming(&message, &visible, None),
+            generation,
+        )
+        .await
+        .unwrap();
     let mut before = metadata.history(&envelope.friendship_id).await.unwrap();
-    assert!(!before.reserve_read_through(&envelope.message_id,true,false));
-    let (_stop,stopped) = tokio::sync::watch::channel(false);
+    assert!(!before.reserve_read_through(&envelope.message_id, true, false));
+    let (_stop, stopped) = tokio::sync::watch::channel(false);
     let gateway = crate::service::neighbors::runtime::gateway::Gateway {
-        service:service.clone(),metadata:metadata.clone(),friendship:envelope.friendship_id.clone(),
-        tab:String::new(),reply_target:None,generation:0,history_generation:generation,stopped,
+        service: service.clone(),
+        metadata: metadata.clone(),
+        friendship: envelope.friendship_id.clone(),
+        tab: String::new(),
+        reply_target: None,
+        generation: 0,
+        history_generation: generation,
+        stopped,
     };
-    codeterm_neighbors::receive::acknowledge_inbound(&transport,&gateway,&message).await.unwrap();
+    codeterm_neighbors::receive::acknowledge_inbound(&transport, &gateway, &message)
+        .await
+        .unwrap();
     let mut acknowledged = metadata.history(&envelope.friendship_id).await.unwrap();
-    assert!(acknowledged.acknowledged_messages.contains(&envelope.message_id));
-    assert!(acknowledged.request_read_through(&envelope.message_id,true,false));
-    assert!(acknowledged.reserve_read_through(&envelope.message_id,true,false));
-    metadata.write(format!("history-{}.json",envelope.friendship_id),acknowledged).await.unwrap();
+    assert!(acknowledged
+        .acknowledged_messages
+        .contains(&envelope.message_id));
+    assert!(acknowledged.request_read_through(&envelope.message_id, true, false));
+    assert!(acknowledged.reserve_read_through(&envelope.message_id, true, false));
+    metadata
+        .write(
+            format!("history-{}.json", envelope.friendship_id),
+            acknowledged,
+        )
+        .await
+        .unwrap();
     transport.calls.invoke("friendsRead",json!({"installation_id":"machine","friendship_id":envelope.friendship_id,"through_message_id":envelope.message_id})).await.unwrap();
-    assert_eq!(*calls.trace.lock().unwrap(),["friendsFileDownload","friendsFileConfirm","friendsAck","friendsRead"]);
+    assert_eq!(
+        *calls.trace.lock().unwrap(),
+        [
+            "friendsFileDownload",
+            "friendsFileConfirm",
+            "friendsAck",
+            "friendsRead"
+        ]
+    );
 }
