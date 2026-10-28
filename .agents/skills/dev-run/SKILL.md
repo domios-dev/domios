@@ -193,6 +193,11 @@ Existing Cargo-fresh intermediates retain their previous metadata until rebuilt;
 the build skill covers scoped invalidation for an approved cache measurement.
 Instance-specific server identity and binary linking still require work.
 
+Debug Development servers resolve the frontend port and identifier from the
+launch environment (`CODETERM_VITE_PORT`, `CODETERM_DEV_IDENTIFIER`). These values
+are validated at startup and do not enter the server's compiler inputs. Release
+build directives and the compiled CLI artifact hash retain their existing role.
+
 `dev-server` validates the existing instance/artifacts and classifies current
 bytes against the last build snapshot, including uncommitted edits and deletions.
 Client/build changes refuse with `run ./build.sh dev instead` before shutdown.

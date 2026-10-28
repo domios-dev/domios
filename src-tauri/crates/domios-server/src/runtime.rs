@@ -102,13 +102,14 @@ pub fn run(
         },
         native: Arc::new(NoShell),
     });
-    let frontend_dev_url = development_frontend_origin(
+    let (frontend_dev_url, frontend_identifier) = development_frontend_configuration(
         cfg!(debug_assertions),
         matches!(
             &options.instance,
             codeterm_types::server_bootstrap::InstanceSelector::Development { .. }
         ),
-        env!("SERVER_DEV_FRONTEND_ORIGIN"),
+        &std::env::var("CODETERM_VITE_PORT").unwrap_or_default(),
+        &std::env::var("CODETERM_DEV_IDENTIFIER").unwrap_or_default(),
     )?;
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("DOMIOS_VERSION"));
@@ -152,11 +153,7 @@ pub fn run(
     let frontend_native = native_events.clone();
     let frontend_identity = codeterm_api::health_routes::NativeFrontendIdentity {
         port: Arc::new(move || frontend_native.read().as_ref()?.frontend_port()),
-        identifier: if frontend_dev_url.is_some() {
-            env!("SERVER_DEV_IDENTIFIER").to_owned()
-        } else {
-            String::new()
-        },
+        identifier: frontend_identifier,
     };
     let prepared = crate::startup::early_api::PreparedStartup::new(
         frontend_dev_url.as_ref(),
@@ -404,6 +401,33 @@ fn finish_server_control<T>(
         Ok(None) => cleanup,
         Err(error) => cleanup.and(Err(error)),
     }
+}
+
+fn development_frontend_configuration(
+    debug: bool,
+    development: bool,
+    port: &str,
+    identifier: &str,
+) -> io::Result<(Option<url::Url>, String)> {
+    if !debug || !development || port.is_empty() {
+        return Ok((None, String::new()));
+    }
+    let port = port
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or_else(|| io::Error::other("Invalid development frontend port"))?;
+    if !(identifier == "com.domios.dev" || identifier.starts_with("com.domios.dev."))
+        || !identifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte))
+    {
+        return Err(io::Error::other("Invalid development frontend identifier"));
+    }
+    Ok((
+        development_frontend_origin(true, true, &format!("http://127.0.0.1:{port}"))?,
+        identifier.into(),
+    ))
 }
 
 fn development_frontend_origin(
