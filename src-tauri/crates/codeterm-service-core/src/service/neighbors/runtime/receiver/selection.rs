@@ -39,8 +39,8 @@ impl ServiceContext {
         if receiver.status.receiving_here() {
             let local = InstallationKeys { store:&OsKeyStore,registry,scope:scope.clone(),uid:&registry.uid }.load().await?;
             if local.as_ref().map(|key| key.verifier_key_id(&registry.uid)).as_deref() != receiver.status.receiver_key_id.as_deref() || local.is_none() {
-                self.forget_neighbor_friend_receiver(friendship);
-                self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":self.neighbor_friend_receiver_version()}));
+                let version = self.forget_neighbor_friend_receiver(friendship);
+                self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":version}));
                 return Err(Error::LocalKeyUnavailable);
             }
         }

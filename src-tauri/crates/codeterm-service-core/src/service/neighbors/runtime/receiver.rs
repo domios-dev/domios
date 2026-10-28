@@ -77,12 +77,12 @@ impl ServiceContext {
         let status = match result {
             Ok(status) => status,
             Err(error) => {
-                self.forget_neighbor_friend_receivers();
+                let version = self.forget_neighbor_friend_receivers();
                 self.neighbor_cell().receiver.lock().take();
                 self.stop_neighbor_listeners();
                 self.ui.emit(
                     "neighbor-runtime-status",
-                    json!({"receiver_unavailable":true,"friend_receivers_version":self.neighbor_friend_receiver_version()}),
+                    json!({"receiver_unavailable":true,"friend_receivers_version":version}),
                 );
                 return Err(error.to_string());
             }

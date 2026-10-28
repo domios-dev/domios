@@ -86,6 +86,47 @@ fn binding_digest_ignores_labels_but_detects_equal_revision_session_changes() {
     assert_ne!(first.binding,next.binding);
 }
 
+#[tokio::test]
+async fn deferred_publication_keeps_its_batch_version_after_invalidation() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let service = &fixture.service;
+    let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
+    let changes = service.remember_neighbor_friend_receivers(BTreeMap::from([
+        ("first".into(),status(true,1)),("second".into(),status(true,1)),
+    ]),generation).unwrap();
+    let old_version = changes[0].version;
+    assert!(changes.iter().all(|change| change.version == old_version));
+    let (ready, waiting) = tokio::sync::oneshot::channel();
+    let (release, released) = tokio::sync::oneshot::channel();
+    let publisher = service.clone();
+    let metadata = Metadata::new(fixture.temp.path().to_owned(),"owner");
+    let publication = tokio::spawn(async move {
+        ready.send(()).unwrap();
+        released.await.unwrap();
+        publisher.publish_neighbor_friend_receiver_changes(&metadata,"owner",changes,generation).await
+    });
+    waiting.await.unwrap();
+    let invalidated_version = service.forget_neighbor_friend_receivers();
+    service.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":invalidated_version}));
+    release.send(()).unwrap();
+    publication.await.unwrap().unwrap();
+    assert!(invalidated_version > old_version);
+    let events = fixture.ui.0.lock();
+    let observations: Vec<_> = events.iter().filter(|(name,payload)| name == "neighbor-runtime-status"
+        && payload.get("friend_receivers_version").is_some()).map(|(_,payload)| payload).collect();
+    assert_eq!(observations.len(),3);
+    assert_eq!(observations[0]["friend_receivers_version"],invalidated_version);
+    for payload in &observations[1..] {
+        assert_eq!(payload["friend_receivers_version"],old_version);
+        assert_eq!(payload["receiving_here"],true);
+    }
+    let (snapshot,version) = service.neighbor_friend_receiver_snapshot();
+    assert_eq!(snapshot,json!({}));
+    assert_eq!(version,invalidated_version);
+    let next_invalidation = service.forget_neighbor_friend_receiver("first");
+    assert!(next_invalidation > invalidated_version);
+}
+
 struct NoCalls;
 #[async_trait::async_trait]
 impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {

@@ -38,6 +38,7 @@ impl FriendReceiver {
 }
 
 pub(in crate::service::neighbors) struct Change {
+    pub version: u64,
     pub friendship_id: String,
     pub previous: Option<FriendReceiver>,
     pub current: Option<FriendReceiver>,
@@ -62,9 +63,6 @@ impl ServiceContext {
         (Value::Object(views),cell.version.load(Ordering::Acquire))
     }
 
-    pub(in crate::service::neighbors) fn neighbor_friend_receiver_version(&self) -> u64 {
-        self.extensions.get_or_init(Cell::default).version.load(Ordering::Acquire)
-    }
     pub(in crate::service::neighbors) fn stop_neighbor_concierge_listener(&self, friendship: &str) {
         let stopped = {
             let mut listeners = self.neighbor_cell().listeners.lock();
@@ -109,19 +107,18 @@ impl ServiceContext {
             .map(|_| ()).ok_or(Error::NotReceiver)
     }
 
-    pub(in crate::service::neighbors) fn forget_neighbor_friend_receivers(&self) {
+    pub(in crate::service::neighbors) fn forget_neighbor_friend_receivers(&self) -> u64 {
         let cell = self.extensions.get_or_init(Cell::default);
         let mut known = cell.known.lock();
-        if !known.is_empty() {
-            known.clear();
-            cell.version.fetch_add(1,Ordering::AcqRel);
-        }
+        known.clear();
+        cell.version.fetch_add(1,Ordering::AcqRel) + 1
     }
 
-    pub(in crate::service::neighbors) fn forget_neighbor_friend_receiver(&self, friendship: &str) {
+    pub(in crate::service::neighbors) fn forget_neighbor_friend_receiver(&self, friendship: &str) -> u64 {
         let cell = self.extensions.get_or_init(Cell::default);
         let mut known = cell.known.lock();
-        if known.remove(friendship).is_some() { cell.version.fetch_add(1,Ordering::AcqRel); }
+        known.remove(friendship);
+        cell.version.fetch_add(1,Ordering::AcqRel) + 1
     }
 
     pub(in crate::service::neighbors) fn remember_neighbor_friend_receiver(
@@ -133,8 +130,8 @@ impl ServiceContext {
         let previous = known.get(friendship).filter(|known| known.generation == generation).map(|known| known.receiver.clone());
         if previous.as_ref() == Some(&receiver) { return Ok(vec![]); }
         known.insert(friendship.into(),KnownReceiver { generation,receiver:receiver.clone() });
-        cell.version.fetch_add(1,Ordering::AcqRel);
-        Ok(vec![Change { friendship_id:friendship.into(),previous,current:Some(receiver) }])
+        let version = cell.version.fetch_add(1,Ordering::AcqRel) + 1;
+        Ok(vec![Change { version,friendship_id:friendship.into(),previous,current:Some(receiver) }])
     }
 
     pub(in crate::service::neighbors) fn remember_neighbor_friend_receivers(
@@ -148,11 +145,14 @@ impl ServiceContext {
             let previous = known.get(&friendship).filter(|value| value.generation == generation).map(|value| value.receiver.clone());
             let current = receivers.get(&friendship).cloned();
             if previous != current {
-                changes.push(Change { friendship_id:friendship,previous,current });
+                changes.push(Change { version:0,friendship_id:friendship,previous,current });
             }
         }
         *known = receivers.into_iter().map(|(id,receiver)| (id,KnownReceiver { generation,receiver })).collect();
-        if !changes.is_empty() { cell.version.fetch_add(1,Ordering::AcqRel); }
+        if !changes.is_empty() {
+            let version = cell.version.fetch_add(1,Ordering::AcqRel) + 1;
+            for change in &mut changes { change.version = version; }
+        }
         Ok(changes)
     }
 

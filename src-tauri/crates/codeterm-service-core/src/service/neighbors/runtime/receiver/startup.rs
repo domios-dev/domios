@@ -44,7 +44,7 @@ impl ServiceContext {
             let mut view = status.map(Self::receiver_view).unwrap_or_else(|| json!({"receiver_unavailable":true}));
             view["friendship_id"] = json!(change.friendship_id);
             if let Some(receiver) = &change.current { view["source"] = json!(receiver.source); }
-            view["friend_receivers_version"] = json!(self.neighbor_friend_receiver_version());
+            view["friend_receivers_version"] = json!(change.version);
             self.ui.emit("neighbor-runtime-status",view);
             if !here && status.is_some() {
                 self.reconcile_neighbor_concierge_receiver(metadata,uid,&change.friendship_id,false,revision,generation).await?;
@@ -59,9 +59,9 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let result = self.start_neighbor_friend_listeners(transport,registry,scope,metadata,generation,recover_keys).await;
         if result.is_err() && self.require_neighbor_generation(generation).is_ok() {
-            self.forget_neighbor_friend_receivers();
+            let version = self.forget_neighbor_friend_receivers();
             self.stop_neighbor_listeners();
-            self.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":self.neighbor_friend_receiver_version()}));
+            self.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":version}));
         }
         result
     }
