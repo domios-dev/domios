@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from release_issue_contract import BOUNDARY_VERIFICATION_STEPS, closure_boundary_refusal
-from release_issue_resolution import included_history
+from release_issue_resolution import included_history, included_pull_requests, MAX_PR_PAGES
 
 
 class ClosureBoundaryTests(unittest.TestCase):
@@ -110,6 +110,45 @@ class ClosureBoundaryTests(unittest.TestCase):
                                   [{"version": "1.16.0", "sha": self.sha}], commits, request)
         self.assertEqual(result["start"], self.sha)
         self.assertEqual(calls[-1], f"{prefix}/actions/runs/50/attempts/3/jobs?per_page=100&page=1")
+
+
+class ClosedPullHistoryTests(unittest.TestCase):
+    def setUp(self):
+        self.sha = "a" * 40
+        self.calls = []
+
+    def pr(self, number, **changes):
+        return {"number": number, "html_url": f"https://example.invalid/pull/{number}",
+                "body": f"Repository-Issue: domios-dev/domios#{number}",
+                "merged_at": "2026-10-27T12:00:00Z", "updated_at": "2026-10-27T12:00:00Z",
+                "merge_commit_sha": self.sha, "base": {"ref": "next"}, **changes}
+
+    def request(self, pages):
+        def fetch(route):
+            self.assertIn("/pulls?state=closed&sort=updated&direction=desc&per_page=100&page=", route)
+            self.calls.append(route)
+            return pages[int(route.rsplit("=", 1)[1]) - 1]
+        return fetch
+
+    def test_pages_keep_only_merged_included_prs_and_reach_boundary_margin(self):
+        pages = [[self.pr(1), self.pr(2, merge_commit_sha="b" * 40), self.pr(3, merged_at=None)]
+                 + [self.pr(4, body="No issue metadata")] * 97,
+                 [self.pr(5)] * 100,
+                 [self.pr(6, merged_at="2026-10-24T23:59:59Z", updated_at="2026-10-24T23:59:59Z")] * 100]
+        result = included_pull_requests({self.sha}, self.sha, "2026-10-27T00:00:00Z", self.request(pages))
+        self.assertEqual([pr["number"] for pr in result], [1, 5, 6])
+        self.assertEqual(len(self.calls), 3)
+
+    def test_page_bound_before_boundary_refuses(self):
+        with self.assertRaisesRegex(ValueError, "page bound before boundary date"):
+            included_pull_requests({self.sha}, self.sha, "2026-10-27T00:00:00Z",
+                                   self.request([[self.pr(1)] * 100] * MAX_PR_PAGES))
+        self.assertEqual(len(self.calls), MAX_PR_PAGES)
+
+    def test_source_pr_closing_keywords_remain_included(self):
+        result = included_pull_requests({self.sha}, self.sha, "2026-10-27T00:00:00Z",
+                                       self.request([[self.pr(1, body="Closes #1")]]))
+        self.assertEqual([pr["number"] for pr in result], [1])
 
 
 if __name__ == "__main__":

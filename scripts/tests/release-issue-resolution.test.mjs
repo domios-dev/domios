@@ -6,6 +6,7 @@ import { authorizeClosure, closeVerifiedIssues } from '../check-release-closure.
 const repository = 'fixture/source';
 const sha = 'a'.repeat(40), previous = 'b'.repeat(40), older = 'c'.repeat(40);
 const route = suffix => `repos/${repository}/${suffix}`;
+const pullsRoute = page => route(`pulls?state=closed&sort=updated&direction=desc&per_page=100&page=${page}`);
 test('boundary evidence accepts only verified steps from the exact run attempt', () => {
   const run = spawnSync(process.platform === 'win32' ? 'python' : 'python3',
     ['scripts/tests/test_release_issue_contract.py'], { encoding: 'utf8' });
@@ -23,7 +24,8 @@ function fixture() {
       'repos/rollacode/codeterm-releases/releases/tags/v1.16.0': release,
       [route('releases/assets/11')]: { source_sha: previous, public_mirror_verified: true, validator_run_id: 50 },
       [route('actions/runs/50')]: { id: 50, path: '.github/workflows/release.yml', conclusion: 'success' },
-      [route(`commits/${sha}/pulls?per_page=100&page=1`)]: [],
+      [route(`commits/${previous}`)]: { commit: { committer: { date: '2026-10-01T00:00:00Z' } } },
+      [pullsRoute(1)]: [],
       'repos/rollacode/codeterm-releases/issues/999': { state: 'open' },
     } };
 }
@@ -56,7 +58,7 @@ test('newest verified reachable boundary stops remote history work', () => {
   const result = resolve(fixture());
   assert.equal(result.error, undefined);
   assert.equal(result.result.start, previous);
-  assert.equal(result.calls.length, 6);
+  assert.equal(result.calls.length, 7);
   assert.deepEqual(result.result.resolved.issues.map(row => row.reference), ['rollacode/codeterm-releases#999']);
   assert.equal(result.result.commits.length, 1);
 });
@@ -72,22 +74,22 @@ test('unverified newer boundary is refused before selecting the previous verifie
   assert.equal(result.error, undefined);
   assert.equal(result.result.history[0].version, '1.16.1');
   assert.equal(result.result.start, previous);
-  assert.equal(result.calls.length, 8);
+  assert.equal(result.calls.length, 9);
 });
 
 test('associated PR pagination retains every issue and exact PR metadata', () => {
   const f = fixture();
   const pr = n => ({ number: n, html_url: `https://github.com/${repository}/pull/${n}`,
-    body: `Public-Issue: rollacode/codeterm-releases#${n}`, merged_at: '2026-10-20', merge_commit_sha: sha, base: { ref: 'develop' } });
-  f.responses[route(`commits/${sha}/pulls?per_page=100&page=1`)] = Array.from({ length: 100 }, (_, i) => pr(i + 1));
-  f.responses[route(`commits/${sha}/pulls?per_page=100&page=2`)] = [pr(101), { ...pr(102), merge_commit_sha: older }];
+    body: `Public-Issue: rollacode/codeterm-releases#${n}`, merged_at: '2026-10-20', updated_at: '2026-10-20T00:00:00Z', merge_commit_sha: sha, base: { ref: 'develop' } });
+  f.responses[pullsRoute(1)] = Array.from({ length: 100 }, (_, i) => pr(i + 1));
+  f.responses[pullsRoute(2)] = [pr(101), { ...pr(102), merge_commit_sha: older }];
   for (let i = 1; i <= 101; i++) f.responses[`repos/rollacode/codeterm-releases/issues/${i}`] = { state: 'open' };
   const result = resolve(f);
   assert.equal(result.error, undefined);
   assert.equal(result.result.prs.length, 101);
   assert.equal(result.result.resolved.issues.length, 102);
   assert.deepEqual(result.result.prs[100], { number: 101, url: pr(101).html_url, body: pr(101).body, base_ref: 'develop' });
-  assert.equal(result.calls.length, 108);
+  assert.equal(result.calls.length, 109);
 });
 
 test('historical scan budget fails closed rather than selecting an unproven range', () => {
@@ -113,10 +115,10 @@ test('a boundary asset from a failed validator cannot cut off included issues', 
   assert.equal(result.result.resolved.issues.length, 1);
 });
 
-test('remote call budget also bounds included commit and issue lookups', () => {
+test('remote call budget also bounds included issue lookups', () => {
   const f = fixture();
-  f.commits = Array.from({ length: 1001 }, (_, i) => ({ sha: (i + 1).toString(16).padStart(40, '0'), body: '', url: `https://github.com/${repository}/commit/${i + 1}` }));
-  for (const commit of f.commits) f.responses[route(`commits/${commit.sha}/pulls?per_page=100&page=1`)] = [];
+  f.commits = Array.from({ length: 1001 }, (_, i) => ({ sha: (i + 1).toString(16).padStart(40, '0'), body: `Public-Issue: rollacode/codeterm-releases#${i + 1}`, url: `https://github.com/${repository}/commit/${i + 1}` }));
+  for (let i = 1; i <= 1001; i++) f.responses[`repos/rollacode/codeterm-releases/issues/${i}`] = { state: 'open' };
   const result = resolve(f);
   assert.match(result.error, /remote-call bound/);
   assert.equal(result.calls.length, 1000);
@@ -124,10 +126,10 @@ test('remote call budget also bounds included commit and issue lookups', () => {
 
 test('full PR pages have a hard pagination bound', () => {
   const f = fixture();
-  for (let page = 1; page <= 10; page++) f.responses[route(`commits/${sha}/pulls?per_page=100&page=${page}`)] = Array.from({ length: 100 }, () => ({ merged_at: null }));
+  for (let page = 1; page <= 10; page++) f.responses[pullsRoute(page)] = Array.from({ length: 100 }, () => ({ merged_at: null, updated_at: '2026-10-20T00:00:00Z' }));
   const result = resolve(f);
   assert.match(result.error, /page bound/);
-  assert.equal(result.calls.length, 14);
+  assert.equal(result.calls.length, 15);
 });
 
 function evidence(platforms, manifest) {
