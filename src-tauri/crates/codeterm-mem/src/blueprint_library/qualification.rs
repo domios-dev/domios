@@ -8,7 +8,7 @@ pub struct PreparedBlueprint {
     pub index: index::IndexRow,
 }
 
-pub(crate) fn index_row(original: &Document, intents: &[String]) -> index::IndexRow {
+pub fn index_row(original: &Document, intents: &[String]) -> index::IndexRow {
     use codeterm_blueprint_types::blueprint_memory::semantic_canon::{
         canonical_json, semantic_canon,
     };
