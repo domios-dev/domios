@@ -20,6 +20,7 @@ import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighb
 import { listedPaused, neighborName } from "./neighborModel";
 import { usePausedFriends } from "./neighborPause";
 import { neighborRuntimeClient, type NeighborRuntimeClient, type ReceiverState } from "./neighborRuntimeClient";
+import { receiverFailureDescription } from "./neighborReceiverError";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import type { NeighborFilesClient } from "./neighborFilesClient";
 import { referralStatus } from "./referralTrial";
@@ -260,7 +261,7 @@ function takeoverWarning(status: ReceiverState): string {
 function ReceiveHere({ receiver, client }: { receiver: ReceiverState; client: NeighborRuntimeClient }) {
   const [confirming, setConfirming] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ReturnType<typeof receiverFailureDescription> | null>(null);
   if (confirming === null) {
     return <div className="neighbors-receive"><Button size="sm" onClick={() => { setError(null); setConfirming(receiver.revision); }}>Receive here</Button></div>;
   }
@@ -268,13 +269,13 @@ function ReceiveHere({ receiver, client }: { receiver: ReceiverState; client: Ne
   return <div role="group" aria-label="Receive on this machine" className="ct-card ct-card--static neighbors-receive neighbors-receive--confirm">
     {stale && <p className="neighbor-note">Receiving changed. Confirm again to receive here.</p>}
     <p className="ct-card__meta">{takeoverWarning(receiver)}</p>
-    {error && <InlineErrorNotice error={error} operation="receiving Neighbor messages here" role="alert" />}
+    {error && <InlineErrorNotice description={error} role="alert" />}
     <div className="neighbor-confirm__actions">
       <Button size="sm" variant="primary" loading={busy} onClick={() => {
         if (stale) { setConfirming(receiver.revision); return; }
         setBusy(true); setError(null);
         void client.enroll(receiver.revision).then(() => setConfirming(null),
-          (failure: unknown) => setError(failure instanceof Error ? failure.message : "Receiving could not move here.")).finally(() => setBusy(false));
+          (failure: unknown) => setError(receiverFailureDescription(failure))).finally(() => setBusy(false));
       }}>Receive Neighbor messages here</Button>
       <Button size="sm" disabled={busy} onClick={() => setConfirming(null)}>Cancel</Button>
     </div>
