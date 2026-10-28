@@ -688,10 +688,7 @@ async fn ensure_locked(
         context.thread_id = Some(thread_id.clone());
         context.settings = settings;
     }
-    bind(svc, session, &thread_id)?;
-    if context.thread_id.is_none() && fork.is_none() {
-        resume::mark_unused(svc, session, &thread_id)?;
-    }
+    bind(svc, session, &thread_id, context.thread_id.is_none() && fork.is_none())?;
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
@@ -768,14 +765,14 @@ async fn ensure_locked(
         return Err(reason);
     }
     let first_page_ms = started.elapsed().as_millis();
+    session
+        .thread_loaded
+        .store(true, std::sync::atomic::Ordering::Release);
     super::bootstrap::submit(svc, session, &process).await?;
     inject_abort_note(svc, provider, session, &process, &thread_id).await;
     if !session.state.lock().load(context.epoch, &thread_id) {
         return Err(RuntimeFailure::Superseded);
     }
-    session
-        .thread_loaded
-        .store(true, std::sync::atomic::Ordering::Release);
     crate::startup::boot_timing::mark(tab, None, "runtime_ready");
     let reopen = backfill::Reopen {
         started,
@@ -866,13 +863,13 @@ fn validate_binding_inner(
         Err(RuntimeFailure::Superseded)
     }
 }
-fn bind(svc: &ServiceContext, session: &Session, thread: &str) -> Result<(), RuntimeFailure> {
+fn bind(svc: &ServiceContext, session: &Session, thread: &str, fresh: bool) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
     let mut mux = svc.mux.write();
     let tab = mux
         .get_tab_mut(&context.tab_id)
         .ok_or(RuntimeFailure::Superseded)?;
-    commit_runtime_binding(tab, &context.binding_nonce, thread, |tab| {
+    commit_runtime_binding(tab, &context.binding_nonce, thread, fresh, |tab| {
         svc.publish_boot_stage_transition(
             &context.tab_id,
             tab,
@@ -886,6 +883,7 @@ fn commit_runtime_binding(
     tab: &mut crate::multiplexer::types::Tab,
     nonce: &str,
     thread: &str,
+    fresh: bool,
     publish: impl FnOnce(&crate::multiplexer::types::Tab),
 ) -> Result<(), RuntimeFailure> {
     if tab.session_binding_nonce.as_deref() != Some(nonce)
@@ -898,6 +896,10 @@ fn commit_runtime_binding(
     }
     tab.agent_session_id = Some(thread.into());
     tab.reported_session_binding_nonce = Some(nonce.into());
+    if fresh {
+        let config = tab.agent_runtime_config.get_or_insert_with(|| serde_json::json!({}));
+        config["unusedThreadId"] = Value::String(thread.into());
+    }
     tab.agent_booting = false;
     crate::service::boot_stage::apply_boot_stage(
         tab,
