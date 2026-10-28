@@ -777,6 +777,17 @@ pub fn get_or_synthesize_entity(
     let Some((id, entity_type, scope, props_json, created_at, updated_at)) = row else {
         return Ok(None);
     };
+    Ok(Some(synthesize_entity(id, entity_type, scope, props_json, created_at, updated_at)))
+}
+
+pub fn synthesize_entity(
+    id: String,
+    entity_type: String,
+    scope: String,
+    props_json: String,
+    created_at: String,
+    updated_at: String,
+) -> MemItem {
     let props_val: serde_json::Value =
         serde_json::from_str(&props_json).unwrap_or(serde_json::Value::Null);
     let title = props_val
@@ -802,7 +813,7 @@ pub fn get_or_synthesize_entity(
         _ => None,
     };
     let body = serde_json::to_string_pretty(&props_val).unwrap_or(props_json);
-    Ok(Some(MemItem {
+    MemItem {
         id: id.clone(),
         uid: id,
         author: super::MemAuthor::system("entity-projection"),
@@ -820,7 +831,7 @@ pub fn get_or_synthesize_entity(
         accessed_at: None,
         access_count: 0,
         recurrence_count: 0,
-    }))
+    }
 }
 
 pub fn update(

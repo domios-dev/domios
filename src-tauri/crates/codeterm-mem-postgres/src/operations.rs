@@ -1,12 +1,12 @@
-use crate::{db_error, items, queries, vectors, PostgresMemStore, StoreResult};
+use crate::{db_error, items, queries, PostgresMemStore, StoreResult};
 use codeterm_mem::{
     backend::{Deletion, WriteContext},
     embedder::{ActiveEmbedder, EmbedError, StampedVector},
-    search::{SearchConfig, SearchMode},
+    search::SearchConfig,
     store::{HistorySnapshot, MemUpdate},
     NewMemItem, SearchHit, SearchQuery,
 };
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 impl PostgresMemStore {
     pub(crate) fn deletion_targets_in(
@@ -134,67 +134,7 @@ impl PostgresMemStore {
     ) -> StoreResult<Vec<SearchHit>> {
         let vector = embedder.query(&query.query);
         self.transaction(|tx| {
-            let limit = query.limit.unwrap_or(5).clamp(1, 50);
-            let mut candidate_query = query.clone();
-            candidate_query.limit = Some(50);
-            let lexical = if cfg.mode == SearchMode::HybridRrf {
-                queries::search_in(tx, &candidate_query, cfg)?
-            } else {
-                Vec::new()
-            };
-            let mut scores = HashMap::<String, (f64, codeterm_mem::MemItem)>::new();
-            for (rank, hit) in lexical.into_iter().enumerate() {
-                scores.insert(
-                    hit.item.id.clone(),
-                    (1.0 / (cfg.rrf_k + rank as f64 + 1.0), hit.item),
-                );
-            }
-            if let Some(vector) = &vector {
-                let pool = limit * cfg.vector_rerank_pool_multiplier.max(5);
-                for (rank, (id, distance)) in vectors::nearest_in(tx, vector, pool)?
-                    .into_iter()
-                    .enumerate()
-                {
-                    let Some(item) = items::get_in(tx, &id)? else {
-                        continue;
-                    };
-                    if !matches_query(&item, query, cfg) {
-                        continue;
-                    }
-                    let contribution = if cfg.mode == SearchMode::VectorFirstRerank {
-                        -distance
-                    } else {
-                        1.0 / (cfg.rrf_k + rank as f64 + 1.0)
-                    };
-                    scores
-                        .entry(id)
-                        .and_modify(|(score, _)| *score += contribution)
-                        .or_insert((contribution, item));
-                }
-            }
-            let mut hits = scores
-                .into_values()
-                .map(|(score, item)| {
-                    let auto = if item.tags.iter().any(|tag| tag == "auto-extracted") {
-                        cfg.auto_extracted_penalty
-                    } else {
-                        1.0
-                    };
-                    let recurrence = 1.0
-                        + (item.recurrence_count as f64 * cfg.recurrence_step)
-                            .min(cfg.recurrence_cap);
-                    SearchHit {
-                        item,
-                        score: -score * auto * recurrence,
-                    }
-                })
-                .collect::<Vec<_>>();
-            hits.sort_by(|a, b| {
-                a.score
-                    .total_cmp(&b.score)
-                    .then_with(|| a.item.id.cmp(&b.item.id))
-            });
-            hits.truncate(limit);
+            let hits = queries::recall_with_embedding_in(tx, query, cfg, vector.as_ref())?;
             if record_access {
                 queries::touch_in(
                     tx,
@@ -237,36 +177,14 @@ impl PostgresMemStore {
         query: &SearchQuery,
         limit: usize,
     ) -> StoreResult<Vec<SearchHit>> {
-        let terms: Vec<String> = query
-            .query
-            .split(|c: char| !c.is_alphanumeric())
-            .map(str::to_lowercase)
-            .filter(|word| word.len() >= 3 && !codeterm_mem::search::is_stop_word(word))
-            .collect();
+        let terms = codeterm_mem::search::extract_keywords(&query.query);
         if terms.is_empty() || limit == 0 {
             return Ok(Vec::new());
         }
         self.transaction(|tx| {
-            let mut matched=Vec::new();
-            for row in tx.query("SELECT id FROM entities ORDER BY id", &[]).map_err(db_error)? {let id:String=row.get(0);if terms.iter().any(|term|id.to_lowercase().contains(term)) {matched.push(id);}}
+            let matched = queries::matched_entities_in(tx, &terms)?;
             Ok(queries::items_in(tx,"WITH links(item_id,entity_id) AS (SELECT from_id,to_id FROM relations WHERE to_id=ANY($1) AND valid_to IS NULL UNION SELECT to_id,from_id FROM relations WHERE from_id=ANY($1) AND valid_to IS NULL) SELECT m.id FROM links JOIN mem_items m ON m.id=links.item_id WHERE m.kind!='archived' AND ($2::text IS NULL OR m.kind=$2) AND ($3::text IS NULL OR m.scope=$3) AND ($4::text IS NULL OR m.area=$4) GROUP BY m.id ORDER BY count(DISTINCT entity_id) DESC,m.importance DESC,m.updated_at DESC,m.id LIMIT $5", &[&matched,&query.kind,&query.scope,&query.area,&(limit as i64)])?.into_iter().map(|item|SearchHit {item,score:0.0}).collect())
         })
     }
 }
 
-fn matches_query(item: &codeterm_mem::MemItem, query: &SearchQuery, cfg: &SearchConfig) -> bool {
-    item.kind != "archived"
-        && query.kind.as_ref().is_none_or(|kind| item.kind == *kind)
-        && query
-            .scope
-            .as_ref()
-            .is_none_or(|scope| item.scope == *scope)
-        && query
-            .area
-            .as_ref()
-            .is_none_or(|area| item.area.as_ref() == Some(area))
-        && cfg
-            .source_filter
-            .as_ref()
-            .is_none_or(|source| item.source == *source)
-}

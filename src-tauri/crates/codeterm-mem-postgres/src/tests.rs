@@ -2,9 +2,11 @@ use super::*;
 use codeterm_mem::backend::{contract, MemStore, SqliteMemStore, StoreTable, WriteContext};
 use codeterm_mem::store::MemAuthor;
 
+mod blueprint;
 mod engines;
 mod maintenance;
 mod transfer;
+mod recall;
 
 struct Fixture {
     url: String,
