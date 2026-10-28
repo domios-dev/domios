@@ -112,6 +112,7 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
             std::fs::create_dir(&cwd).unwrap();
             svc.mux.write().get_tab_mut(&tab_id).unwrap().cwd =
                 Some(cwd.to_string_lossy().into_owned());
+            fixture.install_seeded_storage_desk();
             let mut params = SpawnAgentParams {
                 agent: Some("pad-runtime".into()),
                 cwd: Some(cwd.to_string_lossy().into_owned()),
@@ -174,6 +175,7 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
             );
             let svc = &fixture.service;
             register_neighbor_runtime(svc);
+            fixture.install_seeded_storage_desk();
             assert_eq!(
                 super::restore(svc, &tab_id).unwrap_err(),
                 codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
