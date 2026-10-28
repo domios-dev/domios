@@ -110,3 +110,20 @@ it.each([
   await act(async () => stale.resolve(initial));
   expect(seen).toMatchObject({ receiving_here: true, revision, source });
 });
+
+it("ignores deferred friend publication older than a newer invalidation", async () => {
+  const initial: ChannelStatus = { ...status(true, 3), friend_receivers_version: 1,
+    friend_receivers: { first: { ...status(true, 9), source: "friend" } } };
+  const { runtime, emit } = client(Promise.resolve(initial));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: ReturnType<typeof useReceiverState> = null;
+  const Probe = () => { seen = useReceiverState(runtime, true, "first"); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  await act(async () => emit({ receiver_unavailable: true, friend_receivers_version: 2 }));
+  expect(seen).toBeNull();
+  await act(async () => emit({ ...status(true, 9), source: "friend", friendship_id: "first", friend_receivers_version: 1 }));
+  expect(seen).toBeNull();
+  expect(runtime.status).toHaveBeenCalledTimes(1);
+});

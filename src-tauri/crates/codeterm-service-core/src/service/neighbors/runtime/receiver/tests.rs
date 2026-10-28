@@ -48,12 +48,12 @@ async fn off_cancels_watch_start_even_while_an_earlier_connection_holds_the_gate
 }
 
 #[tokio::test]
-async fn receiver_fence_requires_current_enabled_installation_and_revision() {
+async fn friend_receiver_fence_requires_current_enabled_installation_and_revision() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
     assert_eq!(
-        service.require_neighbor_receiver(None),
+        service.require_neighbor_friend_receiver("friend",None),
         Err(Error::NotReceiver)
     );
     let mut status = ReceiverStatus {
@@ -73,9 +73,10 @@ async fn receiver_fence_requires_current_enabled_installation_and_revision() {
     ] {
         status.is_me = is_me;
         status.receiving_enabled = enabled;
-        *service.neighbor_cell().receiver.lock() = Some(status.clone());
+        let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
+        service.remember_neighbor_friend_receiver("friend",friends::FriendReceiver::from_account(&status),generation).unwrap();
         assert_eq!(
-            service.require_neighbor_receiver(Some(revision)).is_ok(),
+            service.require_neighbor_friend_receiver("friend",Some(revision)).is_ok(),
             allowed
         );
     }

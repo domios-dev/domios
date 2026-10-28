@@ -734,11 +734,11 @@ impl ServiceContext {
         self.forget_neighbor_registry();
         if let Some(friendship) = friendship {
             self.stop_neighbor_concierge_listener(friendship);
-            self.forget_neighbor_friend_receiver(friendship);
-            self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":self.neighbor_friend_receiver_version()}));
+            let version = self.forget_neighbor_friend_receiver(friendship);
+            self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":version}));
         } else {
-            self.forget_neighbor_friend_receivers();
-            self.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":self.neighbor_friend_receiver_version()}));
+            let version = self.forget_neighbor_friend_receivers();
+            self.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":version}));
         }
         self.neighbor_operation(owner::Operation::ReceiverChanged)
             .await?;

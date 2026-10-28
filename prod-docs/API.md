@@ -61,14 +61,6 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 
 Outgoing Neighbor history entries expose optional `delivered_at` and `read_at` as UNIX milliseconds. `read_at` implies delivery. Accepted sending is one tick, delivered is two ticks, read is two blue ticks. `neighbor-history-changed` carries the affected `friendship_id` after receipt persistence. See `NEIGHBORS` for the signal and catch-up behavior.
 
-#### Per-friend receiving
-
-Owner UI uses `POST /api/account/neighbors/runtime` with `{operation:"set_friend_receiver",friendship_id,receiver_operation:"set"|"reset",takeover_confirmed:true,expected_receiver_revision}`. This changes only that friendship; `reset` resumes the account receiver. The separate `enroll` operation moves all friends and requires its own confirmation. A reset may lower the effective revision: refresh and reconfirm stale requests rather than taking a numeric maximum or retrying a mutation automatically.
-
-Runtime `status` adds `machine_label` for this machine and `friend_receivers[friendship_id]` with `{receiving_here,receiver_machine_label,receiving_enabled,revision,source:"account"|"friend"}`. Missing entries mean unknown and must not fall back to account state. `friend_receivers_version` orders daemon snapshots independently of backend receiver revisions; friendship-scoped `neighbor-runtime-status` events include the same observation version and `friendship_id`. Keep newer observations when an older read finishes late. A move settles pending outgoing entries as `not_delivered` with reason `receiver_moved`; status catch-up remains available to authenticated sender installations after a move.
-
-Refusals retain typed reasons including `receiver_revision_stale`, `feature_unsupported`, `not_receiver`, and `key_limit {limit,active}`. Machine limits require removing a machine or changing the plan; moving a friend never silently revokes unrelated installation keys. Receiver authority applies to inbox admission, ACK/read receipts, and file download/confirmation; saved local files and grants stay on their own machine.
-
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -207,4 +199,4 @@ Live authenticated Plan owners may recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 237 -->
+<!-- revision: 238 -->
