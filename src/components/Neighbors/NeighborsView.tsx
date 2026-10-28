@@ -29,6 +29,7 @@ import { useNeighborsSwitch } from "./neighborsSwitch";
 import { readNeighborCache, writeNeighborCache, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
 import { receivingLine, useReceiverState } from "./useReceiverState";
+import { useNeighborStatus } from "./neighborStatusStore";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -74,6 +75,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   const tabMap = useTabMap();
   const me = accountTrayModel(account.model, null);
   const receiver = useReceiverState(runtimeClient, Boolean(identity) && enabled);
+  const machineLabel = useNeighborStatus(runtimeClient, Boolean(identity) && enabled)?.machine_label;
   const isPaused = usePausedFriends(conciergeClient);
   const pausedInList = (id: string) => { const friend = graph?.friends.find(entry => entry.friendship_id === id); return friend ? listedPaused(friend) : undefined; };
   const [selected, setSelected] = useState<string | null>(null);
@@ -185,7 +187,9 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
           {identity && list === null && !updating && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
         </div>
         {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
-        {identity && enabled && receiver && !receiver.receiving_here && <NeighborReceiveHere receiver={receiver} onReceive={revision => runtimeClient.enroll(revision)} />}
+        {/* The one control that moves every friend: it says so, with how many and onto which machine. */}
+        {identity && enabled && receiver && !receiver.receiving_here && <NeighborReceiveHere receiver={receiver} friendCount={people}
+          targetMachine={machineLabel} onReceive={revision => runtimeClient.enroll(revision)} />}
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}

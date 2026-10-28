@@ -56,24 +56,23 @@ async function mount(node: React.ReactNode) {
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(node));
 }
-async function choose(menu: string, item: string) {
+/** Opens a row's menu and returns its item labels; `choose` then picks one from the open menu. */
+async function openMenu(menu: string): Promise<(string | null)[]> {
   await act(async () => { button(menu).dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  return Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
+}
+async function choose(item: string) {
   const entry = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(element => element.textContent === item);
   if (!entry) throw new Error(`Missing menu item ${item}`);
   await act(async () => entry.click());
 }
-const menuItems = async (menu: string) => {
-  await act(async () => { button(menu).dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
-  const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
-  await act(async () => { document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
-  return items;
-};
 
 it("the sidebar friend row says where that friend is received and receives only that friend here", async () => {
   const runtimeClient = receiving(elsewhere);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
   expect(document.body.textContent).toContain("receiving on Studio Mac");
-  await choose("Actions for Ada", "Receive this friend here");
+  await openMenu("Actions for Ada");
+  await choose("Receive this friend here");
   const confirm = button("Confirm receiving");
   expect(confirm.dataset).toMatchObject({ friend: "Ada", operation: "set", target: "This laptop" });
   await act(async () => confirm.click());
@@ -84,10 +83,10 @@ it("the sidebar friend row says where that friend is received and receives only 
 it("an overridden friend offers the account receiver back, and only then", async () => {
   const runtimeClient = receiving(overridden);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
-  const items = await menuItems("Actions for Ada");
+  const items = await openMenu("Actions for Ada");
   expect(items).toContain("Use account receiver");
   expect(items).not.toContain("Receive this friend here");
-  await choose("Actions for Ada", "Use account receiver");
+  await choose("Use account receiver");
   expect(button("Confirm receiving").dataset.operation).toBe("reset");
   await act(async () => button("Confirm receiving").click());
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 3, "reset");
@@ -96,7 +95,7 @@ it("an overridden friend offers the account receiver back, and only then", async
 
 it("a friend received here by the account offers no receiving action", async () => {
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={receiving({ ...overridden, source: "account" })} />);
-  const items = await menuItems("Actions for Ada");
+  const items = await openMenu("Actions for Ada");
   expect(items).not.toContain("Receive this friend here");
   expect(items).not.toContain("Use account receiver");
 });
@@ -104,7 +103,8 @@ it("a friend received here by the account offers no receiving action", async () 
 it("the concierge row's menu receives the same friend here", async () => {
   const runtimeClient = receiving(elsewhere);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
-  await choose("Actions for Ada's concierge", "Receive this friend here");
+  await openMenu("Actions for Ada's concierge");
+  await choose("Receive this friend here");
   await act(async () => button("Confirm receiving").click());
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
 });
