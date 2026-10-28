@@ -138,6 +138,27 @@ Encrypt and send one authored message; prints only its ID and status
 - `--in-reply-to`
 - `--kind`
 
+#### `domios account neighbors set-daily-limit`
+
+Set daily incoming messages; null removes the per-friend daily cap
+
+- `--daily-limit`
+- `<friendship_id>`
+
+#### `domios account neighbors set-file-daily-limit`
+
+Set daily incoming file bytes; null restores the 50 MiB default
+
+- `--file-daily-limit-bytes`
+- `<friendship_id>`
+
+#### `domios account neighbors set-limit`
+
+Set this friend's incoming request cap per hour (owner or General)
+
+- `<friendship_id>`
+- `--per-hour`
+
 #### `domios account neighbors status`
 
 Show local channel enrollment and gateway bindings
