@@ -86,7 +86,16 @@ await act(async()=>namedButton("Use Session reset").click());
 assert.equal(resetRequests.length,1);
 const priorCrypto = globalThis.crypto;
 Object.defineProperty(globalThis,"crypto",{value:{getRandomValues:priorCrypto.getRandomValues.bind(priorCrypto)},configurable:true});
-await act(async()=>namedButton("Use reset").click());
+async function pressReset() {
+ const confirmReset = namedButton("Use reset");
+ await act(async()=>confirmReset.dispatchEvent(new MouseEvent("pointerdown",{bubbles:true})));
+ assert.equal(namedButton("Use reset"),confirmReset);
+ assert.ok(document.querySelector('section[aria-label="Session resets"]'));
+ await act(async()=>confirmReset.dispatchEvent(new MouseEvent("mousedown",{bubbles:true})));
+ await act(async()=>confirmReset.dispatchEvent(new MouseEvent("pointerup",{bubbles:true})));
+ await act(async()=>confirmReset.click());
+}
+await pressReset();
 Object.defineProperty(globalThis,"crypto",{value:priorCrypto,configurable:true});
 assert.equal(resetRequests.length,3);
 assert.deepEqual(resetRequests[2],{action:"read"});
@@ -102,7 +111,7 @@ snapshot = {...snapshot,runtime_usage:[{...reading,resets:{availableCount:2,next
 await act(async()=>emit());
 await act(async()=>namedButton("Use Session reset 2").click());
 assert.equal(resetRequests.length,3);
-await act(async()=>namedButton("Use reset").click());
+await pressReset();
 const selectedConfirmation:Record<string,unknown> = resetRequests[3];
 assert.equal(selectedConfirmation.creditId,"wire-second");
 assert.equal(selectedConfirmation.confirmed,true);
