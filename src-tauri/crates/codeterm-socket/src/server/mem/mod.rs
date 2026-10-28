@@ -4,6 +4,7 @@
 mod embedder;
 mod graph;
 mod hygiene;
+mod neighbor_save;
 
 use codeterm_service_core::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
 use codeterm_service_core::mem::learnings::{self, LearnKind};
@@ -60,6 +61,7 @@ pub(super) fn dispatch(
         }
         "mem.get" => mem_get(params, svc),
         "mem.save" => mem_save(params, svc),
+        "mem.neighbor_save" => neighbor_save::save(params, svc),
         "mem.delete" => mem_delete(params, svc),
         "mem.purge_precompact" => mem_purge_precompact(params, svc),
         "mem.archive" => hygiene::mem_archive(params, svc),
@@ -168,7 +170,7 @@ fn changed_by_or_user(changed_by: Option<String>) -> String {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(sanitize_actor)
-        .unwrap_or_else(|| "user".to_string())
+        .unwrap_or_else(codeterm_service_core::mem::store::current_changed_by)
 }
 
 pub(super) fn emit_activity(svc: &ServiceState, op: &str, mem_ids: Vec<String>) {
@@ -257,9 +259,12 @@ fn mem_save(
     let kind_for_extract = item.kind;
     let replace = body.replace;
     let skip_extract = body.skip_extract;
-    let outcome = with_changed_by("user", || {
-        svc.save_memory_for_caller(&caller, item, replace)
-    })
+    let outcome = with_changed_by(
+        &codeterm_service_core::mem_ops::author::author_audit_label(
+            &codeterm_service_core::mem::store::current_author(),
+        ),
+        || svc.save_memory_for_caller(&caller, item, replace),
+    )
     .map_err(internal_error)?;
     let id = outcome.id;
     emit_activity(svc, "write", vec![id.clone()]);
@@ -267,6 +272,7 @@ fn mem_save(
     let auto_extract_enabled = svc.configuration().memory.auto_extract;
     if codeterm_service_core::mem_ops::items::save_schedules_extraction(
         &outcome.outcome,
+        &codeterm_service_core::mem::store::current_author(),
         skip_extract,
         is_auto_extracted,
         auto_extract_enabled,
@@ -291,7 +297,13 @@ fn mem_delete(
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
-    let removed = with_changed_by("user", || svc.mem.delete(&id)).map_err(internal_error)?;
+    let removed = with_changed_by(
+        &codeterm_service_core::mem_ops::author::author_audit_label(
+            &codeterm_service_core::mem::store::current_author(),
+        ),
+        || svc.mem.delete(&id),
+    )
+    .map_err(internal_error)?;
     emit_activity(svc, "delete", vec![id.clone()]);
     Ok(serde_json::json!({ "deleted": removed }))
 }
@@ -411,7 +423,13 @@ fn mem_learn_promote(
     svc: &ServiceState,
 ) -> Result<serde_json::Value, JsonRpcError> {
     let id = get_string_param(&params, "id")?;
-    with_changed_by("user", || svc.mem.promote_learning(&id)).map_err(invalid_params)?;
+    with_changed_by(
+        &codeterm_service_core::mem_ops::author::author_audit_label(
+            &codeterm_service_core::mem::store::current_author(),
+        ),
+        || svc.mem.promote_learning(&id),
+    )
+    .map_err(invalid_params)?;
     Ok(serde_json::json!({ "promoted": id }))
 }
 
@@ -704,109 +722,7 @@ fn mem_worker_kill(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{search_error, secret_socket_rejection, SearchError};
-
-    #[test]
-    fn precompact_purge_rpc_refuses_unknown_fields_and_preserves_partial_report() {
-        let dir = tempfile::tempdir().unwrap();
-        let mem = codeterm_service_core::mem::MemManager::open_offline(dir.path()).unwrap();
-        let invalid = super::execute_precompact_purge(
-            Some(serde_json::json!({"id":"x","unexpected":true})),
-            &mem,
-        )
-        .unwrap_err();
-        assert_eq!(invalid.code, -32602);
-        let id = mem
-            .save(codeterm_service_core::mem::store::NewMemItem {
-                kind: codeterm_service_core::mem::store::MemKind::Conversation,
-                scope: codeterm_service_core::mem::store::MemScope::Global,
-                title: "flush:0123abcd pre-compact".into(),
-                body: "fixture".repeat(1000),
-                summary: None,
-                area: None,
-                tags: vec![],
-                source: None,
-                importance: 1.0,
-                source_path: None,
-                pinned: false,
-            })
-            .unwrap();
-        mem.delete(&id).unwrap();
-        let blob = std::fs::read_dir(mem.blobs_dir())
-            .unwrap()
-            .next()
-            .unwrap()
-            .unwrap()
-            .path();
-        std::fs::write(blob, "changed").unwrap();
-        let preview =
-            super::execute_precompact_purge(Some(serde_json::json!({"id":id})), &mem).unwrap();
-        assert_eq!(preview["dry_run"], true);
-        let error = super::execute_precompact_purge(
-            Some(serde_json::json!({"id":id,"apply":true,"verified_deleted":true})),
-            &mem,
-        )
-        .unwrap_err();
-        assert_eq!(error.code, -32000);
-        let data = error.data.unwrap();
-        assert_eq!(data["logical_purge_complete"], true);
-        assert_eq!(data["blob_cleanup_complete"], false);
-        assert_eq!(data["errors"].as_array().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn secret_methods_are_explicitly_rejected_over_socket() {
-        for method in [
-            "mem.secret.save",
-            "mem.secret.get",
-            "mem.secret.list",
-            "mem.secret.delete",
-            "mem.secret.status",
-            "mem.secret.unlock",
-        ] {
-            let err = secret_socket_rejection(method)
-                .unwrap_or_else(|| panic!("{method} must be rejected over socket"));
-            assert_eq!(err.code, -32004);
-            assert!(err.message.contains("authenticated-HTTP-only"));
-            assert!(err.message.contains("/api/secrets/"));
-        }
-    }
-
-    #[test]
-    fn non_secret_methods_are_not_rejected() {
-        for method in ["mem.get", "mem.save", "mem.graph.create", "mem.stats"] {
-            assert!(
-                secret_socket_rejection(method).is_none(),
-                "{method} should not hit the secret rejection"
-            );
-        }
-    }
-
-    #[test]
-    fn supporter_socket_refuses_token_methods() {
-        let secret = secret_socket_rejection("mem.secret.get").unwrap();
-        for method in [
-            "mem.supporter.token.set",
-            "mem.supporter.token.clear",
-            "mem.supporter.token.status",
-        ] {
-            let err = secret_socket_rejection(method)
-                .unwrap_or_else(|| panic!("{method} must be rejected over socket"));
-            assert_eq!(err.code, secret.code);
-            assert!(err.message.contains("/api/supporter/token"));
-        }
-        assert!(secret_socket_rejection("mem.search").is_none());
-    }
-
-    #[test]
-    fn decision_socket_maps_exclusive_rerank_to_invalid_params() {
-        let err = search_error(SearchError::InvalidParams("x".into()));
-        assert_eq!(err.code, -32602);
-        assert_eq!(err.message, "x");
-        assert_eq!(search_error(SearchError::Internal("y".into())).code, -32000);
-    }
-}
+mod tests;
 
 fn mem_purge_precompact(
     params: Option<serde_json::Value>,
@@ -852,3 +768,6 @@ fn execute_precompact_purge(
     }
     Ok(value)
 }
+
+#[cfg(test)]
+mod authorship;

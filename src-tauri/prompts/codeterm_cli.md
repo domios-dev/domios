@@ -107,6 +107,8 @@ Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--m
 
 The Domios memory protocol is in your provider rules. Commands: `domios mem --help`; depth: `domios docs MEMORY`. Past conversations are not mem: `domios sessions search`.
 
+Concierges save requested facts or notes only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>`, after searching within their read grant. The daemon checks the live write grant, content safety and verified friend authorship; an empty write-area list allows no saves.
+
 Use `domios mem taxonomy` for area counts and `domios mem area merge <from> --into <to> --dry-run` to preview a reversible area move; omit `--dry-run` to apply. Undo per item with `domios mem restore <id> --version <history-row>`.
 
 One embedder serves all of mem: `domios mem embedder status` shows it and its re-embed progress; `domios mem embedder use <provider> --model <m>` switches it in the background. Store its key with `domios mem embedder key set <provider>` (piped stdin only, local owner-only file). A remote embedder also needs the owner's opt-in (`domios docs MEMORY`).

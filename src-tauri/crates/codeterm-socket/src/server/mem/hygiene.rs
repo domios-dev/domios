@@ -57,7 +57,7 @@ pub(super) fn mem_archive(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(codeterm_service_core::mem_ops::sanitize_actor)
-        .unwrap_or_else(|| "user".to_string());
+        .unwrap_or_else(codeterm_service_core::mem::store::current_changed_by);
     let output =
         archive_mem_item(svc, &id, &reason, &actor).map_err(|(status, message)| match status {
             StatusCode::NOT_FOUND => not_found(message),

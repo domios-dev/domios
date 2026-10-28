@@ -63,3 +63,13 @@ it("keeps size and tab-request refusals typed", async () => {
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiving_elsewhere", message: "Another machine receives for this account" }), { status: 409 }));
   await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere", message: "This machine is not receiving this friend's messages." });
 });
+
+it("sends write areas explicitly and defaults them to an empty grant", async () => {
+  const { neighborConciergeClient } = await import("./neighborConciergeClient");
+  for (const memory_write_areas of [undefined, ["project"]]) {
+    vi.mocked(localFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    await neighborConciergeClient.setPermission("pair", { allowed: true, scope: "opaque", allow_tab_requests: false, memory_write_areas });
+    const request = vi.mocked(localFetch).mock.lastCall![1]!;
+    expect(JSON.parse(String(request.body)).permission.memory_write_areas).toEqual(memory_write_areas ?? []);
+  }
+});

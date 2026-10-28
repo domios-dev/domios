@@ -38,6 +38,7 @@ export interface NeighborPermission {
   allow_memory?: boolean;
   /** Only these memory areas; null shares every area that is not secret. */
   memory_areas?: string[] | null;
+  memory_write_areas?: string[];
   /** Only these workspaces; null, the default, grants no workspace at all. */
   workspaces?: string[] | null;
   /** On by default: their agents may ask for files. */

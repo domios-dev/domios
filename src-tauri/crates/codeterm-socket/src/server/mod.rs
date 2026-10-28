@@ -544,17 +544,34 @@ fn respond_to_request(
     }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
+    let caller_tab = match svc.authenticate_local_credential(&req.credential) {
+        Ok(caller) => caller.map(|caller| caller.tab_id),
+        Err(message) => return JsonRpcResponse::error(id, -32003, message),
+    };
+    let author = match codeterm_service_core::async_runtime::block_on(
+        codeterm_service_core::mem_ops::author::mem_author_for_rpc(
+            svc,
+            caller_tab.as_deref(),
+            &req.method,
+        ),
+    ) {
+        Ok(author) => author,
+        Err(message) => return JsonRpcResponse::error(id, -32003, message),
+    };
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _arrival = boot_timing::enter_request(id.as_ref(), &req.method, received_at_us);
-        dispatch::dispatch_with_post_response(
-            &req.method,
-            local_params,
-            mux,
-            pty,
-            notif,
-            output_buf,
-            svc,
-        )
+        let actor = codeterm_service_core::mem_ops::author::author_audit_label(&author);
+        codeterm_service_core::mem::store::with_authored_change(author, &actor, || {
+            dispatch::dispatch_with_post_response(
+                &req.method,
+                local_params,
+                mux,
+                pty,
+                notif,
+                output_buf,
+                svc,
+            )
+        })
     }));
     match dispatched {
         Ok(Ok((result, after_response))) => {

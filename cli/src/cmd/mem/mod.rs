@@ -6,6 +6,7 @@ mod graph;
 pub(crate) mod item;
 #[cfg(test)]
 mod merge_tests;
+mod neighbor_save;
 mod skill;
 mod socket;
 mod tail;

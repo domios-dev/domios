@@ -42,48 +42,50 @@ fn to_new_item(item: PluginIndexEntry) -> NewMemItem {
 }
 
 pub fn sync(mem: &MemManager) {
-    let _serial = SYNC_LOCK.lock();
-    let desired = match installed_plugin_entries() {
-        Ok(entries) => entries,
-        Err(error) => {
-            log::warn!("[plugin-index] load installed manifests failed: {error}");
-            return;
-        }
-    };
-    let existing =
-        match mem.list_by_source_prefix(MemKind::Skill.as_str(), PLUGIN_SKILL_SOURCE_PREFIX) {
-            Ok(items) => items
-                .into_iter()
-                .map(|item| ExistingPluginIndexEntry {
-                    mem_id: item.id,
-                    title: item.title,
-                    source: item.source.unwrap_or_default(),
-                    body: item.body,
-                })
-                .collect::<Vec<_>>(),
+    crate::mem::store::with_default_system_author("plugin-skills", || {
+        let _serial = SYNC_LOCK.lock();
+        let desired = match installed_plugin_entries() {
+            Ok(entries) => entries,
             Err(error) => {
-                log::warn!("[plugin-index] list existing items failed: {error}");
+                log::warn!("[plugin-index] load installed manifests failed: {error}");
                 return;
             }
         };
-    let plan = plan_plugin_index_sync(&desired, &existing);
-    for item in plan.upserts {
-        let plugin_id = item.plugin_id.clone();
-        match mem.save_with_outcome(to_new_item(item), true) {
-            Ok(outcome) => log::info!(
-                "[plugin-index] {plugin_id}: {} {}",
-                outcome.outcome,
-                outcome.id
-            ),
-            Err(error) => log::warn!("[plugin-index] {plugin_id}: save failed: {error}"),
+        let existing =
+            match mem.list_by_source_prefix(MemKind::Skill.as_str(), PLUGIN_SKILL_SOURCE_PREFIX) {
+                Ok(items) => items
+                    .into_iter()
+                    .map(|item| ExistingPluginIndexEntry {
+                        mem_id: item.id,
+                        title: item.title,
+                        source: item.source.unwrap_or_default(),
+                        body: item.body,
+                    })
+                    .collect::<Vec<_>>(),
+                Err(error) => {
+                    log::warn!("[plugin-index] list existing items failed: {error}");
+                    return;
+                }
+            };
+        let plan = plan_plugin_index_sync(&desired, &existing);
+        for item in plan.upserts {
+            let plugin_id = item.plugin_id.clone();
+            match mem.save_with_outcome(to_new_item(item), true) {
+                Ok(outcome) => log::info!(
+                    "[plugin-index] {plugin_id}: {} {}",
+                    outcome.outcome,
+                    outcome.id
+                ),
+                Err(error) => log::warn!("[plugin-index] {plugin_id}: save failed: {error}"),
+            }
         }
-    }
-    for id in plan.removals {
-        match mem.delete(&id) {
-            Ok(_) => log::info!("[plugin-index] removed {id}"),
-            Err(error) => log::warn!("[plugin-index] remove {id} failed: {error}"),
+        for id in plan.removals {
+            match mem.delete(&id) {
+                Ok(_) => log::info!("[plugin-index] removed {id}"),
+                Err(error) => log::warn!("[plugin-index] remove {id} failed: {error}"),
+            }
         }
-    }
+    })
 }
 
 /// Off the caller's thread: mem writes block, and callers include the async runtime.

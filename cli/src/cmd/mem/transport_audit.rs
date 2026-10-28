@@ -32,6 +32,7 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
         | MemAction::Unpin { .. }
         | MemAction::Pinned { .. }
         | MemAction::Save { .. }
+        | MemAction::NeighborSave { .. }
         | MemAction::SavePreference { .. }
         | MemAction::WakeUp { .. }
         | MemAction::ExtractPending { .. }

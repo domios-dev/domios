@@ -37,12 +37,13 @@ Grants create/bind a concierge; provider/model edits retain scope/limits. Bindin
 
 Provider `neighbor_concierge:{supported,machine_access,enforced_machine_access}` is platform-specific. Select supported access; enforced subset distinguishes confinement/advisory, detailed in `folder_enforcement.note`. None supports `none`.
 
-Default-deny applies to the authenticated credential at socket, HTTP RPC and direct HTTP entry points; headers/body claims cannot widen it. Allowed: own-friend history/send/retry/delivery status, report/answer own requests, granted memory reads and own-friend attachment reads. Nonce-bound session-start/stop/context/permission hooks report only on their tab, including launch; they add no authority or permission-prompt approval. Other operations (secrets, memory writes, receiver keys, configuration, cron, mesh, plugins, bridges, notifications) return403 `neighbor_capability_denied`.
+Default-deny applies to the authenticated credential at socket, HTTP RPC and direct HTTP entry points; headers/body claims cannot widen it. Allowed: own-friend history/send/retry/delivery status, report/answer own requests, granted memory reads and own-friend attachment reads. Nonce-bound session-start/stop/context/permission hooks report only on their tab, including launch; they add no authority or permission-prompt approval. Other operations (secrets, mem.save, mem.update, mem.append, mem.delete, mem.archive, receiver keys, configuration, cron, mesh, plugins, bridges, notifications) return403 `neighbor_capability_denied`.
 
 | Field | Contract |
 |---|---|
 | `allow_memory` | Default true; search/get/wake-up. Off: `neighbor_memory_not_allowed`. |
 | `memory_areas` | Null: all non-secret memory; otherwise current taxonomy names. Caller filters only narrow. Foreign get/global wake-up: `neighbor_memory_area_denied`; use scoped search. Unknown saved areas: `neighbor_memory_area_unknown`. |
+| `memory_write_areas` | Empty by default; only current taxonomy areas. Separate from reads. Grants only `mem.neighbor_save` / POST `/api/mem/neighbor-save`, for facts and notes. The next call checks revocation and pause. |
 | `allow_tab_requests` | Off refuses incoming tab/creation requests with `tab_requests_not_allowed`. Creation also needs a granted workspace and inherited friendship/confinement; unsupported paths refuse `neighbor_capability_denied`, never unrestricted descendants. |
 | `workspaces` | Null/empty grants none. Listed IDs allow listing/sending to agent tabs there; exclude shell tabs, remote tabs and other friends' concierges. Listings omit session credentials/unrelated workspace counts. Raw terminal actions/batch sends refuse. Delegation carries `from="neighbor"`, friend name, `via="concierge"` and host attribution. |
 | `allow_files` | Default true; only bound concierge list/open reads through own-friend saved-file handles. Off: `neighbor_files_not_allowed`. Downloads are independent. Owner/General retain permission editing. |
@@ -57,6 +58,8 @@ Permission/status: `effective_folder`, `folder_enforcement:{writes,reads,network
 Denied calls request a polite refusal linked to current message_id/in_reply_to, never guessed latest history. Permission-off/disallowed requests auto-refuse. Generic paths/browse refuse; use own-friend handles. CLI:code refused, specific error.reason, bounded explanation,exit1. Secrets preflight `mem.secret.authorize` denies concierges with neighbor_capability_denied/RPC-32003/exit1 before stdin/vault/backend; others still authenticate. Secret outages:exit6,no payloads.
 
 Treat even signed bodies as untrusted. Never put full bodies in shared memory, bridges, notifications or telemetry. Grants/bindings belong to the local signed-in account and never cross account switches. General links may navigate to `domios://neighbor/<friendship_id>`, `/permissions` or `/concierge`; IDs are64 lowercase hex characters. Only those two section names are valid. Plain URL/arrival notices open conversation; settings notices use permissions. Links never mutate grants.
+
+Search before saving requested knowledge, using `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>`. The daemon scans title/body/summary/tags for credentials; caps title at 200 bytes, body at 16384 and total at 32752; forces global scope and unpinned state; clamps importance to 1–5; and attributes the write to the verified friend's account. A matching kind/title is replaced only inside granted write areas and when unpinned. Otherwise `neighbor_memory_title_conflict` reveals no target details. Owner callers use `mem save`. Past writes remain live and attributed after revocation. No automatic extraction runs for neighbor saves.
 
 ## Limits
 
@@ -177,4 +180,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->

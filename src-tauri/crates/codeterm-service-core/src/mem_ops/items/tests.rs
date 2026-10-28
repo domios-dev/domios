@@ -9,12 +9,17 @@ use rusqlite::Connection;
 fn save_same_body_skips_extraction_schedule() {
     assert!(!super::save_schedules_extraction(
         "unchanged",
+        &Default::default(),
         false,
         false,
         true
     ));
     assert!(super::save_schedules_extraction(
-        "updated", false, false, true
+        "updated",
+        &Default::default(),
+        false,
+        false,
+        true
     ));
 }
 
@@ -26,6 +31,7 @@ fn unknown_mem_scope_is_refused() {
 
 fn hist(id: i64, old: Option<&str>, new: Option<&str>) -> HistoryEntry {
     HistoryEntry {
+        author: Default::default(),
         id,
         item_id: "x".into(),
         changed_at: "t".into(),
@@ -272,4 +278,62 @@ fn wake_up_inherits_calling_tab_workspace_when_not_overridden() {
         Some("caller-workspace".into()),
     );
     assert_eq!(opts.current_workspace.as_deref(), Some("caller-workspace"));
+}
+
+#[test]
+fn neighbor_saves_never_schedule_extraction() {
+    let author = crate::mem::store::MemAuthor::neighbor("uid".into(), "friendship".into());
+    for outcome in ["saved", "updated", "unchanged"] {
+        assert!(!super::save_schedules_extraction(
+            outcome, &author, false, false, true
+        ));
+    }
+}
+
+#[test]
+fn restored_neighbor_text_keeps_attribution_and_refuses_instruction_targets() {
+    use crate::mem::store::{with_author, MemAuthor, MemKind, MemScope, NewMemItem};
+    for protected in [false, true] {
+        let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let svc = std::sync::Arc::new(fixture.service.clone());
+        let item = |body: &str| NewMemItem {
+            kind: MemKind::Fact,
+            scope: MemScope::Global,
+            title: "Shared body".into(),
+            summary: None,
+            area: None,
+            tags: vec![],
+            body: body.into(),
+            source: None,
+            importance: 3.0,
+            source_path: None,
+            pinned: false,
+        };
+        let neighbor = MemAuthor::neighbor("friend".into(), "friendship".into());
+        let id = with_author(neighbor.clone(), || svc.mem.save(item("friend body"))).unwrap();
+        with_author(MemAuthor::owner(None), || svc.mem.save(item("owner body"))).unwrap();
+        if protected {
+            svc.mem
+                .with_conn(|conn| {
+                    conn.execute("UPDATE mem_items SET kind='rule' WHERE id=?1", [&id])
+                })
+                .unwrap();
+        }
+        let body = super::RestoreBody {
+            version: None,
+            changed_by: None,
+        };
+        let result = with_author(MemAuthor::owner(None), || {
+            crate::mem_ops::mem_merge::restore_item(&svc, &id, &body)
+        });
+        assert_eq!(result.is_err(), protected);
+        let got = svc.mem.get(&id).unwrap().unwrap();
+        if protected {
+            assert_eq!(got.body, "owner body");
+        } else {
+            assert_eq!(got.body, "friend body");
+            assert_eq!(got.author, neighbor);
+        }
+    }
 }
