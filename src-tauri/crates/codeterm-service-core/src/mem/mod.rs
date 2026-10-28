@@ -9,6 +9,7 @@ pub(crate) mod worker_deadline;
 #[cfg(test)]
 mod dream_status_tests;
 
+pub use codeterm_mem::backend;
 pub use codeterm_mem::dream_status;
 pub use codeterm_mem::{
     activity, body_is_embeddable, decision, docs_source, embed_queue, embeddings, file_sync, graph,
