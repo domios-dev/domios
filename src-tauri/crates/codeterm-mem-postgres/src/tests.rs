@@ -4,6 +4,7 @@ use codeterm_mem::store::MemAuthor;
 
 mod blueprint;
 mod transfer;
+mod recall;
 
 struct Fixture {
     url: String,
