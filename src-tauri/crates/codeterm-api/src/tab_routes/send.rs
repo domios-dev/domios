@@ -18,7 +18,6 @@ mod admissions;
 mod neighbor;
 mod preparation;
 pub use admissions::chat_send_admissions;
-use preparation::pad_write_refusal;
 
 fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
     if detail.starts_with("admission_unknown:") {
