@@ -42,7 +42,7 @@ for (const name of ["fenced example", "unclosed tag", "indented tag is content",
   assert.equal(enrichTimelineItems([item(raw)], new WeakMap())[0].origin, undefined);
 }
 {
-  // The daemon does not know the neighbor frame kind and sends it as an unknown frame, as on 83766's Codex concierge.
+  // Stored rows from before Neighbor frame parsing retain their unknown-frame projection.
   const body = "Friend: \"QA Peer\"\nFriendship: f1\nMessage: m2\nKind: \"answer\"\nIn reply to: m1\nReply through the encrypted Neighbor channel.\n\nR161-PUBLIC-CONTROL-B";
   const attrs = { from: "neighbor", friendship: "f1", label: "uid", tab: "" };
   const raw: NormalizedChatMessage = { id: "neighbor", type: "user", content: `<domios from="neighbor" friendship="f1" label="uid" tab="">${body}</domios>`,

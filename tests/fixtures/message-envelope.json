@@ -773,5 +773,27 @@
       }
     ],
     "source": "synthetic: a stream cut inside the opening tag"
+  },
+  {
+    "name": "neighbor question with host tip",
+    "raw": "<domios from=\"neighbor\" friend=\"Opaque friend\" friendship=\"f1\" message=\"m1\" kind=\"question\">opaque-neighbor-body <tip>opaque-neighbor-tip</tip></domios>",
+    "route": "host_injected",
+    "segments": [
+      {
+        "attrs": {
+          "from": "neighbor",
+          "friend": "Opaque friend",
+          "friendship": "f1",
+          "message": "m1",
+          "kind": "question"
+        },
+        "body": "opaque-neighbor-body",
+        "from": "neighbor",
+        "kind": "neighbor",
+        "tip": "opaque-neighbor-tip",
+        "type": "frame"
+      }
+    ],
+    "source": "synthetic: routed Neighbor question with a host tip"
   }
 ]
