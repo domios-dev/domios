@@ -389,6 +389,7 @@ impl ServiceContext {
                     workspace_id: Some(workspace),
                     cwd: Some(cwd),
                     sandbox,
+                    neighbor_machine_access: access.neighbor_machine_access,
                     skip_permissions: access.skip_permissions,
                     permission_bypass_authorization: access.permission_bypass_authorization,
                     title: Some("Concierge".into()),

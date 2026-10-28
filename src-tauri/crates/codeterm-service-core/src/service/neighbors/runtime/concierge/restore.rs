@@ -83,10 +83,7 @@ impl ServiceContext {
             .get(friendship)
             .cloned()
             .unwrap_or_default();
-        self.remember_neighbor_restore_grant(
-            tab_id,
-            permission.machine_access == codeterm_neighbors::permissions::MachineAccess::Full,
-        );
+        self.remember_neighbor_restore_grant(tab_id, permission.machine_access);
         let cwd = crate::service::neighbors::confinement::prepare_folder(
             metadata,
             friendship,

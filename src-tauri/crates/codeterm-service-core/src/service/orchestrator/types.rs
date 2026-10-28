@@ -102,6 +102,8 @@ pub struct SpawnAgentParams {
     #[serde(default, skip)]
     pub neighbor_authority: Option<crate::multiplexer::types::NeighborAuthority>,
     #[serde(default, skip)]
+    pub(crate) neighbor_machine_access: Option<codeterm_neighbors::permissions::MachineAccess>,
+    #[serde(default, skip)]
     pub context_files: Option<crate::plan::TaskFiles>,
     #[serde(default, skip)]
     pub context_skills: Option<String>,

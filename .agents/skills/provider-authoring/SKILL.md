@@ -5,6 +5,16 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+`spawn.launchPermissions.scopedFilesystem` declares session-local tool preapproval:
+`noPromptArgs`, `readAllRules`, `readRootRule`, `writeRootRule`, and
+`additionalDirectoryArgs`. Rule templates take `{path}` in absolute gitignore
+syntax (Unix `//path`, Windows `//c/path`); directory argv uses the literal
+canonical path. `allowRuleArgsFormat` carries each rule. Reject unrepresentable
+pattern roots. Read-only concierges allow native reads and own-pad edits; folder
+concierges allow native reads/edits in the folder plus pad. Unapproved tools are
+denied without prompting. This is provider tool policy, not an OS sandbox; it
+never authorizes full bypass. Fresh/resume/restore derive it from the current
+host-only grant, with native/JS parity. No host filesystem/network API is added.
 `capabilities.remoteTask` declares an execution mode of the same provider. It carries `mode`, `displayName`, `backend`, `availability`, `environments` (`id`, `label`, opaque non-secret `accountRef`), and `followUp`, `cancel`, `applyDiff` flags. The cached descriptor exposes it as `remote_task`. Local/Cloud selection uses this declaration, never a sibling provider or provider IDs. Local runtime and General eligibility remain independent. Native/JS descriptor parity covers this data-only declaration; it adds no host API or confinement grant.
 
 Use the SDK `RemoteTaskController` and `RemoteTaskFileStorage` for durable create claims and exact-task restoration. Storage belongs in the provider's conventional instance data directory, outside the replaceable plugin bundle. The host file lock and atomic write precede creation; an unconfirmed create never replays. A remote mode exposes `viewCall` methods `read`, `submit`, `refresh` for its tab and an ordinary `chatBackend` transcript projection. Refresh is an explicit request; transcript reads do not poll a remote server. Persist the explicit execution mode with the tab launch and binding; restore and view routing must preserve it. Only that mode may open the remote backend; unavailable adapters refuse open and create. Test with an injected deterministic transport and source-attributed fixtures; no real credentials or billable requests belong in tests.

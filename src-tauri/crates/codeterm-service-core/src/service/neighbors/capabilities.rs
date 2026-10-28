@@ -198,10 +198,8 @@ impl ServiceContext {
                 settings
                     .permissions
                     .get(friendship)
-                    .is_some_and(|permission| {
-                        permission.machine_access
-                            == codeterm_neighbors::permissions::MachineAccess::Full
-                    }),
+                    .map(|permission| permission.machine_access)
+                    .unwrap_or_default(),
             );
         }
         let known: Vec<_> = self

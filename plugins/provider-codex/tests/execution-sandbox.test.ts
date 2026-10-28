@@ -80,6 +80,7 @@ for (const operation of [
   const result=plain(provider.runtimePlan({...context,settings:padSettings},operation));
   if (result.action.kind !== "request") throw new Error("Missing pad-write request");
   const params=result.action.call.params as Record<string,unknown>;
+  assert.equal(params.approvalPolicy,"never");
   assert.equal(params.cwd,"/lane");
   assert.deepEqual(params.runtimeWorkspaceRoots,["/own-pad"]);
   if (operation.kind === "submitTurn") {
@@ -102,3 +103,22 @@ assert.equal(control.action.call.method,"thread/settings/update");
 assert.equal((control.action.call.params as Record<string,unknown>).sandboxPolicy,undefined);
 assert.equal((control.action.call.params as Record<string,unknown>).runtimeWorkspaceRoots,undefined);
 assert.throws(()=>provider.runtimePlan({...context,settings:padSettings},{kind:"control",threadId:"opaque-thread",action:"settings",value:{additionalDirectories:["/other-pad"]}}));
+
+const folderSettings: RuntimeSettings = {mode:"workspace-write",additionalDirectories:["/own-pad"],networkAccess:false};
+for (const operation of [
+  {kind:"openThread" as const,instructions:"opaque",settings:folderSettings},
+  {kind:"resumeThread" as const,threadId:"opaque-thread",instructions:"opaque",settings:folderSettings},
+  {kind:"submitTurn" as const,threadId:"opaque-thread",sendId:"opaque-folder-send",input:{text:"opaque",attachments:[]},settings:folderSettings},
+]) {
+  const result=plain(provider.runtimePlan({...context,settings:folderSettings},operation));
+  if (result.action.kind!=="request") throw new Error("Missing folder request");
+  const params=result.action.call.params as Record<string,unknown>;
+  assert.equal(params.approvalPolicy,"never");
+  if (operation.kind==="submitTurn") {
+    assert.deepEqual(params.sandboxPolicy,{type:"workspaceWrite",networkAccess:false,writableRoots:["/own-pad"],excludeTmpdirEnvVar:true,excludeSlashTmp:true});
+  } else {
+    assert.equal(params.sandbox,"workspace-write");
+    assert.equal(params.cwd,"/lane");
+    assert.deepEqual((params.config as Record<string,unknown>)["sandbox_workspace_write.writable_roots"],["/own-pad"]);
+  }
+}
