@@ -353,6 +353,7 @@ fn neighbor_failure(message: String) -> Response {
             | "neighbor_memory_read_only"
             | "neighbor_secrets_not_allowed"
             | "neighbor_capability_denied"
+            | "neighbor_paused"
             | "neighbor_memory_area_denied"
             | "neighbor_files_not_allowed",
         ) => StatusCode::FORBIDDEN,

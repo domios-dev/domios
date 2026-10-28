@@ -14,9 +14,10 @@ pub trait RequestPorts: Send + Sync {
 pub async fn route_request(
     permission: &Permission,
     kind: Kind,
+    paused: bool,
     ports: &dyn RequestPorts,
 ) -> Result<GatewayReceipt> {
-    if permission.allows(kind) {
+    if !paused && permission.allows(kind) {
         ports.local_turn().await
     } else if matches!(kind, Kind::Answer | Kind::Refusal) {
         Ok(GatewayReceipt::Delivered)

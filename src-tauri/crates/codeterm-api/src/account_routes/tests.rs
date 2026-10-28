@@ -45,6 +45,7 @@ async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
     for reason in [
         "tab_requests_not_allowed",
         "neighbor_permission_denied",
+        "neighbor_paused",
         "neighbor_memory_not_allowed",
         "neighbor_memory_read_only",
         "neighbor_secrets_not_allowed",

@@ -75,6 +75,9 @@ impl ServiceContext {
         {
             return Err(DENIED.into());
         }
+        if self.neighbor_effective_pause(&settings, &friendship) {
+            return Err("neighbor_paused: This friendship's concierge is paused".into());
+        }
         self.neighbor_runtime_access(command, caller, nonce)?;
         Ok(())
     }

@@ -109,6 +109,13 @@ Restored runtime concierges start in the background when this machine prepares r
 
 The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
 
+## Pause a friend
+
+The owner or General may call `{operation:"pause_friend",friendship_id}` or `{operation:"resume_friend",friendship_id}` on the Neighbors runtime API. Both return `{friendship_id,paused}`. Pausing blocks new messages and file grants from that friend on the server, including replies. You can still write to the friend and download files already published. Daily limits and permissions stay unchanged.
+
+The local concierge is muted and frozen while paused; its binding and transcript remain. Already queued questions receive a polite linked refusal without invoking the concierge. Resume unmutes the same binding. Pause state follows the account to its other machines through account events and is persisted locally for startup.
+
+Friend-list rows expose `my_paused`, its local alias `paused`, and `their_paused`. Concierge status carries `paused` and `my_paused`, with state `paused` on the receiving machine. `neighbor-friend-paused` carries `{friendship_id,paused}`. A send blocked by the recipient returns HTTP 409 with `code` and `reason` both `recipient_paused`; a paused concierge's operational calls return HTTP 403 with `neighbor_paused`.
 ## Files
 
 Attach up to four files in a conversation. Each encrypted object is at most 2 MiB, leaving 2,097,120 bytes for the original file. Text and private attachment metadata together must fit the message's 32,752-byte plaintext limit. The receiving installation must support files; otherwise sending refuses with `recipient_files_unsupported`.
@@ -130,4 +137,4 @@ Use `POST /api/account/neighbors/files` with one of these JSON operations:
 
 `neighbor-files-changed` carries `friendship_id` when the local file index changes. Join files to conversation entries by `message_id`. `neighbor-file-daily-limit-changed` carries `friendship_id` and `file_daily_limit_bytes`. Local file listing and opening do not contact the relay. Each installation keeps its own saved files; changing the receiving machine does not copy them.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

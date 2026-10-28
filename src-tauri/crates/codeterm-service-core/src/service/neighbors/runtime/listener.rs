@@ -79,7 +79,9 @@ impl InboxSession for Session {
         self.current()?;
         if let Some(tab) = &self.tab {
             super::pending::publish(self).await?;
-            self.service.prepare_neighbor_gateway(tab).await?;
+            if !self.service.neighbor_friend_paused(&self.friendship) {
+                self.service.prepare_neighbor_gateway(tab).await?;
+            }
             self.current()?;
             super::pending::publish(self).await?;
         }
@@ -90,7 +92,11 @@ impl InboxSession for Session {
     }
     async fn receive(&self, messages: &mut [InboxMessage]) -> codeterm_neighbors::Result<()> {
         self.current()?;
-        let tab = self.tab.as_ref().ok_or(Error::Gateway)?;
+        let tab = match self.tab.as_ref() {
+            Some(tab) => tab.as_str(),
+            None if self.service.neighbor_friend_paused(&self.friendship) => "",
+            None => return Err(Error::Gateway),
+        };
         if !self.service.neighbor_registry_receiving(&self.friendship) {
             return Err(Error::Locked);
         }
@@ -100,7 +106,7 @@ impl InboxSession for Session {
             service: self.service.clone(),
             metadata: self.metadata.clone(),
             friendship: self.friendship.clone(),
-            tab: tab.clone(),
+            tab: tab.to_owned(),
             generation: self.generation,
             stopped: self.stopped.clone(),
         };
@@ -201,7 +207,7 @@ pub(super) async fn run(session: Session, previous: Option<tokio::task::JoinHand
     if session.current().is_err() {
         return;
     }
-    if session.tab.is_none() {
+    if session.tab.is_none() && !session.service.neighbor_friend_paused(&session.friendship) {
         super::pending::run(&session).await;
         return;
     }
