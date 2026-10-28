@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { parseNeighbors, validNeighborLimit } from "./neighborModel";
-import { refusalLine } from "./neighborConversationModel";
+import { readableBody, refusalLine } from "./neighborConversationModel";
 import type { HistoryEntry } from "./neighborConciergeClient";
 
 it("accepts the server's locked registry so Free can manage existing connections", () => {
@@ -31,6 +31,15 @@ it("preserves the server's receiving flag and refuses an untyped flag", () => {
   expect(() => parseNeighbors({ ...list, friends: [{ ...friend, receiving: "false" }] })).toThrow();
 });
 
+
+it("drops the agent's attachment lines only for files that show as chips", () => {
+  const shown = "a".repeat(32);
+  const missing = "b".repeat(32);
+  const body = `Here you go\n[Neighbor attachment: note.txt (77 bytes), handle ${shown}]\n[Neighbor attachment: data.bin (9 bytes), handle ${missing}]`;
+  expect(readableBody(body, new Set([shown]))).toBe(`Here you go\n[Neighbor attachment: data.bin (9 bytes), handle ${missing}]`);
+  expect(readableBody(body, new Set([shown, missing]))).toBe("Here you go");
+  expect(readableBody(body, new Set())).toBe(body);
+});
 
 it("explains each delivery refusal in plain words and says when to retry only when it is known", () => {
   const base: HistoryEntry = { direction: "out", kind: "question", author: { agent: "tab", name: "Concierge" }, body: "x", at: 0, message_id: "m", delivery_status: "not_delivered" };

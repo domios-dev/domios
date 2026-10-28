@@ -16,7 +16,7 @@ import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
-import { authorKind, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, refusalLine, speaker } from "./neighborConversationModel";
+import { authorKind, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, readableBody, refusalLine, speaker } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
 import { MissingConciergeNotice } from "./NeighborPanel";
@@ -230,12 +230,13 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
         {(entries ?? []).map((entry, index) => {
           const day = dayLabel(entry.at, index > 0 ? entries![index - 1].at : null);
           const quoted = entry.in_reply_to ? byId.get(entry.in_reply_to) : undefined;
+          const filesOf = (item: HistoryEntry) => files.filter(file => file.message_id === item.message_id);
           return <Fragment key={entry.message_id}>
             {day && <ChatDaySeparator label={day} />}
             <Entry entry={entry} friend={friend} friendName={name} agentLabel={agentLabel(entry)}
-              files={files.filter(file => file.message_id === entry.message_id)}
+              files={filesOf(entry)}
               onOpenFile={file => { void filesClient.open(friendship, file.file_id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file could not be opened.")); }} grouped={!day && continuesGroup(entry, index > 0 ? entries![index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
-              checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: quoted.body } : null}
+              checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: readableBody(quoted.body, new Set(filesOf(quoted).map(file => file.file_id))) } : null}
               onOpenQuoted={() => document.getElementById(`neighbor-msg-${entry.in_reply_to}`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
           </Fragment>;
         })}
@@ -285,7 +286,7 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
       {entry.kind === "tab_request" && <p className="neighbor-note">asked to open a tab</p>}
       {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
       <div className={mine ? "ct-user-bubble neighbor-msg__bubble" : "neighbor-msg__bubble"}>
-        <RichMarkdown text={entry.body} localArtifacts={false} interactivePreviews={interactive} />
+        <RichMarkdown text={readableBody(entry.body, new Set(files.map(file => file.file_id)))} localArtifacts={false} interactivePreviews={interactive} />
       </div>
       {files.length > 0 && <div className="neighbor-files" role="list" aria-label="Files">{files.map(file => <FileChip key={file.file_id} file={file} onOpen={onOpenFile} />)}</div>}
       <p className="neighbor-msg__meta">

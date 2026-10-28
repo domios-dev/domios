@@ -49,6 +49,14 @@ export function authorKind(entry: HistoryEntry): AuthorKind {
   return entry.kind === "answer" || entry.kind === "refusal" ? "friend-agent" : "friend";
 }
 
+const ATTACHMENT_LINE = /^\[Neighbor attachment: .* \(\d+ bytes\), handle ([0-9a-f]+)\]$/;
+
+/** The words a person reads: the agent's attachment lines go when their files show as chips, and stay as the only trace otherwise. */
+export function readableBody(body: string, fileIds: ReadonlySet<string>): string {
+  if (fileIds.size === 0) return body;
+  return body.split("\n").filter(line => !fileIds.has(ATTACHMENT_LINE.exec(line)?.[1] ?? "")).join("\n").trimEnd();
+}
+
 /** A message continues its author's group when the same author spoke last on the same day. */
 export function continuesGroup(entry: HistoryEntry, previous: HistoryEntry | null): boolean {
   if (!previous || authorKind(entry) !== authorKind(previous)) return false;
