@@ -168,6 +168,21 @@ pub struct JobUpdate {
     pub outputs: PortValues,
 }
 
+pub fn valid_job_identity(job: &str) -> bool {
+    !job.is_empty() && job.len() <= 128 && !job.chars().any(char::is_control)
+}
+
+impl JobUpdate {
+    pub fn unknown(job: String) -> Self {
+        Self {
+            job,
+            state: OperationState::Unknown,
+            outcome: None,
+            outputs: Default::default(),
+        }
+    }
+}
+
 pub struct StepCall<'a> {
     pub request: &'a StepRequest,
     pub job: Option<&'a str>,

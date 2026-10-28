@@ -2,9 +2,42 @@ use super::*;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::PathBuf;
+use std::sync::{Arc, LazyLock, Weak};
 
 pub struct OperationLedger {
+    inner: Arc<LedgerInner>,
+}
+
+struct LedgerInner {
     db: Mutex<Connection>,
+    active: Mutex<BTreeSet<String>>,
+}
+
+static OPEN_LEDGERS: LazyLock<Mutex<BTreeMap<PathBuf, Weak<LedgerInner>>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
+pub(crate) struct OperationLease {
+    inner: Arc<LedgerInner>,
+    operation: String,
+}
+
+impl Drop for OperationLease {
+    fn drop(&mut self) {
+        self.inner.active.lock().remove(&self.operation);
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OperationApproval {
+    pub scope: RunScope,
+    pub operation: String,
+    pub actor: String,
+    pub unit: String,
+    pub maximum: u64,
+    pub run_ceiling_exception: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,7 +49,9 @@ pub struct OperationRecord {
     pub job: Option<String>,
     pub waiting: Option<Waiting>,
     pub reserved: u64,
-    pub authorized: Option<u64>,
+    pub authorized: Option<OperationApproval>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cancel_requested: bool,
     pub outcome: Option<String>,
     pub outputs: PortValues,
 }
@@ -25,17 +60,47 @@ fn db_error(_: rusqlite::Error) -> String {
     "plugin operation persistence failed".into()
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 impl OperationLedger {
     pub fn open(path: &std::path::Path) -> Result<Self, String> {
-        Self::from_connection(Connection::open(path).map_err(db_error)?)
+        let db = Connection::open(path).map_err(db_error)?;
+        let key = std::fs::canonicalize(path)
+            .map_err(|_| "plugin operation store identity unavailable")?;
+        let mut open = OPEN_LEDGERS.lock();
+        open.retain(|_, ledger| ledger.strong_count() > 0);
+        if let Some(inner) = open.get(&key).and_then(Weak::upgrade) {
+            return Ok(Self { inner });
+        }
+        let ledger = Self::from_connection(db)?;
+        open.insert(key, Arc::downgrade(&ledger.inner));
+        Ok(ledger)
     }
 
-    pub fn from_connection(db: Connection) -> Result<Self, String> {
+    pub(crate) fn from_connection(db: Connection) -> Result<Self, String> {
         db.execute_batch("PRAGMA synchronous=FULL;
             CREATE TABLE IF NOT EXISTS blueprint_plugin_runs (scope TEXT NOT NULL, unit TEXT NOT NULL, ceiling INTEGER NOT NULL, PRIMARY KEY(scope,unit));
             CREATE TABLE IF NOT EXISTS blueprint_plugin_operations (id TEXT PRIMARY KEY, scope TEXT NOT NULL, unit TEXT NOT NULL, reserved INTEGER NOT NULL, record TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS blueprint_plugin_operation_scope ON blueprint_plugin_operations(scope);").map_err(db_error)?;
-        Ok(Self { db: Mutex::new(db) })
+        Ok(Self {
+            inner: Arc::new(LedgerInner {
+                db: Mutex::new(db),
+                active: Mutex::new(BTreeSet::new()),
+            }),
+        })
+    }
+
+    pub(crate) fn try_acquire(&self, operation: &str) -> Option<OperationLease> {
+        let mut active = self.inner.active.lock();
+        if active.len() >= 256 || !active.insert(operation.into()) {
+            return None;
+        }
+        Some(OperationLease {
+            inner: self.inner.clone(),
+            operation: operation.into(),
+        })
     }
 
     pub fn admit_run(&self, scope: &RunScope, unit: &str, ceiling: u64) -> Result<(), String> {
@@ -43,7 +108,7 @@ impl OperationLedger {
             return Err("invalid spending authorization".into());
         }
         let key = serde_json::to_string(scope).map_err(|_| "invalid scope")?;
-        let db = self.db.lock();
+        let db = self.inner.db.lock();
         db.execute(
             "INSERT OR IGNORE INTO blueprint_plugin_runs VALUES (?1,?2,?3)",
             params![key, unit, ceiling],
@@ -64,7 +129,7 @@ impl OperationLedger {
 
     pub fn prepare(&self, plugin: &str, request: &StepRequest) -> Result<OperationRecord, String> {
         let key = serde_json::to_string(&request.context.scope).map_err(|_| "invalid scope")?;
-        let mut db = self.db.lock();
+        let mut db = self.inner.db.lock();
         let tx = db.transaction().map_err(db_error)?;
         if let Some(existing) = read(&tx, &request.context.operation)? {
             let mut expected = request.clone();
@@ -92,6 +157,7 @@ impl OperationLedger {
             waiting: None,
             reserved: 0,
             authorized: None,
+            cancel_requested: false,
             outcome: None,
             outputs: Default::default(),
         };
@@ -110,12 +176,13 @@ impl OperationLedger {
     }
 
     pub fn get(&self, operation: &str) -> Result<Option<OperationRecord>, String> {
-        read(&self.db.lock(), operation)
+        read(&self.inner.db.lock(), operation)
     }
 
     pub(crate) fn run_unit(&self, scope: &RunScope, unit: &str) -> Result<String, String> {
         let key = serde_json::to_string(scope).map_err(|_| "invalid scope")?;
-        self.db
+        self.inner
+            .db
             .lock()
             .query_row(
                 "SELECT unit FROM blueprint_plugin_runs WHERE scope=?1 AND unit=?2",
@@ -127,7 +194,7 @@ impl OperationLedger {
 
     pub fn history(&self, scope: &RunScope) -> Result<Vec<OperationRecord>, String> {
         let key = serde_json::to_string(scope).map_err(|_| "invalid scope")?;
-        let db = self.db.lock();
+        let db = self.inner.db.lock();
         let mut query = db.prepare("SELECT record FROM blueprint_plugin_operations WHERE scope=?1 ORDER BY rowid LIMIT 64").map_err(db_error)?;
         let rows = query
             .query_map([key], |r| r.get::<_, String>(0))
@@ -152,7 +219,14 @@ impl OperationLedger {
             {
                 return Err("owner authorization refused".into());
             }
-            record.authorized = Some(allowance);
+            record.authorized = Some(OperationApproval {
+                scope: scope.clone(),
+                operation: operation.into(),
+                actor: actor.into(),
+                unit: record.request.unit.clone(),
+                maximum: allowance,
+                run_ceiling_exception: true,
+            });
             Ok(())
         })
     }
@@ -163,7 +237,7 @@ impl OperationLedger {
         estimate: Option<Estimate>,
         now_ms: u64,
     ) -> Result<OperationRecord, String> {
-        let mut db = self.db.lock();
+        let mut db = self.inner.db.lock();
         let tx = db.transaction().map_err(db_error)?;
         let mut record = read(&tx, operation)?.ok_or("operation missing")?;
         if !matches!(
@@ -183,7 +257,10 @@ impl OperationLedger {
             .map_err(|_| "run spending authorization missing")?;
         let used: u64 = tx.query_row("SELECT coalesce(sum(reserved),0) FROM blueprint_plugin_operations WHERE scope=?1 AND unit=?2", params![key, unit], |r| r.get(0)).map_err(db_error)?;
         let remaining = ceiling.saturating_sub(used);
-        let amount = estimate.as_ref().map(|e| e.amount);
+        let amount = estimate
+            .as_ref()
+            .filter(|estimate| estimate.unit == unit && estimate.amount <= MAX_COST_AMOUNT)
+            .map(|estimate| estimate.amount);
         let reason = match estimate.as_ref() {
             None => Some(WaitingReason::EstimateMissing),
             Some(e)
@@ -191,7 +268,12 @@ impl OperationLedger {
             {
                 Some(WaitingReason::EstimateStale)
             }
-            Some(e) if record.authorized.is_some_and(|max| e.amount > max) => {
+            Some(e)
+                if record
+                    .authorized
+                    .as_ref()
+                    .is_some_and(|approval| e.amount > approval.maximum) =>
+            {
                 Some(WaitingReason::OverStepAllowance)
             }
             Some(_) if record.authorized.is_some() => None,
@@ -224,7 +306,7 @@ impl OperationLedger {
         operation: &str,
         update: impl FnOnce(&mut OperationRecord) -> Result<(), String>,
     ) -> Result<(), String> {
-        let mut db = self.db.lock();
+        let mut db = self.inner.db.lock();
         let tx = db.transaction().map_err(db_error)?;
         let mut record = read(&tx, operation)?.ok_or("operation missing")?;
         update(&mut record)?;

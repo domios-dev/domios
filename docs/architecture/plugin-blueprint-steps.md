@@ -45,6 +45,15 @@ submission or recovered `submitting` state becomes `unknown`. It never invokes
 submission again. Only reconciliation can recover a job; a persisted job ID
 cannot be replaced. No callback transport is introduced here.
 
+One nonblocking operation lease serializes submission, reconciliation and
+confirmed cancellation. Ledger opens for the same canonical store share that
+ownership within the host. A concurrent cancel persists `cancelRequested` and
+`unknown` rather than invoking job-less cancellation. A losing caller cannot
+cancel another caller's reservation. Once the submitting call returns, its valid
+job ID commits independently before status, output or media validation. Malformed
+responses and mid-call plugin revocation preserve that ID with `unknown` status.
+Only an exact known job can confirm cancellation after an uncertain submission.
+
 `prepared`, `submitting`, `queued`, `running`, `succeeded`, `failed`, `canceled`,
 `unknown`, and `waiting_for_owner_ok` are distinct states. Missing/stale estimates
 and exhausted step/run allowances hold with a closed waiting reason and numeric
@@ -52,10 +61,18 @@ estimate/remaining/unit fields. A recorded owner approval applies to the exact
 immutable operation and maximum amount. Resume re-estimates before reserving.
 The approval cannot authorize another operation. Estimates never authorize spend.
 
+Owner approval is an intentional exception for one operation: it may exceed the
+remaining run ceiling and the original step allowance, up to the recorded maximum
+in the exact unit. History records `{scope, operation, actor, unit, maximum,
+runCeilingException: true}` against the immutable persisted request. It does not
+raise the run ceiling; every later operation still checks the remaining budget.
+
 Amounts are integers from zero through JavaScript's maximum safe integer.
 Use an explicit atomic unit (`usd_micro`, `credit_milli`, `characters`) to avoid
 rounding fractional prices to zero. Run ceilings and reservations are independent
 per exact unit. The host performs no exchange-rate or cross-unit arithmetic.
+Out-of-range or wrong-unit estimates become stale holds without exporting their
+amount as a JavaScript number.
 Started, canceled and uncertain effects retain their reservation conservatively.
 There is no settlement/refund or deletion operation in this foundation.
 

@@ -170,6 +170,13 @@ attribution; reuse the exact operation for reconciliation. An uncertain submit
 must never be replayed. `waiting_for_owner_ok` is a distinct owner hold, with
 `estimate_missing`, `estimate_stale`, `over_run_ceiling` or `over_step_allowance`.
 
+Owner approval may grant one operation an exception to the remaining run ceiling.
+`BlueprintOperationApproval` records its exact scope, unit and maximum with
+`runCeilingException`; the run ceiling and every later operation remain unchanged.
+In-flight cancellation records intent and uncertainty until an exact known job
+can confirm cancellation. Invalid response payloads preserve a valid returned
+job ID for reconciliation.
+
 Backend media outputs use `{kind: "media_source", id, media}` for an existing
 plugin-owned artifact. Host handles are inputs only and require an explicit
 receiving-step grant. UI frame tokens cannot be used as run handles.

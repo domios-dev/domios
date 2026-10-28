@@ -19,6 +19,9 @@ impl StepRuntime<'_> {
         cancellation: ConversionCancellation,
     ) -> Result<OperationRecord, String> {
         self.validate(plugin, request)?;
+        let Some(_lease) = self.ledger.try_acquire(&request.context.operation) else {
+            return self.record(request);
+        };
         let existing = self.ledger.prepare(plugin, request)?;
         if existing.state.terminal()
             || matches!(
@@ -67,6 +70,10 @@ impl StepRuntime<'_> {
         if cancellation.is_cancelled() || Instant::now() >= deadline {
             return self.cancel_before_submit(request);
         }
+        let current = self.record(request)?;
+        if current.cancel_requested {
+            return Ok(current);
+        }
         let update = self.adapter.submit(&call);
         self.settle(request, update)?;
         self.record(request)
@@ -78,6 +85,10 @@ impl StepRuntime<'_> {
         deadline: Instant,
         cancellation: ConversionCancellation,
     ) -> Result<OperationRecord, String> {
+        let _lease = self
+            .ledger
+            .try_acquire(&request.context.operation)
+            .ok_or("plugin operation busy")?;
         let record = self.record(request)?;
         self.validate(&record.plugin, request)?;
         if record.state.terminal()
@@ -109,6 +120,9 @@ impl StepRuntime<'_> {
         request: &StepRequest,
         deadline: Instant,
     ) -> Result<OperationRecord, String> {
+        let Some(_lease) = self.ledger.try_acquire(&request.context.operation) else {
+            return self.record_cancel_intent(request);
+        };
         let record = self.record(request)?;
         self.validate(&record.plugin, request)?;
         if record.state.terminal() {
@@ -120,13 +134,11 @@ impl StepRuntime<'_> {
         ) {
             return self.cancel_before_submit(request);
         }
+        if record.job.is_none() {
+            return self.record_cancel_intent(request);
+        }
+        self.record_cancel_intent(request)?;
         if !self.descriptor.lifecycle.cancel || Instant::now() >= deadline {
-            self.ledger.change(&request.context.operation, |r| {
-                if !r.state.terminal() {
-                    r.state = OperationState::Unknown;
-                }
-                Ok(())
-            })?;
             return self.record(request);
         }
         let call = StepCall {
@@ -232,12 +244,25 @@ impl StepRuntime<'_> {
         self.ledger.change(&request.context.operation, |record| {
             if matches!(
                 record.state,
-                OperationState::Prepared
-                    | OperationState::WaitingForOwnerOk
-                    | OperationState::Submitting
+                OperationState::Prepared | OperationState::WaitingForOwnerOk
             ) {
                 record.state = OperationState::Canceled;
                 record.waiting = None;
+            } else if !record.state.terminal() {
+                record.cancel_requested = true;
+                record.state = OperationState::Unknown;
+            }
+            Ok(())
+        })?;
+        self.record(request)
+    }
+
+    fn record_cancel_intent(&self, request: &StepRequest) -> Result<OperationRecord, String> {
+        self.record(request)?;
+        self.ledger.change(&request.context.operation, |record| {
+            if !record.state.terminal() {
+                record.cancel_requested = true;
+                record.state = OperationState::Unknown;
             }
             Ok(())
         })?;
@@ -249,17 +274,39 @@ impl StepRuntime<'_> {
         request: &StepRequest,
         update: Result<JobUpdate, String>,
     ) -> Result<(), String> {
+        let update = update.ok();
+        let mut identity_accepted = false;
+        self.ledger.change(&request.context.operation, |record| {
+            if let Some(job) = update
+                .as_ref()
+                .map(|update| &update.job)
+                .filter(|job| valid_job_identity(job))
+            {
+                match &record.job {
+                    None => {
+                        record.job = Some(job.clone());
+                        record.state = OperationState::Unknown;
+                        identity_accepted = true;
+                    }
+                    Some(existing) if existing == job => identity_accepted = true,
+                    _ => (),
+                }
+            }
+            if !record.state.terminal() {
+                record.state = OperationState::Unknown;
+            }
+            Ok(())
+        })?;
+        if !identity_accepted {
+            return Ok(());
+        }
         let existing = self.record(request)?;
         if existing.state.terminal() {
             return Ok(());
         }
         let update = update
-            .ok()
             .filter(|u| {
                 existing.job.as_ref().is_none_or(|job| job == &u.job)
-                    && !u.job.is_empty()
-                    && u.job.len() <= 128
-                    && !u.job.chars().any(char::is_control)
                     && matches!(
                         u.state,
                         OperationState::Queued
@@ -304,7 +351,11 @@ impl StepRuntime<'_> {
             match update {
                 Some(update) if record.job.as_ref().is_none_or(|job| job == &update.job) => {
                     record.job = Some(update.job);
-                    record.state = update.state;
+                    record.state = if record.cancel_requested && !update.state.terminal() {
+                        OperationState::Unknown
+                    } else {
+                        update.state
+                    };
                     record.outcome = update.outcome;
                     if !update.outputs.is_empty() {
                         record.outputs = update.outputs;

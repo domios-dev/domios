@@ -41,6 +41,17 @@ impl RegisteredAdapter {
         self.ensure_active()?;
         result
     }
+    fn job_call(
+        &self,
+        call: impl FnOnce(&dyn BlueprintStep) -> Result<JobUpdate, String>,
+    ) -> Result<JobUpdate, String> {
+        self.ensure_active()?;
+        let result = call(self.adapter.as_ref());
+        if self.ensure_active().is_err() {
+            return result.map(|update| JobUpdate::unknown(update.job));
+        }
+        result
+    }
 }
 
 impl BlueprintStep for RegisteredAdapter {
@@ -48,13 +59,13 @@ impl BlueprintStep for RegisteredAdapter {
         self.call(|adapter| adapter.estimate(call))
     }
     fn submit(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-        self.call(|adapter| adapter.submit(call))
+        self.job_call(|adapter| adapter.submit(call))
     }
     fn reconcile(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-        self.call(|adapter| adapter.reconcile(call))
+        self.job_call(|adapter| adapter.reconcile(call))
     }
     fn cancel(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-        self.call(|adapter| adapter.cancel(call))
+        self.job_call(|adapter| adapter.cancel(call))
     }
 }
 

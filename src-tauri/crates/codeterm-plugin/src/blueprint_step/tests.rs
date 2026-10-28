@@ -75,6 +75,7 @@ struct Fixture {
     submitted: AtomicUsize,
     submit_result: Mutex<Result<JobUpdate, String>>,
     status_result: Mutex<Result<JobUpdate, String>>,
+    reconciled_jobs: Mutex<Vec<Option<String>>>,
 }
 
 impl Fixture {
@@ -88,6 +89,7 @@ impl Fixture {
             submitted: AtomicUsize::new(0),
             submit_result: Mutex::new(Ok(result(OperationState::Queued))),
             status_result: Mutex::new(Ok(result(OperationState::Succeeded))),
+            reconciled_jobs: Mutex::new(Vec::new()),
         })
     }
 }
@@ -100,7 +102,10 @@ impl BlueprintStep for Fixture {
         self.submitted.fetch_add(1, Ordering::SeqCst);
         self.submit_result.lock().clone()
     }
-    fn reconcile(&self, _: &StepCall<'_>) -> Result<JobUpdate, String> {
+    fn reconcile(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
+        self.reconciled_jobs
+            .lock()
+            .push(call.job.map(str::to_string));
         self.status_result.lock().clone()
     }
     fn cancel(&self, _: &StepCall<'_>) -> Result<JobUpdate, String> {
@@ -543,52 +548,7 @@ fn plugin_steps_estimate_freshness_uses_admission_time_and_unsupported_cancel_is
 
 #[test]
 fn plugin_steps_concurrent_reservations_submit_and_charge_at_most_once() {
-    struct Racing {
-        fixture: Arc<Fixture>,
-        barrier: std::sync::Barrier,
-    }
-    impl BlueprintStep for Racing {
-        fn estimate(&self, call: &StepCall<'_>) -> Result<Option<Estimate>, String> {
-            self.barrier.wait();
-            self.fixture.estimate(call)
-        }
-        fn submit(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-            self.fixture.submit(call)
-        }
-        fn reconcile(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-            self.fixture.reconcile(call)
-        }
-        fn cancel(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-            self.fixture.cancel(call)
-        }
-    }
-    let request = request("race");
-    let ledger = ledger(&request, 10);
-    let descriptor = descriptor();
-    let fixture = Fixture::new(2);
-    let racing = Arc::new(Racing {
-        fixture: fixture.clone(),
-        barrier: std::sync::Barrier::new(2),
-    });
-    let runtime = runtime(&ledger, &descriptor, racing);
-    std::thread::scope(|scope| {
-        let run = || {
-            runtime.drive(
-                "fixture",
-                &request,
-                || 100,
-                Instant::now() + Duration::from_secs(5),
-                Default::default(),
-            )
-        };
-        let first = scope.spawn(run);
-        let second = scope.spawn(run);
-        let first = first.join().unwrap();
-        let second = second.join().unwrap();
-        assert!(first.is_ok() || second.is_ok());
-    });
-    assert_eq!(fixture.submitted.load(Ordering::SeqCst), 1);
-    assert_eq!(ledger.get("race").unwrap().unwrap().reserved, 2);
+    review::reserve_pre_submit_cancel();
 }
 
 #[test]
@@ -621,3 +581,4 @@ fn plugin_steps_native_js_adapter_parity_uses_identical_contract_fixtures() {
 }
 
 mod media;
+mod review;

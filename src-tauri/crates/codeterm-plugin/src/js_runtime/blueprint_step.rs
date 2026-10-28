@@ -1,5 +1,5 @@
 use super::vm::{call_json_interruptible, PluginVm};
-use crate::blueprint_step::{BlueprintStep, Estimate, JobUpdate, StepCall};
+use crate::blueprint_step::{valid_job_identity, BlueprintStep, Estimate, JobUpdate, StepCall};
 use std::sync::Arc;
 
 pub struct JsBlueprintStep {
@@ -36,6 +36,19 @@ impl JsBlueprintStep {
         )
         .map_err(|_| "plugin step call failed".into())
     }
+
+    fn job_call(&self, method: &str, call: &StepCall<'_>) -> Result<JobUpdate, String> {
+        let value: serde_json::Value = self.call(method, call)?;
+        match serde_json::from_value::<JobUpdate>(value.clone()) {
+            Ok(update) => Ok(update),
+            Err(_) => value
+                .get("job")
+                .and_then(serde_json::Value::as_str)
+                .filter(|job| valid_job_identity(job))
+                .map(|job| JobUpdate::unknown(job.into()))
+                .ok_or_else(|| "plugin step response invalid".into()),
+        }
+    }
 }
 
 impl BlueprintStep for JsBlueprintStep {
@@ -43,12 +56,12 @@ impl BlueprintStep for JsBlueprintStep {
         self.call("blueprintEstimate", call)
     }
     fn submit(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-        self.call("blueprintSubmit", call)
+        self.job_call("blueprintSubmit", call)
     }
     fn reconcile(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-        self.call("blueprintReconcile", call)
+        self.job_call("blueprintReconcile", call)
     }
     fn cancel(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
-        self.call("blueprintCancel", call)
+        self.job_call("blueprintCancel", call)
     }
 }

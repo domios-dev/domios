@@ -85,6 +85,15 @@ export interface BlueprintStepWaiting {
   unit: string;
 }
 
+export interface BlueprintOperationApproval {
+  scope: BlueprintRunScope;
+  operation: string;
+  actor: string;
+  unit: string;
+  maximum: number;
+  runCeilingException: boolean;
+}
+
 export interface BlueprintJobUpdate {
   job: string;
   state: Extract<BlueprintOperationState, "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown">;
