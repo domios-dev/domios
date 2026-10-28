@@ -3,7 +3,7 @@ import { useId, useState, type CSSProperties } from "react";
 import { FileUp } from "lucide-react";
 import { blueprintSharingApi, parseBlueprintRecipe, type BlueprintRecipe, type BlueprintSharingApi } from "../Automation/blueprintSharing";
 import { AUTOMATION_LABEL, AUTOMATION_PRIMARY, AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
-import { DropdownSelect } from "../shared/DropdownMenu";
+import { DestinationPicker, type Destination, type DestinationTeam, type DestinationWorkspace } from "../shared/DestinationPicker";
 import { FileChooser } from "../shared/FileChooser";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
 import { BlueprintProjectList, type BlueprintProjectApi } from "./BlueprintProjectList";
@@ -11,17 +11,18 @@ import { BlueprintProjectList, type BlueprintProjectApi } from "./BlueprintProje
 export interface BlueprintCreator {
   id: string;
   label: string;
-  /** The Team the tab belongs to; the destination list groups by it. */
-  group?: string;
+  /** The Team the tab belongs to; choosing that Team as the destination imports as this tab. */
+  teamId?: string;
 }
 
 type ImportSource = "file" | "repository";
 const IMPORT_SOURCES: SegmentedOption<ImportSource>[] = [{ value: "file", label: "From file" }, { value: "repository", label: "From repository" }];
 
-export function BlueprintImportForm({ creators, onCreated, onCancel, api = blueprintSharingApi, workspaceIds = [], workspaceName, repositoryApi }: {
+export function BlueprintImportForm({ creators, onCreated, onCancel, api = blueprintSharingApi, workspaceIds = [], workspaceName, repositoryApi, workspaces = [], teams = [] }: {
   creators: BlueprintCreator[]; onCreated: () => void; onCancel: () => void; api?: BlueprintSharingApi;
   /** The workspaces in view; their repositories offer Blueprints to read. */
   workspaceIds?: readonly string[]; workspaceName?: (id: string) => string; repositoryApi?: BlueprintProjectApi;
+  workspaces?: readonly DestinationWorkspace[]; teams?: readonly DestinationTeam[];
 }) {
   const prefix = useId();
   const [from, setFrom] = useState<ImportSource>("file");
@@ -29,6 +30,8 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
   const [source, setSource] = useState("");
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const [caller, setCaller] = useState(creators[0]?.id ?? "");
+  const callerTeam = creators.find((creator) => creator.id === caller)?.teamId;
+  const destination: Destination | null = callerTeam ? { kind: "team", id: callerTeam } : null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const read = async (file: File | undefined) => {
@@ -70,11 +73,12 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
         <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-file`}>Blueprint YAML file</label>
         <FileChooser id={`${prefix}-file`} accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml" disabled={busy} onFile={(file) => void read(file)} />
       </div>
-      {/* The import runs as a tab of the destination Team; the runtime refuses a caller outside a Team, so General is not offered. */}
+      {/* The import runs as a tab of the destination Team; until the runtime takes a General or workspace scope, only Teams are offered. */}
       <div className="flex flex-col gap-1.5">
         <span className={AUTOMATION_LABEL}>Destination</span>
-        <DropdownSelect aria-label="Destination" placeholder={creators.length ? "Choose a Team" : "No Team to import into"} disabled={busy || creators.length === 0}
-          value={caller} onChange={setCaller} options={creators.map((creator) => ({ value: creator.id, label: creator.label, group: creator.group }))} />
+        <DestinationPicker kinds={["team"]} workspaces={workspaces} teams={teams.filter((team) => creators.some((creator) => creator.teamId === team.id))}
+          placeholder={creators.length ? "Choose a Team" : "No Team to import into"} disabled={busy || creators.length === 0}
+          value={destination} onChange={(next) => { if (next.kind === "team") setCaller(creators.find((creator) => creator.teamId === next.id)?.id ?? ""); }} />
       </div>
       {recipe && Object.entries(recipe.inputs ?? {}).map(([key, input]) => <div key={key} className="flex flex-col gap-1.5">
         <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-${key}`}>{key}: {input.description ?? input.type}</label>
