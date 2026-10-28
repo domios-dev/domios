@@ -6,6 +6,12 @@ import { authorizeClosure, closeVerifiedIssues } from '../check-release-closure.
 const repository = 'fixture/source';
 const sha = 'a'.repeat(40), previous = 'b'.repeat(40), older = 'c'.repeat(40);
 const route = suffix => `repos/${repository}/${suffix}`;
+test('boundary evidence accepts only verified steps from the exact run attempt', () => {
+  const run = spawnSync(process.platform === 'win32' ? 'python' : 'python3',
+    ['scripts/tests/test_release_issue_contract.py'], { encoding: 'utf8' });
+  assert.equal(run.status, 0, run.stderr);
+});
+
 function fixture() {
   const release = { draft: false, published_at: '2026-10-01', assets: [
     { id: 11, name: 'issue-closure-boundary.json' }, { id: 12, name: 'domios-latest.json' }] };
