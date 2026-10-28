@@ -65,6 +65,7 @@ fn oneshot_run_in(
         .value
         .id;
     let run = CronRunInfo {
+        cancel_reason: None,
         run_id: run_id.clone(),
         started_at: 1,
         finished_at: None,

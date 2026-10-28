@@ -623,7 +623,7 @@ impl CronStore {
         status: CronRunStatus,
         session: Option<RunSession<'_>>,
     ) -> Result<Prepared<RunFinished>, String> {
-        self.prepare_finish_run_with_summary(job_id, run_id, status, session, None)
+        self.prepare_finish_run_with_summary(job_id, run_id, status, session, None, None)
     }
 
     pub fn prepare_finish_run_with_summary(
@@ -633,7 +633,11 @@ impl CronStore {
         status: CronRunStatus,
         session: Option<RunSession<'_>>,
         summary: Option<&str>,
+        cancel_reason: Option<super::CronCancelReason>,
     ) -> Result<Prepared<RunFinished>, String> {
+        if (status == CronRunStatus::Cancelled) != cancel_reason.is_some() {
+            return Err("Cancelled cron runs require a typed cancel reason".into());
+        }
         let now = self.now_ms();
         let mut edit = self.edit_run(job_id, run_id);
         if let Some(session) = session {
@@ -652,6 +656,7 @@ impl CronStore {
                 started_at = Some(run.started_at);
             }
             run.status = status.clone();
+            run.cancel_reason = cancel_reason;
             run.finished_at = Some(now);
         });
         // First terminal status wins — a racing duplicate completion call for the
@@ -715,6 +720,7 @@ impl CronStore {
         &self,
         job_id: &str,
         now_ms: u64,
+        reason: super::CronCancelReason,
     ) -> Result<Prepared<Vec<(String, u64)>>, String> {
         let original = self
             .get(job_id)
@@ -727,6 +733,7 @@ impl CronStore {
         };
         let cancel = |run: &mut CronRunInfo| {
             run.status = CronRunStatus::Cancelled;
+            run.cancel_reason = Some(reason);
             run.finished_at = Some(now_ms);
         };
         let mut cancelled = Vec::new();
@@ -814,7 +821,8 @@ impl CronStore {
         run_id: &str,
         status: CronRunStatus,
     ) -> Result<bool, String> {
-        let prepared = self.prepare_finish_run(job_id, run_id, status.clone(), None);
+        let reason = (status == CronRunStatus::Cancelled).then_some(super::CronCancelReason::UserCancel);
+        let prepared = self.prepare_finish_run_with_summary(job_id, run_id, status.clone(), None, None, reason);
         let finished = self.legacy(prepared)?;
         log_finished(job_id, run_id, &status, finished);
         Ok(finished.fresh)

@@ -521,12 +521,50 @@ pub fn project_retained(
     Ok(value)
 }
 
+fn refuse_unscoped_calls(document: &Document) -> Result<(), String> {
+    if document.nodes().any(|node| node.call.is_some()) || !document.dependencies.is_empty() {
+        return Err("Callable Blueprints require Team-scoped authority".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn pin_document(
+    service: &codeterm_service_core::service::ServiceContext,
+    caller: &crate::service_adapter::SentinelCaller,
+    document: Document,
+) -> Result<Document, String> {
+    if let Some(team) = caller.team.as_deref() {
+        return service.mem.pin_blueprint_calls(&format!("blueprints:{}", caller.workspace), team, document);
+    }
+    refuse_unscoped_calls(&document)?;
+    Ok(document)
+}
+
+pub(crate) fn call_drift(
+    service: &codeterm_service_core::service::ServiceContext,
+    caller: &crate::service_adapter::SentinelCaller,
+    document: Document,
+) -> Result<Vec<calls::Drift>, String> {
+    if let Some(team) = caller.team.as_deref() {
+        return service.mem.blueprint_call_drift(&format!("blueprints:{}", caller.workspace), team, document);
+    }
+    refuse_unscoped_calls(&document)?;
+    Ok(Vec::new())
+}
+
 pub fn pin_bundle(
     service: &codeterm_service_core::service::ServiceContext,
     caller: &crate::service_adapter::SentinelCaller,
     document: Document,
     local_callees: &[calls::LocalCallee],
 ) -> Result<Document, String> {
+    if caller.team.is_none() {
+        refuse_unscoped_calls(&document)?;
+        if !local_callees.is_empty() {
+            return Err("Callable Blueprint imports require Team-scoped authority".into());
+        }
+        return Ok(document);
+    }
     service.mem.pin_blueprint_bundle(
         &format!("blueprints:{}", caller.workspace),
         caller.team.as_deref().ok_or("Call requires a Team")?,

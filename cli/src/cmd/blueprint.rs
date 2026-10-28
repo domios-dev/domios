@@ -548,6 +548,7 @@ fn request(
         }
         BlueprintAction::Import {
             file,
+            scope,
             set,
             stopped: _,
             start,
@@ -559,6 +560,7 @@ fn request(
                 .map_err(|errors| format!("{errors:?}"))?;
             params["local_callees"] =
                 serde_json::to_value(bundle.local_callees).map_err(|e| e.to_string())?;
+            params["scope"] = json!(scope);
             params["recipe"] = json!({"schema_version":2,"definition":definition});
             params["set"] = json!([]);
             params["stopped"] = json!(!start);

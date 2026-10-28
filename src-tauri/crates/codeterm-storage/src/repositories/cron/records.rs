@@ -87,9 +87,43 @@ impl CronRunState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CronCancelReason {
+    UserCancel,
+    Superseded,
+    RestartReconcile,
+    Timeout,
+    OwnerClosed,
+}
+
+impl CronCancelReason {
+    pub(crate) fn as_sql(self) -> &'static str {
+        match self {
+            Self::UserCancel => "user_cancel",
+            Self::Superseded => "superseded",
+            Self::RestartReconcile => "restart_reconcile",
+            Self::Timeout => "timeout",
+            Self::OwnerClosed => "owner_closed",
+        }
+    }
+
+    pub(crate) fn from_sql(value: &str) -> Result<Self, StorageError> {
+        match value {
+            "user_cancel" => Ok(Self::UserCancel),
+            "superseded" => Ok(Self::Superseded),
+            "restart_reconcile" => Ok(Self::RestartReconcile),
+            "timeout" => Ok(Self::Timeout),
+            "owner_closed" => Ok(Self::OwnerClosed),
+            _ => Err(StorageError::invalid("cron cancel reason", "unknown reason")),
+        }
+    }
+}
+
 /// One run row; the same row backs a history entry and a job's last run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CronRunRecord {
+    pub cancel_reason: Option<CronCancelReason>,
     pub run_id: CronRunId,
     pub started_at: u64,
     pub finished_at: Option<u64>,
@@ -103,6 +137,9 @@ pub struct CronRunRecord {
 
 impl CronRunRecord {
     pub(crate) fn validate(&self) -> Result<(), StorageError> {
+        if self.cancel_reason.is_some() && self.status != CronRunState::Cancelled {
+            return Err(StorageError::invalid("cron cancel reason", "requires cancelled status"));
+        }
         to_sql_u64("run start", self.started_at)?;
         if let Some(finished) = self.finished_at {
             to_sql_u64("run finish", finished)?;
@@ -263,10 +300,11 @@ pub enum CronRunField {
     Cwd,
     Summary,
     ReportDelivery,
+    CancelReason,
 }
 
 impl CronRunField {
-    const ALL: [CronRunField; 8] = [
+    const ALL: [CronRunField; 9] = [
         CronRunField::StartedAt,
         CronRunField::FinishedAt,
         CronRunField::Status,
@@ -275,6 +313,7 @@ impl CronRunField {
         CronRunField::Cwd,
         CronRunField::Summary,
         CronRunField::ReportDelivery,
+        CronRunField::CancelReason,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -287,6 +326,7 @@ impl CronRunField {
             CronRunField::Cwd => "cwd",
             CronRunField::Summary => "summary",
             CronRunField::ReportDelivery => "report_delivery",
+            CronRunField::CancelReason => "cancel_reason",
         }
     }
 
@@ -319,6 +359,7 @@ impl CronRunField {
             CronRunField::Cwd => left.cwd != right.cwd,
             CronRunField::Summary => left.summary != right.summary,
             CronRunField::ReportDelivery => left.report_delivery != right.report_delivery,
+            CronRunField::CancelReason => left.cancel_reason != right.cancel_reason,
         };
         CronRunField::ALL
             .into_iter()

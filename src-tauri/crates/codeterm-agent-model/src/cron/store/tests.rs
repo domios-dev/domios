@@ -53,6 +53,7 @@ fn set_run_session_persists_on_history_and_last_run() {
         .create(make_params("test-run-schedule", "ws", "0 * * * *"))
         .unwrap();
     let run = CronRunInfo {
+        cancel_reason: None,
         run_id: "r1".into(),
         started_at: 1,
         finished_at: None,
@@ -249,6 +250,7 @@ fn record_failure_increments_counter_and_backs_off() {
         .record_run(
             &job.id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: "r1".into(),
                 started_at: 0,
                 finished_at: Some(0),
@@ -278,6 +280,7 @@ fn record_5_failures_auto_disables_job() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    cancel_reason: None,
                     run_id: format!("r{}", i),
                     started_at: 0,
                     finished_at: Some(0),
@@ -311,6 +314,7 @@ fn success_resets_failure_counter() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    cancel_reason: None,
                     run_id: format!("f{}", i),
                     started_at: 0,
                     finished_at: Some(0),
@@ -328,6 +332,7 @@ fn success_resets_failure_counter() {
         .record_run(
             &job.id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: "ok".into(),
                 started_at: 0,
                 finished_at: Some(0),
@@ -442,6 +447,7 @@ fn test_record_run_history() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    cancel_reason: None,
                     run_id: format!("run-{}", i),
                     started_at: 1000 + i,
                     finished_at: Some(2000 + i),
@@ -503,6 +509,7 @@ fn test_oneshot_create_and_record_run() {
         .record_run(
             &job.id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: "run-1".into(),
                 started_at: 1000,
                 finished_at: Some(2000),
@@ -740,6 +747,7 @@ fn mock_store(start_ms: u64) -> (CronStore, std::sync::Arc<MockClock>) {
 
 fn run(run_id: &str, started_at: u64, status: CronRunStatus) -> CronRunInfo {
     CronRunInfo {
+        cancel_reason: None,
         run_id: run_id.into(),
         started_at,
         finished_at: None,
@@ -869,4 +877,22 @@ fn cron_creation_uses_injected_default_and_preserves_explicit_provider() {
     params.agent = Some("opaque-explicit-provider".into());
     let job = store.create(params).unwrap();
     assert_eq!(job.agent, "opaque-explicit-provider");
+}
+
+
+#[test]
+fn cron_cancellation_requires_a_typed_reason_and_other_states_refuse_one() {
+    let mut store = temp_store();
+    let job = store.create(make_params("Typed cancellation", "ws", "0 * * * *")).unwrap();
+    store.record_run(&job.id, run("typed-run", 1000, CronRunStatus::Running)).unwrap();
+    assert!(store.prepare_finish_run_with_summary(
+        &job.id, "typed-run", CronRunStatus::Cancelled, None, None, None,
+    ).is_err());
+    assert!(store.prepare_finish_run_with_summary(
+        &job.id, "typed-run", CronRunStatus::Success, None, None,
+        Some(CronCancelReason::UserCancel),
+    ).is_err());
+    assert_eq!(store.get_history(&job.id)[0].cancel_reason, None);
+    assert_eq!(serde_json::to_value(CronCancelReason::UserCancel).unwrap(), "user_cancel");
+    assert_eq!(serde_json::to_value(CronCancelReason::RestartReconcile).unwrap(), "restart_reconcile");
 }

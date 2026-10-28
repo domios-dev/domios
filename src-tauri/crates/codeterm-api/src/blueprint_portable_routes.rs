@@ -25,6 +25,7 @@ pub struct ImportBody {
     caller_tab_id: String,
     recipe: Value,
     assignments: Vec<String>,
+    scope: Option<String>,
 }
 
 fn host_access(state: &AppState, headers: &HeaderMap) -> Result<(), (StatusCode, String)> {
@@ -100,7 +101,7 @@ pub async fn import(
         ))?;
     tokio::task::spawn_blocking(move || {
         let recipe = import_recipe(&body.recipe, &body.assignments)?;
-        state.svc.blueprint_import_host(&caller, recipe, &[])
+        state.svc.blueprint_import_host(&caller, recipe, &[], body.scope.as_deref())
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
