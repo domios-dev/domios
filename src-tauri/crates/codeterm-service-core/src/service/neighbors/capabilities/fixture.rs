@@ -62,6 +62,27 @@ impl Browser for NoBrowser {
 }
 
 impl crate::service::test_fixture::ServiceFixture {
+    pub async fn save_neighbor_restore_settings(
+        &self,
+        uid: &str,
+        friendship: &str,
+        tab: &str,
+        permission: Permission,
+    ) {
+        let metadata = Metadata::new(self.service.account_data_root().unwrap(), uid);
+        let mut settings = metadata.settings().await.unwrap();
+        settings.bindings.insert(friendship.into(), tab.into());
+        settings.permissions.insert(friendship.into(), permission);
+        metadata.save_settings(settings).await.unwrap();
+    }
+
+    pub async fn load_neighbor_restore_settings(&self, uid: &str) {
+        let metadata = Metadata::new(self.service.account_data_root().unwrap(), uid);
+        let settings = metadata.settings().await.unwrap();
+        self.service
+            .remember_neighbor_concierge_accounts(uid, &settings);
+    }
+
     pub async fn seed_neighbor_saved_file(
         &self,
         friendship: &str,
