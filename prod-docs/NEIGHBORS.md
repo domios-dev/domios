@@ -137,7 +137,7 @@ Incoming history fields: `handling_state`, optional `handling_reason`, `handling
 
 `neighbor-history-changed {friendship_id}` publishes transitions. Status `incoming_handling[friendship_id]` is bounded message IDs/handling metadata without bodies. Verified missing-concierge messages may enter history through file prefetch but remain unacknowledged/undelivered to agents. Resumed history marks interrupted older binding failed with `concierge_restarted`.
 
-Owner/General `{operation:"stop_concierge",friendship_id}` on runtime API bypasses network work and interrupts only that friend's exact bound agent. Returns `{friendship_id,gateway_tab,stopped,message_ids}`; confirmed requests become stopped/owner_stopped. Sends no reply/refusal; other agents cannot stop it.
+Owner/General `{operation:"stop_concierge",friendship_id}` on runtime API bypasses network work and interrupts only that friend's exact bound agent. Returns `{friendship_id,gateway_tab,stopped,message_ids}`; confirmed requests become stopped/owner_stopped. Sends no reply/refusal; other agents cannot stop it. Later answers/refusals linked to a stopped request fail before keys/network/history with409 `reply_target_stopped`: nothing sent; never retry that request.
 
 ## Notifications, flags and pause
 
@@ -169,4 +169,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

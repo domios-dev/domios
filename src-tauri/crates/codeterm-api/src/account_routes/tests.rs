@@ -795,3 +795,19 @@ async fn neighbor_flags_have_a_typed_local_api_contract_without_body_fields() {
         );
     }
 }
+
+#[tokio::test]
+async fn stopped_reply_is_a_typed_presend_conflict() {
+    let response = neighbor_failure(codeterm_neighbors::Error::ReplyTargetStopped.to_string());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["code"], "reply_target_stopped");
+    assert_eq!(body["reason"], "reply_target_stopped");
+    assert!(body["message"]
+        .as_str()
+        .unwrap()
+        .contains("nothing was sent"));
+}

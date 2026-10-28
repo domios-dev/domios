@@ -265,3 +265,18 @@ fn all_friend_limits_parse_and_route_to_their_own_authorized_endpoint() {
         .is_err());
     }
 }
+
+#[test]
+fn stopped_reply_keeps_the_typed_presend_reason() {
+    let body = serde_json::json!({"code":"reply_target_stopped","reason":"reply_target_stopped","message":"The owner stopped this request; nothing was sent"});
+    let error = crate::cmd::print::CliError::http(409, &body.to_string());
+    let mut out = vec![];
+    let mut err = vec![];
+    crate::cmd::print::write_cli_error(true, &error, &mut out, &mut err);
+    let envelope: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(envelope["error"]["reason"], "reply_target_stopped");
+    assert!(envelope["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("nothing was sent"));
+}
