@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Pause } from "lucide-react";
+import { AgentIcon } from "../AgentIcon";
 import type { Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
@@ -158,7 +159,9 @@ function ConciergeRow({ tab, friendName, text, touchMode, activity, paused, paus
     <button type="button" className="sidebar-tab-activation flex flex-1 items-center min-w-0 gap-2 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer"
       aria-label={`Open ${label}`} title={tab.title} onClick={onOpen}>
       <span className="sidebar-tab-body flex-1 min-w-0 gap-x-2">
-        <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon text-[var(--ct-muted-fg)]"><Bot size={12} aria-hidden="true" /></span>
+        <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon text-[var(--ct-muted-fg)]">{tab.agent_type
+          ? <AgentIcon providerId={tab.agent_type} className="text-[12px]" title={tab.agent_type} />
+          : <Bot size={12} aria-hidden="true" />}</span>
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
           <span className={`${text} block truncate min-w-0 text-[var(--ct-muted-fg)]`}>{label}</span>
         </span>
