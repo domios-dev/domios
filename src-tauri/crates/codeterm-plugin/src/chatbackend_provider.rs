@@ -259,6 +259,7 @@ pub trait ChatBackendProvider: Send + Sync {
             cli_login: None,
             supports_session_fork: false,
             supports_initial_prompt_update_on_resume: false,
+            neighbor_concierge: Default::default(),
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: self.id().to_string(),

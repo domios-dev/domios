@@ -44,6 +44,10 @@ async fn claude_and_codex_reconcile_stable_digest_and_resume_once_per_real_chang
             crate::service::neighbors::storage::InitialContext {
                 gateway_tab: old.clone(),
                 digest: initial_prompt::digest(&friend, &permission),
+                launch_options: Some(ConciergeOptions {
+                    reasoning_effort: Some("opaque-effort".into()),
+                    service_tier: Some("opaque-tier".into()),
+                }),
             },
         );
         metadata.save_settings(settings).await.unwrap();
@@ -53,7 +57,7 @@ async fn claude_and_codex_reconcile_stable_digest_and_resume_once_per_real_chang
                     &metadata,
                     "owner",
                     &friend,
-                    |_, _, _, _, _| async {
+                    |_, _, _, _, _, _| async {
                         panic!("unchanged context must not replace a concierge")
                     },
                 )
@@ -83,11 +87,13 @@ async fn claude_and_codex_reconcile_stable_digest_and_resume_once_per_real_chang
                 &metadata,
                 "owner",
                 &friend,
-                |actual_provider, _, cwd, grant, resume| async move {
+                |actual_provider, _, cwd, grant, resume, options| async move {
                     invoked.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(actual_provider.as_deref(), Some(provider));
                     assert_eq!(resume.as_deref(), Some("opaque-same-session"));
                     assert_eq!(grant.scope, "opaque-updated-scope");
+                    assert_eq!(options.reasoning_effort.as_deref(), Some("opaque-effort"));
+                    assert_eq!(options.service_tier.as_deref(), Some("opaque-tier"));
                     let mut mux = service.mux.write();
                     assert!(mux.get_tab(&old).is_none());
                     let new = mux.create_tab(&workspace).unwrap();
@@ -109,7 +115,9 @@ async fn claude_and_codex_reconcile_stable_digest_and_resume_once_per_real_chang
                     &metadata,
                     "owner",
                     &friend,
-                    |_, _, _, _, _| async { panic!("one real change must replace at most once") },
+                    |_, _, _, _, _, _| async {
+                        panic!("one real change must replace at most once")
+                    },
                 )
                 .await
                 .unwrap();

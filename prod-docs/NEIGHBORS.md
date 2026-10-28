@@ -20,6 +20,10 @@ domios account neighbors revoke
 
 Keys stay in Windows Credential Manager, macOS Keychain or Linux Secret Service. An unavailable or locked store refuses the operation; plaintext file storage is never a fallback. Sign-out clears local account access first. Revoking the receiver session disables receiving on the server; local cleanup removes only this installation's private keys.
 
+The concierge's Change agent operation (`change_agent`) accepts `provider`, optional `model`, optional `reasoning_effort` (the provider's effort ID) and optional `service_tier` (a declared tier ID, or `default` for Standard). Omitted choices use provider defaults. Saved choices stay with the binding across restore and permission Apply; `status.concierges[friendship_id]` and the change result expose `reasoning_effort` and `service_tier`, null for provider defaults. Unsupported choices refuse before replacement.
+
+Provider descriptors expose `neighbor_concierge: {supported, machine_access, enforced_machine_access}` for this platform. Select a provider that supports the requested access level. The enforced subset distinguishes provider confinement from advisory operation; the friend's `folder_enforcement` note remains the detailed account of actual access. No provider currently supports `none`.
+
 ## General Agent permissions
 
 The local owner can view and edit permissions in the friend view. Among agents, only the authenticated General Agent may view or author permissions. The scope accepts up to 8192 UTF-8 bytes. Start with deny and ask what this Neighbor may request and share. These instructions bound the concierge; a grant gives the Neighbor no local command authority.
@@ -202,4 +206,4 @@ Only questions and tab requests enter the concierge request path. A linked answe
 
 A bound, unpaused concierge on the receiving machine is woken during listener preparation for both PTY and runtime-backed providers. It resumes its own saved session in the background without opening its tab. Paused friendships, other receiving machines and Neighbors off keep their existing admission fences; readiness follows actual provider state.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->
