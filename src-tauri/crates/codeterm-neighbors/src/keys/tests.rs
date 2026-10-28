@@ -2,6 +2,8 @@ use super::*;
 use rand::{rngs::StdRng, SeedableRng};
 use std::{collections::HashMap, sync::Mutex};
 
+mod takeover;
+
 #[derive(Default)]
 struct Store(Mutex<HashMap<String, Zeroizing<Vec<u8>>>>);
 
