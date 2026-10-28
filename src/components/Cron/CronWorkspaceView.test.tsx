@@ -269,14 +269,19 @@ test("injected automation entry opens authoritative graph and returns to ordinar
   } finally { await act(async () => root.unmount()); }
 });
 
-test("a cron without a Team offers no automation graph and never the Team-unavailable copy", async () => {
+test("a cron without a Team opens its own flow, never the Team-unavailable copy", async () => {
   const calls: string[] = [];
   cronTeam = null;
   const { host, root } = await render(CRON_ID, adapter({}, calls), calls);
   try {
-    assert(!Array.from(host.querySelectorAll("button")).some((button) => button.textContent === "Automation graph"), "no graph entry for a team-less cron");
+    const entry = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Automation graph");
+    assert(entry, "a team-less cron still offers its graph");
+    await act(async () => entry.click());
+    const flow = host.querySelector('[aria-label="Cron flow"]');
+    assert(flow, "the cron's own flow opens");
+    assert(flow.querySelector('[aria-label^="Schedule:"]') && flow.querySelector('[aria-label^="Agent task:"]') && flow.querySelector('[aria-label^="Report:"]'), "schedule, agent and report nodes");
+    assert(flow.textContent?.includes("sync notes"), "the agent node shows the task");
     assert(!host.textContent?.includes("Team is unavailable"), "no Team error for a scope without a Team");
-    assert(host.textContent?.includes("Trigger now"), "ordinary cron controls stay");
   } finally {
     cronTeam = "team_x";
     await act(async () => root.unmount());

@@ -12,6 +12,7 @@ import { CRON_ID_PREFIX, type Service } from "../MeshPanel/types";
 import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import { cronSelectionStore } from "./cronSelectionStore";
 import { HostAutomationGraph } from "../Automation/HostAutomationGraph";
+import { CronFlowView } from "./CronFlowView";
 import { AutomationGraphView, type AutomationGraphViewProps } from "../Automation/AutomationGraphView";
 import { AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
 
@@ -85,10 +86,9 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
   const target = job.report_target_tab_id
     ? `Reports to Tab ${job.report_target_tab_id}`
     : "Runs in a private cron worker";
-  // The automation graph is a Team's; a cron without a Team has no graph to show, so it offers none.
+  // A Team's cron opens its Team's automation graph; a cron without a Team opens its own small flow.
   const teamId = typeof job.team_id === "string" && job.team_id ? job.team_id : null;
-  const hasGraph = automation !== undefined || teamId !== null;
-  const graphShown = showAutomation && hasGraph;
+  const graphShown = showAutomation;
 
   return (
     <section className="h-full overflow-y-auto bg-[var(--ct-bg)]" aria-label={job.role === "curator" ? "Curator rounds" : `Cron ${job.name}`}>
@@ -99,9 +99,11 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation, backLabel
           <h2 className="break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{job.role === "curator" ? "Curator rounds" : job.name}</h2>
           <p className="text-xs text-[var(--ct-muted-fg)]">Cron · {target}</p>
         </div>
-        {hasGraph && <button type="button" aria-pressed={graphShown} onClick={() => setShowAutomation(!graphShown)} className={AUTOMATION_TOOL}>{graphShown ? "Cron details" : "Automation graph"}</button>}
+        <button type="button" aria-pressed={graphShown} onClick={() => setShowAutomation(!graphShown)} className={AUTOMATION_TOOL}>{graphShown ? "Cron details" : "Automation graph"}</button>
       </header>
-      {graphShown ? (automation ? <AutomationGraphView {...automation} /> : <HostAutomationGraph workspace_id={job.workspace_id} team_id={teamId} />) : <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
+      {graphShown ? (automation ? <AutomationGraphView {...automation} />
+        : teamId ? <HostAutomationGraph workspace_id={job.workspace_id} team_id={teamId} />
+        : <CronFlowView job={job} service={service} target={target} actionAdapter={actionAdapter} />) : <div className="mx-auto w-full max-w-3xl px-4 py-5 sm:px-6 sm:py-6">
         <CronDrawerSection service={service} machineName="This machine" onUpdate={() => void refresh()} actionAdapter={actionAdapter} />
       </div>}
     </section>
