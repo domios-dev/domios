@@ -6,8 +6,8 @@ use std::sync::{
 };
 
 #[tokio::test]
-async fn claude_and_codex_reconcile_stable_digest_and_resume_once_per_real_change() {
-    for provider in ["claude", "codex"] {
+async fn resumable_providers_reconcile_stable_digest_and_resume_once_per_real_change() {
+    for provider in ["opaque-provider-one", "opaque-provider-two"] {
         let (mut mux, general) = MultiplexerState::new();
         let workspace = mux.find_workspace_for_tab(&general).unwrap();
         let old = mux.create_tab(&workspace).unwrap();
