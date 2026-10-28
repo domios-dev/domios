@@ -15,7 +15,7 @@ const CHANGE_VERB = /(?<!\b(?:the|a|an|this|that|any|each|every|no)\s)\b(?:edit|
 const WORK_OBJECT = /\b(?:files?|code|repo(?:sitory)?|project|folder|directory|branch)\b|файл|код|репозитор|проект|папк/i;
 const AUTHORED_CODE = /\b(?:write|create)\s+(?:(?:to|into|in)\s+)?(?:(?:a|an|the|new|some|more)\s+)*(?:files?|code|branch(?:es)?|scripts?|tests?)\b|(?:^|\s)(?:создать|создай|создайте|создавать|записать|запиши|запишите|написать|напиши|напишите|писать)\s+(?:(?:в|новый|новые|новую)\s+)*(?:файл|код|ветк|скрипт|тест)/i;
 const NEGATION = /\b(?:not|never|no|nothing|without|except|don't|doesn't|cannot|can't|mustn't)\b|(?:^|\s)(?:не|нельзя|без|никогда)(?=\s|$)/i;
-// Absolute paths as people paste them: C:\work\x, C:/work/x, /home/x, ~/x. A trailing sentence mark is not part of the path;
+// Absolute paths as people paste them: C:\work\x, C:/work/x, /srv/x, ~/x. A trailing sentence mark is not part of the path;
 // "and/or" and the "//host/x" of a URL are not paths.
 const PATH = /(?:(?<![\w])[a-z]:[\\/]|(?<![\w.~:/])~[\\/]|(?<![\w.~:/])\/(?=[\w.-]))[^\s"'`<>|,;]*[^\s"'`<>|,;.:!?)]/gi;
 
