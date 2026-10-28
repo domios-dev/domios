@@ -123,8 +123,8 @@ fn revision_insert(
     let body = serde_json::to_string(document).map_err(|error| error.to_string())?;
     tx.execute("INSERT INTO blueprint_call_revisions(item_id,hash,area,team,document) VALUES ($1,$2,$3,$4,$5) ON CONFLICT(item_id,hash,area,team) DO NOTHING", &[&id,&hash,&area,&team,&body]).map_err(db_error)?;
     let stored: String=tx.query_one("SELECT document FROM blueprint_call_revisions WHERE item_id=$1 AND hash=$2 AND area=$3 AND team=$4", &[&id,&hash,&area,&team]).map_err(db_error)?.get(0);
-    let stored: serde_json::Value = serde_json::from_str(&stored)
-        .map_err(|_| "Immutable revision collision or corruption")?;
+    let stored: serde_json::Value =
+        serde_json::from_str(&stored).map_err(|_| "Immutable revision collision or corruption")?;
     let expected = serde_json::to_value(document).map_err(|error| error.to_string())?;
     if stored != expected {
         return Err("Immutable revision collision or corruption".into());
