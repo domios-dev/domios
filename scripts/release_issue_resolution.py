@@ -14,6 +14,7 @@ MAX_BOUNDARIES = 50
 MAX_COMMITS = 10000
 MAX_REMOTE_CALLS = 1000
 MAX_PR_PAGES = 10
+MAX_JOB_PAGES = 10
 
 
 def included_history(version, source_sha, candidates, read_commits, request):
@@ -74,6 +75,21 @@ def included_history(version, source_sha, candidates, read_commits, request):
             run_id = boundary_run_id(row["closure_boundary"])
             if run_id:
                 row["validator_run"] = remote(f"repos/{SOURCE_REPOSITORY}/actions/runs/{run_id}")
+                run = row["validator_run"] or {}
+                attempt = run.get("run_attempt")
+                if run.get("conclusion") in {"failure", "cancelled"} and type(attempt) is int and attempt > 0:
+                    row["validator_jobs"] = []
+                    for page in range(1, MAX_JOB_PAGES + 1):
+                        result = remote(f"repos/{SOURCE_REPOSITORY}/actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100&page={page}")
+                        if not isinstance(result, dict) or not isinstance(result.get("jobs"), list):
+                            row["validator_jobs"] = []
+                            break
+                        batch = result["jobs"]
+                        row["validator_jobs"].extend(batch)
+                        if len(batch) < 100:
+                            break
+                    else:
+                        raise ContractError("validator jobs exceed page bound")
         row["refusal"] = closure_boundary_refusal(row)
         inspected.append(row)
         if row["private_published"] and row["public_published"] and row["refusal"] is None:
