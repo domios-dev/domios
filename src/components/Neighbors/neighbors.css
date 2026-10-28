@@ -941,6 +941,7 @@
 }
 
 .neighbor-msg__bubble {
+  position: relative;
   width: fit-content;
   max-width: 100%;
   padding: var(--ct-bubble-pad-y) var(--ct-bubble-pad-x);

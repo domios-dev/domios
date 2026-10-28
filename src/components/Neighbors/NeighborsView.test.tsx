@@ -890,6 +890,34 @@ it("fills permissions from a trust preset, turns Custom on any later change, and
   expect(button("Custom").getAttribute("aria-selected")).toBe("true");
 });
 
+it("shows a sent message at once and keeps one bubble when history brings it back", async () => {
+  const runtimeClient = runtime();
+  const id = "a".repeat(32);
+  let accept!: () => void;
+  vi.mocked(runtimeClient.send).mockImplementation(() => new Promise(resolve => { accept = () => resolve({ message_id: id, status: "pending" }); }));
+  const conciergeClient = concierge([]);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
+  const bubbles = () => Array.from(document.querySelectorAll('.neighbor-msg[data-side="out"]')).filter(item => item.textContent?.includes("Lunch on Friday?"));
+  expect(bubbles()).toHaveLength(1);
+  expect(bubbles()[0].querySelector('.ct-delivery[data-state="sending"]')).not.toBeNull();
+  expect(input.value).toBe("");
+  const pending = bubbles()[0];
+  vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "out", kind: "question", author: "me", body: "Lunch on Friday?", at: Date.now(), message_id: id, delivery_status: "delivered" }], next_before: null, ended: false });
+  await act(async () => accept());
+  expect(bubbles()).toHaveLength(1);
+  expect(bubbles()[0]).toBe(pending);
+  expect(bubbles()[0].id).toBe(`neighbor-msg-${id}`);
+  expect(bubbles()[0].querySelector(".ct-delivery")).toBeNull();
+});
+
 it("explains a send refused by today's sending limit across all friends", async () => {
   const runtimeClient = runtime();
   vi.mocked(runtimeClient.send).mockRejectedValue(new NeighborRuntimeFailure("unavailable", "Too many", 200,

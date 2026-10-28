@@ -23,6 +23,33 @@ export function dayLabel(at: number, previous: number | null, locale?: string): 
 
 export const DELIVERY_LABEL = { pending: "sending", delivered: "delivered", not_delivered: "not delivered" } as const;
 
+/** A message you sent that history has not shown yet: its bubble appears at once and becomes the history entry when it lands.
+ *  An uncertain send has no receipt, so it is never sent again; it waits to be recognised in history by its words. */
+export interface OutgoingSend {
+  key: string;
+  body: string;
+  at: number;
+  state: "sending" | "failed";
+  messageId?: string;
+  uncertain?: boolean;
+  reason?: string;
+}
+
+/** Which sends history now holds, as send key to message id, each history entry claimed once. */
+export function landedSends(sends: readonly OutgoingSend[], entries: readonly HistoryEntry[], claimed: ReadonlySet<string> = new Set()): Map<string, string> {
+  const landed = new Map<string, string>();
+  const taken = new Set(claimed);
+  for (const send of sends) {
+    const entry = send.messageId ? entries.find(item => item.message_id === send.messageId)
+      : send.uncertain ? entries.find(item => item.direction === "out" && item.author === "me" && item.body === send.body
+        && item.at >= send.at - 2000 && !taken.has(item.message_id)) : undefined;
+    if (!entry) continue;
+    taken.add(entry.message_id);
+    landed.set(send.key, entry.message_id);
+  }
+  return landed;
+}
+
 /** Why a message of yours did not reach them, in plain words, with when to try again when that is known. */
 export function refusalLine(entry: HistoryEntry, friendName: string, now: number): string | null {
   const retry = entry.retry_after_seconds !== undefined ? ` Try again ${formatUntil(now + entry.retry_after_seconds * 1000, now)}.` : "";
