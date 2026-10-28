@@ -7,25 +7,6 @@ pub(super) mod selection;
 mod stop;
 
 impl ServiceContext {
-    pub(super) fn require_neighbor_receiver(
-        &self,
-        revision: Option<u64>,
-    ) -> codeterm_neighbors::Result<()> {
-        if !self
-            .neighbor_cell()
-            .receiver
-            .lock()
-            .as_ref()
-            .is_some_and(|status| {
-                status.receiving_here()
-                    && revision.is_none_or(|revision| revision == status.receiver_revision)
-            })
-        {
-            return Err(Error::NotReceiver);
-        }
-        Ok(())
-    }
-
     pub(super) fn receiver_view(status: &ReceiverStatus) -> Value {
         json!({"receiving_here":status.receiving_here(), "receiver_machine_label":status.receiver_machine_label,
             "receiving_enabled":status.receiving_enabled,"revision":status.receiver_revision})

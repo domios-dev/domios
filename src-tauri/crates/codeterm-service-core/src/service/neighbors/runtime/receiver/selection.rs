@@ -4,6 +4,56 @@ use super::*;
 #[serde(rename_all = "snake_case")]
 pub enum Selection { Set, Reset }
 
+#[async_trait::async_trait]
+trait SelectionPort: Send + Sync {
+    async fn account_receiver(&self) -> codeterm_neighbors::Result<ReceiverStatus>;
+    async fn enroll(&self, enrollment: codeterm_neighbors::adapter::Enrollment) -> codeterm_neighbors::Result<()>;
+    async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value>;
+}
+
+struct RelaySelection<'a> {
+    service: &'a ServiceContext,
+    registry: &'a FirebaseRegistry,
+    scope: &'a KeyScope,
+    generation: u64,
+}
+
+#[async_trait::async_trait]
+impl SelectionPort for RelaySelection<'_> {
+    async fn account_receiver(&self) -> codeterm_neighbors::Result<ReceiverStatus> {
+        self.registry.receiver_status().await
+    }
+
+    async fn enroll(&self, enrollment: codeterm_neighbors::adapter::Enrollment) -> codeterm_neighbors::Result<()> {
+        self.service.require_neighbor_generation(self.generation).map_err(|_| Error::Revoked)?;
+        let registry = FirebaseRegistry { enrollment:Some(enrollment),..self.registry.clone() };
+        InstallationKeys { store:&OsKeyStore,registry:&registry,scope:self.scope.clone(),uid:&registry.uid }
+            .enroll(true,&mut rand::rngs::OsRng).await?;
+        Ok(())
+    }
+
+    async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
+        self.service.require_neighbor_generation(self.generation).map_err(|_| Error::Revoked)?;
+        self.registry.calls.invoke("friendsSetFriendReceiver",command).await
+    }
+}
+
+async fn select_friend_receiver(
+    port: &impl SelectionPort, installation: &str, friendship: &str, selection: Selection, expected_revision: u64,
+) -> codeterm_neighbors::Result<Value> {
+    if matches!(selection,Selection::Set) {
+        let account = port.account_receiver().await?;
+        port.enroll(codeterm_neighbors::adapter::Enrollment {
+            expected_revision:account.receiver_revision,takeover:false,operation_id:None,
+            installation_only:account.receiver_installation_id.as_deref() != Some(installation),
+        }).await?;
+    }
+    port.select(json!({
+        "installation_id":installation,"friendship_id":friendship,"operation":selection,
+        "takeover":true,"expected_revision":expected_revision,"operation_id":uuid::Uuid::new_v4().simple().to_string(),
+    })).await
+}
+
 impl ServiceContext {
     pub(in crate::service::neighbors::runtime) async fn set_neighbor_friend_receiver(
         &self, registry: &FirebaseRegistry, scope: &KeyScope, metadata: &Metadata,
@@ -14,22 +64,8 @@ impl ServiceContext {
         }
         if !confirmed { return Err(Error::Gateway); }
         self.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
-        if matches!(selection,Selection::Set) {
-            let account = registry.receiver_status().await?;
-            let enrollment = FirebaseRegistry {
-                enrollment:Some(codeterm_neighbors::adapter::Enrollment {
-                    expected_revision:account.receiver_revision,takeover:false,operation_id:None,
-                    installation_only:account.receiver_installation_id.as_deref() != Some(registry.installation_id.as_str()),
-                }),..registry.clone()
-            };
-            InstallationKeys { store:&OsKeyStore,registry:&enrollment,scope:scope.clone(),uid:&registry.uid }
-                .enroll(true,&mut rand::rngs::OsRng).await?;
-        }
-        self.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
-        let result = registry.calls.invoke("friendsSetFriendReceiver",json!({
-            "installation_id":registry.installation_id,"friendship_id":friendship,"operation":selection,
-            "takeover":true,"expected_revision":expected_revision,"operation_id":uuid::Uuid::new_v4().simple().to_string(),
-        })).await?;
+        let port = RelaySelection { service:self,registry,scope,generation };
+        let result = select_friend_receiver(&port,&registry.installation_id,friendship,selection,expected_revision).await?;
         self.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
         if result["schema_version"] != 1 || result["friendship_id"] != friendship { return Err(Error::InvalidEnvelope); }
         let projection: codeterm_neighbors::wire::EffectiveReceiver = serde_json::from_value(result["receiver"].clone()).map_err(|_| Error::InvalidEnvelope)?;
@@ -49,3 +85,6 @@ impl ServiceContext {
         Ok(result)
     }
 }
+
+#[cfg(test)]
+mod tests;
