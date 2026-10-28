@@ -1,11 +1,16 @@
+mod accessible_wait;
+mod atomic;
 mod calls;
 mod grab;
 mod heuristics;
 mod inbox;
 mod input;
+mod metrics;
 mod page;
 mod redaction;
 mod resume;
+mod sessions;
+mod snapshots;
 mod snip;
 mod stream;
 mod verbs;
@@ -390,7 +395,7 @@ impl SurfaceRuntime for BrowserRuntime {
         verb: &str,
         args: &[String],
     ) -> Result<String, String> {
-        if verb == "type-secret" {
+        if matches!(verb, "type-secret" | "connect-secret") {
             let secret = args
                 .last()
                 .ok_or("Secret typing needs a target and stdin text")?;
@@ -445,26 +450,4 @@ impl SurfaceRuntime for BrowserRuntime {
 }
 
 #[cfg(test)]
-mod profile_policy_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn agent_browser_defaults_to_temporary_and_rejects_missing_profiles() {
-        let root = tempfile::tempdir().unwrap();
-        let runtime = BrowserRuntime::new(
-            BrowserHostConfig::under_data_dir(root.path()),
-            "Agent",
-            "tab-id",
-            Arc::new(tokio::sync::OnceCell::new()),
-            SurfaceResume::default(),
-        );
-        assert_eq!(*runtime.profile_request.lock(), "");
-        assert!(runtime.use_profile("Invented").await.is_err());
-        assert!(!runtime.layout.profiles_dir().exists());
-        assert_eq!(*runtime.profile_request.lock(), "");
-        assert_eq!(
-            runtime.view_only_methods(),
-            ["profiles.create", "profiles.delete"]
-        );
-    }
-}
+mod profile_policy_tests;

@@ -4,7 +4,6 @@ use super::heuristics::{activity_label, is_quiet_verb, IDLE};
 use super::input::{self, InputArgs, NavAction};
 use super::{cdp_error, BrowserRuntime, WAIT_DEADLINE};
 use crate::surface::runtime::SurfaceCallCtx;
-use codeterm_browser::snapshot::{build_snapshot_scoped, parse_full_ax_tree, DEFAULT_MAX_LINES};
 use codeterm_browser::PageChannel;
 
 pub const VERBS: &[&str] = &[
@@ -12,12 +11,18 @@ pub const VERBS: &[&str] = &[
     "open",
     "status",
     "profiles",
+    "profile",
+    "connect-secret",
+    "file-picker",
     "goto",
     "back",
     "forward",
     "reload",
     "snapshot",
     "click",
+    "fill",
+    "expand",
+    "collapse",
     "type",
     "type-secret",
     "press",
@@ -25,6 +30,7 @@ pub const VERBS: &[&str] = &[
     "text",
     "wait",
     "screenshot",
+    "viewport",
     "inbox",
     "annotate",
     "endpoint",
@@ -147,6 +153,9 @@ impl BrowserRuntime {
     ) -> Result<String, String> {
         match verb {
             "status" => Ok(self.status_text()),
+            "profile" => self.profile_verb(args).await,
+            "connect-secret" => self.connect_session(args).await,
+            "file-picker" => Err("unsupported: native file picker driving is unavailable; use Take control to choose files".into()),
             "profiles" => {
                 self.refresh_profiles().await;
                 let state = self.shared.state();
@@ -189,6 +198,12 @@ impl BrowserRuntime {
     }
 
     async fn open_verb(&self, args: &[String]) -> Result<String, String> {
+        if args
+            .iter()
+            .any(|a| matches!(a.as_str(), "--origin" | "--ephemeral" | "--expect-build"))
+        {
+            return self.open_session(args).await;
+        }
         let (url, profile) = parse_open(args);
         match profile {
             Some(profile) => self.use_profile(&profile).await?,
@@ -203,7 +218,7 @@ impl BrowserRuntime {
         Ok(self.status_text())
     }
 
-    async fn goto(&self, page: &PageChannel, url: &str) -> Result<String, String> {
+    pub(super) async fn goto(&self, page: &PageChannel, url: &str) -> Result<String, String> {
         let mut loaded = page.subscribe_session(&["Page.loadEventFired"]);
         self.navigate(page, NavAction::Goto, Some(url)).await?;
         let _ = tokio::time::timeout(WAIT_DEADLINE, loaded.recv()).await;
@@ -237,9 +252,10 @@ impl BrowserRuntime {
             "back" => self.history_step(page, NavAction::Back).await,
             "forward" => self.history_step(page, NavAction::Forward).await,
             "reload" => self.history_step(page, NavAction::Reload).await,
-            "snapshot" => {
-                self.snapshot(page, parse_limit(args.first(), DEFAULT_MAX_LINES))
-                    .await
+            "snapshot" => self.snapshot_verb(page, args).await,
+            "expand" | "collapse" => self.disclosure_verb(page, args, verb == "expand").await,
+            "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
+                self.atomic_action(page, args, verb == "fill").await
             }
             "click" => {
                 let target = self.resolve(args)?;
@@ -288,20 +304,13 @@ impl BrowserRuntime {
                     .unwrap_or("(empty page)")
                     .to_string())
             }
-            "wait" => self.wait(page, parse_wait(args)?).await,
-            "screenshot" => {
-                let full = args.iter().any(|arg| arg == "--full");
-                let name = args.iter().find(|arg| !arg.starts_with("--"));
-                let fallback = format!("shot-{}", unix_ms());
-                let name = super::inbox::evidence_file_name(
-                    name.map(String::as_str).unwrap_or(""),
-                    &fallback,
-                );
-                let base64 = self.screenshot_base64(page, full).await?;
-                let path = self.save_evidence(ctx, name, base64).await?;
-                let path = path.to_string_lossy();
-                Ok(format!("saved {path} (show it with @ds-image {path})"))
+            "wait" if args.iter().any(|a| a == "--role") => {
+                self.wait_accessible(page, super::accessible_wait::parse(args)?)
+                    .await
             }
+            "wait" => self.wait(page, parse_wait(args)?).await,
+            "viewport" => self.viewport_verb(args).await,
+            "screenshot" => self.screenshot_verb(ctx, args).await,
             other => Err(format!("unknown verb \"{other}\"")),
         }
     }
@@ -312,20 +321,6 @@ impl BrowserRuntime {
     ) -> Result<codeterm_browser::snapshot::ResolvedTarget, String> {
         let parts: Vec<&str> = locator.iter().map(String::as_str).collect();
         self.shared.resolve(&parts)
-    }
-
-    async fn snapshot(&self, page: &PageChannel, limit: usize) -> Result<String, String> {
-        let capture = self.shared.begin_snapshot(page.session_id())?;
-        let _ = self.send(page, "Accessibility.enable", json!({})).await;
-        let mut tree = self
-            .send(page, "Accessibility.getFullAXTree", json!({}))
-            .await?;
-        self.redact_value(&mut tree);
-        let snapshot = build_snapshot_scoped(&parse_full_ax_tree(&tree)?, limit, &capture);
-        let text = snapshot.text.clone();
-        self.shared.finish_snapshot(&capture, snapshot)?;
-        let state = self.shared.state();
-        Ok(format!("page: {} — {}\n{text}", state.title, state.url))
     }
 
     async fn click_node(&self, page: &PageChannel, backend_node_id: i64) -> Result<(), String> {
@@ -458,13 +453,6 @@ impl BrowserRuntime {
             }
         }
     }
-}
-
-fn unix_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+mod capture;
 pub mod cdp;
 pub mod cdp_wire;
 pub mod launch;
@@ -107,7 +108,7 @@ pub fn plan_open(current: Option<(&BrowserMode, bool)>, wanted: &ProfileKind) ->
 /// One surface instance's browser: open/attach/close, the page channel, profiles and frames.
 pub struct BrowserHost {
     config: BrowserHostConfig,
-    lifecycle: tokio::sync::Mutex<()>,
+    lifecycle: Arc<tokio::sync::Mutex<()>>,
     runtime: Arc<Mutex<Option<Arc<Runtime>>>>,
     viewport: Arc<Mutex<ViewportModel>>,
     resizes: Arc<tokio::sync::Mutex<resize::Coordinator>>,
@@ -119,7 +120,7 @@ impl BrowserHost {
         let initial = config.initial_viewport;
         Self {
             config,
-            lifecycle: tokio::sync::Mutex::new(()),
+            lifecycle: Arc::new(tokio::sync::Mutex::new(())),
             runtime: Arc::new(Mutex::new(None)),
             viewport: Arc::new(Mutex::new(ViewportModel::new(ViewportMode::Owned, initial))),
             resizes: Arc::new(tokio::sync::Mutex::new(resize::Coordinator::default())),
@@ -317,10 +318,36 @@ impl BrowserHost {
 
     /// Viewer-driven size (CSS px + DPR); attach mode refuses, as the app owns its window.
     pub async fn set_viewport(&self, request: ViewportRequest) -> Result<ViewportDecision, String> {
+        let _lifecycle = self.lifecycle.lock().await;
         match self.current() {
             Some(runtime) => self.resize(&runtime, request).await,
             None => Ok(self.viewport.lock().apply(request)),
         }
+    }
+
+    pub async fn set_device_viewport(
+        &self,
+        request: ViewportRequest,
+        mobile: bool,
+    ) -> Result<ViewportDecision, String> {
+        let _lifecycle = self.lifecycle.lock().await;
+        let decision = self.viewport.lock().apply_device(request, mobile);
+        if matches!(
+            decision,
+            ViewportDecision::Resize(_) | ViewportDecision::Unchanged
+        ) {
+            if let Some(runtime) = self.current() {
+                resize::apply(
+                    runtime,
+                    self.runtime.clone(),
+                    self.viewport.clone(),
+                    self.frames.clone(),
+                    self.resizes.clone(),
+                )
+                .await?;
+            }
+        }
+        Ok(decision)
     }
 
     async fn resize(
