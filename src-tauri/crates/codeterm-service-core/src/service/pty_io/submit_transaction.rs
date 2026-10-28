@@ -30,6 +30,7 @@ pub(crate) use readiness::observe_delivery_readiness;
 use readiness::{exact_session_turn_source_available, pty_owner_guard};
 mod recovery_guard;
 mod runner;
+mod shell;
 pub(crate) use cycle::{
     claim_command_submit_cycle, claim_exit_submit_cycle, claim_submit_cycle,
     notify_submit_cycle_provider_exit, wake_submit_cycle, wake_submit_cycle_output,
@@ -47,6 +48,7 @@ use runner::run_with_submit_key;
 #[cfg(test)]
 use runner::run_with_submit_key_and_follow_up;
 use runner::run_with_submit_key_and_payload;
+pub(crate) use shell::{shell_dispatch, submit_shell_dispatch};
 
 const TAIL_ROWS: usize = 8;
 const MAX_SUBMIT_KEY_WRITES: usize = DEFAULT_SUBMIT_RETRY_OFFSETS.len() + 1;
