@@ -44,6 +44,11 @@ eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", message: "m2
   { origin: { kind: "neighbor", friendshipId: "f1", message: "m2", friend: "Ada", messageKind: "answer", inReplyTo: "m1", instruction: "Reply with domios neighbors reply." },
     body: "Yes,\n\nall green & merged" },
   "the routed envelope keeps the whole body and takes the reply instruction from the tip");
+eq(framePrefix({ from: "neighbor", friendship: "f1", label: "uid-ada", tab: "" },
+  "Friend: \"QA Peer\"\nFriendship: f1\nMessage: m2\nKind: \"answer\"\nIn reply to: m1\nReply through the encrypted Neighbor channel.\n\nAll &lt;green&gt;"),
+  { origin: { kind: "neighbor", friendshipId: "f1", message: "m2", friend: "QA Peer", sender: "uid-ada", messageKind: "answer", inReplyTo: "m1",
+    instruction: "Reply through the encrypted Neighbor channel." }, body: "All <green>" },
+  "a header-block frame names the friend, kind and ids from its header and shows only the words");
 eq(labelFor({ kind: "neighbor", friendshipId: "f1", friend: "Ada" }), "From Ada via Neighbors", "neighbor label names the friend");
 eq(labelFor({ kind: "system", context: "  SyStEm  " }), "System", "duplicate System context is omitted");
 eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw strings are never routed by TS");

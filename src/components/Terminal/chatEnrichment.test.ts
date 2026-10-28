@@ -41,4 +41,16 @@ for (const name of ["fenced example", "unclosed tag", "indented tag is content",
   const raw: NormalizedChatMessage = { id: "no-trust", type: "user", content: '<domios from="tab" tab="a">literal</domios>' };
   assert.equal(enrichTimelineItems([item(raw)], new WeakMap())[0].origin, undefined);
 }
-console.log("envelope enrichment: 11 cases passed");
+{
+  // The daemon does not know the neighbor frame kind and sends it as an unknown frame, as on 83766's Codex concierge.
+  const body = "Friend: \"QA Peer\"\nFriendship: f1\nMessage: m2\nKind: \"answer\"\nIn reply to: m1\nReply through the encrypted Neighbor channel.\n\nR161-PUBLIC-CONTROL-B";
+  const attrs = { from: "neighbor", friendship: "f1", label: "uid", tab: "" };
+  const raw: NormalizedChatMessage = { id: "neighbor", type: "user", content: `<domios from="neighbor" friendship="f1" label="uid" tab="">${body}</domios>`,
+    segments: [{ type: "unknown_frame", raw: "", attrs, body }] };
+  const [entry] = enrichTimelineItems([item(raw)], new WeakMap());
+  assert.equal(entry.origin?.kind, "neighbor");
+  assert.equal(entry.origin?.kind === "neighbor" ? entry.origin.friend : null, "QA Peer");
+  assert.equal(entry.msg.content, "R161-PUBLIC-CONTROL-B");
+  assert.deepEqual(entry.msg.segments, [{ type: "text", text: "R161-PUBLIC-CONTROL-B" }], "the bubble shows only the friend's words");
+}
+console.log("envelope enrichment: 12 cases passed");
