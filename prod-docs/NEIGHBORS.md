@@ -174,4 +174,6 @@ The provider capability `supports_initial_prompt_update_on_resume` determines wh
 
 `domios mem secret` first checks the authenticated caller through the payload-free `mem.secret.authorize` RPC. A concierge is refused with `neighbor_capability_denied` (RPC -32003, CLI exit 1) before reading stdin, unlocking a vault or requesting secret backend data. This check grants no secret access; ordinary callers still use the existing authenticated secrets routes.
 
-<!-- revision: 34 -->
+`status.concierges[friendship_id].initial_context_digest` and the permission projection's `initial_context_digest` expose the SHA-256 of the effective concierge initial context, never its text. The digest is persisted with the exact bound tab. Reconciliation compares that binding digest, rather than a provider's normalized prompt representation; an unchanged grant does not restart the concierge. A real context change restarts once and resumes the same session when the provider supports updated initial instructions on resume.
+
+<!-- revision: 35 -->

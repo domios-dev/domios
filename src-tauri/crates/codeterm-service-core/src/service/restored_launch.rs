@@ -43,8 +43,16 @@ pub(crate) fn capture_tab_launch_parameters(
     registry: &AgentRegistry,
     capture: RestorableLaunchCapture<'_>,
 ) -> RestorableLaunchParameters {
+    let neighbor_root = mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.neighbor_authority
+            .as_ref()
+            .is_some_and(|authority| authority.root_tab_id.is_none())
+    });
     let identity_instructions = launch_prompt_capable(registry, capture.provider_id)
         .then(|| {
+            if neighbor_root {
+                return capture.task.map(str::to_owned);
+            }
             crate::service::orchestrator::restorable_identity_task(
                 capture.task,
                 capture.role,
@@ -500,3 +508,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "restored_launch/neighbor_tests.rs"]
+mod neighbor_tests;

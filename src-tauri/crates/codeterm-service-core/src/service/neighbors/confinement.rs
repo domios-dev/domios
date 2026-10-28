@@ -181,6 +181,7 @@ impl ServiceContext {
             None => (if permission.machine_access == MachineAccess::Full { "unrestricted" } else { "advisory" }, format!("This provider has no active OS filesystem sandbox on {}. The working folder is advisory; reads and writes are not confined.", std::env::consts::OS)),
         };
         let mut value = json!(permission);
+        value["initial_context_digest"] = json!(settings.initial_context_digest(friendship));
         value["effective_folder"] = json!(folder);
         value["folder_enforcement"] = json!({"writes":writes,"reads":"not_confined","note":note});
         value["folder_enforcement"]["network"] = json!("not_confined");
