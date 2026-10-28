@@ -12,7 +12,7 @@ fn submission_returns_with_queue_evidence_without_command_completion() {
         serde_json::to_value(receipt).unwrap(),
         serde_json::json!({
             "status": "submitted", "pty_id": "new-pty", "bytes_written": true,
-            "bytes_queued": 37, "evidence": "pty_write_queue", "detail": null
+            "bytes_queued": 37, "evidence": "shell_command_start", "detail": null
         })
     );
 }

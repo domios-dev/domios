@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
 use tokio::sync::oneshot;
@@ -64,6 +64,7 @@ struct PendingExec {
     id: u64,
     correlation: CommandCorrelation,
     tx: oneshot::Sender<ExecCompletion>,
+    started: Arc<AtomicBool>,
 }
 
 type Waiters = HashMap<String, Vec<PendingExec>>;
@@ -75,6 +76,7 @@ pub struct ExecWaiter {
     pty_id: String,
     id: u64,
     rx: oneshot::Receiver<ExecCompletion>,
+    started: Arc<AtomicBool>,
 }
 
 impl ExecWaiter {
@@ -89,6 +91,7 @@ impl ExecWaiter {
     fn register_expected(pty_id: &str, expected: Option<String>) -> Self {
         let id = NEXT_WAITER.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
+        let started = Arc::new(AtomicBool::new(false));
         WAITERS
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -101,12 +104,18 @@ impl ExecWaiter {
                     started: false,
                 },
                 tx,
+                started: started.clone(),
             });
         Self {
             pty_id: pty_id.to_string(),
             id,
             rx,
+            started,
         }
+    }
+
+    pub(crate) fn started(&self) -> bool {
+        self.started.load(Ordering::Acquire)
     }
 
     /// `None` when `deadline` elapsed first; elapsed time is a failure, never a completion.
@@ -161,7 +170,11 @@ pub(crate) fn observe_command(
     if let Some(list) = waiters.get_mut(pty_id) {
         let mut retained = Vec::new();
         for mut pending in list.drain(..) {
-            if let Some(completion) = pending.correlation.observe(event) {
+            let completion = pending.correlation.observe(event);
+            if pending.correlation.started {
+                pending.started.store(true, Ordering::Release);
+            }
+            if let Some(completion) = completion {
                 let _ = pending.tx.send(completion);
             } else {
                 retained.push(pending);
@@ -172,6 +185,8 @@ pub(crate) fn observe_command(
             waiters.remove(pty_id);
         }
     }
+    drop(waiters);
+    crate::service::pty_io::submit_transaction::wake_submit_cycle(pty_id);
 }
 
 #[cfg(test)]

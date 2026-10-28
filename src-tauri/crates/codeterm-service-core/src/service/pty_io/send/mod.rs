@@ -687,6 +687,37 @@ impl ServiceContext {
         };
         let rendered = prepared.text();
         let text = rendered.as_ref();
+        if submit && agent_type.is_none() {
+            let bytes = super::submit_transaction::live_command_input(
+                text,
+                self.screen_state.bracketed_paste_mode(pty_id),
+            );
+            let (payload, _) = super::submit_transaction::shell_dispatch(&bytes);
+            let on_queued = |_: usize| {
+                if let Some(callback) = &enqueued {
+                    callback();
+                }
+            };
+            let result = super::submit_transaction::submit_shell_dispatch(
+                self,
+                pty_id,
+                &payload,
+                text,
+                claim,
+                Some(&on_queued),
+            );
+            if result.is_ok()
+                || matches!(
+                    &result,
+                    Err(crate::service::inject_verify::InjectionError::SubmitNeverConfirmed { .. })
+                )
+            {
+                self.feed_input_parser(pty_id, text, true);
+            }
+            return result
+                .map(|_| ())
+                .map_err(|error| DeliveryError::from_injection(delivery_target, error));
+        }
         let typed_follow_up = (submit
             && !matches!(prepared, crate::service::messenger::AgentInput::Framed(_)))
         .then(|| self.typed_follow_up_for_agent(agent_type.as_deref(), text))
@@ -1089,7 +1120,7 @@ impl ServiceContext {
     }
 }
 
-/// A shell produces no agent submit evidence, so its send completes once written.
+/// Shell submissions use their own command-start evidence transaction.
 pub(in crate::service::pty_io) fn plain_input_verify_opts(
     submit: bool,
     agent: bool,
