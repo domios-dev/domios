@@ -33,6 +33,7 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(
             Some(InboxEvent::Messages(messages)) => {
                 let peers = session.transport.peer_keys(&session.friendship).await?;
                 for message in messages {
+                    let history_generation = session.service.neighbor_history_generation();
                     session.current()?;
                     if message.doc.envelope.friendship_id != session.friendship {
                         return Err(Error::WrongPeer);
@@ -63,7 +64,23 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(
                         )
                         .await
                     {
-                        Ok(_) | Err(Error::InvalidEnvelope | Error::MessageTooLarge { .. }) => {}
+                        Ok(visible) => {
+                            session.current()?;
+                            session
+                                .service
+                                .append_neighbor_history(
+                                    &session.metadata,
+                                    &session.friendship,
+                                    super::super::super::handling::incoming(
+                                        &message,
+                                        &visible,
+                                        Some("concierge_missing"),
+                                    ),
+                                    history_generation,
+                                )
+                                .await?;
+                        }
+                        Err(Error::InvalidEnvelope | Error::MessageTooLarge { .. }) => {}
                         Err(error) => return Err(error),
                     }
                 }

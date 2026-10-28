@@ -111,6 +111,16 @@ fn code_for_http_status(status: u64) -> Option<ErrorCode> {
     }
 }
 
+pub(crate) fn is_neighbor_reason(reason: &str) -> bool {
+    matches!(reason, "refusal_too_long" | "reply_target_unknown")
+        || reason.starts_with("neighbor_")
+            && reason.len() > "neighbor_".len()
+            && reason.len() <= 80
+            && reason
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
 const NOT_FOUND_MARKERS: [&str; 7] = [
     "no doc named",
     "not found",
@@ -200,12 +210,20 @@ pub fn error_object(message: &str, rpc_code: Option<i32>, data: Option<&Value>) 
     let hint = data
         .and_then(declared_hint)
         .unwrap_or_else(|| code.hint().to_string());
-    json!({
+    let mut error = json!({
         "code": code.as_str(),
         "message": message,
         "hint": hint,
         "rpc_code": rpc_code,
-    })
+    });
+    if let Some(reason) = data
+        .and_then(|data| data.get("reason"))
+        .and_then(Value::as_str)
+        .filter(|reason| is_neighbor_reason(reason))
+    {
+        error["reason"] = reason.into();
+    }
+    error
 }
 
 /// Fills the fields a command-specific error object leaves out; its own code stays.

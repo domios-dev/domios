@@ -179,7 +179,11 @@ pub async fn cron_cancel(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let cancelled = off_runtime(&state, move |svc, cron, _| {
-        svc.cron_cancel_running(cron, &id)
+        svc.cron_cancel_running(
+            cron,
+            &id,
+            codeterm_service_core::cron::store::CronCancelReason::UserCancel,
+        )
     })
     .await
     .map_err(worker_failed)?

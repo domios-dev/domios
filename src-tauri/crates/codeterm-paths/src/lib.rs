@@ -110,6 +110,19 @@ pub fn data_dir_path_for_instance(dev: bool, instance: Option<&str>) -> PathBuf 
     data_dir_path_for_name(&name)
 }
 
+pub fn explicit_development_data_dir(instance: &str) -> Result<PathBuf, String> {
+    if instance.is_empty()
+        || instance.len() > 64
+        || !instance
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return Err("invalid_dev_instance: use a lowercase instance slug".into());
+    }
+    default_data_dir(&identity_names_for(true, &format!("-{instance}")).0)
+        .ok_or_else(|| "DEV data directory is unavailable".into())
+}
+
 fn data_dir_path_for_name(name: &str) -> PathBuf {
     if let Some(path) = std::env::var_os("CODETERM_DATA_DIR").map(PathBuf::from) {
         if path.is_absolute() {

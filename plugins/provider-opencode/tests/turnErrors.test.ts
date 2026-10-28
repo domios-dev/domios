@@ -1,6 +1,7 @@
+// @vitest-environment node
+
 import { describe, expect, it } from "vitest";
 import { MODEL_REJECTION_QUERY, parseOpencodeModels, sessionModelIdentity } from "../src/helpers";
-import { withAsyncSqlite } from "./hostFixture.testdata";
 import { rejectedModelIds, sessionObservations, turnError, unavailableModelError } from "../src/turnErrors";
 
 const error = { role: "assistant", providerID: "opencode", modelID: "exo-free",

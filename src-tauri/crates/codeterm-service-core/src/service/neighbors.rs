@@ -6,8 +6,11 @@ use serde_json::{json, Value};
 pub mod capabilities;
 mod confinement;
 mod delivery;
+mod handling;
 pub(crate) mod history;
+mod launch_fence;
 mod notifications;
+mod pause;
 mod removal;
 pub use notifications::NeighborNotify;
 mod referral;
@@ -65,6 +68,7 @@ impl NeighborCommand {
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
         let history_generation = self.neighbor_history_generation();
+        let pause_versions = self.neighbor_cell().pauses.snapshot();
         let account = self.account().await?;
         let session = account
             .current_session()
@@ -107,8 +111,11 @@ impl ServiceContext {
         }
         if name == "friendsList" {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
+            self.reconcile_neighbor_pauses(&session.identity.uid, &result, &pause_versions)
+                .map_err(|error| error.to_string())?;
             let settings = metadata.settings().await.map_err(|e| e.to_string())?;
             annotate_list(&mut result, &settings)?;
+            self.project_neighbor_pauses(&mut result, &settings);
             self.remember_neighbor_names(&result);
             if self.require_neighbors_enabled().is_ok() {
                 self.end_missing_neighbor_friendships(&metadata, &result, history_generation)

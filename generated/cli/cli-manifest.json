@@ -129,6 +129,16 @@
                   "default": null,
                   "help": null,
                   "aliases": []
+                },
+                {
+                  "name": "expected-receiver-revision",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "EXPECTED_RECEIVER_REVISION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Receiver revision shown by status; refresh and confirm again if stale",
+                  "aliases": []
                 }
               ],
               "subcommands": []
@@ -1997,7 +2007,7 @@
         },
         {
           "name": "import",
-          "about": "Import a native v2 recipe into the caller's Team (stopped by default)",
+          "about": "Import a native v2 recipe into the caller's scope (stopped by default)",
           "aliases": [],
           "args": [
             {
@@ -2008,6 +2018,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "scope",
+              "positional": false,
+              "required": false,
+              "value_name": "SCOPE",
+              "possible_values": [],
+              "default": null,
+              "help": "Destination: general, workspace:<id>, or team:<id>; caller must belong to it",
               "aliases": []
             },
             {

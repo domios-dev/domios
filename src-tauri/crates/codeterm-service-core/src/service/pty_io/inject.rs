@@ -46,35 +46,56 @@ impl ServiceContext {
         }
     }
 
+    fn submit_utility_shell_command(
+        &self,
+        pty_id: &str,
+        command: &str,
+        queued: Option<&dyn Fn(usize)>,
+    ) -> Result<crate::service::ExecWaiter, String> {
+        self.await_shell_ready(pty_id);
+        let profile = {
+            let mux = self.mux.read();
+            mux.tab_id_for_pty(pty_id)
+                .and_then(|id| mux.get_tab(&id))
+                .and_then(|tab| tab.shell_profile.clone())
+        };
+        let bytes = profile
+            .as_ref()
+            .map(|profile| profile.utility_command(command))
+            .transpose()?
+            .flatten()
+            .map(Ok)
+            .unwrap_or_else(|| build_spawn_dispatch(command).map_err(|error| error.to_string()))?;
+        let (payload, expected) = super::submit_transaction::shell_dispatch(&bytes);
+        let claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        let result = super::submit_transaction::submit_shell_dispatch(
+            self, pty_id, &payload, &expected, claim, queued,
+        );
+        if result.is_ok()
+            || matches!(
+                &result,
+                Err(crate::service::inject_verify::InjectionError::SubmitNeverConfirmed { .. })
+            )
+        {
+            self.feed_input_parser(pty_id, command, true);
+        }
+        result.map(|(_, waiter)| waiter).map_err(|error| {
+            crate::service::delivery_error::DeliveryError::from_injection(pty_id, error)
+                .ledger_message()
+        })
+    }
+
     pub(crate) fn submit_restarted_shell_command(
         &self,
         tab_id: &str,
         pty_id: &str,
         command: &str,
     ) -> Result<crate::service::ShellCommandSubmission, String> {
+        if self.resolve_pty_id(tab_id)?.as_str() != pty_id {
+            return Err("restart PTY changed before submission".into());
+        }
         crate::service::ShellCommandSubmission::attempt(pty_id, |queued| {
-            self.await_shell_ready(pty_id);
-            let profile = {
-                let mux = self.mux.read();
-                let tab = mux.get_tab(tab_id).ok_or("restart tab disappeared")?;
-                if tab.pty_id.as_deref() != Some(pty_id) {
-                    return Err("restart PTY changed before submission".into());
-                }
-                tab.shell_profile.clone()
-            };
-            self.feed_input_parser(pty_id, command, true);
-            if let Some(bytes) = profile
-                .as_ref()
-                .map(|profile| profile.utility_command(command))
-                .transpose()?
-                .flatten()
-            {
-                self.pty.lock().write(pty_id, &bytes)?;
-                queued.set(bytes.len());
-                return Ok(());
-            }
-            let bytes = build_spawn_dispatch(command).map_err(|error| error.to_string())?;
-            self.write_spawn_bytes_recorded(pty_id, &bytes, queued)
+            self.submit_utility_shell_command(pty_id, command, Some(&|bytes| queued.set(bytes)))
                 .map(|_| ())
         })
     }
@@ -84,18 +105,7 @@ impl ServiceContext {
         pty_id: &str,
         cmd: &str,
     ) -> Result<crate::service::ExecWaiter, String> {
-        self.await_shell_ready(pty_id);
-        self.feed_input_parser(pty_id, cmd, true);
-        let bytes = build_spawn_dispatch(cmd).map_err(|e| e.to_string())?;
-        #[cfg(unix)]
-        let expected = String::from_utf8_lossy(&bytes)
-            .trim_end_matches('\r')
-            .to_string();
-        #[cfg(windows)]
-        let expected = format!(" {cmd}");
-        let waiter = crate::service::ExecWaiter::for_command(pty_id, &expected);
-        self.write_spawn_bytes(pty_id, &bytes)?;
-        Ok(waiter)
+        self.submit_utility_shell_command(pty_id, cmd, None)
     }
 
     pub fn send_shell_spawn_after_ready(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
@@ -109,33 +119,12 @@ impl ServiceContext {
         self.feed_input_parser(pty_id, cmd, true);
         self.write_spawn_dispatch(pty_id, cmd).map(|_| ())
     }
-    /// Inject a command into a plain shell tab via script-exec, bypassing
-    /// bracketed-paste. Ensures the PTY exists and awaits the PTY link before
-    /// writing; delegates to `send_shell_spawn` which calls `await_shell_ready`.
     pub fn send_shell_cmd(&self, tab_id: &str, cmd: &str) -> Result<(), String> {
         self.wake_frozen_tab(tab_id)?;
         self.ensure_tab_pty_for_send(tab_id)?;
         let pty_id = self.await_pty_link_blocking(tab_id, std::time::Duration::from_secs(15))?;
-        let profile = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.shell_profile.clone());
-        if let Some(bytes) = profile
-            .as_ref()
-            .map(|profile| profile.utility_command(cmd))
-            .transpose()?
-            .flatten()
-        {
-            self.await_shell_ready(&pty_id);
-            self.feed_input_parser(&pty_id, cmd, true);
-            return self
-                .pty
-                .lock()
-                .write(&pty_id, &bytes)
-                .map_err(|error| error.to_string());
-        }
-        self.send_shell_spawn(&pty_id, cmd)
+        self.submit_utility_shell_command(&pty_id, cmd, None)
+            .map(|_| ())
     }
 
     /// Shell-level agent launch with submit verification via [`build_spawn_dispatch`]

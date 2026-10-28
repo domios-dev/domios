@@ -38,8 +38,13 @@ impl ServiceContext {
         {
             return Ok(Access::Unrestricted);
         }
+        let root = tab
+            .neighbor_authority
+            .as_ref()
+            .and_then(|authority| authority.root_tab_id.clone())
+            .unwrap_or_else(|| caller.to_owned());
         drop(mux);
-        self.validate_neighbor_gateway(caller).map_err(|_| DENIED)?;
+        self.validate_neighbor_gateway(&root).map_err(|_| DENIED)?;
         match command {
             NeighborRuntimeCommand::History { friendship_id, .. }
             | NeighborRuntimeCommand::Send { friendship_id, .. }
@@ -70,10 +75,24 @@ impl ServiceContext {
                 .ok_or(DENIED)?,
         };
         let settings = metadata.settings().await.map_err(|_| DENIED)?;
-        if !hex_id(&friendship, 64)
-            || settings.bindings.get(&friendship).map(String::as_str) != caller
-        {
+        let root = {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(caller.ok_or(DENIED)?).ok_or(DENIED)?;
+            match &tab.neighbor_authority {
+                Some(authority) if authority.friendship_id == friendship => authority
+                    .root_tab_id
+                    .as_deref()
+                    .unwrap_or(&tab.id)
+                    .to_owned(),
+                Some(_) => return Err(DENIED.into()),
+                None => tab.id.clone(),
+            }
+        };
+        if !hex_id(&friendship, 64) || settings.bindings.get(&friendship) != Some(&root) {
             return Err(DENIED.into());
+        }
+        if self.neighbor_effective_pause(&settings, &friendship) {
+            return Err("neighbor_paused: This friendship's concierge is paused".into());
         }
         self.neighbor_runtime_access(command, caller, nonce)?;
         Ok(())
@@ -98,6 +117,15 @@ impl ServiceContext {
             .cloned()
             .ok_or(DENIED)?;
         let session = account.session().await.ok_or(DENIED)?;
+        if caller.is_some_and(|caller| {
+            self.mux
+                .read()
+                .get_tab(caller)
+                .and_then(|tab| tab.neighbor_authority.as_ref())
+                .is_some_and(|authority| authority.uid != session.identity.uid)
+        }) {
+            return Err(DENIED.into());
+        }
         let generation = self.neighbor_history_generation();
         let metadata = Metadata::new(
             self.account_data_root().map_err(|_| DENIED)?,

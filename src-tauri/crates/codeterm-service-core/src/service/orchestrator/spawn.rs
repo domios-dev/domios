@@ -67,11 +67,7 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
-        self.refuse_neighbor_descendant_launch(&[
-            params.spawned_by_tab_id.as_deref(),
-            params.creator_tab_id.as_deref(),
-            params.parent_tab_id.as_deref(),
-        ])?;
+        self.inherit_neighbor_agent_spawn_sync(&mut params)?;
         self.validate_remote_spawn(&params)?;
         crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
@@ -212,11 +208,7 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
-        self.refuse_neighbor_descendant_launch(&[
-            params.spawned_by_tab_id.as_deref(),
-            params.creator_tab_id.as_deref(),
-            params.parent_tab_id.as_deref(),
-        ])?;
+        self.inherit_neighbor_agent_spawn(&mut params).await?;
         self.validate_remote_spawn(&params)?;
         crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
@@ -1035,9 +1027,16 @@ impl ServiceContext {
         if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
+        let friend = self.neighbor_spawn_friend_name(target_tab);
         let (text, pending) = self
             .ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
-            .spawn_task_message(&self.mux.read(), &self.agent_registry, target_tab, body)?;
+            .spawn_task_message(
+                &self.mux.read(),
+                &self.agent_registry,
+                target_tab,
+                body,
+                friend.as_deref(),
+            )?;
         if let Some(pending) = pending {
             self.trace_spawn_reply_relay(target_tab, &pending);
         }

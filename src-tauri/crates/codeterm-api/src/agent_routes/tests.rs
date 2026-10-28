@@ -1,6 +1,21 @@
 use super::pair_headers::pair_params_from_headers;
 use super::*;
 
+#[test]
+fn neighbor_spawn_refusals_keep_their_typed_403_instead_of_spawn_failed() {
+    for code in [
+        "neighbor_capability_denied",
+        "neighbor_forbidden",
+        "neighbor_paused",
+        "tab_requests_not_allowed",
+        "neighbor_machine_access_unsupported",
+    ] {
+        let refusal = SpawnRejection::from(format!("{code}: opaque"));
+        assert_eq!(refusal.status, StatusCode::FORBIDDEN);
+        assert_eq!(refusal.body["error"]["code"], code);
+    }
+}
+
 // A body-supplied or omitted caller must not bypass the pair hierarchy guard.
 #[test]
 fn orchestration_pair_rest_uses_tab_header_for_hierarchy_context() {

@@ -528,6 +528,9 @@ async function main() {
     try {
       await settle(() => empty.host.querySelector('[role="status"][aria-label="No jobs"]') !== null);
       assert.equal(empty.host.querySelector('ul[aria-label="Jobs"]'), null, "an empty scope renders no list");
+      assert.equal(empty.host.querySelector('[aria-label="Saved solutions"]'), null, "an empty scope shows no saved solutions block");
+      assert.equal(empty.host.querySelector('[aria-label="Repository Blueprints"]'), null, "an empty scope shows no repository Blueprints");
+      assert.ok(!Array.from(empty.host.querySelectorAll("button")).some((button) => /repository/i.test(button.textContent ?? "")), "repository Blueprints live only in the Import flow");
     } finally {
       await empty.close();
       cronList = async () => [teamCron, unteamedCron];

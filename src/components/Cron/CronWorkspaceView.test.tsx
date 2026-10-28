@@ -38,6 +38,7 @@ const CRON_ID = "cron-1";
 let failCronRead = false;
 let cronReadAttempts = 0;
 let cronRunFinished: (() => void) | null = null;
+let cronTeam: string | null = "team_x";
 
 // Mirrors the fully allowed cron projection returned by mesh_inventory_list.
 // The component must consume this map rather than deriving its own.
@@ -47,7 +48,7 @@ function cronJob(): CronJob {
     name: "Nightly sync",
     description: null,
     workspace_id: "team_x",
-    team_id: "team_x",
+    team_id: cronTeam,
     schedule: "*/5 * * * *",
     enabled: true,
     agent: "claude",
@@ -215,6 +216,24 @@ test("a background refresh failure keeps loaded cron details without an alert", 
   failCronRead = false;
 });
 
+test("a cancelled run names why it stopped, and a run without a reason stays plain Cancelled", async () => {
+  const calls: string[] = [];
+  const { host, root } = await render(CRON_ID, adapter({
+    history: async () => {
+      calls.push("history");
+      return [
+        { run_id: "run-old", started_at: 50, finished_at: 60, status: "Cancelled", tab_id: null },
+        { run_id: "run-new", started_at: 100, finished_at: 160, status: "Cancelled", tab_id: null, cancel_reason: "superseded" },
+      ];
+    },
+  }, calls), calls, "Cancelled");
+  try {
+    const rows = Array.from(host.querySelectorAll('[aria-label="Run history"] li')).map((row) => row.textContent ?? "");
+    assert(rows.some((row) => row.includes("Superseded by a newer run")), "the typed reason reads in words");
+    assert(rows.some((row) => row.includes("Cancelled") && !row.includes("Superseded")), "no reason keeps the plain status");
+  } finally { await act(async () => root.unmount()); }
+});
+
 test("an owner prompt remains visible in history and exposes cancel while active", async () => {
   const calls: string[] = [];
   const { host, root } = await render(CRON_ID, adapter({
@@ -266,6 +285,25 @@ test("injected automation entry opens authoritative graph and returns to ordinar
     assert(host.textContent?.includes("Trigger now"), "ordinary cron controls restored");
     assert(transport.unsubscribeCount === 1, "graph subscription released");
   } finally { await act(async () => root.unmount()); }
+});
+
+test("a cron without a Team opens its own flow, never the Team-unavailable copy", async () => {
+  const calls: string[] = [];
+  cronTeam = null;
+  const { host, root } = await render(CRON_ID, adapter({}, calls), calls);
+  try {
+    const entry = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Automation graph");
+    assert(entry, "a team-less cron still offers its graph");
+    await act(async () => entry.click());
+    const flow = host.querySelector('[aria-label="Cron flow"]');
+    assert(flow, "the cron's own flow opens");
+    assert(flow.querySelector('[aria-label^="Schedule:"]') && flow.querySelector('[aria-label^="Agent task:"]') && flow.querySelector('[aria-label^="Report:"]'), "schedule, agent and report nodes");
+    assert(flow.textContent?.includes("sync notes"), "the agent node shows the task");
+    assert(!host.textContent?.includes("Team is unavailable"), "no Team error for a scope without a Team");
+  } finally {
+    cronTeam = "team_x";
+    await act(async () => root.unmount());
+  }
 });
 
 async function main() {

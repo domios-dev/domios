@@ -325,6 +325,13 @@ fn neighbor_failure(message: String) -> Response {
             }
         }
     }
+    if let Some(detail) = message.strip_prefix("refusal_too_long:") {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+            if let (Some(limit), Some(actual)) = (data["limit"].as_u64(), data["actual"].as_u64()) {
+                return (StatusCode::PAYLOAD_TOO_LARGE, Json(serde_json::json!({"code":"refusal_too_long","reason":"refusal_too_long","limit":limit,"actual":actual,"message":format!("Nothing was sent. The refusal is {actual} UTF-8 bytes; the limit is {limit}. Shorten it and resend once.")}))).into_response();
+            }
+        }
+    }
     for reason in ["rate_limited", "aggregate_limited"] {
         if let Some(detail) = message.strip_prefix(&format!("{reason}:")) {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
@@ -353,12 +360,13 @@ fn neighbor_failure(message: String) -> Response {
             | "neighbor_memory_read_only"
             | "neighbor_secrets_not_allowed"
             | "neighbor_capability_denied"
+            | "neighbor_paused"
             | "neighbor_memory_area_denied"
             | "neighbor_files_not_allowed",
         ) => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
-        Some("limit_out_of_range") => StatusCode::BAD_REQUEST,
+        Some("limit_out_of_range" | "reply_target_unknown") => StatusCode::BAD_REQUEST,
         Some(
             "invalid_request"
             | "neighbor_machine_access_unsupported"

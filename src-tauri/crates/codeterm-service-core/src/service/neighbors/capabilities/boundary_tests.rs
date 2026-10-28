@@ -412,16 +412,12 @@ async fn a_neighbor_tag_cannot_be_reassigned_to_another_friend_or_account() {
 async fn common_agent_and_shell_launches_refuse_neighbors_before_creating_any_child() {
     let (fixture, caller, _) = fixture(allowed()).await;
     let before = fixture.service.mux.read().snapshot().tabs.len();
-    assert!(fixture
-        .service
-        .refuse_neighbor_descendant_launch(&[None])
-        .is_ok());
     for field in ["spawned_by_tab_id", "creator_tab_id", "parent_tab_id"] {
         let params: crate::service::SpawnAgentParams =
             serde_json::from_value(json!({"agent":"missing-provider",(field):caller.tab_id}))
                 .unwrap();
         let error = fixture.service.spawn_agent(params, None).await.unwrap_err();
-        assert!(error.starts_with("neighbor_capability_denied:"));
+        assert!(error.starts_with("tab_requests_not_allowed:"));
         assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
     }
     for field in ["creator_tab_id", "parent_tab_id"] {

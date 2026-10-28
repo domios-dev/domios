@@ -303,7 +303,10 @@ it("does not apply a previous account's late checkout refusal to the next accoun
 it("does not substitute built-in prices when a signed-in account's catalog is unavailable", async () => {
   daemon.state.identity = { uid: "invited-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
   daemon.state.catalogUnavailable = true;
+  // The catalog read is shared for a minute; step past it so this mount really asks and really fails.
+  vi.setSystemTime(Date.now() + 61_000);
   await mount();
+  vi.useRealTimers();
   expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).toBeNull();
   expect(planFailure()).not.toBeNull();
   expect(daemon.state.upgrades).toEqual([]);

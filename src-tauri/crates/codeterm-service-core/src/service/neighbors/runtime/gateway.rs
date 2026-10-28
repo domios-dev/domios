@@ -21,6 +21,7 @@ pub(super) struct Gateway {
     pub friendship: String,
     pub tab: String,
     pub generation: u64,
+    pub history_generation: u64,
     pub stopped: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -86,7 +87,7 @@ impl NeighborGateway for Gateway {
         message: &InboxMessage,
         plaintext: Zeroizing<String>,
     ) -> Result<GatewayReceipt> {
-        let history_generation = self.service.neighbor_history_generation();
+        let history_generation = self.history_generation;
         self.current()?;
         if self
             .service
@@ -121,24 +122,15 @@ impl NeighborGateway for Gateway {
             .append_neighbor_history(
                 &self.metadata,
                 &self.friendship,
-                super::super::history::Entry {
-                    direction: "in".into(),
-                    author: super::super::history::Author::Person("friend".into()),
-                    sender_uid: message.doc.envelope.sender_uid.clone(),
-                    body: plaintext.to_string(),
-                    at: message.doc.received_at.seconds * 1000
-                        + u64::from(message.doc.received_at.nanoseconds / 1_000_000),
-                    message_id: message.doc.envelope.message_id.clone(),
-                    delivery_status: None,
-                    kind: message.doc.envelope.kind,
-                    in_reply_to: message.doc.envelope.in_reply_to.clone(),
-                    outcome: None,
-                    reason: None,
-                    limit: None,
-                    resets_at: None,
-                    retry_after_seconds: None,
-                    submission: None,
-                },
+                super::super::handling::incoming(
+                    message,
+                    &plaintext,
+                    Some(if self.service.neighbor_friend_paused(&self.friendship) {
+                        "paused"
+                    } else {
+                        "queued_for_concierge"
+                    }),
+                ),
                 history_generation,
             )
             .await?;
@@ -150,9 +142,10 @@ impl NeighborGateway for Gateway {
             .get(&self.friendship)
             .cloned()
             .unwrap_or_default();
-        codeterm_neighbors::gateway::route_request(
+        let result = codeterm_neighbors::gateway::route_request(
             &permission,
             message.doc.envelope.kind,
+            self.service.neighbor_friend_paused(&self.friendship),
             &Request {
                 gateway: self,
                 message,
@@ -162,7 +155,29 @@ impl NeighborGateway for Gateway {
                 permission: permission.clone(),
             },
         )
-        .await
+        .await;
+        let state = match &result {
+            Ok(GatewayReceipt::Delivered) => {
+                Some((super::super::history::handling::State::NoReply, None))
+            }
+            _ => Some((
+                super::super::history::handling::State::Failed,
+                Some("concierge_delivery_unconfirmed"),
+            )),
+        };
+        if let Some((state, reason)) = state {
+            self.service
+                .neighbor_handling_delivery(
+                    &self.metadata,
+                    &self.friendship,
+                    &message.id,
+                    state,
+                    reason,
+                    self.history_generation,
+                )
+                .await?;
+        }
+        result
     }
 }
 
@@ -178,8 +193,22 @@ struct Request<'a> {
 #[async_trait]
 impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
     async fn local_turn(&self) -> Result<GatewayReceipt> {
+        if self
+            .gateway
+            .service
+            .neighbor_friend_paused(&self.gateway.friendship)
+        {
+            if matches!(
+                self.message.doc.envelope.kind,
+                codeterm_neighbors::wire::Kind::Answer | codeterm_neighbors::wire::Kind::Refusal
+            ) {
+                return Ok(GatewayReceipt::Delivered);
+            }
+            return self.refusal().await;
+        }
         let events = self.events.lock().take().ok_or(Error::Gateway)?;
-        self.gateway
+        match self
+            .gateway
             .deliver_allowed(
                 self.message,
                 &self.plaintext,
@@ -188,6 +217,10 @@ impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
                 events,
             )
             .await
+        {
+            Err(Error::RecipientPaused) => self.refusal().await,
+            result => result,
+        }
     }
     async fn refusal(&self) -> Result<GatewayReceipt> {
         self.gateway
@@ -252,17 +285,26 @@ impl Gateway {
         &self,
         message: &InboxMessage,
         plaintext: &str,
-        permission: &codeterm_neighbors::permissions::Permission,
+        _permission: &codeterm_neighbors::permissions::Permission,
         path: &str,
         events: tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
     ) -> Result<GatewayReceipt> {
         self.current()?;
+        if self.service.neighbor_friend_paused(&self.friendship) {
+            return Err(Error::RecipientPaused);
+        }
         self.service
             .validate_neighbor_gateway(&self.tab)
             .map_err(|_| Error::Gateway)?;
-        let hint = permission.hint(message.doc.envelope.kind);
-        let body = Zeroizing::new(format!("{hint}\nFriendship: {}\nMessage: {}\nReply through the encrypted Neighbor channel with this message as in_reply_to; there is no local tab return address.\n\n{}",
-            self.friendship, message.doc.envelope.message_id, plaintext));
+        let name = self
+            .service
+            .neighbor_cell_names()
+            .get(&self.friendship)
+            .cloned()
+            .unwrap_or_else(|| "Neighbor".into());
+        let body = Zeroizing::new(super::concierge::initial_prompt::compact_message(
+            &name, message, plaintext,
+        ));
         let envelope = MessageEnvelope {
             from_label: message.doc.envelope.sender_uid.clone(),
             from_neighbor: Some(self.friendship.clone()),
@@ -293,12 +335,34 @@ impl Gateway {
         }
         self.save_receipt(message, &path, ReceiptState::Claimed)
             .await?;
+        self.service
+            .prepare_neighbor_handling(
+                &self.metadata,
+                &self.friendship,
+                &message.id,
+                &self.tab,
+                self.history_generation,
+            )
+            .await?;
         let service = self.service.clone();
         let tab = self.tab.clone();
+        let friendship = self.friendship.clone();
+        let generation = self.generation;
         let outcome = tokio::task::spawn_blocking(move || {
             service
                 .require_neighbors_enabled()
                 .map_err(|error| (error, false))?;
+            if service.neighbor_friend_paused(&friendship) {
+                return Err((Error::RecipientPaused, false));
+            }
+            if service
+                .neighbor_cell()
+                .listener_generation
+                .load(std::sync::atomic::Ordering::Acquire)
+                != generation
+            {
+                return Err((Error::Revoked, false));
+            }
             Messenger::deliver(&service, &tab, envelope, &body).map_err(|error| {
                 (
                     Error::Gateway,
@@ -312,6 +376,16 @@ impl Gateway {
         match outcome {
             Ok(Delivery::Pty { .. } | Delivery::ChatBackend { .. }) => {
                 self.save_receipt(message, &path, ReceiptState::Delivered)
+                    .await?;
+                self.service
+                    .neighbor_handling_delivery(
+                        &self.metadata,
+                        &self.friendship,
+                        &message.id,
+                        super::super::history::handling::State::DeliveredToConcierge,
+                        None,
+                        self.history_generation,
+                    )
                     .await?;
                 Ok(GatewayReceipt::Delivered)
             }
@@ -414,6 +488,16 @@ impl Gateway {
         match result {
             Ok(Ok(())) => {
                 self.save_receipt(message, &path, ReceiptState::Delivered)
+                    .await?;
+                self.service
+                    .neighbor_handling_delivery(
+                        &self.metadata,
+                        &self.friendship,
+                        &message.id,
+                        super::super::history::handling::State::DeliveredToConcierge,
+                        None,
+                        self.history_generation,
+                    )
                     .await?;
                 Ok(GatewayReceipt::Delivered)
             }

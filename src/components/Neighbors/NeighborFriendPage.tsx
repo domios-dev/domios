@@ -33,6 +33,7 @@ function conciergeState(status: ConciergeStatus | null, bound: boolean): { label
   if (status?.state === "concierge_starting") return { label: "starting", tone: "accent" };
   if (status?.state === "receiving_elsewhere") return { label: "idle", tone: "muted" };
   if (status?.state === "not_receiving") return { label: "not receiving", tone: "muted" };
+  if (status?.state === "paused") return { label: "disabled", tone: "muted" };
   return { label: "ready", tone: "green" };
 }
 
@@ -140,11 +141,11 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {locked ? <Button size="sm" variant="accent" onClick={onPlans}>View plans</Button>
             : <Button size="sm" variant="primary" onClick={() => openNeighbor(friendship)}><MessagesSquare size={14} aria-hidden="true" />Open conversation</Button>}
           <Button size="sm" onClick={onTalkAbout}><Sparkles size={14} aria-hidden="true" />Talk about {name}</Button>
-          {/* On means paused; the word stays "Pause" so the switch never reads as a double negative. */}
+          {/* On means they can write to you and the concierge works; off is the runtime's pause. */}
           <label className="neighbor-window__pause" data-paused={paused || undefined}>
-            <LiquidToggle aria-label={`Pause ${name}`} checked={paused} disabled={pending}
-              onCheckedChange={next => setFriendPaused(conciergeClient, friendship, next, paused, setError)} />
-            <span aria-hidden="true">Pause</span>
+            <LiquidToggle aria-label={`Enabled for ${name}`} checked={!paused} disabled={pending}
+              onCheckedChange={next => setFriendPaused(conciergeClient, friendship, !next, paused, setError)} />
+            <span aria-hidden="true">Enabled</span>
           </label>
           <button type="button" className="neighbor-window__close ct-liquid-interactive" aria-label={`Close ${name}`} onClick={close}><X size={15} aria-hidden="true" /></button>
         </div>

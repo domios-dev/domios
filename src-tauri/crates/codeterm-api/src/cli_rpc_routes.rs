@@ -155,7 +155,7 @@ pub(crate) async fn dispatch(
     }
     if let Some(value) = state
         .svc
-        .neighbor_rpc_discovery(token, &request.method)
+        .neighbor_rpc_discovery(token, &request.method, request.params.as_ref())
         .await
         .map_err(|message| {
             (

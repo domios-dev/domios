@@ -154,7 +154,7 @@ impl ServiceContext {
             .get(friendship)
             .cloned()
             .unwrap_or_else(|| "Neighbor".into());
-        let (title, gateway, event_key) = match notice {
+        let (title, gateway, event_key, permissions) = match notice {
             Notice::Arrival(arrival) => {
                 let verb = match arrival.kind {
                     Kind::Answer => "replied",
@@ -165,6 +165,7 @@ impl ServiceContext {
                     format!("{name} {verb}: {}", arrival.preview),
                     settings.bindings.get(friendship).cloned(),
                     format!("neighbor-arrival:{friendship}:{}", arrival.message_id),
+                    false,
                 )
             }
             Notice::Rejected(agent, rejection) => {
@@ -180,6 +181,7 @@ impl ServiceContext {
                     ),
                     Some(agent.agent),
                     format!("neighbor-rejected:{friendship}:{}", uuid::Uuid::new_v4()),
+                    true,
                 )
             }
         };
@@ -192,7 +194,11 @@ impl ServiceContext {
                 vec![
                     codeterm_notification_core::contract::NotificationAction::Url {
                         label: "Open Neighbor".into(),
-                        value: format!("domios://neighbor/{friendship}"),
+                        value: if permissions {
+                            format!("domios://neighbor/{friendship}/permissions")
+                        } else {
+                            format!("domios://neighbor/{friendship}")
+                        },
                     },
                 ],
                 NotificationOrigin::claimed(gateway),

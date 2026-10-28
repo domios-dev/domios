@@ -531,9 +531,11 @@ fn respond_to_request(
     ) {
         return JsonRpcResponse::error(id, -32003, message);
     }
-    match codeterm_service_core::async_runtime::block_on(
-        svc.neighbor_rpc_discovery(&req.credential, &req.method),
-    ) {
+    match codeterm_service_core::async_runtime::block_on(svc.neighbor_rpc_discovery(
+        &req.credential,
+        &req.method,
+        local_params.as_ref(),
+    )) {
         Ok(Some(value)) => return JsonRpcResponse::success(id, value),
         Ok(None) => {}
         Err(message) => return JsonRpcResponse::error(id, -32003, message),
@@ -759,6 +761,7 @@ mod tests {
             .record_run(
                 &job_id,
                 CronRunInfo {
+                    cancel_reason: None,
                     run_id: "rpc-complete-run".into(),
                     started_at: 1,
                     finished_at: None,

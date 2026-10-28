@@ -245,18 +245,8 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<TabHandle, String> {
-        let spawner = match &spec.command {
-            TabCommand::Agent(agent) => agent.spawned_by_tab_id.as_deref(),
-            _ => spec
-                .chatbackend_launch
-                .as_ref()
-                .and_then(|metadata| metadata.params.spawned_by_tab_id.as_deref()),
-        };
-        self.refuse_neighbor_descendant_launch(&[
-            spec.creator_tab_id.as_deref(),
-            spec.parent_tab_id.as_deref(),
-            spawner,
-        ])?;
+        let _neighbor_launch = self.neighbor_tab_launch_guard(&spec)?;
+        self.prepare_neighbor_tab_spawn(&mut spec)?;
         if !matches!(&spec.command, TabCommand::Shell) {
             self.validate_request_cwd(
                 spec.workspace_id.as_deref(),

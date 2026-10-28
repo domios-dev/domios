@@ -7,6 +7,7 @@ $namedDataDir = Join-Path $env:USERPROFILE ".domios-dev-provider-model-oracle"
 $defaultDataDir = Join-Path $env:USERPROFILE ".domios-dev"
 $nodeModules = Join-Path $repo "node_modules"
 $fixturePath = Join-Path $env:TEMP "codeterm-cleanup-selection-$PID.json"
+$ownedRecordPaths = @()
 
 $processes = @(
   @{ ProcessId = 100; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" },
@@ -48,6 +49,7 @@ $listeners = @(
   @{ port = 7788; process_id = 550 },
   @{ port = 1555; process_id = 320 }
 )
+foreach ($process in $processes) { $process.created = [string]([long]$process.ProcessId * 100) }
 @{ self_pid = 999; processes = $processes; listeners = $listeners } |
   ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $fixturePath
 
@@ -81,7 +83,14 @@ try {
   }
 
   $ownedArgs = $cleanupArgs.Clone()
-  $ownedArgs.OwnedProcessIds = @(240, 250)
+  foreach ($procId in @(240, 250)) {
+    $recordPath = "$fixturePath.$procId.json"
+    $process = $processes | Where-Object { $_.ProcessId -eq $procId }
+    @{ pid = $procId; created = $process.created; executable = $process.ExecutablePath } |
+      ConvertTo-Json | Set-Content -LiteralPath $recordPath
+    $ownedRecordPaths += $recordPath
+  }
+  $ownedArgs.OwnedProcessRecords = $ownedRecordPaths
   $ownedArgs.OwnedOnly = $true
   $ownedPlan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @ownedArgs | ConvertFrom-Json
   $ownedExpected = @(240, 241, 250, 251)
@@ -92,6 +101,36 @@ try {
   if (@($ownedPlan.selected_processes) -contains 225) {
     throw "owned cleanup selected foreign watcher 225"
   }
+
+  $oldChild = $processes | Where-Object { $_.ProcessId -eq 241 }
+  $oldChild.created = '23900'
+  @{ self_pid = 999; processes = $processes; listeners = $listeners } |
+    ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $fixturePath
+  $oldChildPlan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @ownedArgs 3>$null | ConvertFrom-Json
+  if (@($oldChildPlan.selected_processes) -contains 241) { throw 'reused parent PID selected an older foreign child' }
+  $oldChild.created = '24100'
+  @{ self_pid = 999; processes = $processes; listeners = $listeners } |
+    ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $fixturePath
+
+  foreach ($mismatch in @('created', 'executable')) {
+    $record = Get-Content -Raw -LiteralPath $ownedRecordPaths[0] | ConvertFrom-Json
+    $record.$mismatch = if ($mismatch -eq 'created') { '1' } else { 'C:\foreign\node.exe' }
+    $record | ConvertTo-Json | Set-Content -LiteralPath $ownedRecordPaths[0]
+    $mismatchArgs = $ownedArgs.Clone()
+    $mismatchArgs.OwnedProcessRecords = @($ownedRecordPaths[0])
+    $mismatchPlan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @mismatchArgs 3>$null | ConvertFrom-Json
+    if (@($mismatchPlan.selected_processes).Count -ne 0 -or @($mismatchPlan.skipped).Count -ne 1) {
+      throw "reused PID with $mismatch mismatch selected a foreign process/tree"
+    }
+    $process = $processes | Where-Object { $_.ProcessId -eq 240 }
+    @{ pid = 240; created = $process.created; executable = $process.ExecutablePath } |
+      ConvertTo-Json | Set-Content -LiteralPath $ownedRecordPaths[0]
+  }
+  '240' | Set-Content -LiteralPath $ownedRecordPaths[0]
+  $invalidArgs = $ownedArgs.Clone()
+  $invalidArgs.OwnedProcessRecords = @($ownedRecordPaths[0])
+  $invalidPlan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @invalidArgs 3>$null | ConvertFrom-Json
+  if (@($invalidPlan.selected_processes).Count -ne 0) { throw 'bare PID became kill ownership' }
 
   $defaultArgs = @{
     Root = $repo
@@ -125,5 +164,6 @@ try {
   }
   Write-Host "PASS centralized cleanup preserves named/default ownership and stops only explicit watcher trees"
 } finally {
+  foreach ($recordPath in $ownedRecordPaths) { Remove-Item -LiteralPath $recordPath -Force -ErrorAction SilentlyContinue }
   Remove-Item -LiteralPath $fixturePath -Force -ErrorAction SilentlyContinue
 }

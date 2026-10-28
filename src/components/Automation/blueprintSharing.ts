@@ -37,13 +37,14 @@ export function parseBlueprintRecipe(raw: string): BlueprintRecipe {
 
 export interface BlueprintSharingApi {
   export(workspaceId: string, teamId: string | null, id: string): Promise<BlueprintFile>;
-  import(callerTabId: string, source: string, assignments: string[]): Promise<unknown>;
+  /** `scope` names the destination ("general", "workspace:<id>", "team:<id>"); the caller tab must already live there. */
+  import(callerTabId: string, source: string, assignments: string[], scope?: string): Promise<unknown>;
   save(file: BlueprintFile): void;
 }
 
 export const blueprintSharingApi: BlueprintSharingApi = {
   export: (workspaceId, teamId, id) => orchestrationTransport().blueprint_export_file({ workspaceId, teamId, id }) as Promise<BlueprintFile>,
-  import: (callerTabId, source, assignments) => orchestrationTransport().blueprint_import_file({ callerTabId, recipe: source, assignments }),
+  import: (callerTabId, source, assignments, scope) => orchestrationTransport().blueprint_import_file({ callerTabId, recipe: source, assignments, scope }),
   save: (file) => {
     const link = document.createElement("a");
     link.download = `${file.name.replace(/[^a-zA-Z0-9_-]+/g, "-") || "blueprint"}.yaml`;

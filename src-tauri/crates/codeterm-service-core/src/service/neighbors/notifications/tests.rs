@@ -3,6 +3,7 @@ use crate::{multiplexer::state::MultiplexerState, service::test_fixture::Service
 
 fn incoming(id: u64) -> Entry {
     Entry {
+        handling: Default::default(),
         direction: "in".into(),
         author: super::super::history::Author::Person("friend".into()),
         sender_uid: "sender".into(),
@@ -117,7 +118,7 @@ async fn agent_rejections_notify_metadata_only_and_owner_sends_stay_silent() {
         assert!(notice["body"].is_null());
         assert_eq!(
             notice["actions"][0]["value"],
-            format!("domios://neighbor/{friendship}")
+            format!("domios://neighbor/{friendship}/permissions")
         );
     }
 }

@@ -1,0 +1,232 @@
+//! Shared supervisor registration definitions and OS installation steps.
+use std::path::{Path, PathBuf};
+
+pub const WINDOWS_TASK: &str = "Domios-Autostart";
+pub const MACOS_LABEL: &str = "com.domios.app";
+pub const LINUX_UNIT: &str = "domios.service";
+
+#[derive(Clone, Copy)]
+enum Platform { Windows, Macos, Linux }
+
+fn platform() -> Platform {
+    if cfg!(windows) { Platform::Windows } else if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux }
+}
+
+pub fn macos_path(home: &Path) -> PathBuf { home.join("Library/LaunchAgents/com.domios.app.plist") }
+pub fn linux_path(home: &Path) -> PathBuf { home.join(".config/systemd/user/domios.service") }
+
+#[derive(Debug, PartialEq, Eq)]
+enum Step {
+    Write(PathBuf, Vec<u8>),
+    Remove(PathBuf),
+    Run { program: &'static str, args: Vec<String>, required: bool },
+}
+
+fn run(program: &'static str, args: &[&str], required: bool) -> Step {
+    Step::Run { program, args: args.iter().map(|arg| (*arg).into()).collect(), required }
+}
+
+fn install_plan(platform: Platform, home: &Path, task_file: &Path, user: &str, supervisor: &str, app: &str) -> Vec<Step> {
+    match platform {
+        Platform::Windows => vec![
+            Step::Write(task_file.into(), utf16le_with_bom(&windows_task_xml(user, supervisor, app))),
+            run("schtasks", &["/Delete", "/TN", WINDOWS_TASK, "/F"], false),
+            run("schtasks", &["/Create", "/TN", WINDOWS_TASK, "/XML", &task_file.to_string_lossy(), "/F"], true),
+            Step::Remove(task_file.into()),
+            run("schtasks", &["/Run", "/TN", WINDOWS_TASK], true),
+        ],
+        Platform::Macos => {
+            let path = macos_path(home);
+            vec![Step::Write(path.clone(), build_macos_plist(MACOS_LABEL, supervisor, app).into_bytes()),
+                run("launchctl", &["unload", &path.to_string_lossy()], false),
+                run("launchctl", &["load", &path.to_string_lossy()], true)]
+        }
+        Platform::Linux => vec![
+            Step::Write(linux_path(home), build_linux_unit(supervisor, app).into_bytes()),
+            run("systemctl", &["--user", "daemon-reload"], true),
+            run("systemctl", &["--user", "enable", LINUX_UNIT], true),
+            run("systemctl", &["--user", "start", LINUX_UNIT], true),
+        ],
+    }
+}
+
+fn uninstall_plan(platform: Platform, home: &Path) -> Vec<Step> {
+    match platform {
+        Platform::Windows => vec![run("schtasks", &["/End", "/TN", WINDOWS_TASK], false), run("schtasks", &["/Delete", "/TN", WINDOWS_TASK, "/F"], false)],
+        Platform::Macos => vec![run("launchctl", &["unload", &macos_path(home).to_string_lossy()], false), Step::Remove(macos_path(home))],
+        Platform::Linux => vec![run("systemctl", &["--user", "stop", LINUX_UNIT], false), run("systemctl", &["--user", "disable", LINUX_UNIT], false), Step::Remove(linux_path(home)), run("systemctl", &["--user", "daemon-reload"], false)],
+    }
+}
+
+fn execute(steps: Vec<Step>) -> Result<(), String> {
+    let mut failure = None;
+    for step in steps {
+        if failure.is_some() && !matches!(&step, Step::Remove(_)) { continue; }
+        let result = match step {
+            Step::Write(path, bytes) => (|| {
+                if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+                std::fs::write(path, bytes)
+            })().map_err(|error: std::io::Error| error.to_string()),
+            Step::Remove(path) => match std::fs::remove_file(path) {
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
+                _ => Ok(()),
+            },
+            Step::Run { program, args, required } => {
+                let mut command = std::process::Command::new(program);
+                command.args(args);
+                crate::process_util::no_window_std(&mut command);
+                match command.output() {
+                    Ok(output) if required && !output.status.success() => Err(format!("{program}: {}", String::from_utf8_lossy(&output.stderr))),
+                    Err(error) if required => Err(format!("{program}: {error}")),
+                    _ => Ok(()),
+                }
+            }
+        };
+        if failure.is_none() { failure = result.err(); }
+    }
+    failure.map_or(Ok(()), Err)
+}
+
+fn set_disabled(data: &Path, disabled: bool) -> Result<(), String> {
+    let path = data.join("state/recovery/supervisor.disabled");
+    if disabled {
+        std::fs::create_dir_all(path.parent().unwrap()).map_err(|error| error.to_string())?;
+        std::fs::write(path, b"disabled\n").map_err(|error| error.to_string())
+    } else {
+        match std::fs::remove_file(path) {
+            Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
+            _ => Ok(()),
+        }
+    }
+}
+
+pub fn enable(home: &Path, data: &Path, supervisor: &Path, app: &Path) -> Result<(), String> {
+    set_disabled(data, false)?;
+    let user = if cfg!(windows) {
+        let name = std::env::var("USERNAME").map_err(|error| error.to_string())?;
+        match std::env::var("USERDOMAIN") {
+            Ok(domain) if !domain.is_empty() => format!("{domain}\\{name}"),
+            _ => name,
+        }
+    } else { String::new() };
+    let task_file = std::env::temp_dir().join(format!("{WINDOWS_TASK}-{}.xml", uuid::Uuid::new_v4()));
+    execute(install_plan(platform(), home, &task_file, &user, &supervisor.to_string_lossy(), &app.to_string_lossy()))
+}
+
+pub fn disable(home: &Path, data: &Path) -> Result<(), String> {
+    set_disabled(data, true)?;
+    execute(uninstall_plan(platform(), home))
+}
+
+pub fn is_enabled(home: &Path) -> bool {
+    match platform() {
+        Platform::Windows => {
+            let mut command = std::process::Command::new("schtasks");
+            command.args(["/Query", "/TN", WINDOWS_TASK, "/FO", "CSV", "/NH"]);
+            crate::process_util::no_window_std(&mut command);
+            command.output().is_ok_and(|output| output.status.success())
+        }
+        Platform::Macos => macos_path(home).exists(),
+        Platform::Linux => linux_path(home).exists(),
+    }
+}
+
+fn windows_arguments(supervisor_path: &str, app_binary: &str) -> String {
+    format!(
+        "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command \"$ErrorActionPreference='Stop'; & '{}' system supervise --binary '{}'; exit $LASTEXITCODE\"",
+        supervisor_path.replace('\'', "''"),
+        app_binary.replace('\'', "''")
+    )
+}
+
+pub fn build_windows_task_command(supervisor_path: &str, app_binary: &str) -> String {
+    format!("powershell.exe {}", windows_arguments(supervisor_path, app_binary))
+}
+
+pub fn build_macos_plist(label: &str, supervisor_path: &str, binary_path: &str) -> String {
+    let label = xml_escape(label);
+    let supervisor_path = xml_escape(supervisor_path);
+    let binary_path = xml_escape(binary_path);
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>{label}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>{supervisor_path}</string>
+        <string>system</string>
+        <string>supervise</string>
+        <string>--binary</string>
+        <string>{binary_path}</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
+</dict>
+</plist>
+"#
+    )
+}
+
+fn xml_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+pub fn build_linux_unit(supervisor_path: &str, binary_path: &str) -> String {
+    let supervisor_path = systemd_quote(supervisor_path);
+    let binary_path = systemd_quote(binary_path);
+    format!(
+        "[Unit]\n\
+         Description=Domios — terminal multiplexer for AI agents\n\
+         After=graphical-session.target\n\
+         StartLimitIntervalSec=300\n\
+         StartLimitBurst=5\n\
+         \n\
+         [Service]\n\
+         Type=simple\n\
+         ExecStart={supervisor_path} system supervise --binary {binary_path}\n\
+         Restart=on-failure\n\
+         RestartSec=30\n\
+         \n\
+         [Install]\n\
+         WantedBy=default.target\n"
+    )
+}
+
+fn systemd_quote(value: &str) -> String {
+    format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+pub fn windows_task_xml(user: &str, supervisor: &str, app: &str) -> String {
+    let arguments = windows_arguments(supervisor, app);
+    let user = xml_escape(user);
+    let arguments = xml_escape(&arguments);
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-16\"?>\n<Task version=\"1.2\" xmlns=\"http://schemas.microsoft.com/windows/2004/02/mit/task\">\n<Triggers><LogonTrigger><Enabled>true</Enabled><UserId>{user}</UserId></LogonTrigger></Triggers>\n<Principals><Principal id=\"Author\"><UserId>{user}</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><Enabled>true</Enabled><RestartOnFailure><Interval>PT1M</Interval><Count>3</Count></RestartOnFailure></Settings>\n<Actions Context=\"Author\"><Exec><Command>powershell.exe</Command><Arguments>{arguments}</Arguments></Exec></Actions>\n</Task>\n"
+    )
+}
+
+fn utf16le_with_bom(text: &str) -> Vec<u8> {
+    let mut bytes = vec![0xFF, 0xFE];
+    for unit in text.encode_utf16() { bytes.extend_from_slice(&unit.to_le_bytes()); }
+    bytes
+}
+
+#[cfg(test)]
+mod tests;

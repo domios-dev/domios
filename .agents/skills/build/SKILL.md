@@ -119,6 +119,8 @@ Run `./build.sh cache-wrapper-check` for a real-cache fixture proving relocation
 hits, tracked-variable misses, unset values, compiler probes and error exits.
 It also proves identical generated-source metadata, a downstream consumer hit,
 unchanged runtime `OUT_DIR` strings and a real C compiler cache hit.
+Native wrapper identity tests run through this operation with
+`CODETERM_CACHE_WRAPPER_TEST=1`; ordinary script tests do not require real sccache.
 Release use remains opt-in until measured on the other build machines. Keep
 compiler-cache capacity large enough for the release graph; once populated,
 new empty Cargo targets can reuse cacheable crates. Initial population still
@@ -147,6 +149,26 @@ Cargo phases. Shared entitlement code otherwise flips between absent and
 configured compile-time project values, rebuilding mesh and server consumers.
 Firebase keys remain scoped to server compilation; release configuration and
 the entitlement verification policy retain their existing behavior.
+
+Local `dev` and `dev-server` read build secrets from the main checkout's ignored
+`.env`, resolved through Git's common directory. Lanes read that same local file;
+never copy it into a lane, CI job, archive or artifact. Values remain private to
+the launcher until their existing compiler phase needs them. Release and CI keep
+their existing secure sources and never load this file.
+
+Run `./build.sh dev-env` once to create it from the configured vault, and rerun
+after rotating a build key. The operation preserves unrelated entries, atomically
+updates the build entries, refuses CI or a Git-tracked path, and limits access to
+the current user (mode 0600 on Unix, protected user-only ACL on Windows). It prints
+key names only. Verify exclusion with `git check-ignore .env` in the main
+checkout. Missing configuration reports the missing key name without its value.
+The keys are `DOMIOS_FIREBASE_API_KEY`, `DOMIOS_FIREBASE_PROJECT_ID`,
+`DOMIOS_FIREBASE_APP_ID`, `DOMIOS_ACCOUNT_REDEEM_URL`, `DOMIOS_QA_PROJECT_ID`,
+`DOMIOS_QA_FIREBASE_API_KEY`, `DOMIOS_QA_FIREBASE_APP_ID`,
+`DOMIOS_BILLING_FUNCTIONS_URL`, `DOMIOS_SCCACHE_S3_ACCESS_KEY`,
+`DOMIOS_SCCACHE_S3_SECRET_KEY` and `DOMIOS_CI_STORE_ENDPOINT`. The cache keys are
+needed only when the machine selects shared cache storage; a pinned local cache
+keeps its existing behavior.
 
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores
 incremental diagnostics in `node_modules/.cache`; Vite builds in a temporary
@@ -249,11 +271,31 @@ These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
 authority. On a shared machine Workers run no checks unless dispatch grants them;
 they list the exact checks. The Orchestrator runs them in canonical after merging,
-batched: one `./build.sh lane-check <package>... [--tests]` call for all touched
-crates, one `./build.sh nextest <scope> "test(a) | test(b) | ..."` per crate scope
-covering every selector for that crate, changed TS/JS tests and `tsc` when TS
-changes, plus guards. Never run one `test-one` per selector: each call rebuilds
-and links the crate's test binary.
+as one wave per batch of merges.
+
+### One compile per wave
+
+Every Cargo invocation that touches a crate pays for its compile, so a wave
+compiles each crate once per profile:
+
+1. Merge every ready lane and finish canonical edits first. Never merge or edit
+   sources while a wave compiles; queue the next batch for the next wave.
+2. Run writers before checkers: `./build.sh fmt`, the generators the batch needs
+   (`./build.sh cli-docs` when `cli/src/args/` changed, `essence-map generate`
+   when essence sources changed), then commit their output once.
+3. Rust: one `./build.sh nextest workspace '<filterset>'` covering every crate
+   with selectors; it compiles those crates' test targets, so it is also their
+   compile check. Do not precede it with `lane-check` for the same crates.
+   `lane-check <package>... --tests` covers only touched crates that have no
+   selectors in this wave. `check-workspace` runs once per candidate, not per
+   wave.
+4. Never run one `test-one` per selector: each call rebuilds and links the
+   crate's test binary.
+5. `./build.sh cli` builds a release CLI (a separate profile) and installs it;
+   use it to install, not to regenerate contracts. `cli-docs` builds the debug
+   CLI, which shares dependency artifacts with the test build.
+6. Non-Rust checks (`fmt-check`, `tsc`, changed TS/JS tests, guards) cost no
+   Cargo compile; run them first so cheap failures surface before the long step.
 `check-tests` compiles app and CLI test
 targets without running them; its artifacts are reused by matching `test-one`
 app and CLI calls in the same worktree. These app builds are deferred to the
@@ -316,7 +358,7 @@ A generated artifact is produced from a source of truth and is never hand-edited
 
 | Source of truth | Generated artifact | Regenerate | Verify |
 |---|---|---|---|
-| CLI clap definitions in `cli/src/args/` | `generated/cli/cli-manifest.json`, `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` | Build the checkout's CLI, then run `cli-manifest --write` (`./build.sh cli` also installs the CLI into the active dev data directory). Never use the installed `domios` from `PATH`. | `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, and `chat_ui_command_paths_are_fresh` |
+| CLI clap definitions in `cli/src/args/` | `generated/cli/cli-manifest.json`, `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` | `./build.sh cli-docs` (debug CLI, then `cli-manifest --write`; `./build.sh cli` writes them too but builds and installs the release CLI). Never use the installed `domios` from `PATH`. | `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, and `chat_ui_command_paths_are_fresh` |
 | `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `domios essence-map generate --root .` | `domios essence-map validate --root .` and `essence_map_contract_committed_artifacts_are_fresh` |
 | `src-tauri/prompts/**` and their loader consts | the `.agents/skills/prompts/inventory.md` inventory | edit the inventory row by hand | `bash scripts/check-prompts-doc.sh` |
 | Registered public routes in `src-tauri/src/api/routes.rs` | `prod-docs/API.md` | edit the API index by hand | `bash scripts/check-api-docs.sh` |

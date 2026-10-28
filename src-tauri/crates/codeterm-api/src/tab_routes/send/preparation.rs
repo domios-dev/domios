@@ -2,7 +2,17 @@ use axum::http::StatusCode;
 use codeterm_service_core::service::ServiceState;
 use std::path::PathBuf;
 
-use super::{pad_write_refusal, SendRejection};
+use super::{DeliveryError, SendRejection};
+
+pub(super) fn pad_write_refusal(tab: &str, detail: String) -> SendRejection {
+    DeliveryError::TabBusyRefused {
+        tab: tab.to_string(),
+        detail: format!(
+            "long message was not sent because recipient AgentPad write failed: {detail}"
+        ),
+    }
+    .into()
+}
 
 pub(super) async fn stage(
     svc: &ServiceState,

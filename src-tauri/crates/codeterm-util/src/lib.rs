@@ -1,4 +1,5 @@
 pub mod atomic_write;
+pub mod autostart;
 pub mod attachments;
 pub mod git_checkout;
 pub mod headless_cli;

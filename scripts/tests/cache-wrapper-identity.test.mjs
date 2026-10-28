@@ -1,3 +1,4 @@
+// Caller: build.sh cache-wrapper-check
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,7 +8,10 @@ import { pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { cargoBuildDirectory, prepareCacheWrapper } from '../cache-rustc-wrapper.mjs';
 
-test('identical compiler wrappers share identity across checkout paths; changed source stays isolated', async () => {
+test('identical compiler wrappers share identity across checkout paths; changed source stays isolated', {
+  skip: process.env.CODETERM_CACHE_WRAPPER_TEST !== '1',
+  timeout: 120000,
+}, async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-wrapper-identity-'));
   const env = { ...process.env, CARGO_HOME: path.join(root, 'cargo') };
   try {
@@ -57,7 +61,10 @@ test('identical compiler wrappers share identity across checkout paths; changed 
   }
 });
 
-test('configured build directories produce equal generated metadata and downstream Rust cache hits', { timeout: 120000 }, () => {
+test('configured build directories produce equal generated metadata and downstream Rust cache hits', {
+  skip: process.env.CODETERM_CACHE_WRAPPER_TEST !== '1',
+  timeout: 120000,
+}, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cache-configured-build-'));
   const env = { ...process.env, CARGO_HOME: path.join(root, 'cargo'), CARGO_INCREMENTAL: '0' };
   delete env.CARGO_BUILD_BUILD_DIR;

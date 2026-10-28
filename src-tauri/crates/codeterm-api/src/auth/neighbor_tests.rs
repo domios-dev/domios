@@ -1,6 +1,111 @@
 use super::*;
 
 #[tokio::test]
+async fn granted_workspace_spawn_still_refuses_unsafe_launch_flags_before_creating_a_child() {
+    use axum::{body::Body, http::Request, routing::post, Router};
+    use tower::ServiceExt;
+    let (fixture, state, concierge, token) = concierge_fixture(true).await;
+    let workspace = state
+        .svc
+        .mux
+        .read()
+        .find_workspace_for_tab(&concierge)
+        .unwrap();
+    fixture.seed_neighbor_concierge(&concierge,&"a".repeat(64),serde_json::from_value(serde_json::json!({"allowed":true,"scope":"opaque","allow_tab_requests":true,"workspaces":[workspace]})).unwrap()).await;
+    let before = state.svc.mux.read().snapshot().tabs.len();
+    let router = Router::new()
+        .route("/api/agents/spawn", post(crate::agent_routes::spawn_agent))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+    let response = router.oneshot(Request::builder().method("POST").uri("/api/agents/spawn").header("authorization",format!("Bearer {token}")).header("content-type","application/json").body(Body::from(serde_json::json!({"agent":"missing-provider","workspace_id":workspace,"cwd":fixture.temp.path(),"args":["opaque-option"]}).to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = axum::body::to_bytes(response.into_body(), 8192)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["error"]["code"], "neighbor_capability_denied");
+    assert_eq!(state.svc.mux.read().snapshot().tabs.len(), before);
+}
+
+#[tokio::test]
+async fn workspace_http_boundary_filters_listing_and_refuses_foreign_or_raw_sends() {
+    use axum::{
+        body::Body,
+        http::Request,
+        routing::{get, post},
+        Router,
+    };
+    use tower::ServiceExt;
+    let (fixture, state, concierge, token) = concierge_fixture(true).await;
+    let (workspace, allowed, shell) = {
+        let mut mux = state.svc.mux.write();
+        let workspace = mux.create_workspace("opaque-project".into(), None).id;
+        let allowed = mux.create_tab(&workspace).unwrap();
+        mux.get_tab_mut(&allowed).unwrap().agent_type = Some("fixture".into());
+        let shell = mux.create_tab(&workspace).unwrap();
+        (workspace, allowed, shell)
+    };
+    fixture
+        .seed_neighbor_concierge(
+            &concierge,
+            &"a".repeat(64),
+            serde_json::from_value(
+                serde_json::json!({"allowed":true,"scope":"opaque","workspaces":[workspace]}),
+            )
+            .unwrap(),
+        )
+        .await;
+    fixture.install_seeded_storage_desk();
+    let router = Router::new()
+        .route("/api/tabs", get(crate::tab_routes::list_tabs))
+        .route("/api/tabs/{id}/send", post(crate::tab_routes::send_text))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(state, auth_middleware));
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/tabs?all_workspaces=true")
+                .header("authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 8192)
+        .await
+        .unwrap();
+    let rows: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["id"], allowed);
+    assert!(rows[0].get("session_binding_nonce").is_none());
+    for (target, body) in [
+        (&allowed, serde_json::json!({"text":"opaque","raw":true})),
+        (&shell, serde_json::json!({"text":"opaque"})),
+        (&concierge, serde_json::json!({"text":"opaque"})),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/tabs/{target}/send"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+}
+
+#[tokio::test]
 async fn concierge_capability_refusals_keep_typed_http_403() {
     for reason in [
         "neighbor_memory_not_allowed",

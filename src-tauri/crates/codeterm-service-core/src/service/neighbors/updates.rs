@@ -114,6 +114,17 @@ impl Session {
     async fn refresh(&self, signal: &RegistrySignal, seen: &mut notifications::Seen) -> Result<()> {
         self.current()?;
         let history_generation = self.service.neighbor_history_generation();
+        if let Some(pause) = &signal.pause {
+            self.service.observe_neighbor_pause(
+                &self.transport.uid,
+                &pause.friendship_id,
+                pause.paused,
+            );
+            self.service
+                .settle_neighbor_pause(&self.metadata, &pause.friendship_id)
+                .await?;
+            self.current()?;
+        }
         for friendship in &signal.removed {
             self.service
                 .end_neighbor_friendship(&self.metadata, friendship, history_generation)
@@ -127,6 +138,7 @@ impl Session {
                 .map_err(|_| Error::Transport)?;
             self.current()?;
         }
+        let pause_versions = self.service.neighbor_cell().pauses.snapshot();
         let mut list = self
             .transport
             .calls
@@ -134,9 +146,13 @@ impl Session {
             .await?;
         self.current()?;
         self.service
+            .reconcile_neighbor_pauses(&self.transport.uid, &list, &pause_versions)?;
+        self.service
             .end_missing_neighbor_friendships(&self.metadata, &list, history_generation)
             .await?;
-        annotate_list(&mut list, &self.metadata.settings().await?).map_err(|_| Error::Transport)?;
+        let settings = self.metadata.settings().await?;
+        annotate_list(&mut list, &settings).map_err(|_| Error::Transport)?;
+        self.service.project_neighbor_pauses(&mut list, &settings);
         self.service.remember_neighbor_names(&list);
         let notices = notifications::changes(seen, &list, &signal.accepted)?;
         self.metadata

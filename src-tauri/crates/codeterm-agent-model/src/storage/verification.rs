@@ -826,6 +826,7 @@ fn cron_job(import: &CronJobImport) -> Result<CronJob, String> {
 
 fn cron_run(run: &CronRunRecord) -> CronRunInfo {
     CronRunInfo {
+        cancel_reason: run.cancel_reason,
         run_id: run.run_id.as_str().to_string(),
         started_at: run.started_at,
         finished_at: run.finished_at,

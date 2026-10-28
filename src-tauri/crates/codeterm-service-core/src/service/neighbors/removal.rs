@@ -51,6 +51,10 @@ impl ServiceContext {
         generation: u64,
     ) -> Result<()> {
         self.require_neighbor_history_generation(generation)?;
+        let _mutation = self
+            .begin_neighbor_mutation(friendship)
+            .await
+            .map_err(|_| Error::Gateway)?;
         if !hex_id(friendship, 64) {
             return Err(Error::InvalidEnvelope);
         }
@@ -58,7 +62,12 @@ impl ServiceContext {
         self.end_neighbor_history(metadata, friendship, generation)
             .await?;
         let mut settings = metadata.settings().await?;
+        settings.paused.remove(friendship);
+        self.neighbor_cell().pauses.forget(friendship);
         if let Some(tab) = settings.bindings.get(friendship).cloned() {
+            self.retire_neighbor_children(&tab)
+                .await
+                .map_err(|_| Error::Gateway)?;
             self.require_neighbor_history_generation(generation)?;
             let tab_exists = self.mux.read().get_tab(&tab).is_some();
             if tab_exists {
@@ -68,12 +77,12 @@ impl ServiceContext {
             }
             self.require_neighbor_history_generation(generation)?;
             settings.bindings.remove(friendship);
-            metadata.save_settings(settings).await?;
             self.ui.emit(
                 "neighbor-agent-changed",
                 json!({"friendship_id":friendship,"gateway_tab":null}),
             );
         }
+        metadata.save_settings(settings).await?;
         self.ui.emit(
             "neighbor-runtime-status",
             json!({"friendship_id":friendship,"status":"stopped","reason":"friendship_ended"}),

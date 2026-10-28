@@ -22,6 +22,7 @@ pub struct MessageEnvelope {
     pub from_mesh: Option<String>,
     pub from_plugin: Option<String>,
     pub from_neighbor: Option<String>,
+    pub neighbor_friend: Option<String>,
     pub plugin_icon_svg: Option<String>,
     pub peer: Option<String>,
     pub set_at: Option<u64>,
@@ -315,11 +316,7 @@ impl Messenger {
     pub fn routed_frame(&self, body: &str) -> codeterm_wire::domios::DomiosFrame {
         codeterm_wire::domios::DomiosFrame {
             opening_tag: self.build(),
-            body: if self.envelope.from_neighbor.is_some() {
-                input::escape_neighbor_text(body)
-            } else {
-                body.to_string()
-            },
+            body: input::neighbor_body(&self.envelope, body),
             suffix: self
                 .reply_hint()
                 .map(|hint| format!(" <tip>{hint}</tip>"))
@@ -342,6 +339,7 @@ impl Messenger {
         mut envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        envelope = svc.stamp_neighbor_message(envelope);
         let kind = envelope.kind;
         if crate::paths::is_dev_instance() && envelope.id.is_none() {
             envelope.id = Some(uuid::Uuid::new_v4().to_string());
@@ -787,6 +785,10 @@ impl Messenger {
         let mut attrs = vec![("from", marker_kind.to_string())];
         if let Some(friendship) = &self.envelope.from_neighbor {
             attrs.push(("friendship", friendship.clone()));
+            if let Some(friend) = &self.envelope.neighbor_friend {
+                attrs.push(("friend", clean_name(friend)));
+                attrs.push(("via", "concierge".into()));
+            }
         }
         if marker_kind == "cli" {
             return domios_opening_tag(&attrs);
@@ -1066,6 +1068,14 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
         ),
         ("plugin", envelope.from_plugin.clone()),
         ("friendship", envelope.from_neighbor.clone()),
+        ("friend", envelope.neighbor_friend.clone()),
+        (
+            "via",
+            envelope
+                .neighbor_friend
+                .as_ref()
+                .map(|_| "concierge".into()),
+        ),
     ] {
         if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
             attrs.push((key, value));
@@ -1073,11 +1083,7 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     }
     codeterm_wire::domios::DomiosFrame {
         opening_tag: domios_opening_tag(&attrs),
-        body: if envelope.from_neighbor.is_some() {
-            input::escape_neighbor_text(body)
-        } else {
-            body.to_string()
-        },
+        body: input::neighbor_body(envelope, body),
         suffix: String::new(),
     }
     .to_message()

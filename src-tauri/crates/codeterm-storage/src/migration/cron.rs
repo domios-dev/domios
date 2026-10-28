@@ -25,9 +25,9 @@ const JOBS: &str = "SELECT id, name, description, workspace_id, team_id, schedul
      jitter_max_ms, tz, timeout_seconds, consecutive_failures, protected \
      FROM cron_jobs ORDER BY ordinal";
 const RUNS: &str = "SELECT run_id, started_at, finished_at, status, tab_id, session_id, cwd, \
-     summary, report_delivery, job_id, ordinal FROM cron_runs ORDER BY job_id, ordinal";
+     summary, report_delivery, job_id, ordinal, cancel_reason FROM cron_runs ORDER BY job_id, ordinal";
 const MIRRORS: &str = "SELECT run_id, started_at, finished_at, status, tab_id, session_id, \
-     cwd, summary, report_delivery, job_id, origin, imported_revision, imported_differing \
+     cwd, summary, report_delivery, job_id, origin, imported_revision, imported_differing, cancel_reason \
      FROM cron_last_run_mirrors ORDER BY job_id";
 const IDENTITIES: &str = "SELECT job_id, retired FROM cron_identities ORDER BY job_id";
 
@@ -142,6 +142,7 @@ fn run_digest(run: &CronRunRecord) -> Sha256Digest {
         run.cwd.clone(),
         run.summary.clone(),
         run.report_delivery.clone(),
+        run.cancel_reason.map(|reason| reason.as_sql().to_string()),
     ];
     let mut text = String::new();
     for field in fields {
@@ -249,8 +250,12 @@ fn each(
 }
 
 /// The nine run columns every run query selects first.
-fn run_at(row: &Row<'_>) -> Result<CronRunRecord, StorageError> {
+fn run_at(row: &Row<'_>, cancel_index: usize) -> Result<CronRunRecord, StorageError> {
     Ok(CronRunRecord {
+        cancel_reason: col::<Option<String>>(row, cancel_index)?
+            .as_deref()
+            .map(crate::CronCancelReason::from_sql)
+            .transpose()?,
         run_id: run_id(col(row, 0)?)?,
         started_at: unsigned(row, 1, "run start")?,
         finished_at: optional_unsigned(row, 2, "run finish")?,
@@ -312,14 +317,14 @@ fn divergence_at(row: &Row<'_>) -> Result<CronLastRunDivergence, StorageError> {
 fn project(conn: &Connection) -> Result<Projection, StorageError> {
     let mut runs: BTreeMap<String, Vec<(bool, CronRunRecord)>> = BTreeMap::new();
     each(conn, RUNS, |row| {
-        let run = run_at(row)?;
+        let run = run_at(row, 11)?;
         let listed = col::<Option<i64>>(row, 10)?.is_some();
         runs.entry(col(row, 9)?).or_default().push((listed, run));
         Ok(())
     })?;
     let mut mirrors: BTreeMap<String, (CronRunRecord, CronLastRunDivergence)> = BTreeMap::new();
     each(conn, MIRRORS, |row| {
-        mirrors.insert(col(row, 9)?, (run_at(row)?, divergence_at(row)?));
+        mirrors.insert(col(row, 9)?, (run_at(row, 13)?, divergence_at(row)?));
         Ok(())
     })?;
     let mut identities: Vec<(String, bool)> = Vec::new();

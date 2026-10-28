@@ -25,8 +25,8 @@ import { HostBlueprintView } from "../Automation/blueprint/HostBlueprintView";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import { BlueprintProjectList } from "./BlueprintProjectList";
-import { BlueprintImportForm } from "./BlueprintImportForm";
+import { BlueprintImportForm, type BlueprintCreator } from "./BlueprintImportForm";
+import type { Destination } from "../shared/DestinationPicker";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
 import { cronMeta, JobRow, sentinelRowText, sentinelStateLabel } from "./JobRow";
 import { JobsFilterBar } from "./JobsFilterBar";
@@ -287,8 +287,8 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
           : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} {...sentinelRowText(job.sentinel, job.title)} type={job.sentinel.type} tone="blueprint" heldReason={job.sentinel.root?.held_reason} state={sentinelStateLabel(job.sentinel)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
-    {sources.map((workspaceId) => <BlueprintProjectList key={workspaceId} workspaceId={workspaceId} />)}
-    <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} workspaceName={workspaceName} onOpen={setOpenedSolution} />
+    {/* An empty scope shows only its empty state; saved solutions join a list that has jobs. */}
+    {!empty && <SavedSolutions api={solutionsApi} sources={sources} revision={solutionRevision} workspaceName={workspaceName} onOpen={setOpenedSolution} />}
     {confirmation && <JobConfirmationDialog
       title={confirmation.kind === "delete" ? deleteJobConfirmation(confirmation.job).title : "Clear stopped jobs?"}
       description={confirmation.kind === "delete"
@@ -301,6 +301,16 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
       onConfirm={() => void confirmDelete()}
     />}
   </div>;
+}
+
+/** Every tab that can import a Blueprint, with the one scope the runtime accepts from it: its Team, else General or its workspace. */
+export function importCreators(tabs: Record<string, Tab>, workspaces: readonly JobsWorkspace[], teams: readonly Team[]): BlueprintCreator[] {
+  return Object.values(tabs).flatMap((tab) => {
+    const workspace = workspaces.find((entry) => entry.tabs?.includes(tab.id)) ?? workspaces.find((entry) => entry.id === tab.workspace_id);
+    const scope: Destination | null = tab.team_id ? (teams.some((team) => team.id === tab.team_id) ? { kind: "team", id: tab.team_id } : null)
+      : !workspace ? null : workspace.protected ? { kind: "general" } : { kind: "workspace", id: workspace.id };
+    return scope ? [{ id: tab.id, label: tab.title, scope }] : [];
+  });
 }
 
 export interface JobsViewProps {
@@ -337,6 +347,11 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
   const peers = machinePeers ?? machines.peers;
   const [machineId, setMachineId] = useState(jobsEntryState({ kind: "machine" }).machineId);
   const [importOpen, setImportOpen] = useState(false);
+  const workspaceName = (id: string) => workspaces.find((workspace) => workspace.id === id)?.name ?? id;
+  // Jobs opened from General imports into General first; from a Team or workspace, into that.
+  const openedFrom: Destination | null = initialFilter.teamId ? { kind: "team", id: initialFilter.teamId }
+    : initialFilter.workspaceId ? workspaces.find((workspace) => workspace.id === initialFilter.workspaceId)?.protected ? { kind: "general" } : { kind: "workspace", id: initialFilter.workspaceId }
+    : null;
   const [detailOpen, setDetailOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [filter, setFilter] = useJobsFilterNavigation(initialFilter, !initialScenarioId && !initialCronId && !initialBlueprintId, context.ready, workspaces);
@@ -360,7 +375,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
       <JobsMachineFilter value={machineId} peers={peers} onChange={changeMachine} />
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <button type="button" className={AUTOMATION_TOOL} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>
+        <button type="button" className={AUTOMATION_TOOL} aria-expanded={importOpen} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>
         <button ref={clearStoppedButton} type="button" className={AUTOMATION_TOOL} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
           Clear stopped{clearState.count > 0 && <span className="text-[var(--ct-fg)]">{clearState.count}</span>}
         </button>
@@ -368,11 +383,11 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {machines.failed && machinePeers === undefined && <p role="status" className="px-4 py-2">Paired machine list unavailable.</p>}
-      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
+      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={importCreators(tabs, workspaces, teams)} initialDestination={openedFrom} teams={teams} workspaces={workspaces} workspaceIds={sources} workspaceName={workspaceName} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />
-          : <JobsSurface solutionsApi={solutionsApi} key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} workspaceName={(id) => workspaces.find((workspace) => workspace.id === id)?.name ?? id} />}
+          : <JobsSurface solutionsApi={solutionsApi} key={JSON.stringify([connectionId, sources, filter, importRevision])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} initialCronId={initialCron} initialBlueprintId={initialBlueprint} initialRunId={initialRunId} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} onExit={onClose} onReturn={onReturn} onDetailChange={setDetailOpen} workspaceName={workspaceName} />}
     </div>
   </section>;
 }

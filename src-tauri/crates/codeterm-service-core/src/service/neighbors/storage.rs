@@ -25,6 +25,8 @@ pub(super) struct Settings {
     pub permissions: BTreeMap<String, Permission>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub notifications: BTreeMap<String, super::NeighborNotify>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub paused: std::collections::BTreeSet<String>,
 }
 
 #[async_trait]

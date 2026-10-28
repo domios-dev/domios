@@ -6,6 +6,7 @@ use super::{
 };
 
 const CHARTER: &str = "You are Worker Leo.\nExecute the task; report on completion.";
+mod neighbor_refusal;
 
 #[test]
 fn send_result_exposes_supplied_pad_file_path() {

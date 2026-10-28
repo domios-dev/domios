@@ -50,6 +50,15 @@ Updates retaining the trusted signing identity normally retain access. Linux
 normally has no per-app desktop firewall dialog; configured host firewalls may
 still block the listener and need administrator-managed Tailscale access.
 
+Windows single-tab DEV also launches its bundle watcher and static server outside
+the launch tab's job. A refused breakaway fails instead of starting a frontend
+that would die with the tab. Their instance-specific pidfiles contain JSON
+`pid`, `created` (Windows FILETIME string) and `executable`; cleanup verifies the
+record and pins process handles before stopping the tree. Stale, mismatched or
+bare-PID records are skipped with a warning, never interpreted as ownership.
+Existing frontends need a coordinated relaunch to gain these records; do not
+guess a PID or weaken cleanup to stop an older launch.
+
 DEV runs as two independent processes so every change updates live without losing the
 window: frontend edits hot-reload in place, server edits swap the backend while the window
 shows Reconnecting and returns, and only native client changes restart the window.

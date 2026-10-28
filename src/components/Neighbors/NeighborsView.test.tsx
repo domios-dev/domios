@@ -150,7 +150,7 @@ it("opens a friend's own page: limit, talk about, and removal only after confirm
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "42");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await act(async () => button("Save limit").click());
+  await act(async () => button("Apply").click());
   expect(client.apply).toHaveBeenCalledWith({ operation: "set_limit", friendship_id: "pair", per_hour: 42 });
   await act(async () => button("Talk about Ada").click());
   expect(sentText()[0].text).toContain("pair");
@@ -322,7 +322,7 @@ it("offers the concierge actions: change agent, view permissions, edit with Gene
   await renderSection([neighbor], { pair: "tab-gateway" });
   await act(async () => { button("Actions for Ada's concierge").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
   const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
-  expect(items).toEqual(["Change agent", "View permissions", "Edit with General", "Pause Ada"]);
+  expect(items).toEqual(["Change agent", "View permissions", "Edit with General", "Disable Ada"]);
   const viewPermissions = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "View permissions")!;
   await act(async () => viewPermissions.click());
   expect(takeNeighborFocus()).toEqual({ id: "pair", section: "permissions" });
@@ -333,7 +333,7 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
     onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
     setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
-    setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}) };
+    setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}), stopConcierge: vi.fn(async () => {}) };
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
@@ -343,13 +343,14 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
   await act(async () => button("Ada, connected").click());
   const allow = button("Allow requests from Ada");
   await act(async () => allow.click());
-  expect(button("Save permissions").disabled).toBe(true);
+  expect(button("Apply").disabled).toBe(true);
   const scope = document.querySelector<HTMLTextAreaElement>(".neighbor-permissions textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(scope, "Questions about our shared project");
     scope.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await act(async () => button("Save permissions").click());
+  expect(document.body.textContent).toContain("Applying restarts Ada's concierge.");
+  await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", { allowed: true, scope: "Questions about our shared project", allow_tab_requests: false });
 });
 
@@ -400,6 +401,7 @@ function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
     setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
     setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}),
+    stopConcierge: vi.fn(async () => {}),
     changed: (friendship: string) => changed(friendship),
   };
 }
@@ -420,7 +422,7 @@ it("shows the conversation with a refused question, its linked refusal and deliv
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
   const log = document.querySelector('[role="log"]')!;
   expect(log.textContent).toContain("Can you share the deploy keys?");
-  expect(log.textContent).toContain("refused: Secrets are off limits");
+  expect(log.textContent).toContain("Declined: Secrets are off limits");
   expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
   expect(log.textContent).toContain("delivered");
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
@@ -529,6 +531,27 @@ it("draws last known friends at once with a quiet refresh indicator, and stays a
   localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [] }));
   await act(async () => root.render(<SidebarNeighborsSection key="empty" touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
   expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
+});
+
+it("highlights an open concierge chat like an open tab, without the friend row", async () => {
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  const runtimeClient = runtime();
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-gateway" />));
+  expect(button("Open Ada's concierge").getAttribute("aria-current")).toBe("page");
+  expect(button("Open Ada's concierge").closest("[data-tab-active]")?.querySelector(".active-tab-pill")).not.toBeNull();
+  expect(button("Open Ada").getAttribute("aria-current")).toBeNull();
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-general" />));
+  expect(button("Open Ada's concierge").getAttribute("aria-current")).toBeNull();
+});
+
+it("gives the friend and concierge rows the sidebar's own hover kebab", async () => {
+  await renderSection([{ ...neighbor, gateway_tab: "tab-gateway" }]);
+  expect(button("Actions for Ada").closest(".sidebar-tab-kebab")).not.toBeNull();
+  expect(button("Actions for Ada's concierge").closest(".sidebar-tab-kebab")).not.toBeNull();
 });
 
 it("remembers only names, avatars and the concierge binding, and forgets them on sign-out", async () => {
@@ -680,6 +703,9 @@ it("reads an accepted, undelivered message as sent and a starting concierge as s
   expect(document.getElementById(`neighbor-msg-${"q".repeat(32)}`)?.textContent).toContain("sending");
   expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: null, receiving_here: true, receiver_machine_label: null, state: "concierge_starting" })?.state)
     .toBe("concierge_starting");
+  // A paused friend's concierge keeps its status instead of dropping out as unparsable.
+  expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: 0, receiving_here: true, receiver_machine_label: null, state: "paused" })?.state)
+    .toBe("paused");
 });
 
 it("marks who wrote each message: you, your agent, your friend and their concierge", async () => {
@@ -711,7 +737,7 @@ it("turns off reading memory and files for one friend and saves it", async () =>
   expect(button("Read my memory").getAttribute("aria-checked")).toBe("true");
   await act(async () => button("Read my memory").click());
   await act(async () => button("Read files").click());
-  await act(async () => button("Save permissions").click());
+  await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: false }));
 });
 
@@ -743,7 +769,7 @@ it("sets machine access: the folder with its honest note, and a warning for full
   expect(document.body.textContent).toContain("Writes are advisory with this agent; reads are not confined.");
   await act(async () => button("Full access").click());
   expect(document.body.textContent).toContain("Their requests can change anything your agents on this machine can reach.");
-  await act(async () => button("Save permissions").click());
+  await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ machine_access: "full" }));
 });
 
@@ -777,7 +803,7 @@ it("blocks files from one friend with a zero daily file limit", async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "0");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  await act(async () => button("Save file limit").click());
+  await act(async () => button("Apply").click());
   expect(filesClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 0);
 });
 
@@ -821,7 +847,7 @@ it("narrows a friend's memory to chosen areas", async () => {
   const options = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
   expect(options.map(option => option.textContent)).toEqual(["family", "work"]);
   await act(async () => options.find(option => option.textContent === "work")!.click());
-  await act(async () => button("Save permissions").click());
+  await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ memory_areas: ["work"] }));
 });
 
@@ -840,7 +866,7 @@ it("fills permissions from a trust preset, turns Custom on any later change, and
   expect(button("Acquaintance").getAttribute("aria-selected")).toBe("true");
   // The daemon does not accept workspaces yet, so the editor offers none.
   expect(hasButton("Workspaces: None")).toBe(false);
-  await act(async () => button("Save permissions").click());
+  await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: true }));
   expect(conciergeClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 20);
   await act(async () => button("Read files").click());
@@ -908,16 +934,52 @@ it("saves a cleared daily message limit as no limit", async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
-  expect(button("Save daily limit").disabled).toBe(false);
-  await act(async () => button("Save daily limit").click());
+  expect(button("Apply").disabled).toBe(false);
+  await act(async () => button("Apply").click());
   expect(conciergeClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", null);
+});
+
+it("grows the scope field by its corner grip, height only, and remembers it for this friend", async () => {
+  await render();
+  await act(async () => button("Ada, connected").click());
+  const scope = document.querySelector<HTMLTextAreaElement>(".neighbor-permissions textarea")!;
+  const grip = button("Resize what they may ask; use arrow keys");
+  await act(async () => { grip.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true })); });
+  await act(async () => { grip.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true })); });
+  expect(scope.style.height).toBe("136px");
+  expect(scope.style.width).toBe("");
+  expect(localStorage.getItem("domios.neighbors.scope-height:pair")).toBe("136");
+});
+
+it("stages edits until Apply, and Cancel puts every field back", async () => {
+  const conciergeClient = concierge([]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, my_daily_limit: 5 }], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await act(async () => button("Ada, connected").click());
+  expect(button("Apply").disabled).toBe(true);
+  await act(async () => button("Read files").click());
+  const daily = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Messages per day")!.control as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(daily, "9");
+    daily.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Cancel").click());
+  expect(button("Read files").getAttribute("aria-checked")).toBe("true");
+  expect(daily.value).toBe("5");
+  expect(button("Apply").disabled).toBe(true);
+  expect(conciergeClient.setPermission).not.toHaveBeenCalled();
+  expect(conciergeClient.setDailyLimit).not.toHaveBeenCalled();
 });
 
 it("opens the friend window at Permissions when another surface asks for it", async () => {
   await render();
   await act(async () => openNeighborPage("pair", "permissions"));
   expect(document.querySelector('[role="dialog"][aria-modal="true"]')?.textContent).toContain("Ada");
-  expect(hasButton("Save permissions")).toBe(true);
+  expect(hasButton("Apply")).toBe(true);
 });
 
 it("still opens the friend window when the Neighborhood mounts before the account resolves", async () => {
@@ -965,7 +1027,7 @@ it("shows today's received count as a floor while older pages may hold more of t
   expect(document.querySelector('[aria-label="Today with this friend"]')?.textContent).toContain("2+ received today");
 });
 
-it("pauses a friend from the window header and resumes them with the same switch", async () => {
+it("disables a friend from the window header's Enabled switch and enables them again", async () => {
   const conciergeClient = concierge([]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
@@ -974,21 +1036,22 @@ it("pauses a friend from the window header and resumes them with the same switch
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
-  expect(button("Pause Ada").getAttribute("aria-checked")).toBe("false");
-  await act(async () => button("Pause Ada").click());
+  expect(button("Enabled for Ada").getAttribute("aria-checked")).toBe("true");
+  await act(async () => button("Enabled for Ada").click());
   expect(conciergeClient.setPaused).toHaveBeenLastCalledWith("pair", true);
-  expect(button("Pause Ada").getAttribute("aria-checked")).toBe("true");
-  await act(async () => button("Pause Ada").click());
+  expect(button("Enabled for Ada").getAttribute("aria-checked")).toBe("false");
+  expect(document.body.textContent).toContain("You disabled Ada. They can't write to you until you enable them again");
+  await act(async () => button("Enabled for Ada").click());
   expect(conciergeClient.setPaused).toHaveBeenLastCalledWith("pair", false);
 });
 
-it("shows a friend you paused as paused on the graph", async () => {
+it("shows a friend you disabled as disabled on the graph", async () => {
   await render("paid", { friend: { ...neighbor, my_paused: true } });
-  expect(hasButton("Ada, paused")).toBe(true);
+  expect(hasButton("Ada, disabled")).toBe(true);
   expect(document.querySelector('[data-node-id="pair"]')?.hasAttribute("data-paused")).toBe(true);
 });
 
-it("pauses a friend from their sidebar row menu and shows the row as paused", async () => {
+it("disables a friend from their sidebar row menu and shows the row as disabled", async () => {
   const conciergeClient = concierge([]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [], friends: [neighbor] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
@@ -997,9 +1060,9 @@ it("pauses a friend from their sidebar row menu and shows the row as paused", as
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => { button("Actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
-  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Pause Ada")!.click());
+  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Disable Ada")!.click());
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", true);
-  expect(button("Open Ada").textContent).toContain("paused");
+  expect(button("Open Ada").textContent).toContain("disabled");
 });
 
 async function renderConversation(friend: NeighborList["friends"][number]) {
@@ -1013,15 +1076,30 @@ async function renderConversation(friend: NeighborList["friends"][number]) {
   return conciergeClient;
 }
 
-it("keeps writing open to a friend you paused and offers Resume", async () => {
+it("keeps writing open to a friend you disabled and offers Enable", async () => {
   const conciergeClient = await renderConversation({ ...neighbor, my_paused: true });
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
-  await act(async () => button("Resume").click());
+  await act(async () => button("Enable").click());
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", false);
 });
 
-it("closes the composer while the friend has paused messages from you", async () => {
+it("shows your concierge working on a friend's message and stops it through the runtime", async () => {
+  const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1",
+    handling_state: "working", handling_updated_at: 1700000001000 }]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  expect(document.getElementById("neighbor-msg-m1")?.textContent).toContain("Your concierge is working");
+  expect(document.querySelector(".neighbor-chat__working")?.textContent).toContain("Your concierge is working for Ada");
+  await act(async () => document.querySelector<HTMLButtonElement>('#neighbor-msg-m1 button[aria-label="Stop your concierge"]')!.click());
+  expect(conciergeClient.stopConcierge).toHaveBeenCalledExactlyOnceWith("pair");
+});
+
+it("closes the composer while the friend has disabled messages from you", async () => {
   await renderConversation({ ...neighbor, their_paused: true });
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
-  expect(hasButton("Resume")).toBe(false);
+  expect(hasButton("Enable")).toBe(false);
 });

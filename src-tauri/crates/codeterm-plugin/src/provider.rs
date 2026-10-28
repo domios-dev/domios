@@ -266,6 +266,8 @@ pub struct ProviderDescriptor {
     pub cli_login: Option<CliLoginCapability>,
     #[serde(default)]
     pub supports_session_fork: bool,
+    #[serde(default)]
+    pub supports_initial_prompt_update_on_resume: bool,
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli_status: Option<crate::provider_cli::ProviderCliStatus>,

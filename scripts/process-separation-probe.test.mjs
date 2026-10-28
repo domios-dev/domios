@@ -116,7 +116,7 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     const artifactRoot = path.join(root, 'target', target, 'debug');
     const resourceRoot = process.platform === 'win32' ? artifactRoot : path.join(artifactRoot, `.domios-dev-runtime/lib/${legacy}`);
     const server = path.join(artifactRoot, `domios-server${exe}`);
-    const client = path.join(artifactRoot, `${legacy}${exe}`);
+    const client = path.join(artifactRoot, `domios-app${exe}`);
     const cli = path.join(root, `cli/target/debug/${legacy}${exe}`);
     const serverSource = path.join(root, 'src-tauri/crates/domios-server/src/main.rs');
     const cliSource = path.join(root, 'cli/src/main.rs');

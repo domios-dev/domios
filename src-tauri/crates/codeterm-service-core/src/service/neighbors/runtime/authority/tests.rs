@@ -2,6 +2,65 @@ use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
 #[tokio::test]
+async fn paused_concierge_cannot_send_or_unpause_but_owner_and_general_can_still_write() {
+    let (mut mux, general) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&general).unwrap();
+    let concierge = mux.create_tab(&workspace).unwrap();
+    for id in [&general, &concierge] {
+        let tab = mux.get_tab_mut(id).unwrap();
+        tab.agent_type = Some("fixture".into());
+        tab.agent_session_id = Some(format!("session-{id}"));
+        tab.session_binding_nonce = Some(format!("nonce-{id}"));
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    }
+    let tab = mux.get_tab_mut(&general).unwrap();
+    tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+    tab.role_profile = Some(crate::service::general_agent::GENERAL_AGENT_KIND.into());
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let friend = "a".repeat(64);
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let mut settings = crate::service::neighbors::storage::Settings::default();
+    settings.bindings.insert(friend.clone(), concierge.clone());
+    settings.paused.insert(friend.clone());
+    metadata.save_settings(settings).await.unwrap();
+    for command in [
+        NeighborRuntimeCommand::Send {
+            friendship_id: friend.clone(),
+            kind: Kind::Question,
+            body: "opaque".into(),
+            in_reply_to: None,
+        },
+        NeighborRuntimeCommand::ResumeFriend {
+            friendship_id: friend,
+        },
+    ] {
+        assert!(service
+            .authorize_neighbor_metadata(&command, None, None, &metadata)
+            .await
+            .is_ok());
+        assert!(service
+            .authorize_neighbor_metadata(
+                &command,
+                Some(&general),
+                Some(&format!("nonce-{general}")),
+                &metadata
+            )
+            .await
+            .is_ok());
+        assert!(service
+            .authorize_neighbor_metadata(
+                &command,
+                Some(&concierge),
+                Some(&format!("nonce-{concierge}")),
+                &metadata
+            )
+            .await
+            .is_err());
+    }
+}
+
+#[tokio::test]
 async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_concierge() {
     let (mut mux, general) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&general).unwrap();
@@ -78,6 +137,15 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
     }
     for command in [
         NeighborRuntimeCommand::Status,
+        NeighborRuntimeCommand::StopConcierge {
+            friendship_id: friend_a.clone(),
+        },
+        NeighborRuntimeCommand::PauseFriend {
+            friendship_id: friend_a.clone(),
+        },
+        NeighborRuntimeCommand::ResumeFriend {
+            friendship_id: friend_a.clone(),
+        },
         NeighborRuntimeCommand::OwnKeys,
         NeighborRuntimeCommand::Permission {
             friendship_id: friend_a.clone(),

@@ -5,7 +5,8 @@ mod neighbor_files;
 
 #[tokio::test]
 async fn recipient_pause_returns_a_typed_conflict_without_limit_metadata() {
-    let response = neighbor_failure(codeterm_neighbors::Error::RecipientPaused.to_string());
+    let response =
+        neighbor_failure("recipient_paused: This Neighbor paused messages from you".to_string());
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
@@ -45,6 +46,7 @@ async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
     for reason in [
         "tab_requests_not_allowed",
         "neighbor_permission_denied",
+        "neighbor_paused",
         "neighbor_memory_not_allowed",
         "neighbor_memory_read_only",
         "neighbor_secrets_not_allowed",
@@ -724,4 +726,36 @@ async fn receiver_refusals_retain_machine_readable_codes() {
         neighbor_failure("unavailable".into()).status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+}
+
+#[tokio::test]
+async fn refusal_preflight_errors_report_nothing_sent_and_keep_byte_counts() {
+    for (error, status, reason) in [
+        (
+            "refusal_too_long: {\"limit\":1024,\"actual\":1025}",
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "refusal_too_long",
+        ),
+        (
+            "reply_target_unknown: Nothing was sent. Reply to a known incoming message",
+            StatusCode::BAD_REQUEST,
+            "reply_target_unknown",
+        ),
+    ] {
+        let response = neighbor_failure(error.to_string());
+        assert_eq!(response.status(), status);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["code"], reason);
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains("Nothing was sent"));
+        if reason == "refusal_too_long" {
+            assert_eq!(body["limit"], 1024);
+            assert_eq!(body["actual"], 1025);
+        }
+    }
 }

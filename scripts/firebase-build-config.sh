@@ -1,4 +1,9 @@
 ct_firebase_build_secret() {
+  if [ "${CT_LOCAL_BUILD_ENV_LOADED:-0}" = 1 ] && [ -z "${CI:-}" ] &&
+      { [ "${CMD:-}" = dev ] || [ "${CMD:-}" = dev-server ]; }; then
+    ct_local_build_env_value "$1"
+    return $?
+  fi
   if [ -n "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
     dev_notify_parent_cli mem secret get --name "$1"
   else

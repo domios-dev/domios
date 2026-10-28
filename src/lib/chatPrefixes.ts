@@ -62,6 +62,19 @@ export function framePrefix(attrs: Record<string, string>, body: string): Prefix
     const peerId = attrs.peer ?? attrs.mesh;
     if (peerId) return { origin: { kind: "mesh", peerId }, body };
   }
+  if (from === "neighbor" && attrs.friendship) {
+    // A named friend's frame always opens with the host's one-paragraph instruction; the friend's words follow, escaped.
+    const split = attrs.friend ? body.indexOf("\n\n") : -1;
+    return {
+      origin: {
+        kind: "neighbor", friendshipId: attrs.friendship,
+        ...(attrs.friend ? { friend: attrs.friend } : {}),
+        ...(attrs.label ? { sender: attrs.label } : {}),
+        ...(split >= 0 ? { instruction: unescapeNeighborText(body.slice(0, split)) } : {}),
+      },
+      body: unescapeNeighborText(split >= 0 ? body.slice(split + 2) : body),
+    };
+  }
   if (from === "pebble") {
     return attrs.plugin
       ? { origin: { kind: "plugin", pluginId: attrs.plugin, name: attrs.source }, body }
@@ -94,6 +107,11 @@ export function framePrefix(attrs: Record<string, string>, body: string): Prefix
     };
   }
   return null;
+}
+
+/** The host escapes a friend's text for the frame; the chat shows it as written. */
+function unescapeNeighborText(text: string): string {
+  return text.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 }
 
 function collectSlashCommands(content: string): PrefixMatch | null {
@@ -194,6 +212,8 @@ export function labelFor(origin: ChatOrigin): string {
       return origin.name || origin.pluginId;
     case "mesh":
       return `Mesh · ${origin.peerId.slice(0, 10)}`;
+    case "neighbor":
+      return `From ${origin.friend ?? "a friend"} via Neighbors`;
     case "service":
       return `${origin.service} · ${origin.userId.slice(0, 12)}`;
     case "plugin_config":

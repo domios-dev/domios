@@ -118,6 +118,16 @@ ct_exceptional_target_dir() {
 }
 
 ct_sccache_secret() (
+  if [ "${CT_LOCAL_BUILD_ENV_LOADED:-0}" = 1 ] && [ -z "${CI:-}" ] &&
+      { [ "${CMD:-}" = dev ] || [ "${CMD:-}" = dev-server ]; }; then
+    case "$1" in
+      domios-sccache-s3-access-key) ct_local_build_env_value DOMIOS_SCCACHE_S3_ACCESS_KEY ;;
+      domios-sccache-s3-secret-key) ct_local_build_env_value DOMIOS_SCCACHE_S3_SECRET_KEY ;;
+      domios-ci-store-endpoint) ct_local_build_env_value DOMIOS_CI_STORE_ENDPOINT ;;
+      *) return 2 ;;
+    esac
+    return $?
+  fi
   if [ -n "${DEV_NOTIFY_PARENT_CLI:-}" ]; then
     unset CODETERM_INSTANCE CODETERM_API_PORT CODETERM_API_URL CODETERM_SOCKET_PATH CODETERM_API_TOKEN CODETERM_DATA_DIR
     if [ "${DEV_NOTIFY_PARENT_CODETERM_API_URL_SET:-}" = x ]; then export CODETERM_API_URL="$DEV_NOTIFY_PARENT_CODETERM_API_URL"; fi

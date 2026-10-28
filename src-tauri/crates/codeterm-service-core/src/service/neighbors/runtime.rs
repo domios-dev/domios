@@ -31,6 +31,9 @@ use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
+    pub(super) handling: super::handling::Cell,
+    pub(super) launches: Arc<super::launch_fence::State>,
+    pub(super) pauses: super::pause::State,
     pub(super) concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
     registry_snapshot: parking_lot::Mutex<Option<Value>>,
     owner: parking_lot::Mutex<Option<tokio::sync::mpsc::Sender<owner::Request>>>,
@@ -53,6 +56,15 @@ pub struct NeighborRuntimeCell {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
+    StopConcierge {
+        friendship_id: String,
+    },
+    PauseFriend {
+        friendship_id: String,
+    },
+    ResumeFriend {
+        friendship_id: String,
+    },
     NotificationPreference {
         friendship_id: String,
     },
@@ -269,6 +281,9 @@ impl ServiceContext {
     ) -> Result<Value, String> {
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
+        if let NeighborRuntimeCommand::StopConcierge { friendship_id } = &command {
+            return self.stop_neighbor_concierge(friendship_id).await;
+        }
         if let NeighborRuntimeCommand::Send { body, .. } = &command {
             codeterm_neighbors::wire::validate_message_size(body)
                 .map_err(|error| error.to_string())?;
@@ -347,6 +362,27 @@ impl ServiceContext {
         );
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
+                NeighborRuntimeCommand::StopConcierge { .. } => Err(Error::InvalidRequest),
+                NeighborRuntimeCommand::PauseFriend { friendship_id } => {
+                    self.set_neighbor_paused(
+                        &transport,
+                        &metadata,
+                        &friendship_id,
+                        true,
+                        generation,
+                    )
+                    .await
+                }
+                NeighborRuntimeCommand::ResumeFriend { friendship_id } => {
+                    self.set_neighbor_paused(
+                        &transport,
+                        &metadata,
+                        &friendship_id,
+                        false,
+                        generation,
+                    )
+                    .await
+                }
                 NeighborRuntimeCommand::SetNotificationPreference {
                     friendship_id,
                     notify,
@@ -658,6 +694,20 @@ impl ServiceContext {
     ) -> Result<(), String> {
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
+        let settings = metadata
+            .settings()
+            .await
+            .map_err(|error| error.to_string())?;
+        self.remember_neighbor_concierge_accounts(&transport.uid, &settings);
+        self.remember_neighbor_pause_settings(&transport.uid, &settings);
+        self.persist_neighbor_pauses(&metadata, generation)
+            .await
+            .map_err(|error| error.to_string())?;
+        for friendship in settings.bindings.keys() {
+            self.settle_neighbor_pause(&metadata, friendship)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
         let mut status = if recover_keys {
@@ -673,6 +723,7 @@ impl ServiceContext {
         }
         let settings = metadata.settings().await.map_err(|e| e.to_string())?;
         self.remember_neighbor_concierge_accounts(&transport.uid, &settings);
+        self.remember_neighbor_pause_settings(&transport.uid, &settings);
         let keys = InstallationKeys {
             store: &OsKeyStore,
             registry: registry.as_ref(),
@@ -758,6 +809,18 @@ impl ServiceContext {
             .settings()
             .await
             .map_err(|error| error.to_string())?;
+        self.persist_neighbor_pauses(&metadata, generation)
+            .await
+            .map_err(|error| error.to_string())?;
+        for friendship in settings.bindings.keys() {
+            self.settle_neighbor_pause(&metadata, friendship)
+                .await
+                .map_err(|error| error.to_string())?;
+        }
+        let settings = metadata
+            .settings()
+            .await
+            .map_err(|error| error.to_string())?;
         let listener_generation = self
             .neighbor_cell()
             .listener_generation
@@ -829,6 +892,8 @@ impl ServiceContext {
         self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
+        self.neighbor_cell().pauses.clear();
+        self.neighbor_cell().handling.clear();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();
         }

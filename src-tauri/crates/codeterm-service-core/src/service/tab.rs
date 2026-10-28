@@ -356,6 +356,13 @@ impl ServiceContext {
             )
         };
         let role_policy = self.role_policy_for_tab(&canonical_tab_id);
+        let _neighbor_mutation = match self.prepare_neighbor_root_close(&canonical_tab_id) {
+            Ok(mutation) => mutation,
+            Err(error) => {
+                self.mux.write().abort_tab_close(&reservation);
+                return Err(error);
+            }
+        };
         if let Err(error) = teardown().and_then(|()| self.prepare_tab_close(tab_id, reason)) {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);

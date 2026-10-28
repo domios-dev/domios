@@ -11,8 +11,8 @@ impl ServiceContext {
             metadata,
             uid,
             friendship,
-            |provider, model, cwd, access| {
-                self.create_neighbor_concierge(friendship, provider, model, cwd, access)
+            |provider, model, cwd, permission| {
+                self.create_neighbor_concierge(friendship, provider, model, cwd, permission, None)
             },
         )
         .await
@@ -26,7 +26,7 @@ impl ServiceContext {
         create: F,
     ) -> Result<(), String>
     where
-        F: FnOnce(Option<String>, Option<String>, String, MachineAccess) -> Fut,
+        F: FnOnce(Option<String>, Option<String>, String, Permission) -> Fut,
         Fut: std::future::Future<Output = Result<String, String>>,
     {
         let generation = self.neighbor_history_generation();
@@ -58,6 +58,11 @@ impl ServiceContext {
         if self
             .validate_neighbor_bound_launch(tab_id, &permission, &cwd)
             .is_ok()
+            && self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| initial_prompt::prompt_matches(tab, friendship, &permission))
         {
             return Ok(());
         }
@@ -74,8 +79,8 @@ impl ServiceContext {
                     .or(tab.restorable_launch.requested_model.clone()),
             )
         };
-        self.replace_neighbor_concierge_with(metadata, friendship, |cwd, access| {
-            create(provider, model, cwd, access)
+        self.replace_neighbor_concierge_with(metadata, friendship, |cwd, permission| {
+            create(provider, model, cwd, permission)
         })
         .await?;
         let settings = metadata
@@ -94,10 +99,9 @@ impl ServiceContext {
         current: &str,
     ) -> Result<(), String> {
         let generation = self.neighbor_history_generation();
-        let retired: Vec<_> = self
-            .mux
-            .read()
-            .snapshot()
+        let snapshot = self.mux.read().snapshot();
+        let current_exists = snapshot.tabs.contains_key(current);
+        let retired: Vec<_> = snapshot
             .tabs
             .iter()
             .filter_map(|(id, tab)| {
@@ -105,7 +109,10 @@ impl ServiceContext {
                     && tab.neighbor_authority.as_ref().is_some_and(|authority| {
                         authority.uid == uid
                             && authority.friendship_id == friendship
-                            && authority.root_tab_id.is_none()
+                            && authority
+                                .root_tab_id
+                                .as_deref()
+                                .is_none_or(|root| root != current || !current_exists)
                     }))
                 .then(|| id.clone())
             })
@@ -119,6 +126,9 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
             if settings.bindings.get(friendship).map(String::as_str) != Some(current) {
                 return Err("Neighbor binding changed during concierge retirement".into());
+            }
+            if self.mux.read().get_tab(&tab).is_none() {
+                continue;
             }
             self.close_tab_async(&tab)
                 .await

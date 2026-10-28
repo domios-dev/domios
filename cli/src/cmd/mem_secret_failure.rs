@@ -29,6 +29,20 @@ fn bounded(message: &str) -> Option<String> {
 
 pub fn secret_failure(status: u16, body: &serde_json::Value) -> Option<(i32, CliError)> {
     let code = exit_for_status(status)?;
+    if status == 403 {
+        let error = CliError {
+            message: body
+                .pointer("/error/message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .into(),
+            code: None,
+            data: Some(serde_json::json!({"http_status":403,"reason":body.get("reason")})),
+        };
+        if let Some(refusal) = error.neighbor_refusal() {
+            return Some((1, refusal));
+        }
+    }
     let error = body.get("error");
     let kind = error
         .and_then(|err| err.get("kind"))
@@ -65,6 +79,21 @@ pub fn secret_failure(status: u16, body: &serde_json::Value) -> Option<(i32, Cli
             data: Some(data),
         },
     ))
+}
+
+pub(super) fn transport_failure(
+    error: &crate::local_api::LocalApiError,
+) -> (u16, serde_json::Value) {
+    if let Some(refusal) = error.neighbor_refusal() {
+        return (
+            403,
+            serde_json::json!({"reason":refusal.data.as_ref().and_then(|data| data.get("reason")),"error":{"kind":"refused","message":refusal.message}}),
+        );
+    }
+    (
+        0,
+        serde_json::json!({"error":{"kind":"backend","message":error.to_string()}}),
+    )
 }
 
 #[cfg(test)]

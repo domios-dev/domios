@@ -18,12 +18,15 @@ impl ServiceContext {
             .get(friendship)
             .filter(|tab| self.validate_neighbor_gateway(tab).is_ok());
         let missing = gateway.is_none();
+        let paused = self.neighbor_effective_pause(settings, friendship);
         let enabled = self.configuration().neighbors.enabled;
         let here = enabled && receiver.receiving_here();
         let state = if !enabled || !receiver.receiving_enabled {
             "not_receiving"
         } else if !here {
             "receiving_elsewhere"
+        } else if paused {
+            "paused"
         } else if missing {
             "concierge_missing"
         } else if !gateway.is_some_and(|tab| self.neighbor_gateway_ready(tab)) {
@@ -40,7 +43,7 @@ impl ServiceContext {
         } else {
             None
         };
-        json!({"gateway_tab":gateway,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
+        json!({"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
     }
 
     pub(super) fn neighbor_concierge_views(
