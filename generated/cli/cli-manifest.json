@@ -1948,7 +1948,7 @@
     },
     {
       "name": "analytics",
-      "about": "Manage local opt-in product analytics",
+      "about": "Manage local product analytics (on by default)",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -1961,7 +1961,7 @@
         },
         {
           "name": "enable",
-          "about": "Record opt-in consent and create an installation identifier",
+          "about": "Turn product analytics on and create an installation identifier",
           "aliases": [],
           "args": [],
           "subcommands": []

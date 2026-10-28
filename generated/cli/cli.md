@@ -448,7 +448,7 @@ Consume one available reset credit on this exact tab's account
 
 #### `domios analytics`
 
-Manage local opt-in product analytics
+Manage local product analytics (on by default)
 
 #### `domios analytics disable`
 
@@ -456,7 +456,7 @@ Record opt-out consent and clear queued events and identifiers
 
 #### `domios analytics enable`
 
-Record opt-in consent and create an installation identifier
+Turn product analytics on and create an installation identifier
 
 #### `domios analytics status`
 
