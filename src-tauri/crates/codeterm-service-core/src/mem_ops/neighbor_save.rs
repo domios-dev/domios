@@ -115,22 +115,22 @@ impl ServiceContext {
         let service = self.clone();
         tokio::task::spawn_blocking(move || {
             let mut context = crate::mem::backend::WriteContext::new(author, "neighbor");
-            context.replace_guard = Some(crate::mem::store::ReplaceGuard::new(permission.memory_write_areas));
-            service.mem.save_with_context(
-                item,
-                false,
-                context,
-            )
-            .map(|outcome| serde_json::json!({"id":outcome.id}))
-            .map_err(|error| match error {
-                crate::mem::backend::SaveError::Guard(
-                    crate::mem::store::ReplaceGuardError::AreaNotAllowed,
-                ) => Refusal::AreaNotGranted.to_string(),
-                crate::mem::backend::SaveError::Guard(
-                    crate::mem::store::ReplaceGuardError::TitleConflict,
-                ) => "neighbor_memory_title_conflict: Neighbor memory save refused".into(),
-                crate::mem::backend::SaveError::Storage(error) => error,
-            })
+            context.replace_guard = Some(crate::mem::store::ReplaceGuard::new(
+                permission.memory_write_areas,
+            ));
+            service
+                .mem
+                .save_with_context(item, false, context)
+                .map(|outcome| serde_json::json!({"id":outcome.id}))
+                .map_err(|error| match error {
+                    crate::mem::backend::SaveError::Guard(
+                        crate::mem::store::ReplaceGuardError::AreaNotAllowed,
+                    ) => Refusal::AreaNotGranted.to_string(),
+                    crate::mem::backend::SaveError::Guard(
+                        crate::mem::store::ReplaceGuardError::TitleConflict,
+                    ) => "neighbor_memory_title_conflict: Neighbor memory save refused".into(),
+                    crate::mem::backend::SaveError::Storage(error) => error,
+                })
         })
         .await
         .map_err(|error| error.to_string())?

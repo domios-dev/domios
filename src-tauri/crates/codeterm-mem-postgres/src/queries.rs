@@ -85,7 +85,8 @@ pub(crate) fn search_in(
     query: &SearchQuery,
     cfg: &codeterm_mem::search::SearchConfig,
 ) -> StoreResult<Vec<SearchHit>> {
-    let (words, conjunctive) = codeterm_mem::search::fts_terms(&query.query, cfg.fts_drop_stopwords);
+    let (words, conjunctive) =
+        codeterm_mem::search::fts_terms(&query.query, cfg.fts_drop_stopwords);
     if words.is_empty() {
         return Ok(Vec::new());
     }

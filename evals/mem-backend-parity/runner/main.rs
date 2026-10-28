@@ -21,7 +21,9 @@ fn options() -> Result<Options, String> {
     let mut model = None;
     let mut out = None;
     while let Some(flag) = args.next() {
-        let value = args.next().ok_or_else(|| format!("missing value for {flag}"))?;
+        let value = args
+            .next()
+            .ok_or_else(|| format!("missing value for {flag}"))?;
         match flag.as_str() {
             "--embedder" => mode = value,
             "--local-model" => model = Some(value),
@@ -32,7 +34,11 @@ fn options() -> Result<Options, String> {
     if !matches!(mode.as_str(), "synthetic" | "local") || (mode != "local" && model.is_some()) {
         return Err("use --embedder synthetic|local; --local-model requires local".into());
     }
-    Ok(Options { embedder: mode, model, out: out.ok_or("--out is required")? })
+    Ok(Options {
+        embedder: mode,
+        model,
+        out: out.ok_or("--out is required")?,
+    })
 }
 
 fn hash(bytes: &[u8]) -> String {
@@ -42,10 +48,17 @@ fn hash(bytes: &[u8]) -> String {
 fn run(options: Options) -> Result<i32, String> {
     let (corpus, queries) = fixture::read()?;
     let Some(prepared) = embedding::prepare(
-        &options.embedder, options.model.as_deref(), &corpus, &queries,
-    )? else {
-        std::fs::write(options.out.join("SKIPPED"), "Local model unavailable; see run.log for the exact reason.\n")
-            .map_err(|e| e.to_string())?;
+        &options.embedder,
+        options.model.as_deref(),
+        &corpus,
+        &queries,
+    )?
+    else {
+        std::fs::write(
+            options.out.join("SKIPPED"),
+            "Local model unavailable; see run.log for the exact reason.\n",
+        )
+        .map_err(|e| e.to_string())?;
         return Ok(77);
     };
     let root = tempfile::tempdir().map_err(|e| e.to_string())?;
@@ -64,32 +77,56 @@ fn run(options: Options) -> Result<i32, String> {
         "postgres_url": POSTGRES_URL,
     });
     println!("INPUTS {input}");
-    std::fs::write(options.out.join("inputs.json"), serde_json::to_vec_pretty(&input).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        options.out.join("inputs.json"),
+        serde_json::to_vec_pretty(&input).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     let container = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../evals/mem-backend-parity/container.py");
-    if !Command::new("python3").arg(container).status().map_err(|e| e.to_string())?.success() {
+    if !Command::new("python3")
+        .arg(container)
+        .status()
+        .map_err(|e| e.to_string())?
+        .success()
+    {
         return Err("disposable Postgres container verification/readiness failed".into());
     }
     let schema = format!("parity_{}", ulid::Ulid::new().to_string().to_lowercase());
-    let postgres = codeterm_mem_postgres::open(POSTGRES_URL, PostgresOptions {
-        schema: schema.clone(), ..PostgresOptions::default()
-    }).map_err(|e| e.to_string())?;
+    let postgres = codeterm_mem_postgres::open(
+        POSTGRES_URL,
+        PostgresOptions {
+            schema: schema.clone(),
+            ..PostgresOptions::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
     let result = (|| {
-        let sqlite = SqliteMemStore::open(&root.path().join("measured.db"), &root.path().join("blobs"))?;
+        let sqlite =
+            SqliteMemStore::open(&root.path().join("measured.db"), &root.path().join("blobs"))?;
         fixture::load(&sqlite, &pages)?;
         fixture::load(postgres.as_ref(), &pages)?;
-        println!("LOADED: {} identical items and vectors; all exported rows match both stores", corpus.len());
+        println!(
+            "LOADED: {} identical items and vectors; all exported rows match both stores",
+            corpus.len()
+        );
         let rows = report::measure(&sqlite, postgres.as_ref(), &queries, &prepared.embedder);
         let summary = report::summary(&rows);
         if fixture::pages(&sqlite)? != pages || fixture::pages(postgres.as_ref())? != pages {
             return Err("recall mutated the frozen fixture despite record_access=false".into());
         }
         let output = serde_json::json!({"inputs": input, "per_query": rows, "summary": summary});
-        std::fs::write(options.out.join("report.json"), serde_json::to_vec_pretty(&output).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            options.out.join("report.json"),
+            serde_json::to_vec_pretty(&output).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         println!("SUMMARY {}", output["summary"]);
-        Ok(if output["summary"]["passed"] == true { 0 } else { 1 })
+        Ok(if output["summary"]["passed"] == true {
+            0
+        } else {
+            1
+        })
     })();
     drop(postgres);
     let cleanup = postgres::Client::connect(POSTGRES_URL, postgres::NoTls)
@@ -102,15 +139,21 @@ fn run(options: Options) -> Result<i32, String> {
 fn main() {
     println!("Default vectors are synthetic (normalized hashed-token vectors): storage and ranking parity, not neural retrieval quality.");
     let cache = std::env::var_os("HF_HOME")
-        .map(PathBuf::from).unwrap_or_else(codeterm_mem::model_cache_dir);
+        .map(PathBuf::from)
+        .unwrap_or_else(codeterm_mem::model_cache_dir);
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("CODETERM_") { std::env::remove_var(key); }
+        if key.to_string_lossy().starts_with("CODETERM_") {
+            std::env::remove_var(key);
+        }
     }
     std::env::set_var("HF_HOME", cache);
     std::env::set_var("HF_HUB_OFFLINE", "1");
     let outcome = options().and_then(run);
     match outcome {
         Ok(code) => std::process::exit(code),
-        Err(error) => { eprintln!("ERROR: {error}"); std::process::exit(2); }
+        Err(error) => {
+            eprintln!("ERROR: {error}");
+            std::process::exit(2);
+        }
     }
 }

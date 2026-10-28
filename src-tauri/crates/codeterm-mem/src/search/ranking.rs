@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use super::{extract_keywords, keyword_overlap, lexical, parse_temporal_offset, temporal_boost_for,
-    title_has_keyword, MemItem, SearchConfig, SearchHit, SearchQuery};
+use super::{
+    extract_keywords, keyword_overlap, lexical, parse_temporal_offset, temporal_boost_for,
+    title_has_keyword, MemItem, SearchConfig, SearchHit, SearchQuery,
+};
 
 pub struct Scorer<'a> {
     cfg: &'a SearchConfig,
@@ -12,42 +14,75 @@ pub struct Scorer<'a> {
 
 impl<'a> Scorer<'a> {
     pub fn new(query: &str, cfg: &'a SearchConfig, now: chrono::DateTime<chrono::Utc>) -> Self {
-        Self { cfg, keywords: extract_keywords(query), temporal: parse_temporal_offset(query), now }
+        Self {
+            cfg,
+            keywords: extract_keywords(query),
+            temporal: parse_temporal_offset(query),
+            now,
+        }
     }
 
     fn refined(&self, item: &MemItem, distance: f64, weight: f64) -> f64 {
         let overlap = keyword_overlap(&self.keywords, item);
-        let temporal = self.temporal.map_or(0.0, |days| temporal_boost_for(item, days, self.now));
+        let temporal = self
+            .temporal
+            .map_or(0.0, |days| temporal_boost_for(item, days, self.now));
         let importance = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
-        let recurrence = (item.recurrence_count as f64 * self.cfg.recurrence_step).min(self.cfg.recurrence_cap);
-        distance * (1.0 - weight * overlap) * (1.0 - temporal)
-            * (1.0 - importance) * (1.0 - recurrence)
+        let recurrence =
+            (item.recurrence_count as f64 * self.cfg.recurrence_step).min(self.cfg.recurrence_cap);
+        distance
+            * (1.0 - weight * overlap)
+            * (1.0 - temporal)
+            * (1.0 - importance)
+            * (1.0 - recurrence)
     }
 
     pub fn lexical(&self, item: &MemItem, rank: f64) -> f64 {
-        let title = if self.cfg.title_match_bonus > 0.0 && title_has_keyword(&self.keywords, &item.title) {
-            self.cfg.title_match_bonus
-        } else { 0.0 };
-        self.refined(item, 1.0 / (1.0 + rank.abs()), self.cfg.keyword_overlap_weight) * (1.0 - title)
+        let title =
+            if self.cfg.title_match_bonus > 0.0 && title_has_keyword(&self.keywords, &item.title) {
+                self.cfg.title_match_bonus
+            } else {
+                0.0
+            };
+        self.refined(
+            item,
+            1.0 / (1.0 + rank.abs()),
+            self.cfg.keyword_overlap_weight,
+        ) * (1.0 - title)
     }
 
     pub fn vector(&self, item: &MemItem, distance: f64) -> f64 {
         let auto = if item.tags.iter().any(|tag| tag == "auto-extracted") {
             1.0 / self.cfg.auto_extracted_penalty.max(1e-6)
-        } else { 1.0 };
+        } else {
+            1.0
+        };
         self.refined(item, distance, self.cfg.vector_rerank_weight) * auto
     }
 }
 
 pub fn matches_filters(item: &MemItem, query: &SearchQuery, cfg: &SearchConfig) -> bool {
     query.kind.as_ref().is_none_or(|kind| item.kind == *kind)
-        && query.scope.as_ref().is_none_or(|scope| item.scope == *scope)
-        && query.area.as_ref().is_none_or(|area| item.area.as_ref() == Some(area))
-        && cfg.source_filter.as_ref().is_none_or(|source| item.source == *source)
+        && query
+            .scope
+            .as_ref()
+            .is_none_or(|scope| item.scope == *scope)
+        && query
+            .area
+            .as_ref()
+            .is_none_or(|area| item.area.as_ref() == Some(area))
+        && cfg
+            .source_filter
+            .as_ref()
+            .is_none_or(|source| item.source == *source)
 }
 
 pub fn sort_hits(hits: &mut [SearchHit]) {
-    hits.sort_by(|a, b| a.score.total_cmp(&b.score).then_with(|| a.item.id.cmp(&b.item.id)));
+    hits.sort_by(|a, b| {
+        a.score
+            .total_cmp(&b.score)
+            .then_with(|| a.item.id.cmp(&b.item.id))
+    });
 }
 
 pub fn fuse(
@@ -91,8 +126,10 @@ pub fn fuse(
     }
 
     let graph_boosted: HashSet<String> = graph.iter().map(|(id, _)| id.clone()).collect();
-    let mut graph_items: HashMap<String, MemItem> = graph.into_iter()
-        .filter_map(|(id, item)| item.map(|item| (id, item))).collect();
+    let mut graph_items: HashMap<String, MemItem> = graph
+        .into_iter()
+        .filter_map(|(id, item)| item.map(|item| (id, item)))
+        .collect();
 
     if cfg.graph_as_rrf_source && !graph_boosted.is_empty() {
         let mut graph_ids: Vec<&String> = graph_boosted.iter().collect();
@@ -101,9 +138,7 @@ pub fn fuse(
             let rrf = 1.0 / (cfg.rrf_k + rank as f64);
             if let Some(entry) = rrf_scores.get_mut(*gid) {
                 entry.0 += rrf;
-            } else if let Some(item) =
-                graph_items.remove(*gid)
-            {
+            } else if let Some(item) = graph_items.remove(*gid) {
                 if let Some(ref k) = q.kind {
                     if item.kind != *k {
                         continue;

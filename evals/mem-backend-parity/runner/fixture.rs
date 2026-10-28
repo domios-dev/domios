@@ -44,13 +44,23 @@ pub fn read() -> Result<(Vec<CorpusItem>, Vec<Query>), String> {
         }
     }
     for query in &queries {
-        let target = corpus.iter().find(|item| item.title == query.exact_title)
+        let target = corpus
+            .iter()
+            .find(|item| item.title == query.exact_title)
             .ok_or_else(|| format!("{}: expected title absent from corpus", query.id))?;
-        if query.id.is_empty() || !ids.insert(&query.id) || query.text.trim().is_empty()
+        if query.id.is_empty()
+            || !ids.insert(&query.id)
+            || query.text.trim().is_empty()
             || query.area.as_ref().is_some_and(|area| area != &target.area)
-            || query.kind.as_ref().is_some_and(|kind| kind != target.kind.as_str())
+            || query
+                .kind
+                .as_ref()
+                .is_some_and(|kind| kind != target.kind.as_str())
         {
-            return Err(format!("{}: invalid query or target excluded by filters", query.id));
+            return Err(format!(
+                "{}: invalid query or target excluded by filters",
+                query.id
+            ));
         }
     }
     Ok((corpus, queries))
@@ -63,7 +73,9 @@ pub fn pages(store: &dyn MemStore) -> Result<Vec<ExportPage>, String> {
         let page = store.export_page(cursor.as_ref(), 1000)?;
         cursor = page.next.clone();
         pages.push(page);
-        if cursor.is_none() { return Ok(pages); }
+        if cursor.is_none() {
+            return Ok(pages);
+        }
     }
 }
 
@@ -80,12 +92,21 @@ pub fn seed(
     store.init_vectors(&ctx, &vectors[0].identity)?;
     for (item, vector) in corpus.iter().zip(vectors) {
         let payload = NewMemItem {
-            kind: item.kind, scope: MemScope::Global, title: item.title.clone(),
-            summary: None, area: Some(item.area.clone()), tags: item.tags.clone(),
-            body: item.body.clone(), source: None, importance: item.importance,
-            source_path: None, pinned: false,
+            kind: item.kind,
+            scope: MemScope::Global,
+            title: item.title.clone(),
+            summary: None,
+            area: Some(item.area.clone()),
+            tags: item.tags.clone(),
+            body: item.body.clone(),
+            source: None,
+            importance: item.importance,
+            source_path: None,
+            pinned: false,
         };
-        let saved = store.save(&ctx, &payload, false).map_err(|e| format!("{e:?}"))?;
+        let saved = store
+            .save(&ctx, &payload, false)
+            .map_err(|e| format!("{e:?}"))?;
         if store.insert_vector(&ctx, &saved.id, 0, vector)? != InsertOutcome::Inserted {
             return Err(format!("fixture vector not inserted: {}", item.title));
         }
@@ -93,13 +114,26 @@ pub fn seed(
     let mut pages = pages(&store)?;
     for page in &mut pages {
         for row in &mut page.rows {
-            for column in ["created_at", "updated_at", "stamped_at", "changed_at", "completed_at"] {
+            for column in [
+                "created_at",
+                "updated_at",
+                "stamped_at",
+                "changed_at",
+                "completed_at",
+            ] {
                 if matches!(row.values.get(column), Some(StoreValue::Text(_))) {
-                    row.values.insert(column.into(), StoreValue::Text("2026-01-01T00:00:00Z".into()));
+                    row.values.insert(
+                        column.into(),
+                        StoreValue::Text("2026-01-01T00:00:00Z".into()),
+                    );
                 }
             }
             if page.table == StoreTable::Items {
-                let id = row.values.get("id").ok_or("fixture item has no id")?.clone();
+                let id = row
+                    .values
+                    .get("id")
+                    .ok_or("fixture item has no id")?
+                    .clone();
                 row.values.insert("uid".into(), id);
             }
         }
@@ -109,7 +143,9 @@ pub fn seed(
 
 pub fn load(store: &dyn MemStore, pages: &[ExportPage]) -> Result<(), String> {
     let ctx = WriteContext::system("mem-backend-parity");
-    for page in pages { store.import_page(&ctx, page)?; }
+    for page in pages {
+        store.import_page(&ctx, page)?;
+    }
     if self::pages(store)? != pages {
         return Err("loaded store differs from the frozen corpus/metadata/vector rows".into());
     }

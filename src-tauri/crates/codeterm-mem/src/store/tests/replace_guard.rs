@@ -31,4 +31,3 @@ fn write_area_guard_refuses_foreign_and_protected_targets() {
         );
     }
 }
-

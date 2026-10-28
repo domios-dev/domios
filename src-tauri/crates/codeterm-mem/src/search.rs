@@ -660,14 +660,24 @@ pub(crate) fn hybrid_rrf_with_embedding(
         out
     };
 
-    let graph = if !fts_hits.is_empty() && !vec_hits.is_empty()
+    let graph = if !fts_hits.is_empty()
+        && !vec_hits.is_empty()
         && (cfg.graph_entity_boost > 1.0 || cfg.graph_as_rrf_source)
     {
         let ids = find_graph_boosted_items(conn, &extract_keywords(&q.query)).unwrap_or_default();
-        ids.into_iter().map(|id| {
-            let item = cfg.graph_as_rrf_source.then(|| super::store::get_or_synthesize_entity(conn, &id, blobs_dir).ok().flatten()).flatten();
-            (id, item)
-        }).collect()
+        ids.into_iter()
+            .map(|id| {
+                let item = cfg
+                    .graph_as_rrf_source
+                    .then(|| {
+                        super::store::get_or_synthesize_entity(conn, &id, blobs_dir)
+                            .ok()
+                            .flatten()
+                    })
+                    .flatten();
+                (id, item)
+            })
+            .collect()
     } else {
         Vec::new()
     };
