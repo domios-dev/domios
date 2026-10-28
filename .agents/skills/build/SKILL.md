@@ -142,6 +142,12 @@ at runtime in debug Development launches; source and CLI artifact changes can
 still relink the roots. Use normal named operations; canonical QA
 and lane-check retain their own profile and isolation policies.
 
+DEV pins the configured public QA project once across CLI, server and client
+Cargo phases. Shared entitlement code otherwise flips between absent and
+configured compile-time project values, rebuilding mesh and server consumers.
+Firebase keys remain scoped to server compilation; release configuration and
+the entitlement verification policy retain their existing behavior.
+
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores
 incremental diagnostics in `node_modules/.cache`; Vite builds in a temporary
 directory there and promotes successful output into `dist`. Equal output bytes

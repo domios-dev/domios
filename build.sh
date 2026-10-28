@@ -1569,6 +1569,7 @@ reload_dev_server() {
   receipt="$split_logs/reload-server.json"
   node scripts/dev-server.mjs inspect "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$receipt"
   enter_cargo_gateway "$CMD"
+  ct_configure_dev_qa_project
   export CODETERM_DEV=1
   configure_dev_cargo
   if [[ "$plan" == cli:* ]]; then
@@ -3835,6 +3836,7 @@ LOCK_STORM_PY
       stop_dev_before_replacement
     fi
     enter_cargo_gateway "$CMD ${*:2}"
+    ct_configure_dev_qa_project
     prepare_dev_frontend_dist
     ensure_deps
     echo "Building CLI..."
