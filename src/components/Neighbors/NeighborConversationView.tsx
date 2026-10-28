@@ -321,8 +321,11 @@ function FileChip({ file, onOpen }: { file: NeighborFile; onOpen: (file: Neighbo
     <span className="neighbor-status"><span className="neighbor-dot" data-tone={state.tone} aria-hidden="true" />{state.label}</span>
   </>;
   const openable = file.direction === "in" && file.state === "saved";
+  // The list item wraps the button, so the chip stays a button that assistive tech and automation can press.
   return openable
-    ? <button type="button" role="listitem" className="neighbor-file ct-liquid-interactive" aria-label={`Open ${file.name}`} onClick={() => onOpen(file)}>{content}</button>
+    ? <span role="listitem" className="neighbor-file__item">
+      <button type="button" className="neighbor-file ct-liquid-interactive" aria-label={`Open ${file.name}`} onClick={() => onOpen(file)}>{content}</button>
+    </span>
     : <span role="listitem" className="neighbor-file" data-state={file.state}>{content}</span>;
 }
 

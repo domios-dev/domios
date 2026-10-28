@@ -1407,6 +1407,12 @@
   font-size: 11.5px;
 }
 
+.neighbor-file__item {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
 button.neighbor-file {
   cursor: pointer;
 }

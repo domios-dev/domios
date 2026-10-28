@@ -797,7 +797,12 @@ it("shows a message's files with their state and opens a saved one from the frie
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} filesClient={filesClient} />));
   expect(document.getElementById("neighbor-msg-f1")?.textContent).toContain("expired");
   expect(hasButton("Open old.zip")).toBe(false);
-  await act(async () => button("Open notes.txt").click());
+  // A saved file is a real button, held by a list item of the files list.
+  const chip = button("Open notes.txt");
+  expect(chip.getAttribute("role")).toBeNull();
+  expect(chip.parentElement?.getAttribute("role")).toBe("listitem");
+  expect(chip.closest('[role="list"]')?.getAttribute("aria-label")).toBe("Files");
+  await act(async () => chip.click());
   expect(filesClient.open).toHaveBeenCalledExactlyOnceWith("pair", "file-1");
 });
 
