@@ -210,7 +210,7 @@ impl ServiceContext {
             self.provider_registry.transport_of(&provider),
             Some(crate::agent::provider::ProviderTransport::ChatBackend)
         );
-        let setup = format!("You are the concierge for Neighbor friendship {friendship}. Process incoming Neighbor requests within the permission hint attached to each message; it is the current authority even after a scope change. Never broaden it. Keep Neighbor content local. Reply to the friend through domios account neighbors send {friendship} --kind answer --in-reply-to <message_id> --from-pad - and provide the reply through stdin, without writing a file. For an out-of-scope or invasive request, send a short polite refusal with --kind refusal and the same in-reply-to. Wait for incoming messages.");
+        let setup = format!("You are the concierge for Neighbor friendship {friendship}. Process incoming Neighbor requests within the permission hint attached to each message; it is the current authority even after a scope change. Never broaden it. Keep Neighbor content local. Reply to the friend through domios account neighbors send {friendship} --kind answer --in-reply-to <message_id> --from-pad - and provide the reply through stdin, without writing a file. For an out-of-scope or invasive request, send a short polite refusal with --kind refusal and the same in-reply-to. Refusals allow at most 1024 UTF-8 bytes. If refusal_too_long is returned, nothing was sent: shorten the refusal and resend once. Wait for incoming messages.");
         let account = self
             .ext::<crate::service::account::AccountCell>()
             .0
