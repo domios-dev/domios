@@ -116,6 +116,9 @@ pub(super) fn memory_author(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<codeterm_service_core::mem::store::MemAuthor, (axum::http::StatusCode, String)> {
+    if crate::auth::caller_peer_id(state, headers).is_some() {
+        return Ok(codeterm_service_core::mem_ops::author::mem_author_for_caller(&state.svc, None));
+    }
     let caller = crate::auth::tab_caller(state, headers)?;
     Ok(
         codeterm_service_core::mem_ops::author::mem_author_for_caller(

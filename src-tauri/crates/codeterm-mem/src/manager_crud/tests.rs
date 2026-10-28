@@ -33,6 +33,20 @@ fn authorship_save_overwrites_in_both_directions_even_with_equal_body() {
             let got = mem.get(&id).unwrap().unwrap();
             assert_eq!(got.author, second);
             assert_eq!(got.body, replacement);
+            let hits = mem
+                .search(&crate::search::SearchQuery {
+                    query: "Shared fact".into(),
+                    ..Default::default()
+                })
+                .unwrap();
+            let hit = hits
+                .iter()
+                .find(|hit| hit.item.id == id)
+                .expect("search returns the authored item");
+            assert_eq!(
+                serde_json::to_value(hit).unwrap()["item"]["author"],
+                serde_json::to_value(&second).unwrap()
+            );
             let history = mem.get_item_history(&id).unwrap();
             assert_eq!(history.len(), 2);
             assert_eq!(history[1].old_body.as_deref(), Some("same body"));
