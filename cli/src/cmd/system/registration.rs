@@ -48,7 +48,7 @@ pub(super) fn windows_target(task: &str) -> Option<PathBuf> {
         return None;
     }
     let regex = regex::Regex::new(
-        r"Start-Process -WindowStyle Hidden -FilePath '((?:[^']|'')*)' -ArgumentList @\('system','supervise','--binary',",
+        r"& '((?:[^']|'')*)' system supervise --binary ",
     ).ok()?;
     Some(
         regex

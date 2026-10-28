@@ -6,11 +6,13 @@ Configuration for autostart, themes, sessions, cron, UI gates, memory, and dev i
 
 Domios can launch at login, starting minimized to the system tray.
 
-- **Windows:** HKCU registry key (`Software\Microsoft\Windows\CurrentVersion\Run`)
-- **macOS:** LaunchAgent plist (`~/Library/LaunchAgents/com.codeterm.app.plist`)
-- **Linux:** `.desktop` file (`~/.config/autostart/codeterm.desktop`)
+- **Windows:** `Domios-Autostart` scheduled task; supervisor failures retry up to three times, 60 seconds apart (the Task Scheduler minimum).
+- **macOS:** LaunchAgent (`~/Library/LaunchAgents/com.domios.app.plist`); unsuccessful supervisor exits retry with a 30-second throttle.
+- **Linux:** user systemd unit (`~/.config/systemd/user/domios.service`); `Restart=on-failure`, 30-second backoff, at most five starts per 300 seconds.
 
 Toggle via Settings UI (Agents tab) or Tauri IPC commands `get_autostart_enabled` / `set_autostart_enabled`. Also available in the Onboarding flow.
+
+Settings and `domios system enable-autostart` install the same supervisor registration. Successful supervisor exits, including a normal user shutdown, do not restart it. The supervisor holds an exclusive OS file lock for its lifetime; `recovery/supervisor.lock` may remain after exit or reboot, and its PID is informational. A leftover file never blocks a new supervisor unless another process currently holds its lock. Re-enable autostart to install an updated restart policy.
 
 ## Themes
 
@@ -206,4 +208,4 @@ librarian_enabled = true
 
 There is no per-session config: each provider owns where its sessions live. The `domios sessions` commands and `/api/sessions/*` find and resume them; `domios docs API-STATE` has the contract.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
