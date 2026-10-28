@@ -46,7 +46,10 @@ impl ServiceContext {
             tokio::task::spawn_blocking(move || service.wake_frozen_tab(&tab))
                 .await
                 .map_err(|_| Error::Gateway)?
-                .map_err(|_| Error::Gateway)?;
+                .map_err(|error| {
+                    log::debug!("[neighbors] concierge wake tab={tab_id}: {error}");
+                    Error::Gateway
+                })?;
             crate::service::agent_runtime::engine::ensure(self, tab_id)
                 .await
                 .map_err(|error| {

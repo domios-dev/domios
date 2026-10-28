@@ -2,6 +2,8 @@ use super::*;
 use crate::service::{general_agent, SpawnAgentParams, SpawnIdentityProvenance};
 use codeterm_neighbors::permissions::MachineAccess;
 
+mod restore;
+
 pub(super) fn launch_error(error: String) -> Error {
     if error.starts_with("neighbor_machine_access_unsupported:") {
         Error::MachineAccessUnsupported
@@ -90,36 +92,22 @@ impl ServiceContext {
                         .clone()
                         .or(tab.agent_provider_resolved_model.clone())
                         .or(tab.restorable_launch.requested_model.clone()),
-                    tab.cwd.clone(),
-                    tab.restorable_launch
-                        .execution_sandbox
-                        .as_ref()
-                        .map(|policy| policy.intent.clone()),
                 )
             })
         };
-        if let Some((Some(provider), _, _, _)) = &previous {
+        if let Some((Some(provider), _)) = &previous {
             let _ = self
                 .neighbor_concierge_sandbox(provider, permission.machine_access)
                 .map_err(launch_error)?;
         }
-        let expected_intent = match permission.machine_access {
-            MachineAccess::ReadOnly => Some(codeterm_types::plan::ExecutionIntent::ReadOnly),
-            MachineAccess::Folder => Some(codeterm_types::plan::ExecutionIntent::Mutating),
-            MachineAccess::Full | MachineAccess::None => None,
-        };
-        let changed = old
-            .as_ref()
-            .is_none_or(|id| self.validate_neighbor_gateway(id).is_err())
-            || previous
-                .as_ref()
-                .is_none_or(|(_, _, previous_cwd, sandbox)| {
-                    previous_cwd.as_deref() != Some(cwd.as_str()) || sandbox != &expected_intent
-                });
+        let changed = old.as_ref().is_none_or(|id| {
+            self.validate_neighbor_gateway(id).is_err()
+                || self
+                    .validate_neighbor_bound_launch(id, &permission, &cwd)
+                    .is_err()
+        });
         let created = if changed {
-            let (provider, model) = previous
-                .map(|(provider, model, _, _)| (provider, model))
-                .unwrap_or_default();
+            let (provider, model) = previous.unwrap_or_default();
             Some(
                 self.create_neighbor_concierge(
                     friendship,
@@ -236,11 +224,27 @@ impl ServiceContext {
         provider: Option<String>,
         model: Option<String>,
     ) -> Result<String, String> {
+        self.replace_neighbor_concierge_with(metadata, friendship, |cwd, access| {
+            self.create_neighbor_concierge(friendship, provider, model, cwd, access)
+        })
+        .await
+    }
+
+    async fn replace_neighbor_concierge_with<F, Fut>(
+        &self,
+        metadata: &Metadata,
+        friendship: &str,
+        create: F,
+    ) -> Result<String, String>
+    where
+        F: FnOnce(String, MachineAccess) -> Fut,
+        Fut: std::future::Future<Output = Result<String, String>>,
+    {
+        let generation = self.neighbor_history_generation();
         let mut settings = metadata
             .settings()
             .await
             .map_err(|error| error.to_string())?;
-        let generation = self.neighbor_history_generation();
         let old = settings.bindings.get(friendship).cloned();
         let permission = settings
             .permissions
@@ -249,16 +253,16 @@ impl ServiceContext {
             .unwrap_or_default();
         let cwd =
             super::super::confinement::prepare_folder(metadata, friendship, &permission).await?;
-        let tab = self
-            .create_neighbor_concierge(friendship, provider, model, cwd, permission.machine_access)
-            .await?;
+        self.require_neighbor_history_generation(generation)
+            .map_err(|error| error.to_string())?;
+        let tab = create(cwd, permission.machine_access).await?;
         if let Err(error) = self.require_neighbor_history_generation(generation) {
             let _ = self.close_tab_async(&tab).await;
             return Err(error.to_string());
         }
         self.stop_neighbor_listeners();
         settings.bindings.insert(friendship.into(), tab.clone());
-        if let Err(error) = metadata.save_settings(settings).await {
+        if let Err(error) = metadata.save_settings(settings.clone()).await {
             let _ = self.close_tab_async(&tab).await;
             return Err(error.to_string());
         }
