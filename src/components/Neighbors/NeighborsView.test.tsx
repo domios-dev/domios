@@ -412,6 +412,36 @@ it("shows concise read-only limits and keeps the runtime's full note under Detai
   expect(document.body.textContent).not.toContain("changes nothing on this machine");
 });
 
+it("re-syncs untouched limits to saved values that change after opening, so a scope-only Apply sends only the scope", async () => {
+  const filesClient = { send: vi.fn(), list: vi.fn(async () => ({ folder: "/neighbors/ada", files: [] })), open: vi.fn(), openFolder: vi.fn(async () => {}),
+    setDailyLimit: vi.fn(async () => {}), usage: vi.fn(async () => null), onFilesChanged: vi.fn(async () => () => {}) };
+  const conciergeClient = concierge([]);
+  // The window opens on one set of saved limits; the refreshed friend list then reports others (the default file limit as null).
+  const before = { ...neighbor, my_daily_limit: 30, my_file_daily_limit_bytes: 52428800, inbound_per_hour: 10 };
+  const after = { ...neighbor, my_daily_limit: null, my_file_daily_limit_bytes: null, inbound_per_hour: 15 };
+  let friends = [before];
+  const client: NeighborClient = { list: vi.fn(async (): Promise<NeighborList> => ({ schema_version: 1, access: "paid", can_invite: true, friends, incoming: [], outgoing: [] })),
+    apply: vi.fn(async () => {}), claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted.current = { root, host };
+  await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} filesClient={filesClient} />));
+  await act(async () => button("Ada, connected").click());
+  friends = [after];
+  await act(async () => button("Refresh Neighbors").click());
+  expect(button("Apply").disabled, "saved values changing under untouched fields stage nothing").toBe(true);
+  await act(async () => button("Allow requests from Ada").click());
+  const scope = document.querySelector<HTMLTextAreaElement>(".neighbor-permissions textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(scope, "Our shared project");
+    scope.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Apply").click());
+  expect(conciergeClient.setPermission).toHaveBeenCalledOnce();
+  expect(conciergeClient.setDailyLimit).not.toHaveBeenCalled();
+  expect(filesClient.setDailyLimit).not.toHaveBeenCalled();
+  expect(client.apply).not.toHaveBeenCalled();
+});
+
 it("blocks files from one friend with a zero daily file limit", async () => {
   const filesClient = { send: vi.fn(), list: vi.fn(async () => ({ folder: "/neighbors/ada", files: [] })), open: vi.fn(), openFolder: vi.fn(async () => {}),
     setDailyLimit: vi.fn(async () => {}), usage: vi.fn(async () => null), onFilesChanged: vi.fn(async () => () => {}) };
