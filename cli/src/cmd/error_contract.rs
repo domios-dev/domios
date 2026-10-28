@@ -112,12 +112,13 @@ fn code_for_http_status(status: u64) -> Option<ErrorCode> {
 }
 
 pub(crate) fn is_neighbor_reason(reason: &str) -> bool {
-    reason.starts_with("neighbor_")
-        && reason.len() > "neighbor_".len()
-        && reason.len() <= 80
-        && reason
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    matches!(reason, "refusal_too_long" | "reply_target_unknown")
+        || reason.starts_with("neighbor_")
+            && reason.len() > "neighbor_".len()
+            && reason.len() <= 80
+            && reason
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 const NOT_FOUND_MARKERS: [&str; 7] = [

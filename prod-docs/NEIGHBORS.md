@@ -164,4 +164,6 @@ Use `POST /api/account/neighbors/files` with one of these JSON operations:
 
 `neighbor-files-changed` carries `friendship_id` when the local file index changes. Join files to conversation entries by `message_id`. `neighbor-file-daily-limit-changed` carries `friendship_id` and `file_daily_limit_bytes`. Local file listing and opening do not contact the relay. Each installation keeps its own saved files; changing the receiving machine does not copy them.
 
-<!-- revision: 31 -->
+Refusal replies must link to an incoming message in this friendship's local history and stay within 1024 UTF-8 bytes. `reply_target_unknown` (400) and `refusal_too_long` (413, `limit` and `actual`) are proven pre-send refusals: nothing was sent or appended to outgoing history. Keep refusals short; on `refusal_too_long`, shorten and resend once. These are not uncertain submissions.
+
+<!-- revision: 32 -->
