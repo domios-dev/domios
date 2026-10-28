@@ -1,7 +1,7 @@
 use super::*;
 use crate::service::{general_agent, SpawnAgentParams, SpawnIdentityProvenance};
-use codeterm_neighbors::permissions::MachineAccess;
 
+pub(super) mod initial_prompt;
 mod restore;
 
 pub(super) fn launch_error(error: String) -> Error {
@@ -43,6 +43,14 @@ impl ServiceContext {
             .map_err(|_| Error::InvalidRequest)?;
         self.validate_neighbor_bound_launch(gateway, &permission, &cwd)
             .map_err(launch_error)?;
+        if !self
+            .mux
+            .read()
+            .get_tab(gateway)
+            .is_some_and(|tab| initial_prompt::prompt_matches(tab, friendship, &permission))
+        {
+            return Err(Error::InvalidRequest);
+        }
         self.require_neighbor_history_generation(generation)?;
         self.tag_neighbor_root(&transport.uid, friendship, gateway)?;
         settings.bindings.insert(friendship.into(), gateway.into());
@@ -97,7 +105,33 @@ impl ServiceContext {
         let generation = self.neighbor_history_generation();
         self.validate_neighbor_memory_areas(&permission).await?;
         transport.peer_keys(friendship).await?;
-        let uid = &transport.uid;
+        self.require_neighbor_history_generation(generation)?;
+        self.apply_neighbor_permission_with(
+            metadata,
+            &transport.uid,
+            friendship,
+            permission,
+            generation,
+            |provider, model, cwd, permission, resume| {
+                self.create_neighbor_concierge(friendship, provider, model, cwd, permission, resume)
+            },
+        )
+        .await
+    }
+
+    async fn apply_neighbor_permission_with<F, Fut>(
+        &self,
+        metadata: &Metadata,
+        uid: &str,
+        friendship: &str,
+        permission: Permission,
+        generation: u64,
+        create: F,
+    ) -> codeterm_neighbors::Result<Value>
+    where
+        F: FnOnce(Option<String>, Option<String>, String, Permission, Option<String>) -> Fut,
+        Fut: std::future::Future<Output = Result<String, String>>,
+    {
         let cwd = super::super::confinement::prepare_folder(metadata, friendship, &permission)
             .await
             .map_err(|_| Error::InvalidRequest)?;
@@ -122,27 +156,45 @@ impl ServiceContext {
                 .neighbor_concierge_sandbox(provider, permission.machine_access)
                 .map_err(launch_error)?;
         }
-        let changed = old.as_ref().is_none_or(|id| {
-            self.validate_neighbor_gateway(id).is_err()
-                || self
-                    .validate_neighbor_bound_launch(id, &permission, &cwd)
-                    .is_err()
+        let (provider, model) = previous.unwrap_or_default();
+        let resume_session = old.as_deref().and_then(|id| {
+            let mux = self.mux.read();
+            let tab = mux.get_tab(id)?;
+            let provider = tab.agent_type.as_deref()?;
+            self.agent_registry
+                .with_provider(provider, |p| p.supports_initial_prompt_update_on_resume())
+                .unwrap_or(false)
+                .then(|| tab.agent_session_id.clone())
+                .flatten()
         });
-        let created = if changed {
-            let (provider, model) = previous.unwrap_or_default();
-            Some(
-                self.create_neighbor_concierge(
-                    friendship,
-                    provider,
-                    model,
-                    cwd,
-                    permission.machine_access,
-                )
-                .await
-                .map_err(launch_error)?,
-            )
-        } else {
-            None
+        self.stop_neighbor_listeners();
+        let history_retained = resume_session.is_some();
+        if history_retained {
+            if let Some(old) = &old {
+                self.retire_neighbor_children(old)
+                    .await
+                    .map_err(|_| Error::Gateway)?;
+                self.close_tab_async(old)
+                    .await
+                    .map_err(|_| Error::Gateway)?;
+            }
+        }
+        let created = match create(provider, model, cwd, permission.clone(), resume_session).await {
+            Ok(tab) => Some(tab),
+            Err(error) => {
+                log::debug!(
+                    "[neighbors] permission apply restart friendship={friendship}: {error}"
+                );
+                if history_retained {
+                    settings.bindings.remove(friendship);
+                    metadata.save_settings(settings).await?;
+                    self.ui.emit(
+                        "neighbor-agent-changed",
+                        json!({"friendship_id":friendship,"gateway_tab":null}),
+                    );
+                }
+                return Err(launch_error(error));
+            }
         };
         if let Some(old) = &old {
             if let Err(error) = self.retire_neighbor_children(old).await {
@@ -175,7 +227,9 @@ impl ServiceContext {
             self.reconcile_neighbor_handling_restore(metadata, friendship, generation)
                 .await?;
             self.stop_neighbor_listeners();
-            if let Some(old) = old.filter(|id| Some(id) != gateway_tab.as_ref()) {
+            if let Some(old) = old.filter(|id| {
+                Some(id) != gateway_tab.as_ref() && self.mux.read().get_tab(id).is_some()
+            }) {
                 if let Err(error) = self.close_tab_async(&old).await {
                     log::debug!("[neighbors] retired concierge close tab={old}: {error}");
                 }
@@ -190,7 +244,7 @@ impl ServiceContext {
             "neighbor-permission-changed",
             json!({"friendship_id":friendship}),
         );
-        Ok(json!({"status":"saved","gateway_tab":gateway_tab}))
+        Ok(json!({"status":"saved","gateway_tab":gateway_tab,"history_retained":history_retained}))
     }
 
     pub(super) async fn create_neighbor_concierge(
@@ -199,18 +253,19 @@ impl ServiceContext {
         provider: Option<String>,
         model: Option<String>,
         cwd: String,
-        access: MachineAccess,
+        permission: Permission,
+        resume_session_id: Option<String>,
     ) -> Result<String, String> {
         let workspace = general_agent::general_workspace_id(&self.mux.read())
             .ok_or("General workspace is unavailable")?;
         let config = self.configuration();
         let provider = provider.unwrap_or_else(|| config.general_agent.agent_provider.clone());
-        let sandbox = self.neighbor_concierge_sandbox(&provider, access)?;
+        let sandbox = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
         let chat_backend = matches!(
             self.provider_registry.transport_of(&provider),
             Some(crate::agent::provider::ProviderTransport::ChatBackend)
         );
-        let setup = format!("You are the concierge for Neighbor friendship {friendship}. Process incoming Neighbor requests within the permission hint attached to each message; it is the current authority even after a scope change. Never broaden it. Keep Neighbor content local. Reply to the friend through domios account neighbors send {friendship} --kind answer --in-reply-to <message_id> --from-pad - and provide the reply through stdin, without writing a file. For an out-of-scope or invasive request, send a short polite refusal with --kind refusal and the same in-reply-to. Refusals allow at most 1024 UTF-8 bytes. If refusal_too_long is returned, nothing was sent: shorten the refusal and resend once. Wait for incoming messages.");
+        let setup = initial_prompt::initial_prompt(friendship, &permission);
         let account = self
             .ext::<crate::service::account::AccountCell>()
             .0
@@ -229,6 +284,7 @@ impl ServiceContext {
                         root_tab_id: None,
                     }),
                     agent: Some(provider),
+                    resume_session_id,
                     model,
                     workspace_id: Some(workspace),
                     cwd: Some(cwd),
@@ -263,8 +319,8 @@ impl ServiceContext {
         provider: Option<String>,
         model: Option<String>,
     ) -> Result<String, String> {
-        self.replace_neighbor_concierge_with(metadata, friendship, |cwd, access| {
-            self.create_neighbor_concierge(friendship, provider, model, cwd, access)
+        self.replace_neighbor_concierge_with(metadata, friendship, |cwd, permission| {
+            self.create_neighbor_concierge(friendship, provider, model, cwd, permission, None)
         })
         .await
     }
@@ -276,7 +332,7 @@ impl ServiceContext {
         create: F,
     ) -> Result<String, String>
     where
-        F: FnOnce(String, MachineAccess) -> Fut,
+        F: FnOnce(String, Permission) -> Fut,
         Fut: std::future::Future<Output = Result<String, String>>,
     {
         let _mutation = self.begin_neighbor_mutation(friendship).await?;
@@ -295,7 +351,7 @@ impl ServiceContext {
             super::super::confinement::prepare_folder(metadata, friendship, &permission).await?;
         self.require_neighbor_history_generation(generation)
             .map_err(|error| error.to_string())?;
-        let tab = create(cwd, permission.machine_access).await?;
+        let tab = create(cwd, permission.clone()).await?;
         if let Err(error) = self.require_neighbor_history_generation(generation) {
             let _ = self.close_tab_async(&tab).await;
             return Err(error.to_string());

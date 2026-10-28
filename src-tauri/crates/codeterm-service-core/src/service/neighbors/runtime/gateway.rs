@@ -285,7 +285,7 @@ impl Gateway {
         &self,
         message: &InboxMessage,
         plaintext: &str,
-        permission: &codeterm_neighbors::permissions::Permission,
+        _permission: &codeterm_neighbors::permissions::Permission,
         path: &str,
         events: tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
     ) -> Result<GatewayReceipt> {
@@ -296,9 +296,15 @@ impl Gateway {
         self.service
             .validate_neighbor_gateway(&self.tab)
             .map_err(|_| Error::Gateway)?;
-        let hint = permission.hint(message.doc.envelope.kind);
-        let body = Zeroizing::new(format!("{hint}\nFriendship: {}\nMessage: {}\nReply through the encrypted Neighbor channel with this message as in_reply_to; there is no local tab return address.\n\n{}",
-            self.friendship, message.doc.envelope.message_id, plaintext));
+        let name = self
+            .service
+            .neighbor_cell_names()
+            .get(&self.friendship)
+            .cloned()
+            .unwrap_or_else(|| "Neighbor".into());
+        let body = Zeroizing::new(super::concierge::initial_prompt::compact_message(
+            &name, message, plaintext,
+        ));
         let envelope = MessageEnvelope {
             from_label: message.doc.envelope.sender_uid.clone(),
             from_neighbor: Some(self.friendship.clone()),

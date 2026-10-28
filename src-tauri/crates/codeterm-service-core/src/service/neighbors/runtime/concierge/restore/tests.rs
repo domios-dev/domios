@@ -42,17 +42,22 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
                 &metadata,
                 "owner",
                 &friend,
-                |provider, model, cwd, access| async move {
+                |provider, model, cwd, grant| async move {
                     invoked.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(provider.as_deref(), Some("advisory-provider"));
                     assert_eq!(model.as_deref(), Some("opaque-model"));
-                    assert_eq!(access, MachineAccess::ReadOnly);
+                    assert_eq!(
+                        grant.machine_access,
+                        codeterm_neighbors::permissions::MachineAccess::ReadOnly
+                    );
                     let mut mux = service.mux.write();
                     let id = mux.create_tab(&workspace).unwrap();
                     let tab = mux.get_tab_mut(&id).unwrap();
                     tab.agent_type = provider;
                     tab.agent_session_model = model;
                     tab.cwd = Some(cwd);
+                    tab.restorable_launch.identity_instructions =
+                        Some(initial_prompt::initial_prompt(&"a".repeat(64), &grant));
                     Ok(id)
                 },
             )
@@ -166,6 +171,13 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
     service.mux.write().get_tab_mut(&tabs[1]).unwrap().cwd = Some(cwd);
     let mut settings = crate::service::neighbors::storage::Settings::default();
     settings.bindings.insert(friend.clone(), tabs[1].clone());
+    service
+        .mux
+        .write()
+        .get_tab_mut(&tabs[1])
+        .unwrap()
+        .restorable_launch
+        .identity_instructions = Some(initial_prompt::initial_prompt(&friend, &permission));
     settings.permissions.insert(friend.clone(), permission);
     metadata.save_settings(settings).await.unwrap();
     for _ in 0..2 {

@@ -836,6 +836,10 @@ impl AgentProvider for JsProvider {
         super::command_template::build_resume_command(self, session_id, skip_permissions)
     }
 
+    fn supports_initial_prompt_update_on_resume(&self) -> bool {
+        self.has_js("buildResumeCommandWithContext")
+    }
+
     fn build_resume_command_with_context(
         &self,
         params: &crate::provider::AgentResumeParams,

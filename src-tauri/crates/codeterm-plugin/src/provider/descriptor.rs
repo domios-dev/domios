@@ -17,6 +17,8 @@ pub(crate) fn describe<P: AgentProvider + ?Sized>(provider: &P) -> ProviderDescr
         agent_runtime: runtime.clone(),
         cli_login: provider.cli_login(),
         supports_session_fork: provider.fork_session_args().is_some(),
+        supports_initial_prompt_update_on_resume: provider
+            .supports_initial_prompt_update_on_resume(),
         schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
         cli_status: None,
         id: provider.id().to_string(),
