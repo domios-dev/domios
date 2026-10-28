@@ -159,6 +159,39 @@ pub(super) fn authoring_allowed(
 }
 
 impl ServiceContext {
+    pub(crate) async fn neighbor_memory_peer_uid(
+        &self,
+        authority: &crate::multiplexer::types::NeighborAuthority,
+    ) -> Result<String, String> {
+        let unavailable =
+            "neighbor_memory_author_unavailable: Verified friendship author is unavailable";
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(peers) = self.try_ext::<crate::mem_ops::author::FixtureNeighborAuthors>() {
+            return peers
+                .0
+                .read()
+                .get(&(authority.uid.clone(), authority.friendship_id.clone()))
+                .filter(|uid| !uid.is_empty())
+                .cloned()
+                .ok_or_else(|| unavailable.into());
+        }
+        let (registry, _, _) = self.neighbor_key_ports().await.map_err(|_| unavailable)?;
+        if registry.uid != authority.uid {
+            return Err(unavailable.into());
+        }
+        let transport = self
+            .neighbor_transport(&registry)
+            .map_err(|_| unavailable)?;
+        let peers = transport
+            .peer_keys(&authority.friendship_id)
+            .await
+            .map_err(|_| unavailable)?;
+        if peers.friendship_id != authority.friendship_id || peers.peer_uid.trim().is_empty() {
+            return Err(unavailable.into());
+        }
+        Ok(peers.peer_uid)
+    }
+
     pub(super) fn neighbor_cell_names(
         &self,
     ) -> parking_lot::MutexGuard<'_, HashMap<String, String>> {

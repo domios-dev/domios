@@ -8,6 +8,7 @@ pub mod embedder;
 pub mod graph;
 pub mod items;
 pub mod mem_merge;
+pub mod neighbor_save;
 pub mod search;
 pub mod sync;
 

@@ -20,7 +20,7 @@ pub async fn mem_delete(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let changed_by = changed_by_from_headers(&headers);
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let before = state.svc.mem.extraction_authority().open_generations(&id);
     let removed = delete_item(state.svc.mem.clone(), id.clone(), changed_by, author)
         .await
@@ -38,7 +38,7 @@ pub async fn mem_forget_area(
     Path(area): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let outcome = delete_area(state.svc.mem.clone(), area.clone(), author)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;

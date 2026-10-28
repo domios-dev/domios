@@ -81,7 +81,7 @@ pub async fn mem_save(
     Json(body): Json<SaveBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     validate_item_fields(
         &body.title,
         &body.body,
@@ -179,7 +179,7 @@ pub async fn mem_update(
     Json(body): Json<UpdateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     validate_update_body(&body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let patch = MemUpdate {
         title: body.title,
@@ -307,7 +307,7 @@ pub async fn mem_learn(
     Json(b): Json<LearnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let lk = match b.kind.as_deref() {
         Some("error") => LearnKind::Error,
         Some("feature") => LearnKind::Feature,
@@ -326,7 +326,7 @@ pub async fn mem_promote(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let changed_by = changed_by_from_headers(&headers);
     codeterm_service_core::mem::store::with_authored_change(author.clone(), &changed_by, || {
         state.svc.mem.promote_learning(&id)
@@ -413,7 +413,7 @@ pub async fn mem_append(
     Json(b): Json<AppendBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     if b.text.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "text required".into()));
     }
@@ -462,7 +462,7 @@ pub async fn mem_restore(
     Json(b): Json<RestoreBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let svc = state.svc.clone();
     let target = id.clone();
     let out = tokio::task::spawn_blocking(move || {

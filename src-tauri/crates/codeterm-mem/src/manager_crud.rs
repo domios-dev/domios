@@ -22,7 +22,9 @@ pub struct AreaForgetOutcome {
 
 impl MemManager {
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, false).map(|outcome| outcome.id)
+        self.save_inner(item, false)
+            .map(|outcome| outcome.id)
+            .map_err(|error| error.to_string())
     }
 
     /// Raw insert that skips dedup, auto-extraction of child items, and
@@ -35,7 +37,9 @@ impl MemManager {
     }
 
     pub fn save_replace(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, true).map(|outcome| outcome.id)
+        self.save_inner(item, true)
+            .map(|outcome| outcome.id)
+            .map_err(|error| error.to_string())
     }
 
     pub fn save_with_outcome(
@@ -44,6 +48,17 @@ impl MemManager {
         replace: bool,
     ) -> Result<SaveOutcome, String> {
         self.save_inner(item, replace)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn save_guarded(
+        &self,
+        item: NewMemItem,
+        guard: store::ReplaceGuard,
+    ) -> Result<String, store::GuardedSaveError> {
+        store::with_replace_guard(guard, || {
+            self.save_inner(item, false).map(|outcome| outcome.id)
+        })
     }
 
     /// Create a bundled item with its fingerprint in the same insert —
@@ -80,9 +95,14 @@ impl MemManager {
         Ok(id)
     }
 
-    fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<SaveOutcome, String> {
+    fn save_inner(
+        &self,
+        item: NewMemItem,
+        replace: bool,
+    ) -> Result<SaveOutcome, store::GuardedSaveError> {
         self.guard_commit()?;
         let conn = self.conn.lock();
+        store::check_guarded_save(&conn, &item)?;
 
         if !item.title.is_empty() {
             let existing: Option<(String, Option<String>)> = conn

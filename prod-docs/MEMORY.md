@@ -29,6 +29,10 @@ These stores never share storage. Session API: `domios docs API-STATE`.
 - `importance` — 1-5; the main wake-up ranking term
 - pinned (`mem pin <id>` / `mem unpin <id>`) — pinned items always load in wake-up, subject to the budget
 
+Memory items and history carry an author: owner, neighbor, or system. Neighbor authors carry the registered friend's account UID and friendship ID, resolved by the daemon from authenticated friendship data. Request fields cannot choose an author. Replacement re-signs the item while history retains the prior author and body.
+
+A concierge may save only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>` (also kind `note`, optional `--summary` and repeated `--tag`). The live `memory_write_areas` grant defaults to empty. The daemon forces global scope and unpinned content, clamps importance to 1–5, scans all content fields for credentials, and enforces byte caps of 200 title / 16384 body / 32752 total. Matching kind/title replacement requires a granted area and an unpinned target; conflict refuses without exposing the item. Revocation stops the next save and retains past authorship. These saves never schedule extraction; all other concierge memory mutations remain denied.
+
 `mem save` uses kind plus title as its identity. An unchanged normalized body increments `recurrence_count` and schedules no extraction. A changed body updates the existing row in place and adds the prior body to history. `--replace` also updates in place and preserves the row's uid and creation time.
 
 Editing bundled memory preserves your version; pin changes are audited. Graph nodes are people and projects only, and relations are temporal, so point-in-time queries work.
@@ -192,4 +196,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 57 -->
+<!-- revision: 58 -->

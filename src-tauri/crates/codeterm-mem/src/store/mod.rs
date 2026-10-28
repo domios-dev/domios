@@ -13,6 +13,8 @@ mod blob;
 mod crud;
 mod pinned;
 mod query;
+mod replace_context;
+pub mod replace_guard;
 mod schema;
 
 #[cfg(test)]
@@ -22,6 +24,9 @@ pub use author::*;
 pub use crud::*;
 pub use pinned::*;
 pub use query::*;
+pub(crate) use replace_context::check_guarded_save;
+pub use replace_context::{current_replace_guard, with_replace_guard, GuardedSaveError};
+pub use replace_guard::{ReplaceGuard, ReplaceGuardError};
 pub use schema::init_schema;
 
 thread_local! {

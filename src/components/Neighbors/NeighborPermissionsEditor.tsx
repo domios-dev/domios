@@ -38,7 +38,8 @@ const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allow
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
   && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("\n") === (b.memory_areas ?? []).join("\n") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only")
-  && (a.workspaces ?? []).join("\n") === (b.workspaces ?? []).join("\n");
+  && (a.workspaces ?? []).join("\n") === (b.workspaces ?? []).join("\n")
+  && (a.memory_write_areas ?? []).join("\n") === (b.memory_write_areas ?? []).join("\n");
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** A field that follows its saved value until the owner edits it. Only an edit can stage a write: a saved value that
@@ -82,7 +83,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const limit = hourly.value;
   const { pickFolder, folderPicker } = useFolderPicker();
   const accessLabel = useId();
-  const areas = useMemoryAreas(draft?.allow_memory !== false);
+  const areas = useMemoryAreas(true);
   // The owner's own workspaces; General is the machine's home, not a place to share.
   const allWorkspaces = useMuxSelector(state => state.workspaces);
   const workspaceOptions = allWorkspaces.filter(workspace => !workspace.protected).map(workspace => ({ value: workspace.id, label: workspace.name }));
@@ -179,6 +180,9 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       checked={draft !== null && draft.allow_memory !== false} onChange={allow_memory => { if (draft && !saving) edit({ allow_memory }); }} />
     {draft && draft.allow_memory !== false && <MemoryAreas areas={areas} chosen={draft.memory_areas ?? []} disabled={saving}
       onChange={chosen => edit({ memory_areas: chosen.length > 0 ? chosen : null })} />}
+    {draft && <ChoiceMenu label="Write memory in these areas" menuLabel="Memory write areas" every="None" noun="areas" disabled={saving}
+      options={(areas ?? []).map(area => ({ value: area, label: area }))} chosen={draft.memory_write_areas ?? []}
+      onChange={memory_write_areas => edit({ memory_write_areas })} />}
     <SwitchTile label="Read files"
       checked={draft !== null && draft.allow_files !== false} onChange={allow_files => { if (draft && !saving) edit({ allow_files }); }} />
     <div className="neighbor-access">

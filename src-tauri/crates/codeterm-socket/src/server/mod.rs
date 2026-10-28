@@ -548,8 +548,16 @@ fn respond_to_request(
         Ok(caller) => caller.map(|caller| caller.tab_id),
         Err(message) => return JsonRpcResponse::error(id, -32003, message),
     };
-    let author =
-        codeterm_service_core::mem_ops::author::mem_author_for_caller(svc, caller_tab.as_deref());
+    let author = match codeterm_service_core::async_runtime::block_on(
+        codeterm_service_core::mem_ops::author::mem_author_for_rpc(
+            svc,
+            caller_tab.as_deref(),
+            &req.method,
+        ),
+    ) {
+        Ok(author) => author,
+        Err(message) => return JsonRpcResponse::error(id, -32003, message),
+    };
     let dispatched = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let _arrival = boot_timing::enter_request(id.as_ref(), &req.method, received_at_us);
         let actor = codeterm_service_core::mem_ops::author::author_audit_label(&author);

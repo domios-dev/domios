@@ -16,6 +16,7 @@ async fn actor_and_selected_tab_headers_cannot_forge_save_author() {
         root_tab_id: None,
     });
     let fixture = ServiceFixture::new(mux);
+    fixture.seed_neighbor_author("friend", "friendship", "remote-friend");
     let state = crate::test_support::app_state(&fixture);
     state.config.lock().api.token = Some("owner-secret".into());
     state.config.lock().memory.auto_extract = false;
@@ -65,7 +66,7 @@ async fn actor_and_selected_tab_headers_cannot_forge_save_author() {
     );
     headers.insert("x-codeterm-actor", HeaderValue::from_static("owner"));
     assert_eq!(
-        memory_author(&state, &headers).unwrap(),
-        codeterm_mem::store::MemAuthor::neighbor("friend".into(), "friendship".into())
+        memory_author(&state, &headers).await.unwrap(),
+        codeterm_mem::store::MemAuthor::neighbor("remote-friend".into(), "friendship".into())
     );
 }
