@@ -6,7 +6,7 @@ Neighbors defaults on per instance. Off immediately stops receive/send/request n
 
 ## Receiving and keys
 
-In Messages, choose Receive here and confirm takeover; only this installation receives, never by automatic takeover. One key pair serves all gateways and survives tab recreation. Rotate explicitly; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
+Choose Receive here with confirmation; never take over automatically. Each friend uses its override or the account receiver. One installation key pair serves its concierges. Rotate explicitly; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
 
 ```bash
 domios account neighbors status
@@ -16,9 +16,9 @@ domios account neighbors rotate
 domios account neighbors revoke
 ```
 
-Use current status revision; stale revisions require reread/reconfirmation. Status/events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, `revision`. A non-receiving friend cannot accept new messages. Keys use Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext fallback. Sign-out clears local account access first; server session revocation stops receiving, and cleanup removes only this installation's private keys.
+Use current revision; stale values require reread/reconfirmation. Status/events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, `revision`. Nonreceivers cannot accept new messages. Keys use Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext fallback. Sign-out clears local account access first; server session revocation stops receiving, and cleanup removes only this installation's private keys.
 
-Concierges/grants stay local. Losing a friend's effective receiver closes its concierge/descendants to Recently Closed and revokes credentials. Setup stays dormant; return starts a fresh session. Unknown/nonreceivers refuse Bind/Apply/ensure with `receiving_elsewhere`; grants never copy. Missing-concierge questions stay encrypted/pending/unacknowledged without cursor advancement until permissions/binding enable admission. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Unknown count=null, cap100 displayed `100+`. Observe-only streams retain no names; concurrent count refreshes coalesce.
+Grants/setup stay local. Receiver loss closes that friend's agents to Recently Closed and revokes credentials; return starts fresh. Unknown/nonreceivers refuse concierge changes/launch (`receiving_elsewhere`). Questions without a concierge stay encrypted/unacknowledged; no cursor advance until local setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Observers retain no names; recounts coalesce.
 
 Receive retries: max3 consecutive failures; confirmed snapshots reset. Exhaustion: listen_retries_exhausted. Auth/revocation/off/account-generation/receiver changes terminate. Retry retains the cursor and never replays uncertain sends. status.watches and neighbors-watch-status expose watch/errors. Reconnect/cache/admission: API-LIFECYCLE.
 

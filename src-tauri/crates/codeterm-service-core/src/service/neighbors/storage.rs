@@ -12,6 +12,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 #[derive(Clone)]
 pub(super) struct Metadata {
     root: PathBuf,
+    #[cfg(test)]
+    fail_settings_save: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -94,6 +96,8 @@ impl Metadata {
     pub fn new(root: PathBuf, uid: &str) -> Self {
         Self {
             root: root.join("neighbors").join(sha256_hex(uid.as_bytes())),
+            #[cfg(test)]
+            fail_settings_save: false,
         }
     }
 
@@ -146,7 +150,17 @@ impl Metadata {
         Ok(self.read("settings.json".into()).await?.unwrap_or_default())
     }
 
+    #[cfg(test)]
+    pub(super) fn with_failed_settings_save_for_test(mut self) -> Self {
+        self.fail_settings_save = true;
+        self
+    }
+
     pub async fn save_settings(&self, settings: Settings) -> Result<()> {
+        #[cfg(test)]
+        if self.fail_settings_save {
+            return Err(Error::CursorStore);
+        }
         self.write("settings.json".into(), settings).await
     }
 }

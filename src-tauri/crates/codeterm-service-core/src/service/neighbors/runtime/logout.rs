@@ -15,20 +15,41 @@ impl ServiceContext {
             return Ok(());
         }
         let metadata = Metadata::new(self.account_data_root()?, &session.identity.uid);
-        let mut settings = metadata.settings().await.map_err(|e| e.to_string())?;
-        self.remember_neighbor_concierge_accounts(&session.identity.uid, &settings);
-        settings.enabled = false;
-        settings.cleanup_pending = true;
-        metadata
-            .save_settings(settings)
+        self.queue_neighbor_logout_with_metadata(session, &metadata)
             .await
-            .map_err(|e| e.to_string())?;
-        self.retire_local_neighbor_concierges(
-            &metadata,
-            &session.identity.uid,
-            self.neighbor_history_generation(),
-        )
-        .await
+    }
+
+    pub(super) async fn queue_neighbor_logout_with_metadata(
+        &self,
+        session: &codeterm_account::Session,
+        metadata: &Metadata,
+    ) -> Result<(), String> {
+        let persistence = match metadata.settings().await {
+            Ok(mut settings) => {
+                self.remember_neighbor_concierge_accounts(&session.identity.uid, &settings);
+                settings.enabled = false;
+                settings.cleanup_pending = true;
+                metadata
+                    .save_settings(settings)
+                    .await
+                    .map_err(|error| error.to_string())
+            }
+            Err(error) => Err(error.to_string()),
+        };
+        let retirement = self
+            .retire_local_neighbor_concierges(
+                metadata,
+                &session.identity.uid,
+                self.neighbor_history_generation(),
+            )
+            .await;
+        match (persistence, retirement) {
+            (Err(persistence), Err(retirement)) => {
+                Err(format!("{persistence}; concierge retirement: {retirement}"))
+            }
+            (Err(error), _) | (_, Err(error)) => Err(error),
+            _ => Ok(()),
+        }
     }
 
     pub(super) async fn retry_neighbor_logout(

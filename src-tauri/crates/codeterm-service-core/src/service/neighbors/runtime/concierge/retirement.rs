@@ -104,11 +104,13 @@ impl ServiceContext {
         uid: &str,
         generation: u64,
     ) -> Result<(), String> {
-        let settings = metadata
-            .settings()
-            .await
-            .map_err(|error| error.to_string())?;
-        let mut friends: BTreeSet<_> = settings.bindings.keys().cloned().collect();
+        let (mut friends, mut first_error) = match metadata.settings().await {
+            Ok(settings) => (
+                settings.bindings.keys().cloned().collect::<BTreeSet<_>>(),
+                None,
+            ),
+            Err(error) => (BTreeSet::new(), Some(error.to_string())),
+        };
         for tab in self.mux.read().snapshot().tabs.values() {
             if let Some(authority) = tab
                 .neighbor_authority
@@ -118,7 +120,6 @@ impl ServiceContext {
                 friends.insert(authority.friendship_id.clone());
             }
         }
-        let mut first_error = None;
         for friend in friends {
             if let Err(error) = self
                 .retire_neighbor_concierge(metadata, uid, &friend, generation)
@@ -140,11 +141,14 @@ impl ServiceContext {
         self.require_neighbor_generation(generation)?;
         self.stop_neighbor_concierge_listener(friendship);
         let _mutation = self.begin_neighbor_mutation(friendship).await?;
-        let mut settings = metadata
-            .settings()
-            .await
-            .map_err(|error| error.to_string())?;
-        let root = settings.bindings.get(friendship).cloned();
+        let (mut settings, mut first_error) = match metadata.settings().await {
+            Ok(settings) => (Some(settings), None),
+            Err(error) => (None, Some(error.to_string())),
+        };
+        let root = settings
+            .as_ref()
+            .and_then(|settings| settings.bindings.get(friendship))
+            .cloned();
         let snapshot = self.mux.read().snapshot();
         let mut targets: Vec<_> = snapshot
             .tabs
@@ -158,15 +162,15 @@ impl ServiceContext {
             .collect();
         if root.is_none() && targets.is_empty() {
             self.clear_neighbor_friend_restore_grants(uid, friendship);
-            return Ok(());
+            return first_error.map_or(Ok(()), Err);
         }
-        if let Some(id) = &root {
+        if let (Some(id), Some(settings)) = (&root, settings.as_mut()) {
             let tab = snapshot.tabs.get(id).filter(|tab| {
                 tab.neighbor_authority
                     .as_ref()
                     .is_none_or(|authority| authority.uid == uid)
             });
-            let options = self.neighbor_launch_options(&settings, friendship);
+            let options = self.neighbor_launch_options(settings, friendship);
             settings.dormant_concierges.insert(
                 friendship.into(),
                 DormantConcierge {
@@ -197,13 +201,13 @@ impl ServiceContext {
             }
         }
         self.clear_neighbor_friend_restore_grants(uid, friendship);
-        settings.bindings.remove(friendship);
-        settings.initial_contexts.remove(friendship);
-        let mut first_error = metadata
-            .save_settings(settings)
-            .await
-            .err()
-            .map(|error| error.to_string());
+        if let Some(mut settings) = settings {
+            settings.bindings.remove(friendship);
+            settings.initial_contexts.remove(friendship);
+            if let Err(error) = metadata.save_settings(settings).await {
+                first_error.get_or_insert_with(|| error.to_string());
+            }
+        }
         if first_error.is_none() {
             if let Err(error) = self
                 .reconcile_neighbor_handling_restore(metadata, friendship, generation)
@@ -212,7 +216,14 @@ impl ServiceContext {
                 first_error = Some(error.to_string());
             }
         }
-        targets.sort_by_key(|id| root.as_ref() == Some(id));
+        targets.sort_by_key(|id| {
+            root.as_ref() == Some(id)
+                || snapshot
+                    .tabs
+                    .get(id)
+                    .and_then(|tab| tab.neighbor_authority.as_ref())
+                    .is_some_and(|authority| authority.root_tab_id.is_none())
+        });
         for id in targets {
             self.require_neighbor_generation(generation)?;
             if self.mux.read().get_tab(&id).is_some() {

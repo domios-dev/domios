@@ -577,3 +577,84 @@ async fn retirement_finishes_active_handling_without_erasing_the_incoming_messag
     assert_eq!(page["entries"][0]["body"], "opaque retained conversation");
     assert_eq!(page["entries"][0]["handling_state"], "failed");
 }
+
+#[tokio::test]
+async fn signout_metadata_failures_still_retire_current_account_agents_and_credentials() {
+    for fail_save in [false, true] {
+        let data = tempfile::tempdir().unwrap();
+        let (fixture, metadata, _, root, child, other_friend) = fixture(data.path()).await;
+        let service = &fixture.service;
+        let foreign = service
+            .mux
+            .read()
+            .snapshot()
+            .tabs
+            .iter()
+            .find_map(|(id, tab)| {
+                tab.neighbor_authority
+                    .as_ref()
+                    .filter(|authority| authority.uid == "other-owner")
+                    .map(|_| id.clone())
+            })
+            .unwrap();
+        let root_token = service.mint_tab_credential(&root, "root-nonce").unwrap();
+        let child_token = service.mint_tab_credential(&child, "child-nonce").unwrap();
+        let foreign_token = service
+            .mint_tab_credential(&foreign, "foreign-nonce")
+            .unwrap();
+        let original = serde_json::to_value(metadata.settings().await.unwrap()).unwrap();
+        let session = codeterm_account::Session {
+            login_generation: 0,
+            identity: codeterm_account::Identity {
+                uid: "owner".into(),
+                provider: "hosted-fixture".into(),
+                display_name: None,
+                email: None,
+                photo_url: None,
+            },
+            id_token: codeterm_account::Secret::new("opaque"),
+            expires_at: None,
+        };
+        let error = if fail_save {
+            let failing = metadata.clone().with_failed_settings_save_for_test();
+            service
+                .queue_neighbor_logout_with_metadata(&session, &failing)
+                .await
+                .unwrap_err()
+        } else {
+            metadata
+                .write("settings.json".into(), json!({"invalid_settings":true}))
+                .await
+                .unwrap();
+            service.queue_neighbor_logout(&session).await.unwrap_err()
+        };
+        assert!(error.contains(&Error::CursorStore.to_string()));
+        assert!(service.identify_tab_credential(&root_token).is_none());
+        assert!(service.identify_tab_credential(&child_token).is_none());
+        assert!(service.identify_tab_credential(&foreign_token).is_some());
+        let mux = service.mux.read();
+        assert!(mux.get_tab(&foreign).is_some());
+        let workspace = mux.find_workspace_for_tab(&foreign).unwrap();
+        let closed = mux.list_recently_closed(&workspace);
+        for id in [&root, &child, &other_friend] {
+            assert!(mux.get_tab(id).is_none());
+            assert_eq!(closed.iter().filter(|entry| &entry.tab_id == id).count(), 1);
+        }
+        drop(mux);
+        if fail_save {
+            assert_eq!(
+                serde_json::to_value(metadata.settings().await.unwrap()).unwrap(),
+                original
+            );
+        } else {
+            assert_eq!(
+                metadata
+                    .read::<Value>("settings.json".into())
+                    .await
+                    .unwrap()
+                    .unwrap(),
+                json!({"invalid_settings":true})
+            );
+        }
+    }
+}
