@@ -42,6 +42,14 @@ impl ServiceContext {
     }
 
     pub(super) async fn prepare_neighbor_gateway(&self, tab_id: &str) -> Result<()> {
+        let friendship = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.neighbor_authority.as_ref())
+            .map(|authority| authority.friendship_id.clone())
+            .ok_or(Error::ReceivingElsewhere)?;
+        self.require_neighbor_concierge_receiver(&friendship)?;
         self.validate_neighbor_gateway(tab_id)
             .map_err(|_| Error::Gateway)?;
         let service = self.clone();

@@ -411,6 +411,7 @@ fn neighbor_failure(message: String) -> Response {
         Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(
             "receiver_elsewhere"
+            | "receiving_elsewhere"
             | "friendship_ended"
             | "reply_target_stopped"
             | "receiver_revision_stale"

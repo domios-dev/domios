@@ -69,6 +69,12 @@ fn sandbox_label(
 }
 
 impl ServiceContext {
+    pub(super) fn clear_neighbor_friend_restore_grants(&self, uid: &str, friendship: &str) {
+        self.neighbor_cell()
+            .restore_grants
+            .lock()
+            .retain(|_, grant| grant.uid != uid || grant.friendship != friendship);
+    }
     pub(super) fn clear_neighbor_restore_grants(&self, uid: &str) {
         self.neighbor_cell()
             .restore_grants
@@ -114,6 +120,10 @@ impl ServiceContext {
         if params.neighbor_authority.is_none() {
             return Ok(());
         }
+        self.require_neighbor_concierge_receiver(
+            &params.neighbor_authority.as_ref().unwrap().friendship_id,
+        )
+        .map_err(|error| error.to_string())?;
         let matches = self
             .mux
             .read()
@@ -142,6 +152,8 @@ impl ServiceContext {
         let Some(authority) = &tab.neighbor_authority else {
             return Ok(());
         };
+        self.require_neighbor_concierge_receiver(&authority.friendship_id)
+            .map_err(|error| error.to_string())?;
         let root = authority.root_tab_id.as_deref().unwrap_or(tab_id);
         let nonce = mux
             .get_tab(root)

@@ -75,6 +75,8 @@ impl ServiceContext {
                 .ok_or(DENIED)?,
         };
         let settings = metadata.settings().await.map_err(|_| DENIED)?;
+        self.require_neighbor_concierge_receiver(&friendship)
+            .map_err(|error| error.to_string())?;
         let root = {
             let mux = self.mux.read();
             let tab = mux.get_tab(caller.ok_or(DENIED)?).ok_or(DENIED)?;

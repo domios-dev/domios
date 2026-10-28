@@ -141,6 +141,7 @@ async fn restored_bound_pty_concierge_wakes_and_becomes_ready_without_ui_activat
     concierge.boot_stage = Some(codeterm_types::pty::BootStage::PtyStarting);
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
+    service.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friend = "a".repeat(64);
     let mut settings = crate::service::neighbors::storage::Settings::default();

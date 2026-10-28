@@ -384,6 +384,10 @@ impl ServiceContext {
         } else {
             self.neighbor_capability_permission_in(&settings, caller, require_attested)?
         };
+        if let Some((friendship, _)) = &result {
+            self.require_neighbor_concierge_receiver(friendship)
+                .map_err(|error| error.to_string())?;
+        }
         if result.is_none()
             && self
                 .neighbor_cell()
