@@ -99,6 +99,14 @@ Retain desktop/phone friend-window and conversation screenshots useful to visual
 
 The later owner grant adds a receiving-machine switch after the main rows and before sign-out. The owner starts standard DEV 7686 on the same candidate; this specific drill is an exception to the named-instance restriction, not permission to build or alter the populated standard desk. Sign that installation into B's QA account. Verify it initially names B as receiver and presents an explicit takeover warning. Take over there, verify B stops receiving while retaining its concierge, then send one new A question. Require the standard installation's missing-concierge/waiting count, real General setup, one admitted answer, and no replay. Switch back to B explicitly and compare each machine's received history and authority. Also use controlled fixtures to prove ordinary Mesh tab list/send between the same-account installations; concierge relay denial must not disable normal Mesh. Preserve standard's unrelated tabs and data. Record any extra installation, network or key grant still needed for other lifecycle cases separately.
 
+### Named-pad replies, retained failures and per-friend pause
+
+Exercise native named-pad replies through the real bound concierge; the CLI's own-pad resolution is part of the product path. A documented stdin variant is a separate qualified interface and cannot erase a named-pad failure. Do not retry the original failed reply to manufacture a successful exchange; use a distinct later question when the variant is explicitly authorized.
+
+When a maximum-size envelope was accepted by the relay but rejected before receiver admission, retain its inbox document and cursor. A fixed build must catch that exact id up once, with the original body hash and ACK/deletion, without resending. Record old-sender/new-receiver provenance separately from a fresh same-candidate boundary row.
+
+After the main harness rows and before receiving-machine/sign-out, use the shipped pause UI on one friendship. Compare my_paused/their_paused on both peers; a fresh request to the paused recipient must receive recipient_paused without inbox admission, and its concierge must stay muted without losing saved history, keys or permissions. Resume explicitly, prove one new successful exchange and no replay, and restore the original pause state. A global Neighbors-off row does not substitute for per-friend pause.
+
 ## Oracle
 
 PASS — Every selected subcase has fresh exact-candidate own-session and far-end proof, positive control, zero leak count, correct admission/ack/delete order, cursor/order/dedup preservation, key revocation/takeover enforcement and unpaid refusal, with owned cleanup.
