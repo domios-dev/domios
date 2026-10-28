@@ -112,9 +112,25 @@ async fn fixture(
     fixture
         .service
         .remember_neighbor_concierge_accounts("owner", &settings);
-    metadata.write(format!("history-{friend}.json"),serde_json::json!({"entries":[{"direction":"in","author":"friend","sender_uid":"peer","body":"opaque retained conversation","at":1,"message_id":"b".repeat(32),"kind":"question","handling_state":"no_reply"}]})).await.unwrap();
+    let history = crate::service::neighbors::history::History {
+        entries: vec![serde_json::from_value(serde_json::json!({"direction":"in","author":"friend","sender_uid":"peer","body":"opaque retained conversation","at":1,"message_id":"b".repeat(32),"kind":"question","handling_state":"no_reply"})).unwrap()],
+        ..Default::default()
+    };
+    metadata
+        .write(format!("history-{friend}.json"), history)
+        .await
+        .unwrap();
     fixture.install_seeded_storage_desk();
     (fixture, metadata, friend, root, child, other_friend)
+}
+
+async fn persist_desk(service: &ServiceContext) {
+    let service = service.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::service::session_persist::write_session_snapshot(&service, &service.mux).unwrap();
+    })
+    .await
+    .unwrap();
 }
 
 async fn regain(
@@ -156,7 +172,7 @@ async fn regain(
                         tab.session_binding_nonce = Some(format!("fresh-nonce-{id}"));
                         tab.cwd = Some(cwd);
                         drop(mux);
-                        fixture.install_seeded_storage_desk();
+                        persist_desk(service).await;
                         Ok(id)
                     },
                 )
@@ -358,17 +374,25 @@ async fn nonreceiver_bind_apply_create_and_ensure_refuse_before_network_or_new_t
 #[tokio::test]
 async fn cold_nonreceiver_boot_cannot_materialize_and_retirement_survives_another_restart() {
     let data = tempfile::tempdir().unwrap();
-    let (original, _, friend, root, child, _) = fixture(data.path()).await;
+    let (original, original_metadata, friend, root, child, _) = fixture(data.path()).await;
+    let settings = original_metadata.settings().await.unwrap();
+    let history = original_metadata.history(&friend).await.unwrap();
     let snapshot = serde_json::to_vec(&original.service.mux.read().to_session_snapshot()).unwrap();
     drop(original);
     let snapshot = serde_json::from_slice(&snapshot).unwrap();
+    let restored_data = tempfile::tempdir().unwrap();
     let restored = ServiceFixture::new_at(
         MultiplexerState::from_session_snapshot(&snapshot),
-        data.path(),
+        restored_data.path(),
     );
     restored.install_seeded_storage_desk();
     let service = &restored.service;
     let metadata = Metadata::new(service.account_data_root().unwrap(), "owner");
+    metadata.save_settings(settings).await.unwrap();
+    metadata
+        .write(format!("history-{friend}.json"), history)
+        .await
+        .unwrap();
     for id in [&root, &child] {
         service.mux.write().get_tab_mut(id).unwrap().frozen = true;
         let _boundary = crate::service::lazy_restore::test_boundary::Boundary::install(
@@ -393,11 +417,21 @@ async fn cold_nonreceiver_boot_cannot_materialize_and_retirement_survives_anothe
         .await
         .unwrap();
     let snapshot = service.mux.read().to_session_snapshot();
+    let settings = metadata.settings().await.unwrap();
+    let history = metadata.history(&friend).await.unwrap();
     drop(restored);
+    let again_data = tempfile::tempdir().unwrap();
     let again = ServiceFixture::new_at(
         MultiplexerState::from_session_snapshot(&snapshot),
-        data.path(),
+        again_data.path(),
     );
+    again.install_seeded_storage_desk();
+    let again_metadata = Metadata::new(again.service.account_data_root().unwrap(), "owner");
+    again_metadata.save_settings(settings).await.unwrap();
+    again_metadata
+        .write(format!("history-{friend}.json"), history)
+        .await
+        .unwrap();
     assert!(!again
         .service
         .mux
@@ -411,10 +445,7 @@ async fn cold_nonreceiver_boot_cannot_materialize_and_retirement_survives_anothe
             .is_some_and(
                 |authority| authority.uid == "owner" && authority.friendship_id == friend
             )));
-    let saved = Metadata::new(again.service.account_data_root().unwrap(), "owner")
-        .settings()
-        .await
-        .unwrap();
+    let saved = again_metadata.settings().await.unwrap();
     assert!(!saved.bindings.contains_key(&friend));
     assert!(saved.dormant_concierges.contains_key(&friend));
 }
@@ -516,7 +547,7 @@ async fn receiver_loss_during_replacement_cannot_publish_or_keep_a_live_concierg
                     tab.cwd = Some(cwd);
                     id
                 };
-                fixture.install_seeded_storage_desk();
+                persist_desk(service).await;
                 service.set_neighbor_friend_receiver_for_test(&friend, Some(false), 2);
                 Ok(id)
             },
