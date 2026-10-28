@@ -23,8 +23,10 @@ const hostApi: BlueprintProjectApi = {
 type Entry = BlueprintProjectEntry & { workspaceId: string };
 
 /** The selected workspaces' repository Blueprints as read-only rows; opening one shows its source definition. */
-export function BlueprintProjectList({ workspaceIds, workspaceName = (id) => id, api = hostApi, onClose }: {
+export function BlueprintProjectList({ workspaceIds, workspaceName = (id) => id, api = hostApi, onClose, embedded = false }: {
   workspaceIds: readonly string[]; workspaceName?: (id: string) => string; api?: BlueprintProjectApi; onClose?: () => void;
+  /** Inside the Import Blueprint card: the rows without a card of their own. */
+  embedded?: boolean;
 }) {
   const [entries, setEntries] = useState<readonly Entry[] | null>(null);
   const [view, setView] = useState<BlueprintProjectView | null>(null);
@@ -44,13 +46,7 @@ export function BlueprintProjectList({ workspaceIds, workspaceName = (id) => id,
   };
   const several = workspaceIds.length > 1;
   const pipeline = view ? pipelineModel({ id: view.path, name: view.document.name, state: "idle", run_id: null, current_step: null, last_event_at_ms: null, call_graph: view.document }) : null;
-  return <section aria-label="Repository Blueprints" className="ct-card ct-card--static" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}>
-    <div className="ct-card__head">
-      <span className="ct-card__icon" aria-hidden="true"><FolderGit2 size={14} /></span>
-      <h3 className="ct-detail__heading">Repository Blueprints</h3>
-      {onClose && <button type="button" className={`${AUTOMATION_TOOL} ml-auto`} onClick={onClose}>Close</button>}
-    </div>
-    <div className="ct-card__body ct-job-section__body">
+  const body = <>
       {view ? <section aria-label={`Repository source ${view.path}`} className="flex min-w-0 flex-col gap-3">
         <BackPill label="Repository Blueprints" onBack={() => setView(null)} />
         {view.document.intent && <p className="ct-job-note">{view.document.intent}</p>}
@@ -66,6 +62,14 @@ export function BlueprintProjectList({ workspaceIds, workspaceName = (id) => id,
           type="Repository Blueprint" tone="blueprint" state={entry.error ? "Unreadable" : "Source"} actionItems={[]}
           onOpen={() => { if (!entry.error && !busy) void open(entry); }} onTriggerRef={() => {}} error={null} />)}</ul>}
       {error != null && <InlineErrorNotice error={error} operation="reading repository Blueprints" blocking />}
+  </>;
+  if (embedded) return <section aria-label="Repository Blueprints" className="flex min-w-0 flex-col gap-2">{body}</section>;
+  return <section aria-label="Repository Blueprints" className="ct-card ct-card--static" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}>
+    <div className="ct-card__head">
+      <span className="ct-card__icon" aria-hidden="true"><FolderGit2 size={14} /></span>
+      <h3 className="ct-detail__heading">Repository Blueprints</h3>
+      {onClose && <button type="button" className={`${AUTOMATION_TOOL} ml-auto`} onClick={onClose}>Close</button>}
     </div>
+    <div className="ct-card__body ct-job-section__body">{body}</div>
   </section>;
 }

@@ -24,9 +24,7 @@ import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { HostBlueprintView } from "../Automation/blueprint/HostBlueprintView";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
-import { DropdownMenu } from "../shared/DropdownMenu";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import { BlueprintProjectList } from "./BlueprintProjectList";
 import { BlueprintImportForm } from "./BlueprintImportForm";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
 import { cronMeta, JobRow, sentinelRowText, sentinelStateLabel } from "./JobRow";
@@ -338,7 +336,6 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
   const peers = machinePeers ?? machines.peers;
   const [machineId, setMachineId] = useState(jobsEntryState({ kind: "machine" }).machineId);
   const [importOpen, setImportOpen] = useState(false);
-  const [repositoryOpen, setRepositoryOpen] = useState(false);
   const workspaceName = (id: string) => workspaces.find((workspace) => workspace.id === id)?.name ?? id;
   const [detailOpen, setDetailOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
@@ -363,10 +360,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
       <JobsMachineFilter value={machineId} peers={peers} onChange={changeMachine} />
       <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <DropdownMenu menuLabel="Import Blueprint" items={[
-          { label: "From file…", onClick: () => { setRepositoryOpen(false); setImportOpen(true); } },
-          { label: "From repository…", disabled: sources.length === 0, onClick: () => { setImportOpen(false); setRepositoryOpen(true); } },
-        ]} trigger={<button type="button" className={AUTOMATION_TOOL}><Plus size={12} aria-hidden="true" />Import Blueprint</button>} />
+        <button type="button" className={AUTOMATION_TOOL} aria-expanded={importOpen} onClick={() => setImportOpen(true)}><Plus size={12} aria-hidden="true" />Import Blueprint</button>
         <button ref={clearStoppedButton} type="button" className={AUTOMATION_TOOL} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
           Clear stopped{clearState.count > 0 && <span className="text-[var(--ct-fg)]">{clearState.count}</span>}
         </button>
@@ -374,8 +368,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {machines.failed && machinePeers === undefined && <p role="status" className="px-4 py-2">Paired machine list unavailable.</p>}
-      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: `${tab.title} (${teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id})` }))} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
-      {repositoryOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintProjectList workspaceIds={sources} workspaceName={workspaceName} onClose={() => setRepositoryOpen(false)} /></div>}
+      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: tab.title, group: teams.find((team) => team.id === tab.team_id)?.name ?? tab.team_id ?? undefined }))} workspaceIds={sources} workspaceName={workspaceName} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />

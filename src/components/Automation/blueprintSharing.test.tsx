@@ -44,8 +44,10 @@ async function main() {
   await act(async () => root.render(<BlueprintImportForm creators={[{ id: "scratch-creator", label: "Scratch Team" }]} onCreated={() => { created++; }} onCancel={() => undefined} api={api} />));
   const fileInput = host.querySelector<HTMLInputElement>('input[type="file"]');
   assert(fileInput);
-  Object.defineProperty(fileInput, "files", { configurable: true, value: [{ size: 100, text: async () => source }] });
+  assert(host.textContent?.includes("No file chosen"), "the styled picker speaks English before a choice");
+  Object.defineProperty(fileInput, "files", { configurable: true, value: [{ name: "watcher.yaml", size: 100, text: async () => source }] });
   await act(async () => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
+  assert(host.textContent?.includes("watcher.yaml"), "the picker shows the chosen file's name");
   const field = host.querySelector<HTMLInputElement>('input:not([type="file"])');
   assert(field, "placeholder field must be presented");
   assert(host.querySelector(`label[for="${field.id}"]`));
