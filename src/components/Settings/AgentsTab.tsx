@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useCallback, useEffect } from "react";
 import { Bot, ChevronRight, FolderTree, Server, Eye, Timer } from "lucide-react";
@@ -42,7 +42,7 @@ export function AgentsOverview({
     <div className="flex flex-col gap-3" data-testid="settings-agents-overview">
       <SettingsCard icon={<Server size={16} />} title="Providers" description="Installed as plugins from Extensions.">
         {error && providers.length === 0 && <InlineErrorNotice error={error} operation="loading agent providers" />}
-        {loading && providers.length === 0 && <RegionLoader label="Loading providers" className="min-h-40" />}
+        {loading && providers.length === 0 && <Loader label="Loading providers" />}
         <div className="ct-rows !p-0">
           {providers.map((p) => (
             <button
@@ -139,7 +139,7 @@ export function AgentProviderScreen({
     return <InlineErrorNotice error={error} operation="loading agent providers" />;
   }
   if (loading && !provider) {
-    return <RegionLoader label="Loading provider" className="min-h-40" />;
+    return <Loader label="Loading provider" />;
   }
   if (!provider) {
     // Transient: the pop effect above will unmount us on the next tick.

@@ -4,7 +4,7 @@ import { MachineSessionControls } from "./MachineSessionControls";
 import { RefreshCw } from "lucide-react";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { BusySpinner, BusyState } from "../shared/BusyState";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { SettingsPill } from "../Settings/shared";
 import type { MachineRowView, MachineStatus, SelfRowView } from "./accountMachines";
 import { failureMessage } from "./accountMachines";
@@ -135,7 +135,7 @@ export function MachineManagement({ machines }: { machines: MachinesController }
             <p role="status" className={UI_TEXT.meta}>My machines could not be loaded.</p>
             {refresh}
           </div>
-        ) : <RegionLoader label="Loading your machines" className="min-h-40" />}
+        ) : <Loader variant="compact" label="Loading your machines" />}
       </section>
     );
   }

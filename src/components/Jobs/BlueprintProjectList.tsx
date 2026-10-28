@@ -9,6 +9,7 @@ import { BlueprintProjectionValue } from "../Automation/BlueprintProjectionValue
 import { AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
 import { BackPill } from "../shared/BackPill";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { Loader } from "../shared/Loader";
 import { JobRow } from "./JobRow";
 
 export interface BlueprintProjectApi {
@@ -54,7 +55,7 @@ export function BlueprintProjectList({ workspaceIds, workspaceName = (id) => id,
         {pipeline && <BlueprintView pipeline={pipeline} headingLevel={3} />}
         <BlueprintProjectionValue value={view.document} label="Source definition" />
       </section>
-        : entries === null ? error == null && <p role="status" className="ct-job-note">Reading repository Blueprints…</p>
+        : entries === null ? error == null && <Loader variant="compact" label="Reading repository Blueprints…" />
         : entries.length === 0 ? <p className="ct-job-note">No Blueprints in {several ? "these repositories" : "this repository"}.</p>
         : <ul aria-label="Repository Blueprint list" className="flex flex-col gap-2">{entries.map((entry) => <JobRow key={`${entry.workspaceId}:${entry.path}`}
           jobKey={`repository:${entry.workspaceId}:${entry.path}`} icon={<FileCode2 size={15} aria-hidden="true" />} name={entry.name ?? entry.path}

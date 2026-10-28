@@ -68,7 +68,7 @@ export interface BusySpinnerProps {
 }
 
 /** Spins a control's own icon while its action runs, such as Refresh. Anything else that waits shows the dots
- *  (BusyState, RegionLoader, a Button's `loading`), never a separate spinner. */
+ *  (BusyState, a Button's `loading`) or, for a whole area, Loader; never a separate spinner. */
 export function BusySpinner({ spinning = true, size = 14, className, style, icon: Icon }: BusySpinnerProps) {
   return <Icon size={size} className={`${spinning ? "animate-spin ct-busy-spinner" : ""} ${className ?? ""}`.trim()} style={style} />;
 }

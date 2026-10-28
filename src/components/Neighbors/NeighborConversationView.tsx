@@ -9,7 +9,7 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { ChatDeliveryState } from "../Terminal/ChatDeliveryState";
 import { UI_PANEL } from "../shared/design";
 import { ActivityDots } from "../shared/ActivityDots";
@@ -293,7 +293,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     }}>
       <div className="neighbor-chat__column" role="log" aria-label={`Conversation with ${name}`}>
         {before && <div className="neighbor-chat__earlier"><Button size="sm" onClick={() => { void loadEarlier(); }}>Show earlier messages</Button></div>}
-        {entries === null && !historyFailure && <RegionLoader label="Loading the conversation" className="min-h-48" />}
+        {entries === null && !historyFailure && <Loader label="Loading the conversation" />}
         {entries === null && historyFailure && <InlineErrorNotice error={historyFailure} operation={`loading your conversation with ${name}`}
           actions={[{ label: "Retry", onClick: retryHistory }]} />}
         {entries !== null && entries.length === 0 && pendingSends.length === 0 && !error && <div className="neighbor-chat__empty">
