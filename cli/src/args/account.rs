@@ -35,6 +35,24 @@ pub enum NeighborAction {
     },
     /// List friendships, local scopes and pending incoming/outgoing requests
     List,
+    /// Set this friend's incoming request cap per hour (owner or General)
+    SetLimit {
+        friendship_id: String,
+        #[arg(long)]
+        per_hour: u16,
+    },
+    /// Set daily incoming messages; null removes the per-friend daily cap
+    SetDailyLimit {
+        friendship_id: String,
+        #[arg(long)]
+        daily_limit: NeighborLimit,
+    },
+    /// Set daily incoming file bytes; null restores the 50 MiB default
+    SetFileDailyLimit {
+        friendship_id: String,
+        #[arg(long)]
+        file_daily_limit_bytes: NeighborLimit,
+    },
     /// Show local channel enrollment and gateway bindings
     Status,
     /// Receive Neighbors on this machine; other machines stop receiving
@@ -81,4 +99,25 @@ pub enum NeighborAction {
     },
     /// Read pending, delivered or not_delivered from the relay receipt
     DeliveryStatus { message_id: String },
+}
+
+#[derive(Clone, Debug)]
+pub enum NeighborLimit {
+    Default,
+    Value(u64),
+}
+
+impl std::str::FromStr for NeighborLimit {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        if value == "null" {
+            Ok(Self::Default)
+        } else {
+            value
+                .parse()
+                .map(Self::Value)
+                .map_err(|_| "Expected a non-negative integer or null".into())
+        }
+    }
 }

@@ -182,3 +182,86 @@ fn flag_parses_bounded_metadata_and_never_authors_a_reply() {
     )
     .is_err());
 }
+
+#[test]
+fn all_friend_limits_parse_and_route_to_their_own_authorized_endpoint() {
+    for (leaf, flag, field, path, operation, values) in [
+        (
+            "set-limit",
+            "--per-hour",
+            "per_hour",
+            "/api/account/neighbors",
+            "set_limit",
+            vec!["2", "65535"],
+        ),
+        (
+            "set-daily-limit",
+            "--daily-limit",
+            "daily_limit",
+            "/api/account/neighbors/runtime",
+            "set_daily_limit",
+            vec!["2", "null"],
+        ),
+        (
+            "set-file-daily-limit",
+            "--file-daily-limit-bytes",
+            "file_daily_limit_bytes",
+            "/api/account/neighbors/files",
+            "set_daily_limit",
+            vec!["0", "52428800", "null"],
+        ),
+    ] {
+        for value in values {
+            let cli = Cli::try_parse_from([
+                "domios",
+                "account",
+                "neighbors",
+                leaf,
+                "opaque-friend",
+                flag,
+                value,
+                "--json",
+            ])
+            .unwrap();
+            let crate::Commands::Account {
+                action: crate::args::account::AccountAction::Neighbors { action },
+            } = cli.command
+            else {
+                panic!("wrong command")
+            };
+            let (actual_path, body) = super::request(action);
+            assert_eq!(actual_path, path);
+            let mut expected =
+                serde_json::json!({"operation":operation,"friendship_id":"opaque-friend"});
+            expected[field] = serde_json::from_str::<serde_json::Value>(value).unwrap();
+            assert_eq!(body, expected);
+        }
+        for invalid in ["-1", "1.5", "false", "overflow18446744073709551616"] {
+            assert!(Cli::try_parse_from([
+                "domios",
+                "account",
+                "neighbors",
+                leaf,
+                "opaque-friend",
+                flag,
+                invalid
+            ])
+            .is_err());
+        }
+        assert!(
+            Cli::try_parse_from(["domios", "account", "neighbors", leaf, "opaque-friend"]).is_err()
+        );
+    }
+    for invalid in ["null", "65536"] {
+        assert!(Cli::try_parse_from([
+            "domios",
+            "account",
+            "neighbors",
+            "set-limit",
+            "opaque-friend",
+            "--per-hour",
+            invalid
+        ])
+        .is_err());
+    }
+}

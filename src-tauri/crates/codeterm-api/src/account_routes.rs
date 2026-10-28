@@ -236,6 +236,7 @@ pub async fn neighbors(
             if matches!(
                 &command,
                 codeterm_service_core::service::neighbors::NeighborCommand::List {}
+                    | codeterm_service_core::service::neighbors::NeighborCommand::SetLimit { .. }
             ) =>
         {
             state

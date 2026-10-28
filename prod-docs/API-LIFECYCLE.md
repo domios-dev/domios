@@ -47,11 +47,11 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/account/billing` | Run an account billing operation. |
 | POST | `/api/account/callback` | Complete account sign-in with the verified callback. |
 | POST | `/api/account/gift/redeem` | Local signed-in redemption: `{key, expected_uid}`; returns the server plan, duration and expiry receipt after signed entitlement refresh. No key generation. |
-| POST | `/api/account/neighbors` | Manage account Neighbor channels. |
+| POST | `/api/account/neighbors` | Local owner manages channels; authenticated General may list or set_limit {friendship_id,per_hour}, but cannot request/respond/remove. |
 | POST | `/api/account/neighbors/enabled` | Turn Neighbors on or off on this machine (`{"enabled": bool}`); off stops receiving and sending until turned back on. |
 | POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. |
 | POST | `/api/account/neighbors/read` | Local owner UI only: mark a friend's messages read up to `through_message_id` (`{friendship_id, through_message_id}`). |
-| POST | `/api/account/neighbors/files` | Owner/General manage files. `{"operation":"open","friendship_id":"...","file_id":"...","launch":false}` resolves a saved incoming file with the usual authorization/path checks and returns `{"opened":false,"path":"<absolute path>"}` without launching. Absent/true launches as before, returning `{"opened":true}`. A bound authorized concierge always resolves metadata/path without launching. Other operations: send, list, open_folder, usage, set_daily_limit (NEIGHBORS). |
+| POST | `/api/account/neighbors/files` | Owner/General manage files; bound concierges may resolve permitted saved handles. Payloads below. |
 | POST | `/api/analytics/consent` | Set analytics consent. |
 | POST | `/api/analytics/event` | Record an admitted typed analytics event. |
 | POST | `/api/app/quit` | Submit the exact Quit snapshot. |
@@ -79,6 +79,28 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/manifest-bootstrap` | Establish the web manifest bootstrap credential. |
 | PUT | `/api/frontend/clients/{id}/checkpoint` | Save a frontend client checkpoint. |
 
+## Neighbor payloads
+
+Every file request includes `operation` from the table and `friendship_id`. Local list/open do not contact the relay. Settings and sender/recipient quota semantics: NEIGHBORS.
+
+`POST /api/account/neighbors/files` operations:
+
+| Operation | Request/result |
+|---|---|
+| send | `{friendship_id,kind,body,in_reply_to:null,paths:["absolute local path"]}` seals/uploads/finalizes files before encrypted send; receipt has public attachments. |
+| list | `{friendship_id}` -> `{folder,files}` for owner/General. Rows: file_id,message_id,name,mime,size_bytes,direction,state; incoming state downloading/saved/failed/expired. |
+| open | `{friendship_id,file_id}`: owner/General launches saved incoming files; `launch:false` resolves only. Concierge returns metadata/path. |
+| open_folder | `{friendship_id}` opens friend folder for owner/General. |
+| usage | `{friendship_id}` -> quota.friend/quota.sender with limit_bytes,used_bytes,resets_at; sender also limit_files,used_files. Read on page open/after send, never timer. |
+| set_daily_limit | `{friendship_id,file_daily_limit_bytes:null}` sets inbound limit for owner/General; friend rows expose my_file_daily_limit_bytes,their_file_daily_limit_bytes. |
+
+For open, owner/General `launch:false` returns `{opened:false,path:"<absolute path>"}` without an OS launch, with the usual authorization/path checks; absent/true returns `{opened:true}` after launching. A permitted bound concierge always resolves saved-file metadata/path without launching.
+
+| Neighbor protocol | Payload |
+|---|---|
+| Read relay/signal | Recipient `friendsRead {installation_id,friendship_id,through_message_id}` emits `message_read {schema_version:1,revision,event_id,request_id:null,friendship_id,message_id,at}`; anchor=message_id, server Unix milliseconds=at. No text/files/manifest/key. Sender marks through anchor read; status catch-up restores missed read times. |
+| Runtime flag_message | Runtime `{operation:"flag_message",friendship_id,message_id,category,reason}` returns `{friendship_id,message_id,flag:{category,reason,by,at},created}`; by=concierge/tab/owner, at=Unix seconds. |
+
 ## Provider lifecycle ingress
 
 Provider hook bodies and nonce admission: API-TABS.
@@ -92,4 +114,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

@@ -63,24 +63,37 @@ fn commands() -> [Value; 7] {
 }
 
 #[tokio::test]
-async fn only_general_may_read_registry_and_registry_mutations_remain_owner_only() {
+async fn only_general_may_list_and_set_hourly_limit_while_other_registry_mutations_stay_owner_only()
+{
     let (_fixture, state, _, _, general, other) = fixture();
     let router = crate::routes::create_router(state);
     for (token, operation, status) in [
         (general.as_str(), "list", StatusCode::SERVICE_UNAVAILABLE),
         (other.as_str(), "list", StatusCode::FORBIDDEN),
+        (
+            general.as_str(),
+            "set_limit",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        (other.as_str(), "set_limit", StatusCode::FORBIDDEN),
+        (general.as_str(), "request", StatusCode::FORBIDDEN),
+        (general.as_str(), "respond", StatusCode::FORBIDDEN),
         (general.as_str(), "remove", StatusCode::FORBIDDEN),
     ] {
-        let command = if operation == "list" {
-            json!({"operation":"list"})
-        } else {
-            json!({"operation":"remove","friendship_id":"a".repeat(64)})
+        let command = match operation {
+            "list" => json!({"operation":"list"}),
+            "set_limit" => {
+                json!({"operation":"set_limit","friendship_id":"a".repeat(64),"per_hour":2})
+            }
+            "request" => json!({"operation":"request","email":"peer@example.test"}),
+            "respond" => json!({"operation":"respond","request_id":"opaque","accept":true}),
+            _ => json!({"operation":"remove","friendship_id":"a".repeat(64)}),
         };
         let mut request = request(token, &command);
         *request.uri_mut() = "/api/account/neighbors".parse().unwrap();
         let response = router.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), status);
-        if operation == "list" && token == general {
+        if matches!(operation, "list" | "set_limit") && token == general {
             let body = to_bytes(response.into_body(), 4096).await.unwrap();
             assert_eq!(
                 std::str::from_utf8(&body).unwrap(),
