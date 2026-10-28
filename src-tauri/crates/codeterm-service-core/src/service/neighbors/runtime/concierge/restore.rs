@@ -37,6 +37,8 @@ impl ServiceContext {
         let Some(tab_id) = settings.bindings.get(friendship) else {
             return Ok(());
         };
+        self.retire_superseded_neighbor_concierges(metadata, uid, friendship, tab_id)
+            .await?;
         self.validate_neighbor_gateway(tab_id)?;
         self.tag_neighbor_root(uid, friendship, tab_id)
             .map_err(|error| error.to_string())?;
@@ -81,6 +83,47 @@ impl ServiceContext {
             .await
             .map_err(|error| error.to_string())?;
         self.remember_neighbor_concierge_accounts(uid, &settings);
+        Ok(())
+    }
+
+    async fn retire_superseded_neighbor_concierges(
+        &self,
+        metadata: &Metadata,
+        uid: &str,
+        friendship: &str,
+        current: &str,
+    ) -> Result<(), String> {
+        let generation = self.neighbor_history_generation();
+        let retired: Vec<_> = self
+            .mux
+            .read()
+            .snapshot()
+            .tabs
+            .iter()
+            .filter_map(|(id, tab)| {
+                (id.as_str() != current
+                    && tab.neighbor_authority.as_ref().is_some_and(|authority| {
+                        authority.uid == uid
+                            && authority.friendship_id == friendship
+                            && authority.root_tab_id.is_none()
+                    }))
+                .then(|| id.clone())
+            })
+            .collect();
+        for tab in retired {
+            self.require_neighbor_history_generation(generation)
+                .map_err(|error| error.to_string())?;
+            let settings = metadata
+                .settings()
+                .await
+                .map_err(|error| error.to_string())?;
+            if settings.bindings.get(friendship).map(String::as_str) != Some(current) {
+                return Err("Neighbor binding changed during concierge retirement".into());
+            }
+            self.close_tab_async(&tab)
+                .await
+                .map_err(|error| format!("Retiring superseded concierge {tab} failed: {error}"))?;
+        }
         Ok(())
     }
 }
