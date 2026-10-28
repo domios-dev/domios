@@ -1418,8 +1418,16 @@
     border-radius: 0;
   }
 
+  /* The close button keeps the top-right corner instead of wrapping into the action row. */
   .neighbor-window__hero {
-    padding: calc(1rem + var(--ct-safe-top, 0px)) 1rem 0.85rem;
+    position: relative;
+    padding: calc(1rem + var(--ct-safe-top, 0px)) 3rem 0.85rem 1rem;
+  }
+
+  .neighbor-window__close {
+    position: absolute;
+    top: calc(0.75rem + var(--ct-safe-top, 0px));
+    right: 0.75rem;
   }
 
   .neighbor-window__body {
