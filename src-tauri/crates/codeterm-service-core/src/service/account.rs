@@ -48,11 +48,20 @@ impl codeterm_account::IdentityObserver for AnalyticsIdentity {
     async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
         if self
             .0
-            .account_changed(identity.map(|value| value.uid.clone()))
+            .set_user_id(identity.map(|value| value.uid.clone()))
             .await
             .is_err()
         {
             log::debug!("[analytics] identity unavailable");
+            return;
+        }
+        if let Some(auth_provider) = identity
+            .and_then(|value| codeterm_analytics::AuthProvider::from_catalog(&value.provider))
+        {
+            let _ = self
+                .0
+                .record(codeterm_analytics::Event::SignedIn { auth_provider })
+                .await;
         }
     }
 }
@@ -95,11 +104,11 @@ impl super::ServiceContext {
                 let mut observers: Vec<Arc<dyn codeterm_account::IdentityObserver>> =
                     vec![Arc::new(AccountIdentity(self.weak_self()))];
                 if let Ok(worker) = self.analytics_worker().await {
-                    observers.insert(0, Arc::new(AnalyticsIdentity(worker.clone())));
+                    observers.push(Arc::new(AnalyticsIdentity(worker.clone())));
                 }
                 // Mesh is optional: its unavailability never prevents the account from starting.
                 if let Ok(mesh) = self.account_mesh().await {
-                    observers.insert(observers.len().saturating_sub(1), mesh.mesh.clone());
+                    observers.insert(0, mesh.mesh.clone());
                 }
                 #[cfg(not(any(test, feature = "test-support")))]
                 let credential_provider = provider.id().to_owned();
@@ -126,17 +135,6 @@ impl super::ServiceContext {
                     .with_session_admission(Arc::new(logout::SignInAdmission(self.weak_self()))),
                 );
                 let _ = account.refresh().await;
-                if let Some(session) = account.session().await {
-                    if self.sync_product_analytics(&session, None).await.is_err() {
-                        log::debug!("[analytics] consent bridge unavailable");
-                    }
-                } else if let Ok(worker) = self.analytics_worker().await {
-                    if let Ok(ticket) = worker.consent_ticket().await {
-                        if ticket.uid.is_none() && ticket.withdrawals.is_empty() {
-                            let _ = worker.approve_consent(ticket).await;
-                        }
-                    }
-                }
                 #[cfg(not(any(test, feature = "test-support")))]
                 credentials.start_migration(
                     self.secrets.clone(),
@@ -233,11 +231,6 @@ impl super::ServiceContext {
             .map_err(|e| e.to_string());
         self.ui.emit("account-changed", serde_json::Value::Null);
         let status = status?;
-        if let Some(session) = self.account().await?.session().await {
-            if self.sync_product_analytics(&session, None).await.is_err() {
-                log::debug!("[analytics] consent bridge unavailable");
-            }
-        }
         if let Ok(mesh) = self.account_mesh().await {
             mesh.mesh.enrollment_signed_in();
         }

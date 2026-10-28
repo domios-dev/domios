@@ -2,7 +2,6 @@ use super::ServiceContext;
 use codeterm_analytics::{Config, Event, Platform, ProviderId, Role, Version, Worker};
 use std::sync::Arc;
 
-pub(crate) mod bridge;
 pub(crate) mod update_confirm;
 
 pub(crate) struct AnalyticsCell(pub(crate) Arc<tokio::sync::OnceCell<Worker>>);
@@ -33,6 +32,13 @@ pub(crate) fn agent_spawned(provider: Option<&str>, role: Option<&str>) -> Optio
     })
 }
 impl ServiceContext {
+    pub async fn set_product_analytics_consent(
+        &self,
+        consent: codeterm_analytics::Consent,
+    ) -> Result<codeterm_analytics::Status, String> {
+        self.analytics_worker().await?.set_consent(consent).await
+    }
+
     pub fn record_product_event(&self, event: Event) {
         if let Some(worker) = self
             .ext::<crate::service::analytics::AnalyticsCell>()
@@ -104,7 +110,7 @@ impl ServiceContext {
                                 .map_err(|_| "analytics credential unavailable".to_string())
                         })
                     });
-                    let worker = Worker::start_paused(
+                    let worker = Worker::start(
                         crate::paths::data_dir().join("analytics-settings.json"),
                         Config::from_env()?,
                         reader,
