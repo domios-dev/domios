@@ -3,6 +3,7 @@ import re
 import subprocess
 import time
 from pathlib import Path
+from datetime import datetime, timedelta
 
 from release_issue_contract import (
     ContractError, PUBLIC_REPOSITORY, SOURCE_REPOSITORY,
@@ -15,6 +16,42 @@ MAX_COMMITS = 10000
 MAX_REMOTE_CALLS = 1000
 MAX_PR_PAGES = 10
 MAX_JOB_PAGES = 10
+PR_BOUNDARY_MARGIN = timedelta(days=2)
+
+
+def history_date(value):
+    try:
+        date = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if date.tzinfo is not None:
+            return date
+    except (AttributeError, ValueError):
+        pass
+    raise ContractError("closed PR history requires an explicit timestamp with timezone")
+
+
+def included_pull_requests(included, source_sha, boundary_date, request):
+    prs = {}
+    cutoff = history_date(boundary_date) - PR_BOUNDARY_MARGIN if boundary_date else None
+    if not included:
+        return []
+    for page in range(1, MAX_PR_PAGES + 1):
+        batch = request(f"repos/{SOURCE_REPOSITORY}/pulls?state=closed&sort=updated&direction=desc&per_page=100&page={page}")
+        if not isinstance(batch, list):
+            raise ContractError("closed PR inventory is unreadable")
+        dates = [history_date(pr.get("updated_at")) for pr in batch] if cutoff else []
+        for pr in batch:
+            if not pr.get("merged_at") or pr.get("merge_commit_sha") not in included:
+                continue
+            body = pr.get("body") or ""
+            if not re.search(r"(?:Public-Issue:|Repository-Issue:)", body, re.I) and not (
+                    pr["merge_commit_sha"] == source_sha and re.search(
+                        r"^(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+", body, re.I | re.M)):
+                continue
+            prs[pr["number"]] = {"number": pr["number"], "url": pr["html_url"],
+                                 "body": body, "base_ref": pr["base"]["ref"]}
+        if len(batch) < 100 or cutoff and min(dates) < cutoff:
+            return sorted(prs.values(), key=lambda pr: pr["number"])
+    raise ContractError("closed PR inventory exceeds page bound before boundary date")
 
 
 def included_history(version, source_sha, candidates, read_commits, request):
@@ -100,25 +137,12 @@ def included_history(version, source_sha, candidates, read_commits, request):
     if len(commits) > MAX_COMMITS:
         raise ContractError("included commit range exceeds bound")
     included = {commit["sha"] for commit in commits}
-    prs = {}
-    for commit in commits:
-        for page in range(1, MAX_PR_PAGES + 1):
-            batch = remote(f"repos/{SOURCE_REPOSITORY}/commits/{commit['sha']}/pulls?per_page=100&page={page}")
-            for pr in batch:
-                if not pr.get("merged_at") or pr.get("merge_commit_sha") not in included:
-                    continue
-                body = pr.get("body") or ""
-                if not re.search(r"(?:Public-Issue:|Repository-Issue:)", body, re.I) and not (
-                        pr["merge_commit_sha"] == source_sha and re.search(
-                            r"^(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+", body, re.I | re.M)):
-                    continue
-                prs[pr["number"]] = {"number": pr["number"], "url": pr["html_url"],
-                                     "body": body, "base_ref": pr["base"]["ref"]}
-            if len(batch) < 100:
-                break
-        else:
-            raise ContractError("commit PR inventory exceeds page bound")
-    selected_prs = sorted(prs.values(), key=lambda pr: pr["number"])
+    boundary_date = None
+    if start and included:
+        boundary_commit = remote(f"repos/{SOURCE_REPOSITORY}/commits/{start}")
+        boundary_date = ((boundary_commit or {}).get("commit") or {}).get("committer", {}).get("date")
+        history_date(boundary_date)
+    selected_prs = included_pull_requests(included, source_sha, boundary_date, remote)
     resolved = resolve_sources(commits, selected_prs)
     states = {}
     for issue in resolved["issues"]:
