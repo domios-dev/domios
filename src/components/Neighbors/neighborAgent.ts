@@ -34,13 +34,13 @@ export function permissionInterviewTask(subject: NeighborSubject): string {
   const id = subject.friendshipId;
   const apply = id
     ? [
+      `Check \`domios account neighbors status\` for friend_receivers["${id}"]. If unknown, wait for authoritative status; if elsewhere, ask me to choose Receive this friend here in this friend's UI. Do not enroll all friends or bind a manual agent. Saving grants here creates the concierge automatically only while this machine receives this friend.`,
       `Their connection id is ${id}. Write a short, specific scope into your pad and apply it with \`domios account neighbors grant ${id} --from-pad <file>\`; add \`--allow-tab-requests true\` only if I agreed. If I want nothing shared, run \`domios account neighbors deny ${id}\`.`,
-      `If \`domios account neighbors status\` shows no gateway for ${id}, ask which independent agent tab should receive their messages and bind it with \`domios account neighbors bind ${id} --tab <TAB>\`.`,
     ]
-    : ["They have not accepted yet, so there is no connection id. Agree the scope now and keep it in your pad. Once they accept, find their connection id with `domios account neighbors list` and apply it."];
+    : ["They have not accepted yet, so there is no connection id. Agree the scope now and keep it in your pad. Once they accept, find their connection id with `domios account neighbors list`, check that friend's effective receiver, and apply local grants only on the receiving machine."];
   return [
     `I just added ${who(subject)} as a Neighbor in Domios. Set up what they may do. Read \`domios docs NEIGHBORS\` first.`,
-    "Interview me here, one short question at a time: what their agents may ask for, what information may be shared, what is off limits, and whether they may ask to open tabs. Start from deny and keep grants narrow.",
+    "Interview me here, one short question at a time: what their agents may ask for, what information may be shared, what is off limits, and whether they may ask to open tabs. Start from deny and keep grants narrow. Permissions and files stay local to each machine. Gather the grant fields into one Apply; first tell me it restarts this friend's concierge with a fresh session.",
     ...apply,
     "Finish with two lines: what they can do and what they cannot.",
   ].join("\n\n");

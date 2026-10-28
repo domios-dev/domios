@@ -118,7 +118,7 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
 }
 
 export type ReceiverRefusal = "feature_unsupported" | "key_limit" | "key_not_found" | "key_revoked" | "invalid_key" | "entitlements_unavailable" | "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "reply_target_stopped"
-  /** Bind, Apply, ensure and create on a machine that is not this account's Neighbor receiver (HTTP 409). */
+  /** Bind, Apply, ensure and create on a machine that is not this friendship's effective receiver (HTTP 409). */
   | "receiving_elsewhere" | "unavailable";
 /** Proven pre-send refusals that sending the same thing again cannot change, so no Retry is offered:
  *  the owner stopped the request this replies to. */

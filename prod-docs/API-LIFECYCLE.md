@@ -104,11 +104,11 @@ For open, owner/General `launch:false` returns `{opened:false,path:"<absolute pa
 
 ## Per-friend receiving
 
-Owner UI uses `POST /api/account/neighbors/runtime` with `{operation:"set_friend_receiver",friendship_id,receiver_operation:"set"|"reset",takeover_confirmed:true,expected_receiver_revision}`. This changes only that friendship; `reset` resumes the account receiver. The separate `enroll` operation moves all friends and requires its own confirmation. A reset may lower the effective revision: refresh and reconfirm stale requests rather than taking a numeric maximum or retrying a mutation automatically.
+Owner UI uses `POST /api/account/neighbors/runtime` with `{operation:"set_friend_receiver",friendship_id,receiver_operation:"set"|"reset",takeover_confirmed:true,expected_receiver_revision}`. This changes only that friendship; `reset` follows the account receiver. Each friend has one effective receiver (its override or account default); different friends may receive on different installations. The separate `enroll` operation moves all friends and requires its own confirmation. A reset may lower the effective revision: refresh and reconfirm stale requests rather than taking a numeric maximum or retrying a mutation automatically.
 
 Runtime `status` adds `machine_label` for this machine and `friend_receivers[friendship_id]` with `{receiving_here,receiver_machine_label,receiving_enabled,revision,source:"account"|"friend"}`. Missing entries mean unknown and must not fall back to account state. `friend_receivers_version` orders daemon snapshots independently of backend receiver revisions; friendship-scoped `neighbor-runtime-status` events include the same observation version and `friendship_id`. Keep newer observations when an older read finishes late. A move settles pending outgoing entries as `not_delivered` with reason `receiver_moved`; status catch-up remains available to authenticated sender installations after a move.
 
-Refusals retain typed reasons including `receiver_revision_stale`, `feature_unsupported`, `not_receiver`, and `key_limit {limit,active}`. Machine limits require removing a machine or changing the plan; moving a friend never silently revokes unrelated installation keys. Receiver authority applies to inbox admission, ACK/read receipts, and file download/confirmation; saved local files and grants stay on their own machine.
+Refusals retain typed reasons including `receiver_revision_stale`, `feature_unsupported`, `not_receiver`, and `key_limit {limit,active}`. Machine limits require removing a machine or changing the plan; moving a friend never silently revokes unrelated installation keys. Receiver authority is checked per friendship for inbox admission, ACK/read receipts, and file download/confirmation. Receiver loss retires only that friend's local concierge and descendants, revoking credentials; return creates a fresh session from dormant local setup. Unknown authority cannot launch. Off/sign-out retires all local concierges for that account. Grants, conversation history and saved files stay on their own machine; nothing copies on a move.
 
 ## Provider lifecycle ingress
 
@@ -123,4 +123,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

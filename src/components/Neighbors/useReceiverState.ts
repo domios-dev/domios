@@ -7,7 +7,7 @@ export function friendReceiverState(status: NeighborStatusSnapshot | null, frien
   return receiverState(receiver) ? receiver : null;
 }
 
-/** Which machine receives Neighbor messages, from the shared status snapshot; unknown until the daemon's watcher reports. */
+/** A named friend's effective receiver, or the account default when no friendship is supplied; unknown until observed. */
 export function useReceiverState(client: NeighborRuntimeClient, active: boolean, friendship?: string): ReceiverState | null {
   const status = useNeighborStatus(client, active);
   if (friendship !== undefined) return friendReceiverState(status, friendship);

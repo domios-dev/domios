@@ -8,7 +8,7 @@ Routed messages follow the return hint (ROUTING in the CLI reference below). `re
 
 ## User
 
-For a friend's concierge setup, follow “Setting up a friend's concierge” in `domios docs NEIGHBORS`.
+For a friend's concierge setup, follow “Setting up a friend's concierge” in `domios docs NEIGHBORS`; check that friend's receiver on this machine, not only the account default.
 
 {identity}
 

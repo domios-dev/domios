@@ -55,7 +55,7 @@ pub enum NeighborAction {
     },
     /// Show local channel enrollment and gateway bindings
     Status,
-    /// Receive Neighbors on this machine; other machines stop receiving
+    /// Receive all friends here (account takeover); use a friend's UI to move only that friend
     Enroll {
         #[arg(long, required = true)]
         confirm_takeover: bool,

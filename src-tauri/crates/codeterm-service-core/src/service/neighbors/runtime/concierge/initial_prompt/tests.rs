@@ -63,6 +63,7 @@ fn restored_initial_context_must_match_the_applied_grant() {
     assert!(!prompt_matches(target, &friend, &permission));
     target.restorable_launch.identity_instructions = Some(initial_prompt(&friend, &permission));
     assert!(prompt_matches(target, &friend, &permission));
+    assert!(!prompt_matches(target, &"b".repeat(64), &permission));
     let mut changed = permission.clone();
     changed.scope = "opaque-applied-scope".into();
     assert!(!prompt_matches(target, &friend, &changed));
