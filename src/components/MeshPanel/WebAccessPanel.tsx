@@ -4,7 +4,7 @@ import { Copy, ExternalLink, ShieldCheck, Maximize2, Minimize2 } from "lucide-re
 import logoUrl from "../../assets/logo.png";
 import type { AppConfig } from "../../lib/types";
 import type { ServeStatus } from "../../lib/webAccess";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { trapDialogTab } from "../shared/dialogFocusTrap";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
@@ -100,7 +100,7 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
           <h2 id={embedded ? undefined : "web-access-heading"} ref={headingRef} tabIndex={embedded ? undefined : -1} className="text-xl font-semibold">Mesh UI</h2>
-          {(loading || busy) && <BusySpinner size={14} />}
+          {(loading || busy) && <BusyState inline hideLabel label="Loading" phase="work" />}
           </div>
           {embedded && onExpand && <button type="button" aria-label="Expand Mesh UI" title="Expand Mesh UI" className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon} rounded-full`} onClick={onExpand}><Maximize2 size={16} /></button>}
           {!embedded && <button type="button" aria-label="Collapse Mesh UI" onClick={onClose} className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon}`}><Minimize2 size={16} /></button>}

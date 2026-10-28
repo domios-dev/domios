@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import { KebabGlyph } from "../shared/RowMenuButton";
 import { TAB_BAR_CONTROL_H } from "./tabBarConstants";
 import { TabMenu } from "./TabMenu";
@@ -35,7 +35,7 @@ export function TabActionsMenu({ entries, busy, onAction, onOpen }: TabActionsMe
           className="ct-row-kebab"
           style={{ height: TAB_BAR_CONTROL_H, width: 20 }}
         >
-          {busy ? <BusySpinner size={13} /> : <KebabGlyph />}
+          {busy ? <BusyState inline hideLabel label="Working" phase="work" dotSize="micro" /> : <KebabGlyph />}
         </button>
       }
     />

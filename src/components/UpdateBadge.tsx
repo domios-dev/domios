@@ -1,6 +1,6 @@
 import { ArrowDownToLine } from "lucide-react";
 import { useUpdate } from "../hooks/useUpdate";
-import { BusySpinner } from "./shared/BusyState";
+import { BusyState } from "./shared/BusyState";
 
 export function UpdateBadge() {
   const { status, latestVersion, installing, progress, applyUpdate } = useUpdate();
@@ -62,5 +62,5 @@ function knownVersion(value: string | null): string | null {
 }
 
 function Spinner() {
-  return <BusySpinner size={10} />;
+  return <BusyState inline hideLabel label="Updating" phase="work" dotSize="micro" />;
 }

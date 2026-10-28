@@ -17,7 +17,6 @@ import { ModelDefaultsCard } from "./ModelDefaultsCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
-import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { AgentIcon } from "../AgentIcon";
 
 export function AgentsOverview({
@@ -140,7 +139,7 @@ export function AgentProviderScreen({
     return <InlineErrorNotice error={error} operation="loading agent providers" />;
   }
   if (loading && !provider) {
-    return <TabLoadingIndicator label="Loading provider" />;
+    return <RegionLoader label="Loading provider" className="min-h-40" />;
   }
   if (!provider) {
     // Transient: the pop effect above will unmount us on the next tick.
