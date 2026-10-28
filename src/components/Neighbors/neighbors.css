@@ -1149,13 +1149,19 @@
   gap: 0.35rem;
 }
 
+/* The window sits outside the Settings panel, so its buttons take the Settings button size here instead of the page's. */
+.neighbor-window .ct-btn:not(.ct-btn-lg) {
+  font-size: 12px;
+}
+
 .neighbor-window__pause {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0 0.35rem;
   color: var(--ct-muted-fg);
-  font-size: var(--ct-font-size-sm);
+  font-size: 12px;
+  cursor: pointer;
 }
 
 .neighbor-window__pause[data-paused] {

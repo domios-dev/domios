@@ -129,8 +129,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {paused && <span className="neighbor-pause-glyph" aria-hidden="true"><Pause size={12} /></span>}</span>
         <div className="min-w-0 flex-1">
           <h2 id={titleId} className="neighbor-friend__name">{name}</h2>
-          <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />{status}
-            <span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></p>
+          <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
+            <span>{status}<span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></span></p>
           {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
           {paused && <p className="neighbor-note">{pausedLine(name)}</p>}
           {friend.their_paused && <p className="neighbor-note">{theyPausedLine(name)}</p>}
@@ -140,11 +140,12 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {locked ? <Button size="sm" variant="accent" onClick={onPlans}>View plans</Button>
             : <Button size="sm" variant="primary" onClick={() => openNeighbor(friendship)}><MessagesSquare size={14} aria-hidden="true" />Open conversation</Button>}
           <Button size="sm" onClick={onTalkAbout}><Sparkles size={14} aria-hidden="true" />Talk about {name}</Button>
-          <span className="neighbor-window__pause" data-paused={paused || undefined}>
+          {/* On means paused; the word stays "Pause" so the switch never reads as a double negative. */}
+          <label className="neighbor-window__pause" data-paused={paused || undefined}>
             <LiquidToggle aria-label={`Pause ${name}`} checked={paused} disabled={pending}
               onCheckedChange={next => setFriendPaused(conciergeClient, friendship, next, paused, setError)} />
-            <span aria-hidden="true">{paused ? "Paused" : "Active"}</span>
-          </span>
+            <span aria-hidden="true">Pause</span>
+          </label>
           <button type="button" className="neighbor-window__close ct-liquid-interactive" aria-label={`Close ${name}`} onClick={close}><X size={15} aria-hidden="true" /></button>
         </div>
       </header>
