@@ -12,7 +12,7 @@ async fn ack_commit_persists_proof_and_keeps_pending_visibility_while_neighbors_
     let generation = fixture.service.neighbor_history_generation();
     fixture.service.commit_neighbor_incoming_ack(&metadata,&friendship,&message,generation).await.unwrap();
     let mut saved = metadata.history(&friendship).await.unwrap();
-    assert_eq!(saved.received_acknowledged_through,Some(message.clone()));
+    assert!(saved.acknowledged_messages.contains(&message));
     assert_eq!(saved.pending_read_through(),Some(message.clone()));
     assert!(saved.read_receipt_through.is_none());
     assert!(!saved.reserve_read_through(&message,false,false));

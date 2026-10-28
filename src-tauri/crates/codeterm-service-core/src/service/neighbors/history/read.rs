@@ -14,11 +14,9 @@ impl History {
         true
     }
 
-    pub(crate) fn acknowledge_through(&mut self, message: &str) -> bool {
-        let Some(next) = self.incoming_position(message) else { return false };
-        if self.received_acknowledged_through.as_deref().and_then(|id| self.incoming_position(id)).is_some_and(|previous| next <= previous) { return false; }
-        self.received_acknowledged_through = Some(message.into());
-        true
+    pub(crate) fn acknowledge_message(&mut self, message: &str) -> bool {
+        if self.incoming_position(message).is_none() { return false; }
+        self.acknowledged_messages.insert(message.into())
     }
 
     pub(crate) fn pending_read_through(&self) -> Option<String> {
@@ -44,19 +42,21 @@ impl History {
         else {
             return false;
         };
-        if !self.received_acknowledged_through.as_deref().and_then(|id| self.incoming_position(id)).is_some_and(|acked| next <= acked) {
-            return false;
-        }
-        if self
+        let previous = self
             .read_receipt_through
             .as_ref()
             .and_then(|previous| {
                 self.entries
                     .iter()
                     .position(|entry| entry.direction == "in" && &entry.message_id == previous)
-            })
-            .is_some_and(|previous| next <= previous)
-        {
+            });
+        if previous.is_some_and(|previous| next <= previous) {
+            return false;
+        }
+        let start = previous.map_or(0, |previous| previous + 1);
+        if self.entries[start..=next].iter().any(|entry| {
+            entry.direction == "in" && !self.acknowledged_messages.contains(&entry.message_id)
+        }) {
             return false;
         }
         self.read_receipt_through = Some(message.into());

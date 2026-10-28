@@ -83,18 +83,12 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(
                         match gateway.deliver(&message, plaintext).await? {
                             codeterm_neighbors::receive::GatewayReceipt::Delivered => {
                                 session.current()?;
-                                let receipt = session
-                                    .transport
-                                    .ack(
-                                        &message.doc.envelope.sender_uid,
-                                        &message.doc.envelope.message_id,
-                                    )
-                                    .await?;
-                                if receipt.status
-                                    == codeterm_neighbors::wire::DeliveryStatus::Pending
-                                {
-                                    return Err(Error::Transport);
-                                }
+                                codeterm_neighbors::receive::acknowledge_inbound(
+                                    session.transport.as_ref(),
+                                    &gateway,
+                                    &message,
+                                )
+                                .await?;
                             }
                             codeterm_neighbors::receive::GatewayReceipt::SubmitUnconfirmed => {
                                 return Err(Error::Gateway)
