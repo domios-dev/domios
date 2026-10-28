@@ -3,10 +3,10 @@ import { localFetch } from "../../lib/webApi";
 
 export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
-export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number }
-export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | ReceiverState | { receiver_unavailable: true };
-export type DeliveryRefusal = "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "aggregate_daily_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving" | "recipient_paused";
-const DELIVERY_REFUSALS: readonly string[] = ["key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "aggregate_daily_limited", "friends_locked", "recipient_locked", "recipient_not_receiving", "recipient_paused"];
+export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number; source?: "account" | "friend" }
+export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | (ReceiverState & { friendship_id?: string }) | { receiver_unavailable: true; friendship_id?: string };
+export type DeliveryRefusal = "receiver_moved" | "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "aggregate_daily_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving" | "recipient_paused";
+const DELIVERY_REFUSALS: readonly string[] = ["receiver_moved", "key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "aggregate_daily_limited", "friends_locked", "recipient_locked", "recipient_not_receiving", "recipient_paused"];
 export interface DeliveryResult {
   status: NeighborDeliveryStatus;
   reason?: DeliveryRefusal;
@@ -16,6 +16,8 @@ export interface DeliveryResult {
   retry_after_seconds?: number;
 }
 export interface ChannelStatus extends ReceiverState {
+  machine_label?: string;
+  friend_receivers?: Record<string, ReceiverState>;
   listeners?: Record<string, NeighborListenerState>;
   enrolled: boolean;
   bindings: Record<string, string>;
@@ -56,6 +58,7 @@ export interface NeighborReceipt {
 export interface NeighborRuntimeClient {
   status(signal?: AbortSignal): Promise<ChannelStatus>;
   enroll(revision: number): Promise<void>;
+  receiveFriend(friendship: string, revision: number, operation?: "set" | "reset"): Promise<void>;
   rotate(): Promise<void>;
   permission(friendship: string, signal?: AbortSignal): Promise<NeighborPermission>;
   send(friendship: string, body: string): Promise<NeighborReceipt>;
@@ -100,31 +103,33 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
     const failure: unknown = (() => {
       try { return JSON.parse(detail); } catch { return null; }
     })();
-    const reason = record(failure) && (["message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere"] as const).find(reason => reason === failure.code);
+    const reason = record(failure) && (["feature_unsupported", "key_limit", "key_not_found", "key_revoked", "invalid_key", "entitlements_unavailable", "message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere"] as const).find(reason => reason === failure.code);
     const message = (reason && REFUSAL_LINES[reason]) ?? (record(failure) && typeof failure.message === "string" ? failure.message : detail);
     const limit = record(failure) && typeof failure.limit === "number" ? failure.limit : undefined;
     // A sending limit (HTTP 429) names its delivery reason and reset, which the conversation explains like a refused receipt.
     const refusal = record(failure) && typeof failure.reason === "string" && DELIVERY_REFUSALS.includes(failure.reason)
       ? { ...deliveryResult({ status: "not_delivered", reason: failure.reason, limit: failure.limit, resets_at: failure.resets_at, retry_after_seconds: failure.retry_after_seconds }) }
       : undefined;
-    throw new NeighborRuntimeFailure(reason || "unavailable", message.trim() || `Neighbor operation failed (HTTP ${response.status})`, limit, refusal);
+    const active = record(failure) && typeof failure.active === "number" && Number.isSafeInteger(failure.active) && failure.active >= 0 ? failure.active : undefined;
+    throw new NeighborRuntimeFailure(reason || "unavailable", message.trim() || `Neighbor operation failed (HTTP ${response.status})`, limit, refusal, active);
   }
   return response.json();
 }
 
-export type ReceiverRefusal = "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "reply_target_stopped"
+export type ReceiverRefusal = "feature_unsupported" | "key_limit" | "key_not_found" | "key_revoked" | "invalid_key" | "entitlements_unavailable" | "message_too_large" | "tab_requests_not_allowed" | "neighbor_permission_denied" | "friendship_ended" | "neighbor_forbidden" | "session_revoked" | "operation_id_conflict" | "neighbors_disabled" | "installation_unverified" | "receiver_elsewhere" | "receiver_revision_stale" | "not_receiver" | "recipient_not_receiving" | "reply_target_stopped"
   /** Bind, Apply, ensure and create on a machine that is not this account's Neighbor receiver (HTTP 409). */
   | "receiving_elsewhere" | "unavailable";
 /** Proven pre-send refusals that sending the same thing again cannot change, so no Retry is offered:
  *  the owner stopped the request this replies to. */
 export const FINAL_REFUSALS: ReadonlySet<ReceiverRefusal> = new Set(["reply_target_stopped"]);
 export class NeighborRuntimeFailure extends Error {
-  constructor(readonly reason: ReceiverRefusal, detail?: string, readonly limit?: number, readonly refusal?: DeliveryResult) { super(detail || reason); }
+  constructor(readonly reason: ReceiverRefusal, detail?: string, readonly limit?: number, readonly refusal?: DeliveryResult, readonly active?: number) { super(detail || reason); }
 }
 export function receiverState(value: unknown): value is ReceiverState {
   return record(value) && typeof value.receiving_here === "boolean" && typeof value.receiving_enabled === "boolean"
     && (value.receiver_machine_label === null || typeof value.receiver_machine_label === "string")
-    && typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0;
+    && typeof value.revision === "number" && Number.isSafeInteger(value.revision) && value.revision >= 0
+    && (value.source === undefined || value.source === "account" || value.source === "friend");
 }
 
 export const neighborRuntimeClient: NeighborRuntimeClient = {
@@ -138,9 +143,11 @@ export const neighborRuntimeClient: NeighborRuntimeClient = {
     const value = await runtimeCall({ operation: "status" }, signal);
     if (!record(value) || !receiverState(value) || typeof value.enrolled !== "boolean" || !record(value.bindings)
       || !Object.values(value.bindings).every(id => typeof id === "string")) throw new Error("Invalid Neighbor channel status");
+    if (value.friend_receivers !== undefined && (!record(value.friend_receivers) || !Object.values(value.friend_receivers).every(receiverState))) throw new Error("Invalid Neighbor friend receiver status");
     return value as unknown as ChannelStatus;
   },
   enroll: async revision => { await runtimeCall({ operation: "enroll", takeover_confirmed: true, expected_receiver_revision: revision }); },
+  receiveFriend: async (friendship, revision, operation = "set") => { await runtimeCall({ operation: "set_friend_receiver", friendship_id: friendship, receiver_operation: operation, takeover_confirmed: true, expected_receiver_revision: revision }); },
   rotate: async () => { await runtimeCall({ operation: "rotate" }); },
   permission: async (friendship, signal) => {
     const value = await runtimeCall({ operation: "permission", friendship_id: friendship }, signal);

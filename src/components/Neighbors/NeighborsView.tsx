@@ -19,8 +19,8 @@ import { onNeighborFocus, takeNeighborFocus, type NeighborFocus, type NeighborSe
 import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighborhoodModel";
 import { listedPaused, neighborName } from "./neighborModel";
 import { usePausedFriends } from "./neighborPause";
-import { neighborRuntimeClient, type NeighborRuntimeClient, type ReceiverState } from "./neighborRuntimeClient";
-import { receiverFailureDescription } from "./neighborReceiverError";
+import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { NeighborReceiveHere } from "./NeighborReceiveHere";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import type { NeighborFilesClient } from "./neighborFilesClient";
 import { referralStatus } from "./referralTrial";
@@ -185,7 +185,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
           {identity && list === null && !updating && !neighbors.error && <div className="neighbors-loading"><BusyState inline label="Loading Neighbors" phase="work" /></div>}
         </div>
         {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
-        {identity && enabled && receiver && !receiver.receiving_here && <ReceiveHere receiver={receiver} client={runtimeClient} />}
+        {identity && enabled && receiver && !receiver.receiving_here && <NeighborReceiveHere receiver={receiver} onReceive={revision => runtimeClient.enroll(revision)} />}
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}
@@ -251,33 +251,3 @@ function NodeButton({ node, index, selected, paused, canInvite, onSelect }: {
   </button>;
 }
 
-/** Taking over receiving names who stops, and that concierges and permissions stay per machine. */
-function takeoverWarning(status: ReceiverState): string {
-  const perMachine = "Concierges and permissions are per machine: friends without a concierge on this machine will wait until you set their permissions here.";
-  if (!status.receiving_enabled) return `This machine will start receiving Neighbor messages. ${perMachine}`;
-  return `${status.receiver_machine_label ?? "The other machine"} will stop receiving Neighbor messages. ${perMachine}`;
-}
-
-function ReceiveHere({ receiver, client }: { receiver: ReceiverState; client: NeighborRuntimeClient }) {
-  const [confirming, setConfirming] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<ReturnType<typeof receiverFailureDescription> | null>(null);
-  if (confirming === null) {
-    return <div className="neighbors-receive"><Button size="sm" onClick={() => { setError(null); setConfirming(receiver.revision); }}>Receive here</Button></div>;
-  }
-  const stale = confirming !== receiver.revision;
-  return <div role="group" aria-label="Receive on this machine" className="ct-card ct-card--static neighbors-receive neighbors-receive--confirm">
-    {stale && <p className="neighbor-note">Receiving changed. Confirm again to receive here.</p>}
-    <p className="ct-card__meta">{takeoverWarning(receiver)}</p>
-    {error && <InlineErrorNotice description={error} role="alert" />}
-    <div className="neighbor-confirm__actions">
-      <Button size="sm" variant="primary" loading={busy} onClick={() => {
-        if (stale) { setConfirming(receiver.revision); return; }
-        setBusy(true); setError(null);
-        void client.enroll(receiver.revision).then(() => setConfirming(null),
-          (failure: unknown) => setError(receiverFailureDescription(failure))).finally(() => setBusy(false));
-      }}>Receive Neighbor messages here</Button>
-      <Button size="sm" disabled={busy} onClick={() => setConfirming(null)}>Cancel</Button>
-    </div>
-  </div>;
-}
