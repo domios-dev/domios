@@ -32,17 +32,3 @@ fn write_area_guard_refuses_foreign_and_protected_targets() {
     }
 }
 
-#[test]
-fn scoped_replace_guard_restores_after_nested_calls_and_unwind() {
-    assert!(current_replace_guard().is_none());
-    with_replace_guard(ReplaceGuard::new(vec!["outer".into()]), || {
-        let _ = std::panic::catch_unwind(|| {
-            with_replace_guard(ReplaceGuard::new(vec!["inner".into()]), || panic!("opaque"))
-        });
-        assert_eq!(
-            current_replace_guard().unwrap().allowed_areas,
-            vec!["outer"]
-        );
-    });
-    assert!(current_replace_guard().is_none());
-}

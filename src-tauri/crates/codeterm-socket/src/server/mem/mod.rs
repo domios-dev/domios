@@ -12,9 +12,9 @@ use codeterm_service_core::mem::store::{
     with_changed_by, MemKind, MemScope, MemUpdate, NewMemItem,
 };
 use codeterm_service_core::mem_ops::items::{
-    bump_on_get, compose_appended_body, validate_update_body, wake_up_options_from_params,
-    AppendBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams, TaxonomyParams,
-    UpdateBody, WakeUpParams,
+    compose_appended_body, validate_update_body, wake_up_options_from_params, AppendBody,
+    LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams, TaxonomyParams, UpdateBody,
+    WakeUpParams,
 };
 use codeterm_service_core::mem_ops::search::{execute_search, SearchError, SearchParams};
 use codeterm_service_core::mem_ops::{sanitize_actor, validate_item_fields};
@@ -201,7 +201,7 @@ fn mem_get(
     match item {
         Some(item) => {
             emit_activity(svc, "read", vec![id.clone()]);
-            svc.mem.with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+            svc.mem.bump_on_get(&item.kind, &id);
             serde_json::to_value(item).map_err(|error| internal_error(error.to_string()))
         }
         None => Err(not_found(format!("mem item {} not found", id))),
@@ -535,11 +535,7 @@ fn mem_calibration_log(
     };
     let count_only = p.count.unwrap_or(false);
     svc.mem
-        .with_conn(|conn| {
-            codeterm_service_core::mem_ops::calibration::calibration_log_query(
-                conn, &since, limit, count_only,
-            )
-        })
+        .calibration_log(&since, limit, count_only)
         .map_err(internal_error)
 }
 
@@ -550,11 +546,7 @@ fn mem_calibration_sweep(
     use codeterm_service_core::mem_ops::calibration::SweepParams;
     let p: SweepParams = parse_params(params)?;
     let force = p.force.unwrap_or(false);
-    svc.mem
-        .with_conn(|conn| {
-            codeterm_service_core::mem_ops::calibration::run_calibration_sweep(conn, force)
-        })
-        .map_err(internal_error)
+    svc.mem.calibration_sweep(force).map_err(internal_error)
 }
 
 fn mem_worker_spawn(

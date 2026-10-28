@@ -4,8 +4,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::blob::{read_blob, write_blob};
 use super::{
-    history_log, HistorySnapshot, MemItem, MemKind, MemScope, MemUpdate, NewMemItem,
-    INLINE_BODY_LIMIT,
+    HistorySnapshot, MemItem, MemKind, MemScope, MemUpdate, NewMemItem, INLINE_BODY_LIMIT,
 };
 use crate::ids;
 
@@ -26,16 +25,34 @@ fn normalized_sources(item: &NewMemItem) -> (Option<String>, Option<String>) {
 
 /// >2KB bodies go to content-addressed blob.
 pub fn insert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
-    insert_with_options(conn, item, blobs_dir, false, None)
+    insert_with_context(&crate::MemManager::write_context(), conn, item, blobs_dir)
+}
+
+pub fn insert_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+) -> Result<String, String> {
+    insert_with_options_with_context(ctx, conn, item, blobs_dir, false, None)
 }
 
 pub fn upsert(conn: &Connection, item: &NewMemItem, blobs_dir: &Path) -> Result<String, String> {
+    upsert_with_context(&crate::MemManager::write_context(), conn, item, blobs_dir)
+}
+
+pub fn upsert_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+) -> Result<String, String> {
     let candidate = ids::compose(item.kind.as_str(), &ids::slugify(&item.title));
     if exists(conn, &candidate).map_err(|e| e.to_string())? {
-        replace_existing(conn, &candidate, item, blobs_dir)?;
+        replace_existing_with_context(ctx, conn, &candidate, item, blobs_dir)?;
         return Ok(candidate);
     }
-    insert_with_options(conn, item, blobs_dir, true, None)
+    insert_with_options_with_context(ctx, conn, item, blobs_dir, true, None)
 }
 
 pub fn find_by_kind_title(
@@ -58,10 +75,26 @@ pub fn replace_existing(
     item: &NewMemItem,
     blobs_dir: &Path,
 ) -> Result<(), String> {
+    replace_existing_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        id,
+        item,
+        blobs_dir,
+    )
+}
+
+pub fn replace_existing_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    id: &str,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+) -> Result<(), String> {
     let Some(previous) = get(conn, id, blobs_dir)? else {
         return Err(format!("mem item {id} not found"));
     };
-    let author = super::current_author();
+    let author = ctx.author.clone();
     super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
     let (source, source_path) = normalized_sources(item);
     let previous_source_path: Option<String> = conn
@@ -153,16 +186,15 @@ pub fn replace_existing(
         importance: Some(item.importance),
         kind: Some(previous.kind),
     };
-    super::with_author(previous.author, || {
-        history_log(
-            conn,
-            id,
-            "update",
-            &old,
-            &new,
-            Some(&format!("fields={}", changed.join(","))),
-        )
-    });
+    super::history_log_with_context(
+        &ctx.with_author(previous.author),
+        conn,
+        id,
+        "update",
+        &old,
+        &new,
+        Some(&format!("fields={}", changed.join(","))),
+    );
     Ok(())
 }
 
@@ -174,10 +206,27 @@ pub fn insert_seeded(
     blobs_dir: &Path,
     fingerprint: &str,
 ) -> Result<String, String> {
-    insert_with_options(conn, item, blobs_dir, false, Some(fingerprint))
+    insert_seeded_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        item,
+        blobs_dir,
+        fingerprint,
+    )
 }
 
-fn insert_with_options(
+pub fn insert_seeded_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    item: &NewMemItem,
+    blobs_dir: &Path,
+    fingerprint: &str,
+) -> Result<String, String> {
+    insert_with_options_with_context(ctx, conn, item, blobs_dir, false, Some(fingerprint))
+}
+
+fn insert_with_options_with_context(
+    ctx: &crate::backend::WriteContext,
     conn: &Connection,
     item: &NewMemItem,
     blobs_dir: &Path,
@@ -185,7 +234,7 @@ fn insert_with_options(
     fingerprint: Option<&str>,
 ) -> Result<String, String> {
     let kind_str = item.kind.as_str();
-    let author = super::current_author();
+    let author = ctx.author.clone();
     super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
     let (source, source_path) = normalized_sources(item);
     let slug = ids::slugify(&item.title);
@@ -193,7 +242,7 @@ fn insert_with_options(
 
     let collision = exists(conn, &candidate).map_err(|e| e.to_string())?;
     let id = if collision && replace {
-        replace_existing(conn, &candidate, item, blobs_dir)?;
+        replace_existing_with_context(ctx, conn, &candidate, item, blobs_dir)?;
         return Ok(candidate);
     } else if collision {
         ids::with_collision_suffix(kind_str, &slug, &item.body)
@@ -282,7 +331,8 @@ fn insert_with_options(
     )
     .map_err(|e| format!("insert fts: {}", e))?;
 
-    history_log(
+    super::history_log_with_context(
+        ctx,
         conn,
         &id,
         "create",
@@ -581,10 +631,30 @@ pub fn cas_refresh_bundled(
     new_item: &NewMemItem,
     new_fingerprint: &str,
 ) -> Result<bool, String> {
+    cas_refresh_bundled_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        id,
+        blobs_dir,
+        expected_fingerprint,
+        new_item,
+        new_fingerprint,
+    )
+}
+
+pub fn cas_refresh_bundled_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    id: &str,
+    blobs_dir: &Path,
+    expected_fingerprint: Option<&str>,
+    new_item: &NewMemItem,
+    new_fingerprint: &str,
+) -> Result<bool, String> {
     let previous = super::item_author(conn, id)?;
     let author = previous
         .filter(|a| a.is_neighbor())
-        .unwrap_or_else(super::current_author);
+        .unwrap_or_else(|| ctx.author.clone());
     super::guard_instruction(&author, new_item.kind.as_str(), new_item.pinned)?;
     let (body_inline, body_blob_path): (Option<String>, Option<String>) =
         if new_item.body.len() > INLINE_BODY_LIMIT {
@@ -759,6 +829,22 @@ pub fn update(
     patch: &MemUpdate,
     blobs_dir: &Path,
 ) -> Result<bool, String> {
+    update_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        id,
+        patch,
+        blobs_dir,
+    )
+}
+
+pub fn update_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    id: &str,
+    patch: &MemUpdate,
+    blobs_dir: &Path,
+) -> Result<bool, String> {
     if patch.area.is_some()
         && patch.title.is_none()
         && patch.summary.is_none()
@@ -769,7 +855,7 @@ pub fn update(
         && patch.pinned.is_none()
     {
         if let Some(area) = patch.area.as_deref() {
-            return super::area_merge::update_area(conn, id, area);
+            return super::area_merge::update_area_with_context(ctx, conn, id, area);
         }
     }
     let existing = get(conn, id, blobs_dir)?;
@@ -806,10 +892,10 @@ pub fn update(
     let author = if prev.author.is_neighbor() || !writes_text {
         prev.author.clone()
     } else {
-        super::current_author()
+        ctx.author.clone()
     };
     super::guard_instruction(&author, &prev_kind, new_pinned)?;
-    super::guard_instruction(&super::current_author(), &prev_kind, new_pinned)?;
+    super::guard_instruction(&ctx.author.clone(), &prev_kind, new_pinned)?;
 
     // A managed-field edit relinquishes bundled ownership atomically in
     // this write; `cas_refresh_bundled` can no longer claim it.
@@ -920,7 +1006,8 @@ pub fn update(
     if !changed_fields.is_empty() {
         old.kind = Some(prev_kind.clone());
         new.kind = Some(prev_kind);
-        history_log(
+        super::history_log_with_context(
+            ctx,
             conn,
             id,
             "update",
@@ -934,12 +1021,29 @@ pub fn update(
 }
 
 pub fn delete(conn: &Connection, id: &str) -> Result<bool, String> {
-    delete_with_reason(conn, id, None)
+    delete_with_context(&crate::MemManager::write_context(), conn, id)
+}
+
+pub fn delete_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    id: &str,
+) -> Result<bool, String> {
+    delete_with_reason_with_context(ctx, conn, id, None)
 }
 
 /// Delete with an optional reason — used by the dedup/merge path to record
 /// `merge_into=<winner_id>` in the history row.
 pub fn delete_with_reason(
+    conn: &Connection,
+    id: &str,
+    reason: Option<&str>,
+) -> Result<bool, String> {
+    delete_with_reason_with_context(&crate::MemManager::write_context(), conn, id, reason)
+}
+
+pub fn delete_with_reason_with_context(
+    ctx: &crate::backend::WriteContext,
     conn: &Connection,
     id: &str,
     reason: Option<&str>,
@@ -992,7 +1096,8 @@ pub fn delete_with_reason(
             } else {
                 "delete"
             };
-            history_log(
+            super::history_log_with_context(
+                ctx,
                 conn,
                 id,
                 change_type,

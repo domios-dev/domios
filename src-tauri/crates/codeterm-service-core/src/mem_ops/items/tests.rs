@@ -314,11 +314,7 @@ fn restored_neighbor_text_keeps_attribution_and_refuses_instruction_targets() {
         let id = with_author(neighbor.clone(), || svc.mem.save(item("friend body"))).unwrap();
         with_author(MemAuthor::owner(None), || svc.mem.save(item("owner body"))).unwrap();
         if protected {
-            svc.mem
-                .with_conn(|conn| {
-                    conn.execute("UPDATE mem_items SET kind='rule' WHERE id=?1", [&id])
-                })
-                .unwrap();
+            svc.mem.fixture_set_kind(&id, "rule").unwrap();
         }
         let body = super::RestoreBody {
             version: None,

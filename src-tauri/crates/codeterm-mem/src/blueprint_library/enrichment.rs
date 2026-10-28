@@ -1,6 +1,6 @@
 use super::index::{self, Enrichment, Provenance, Slot, VectorKey};
 use super::services::{BlueprintEnricher, EnrichmentJob};
-use crate::{solution_metadata as metadata, store, MemManager};
+use crate::MemManager;
 use codeterm_blueprint_types::blueprint_memory::{contains_credentials, validate_intents};
 use std::sync::Arc;
 
@@ -59,8 +59,8 @@ pub fn parse_enrichment_report(report: &str) -> Result<(String, Vec<String>), St
     Ok((summary, intents))
 }
 
-struct Desired {
-    texts: Vec<(VectorKey, String)>,
+pub(crate) struct Desired {
+    pub(crate) texts: Vec<(VectorKey, String)>,
 }
 
 impl MemManager {
@@ -81,19 +81,12 @@ impl MemManager {
     }
 
     pub fn blueprint_index(&self, id: &str) -> Result<Option<index::IndexRow>, String> {
-        index::read_row(&self.conn.lock(), id)
+        self.store.blueprint_index(id)
     }
 
     pub fn index_blueprint(&self, id: &str) -> Result<IndexReport, String> {
         let vectors = self.index_blueprint_vectors(id)?;
-        let (row, body) = {
-            let conn = self.conn.lock();
-            let row = index::read_row(&conn, id)?.ok_or("Blueprint index row absent")?;
-            let body = store::get(&conn, id, &self.blobs_dir)?
-                .ok_or("Blueprint solution disappeared")?
-                .body;
-            (row, body)
-        };
+        let (row, body) = self.store.blueprint_index_snapshot(id)?;
         let enrichment = if !row.enrichment_pending() {
             EnrichmentStatus::Ready
         } else {
@@ -127,31 +120,29 @@ impl MemManager {
         report: &str,
     ) -> Result<bool, String> {
         let (summary, intents) = parse_enrichment_report(report)?;
-        {
-            let conn = self.conn.lock();
-            let Some(mut row) = index::read_row(&conn, id)? else {
-                return Ok(false);
-            };
-            if row.document_hash != document_hash {
-                return Ok(false);
-            }
-            row.enrichment = Some(Enrichment {
-                summary,
-                intents,
-                provenance: Provenance {
-                    model: model.into(),
-                    document_hash: document_hash.into(),
-                    created_at: chrono::Utc::now().timestamp(),
-                },
-            });
-            index::write_row(&conn, id, &row)?;
+        let enrichment = Enrichment {
+            summary,
+            intents,
+            provenance: Provenance {
+                model: model.into(),
+                document_hash: document_hash.into(),
+                created_at: chrono::Utc::now().timestamp(),
+            },
+        };
+        if !self.store.blueprint_complete_enrichment(
+            &Self::blueprint_write_context(),
+            id,
+            document_hash,
+            enrichment,
+        )? {
+            return Ok(false);
         }
         self.index_blueprint_vectors(id)?;
         Ok(true)
     }
 
     pub fn backfill_blueprints(&self) -> Result<Vec<(String, IndexReport)>, String> {
-        let ids = index::indexed_items(&self.conn.lock())?;
+        let ids = self.store.blueprint_indexed_items()?;
         let mut reports = Vec::new();
         for id in ids {
             match self.index_blueprint(&id) {
@@ -163,20 +154,17 @@ impl MemManager {
     }
 
     fn desired_vectors(&self, id: &str) -> Result<Option<Desired>, String> {
-        desired_vectors(&self.conn.lock(), id)
+        let Some((row, intents)) = self.store.blueprint_vector_projection(id)? else {
+            return Ok(None);
+        };
+        Ok(Some(desired_vectors(&row, &intents)))
     }
 }
 
-fn desired_vectors(conn: &rusqlite::Connection, id: &str) -> Result<Option<Desired>, String> {
-    let Some(row) = index::read_row(conn, id)? else {
-        return Ok(None);
-    };
-    let intents = metadata::read(conn, id)?
-        .and_then(|record| record.blueprint)
-        .map(|stats| stats.intents)
-        .unwrap_or_default();
+pub(crate) fn desired_vectors(row: &index::IndexRow, intents: &[String]) -> Desired {
     let mut texts = intents
-        .into_iter()
+        .iter()
+        .cloned()
         .enumerate()
         .map(|(ordinal, text)| ((Slot::Intent, ordinal), text))
         .collect::<Vec<_>>();
@@ -191,22 +179,18 @@ fn desired_vectors(conn: &rusqlite::Connection, id: &str) -> Result<Option<Desir
                 .map(|(ordinal, text)| ((Slot::WorkerIntent, ordinal), text.clone())),
         );
     }
-    Ok(Some(Desired { texts }))
+    Desired { texts }
 }
 
 pub(crate) fn blueprint_vector_texts(
-    conn: &rusqlite::Connection,
-    id: &str,
-) -> Result<Vec<(String, usize, String)>, String> {
-    Ok(desired_vectors(conn, id)?
-        .map(|desired| {
-            desired
-                .texts
-                .into_iter()
-                .map(|((slot, ordinal), text)| (slot.name().into(), ordinal, text))
-                .collect()
-        })
-        .unwrap_or_default())
+    row: &index::IndexRow,
+    intents: &[String],
+) -> Vec<(String, usize, String)> {
+    desired_vectors(row, intents)
+        .texts
+        .into_iter()
+        .map(|((slot, ordinal), text)| (slot.name().into(), ordinal, text))
+        .collect()
 }
 
 impl MemManager {
@@ -215,7 +199,7 @@ impl MemManager {
             return Ok((0, 0));
         };
         let identity = self.embedder.identity();
-        let existing = index::read_vectors(&self.conn.lock(), id, &identity)?;
+        let existing = self.store.blueprint_vectors(id, &identity)?;
         let mut written = Vec::new();
         let mut keep = Vec::new();
         let mut missing = 0;
@@ -243,11 +227,17 @@ impl MemManager {
                 }
             }
         }
-        let conn = self.conn.lock();
         if self.embedder.identity() != identity {
             return Err("Blueprint embedder changed during indexing".into());
         }
-        index::replace_vectors(&conn, id, &self.embedder, &identity, &keep, &written)?;
+        self.store.blueprint_replace_vectors(
+            &Self::blueprint_write_context(),
+            id,
+            &self.embedder,
+            &identity,
+            &keep,
+            &written,
+        )?;
         Ok((keep.len(), missing))
     }
 }

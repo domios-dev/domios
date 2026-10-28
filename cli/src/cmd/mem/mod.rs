@@ -1,5 +1,7 @@
 #[cfg(test)]
 mod area_tests;
+pub(crate) mod backend;
+pub(crate) mod backup;
 mod calibration;
 pub(crate) mod embedder;
 mod graph;

@@ -18,6 +18,11 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
         command,
     } = cli;
     match command {
+        Commands::Mem {
+            action: MemAction::Backend { action },
+        } => {
+            cmd::mem::backend::handle(json, action);
+        }
         Commands::Account { action } => {
             cmd::account::handle(json, action);
             None
@@ -35,6 +40,12 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
             None
         }
 
+        Commands::Mem {
+            action: MemAction::Backup { action },
+        } => {
+            cmd::mem::backup::handle(json, action);
+            None
+        }
         Commands::Mem {
             action:
                 MemAction::Embedder {

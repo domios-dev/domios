@@ -165,31 +165,7 @@ impl MemHostContext for ServiceContext {
     }
 
     fn query_graph_type_counts(&self) -> (Vec<(String, u64)>, Vec<(String, u64)>) {
-        let entity_types: Vec<(String, u64)> = {
-            let conn = self.mem.conn().lock();
-            conn.prepare(
-                "SELECT entity_type, COUNT(*) FROM entities GROUP BY entity_type ORDER BY COUNT(*) DESC LIMIT 20",
-            )
-            .and_then(|mut stmt| {
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            })
-            .unwrap_or_default()
-        };
-
-        let relation_types: Vec<(String, u64)> = {
-            let conn = self.mem.conn().lock();
-            conn.prepare(
-                "SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC LIMIT 30",
-            )
-            .and_then(|mut stmt| {
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            })
-            .unwrap_or_default()
-        };
-
-        (entity_types, relation_types)
+        self.mem.graph_type_counts()
     }
 }
 

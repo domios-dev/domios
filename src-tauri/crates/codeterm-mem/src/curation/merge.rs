@@ -8,10 +8,12 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::Deserialize;
 
-use super::calibration::archive::{archive_item, unarchive_item, ARCHIVED_KIND};
+#[cfg(test)]
+use super::calibration::archive::archive_item;
+use super::calibration::archive::ARCHIVED_KIND;
 use super::calibration::stale::{julian_day, utc_day_start};
 use crate::graph::{insert_relation, Relation};
-use crate::store::{self, with_changed_by, HistoryEntry, MemUpdate};
+use crate::store::{self, HistoryEntry, MemUpdate};
 
 pub const MERGE_CHANGE_TYPE: &str = "merge";
 pub const DREAMER_MERGE_ACTOR: &str = "dreamer-rem:merge";
@@ -151,6 +153,26 @@ pub fn run_merge(
     merge_cap: u32,
     now: DateTime<Utc>,
 ) -> Result<serde_json::Value, MergeError> {
+    run_merge_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        blobs_dir,
+        req,
+        actor,
+        merge_cap,
+        now,
+    )
+}
+
+pub fn run_merge_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    blobs_dir: &Path,
+    req: &MergeRequest,
+    actor: &str,
+    merge_cap: u32,
+    now: DateTime<Utc>,
+) -> Result<serde_json::Value, MergeError> {
     validate(req)?;
     let lesser = item_row(conn, req.lesser)?
         .ok_or_else(|| MergeError::NotFound(format!("mem item {} not found", req.lesser)))?;
@@ -206,21 +228,24 @@ pub fn run_merge(
     let applied = (|| -> Result<bool, String> {
         let prior_keeper_author = store::item_author(conn, req.keeper)?.ok_or("keeper missing")?;
         let body_updated = match req.body {
-            Some(body) => with_changed_by(actor, || {
+            Some(body) => {
+                let ctx = &ctx.with_changed_by(actor);
                 let patch = MemUpdate {
                     body: Some(body.to_string()),
                     ..Default::default()
                 };
-                store::update(conn, req.keeper, &patch, blobs_dir)
-            })?,
+                store::update_with_context(ctx, conn, req.keeper, &patch, blobs_dir)
+            }?,
             None => false,
         };
         if merged_author.is_neighbor() {
             conn.execute("UPDATE mem_items SET author_kind=?2,author_uid=?3,author_friendship=?4,author_label=?5 WHERE id=?1",
                 params![req.keeper, merged_author.kind.as_str(), merged_author.account_uid, merged_author.friendship_id, merged_author.label]).map_err(|e| e.to_string())?;
             if !body_updated && prior_keeper_author != merged_author {
-                store::with_author(prior_keeper_author, || {
-                    store::history_log(
+                {
+                    let ctx = &ctx.with_author(prior_keeper_author);
+                    store::history_log_with_context(
+                        ctx,
                         conn,
                         req.keeper,
                         "update",
@@ -228,11 +253,12 @@ pub fn run_merge(
                         &Default::default(),
                         Some("fields=author"),
                     )
-                });
+                };
             }
         }
         let reason = format!("{relation} {from} -> {to}");
-        archive_item(
+        super::calibration::archive::archive_item_with_context(
+            ctx,
             conn,
             req.lesser,
             &lesser.kind,
@@ -311,18 +337,46 @@ pub fn apply_kind_restore(
     body: Option<&str>,
     actor: &str,
 ) -> Result<serde_json::Value, String> {
+    apply_kind_restore_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        blobs_dir,
+        id,
+        restore,
+        body,
+        actor,
+    )
+}
+
+pub fn apply_kind_restore_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    blobs_dir: &Path,
+    id: &str,
+    restore: &KindRestore,
+    body: Option<&str>,
+    actor: &str,
+) -> Result<serde_json::Value, String> {
     conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
     let reason = format!("undo history row {}", restore.history_id);
     let applied = (|| -> Result<usize, String> {
-        unarchive_item(conn, id, &restore.kind, actor, Some(&reason))?;
+        super::calibration::archive::unarchive_item_with_context(
+            ctx,
+            conn,
+            id,
+            &restore.kind,
+            actor,
+            Some(&reason),
+        )?;
         if let Some(body) = body {
-            with_changed_by(actor, || {
+            {
+                let ctx = &ctx.with_changed_by(actor);
                 let patch = MemUpdate {
                     body: Some(body.to_string()),
                     ..Default::default()
                 };
-                store::update(conn, id, &patch, blobs_dir)
-            })?;
+                store::update_with_context(ctx, conn, id, &patch, blobs_dir)
+            }?;
         }
         conn.execute(
             "UPDATE relations SET valid_to = ?1

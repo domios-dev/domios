@@ -70,6 +70,14 @@ enum CalibAction {
 }
 
 pub fn run_calibration_sweep(conn: &Connection, force: bool) -> Result<serde_json::Value, String> {
+    run_calibration_sweep_with_context(&crate::MemManager::write_context(), conn, force)
+}
+
+pub fn run_calibration_sweep_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    force: bool,
+) -> Result<serde_json::Value, String> {
     let dow: String = conn
         .query_row("SELECT strftime('%w','now')", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
@@ -131,17 +139,17 @@ pub fn run_calibration_sweep(conn: &Connection, force: bool) -> Result<serde_jso
             examined += 1;
             match classify_calibration(cand) {
                 CalibAction::Promote(new_imp) => {
-                    apply_promote(conn, cand, new_imp)?;
+                    apply_promote_with_context(ctx, conn, cand, new_imp)?;
                     applied += 1;
                     total_changes += 1;
                 }
                 CalibAction::Demote(new_imp) => {
-                    apply_demote(conn, cand, new_imp)?;
+                    apply_demote_with_context(ctx, conn, cand, new_imp)?;
                     applied += 1;
                     total_changes += 1;
                 }
                 CalibAction::Archive => {
-                    apply_archive(conn, cand)?;
+                    apply_archive_with_context(ctx, conn, cand)?;
                     archived_ids.push(cand.id.clone());
                     archived += 1;
                     total_changes += 1;
@@ -175,8 +183,24 @@ pub fn run_nightly_calibration(
     hygiene: &codeterm_types::config::DreamHygieneConfig,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<serde_json::Value, String> {
-    let mut result = run_calibration_sweep(conn, false)?;
-    let stale = stale::run_stale_archive(conn, hygiene, now, stale::StaleMode::Apply, None)?;
+    run_nightly_calibration_with_context(&crate::MemManager::write_context(), conn, hygiene, now)
+}
+
+pub fn run_nightly_calibration_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    hygiene: &codeterm_types::config::DreamHygieneConfig,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<serde_json::Value, String> {
+    let mut result = run_calibration_sweep_with_context(ctx, conn, false)?;
+    let stale = stale::run_stale_archive_with_context(
+        ctx,
+        conn,
+        hygiene,
+        now,
+        stale::StaleMode::Apply,
+        None,
+    )?;
     if let Some(obj) = result.as_object_mut() {
         obj.insert("stale".into(), stale);
     }
@@ -233,9 +257,20 @@ fn classify_calibration(c: &Candidate) -> CalibAction {
     }
 }
 
+#[cfg(test)]
 fn apply_promote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(), String> {
+    apply_promote_with_context(&crate::MemManager::write_context(), conn, cand, new_imp)
+}
+
+fn apply_promote_with_context(
+    _ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    cand: &Candidate,
+    new_imp: f64,
+) -> Result<(), String> {
     crate::store::refuse_neighbor_promotion(conn, &cand.id)?;
-    crate::store::with_system_author("dreamer-calibration:promote", || {
+    {
+        let ctx = &crate::backend::WriteContext::system("dreamer-calibration:promote");
         conn.execute(
             "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![new_imp, cand.id],
@@ -249,13 +284,19 @@ fn apply_promote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<()
             importance: Some(new_imp),
             ..Default::default()
         };
-        crate::store::history_log(conn, &cand.id, "update", &old, &new, None);
+        crate::store::history_log_with_context(ctx, conn, &cand.id, "update", &old, &new, None);
         Ok(())
-    })
+    }
 }
 
-fn apply_demote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(), String> {
-    crate::store::with_system_author("dreamer-calibration:demote", || {
+fn apply_demote_with_context(
+    _ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    cand: &Candidate,
+    new_imp: f64,
+) -> Result<(), String> {
+    {
+        let ctx = &crate::backend::WriteContext::system("dreamer-calibration:demote");
         conn.execute(
             "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![new_imp, cand.id],
@@ -269,14 +310,20 @@ fn apply_demote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(),
             importance: Some(new_imp),
             ..Default::default()
         };
-        crate::store::history_log(conn, &cand.id, "update", &old, &new, None);
+        crate::store::history_log_with_context(ctx, conn, &cand.id, "update", &old, &new, None);
         Ok(())
-    })
+    }
 }
 
-fn apply_archive(conn: &Connection, cand: &Candidate) -> Result<(), String> {
-    crate::store::with_default_system_author("calibration", || {
-        archive::archive_item(
+fn apply_archive_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    cand: &Candidate,
+) -> Result<(), String> {
+    {
+        let ctx = &ctx.with_author(ctx.default_system_author("calibration"));
+        archive::archive_item_with_context(
+            ctx,
             conn,
             &cand.id,
             &cand.kind,
@@ -284,11 +331,12 @@ fn apply_archive(conn: &Connection, cand: &Candidate) -> Result<(), String> {
             "archive",
             None,
         )
-    })
+    }
 }
 
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
+#[path = "calibration/tests_organizer_guard.rs"]
 mod organizer_guard;

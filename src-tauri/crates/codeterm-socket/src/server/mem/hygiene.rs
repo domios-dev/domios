@@ -3,7 +3,7 @@
 
 use axum::http::StatusCode;
 
-use codeterm_service_core::mem_ops::calibration::stale::{stale_from_params, StaleParams};
+use codeterm_service_core::mem_ops::calibration::stale::StaleParams;
 use codeterm_service_core::mem_ops::items::archive::{
     archive_mem_item, validate_archive_reason, ArchiveBody,
 };
@@ -74,9 +74,7 @@ pub(super) fn mem_calibration_stale(
 ) -> Result<serde_json::Value, JsonRpcError> {
     let p: StaleParams = parse_params(params)?;
     let hygiene = svc.configuration().memory.dream_hygiene;
-    svc.mem
-        .with_conn(|conn| stale_from_params(conn, &p, &hygiene))
-        .map_err(internal_error)
+    svc.mem.stale(&p, &hygiene).map_err(internal_error)
 }
 
 pub(super) fn mem_area_merge(

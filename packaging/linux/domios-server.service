@@ -1,0 +1,32 @@
+[Unit]
+Description=Domios headless server
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=forking
+User=domios-server
+Group=domios-server
+StateDirectory=domios-server
+StateDirectoryMode=0700
+RuntimeDirectory=domios-server
+RuntimeDirectoryMode=0700
+WorkingDirectory=/var/lib/domios-server
+Environment=HOME=/var/lib/domios-server
+Environment=HF_HOME=/var/lib/domios-server/models
+Environment=HF_HUB_OFFLINE=1
+Environment=PATH=/opt/domios/cli:/usr/local/bin:/usr/bin:/bin
+UMask=0077
+PIDFile=/run/domios-server/server.pid
+GuessMainPID=no
+ExecStart=/opt/domios/domios-server/domios-server start --production --pid-file /run/domios-server/server.pid
+Restart=on-failure
+TimeoutStartSec=180
+TimeoutStopSec=45
+KillMode=control-group
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

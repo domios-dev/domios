@@ -3,6 +3,7 @@ pub(super) mod callable;
 mod concierge;
 pub(super) mod files;
 mod gateway;
+mod key_store;
 mod listener;
 mod local;
 pub(crate) mod logout;
@@ -423,7 +424,7 @@ impl ServiceContext {
                 .await?
         };
         let lifecycle = InstallationKeys {
-            store: &OsKeyStore,
+            store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
             registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,

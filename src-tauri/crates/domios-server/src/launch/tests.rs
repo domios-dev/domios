@@ -88,6 +88,14 @@ fn process_split_contract_headless_explicit_selector_and_resource_layout() {
     assert_eq!(development.options.resources, PathBuf::from("selected"));
     assert!(!development.json);
     assert!(human_options(&["--development", "--port", "18886"], true).is_ok());
+    let pid = std::env::current_dir().unwrap().join("server.pid");
+    let with_pid = human_options(
+        &["--production", "--pid-file", pid.to_str().unwrap()],
+        false,
+    )
+    .unwrap();
+    assert_eq!(with_pid.pid_file.as_deref(), Some(pid.as_path()));
+    assert!(human_options(&["--production", "--pid-file", "relative.pid"], false).is_err());
 }
 
 #[test]

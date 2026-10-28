@@ -3,7 +3,6 @@
 use super::reindex::compose_item_embed_text;
 use super::store::MemItem;
 use super::{store, MemManager, NewMemItem};
-use rusqlite::OptionalExtension;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SaveOutcome {
@@ -22,9 +21,7 @@ pub struct AreaForgetOutcome {
 
 impl MemManager {
     pub fn save(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, false)
-            .map(|outcome| outcome.id)
-            .map_err(|error| error.to_string())
+        self.save_inner(item, false).map(|outcome| outcome.id)
     }
 
     /// Raw insert that skips dedup, auto-extraction of child items, and
@@ -32,14 +29,11 @@ impl MemManager {
     /// control exactly which items end up in the store. Returns the
     /// generated id (same format as [`save`]).
     pub fn insert_raw(&self, item: &NewMemItem) -> Result<String, String> {
-        let conn = self.conn.lock();
-        store::insert(&conn, item, &self.blobs_dir)
+        self.store.insert(&Self::write_context(), item)
     }
 
     pub fn save_replace(&self, item: NewMemItem) -> Result<String, String> {
-        self.save_inner(item, true)
-            .map(|outcome| outcome.id)
-            .map_err(|error| error.to_string())
+        self.save_inner(item, true).map(|outcome| outcome.id)
     }
 
     pub fn save_with_outcome(
@@ -48,26 +42,15 @@ impl MemManager {
         replace: bool,
     ) -> Result<SaveOutcome, String> {
         self.save_inner(item, replace)
-            .map_err(|error| error.to_string())
-    }
-
-    pub fn save_guarded(
-        &self,
-        item: NewMemItem,
-        guard: store::ReplaceGuard,
-    ) -> Result<String, store::GuardedSaveError> {
-        store::with_replace_guard(guard, || {
-            self.save_inner(item, false).map(|outcome| outcome.id)
-        })
     }
 
     /// Create a bundled item with its fingerprint in the same insert —
     /// never a two-step create-then-bootstrap. Keeps `save`'s embed queue.
     pub fn save_seeded(&self, item: NewMemItem, fingerprint: &str) -> Result<String, String> {
         self.guard_commit()?;
-        let conn = self.conn.lock();
-        let id = store::insert_seeded(&conn, &item, &self.blobs_dir, fingerprint)?;
-        drop(conn);
+        let id = self
+            .store
+            .insert_seeded(&Self::write_context(), &item, fingerprint)?;
 
         {
             let body_text = if let Some(ref src) = item.source {
@@ -95,110 +78,50 @@ impl MemManager {
         Ok(id)
     }
 
-    fn save_inner(
+    fn save_inner(&self, item: NewMemItem, replace: bool) -> Result<SaveOutcome, String> {
+        self.save_with_context(item, replace, Self::write_context())
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn save_with_context(
         &self,
         item: NewMemItem,
         replace: bool,
-    ) -> Result<SaveOutcome, store::GuardedSaveError> {
+        ctx: crate::backend::WriteContext,
+    ) -> Result<SaveOutcome, crate::backend::SaveError> {
         self.guard_commit()?;
-        let conn = self.conn.lock();
-        store::check_guarded_save(&conn, &item)?;
-
-        if !item.title.is_empty() {
-            let existing: Option<(String, Option<String>)> = conn
-                .query_row(
-                    "SELECT id, body_inline FROM mem_items WHERE kind = ?1 AND title = ?2 LIMIT 1",
-                    rusqlite::params![item.kind.as_str(), &item.title],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()
-                .map_err(|error| format!("find existing mem item: {error}"))?;
-            if let Some((existing_id, current_body)) = existing {
-                let current_body = current_body
-                    .or_else(|| {
-                        store::get(&conn, &existing_id, &self.blobs_dir)
-                            .ok()
-                            .flatten()
-                            .map(|item| item.body)
-                    })
-                    .unwrap_or_default();
-                let normalize = |body: &str| body.split_whitespace().collect::<Vec<_>>().join(" ");
-                if normalize(&current_body) == normalize(&item.body)
-                    && store::item_author(&conn, &existing_id)? == Some(store::current_author())
-                {
-                    let _ = conn.execute(
-                        "UPDATE mem_items SET recurrence_count = recurrence_count + 1, accessed_at = ?1 WHERE id = ?2",
-                        rusqlite::params![chrono::Utc::now().to_rfc3339(), &existing_id],
-                    );
-                    return Ok(SaveOutcome {
-                        id: existing_id,
-                        outcome: "unchanged".into(),
-                    });
-                }
-                store::replace_existing(&conn, &existing_id, &item, &self.blobs_dir)?;
-                drop(conn);
-                self.revoke_extraction(&existing_id);
-                self.enqueue_embedding(&existing_id, &item);
-                return Ok(SaveOutcome {
-                    id: existing_id,
-                    outcome: "updated".into(),
-                });
-            }
+        let outcome = self.store.save(&ctx, &item, replace)?;
+        if outcome.outcome == "unchanged" {
+            return Ok(outcome);
         }
-
-        let id = if replace {
-            if let Some(existing_id) =
-                store::find_by_kind_title(&conn, item.kind.as_str(), &item.title)?
-            {
-                store::replace_existing(&conn, &existing_id, &item, &self.blobs_dir)?;
-                drop(conn);
-                self.revoke_extraction(&existing_id);
-                self.enqueue_embedding(&existing_id, &item);
-                return Ok(SaveOutcome {
-                    id: existing_id,
-                    outcome: "updated".into(),
-                });
-            }
-            store::upsert(&conn, &item, &self.blobs_dir)?
-        } else {
-            store::insert(&conn, &item, &self.blobs_dir)?
-        };
-        drop(conn);
-
-        // Replace destroys the row the in-flight generation copied its text from, so that generation is superseded exactly like a delete.
+        if outcome.outcome == "updated" {
+            self.revoke_extraction(&outcome.id);
+            self.enqueue_embedding(&outcome.id, &item);
+            return Ok(outcome);
+        }
         if replace {
-            self.revoke_extraction(&id);
-            self.embed_queue.cancel(&id);
+            self.revoke_extraction(&outcome.id);
+            self.embed_queue.cancel(&outcome.id);
         }
-
-        {
-            let body_text = if let Some(ref src) = item.source {
-                if let Some(path) = src.strip_prefix("file:") {
-                    std::fs::read_to_string(path).unwrap_or_else(|_| item.body.clone())
-                } else {
-                    item.body.clone()
-                }
-            } else {
-                item.body.clone()
-            };
-            // otherwise index a title-only vector — pure noise in vector search.
-            if super::body_is_embeddable(&body_text) {
-                let embed_text = compose_item_embed_text(
-                    &format!("{:?}", item.kind).to_lowercase(),
-                    &item.title,
-                    item.area.as_deref(),
-                    &item.tags,
-                    &body_text,
-                    item.source.as_deref(),
-                    item.summary.as_deref(),
-                );
-                self.embed_queue.enqueue(id.clone(), embed_text);
-            }
+        let body_text = item
+            .source
+            .as_deref()
+            .and_then(|src| src.strip_prefix("file:"))
+            .and_then(|path| std::fs::read_to_string(path).ok())
+            .unwrap_or_else(|| item.body.clone());
+        if super::body_is_embeddable(&body_text) {
+            let text = compose_item_embed_text(
+                &format!("{:?}", item.kind).to_lowercase(),
+                &item.title,
+                item.area.as_deref(),
+                &item.tags,
+                &body_text,
+                item.source.as_deref(),
+                item.summary.as_deref(),
+            );
+            self.embed_queue.enqueue(outcome.id.clone(), text);
         }
-        Ok(SaveOutcome {
-            id,
-            outcome: "created".into(),
-        })
+        Ok(outcome)
     }
 
     fn enqueue_embedding(&self, id: &str, item: &NewMemItem) {
@@ -218,8 +141,7 @@ impl MemManager {
     }
 
     pub fn get(&self, id: &str) -> Result<Option<MemItem>, String> {
-        let conn = self.conn.lock();
-        store::get(&conn, id, &self.blobs_dir)
+        self.store.get(id)
     }
 
     /// Revoke the deleted source's extraction generations and log what was
@@ -237,99 +159,40 @@ impl MemManager {
     }
 
     pub fn delete(&self, id: &str) -> Result<bool, String> {
-        let (matching_ids, skill_source) = {
-            let conn = self.conn.lock();
-            let skill_source =
-                codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
-                    .map_err(|e| format!("read folder skill source: {e}"))?;
-            let matching_ids = match skill_source.as_deref() {
-                Some(source) => {
-                    codeterm_mem_store::skill_folders::skill_ids_for_source(&conn, source)
-                        .map_err(|e| format!("list folder skill registrations: {e}"))?
-                }
-                None => vec![id.to_string()],
-            };
-            (matching_ids, skill_source)
-        };
-
-        for matching_id in &matching_ids {
-            self.embed_queue.cancel(matching_id);
+        let (ids, source) = self.store.deletion_targets(id)?;
+        for id in &ids {
+            self.embed_queue.cancel(id);
         }
-
-        let removed_ids = {
-            let conn = self.conn.lock();
-            let mut removed = Vec::new();
-            let mut areas = Vec::new();
-            for matching_id in matching_ids {
-                let area = store::get(&conn, &matching_id, &self.blobs_dir)?
-                    .filter(|item| item.source.as_deref() == Some(crate::blueprint_library::SOURCE))
-                    .and_then(|item| item.area);
-                if store::delete(&conn, &matching_id)? {
-                    removed.push(matching_id);
-                    areas.extend(area);
-                }
-            }
-            drop(conn);
-            self.notify_blueprint_library_changed(areas);
-            removed
-        };
-
-        if removed_ids.iter().any(|removed_id| removed_id == id) {
-            remove_folder_skill(skill_source.as_deref(), &self.skill_dir, id);
+        let removed = self.store.delete_batch(&Self::write_context(), &ids)?;
+        self.notify_blueprint_library_changed(removed.library_areas);
+        if removed.ids.iter().any(|removed| removed == id) {
+            remove_folder_skill(source.as_deref(), &self.skill_dir, id);
         }
-        for removed_id in &removed_ids {
-            self.revoke_extraction(removed_id);
+        for id in &removed.ids {
+            self.revoke_extraction(id);
         }
-        Ok(removed_ids.iter().any(|removed_id| removed_id == id))
+        Ok(removed.ids.iter().any(|removed| removed == id))
     }
 
     pub fn delete_by_area(&self, area: &str) -> Result<AreaForgetOutcome, String> {
-        let conn = self.conn.lock();
-        let ids: Vec<String> = {
-            let mut out = Vec::new();
-            if let Ok(mut stmt) = conn.prepare("SELECT id FROM mem_items WHERE area = ?1") {
-                if let Ok(rows) = stmt.query_map(rusqlite::params![area], |r| r.get::<_, String>(0))
-                {
-                    for row in rows.flatten() {
-                        out.push(row);
-                    }
-                }
-            }
-            out
-        };
-        let mut deleted = Vec::new();
-        let mut skill_sources = Vec::new();
-        let mut library_changed = false;
+        let ids = self.store.ids_by_area(area);
         for id in &ids {
-            let blueprint = store::get(&conn, id, &self.blobs_dir)?.is_some_and(|item| {
-                item.source.as_deref() == Some(crate::blueprint_library::SOURCE)
-            });
             self.embed_queue.cancel(id);
-            let skill_source =
-                codeterm_mem_store::skill_folders::folder_skill_source_path(&conn, id)
-                    .map_err(|e| format!("read folder skill source: {e}"))?;
-            if store::delete(&conn, id)? {
-                deleted.push(id.clone());
-                library_changed |= blueprint;
-                skill_sources.push((id.clone(), skill_source));
-            }
         }
-        drop(conn);
-        if library_changed {
+        let removed = self.store.delete_batch(&Self::write_context(), &ids)?;
+        if !removed.library_areas.is_empty() {
             self.notify_blueprint_library_changed([area.to_owned()]);
         }
-        for (id, source) in skill_sources {
+        for (id, source) in removed.skill_sources {
             remove_folder_skill(source.as_deref(), &self.skill_dir, &id);
         }
-
-        // Batch forget shares the single-delete lifecycle: each deleted source
-        // revokes its own generations, so unrelated extractions are untouched.
-        let cancelled = deleted
+        let cancelled = removed
+            .ids
             .iter()
-            .flat_map(|id| self.revoke_extraction(id))
-            .count();
+            .map(|id| self.revoke_extraction(id).len())
+            .sum();
         Ok(AreaForgetOutcome {
-            deleted: deleted.len(),
+            deleted: removed.ids.len(),
             cancelled_extractions: cancelled,
         })
     }
@@ -340,8 +203,7 @@ impl MemManager {
         &self,
         id: &str,
     ) -> Result<Option<(NewMemItem, Option<String>)>, String> {
-        let conn = self.conn.lock();
-        store::managed_payload(&conn, id, &self.blobs_dir)
+        self.store.managed_payload(id)
     }
 
     /// Overwrite `id`'s bundled content only when its fingerprint still
@@ -353,11 +215,9 @@ impl MemManager {
         new_item: &NewMemItem,
         new_fingerprint: &str,
     ) -> Result<bool, String> {
-        let conn = self.conn.lock();
-        store::cas_refresh_bundled(
-            &conn,
+        self.store.cas_refresh_bundled(
+            &Self::write_context(),
             id,
-            &self.blobs_dir,
             expected_fingerprint,
             new_item,
             new_fingerprint,
@@ -372,17 +232,14 @@ impl MemManager {
         expected: &NewMemItem,
         fingerprint: &str,
     ) -> Result<bool, String> {
-        let conn = self.conn.lock();
-        store::bootstrap_seed_fingerprint(&conn, id, &self.blobs_dir, expected, fingerprint)
+        self.store
+            .bootstrap_seed_fingerprint(&Self::write_context(), id, expected, fingerprint)
     }
 
     pub fn update(&self, id: &str, patch: store::MemUpdate) -> Result<bool, String> {
         self.guard_commit()?;
         let body_changed = patch.body.is_some() || patch.title.is_some();
-        let updated = {
-            let conn = self.conn.lock();
-            store::update(&conn, id, &patch, &self.blobs_dir)?
-        };
+        let updated = { self.store.update(&Self::write_context(), id, &patch)? };
         if updated && body_changed {
             self.refresh_embedding(id);
         }
@@ -394,9 +251,7 @@ impl MemManager {
     pub fn refresh_embedding(&self, id: &str) {
         self.embed_queue.cancel(id);
         {
-            let conn = self.conn.lock();
-            if let Ok(Some(item)) = store::get(&conn, id, &self.blobs_dir) {
-                drop(conn);
+            if let Ok(Some(item)) = self.store.get(id) {
                 // that shrank below the bar are swept by the dreamer's cleanup.
                 if super::body_is_embeddable(&item.body) {
                     let embed_text = compose_item_embed_text(

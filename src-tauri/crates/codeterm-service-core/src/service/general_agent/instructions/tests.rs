@@ -429,7 +429,7 @@ fn generate_instructions_does_not_block_caller_when_mem_conn_held() {
     let dir = std::env::temp_dir().join(format!("ga-noblock-{}", ulid::Ulid::new()));
     std::fs::create_dir_all(&dir).unwrap();
 
-    let _conn_guard = mem.conn().lock();
+    let _conn_guard = mem.lock_storage();
 
     let mem_clone = mem.clone();
     let output_dir = dir.clone();

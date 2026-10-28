@@ -1441,6 +1441,7 @@ dependencies = [
  "clap",
  "codeterm-blueprint-types",
  "codeterm-build-info",
+ "codeterm-mem",
  "codeterm-mem-store",
  "codeterm-mesh",
  "codeterm-notification-core",
@@ -1843,6 +1844,7 @@ dependencies = [
  "ed25519-dalek",
  "googleapis-tonic-google-firestore-v1",
  "hkdf 0.12.4",
+ "libc",
  "prost-types",
  "rand 0.8.5",
  "secret-service",
@@ -1850,6 +1852,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",
@@ -1929,7 +1932,10 @@ name = "codeterm-paths"
 version = "0.0.0"
 dependencies = [
  "dirs 6.0.0",
+ "libc",
+ "sha2 0.10.9",
  "tempfile",
+ "windows-sys 0.61.2",
  "workspace-hack",
 ]
 
@@ -3406,6 +3412,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "tokio",
+ "toml 0.8.2",
  "tower",
  "url",
  "uuid",

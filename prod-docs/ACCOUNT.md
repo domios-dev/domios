@@ -100,6 +100,9 @@ Local callers only.
 |--------|------|------|-------------|
 | GET | `/api/account/status` | — | Account identity, effective provider and pending flag |
 | POST | `/api/account/login` | — | Browser sign-in; optional provider=google/facebook/email and mode=signin/signup query hints |
+| POST | `/api/account/login/paste` | — | Start browserless sign-in; returns `{login_id,url}` with no-store caching |
+| GET | `/api/account/login/paste` | — | Return the pending browserless login ID and URL without starting another flow |
+| PUT | `/api/account/login/paste` | `{login_id,url}` | Complete browserless sign-in from the whole redirected callback URL, retaining state and PKCE verifier validation; waits for settled sign-in status |
 | POST | `/api/account/logout` | — | Block Mesh traffic, withdraw this machine's endpoint once, then clear credentials and cached entitlements; saved pairs and the machine slot stay |
 | GET | `/api/account/plan` | — | Cached entitlement and stale marker |
 | POST | `/api/account/plan/refresh` | — | Explicit refresh bypasses throttling, including checkout return; passive window focus uses ?focus=true, throttled to once per minute |
@@ -117,4 +120,6 @@ Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, l
 
 Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
 
-<!-- revision: 22 -->
+Headless sign-in: `domios account login --no-browser` prints an authorization URL. Open it on another machine, then paste the whole redirected callback URL into stdin; it must include both code and state. A failed loopback navigation still leaves that URL in the browser's address bar. Bare codes are refused. EOF on stdin leaves the flow pending in the daemon until its normal timeout. In a Domios tab, `domios account login --no-browser --code-from-pad callback.txt` completes that pending flow from the calling tab's pad without replacing its state/verifier. Keep callback values out of logs and shell history. The existing timeout and single-use checks apply.
+
+<!-- revision: 23 -->

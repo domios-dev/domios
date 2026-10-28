@@ -6,6 +6,7 @@ use axum::{
     Extension, Json,
 };
 use codeterm_account::Status;
+mod login_paste;
 type Error = (StatusCode, String);
 pub(crate) fn admit(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
     if matches!(caller.map(|c| &c.0), Some(CallerIdentity::Local)) {
@@ -70,7 +71,7 @@ fn backend_view(endpoints: codeterm_account::firebase_endpoints::Endpoints) -> s
 }
 
 pub(crate) fn debug_login_router() -> axum::Router<AppState> {
-    let router = axum::Router::new();
+    let router = axum::Router::new().merge(login_paste::router());
     #[cfg(debug_assertions)]
     let router = router.route(
         "/api/account/login/pending",

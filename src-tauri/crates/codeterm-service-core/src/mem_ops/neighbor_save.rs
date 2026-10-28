@@ -1,4 +1,4 @@
-use crate::mem::store::{with_author, MemAuthor, MemKind, MemScope, NewMemItem};
+use crate::mem::store::{MemAuthor, MemKind, MemScope, NewMemItem};
 use crate::multiplexer::types::NeighborAuthority;
 use crate::service::{tab_credentials::TabCaller, ServiceContext};
 use codeterm_neighbors::permissions::Permission;
@@ -114,21 +114,21 @@ impl ServiceContext {
             validate(Some(&authority), &permission, body).map_err(|error| error.to_string())?;
         let service = self.clone();
         tokio::task::spawn_blocking(move || {
-            with_author(author, || {
-                service.mem.save_guarded(
-                    item,
-                    crate::mem::store::ReplaceGuard::new(permission.memory_write_areas),
-                )
-            })
-            .map(|id| serde_json::json!({"id":id}))
+            service.mem.save_with_context(
+                item,
+                false,
+                crate::mem::backend::WriteContext::new(author, "neighbor")
+                    .with_replace_guard(crate::mem::store::ReplaceGuard::new(permission.memory_write_areas)),
+            )
+            .map(|outcome| serde_json::json!({"id":outcome.id}))
             .map_err(|error| match error {
-                crate::mem::store::GuardedSaveError::Guard(
+                crate::mem::backend::SaveError::Guard(
                     crate::mem::store::ReplaceGuardError::AreaNotAllowed,
                 ) => Refusal::AreaNotGranted.to_string(),
-                crate::mem::store::GuardedSaveError::Guard(
+                crate::mem::backend::SaveError::Guard(
                     crate::mem::store::ReplaceGuardError::TitleConflict,
                 ) => "neighbor_memory_title_conflict: Neighbor memory save refused".into(),
-                crate::mem::store::GuardedSaveError::Store(error) => error,
+                crate::mem::backend::SaveError::Storage(error) => error,
             })
         })
         .await

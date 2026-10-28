@@ -3,7 +3,7 @@
 
 use rusqlite::{params, Connection};
 
-use crate::store::{history_log, with_changed_by, HistorySnapshot};
+use crate::store::HistorySnapshot;
 
 pub const ARCHIVED_KIND: &str = "archived";
 pub const RESTORE_CHANGE_TYPE: &str = "restore";
@@ -16,7 +16,28 @@ pub fn archive_item(
     change_type: &str,
     reason: Option<&str>,
 ) -> Result<(), String> {
-    with_changed_by(actor, || {
+    archive_item_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        id,
+        prev_kind,
+        actor,
+        change_type,
+        reason,
+    )
+}
+
+pub fn archive_item_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    id: &str,
+    prev_kind: &str,
+    actor: &str,
+    change_type: &str,
+    reason: Option<&str>,
+) -> Result<(), String> {
+    {
+        let ctx = &ctx.with_changed_by(actor);
         let changed = conn
             .execute(
                 "UPDATE mem_items SET kind = ?2, updated_at = ?3 WHERE id = ?1 AND kind != ?2",
@@ -34,9 +55,9 @@ pub fn archive_item(
             kind: Some(ARCHIVED_KIND.to_string()),
             ..Default::default()
         };
-        history_log(conn, id, change_type, &old, &new, reason);
+        crate::store::history_log_with_context(ctx, conn, id, change_type, &old, &new, reason);
         Ok(())
-    })
+    }
 }
 
 pub fn unarchive_item(
@@ -46,11 +67,30 @@ pub fn unarchive_item(
     actor: &str,
     reason: Option<&str>,
 ) -> Result<(), String> {
+    unarchive_item_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        id,
+        kind,
+        actor,
+        reason,
+    )
+}
+
+pub fn unarchive_item_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    id: &str,
+    kind: &str,
+    actor: &str,
+    reason: Option<&str>,
+) -> Result<(), String> {
     if let Some(author) = crate::store::item_author(conn, id)? {
         crate::store::guard_instruction(&author, kind, false)?;
     }
-    crate::store::guard_instruction(&crate::store::current_author(), kind, false)?;
-    with_changed_by(actor, || {
+    crate::store::guard_instruction(&ctx.author, kind, false)?;
+    {
+        let ctx = &ctx.with_changed_by(actor);
         let changed = conn
             .execute(
                 "UPDATE mem_items SET kind = ?2, updated_at = ?3 WHERE id = ?1 AND kind = ?4",
@@ -68,7 +108,15 @@ pub fn unarchive_item(
             kind: Some(kind.to_string()),
             ..Default::default()
         };
-        history_log(conn, id, RESTORE_CHANGE_TYPE, &old, &new, reason);
+        crate::store::history_log_with_context(
+            ctx,
+            conn,
+            id,
+            RESTORE_CHANGE_TYPE,
+            &old,
+            &new,
+            reason,
+        );
         Ok(())
-    })
+    }
 }

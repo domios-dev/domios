@@ -36,9 +36,9 @@ pub fn build_service_context(
     surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
     cap_registries: &crate::plugin::js_runtime::CapabilityRegistries,
 ) -> Arc<ServiceContext> {
-    let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
+    let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::with_manager(
         crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
-        mem.db_path().to_path_buf(),
+        mem.clone(),
     ));
 
     let input_parser = Arc::new(crate::service::input_parser::InputParser::new(
