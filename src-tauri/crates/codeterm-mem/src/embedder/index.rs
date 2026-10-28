@@ -155,6 +155,7 @@ pub fn nearest(
     query: &StampedVector,
     k: usize,
 ) -> Result<Vec<(String, f64)>, String> {
+    backend::register(conn)?;
     check(conn, &query.identity)?;
     let rows = backend::knn(conn, &encode(&query.vector), k * 3)?;
     let mut best: std::collections::HashMap<String, f64> = std::collections::HashMap::new();

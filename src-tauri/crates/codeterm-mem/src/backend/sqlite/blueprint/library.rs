@@ -337,7 +337,7 @@ impl SqliteMemStore {
                 .map_err(|e| e.to_string())?;
             ids.into_iter()
                 .map(|id| {
-                    let item = store::get(&conn, &id, &self.blobs_dir)?
+                    let (item, _) = store::managed_payload(&conn, &id, &self.blobs_dir)?
                         .ok_or("Blueprint solution disappeared")?;
                     let stats = metadata::read(&conn, &id)?
                         .and_then(|record| record.blueprint)

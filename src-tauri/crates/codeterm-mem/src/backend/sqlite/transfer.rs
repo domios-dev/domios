@@ -194,9 +194,10 @@ impl SqliteMemStore {
                 model: text("model")?,
                 dimension,
             };
-            if crate::embedder::index::stamp(&tx)?.as_ref() != Some(&identity) {
-                crate::embedder::index::recreate_in(&tx, &identity)?;
+            if crate::embedder::index::stamp(&tx)?.as_ref() == Some(&identity) {
+                return tx.commit().map_err(|e| e.to_string());
             }
+            crate::embedder::index::recreate_in(&tx, &identity)?;
         }
         let sql = format!("SELECT * FROM {} LIMIT 0", page.table.sqlite_name());
         let stmt = tx.prepare(&sql).map_err(|e| e.to_string())?;
