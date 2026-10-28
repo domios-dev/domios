@@ -45,5 +45,5 @@ it("keeps size and tab-request refusals typed", async () => {
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "reply_target_stopped", message: "The owner stopped this request; nothing was sent" }), { status: 409 }));
   await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "reply_target_stopped", message: "The owner stopped this request; nothing was sent" });
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiving_elsewhere", message: "Another machine receives for this account" }), { status: 409 }));
-  await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere" });
+  await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere", message: "This machine is not receiving this friend's messages." });
 });
