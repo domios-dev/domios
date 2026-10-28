@@ -25,4 +25,3 @@ assert.equal(future.plan, "future-tier");
 assert.equal(future.limits?.max.workspaces, 19);
 assert.equal(future.limits?.max.teams, 8);
 assert.equal(future.limits?.max["agent.tabs"], 64);
-

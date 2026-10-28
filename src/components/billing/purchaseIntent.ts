@@ -49,4 +49,3 @@ export function purchaseIntent(state: PurchaseIntent, event: PurchaseEvent): Pur
       return state.kind === "opening" ? IDLE_INTENT : state;
   }
 }
-
