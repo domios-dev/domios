@@ -20,11 +20,16 @@ pub async fn mem_merge(
         .map(String::from)
         .or_else(|| b.worker_id.clone());
     let ids = vec![b.keeper.clone(), b.lesser.clone()];
+    let author = crate::mem_routes::memory_author(&state, &headers)?;
     let svc = state.svc.clone();
-    let out = tokio::task::spawn_blocking(move || merge_items(&svc, &b, worker_id.as_deref()))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))?
-        .map_err(|e| (merge_error_status(&e), e.into_message()))?;
+    let out = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::mem::store::with_author(author, || {
+            merge_items(&svc, &b, worker_id.as_deref())
+        })
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))?
+    .map_err(|e| (merge_error_status(&e), e.into_message()))?;
     emit_activity(&state, &headers, "update", ids);
     Ok(Json(out))
 }

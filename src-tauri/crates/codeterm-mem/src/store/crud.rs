@@ -61,6 +61,8 @@ pub fn replace_existing(
     let Some(previous) = get(conn, id, blobs_dir)? else {
         return Err(format!("mem item {id} not found"));
     };
+    let author = super::current_author();
+    super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
     let (source, source_path) = normalized_sources(item);
     let previous_source_path: Option<String> = conn
         .query_row(
@@ -72,6 +74,9 @@ pub fn replace_existing(
         .map_err(|e| format!("read source path: {e}"))?
         .flatten();
     let mut changed = Vec::new();
+    if previous.author != author {
+        changed.push("author");
+    }
     if previous.title != item.title {
         changed.push("title");
     }
@@ -120,8 +125,8 @@ pub fn replace_existing(
     let now = chrono::Utc::now().to_rfc3339();
     let tags = serde_json::to_string(&item.tags).map_err(|e| format!("serialize tags: {e}"))?;
     conn.execute(
-        "UPDATE mem_items SET title=?1, summary=?2, area=?3, tags_json=?4, body_inline=?5, body_blob_path=?6, source=?7, importance=?8, updated_at=?9, source_path=?10, is_pinned_wakeup=?11, scope=?12, seed_fingerprint=NULL WHERE id=?13",
-        params![item.title, item.summary, item.area, tags, inline, blob, source, item.importance, now, source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id],
+        "UPDATE mem_items SET title=?1, summary=?2, area=?3, tags_json=?4, body_inline=?5, body_blob_path=?6, source=?7, importance=?8, updated_at=?9, source_path=?10, is_pinned_wakeup=?11, scope=?12, seed_fingerprint=NULL, author_kind=?14, author_uid=?15, author_friendship=?16, author_label=?17 WHERE id=?13",
+        params![item.title, item.summary, item.area, tags, inline, blob, source, item.importance, now, source_path, if item.pinned { 1 } else { 0 }, item.scope.as_str(), id, author.kind.as_str(), author.account_uid, author.friendship_id, author.label],
     ).map_err(|e| format!("replace mem item: {e}"))?;
     conn.execute("DELETE FROM mem_fts WHERE mem_id=?1", params![id])
         .map_err(|e| e.to_string())?;
@@ -148,14 +153,16 @@ pub fn replace_existing(
         importance: Some(item.importance),
         kind: Some(previous.kind),
     };
-    history_log(
-        conn,
-        id,
-        "update",
-        &old,
-        &new,
-        Some(&format!("fields={}", changed.join(","))),
-    );
+    super::with_author(previous.author, || {
+        history_log(
+            conn,
+            id,
+            "update",
+            &old,
+            &new,
+            Some(&format!("fields={}", changed.join(","))),
+        )
+    });
     Ok(())
 }
 
@@ -178,41 +185,16 @@ fn insert_with_options(
     fingerprint: Option<&str>,
 ) -> Result<String, String> {
     let kind_str = item.kind.as_str();
+    let author = super::current_author();
+    super::guard_instruction(&author, item.kind.as_str(), item.pinned)?;
     let (source, source_path) = normalized_sources(item);
     let slug = ids::slugify(&item.title);
     let candidate = ids::compose(kind_str, &slug);
 
     let collision = exists(conn, &candidate).map_err(|e| e.to_string())?;
     let id = if collision && replace {
-        // Capture the prior state for history before the row disappears.
-        let prior: Option<(String, Option<String>, f64, String)> = conn
-            .query_row(
-                r#"SELECT title, body_inline, importance, kind
-                   FROM mem_items WHERE id = ?1"#,
-                params![&candidate],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )
-            .optional()
-            .map_err(|e| format!("pre-replace fetch: {}", e))?;
-        conn.execute("DELETE FROM mem_items WHERE id = ?1", params![&candidate])
-            .map_err(|e| format!("delete on replace: {}", e))?;
-        let _ = conn.execute("DELETE FROM mem_fts WHERE mem_id = ?1", params![&candidate]);
-        if let Some((old_title, old_body, old_imp, old_kind)) = prior {
-            history_log(
-                conn,
-                &candidate,
-                "delete",
-                &HistorySnapshot {
-                    title: Some(old_title),
-                    body: old_body,
-                    importance: Some(old_imp),
-                    kind: Some(old_kind),
-                },
-                &HistorySnapshot::default(),
-                Some("replaced_by_upsert"),
-            );
-        }
-        candidate
+        replace_existing(conn, &candidate, item, blobs_dir)?;
+        return Ok(candidate);
     } else if collision {
         ids::with_collision_suffix(kind_str, &slug, &item.body)
     } else {
@@ -259,8 +241,8 @@ fn insert_with_options(
            (id, uid, kind, scope, title, summary, area, tags_json,
             body_inline, body_blob_path, source, importance,
             created_at, updated_at, accessed_at,
-            source_path, source_size, source_mtime, is_pinned_wakeup, seed_fingerprint)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18, ?19)"#,
+            source_path, source_size, source_mtime, is_pinned_wakeup, seed_fingerprint, author_kind, author_uid, author_friendship, author_label)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, NULL, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)"#,
         params![
             &id,
             &uid,
@@ -281,6 +263,7 @@ fn insert_with_options(
             &source_mtime,
             pinned_int,
             fingerprint,
+            author.kind.as_str(), author.account_uid, author.friendship_id, author.label,
         ],
     )
     .map_err(|e| format!("insert mem_item: {}", e))?;
@@ -470,6 +453,7 @@ pub fn get(conn: &Connection, id: &str, blobs_dir: &Path) -> Result<Option<MemIt
     };
 
     Ok(Some(MemItem {
+        author: super::item_author(conn, &id)?.ok_or("item author missing")?,
         id,
         uid,
         kind,
@@ -597,6 +581,11 @@ pub fn cas_refresh_bundled(
     new_item: &NewMemItem,
     new_fingerprint: &str,
 ) -> Result<bool, String> {
+    let previous = super::item_author(conn, id)?;
+    let author = previous
+        .filter(|a| a.is_neighbor())
+        .unwrap_or_else(super::current_author);
+    super::guard_instruction(&author, new_item.kind.as_str(), new_item.pinned)?;
     let (body_inline, body_blob_path): (Option<String>, Option<String>) =
         if new_item.body.len() > INLINE_BODY_LIMIT {
             (None, Some(write_blob(blobs_dir, &new_item.body)?))
@@ -614,7 +603,7 @@ pub fn cas_refresh_bundled(
                SET kind = ?1, scope = ?2, title = ?3, summary = ?4, area = ?5,
                    tags_json = ?6, body_inline = ?7, body_blob_path = ?8,
                    importance = ?9, source_path = ?10, is_pinned_wakeup = ?11,
-                   updated_at = ?12, seed_fingerprint = ?13
+                   updated_at = ?12, seed_fingerprint = ?13, author_kind=?16, author_uid=?17, author_friendship=?18, author_label=?19
                WHERE id = ?14 AND seed_fingerprint IS ?15"#,
             params![
                 new_item.kind.as_str(),
@@ -632,6 +621,7 @@ pub fn cas_refresh_bundled(
                 new_fingerprint,
                 &id,
                 expected_fingerprint,
+                author.kind.as_str(), author.account_uid, author.friendship_id, author.label,
             ],
         )
         .map_err(|e| format!("cas refresh bundled: {}", e))?;
@@ -745,6 +735,7 @@ pub fn get_or_synthesize_entity(
     Ok(Some(MemItem {
         id: id.clone(),
         uid: id,
+        author: super::MemAuthor::system("entity-projection"),
         kind: format!("entity:{}", entity_type),
         scope,
         title,
@@ -808,6 +799,17 @@ pub fn update(
     let new_body = patch.body.clone().unwrap_or(prev.body);
     let new_importance = patch.importance.unwrap_or(prev.importance);
     let new_pinned = patch.pinned.unwrap_or(prev_pinned);
+    let writes_text = patch.title.is_some()
+        || patch.summary.is_some()
+        || patch.tags.is_some()
+        || patch.body.is_some();
+    let author = if prev.author.is_neighbor() || !writes_text {
+        prev.author.clone()
+    } else {
+        super::current_author()
+    };
+    super::guard_instruction(&author, &prev_kind, new_pinned)?;
+    super::guard_instruction(&super::current_author(), &prev_kind, new_pinned)?;
 
     // A managed-field edit relinquishes bundled ownership atomically in
     // this write; `cas_refresh_bundled` can no longer claim it.
@@ -848,7 +850,7 @@ pub fn update(
                body_inline = ?5, body_blob_path = ?6, importance = ?7,
                updated_at = ?8, recurrence_count = recurrence_count + ?10,
                is_pinned_wakeup = COALESCE(?11, is_pinned_wakeup),
-               seed_fingerprint = ?12
+               seed_fingerprint = ?12, author_kind=?13, author_uid=?14, author_friendship=?15, author_label=?16
            WHERE id = ?9"#,
         params![
             &new_title,
@@ -863,6 +865,7 @@ pub fn update(
             recur_bump,
             pinned_param,
             &new_fingerprint,
+            author.kind.as_str(), author.account_uid, author.friendship_id, author.label,
         ],
     )
     .map_err(|e| format!("update mem_item: {}", e))?;

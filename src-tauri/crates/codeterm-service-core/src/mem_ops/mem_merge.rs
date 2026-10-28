@@ -75,6 +75,30 @@ pub fn restore_item(
         return Ok(serde_json::json!({ "restored": id, "area": area }));
     }
 
+    let neighbor_author = history
+        .iter()
+        .rev()
+        .find(|h| h.author.is_neighbor())
+        .map(|h| h.author.clone());
+    if let Some(author) = neighbor_author.as_ref() {
+        let item = svc
+            .mem
+            .get(id)
+            .map_err(internal)?
+            .ok_or((StatusCode::NOT_FOUND, format!("mem item {id} not found")))?;
+        let pinned = svc
+            .mem
+            .with_conn(|conn| {
+                conn.query_row(
+                    "SELECT is_pinned_wakeup!=0 FROM mem_items WHERE id=?1",
+                    [id],
+                    |r| r.get::<_, bool>(0),
+                )
+            })
+            .map_err(|e| internal(e.to_string()))?;
+        store::guard_instruction(author, &item.kind, pinned)
+            .map_err(|e| (StatusCode::CONFLICT, e))?;
+    }
     if let Some(kind) = pick_restore_kind(&history) {
         let restored_body = body
             .version
@@ -83,13 +107,20 @@ pub fn restore_item(
         let out = svc
             .mem
             .with_conn(|conn| {
-                apply_kind_restore(
-                    conn,
-                    svc.mem.blobs_dir(),
-                    id,
-                    &kind,
-                    restored_body.as_deref(),
-                    &actor,
+                store::with_author(
+                    neighbor_author
+                        .clone()
+                        .unwrap_or_else(store::current_author),
+                    || {
+                        apply_kind_restore(
+                            conn,
+                            svc.mem.blobs_dir(),
+                            id,
+                            &kind,
+                            restored_body.as_deref(),
+                            &actor,
+                        )
+                    },
                 )
             })
             .map_err(internal)?;
@@ -97,12 +128,23 @@ pub fn restore_item(
         return Ok(out);
     }
 
+    let restored_author = body
+        .version
+        .and_then(|v| history.iter().find(|h| h.id == v))
+        .or_else(|| history.iter().rev().find(|h| h.old_body.is_some()))
+        .map(|h| h.author.clone());
     let restored_body = pick_restore_body(&history, body.version)?;
     let patch = MemUpdate {
         body: Some(restored_body.clone()),
         ..Default::default()
     };
-    let updated = with_changed_by(&actor, || svc.mem.update(id, patch)).map_err(internal)?;
+    let author = neighbor_author
+        .or(restored_author.filter(|a| a.is_neighbor()))
+        .unwrap_or_else(store::current_author);
+    let updated = store::with_author(author, || {
+        with_changed_by(&actor, || svc.mem.update(id, patch))
+    })
+    .map_err(internal)?;
     if !updated {
         return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
     }

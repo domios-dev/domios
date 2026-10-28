@@ -89,6 +89,7 @@ fn light_promote_one(
     now_ts: chrono::DateTime<chrono::Utc>,
 ) -> Result<bool, String> {
     let (id, access_count, importance, created_at, accessed_at) = cand;
+    crate::store::refuse_neighbor_promotion(conn, id)?;
 
     let frequency = (*access_count as f64 / 10.0).min(1.0);
 
@@ -119,7 +120,7 @@ fn light_promote_one(
 
     let new_imp = importance.max(4.0);
     let now = chrono::Utc::now().to_rfc3339();
-    let n = crate::store::with_changed_by("dreaming:rem", || {
+    let n = crate::store::with_system_author("dreaming:rem", || {
         let n = conn
             .execute(
                 "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",

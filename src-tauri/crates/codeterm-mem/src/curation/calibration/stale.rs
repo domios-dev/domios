@@ -185,15 +185,17 @@ pub fn run_stale_archive(
 
     let selected = select_stale(conn, cutoff, remaining)?;
     conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
-    let applied = selected.iter().try_for_each(|item| {
-        archive_item(
-            conn,
-            &item.id,
-            &item.kind,
-            STALE_ACTOR,
-            "archive",
-            Some(&item.reason),
-        )
+    let applied = crate::store::with_system_author(STALE_ACTOR, || {
+        selected.iter().try_for_each(|item| {
+            archive_item(
+                conn,
+                &item.id,
+                &item.kind,
+                STALE_ACTOR,
+                "archive",
+                Some(&item.reason),
+            )
+        })
     });
     if let Err(e) = applied {
         conn.execute_batch("ROLLBACK").ok();
