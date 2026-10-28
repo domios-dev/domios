@@ -67,3 +67,20 @@ pub(crate) fn fixture_manifest_dir() -> &'static Path {
 
 #[cfg(all(test, feature = "test-support"))]
 mod tests;
+
+#[cfg(any(test, feature = "test-support"))]
+pub fn archive_mem_item_conn(
+    conn: &rusqlite::Connection,
+    id: &str,
+    reason: &str,
+    actor: &str,
+) -> Result<serde_json::Value, (u16, String)> {
+    crate::backend::sqlite::archive_item(
+        &crate::MemManager::write_context(),
+        conn,
+        id,
+        reason,
+        actor,
+    )
+    .map_err(|e| (e.status_code(), e.into_message()))
+}

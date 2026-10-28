@@ -18,14 +18,7 @@ pub struct PinnedListParams {
 }
 
 /// Bumps `evidence_count` for L1-selectable kinds (skill|lesson|rule|fact|preference); no-op otherwise. Caller decides whether to invoke.
-pub fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
-    if !matches!(kind, "skill" | "lesson" | "rule" | "fact" | "preference") {
-        return;
-    }
-    if let Err(e) = codeterm_mem_store::graph::bump_evidence_count(conn, id) {
-        log::debug!("[mem_get] evidence bump failed for {}: {}", id, e);
-    }
-}
+pub use codeterm_mem::backend::sqlite::bump_on_get;
 
 pub fn save_schedules_extraction(
     outcome: &str,

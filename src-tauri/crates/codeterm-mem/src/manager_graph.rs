@@ -1,27 +1,22 @@
 //! Mem graph operations + learning promotion.
 
 use super::graph_repair::{
-    augment_entity, delete_relations_by_rowids, find_duplicate_entities, find_duplicate_relations,
-    merge_relations, DuplicateEntityGroup, DuplicateRelationGroup, EntitySimilarityStrategy,
-    MergeReport, RelationColumn,
+    DuplicateEntityGroup, DuplicateRelationGroup, EntitySimilarityStrategy, MergeReport,
+    RelationColumn,
 };
-use super::{graph, store, Entity, MemManager, Relation};
+use super::{graph, Entity, MemManager, Relation};
 
 impl MemManager {
     pub fn graph_create_entity(&self, e: &Entity) -> Result<(), String> {
         self.guard_commit()?;
-        {
-            let conn = self.conn.lock();
-            graph::insert_entity(&conn, e)?;
-        }
+        self.store.graph_create_entity(&Self::write_context(), e)?;
         self.enqueue_entity_embedding(&e.id);
         Ok(())
     }
 
     pub fn graph_relate(&self, r: &Relation) -> Result<(), String> {
         self.guard_commit()?;
-        let conn = self.conn.lock();
-        graph::upsert_relation(&conn, r)
+        self.store.graph_relate(&Self::write_context(), r)
     }
 
     pub fn graph_related(
@@ -31,8 +26,8 @@ impl MemManager {
         as_of: Option<&str>,
         include_invalidated: bool,
     ) -> Result<Vec<Relation>, String> {
-        let conn = self.conn.lock();
-        graph::related(&conn, id, rel, as_of, include_invalidated)
+        self.store
+            .graph_related(id, rel, as_of, include_invalidated)
     }
 
     pub fn graph_invalidate(
@@ -42,8 +37,8 @@ impl MemManager {
         to_id: &str,
         ended: Option<&str>,
     ) -> Result<bool, String> {
-        let conn = self.conn.lock();
-        graph::invalidate_relation(&conn, from_id, relation_type, to_id, ended)
+        self.store
+            .graph_invalidate(&Self::write_context(), from_id, relation_type, to_id, ended)
     }
 
     pub fn graph_timeline(
@@ -51,8 +46,7 @@ impl MemManager {
         entity_id: &str,
         include_invalidated: bool,
     ) -> Result<Vec<Relation>, String> {
-        let conn = self.conn.lock();
-        graph::timeline(&conn, entity_id, include_invalidated)
+        self.store.graph_timeline(entity_id, include_invalidated)
     }
 
     pub fn graph_traverse(
@@ -63,15 +57,8 @@ impl MemManager {
         as_of: Option<&str>,
         include_invalidated: bool,
     ) -> Result<graph::TraversalResult, String> {
-        let conn = self.conn.lock();
-        graph::traverse(
-            &conn,
-            start,
-            max_hops,
-            max_nodes,
-            as_of,
-            include_invalidated,
-        )
+        self.store
+            .graph_traverse(start, max_hops, max_nodes, as_of, include_invalidated)
     }
 
     /// Shortest path between two entities (BFS).
@@ -82,70 +69,32 @@ impl MemManager {
         max_hops: usize,
         include_invalidated: bool,
     ) -> Result<Option<Vec<Relation>>, String> {
-        let conn = self.conn.lock();
-        graph::shortest_path(&conn, from, to, max_hops, include_invalidated)
+        self.store
+            .graph_shortest_path(from, to, max_hops, include_invalidated)
     }
 
     pub fn graph_tunnels(
         &self,
         include_invalidated: bool,
     ) -> Result<Vec<serde_json::Value>, String> {
-        let conn = self.conn.lock();
-        graph::tunnels(&conn, include_invalidated)
+        self.store.graph_tunnels(include_invalidated)
     }
 
     pub fn graph_alias(&self, alias_id: &str, canonical_id: &str) -> Result<(), String> {
-        let conn = self.conn.lock();
-        graph::add_alias(&conn, alias_id, canonical_id)
+        self.store
+            .graph_alias(&Self::write_context(), alias_id, canonical_id)
     }
 
     pub fn graph_resolve(&self, id: &str) -> Result<String, String> {
-        let conn = self.conn.lock();
-        graph::resolve_canonical(&conn, id)
+        self.store.graph_resolve(id)
     }
 
     pub fn graph_aliases(&self, canonical_id: &str) -> Result<Vec<String>, String> {
-        let conn = self.conn.lock();
-        graph::list_aliases(&conn, canonical_id)
+        self.store.graph_aliases(canonical_id)
     }
 
     pub fn promote_learning(&self, id: &str) -> Result<(), String> {
-        let item = self.get(id)?.ok_or_else(|| format!("not found: {}", id))?;
-        if item.kind != "learning" {
-            return Err(format!(
-                "can only promote kind=learning, got kind={}",
-                item.kind
-            ));
-        }
-        if item.author.is_neighbor() {
-            return Err("neighbor content cannot be promoted".into());
-        }
-        let old_importance = item.importance;
-        let new_importance = old_importance.max(4.0);
-        let conn = self.conn.lock();
-        conn.execute(
-            "UPDATE mem_items SET kind = 'fact', importance = MAX(importance, 4.0), updated_at = ?1 WHERE id = ?2",
-            rusqlite::params![chrono::Utc::now().to_rfc3339(), id],
-        ).map_err(|e| format!("promote: {}", e))?;
-        store::history_log(
-            &conn,
-            id,
-            "promote",
-            &store::HistorySnapshot {
-                title: None,
-                body: None,
-                importance: Some(old_importance),
-                kind: Some("learning".into()),
-            },
-            &store::HistorySnapshot {
-                title: None,
-                body: None,
-                importance: Some(new_importance),
-                kind: Some("fact".into()),
-            },
-            None,
-        );
-        Ok(())
+        self.store.promote_learning(&Self::write_context(), id)
     }
 
     pub fn graph_find_duplicate_relations(
@@ -153,13 +102,12 @@ impl MemManager {
         group_by: &[RelationColumn],
         limit: usize,
     ) -> Result<Vec<DuplicateRelationGroup>, String> {
-        let conn = self.conn.lock();
-        find_duplicate_relations(&conn, group_by, limit)
+        self.store.graph_find_duplicate_relations(group_by, limit)
     }
 
     pub fn graph_delete_relations(&self, rowids: &[i64], actor: &str) -> Result<u64, String> {
-        let conn = self.conn.lock();
-        delete_relations_by_rowids(&conn, rowids, actor)
+        self.store
+            .graph_delete_relations(&Self::write_context(), rowids, actor)
     }
 
     pub fn graph_delete_entity(
@@ -169,8 +117,13 @@ impl MemManager {
         purge_history: bool,
         actor: &str,
     ) -> Result<crate::graph_repair::DeleteEntityReport, String> {
-        let conn = self.conn.lock();
-        crate::graph_repair::delete_entity_by_id(&conn, entity_id, force, purge_history, actor)
+        self.store.graph_delete_entity(
+            &Self::write_context(),
+            entity_id,
+            force,
+            purge_history,
+            actor,
+        )
     }
 
     pub fn graph_repair_orphan_vectors(
@@ -178,8 +131,8 @@ impl MemManager {
         dry_run: bool,
         actor: &str,
     ) -> Result<crate::graph_repair::RepairOrphanVectorsReport, String> {
-        let conn = self.conn.lock();
-        crate::graph_repair::repair_orphan_vectors(&conn, dry_run, actor)
+        self.store
+            .graph_repair_orphan_vectors(&Self::write_context(), dry_run, actor)
     }
 
     pub fn graph_prune_thin_vectors(
@@ -187,8 +140,8 @@ impl MemManager {
         dry_run: bool,
         actor: &str,
     ) -> Result<crate::graph_repair::RepairOrphanVectorsReport, String> {
-        let conn = self.conn.lock();
-        crate::graph_repair::prune_thin_vectors(&conn, dry_run, actor)
+        self.store
+            .graph_prune_thin_vectors(&Self::write_context(), dry_run, actor)
     }
 
     pub fn graph_collapse_synonym_edges(
@@ -196,8 +149,8 @@ impl MemManager {
         dry_run: bool,
         actor: &str,
     ) -> Result<crate::graph_repair::RepairOrphanVectorsReport, String> {
-        let conn = self.conn.lock();
-        crate::graph_repair::collapse_synonym_edges(&conn, dry_run, actor)
+        self.store
+            .graph_collapse_synonym_edges(&Self::write_context(), dry_run, actor)
     }
 
     pub fn graph_prune_dream_hub_edges(
@@ -205,8 +158,8 @@ impl MemManager {
         dry_run: bool,
         actor: &str,
     ) -> Result<crate::graph_repair::RepairOrphanVectorsReport, String> {
-        let conn = self.conn.lock();
-        crate::graph_repair::prune_dream_hub_edges(&conn, dry_run, actor)
+        self.store
+            .graph_prune_dream_hub_edges(&Self::write_context(), dry_run, actor)
     }
 
     pub fn graph_repair_orphan_blobs(
@@ -214,8 +167,8 @@ impl MemManager {
         dry_run: bool,
         actor: &str,
     ) -> Result<crate::graph_repair::RepairOrphanBlobsReport, String> {
-        let conn = self.conn.lock();
-        crate::graph_repair::repair_orphan_blobs(&conn, self.blobs_dir(), dry_run, actor)
+        self.store
+            .graph_repair_orphan_blobs(&Self::write_context(), dry_run, actor)
     }
 
     pub fn graph_merge_relations(
@@ -224,8 +177,8 @@ impl MemManager {
         merge: &[i64],
         actor: &str,
     ) -> Result<MergeReport, String> {
-        let conn = self.conn.lock();
-        merge_relations(&conn, keep, merge, actor)
+        self.store
+            .graph_merge_relations(&Self::write_context(), keep, merge, actor)
     }
 
     pub fn graph_find_duplicate_entities(
@@ -233,8 +186,7 @@ impl MemManager {
         strategy: EntitySimilarityStrategy,
         limit: usize,
     ) -> Result<Vec<DuplicateEntityGroup>, String> {
-        let conn = self.conn.lock();
-        find_duplicate_entities(&conn, strategy, limit)
+        self.store.graph_find_duplicate_entities(strategy, limit)
     }
 
     pub fn graph_augment_entity(
@@ -243,27 +195,13 @@ impl MemManager {
         patch: serde_json::Map<String, serde_json::Value>,
         actor: &str,
     ) -> Result<(), String> {
-        {
-            let conn = self.conn.lock();
-            augment_entity(&conn, entity_id, patch, actor)?;
-        }
+        self.store
+            .graph_augment_entity(&Self::write_context(), entity_id, patch, actor)?;
         self.enqueue_entity_embedding(entity_id);
         Ok(())
     }
     fn enqueue_entity_embedding(&self, id: &str) {
-        let text = {
-            let conn = self.conn.lock();
-            conn.query_row(
-                "SELECT entity_type, properties_json FROM entities WHERE id = ?1",
-                [id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-            .ok()
-            .map(|(kind, properties)| {
-                super::embeddings::embeddable_text_for_entity(id, &kind, &properties)
-            })
-        };
-        if let Some(text) = text {
+        if let Some(text) = self.store.entity_embed_text(id) {
             self.embed_queue.enqueue(id, text);
         }
     }

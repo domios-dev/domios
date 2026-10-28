@@ -44,10 +44,7 @@ pub async fn mem_get(
             // Skip evidence bump on worker-driven reads (extraction/dreamer sweeps would poison the signal).
             let is_worker_call = headers.get(WORKER_ID_HEADER).is_some();
             if !is_worker_call {
-                state
-                    .svc
-                    .mem
-                    .with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+                state.svc.mem.bump_on_get(&item.kind, &id);
             }
             Ok(Json(serde_json::to_value(item).unwrap_or_default()))
         }

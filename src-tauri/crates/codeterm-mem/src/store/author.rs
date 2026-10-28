@@ -94,6 +94,10 @@ pub fn with_author<R>(author: MemAuthor, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+pub(crate) fn scoped_author() -> Option<MemAuthor> {
+    AUTHOR.with(|s| s.borrow().clone())
+}
+
 pub fn current_author() -> MemAuthor {
     AUTHOR
         .with(|s| s.borrow().clone())

@@ -5,7 +5,6 @@ use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-use super::archive::archive_item;
 use codeterm_types::config::DreamHygieneConfig;
 
 pub const STALE_ACTOR: &str = "dreamer-calibration:stale";
@@ -149,6 +148,24 @@ pub fn run_stale_archive(
     mode: StaleMode,
     dry_run_limit: Option<usize>,
 ) -> Result<serde_json::Value, String> {
+    run_stale_archive_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        cfg,
+        now,
+        mode,
+        dry_run_limit,
+    )
+}
+
+pub fn run_stale_archive_with_context(
+    _ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    cfg: &DreamHygieneConfig,
+    now: DateTime<Utc>,
+    mode: StaleMode,
+    dry_run_limit: Option<usize>,
+) -> Result<serde_json::Value, String> {
     if mode == StaleMode::Apply && !cfg.stale_archive {
         return Ok(serde_json::json!({
             "enabled": false,
@@ -185,9 +202,11 @@ pub fn run_stale_archive(
 
     let selected = select_stale(conn, cutoff, remaining)?;
     conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
-    let applied = crate::store::with_system_author(STALE_ACTOR, || {
+    let applied = {
+        let ctx = &crate::backend::WriteContext::system(STALE_ACTOR);
         selected.iter().try_for_each(|item| {
-            archive_item(
+            super::archive::archive_item_with_context(
+                ctx,
                 conn,
                 &item.id,
                 &item.kind,
@@ -196,7 +215,7 @@ pub fn run_stale_archive(
                 Some(&item.reason),
             )
         })
-    });
+    };
     if let Err(e) = applied {
         conn.execute_batch("ROLLBACK").ok();
         return Err(e);
@@ -223,12 +242,21 @@ pub fn stale_from_params(
     p: &StaleParams,
     hygiene: &DreamHygieneConfig,
 ) -> Result<serde_json::Value, String> {
+    stale_from_params_with_context(&crate::MemManager::write_context(), conn, p, hygiene)
+}
+
+pub fn stale_from_params_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    p: &StaleParams,
+    hygiene: &DreamHygieneConfig,
+) -> Result<serde_json::Value, String> {
     let mode = if p.dry_run.unwrap_or(false) {
         StaleMode::DryRun
     } else {
         StaleMode::Apply
     };
-    run_stale_archive(conn, hygiene, Utc::now(), mode, p.limit)
+    run_stale_archive_with_context(ctx, conn, hygiene, Utc::now(), mode, p.limit)
 }
 
 #[cfg(test)]

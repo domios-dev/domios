@@ -28,16 +28,7 @@ pub fn merge_items(
         body: body.body.as_deref(),
         conflict: body.conflict,
     };
-    let out = svc.mem.with_conn(|conn| {
-        run_merge(
-            conn,
-            svc.mem.blobs_dir(),
-            &req,
-            &actor,
-            merge_cap,
-            Utc::now(),
-        )
-    })?;
+    let out = svc.mem.merge_items(&req, &actor, merge_cap, Utc::now())?;
     if out["body_updated"] == true {
         svc.mem.refresh_embedding(req.keeper);
     }
@@ -64,12 +55,8 @@ pub fn restore_item(
         .map(sanitize_actor)
         .unwrap_or_else(|| "restore".to_string());
 
-    let area = with_changed_by(&actor, || {
-        svc.mem.with_conn(|conn| {
-            store::area_merge::restore_area(conn, svc.mem.blobs_dir(), id, body.version)
-        })
-    })
-    .map_err(internal)?;
+    let area =
+        with_changed_by(&actor, || svc.mem.restore_area(id, body.version)).map_err(internal)?;
     if let Some(area) = area {
         svc.mem.refresh_embedding(id);
         return Ok(serde_json::json!({ "restored": id, "area": area }));
@@ -86,16 +73,7 @@ pub fn restore_item(
             .get(id)
             .map_err(internal)?
             .ok_or((StatusCode::NOT_FOUND, format!("mem item {id} not found")))?;
-        let pinned = svc
-            .mem
-            .with_conn(|conn| {
-                conn.query_row(
-                    "SELECT is_pinned_wakeup!=0 FROM mem_items WHERE id=?1",
-                    [id],
-                    |r| r.get::<_, bool>(0),
-                )
-            })
-            .map_err(|e| internal(e.to_string()))?;
+        let pinned = svc.mem.is_pinned(id).map_err(|e| internal(e.to_string()))?;
         store::guard_instruction(author, &item.kind, pinned)
             .map_err(|e| (StatusCode::CONFLICT, e))?;
     }
@@ -106,23 +84,15 @@ pub fn restore_item(
             .transpose()?;
         let out = svc
             .mem
-            .with_conn(|conn| {
-                store::with_author(
-                    neighbor_author
-                        .clone()
-                        .unwrap_or_else(store::current_author),
-                    || {
-                        apply_kind_restore(
-                            conn,
-                            svc.mem.blobs_dir(),
-                            id,
-                            &kind,
-                            restored_body.as_deref(),
-                            &actor,
-                        )
-                    },
-                )
-            })
+            .restore_kind_as(
+                neighbor_author
+                    .clone()
+                    .unwrap_or_else(store::current_author),
+                id,
+                &kind,
+                restored_body.as_deref(),
+                &actor,
+            )
             .map_err(internal)?;
         svc.mem.refresh_embedding(id);
         return Ok(out);

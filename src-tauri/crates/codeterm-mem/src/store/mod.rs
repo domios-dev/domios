@@ -8,6 +8,8 @@ use super::MemStats;
 pub(super) const INLINE_BODY_LIMIT: usize = 2048;
 
 pub mod area_merge;
+pub mod replace_guard;
+pub use replace_guard::{ReplaceGuard, ReplaceGuardError};
 mod author;
 mod blob;
 mod crud;
@@ -120,8 +122,28 @@ pub fn history_log(
     new: &HistorySnapshot,
     reason: Option<&str>,
 ) {
-    let author = current_author();
-    let changed_by = current_changed_by();
+    history_log_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        item_id,
+        change_type,
+        old,
+        new,
+        reason,
+    )
+}
+
+pub fn history_log_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    item_id: &str,
+    change_type: &str,
+    old: &HistorySnapshot,
+    new: &HistorySnapshot,
+    reason: Option<&str>,
+) {
+    let author = ctx.author.clone();
+    let changed_by = ctx.changed_by.clone();
     let now = chrono::Utc::now().to_rfc3339();
     let res = conn.execute(
         r#"INSERT INTO mem_item_history
