@@ -8,6 +8,7 @@ mod metrics;
 mod page;
 mod redaction;
 mod resume;
+mod sessions;
 mod snapshots;
 mod snip;
 mod stream;
@@ -393,7 +394,7 @@ impl SurfaceRuntime for BrowserRuntime {
         verb: &str,
         args: &[String],
     ) -> Result<String, String> {
-        if verb == "type-secret" {
+        if matches!(verb, "type-secret" | "connect-secret") {
             let secret = args
                 .last()
                 .ok_or("Secret typing needs a target and stdin text")?;

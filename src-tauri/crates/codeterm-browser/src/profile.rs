@@ -116,6 +116,7 @@ impl ProfileLayout {
     }
 }
 
+pub mod instance;
 pub mod lease_model;
 mod management;
 pub use management::validate_named_profile;

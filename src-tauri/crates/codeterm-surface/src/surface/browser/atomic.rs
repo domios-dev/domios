@@ -5,36 +5,9 @@ use codeterm_browser::{
 };
 use serde_json::json;
 
-const BEGIN: &str = r#"(() => {
- const key = Symbol.for('domios.browser.capture');
- let state = window[key];
- if (!state) {
-   state = { epoch: 0, document };
-   state.observer = new MutationObserver(() => state.epoch++);
-   state.observer.observe(document, {subtree:true, childList:true, attributes:true, characterData:true});
-   for (const event of ['input','pointerdown','keydown']) document.addEventListener(event, () => state.epoch++, true);
-   window[key] = state;
- }
- if (state.observer.takeRecords().length) state.epoch++;
- return state.epoch;
-})()"#;
+const BEGIN: &str = include_str!("atomic-begin.js");
 
-const ACT: &str = r#"function(epoch, action, text) {
- const state = window[Symbol.for('domios.browser.capture')];
- if (!state || state.document !== document || !this.isConnected) return 'stale';
- if (state.observer.takeRecords().length) state.epoch++;
- if (state.epoch !== epoch) return 'stale';
- if (this.disabled || this.readOnly || this.getAttribute('aria-disabled') === 'true') return 'disabled';
- if (!this.getClientRects().length) return 'hidden';
- if (action === 'click') { this.click(); return 'performed'; }
- const proto = this instanceof HTMLInputElement ? HTMLInputElement.prototype : this instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : null;
- const setter = proto && Object.getOwnPropertyDescriptor(proto, 'value').set;
- if (!setter) return 'unsupported_input';
- this.focus(); setter.call(this, text);
- this.dispatchEvent(new Event('input', {bubbles:true}));
- this.dispatchEvent(new Event('change', {bubbles:true}));
- return 'performed';
-}"#;
+const ACT: &str = include_str!("atomic-action.js");
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct AtomicArgs {

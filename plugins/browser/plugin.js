@@ -71,14 +71,24 @@ function parseOf(raw) {
 }
 function forward(ctx, call = hostSurfaceCall()) {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
-  const secret = ctx.body;
-  const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb || "help";
-  if (secret !== void 0 && ctx.verb !== "type") return { error: "Browser body input is supported only by type" };
+  const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
+  const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb || "help";
+  if (secret !== void 0 && !["type", "connect"].includes(ctx.verb)) return { error: "Browser body input is supported only by type and connect" };
+  if (ctx.verb === "connect" && !secret?.trim()) return { error: "connect requires --stdin with a nonempty token" };
   const parsed = parseOf(Array.isArray(ctx.args) ? ctx.args : []);
   if ("error" in parsed) return { error: parsed.error };
+  const redact = (text) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
+  if (ctx.verb === "connect") {
+    try {
+      const opening = JSON.parse(call("open", JSON.stringify(parsed.of === void 0 ? parsed.args : { args: parsed.args, of: parsed.of })));
+      if (typeof opening.error === "string") return { error: redact(opening.error) };
+      if (typeof opening.result !== "string") return { error: "the browser runtime did not confirm the requested session" };
+    } catch {
+      return { error: "the browser runtime could not open the requested session" };
+    }
+  }
   if (secret !== void 0) parsed.args.push(secret);
   const payload = parsed.of === void 0 ? parsed.args : { args: parsed.args, of: parsed.of };
-  const redact = (text) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   let reply;
   try {
     reply = JSON.parse(call(verb, JSON.stringify(payload)));

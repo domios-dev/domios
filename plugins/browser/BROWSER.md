@@ -18,7 +18,7 @@ Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` 
 - **Profiles.**
   - Default: a **temporary session**. Opening an agent browser does not create a named persistent profile.
   - An explicit `open --profile clean` uses a throwaway profile.
-  - A **named profile** keeps logins and cookies across restarts. Only the user creates or deletes named profiles through the Browser profile menu. Agents may list and select existing profiles with `profiles` and `open --profile NAME`; an unknown name fails instead of creating a profile. Never publish, buy, delete or send messages without the user's explicit instruction.
+  - A **named profile** keeps logins and cookies across restarts. The user creates general profiles through the Browser profile menu. Agents may select existing profiles with `open --profile NAME`; an unknown name fails. For DEV QA, agents create origin-bound profiles with the named session commands below, list them with `profile list` and remove inactive profiles with `profile remove NAME`. Never publish, buy, delete or send messages without the user's explicit instruction.
 - **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
 - **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click button "Continue" --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
 - **Pointing an owner at something.** `annotate <ref> "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
@@ -105,4 +105,16 @@ Treat it as a precise pointer: find the code behind the element, answer or chang
 
 Scopes select one subtree: `dialog`, `sidebar` (complementary landmark), `composer` (form named Composer), or an exact `role:name`. Ambiguous scopes refuse. Password/token inputs and `data-sensitive` subtrees have their values and names redacted in text and JSON snapshots. A failed DOM redaction capture refuses the snapshot.
 
-<!-- revision: 3 -->
+## Named DEV instance sessions and cleanup
+
+`open --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA` creates or reuses a profile bound to that exact origin, opens its `/web/` UI, and refuses a different origin or an unexpected `/api/health` build SHA. `attach` takes the same options and reuses the owned named session. Origins must be bare HTTP(S) origins without credentials, paths, queries or fragments. Existing unbound user profiles cannot be adopted as per-instance profiles.
+
+`connect --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA --stdin` opens the session and accepts the instance API token through piped stdin. Never place the token in argv, a URL or a log. The helper stores and reads back the origin-specific token, then reloads; use snapshot evidence to verify authentication. It never reads an inherited host endpoint or token.
+
+`--ephemeral` on open/attach/connect creates a session profile deleted when its last browser closes. An existing persistent profile cannot become ephemeral. `profile list` lists named profiles; `profile remove dev-qa` refuses while a browser still uses it.
+
+At the end of a QA run, close ephemeral sessions. For a persistent per-instance session, run `open --profile clean`, then `profile remove dev-qa`, then `close`. Remove each per-instance profile used by the run.
+
+Native file picker driving returns `unsupported` on all platforms, including Windows: the current host has no lifecycle-owned native dialog handle or file chooser interception. Use Take control to choose files in a dialog the page opened.
+
+<!-- revision: 4 -->

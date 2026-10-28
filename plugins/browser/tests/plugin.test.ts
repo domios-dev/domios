@@ -104,3 +104,30 @@ describe("Browser credential redaction", () => {
     }
   });
 });
+
+describe("Browser named instance connection", () => {
+  it("opens with public options and sends the stdin token only through the secret verb", () => {
+    const secret = "opaque-session-token";
+    const args = ["--profile", "qa", "--origin", "http://localhost:7686"];
+    const call = vi.fn((verb: string, payload: string) => {
+      if (verb === "open") { expect(JSON.parse(payload)).toEqual(args); expect(payload).not.toContain(secret); return JSON.stringify({ result: "opened" }); }
+      expect(verb).toBe("connect-secret");
+      expect(JSON.parse(payload)).toEqual([...args, secret]);
+      return JSON.stringify({ error: `unconfirmed ${secret}` });
+    });
+    expect(forward({ sessionId: "qa", verb: "connect", args, body: secret }, call)).toEqual({ error: "unconfirmed REDACTED" });
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+  it("refuses missing stdin and stops when opening fails", () => {
+    const call = vi.fn(() => JSON.stringify({ error: "origin_mismatch" }));
+    expect(forward({ sessionId: "qa", verb: "connect", args: [] }, call)).toHaveProperty("error");
+    expect(call).not.toHaveBeenCalled();
+    expect(forward({ sessionId: "qa", verb: "connect", args: [], body: "opaque" }, call)).toEqual({ error: "origin_mismatch" });
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+  it("attaches through the existing owned session open verb", () => {
+    const call = vi.fn((_verb: string, _payload: string) => JSON.stringify({ result: "opened" }));
+    forward({ sessionId: "qa", verb: "attach", args: ["--profile", "qa", "--origin", "http://localhost:7686"] }, call);
+    expect(call.mock.calls[0][0]).toBe("open");
+  });
+});

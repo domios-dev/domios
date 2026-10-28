@@ -11,6 +11,9 @@ pub const VERBS: &[&str] = &[
     "open",
     "status",
     "profiles",
+    "profile",
+    "connect-secret",
+    "file-picker",
     "goto",
     "back",
     "forward",
@@ -148,6 +151,9 @@ impl BrowserRuntime {
     ) -> Result<String, String> {
         match verb {
             "status" => Ok(self.status_text()),
+            "profile" => self.profile_verb(args).await,
+            "connect-secret" => self.connect_session(args).await,
+            "file-picker" => Err("unsupported: native file picker driving is unavailable; use Take control to choose files".into()),
             "profiles" => {
                 self.refresh_profiles().await;
                 let state = self.shared.state();
@@ -190,6 +196,12 @@ impl BrowserRuntime {
     }
 
     async fn open_verb(&self, args: &[String]) -> Result<String, String> {
+        if args
+            .iter()
+            .any(|a| matches!(a.as_str(), "--origin" | "--ephemeral" | "--expect-build"))
+        {
+            return self.open_session(args).await;
+        }
         let (url, profile) = parse_open(args);
         match profile {
             Some(profile) => self.use_profile(&profile).await?,
@@ -204,7 +216,7 @@ impl BrowserRuntime {
         Ok(self.status_text())
     }
 
-    async fn goto(&self, page: &PageChannel, url: &str) -> Result<String, String> {
+    pub(super) async fn goto(&self, page: &PageChannel, url: &str) -> Result<String, String> {
         let mut loaded = page.subscribe_session(&["Page.loadEventFired"]);
         self.navigate(page, NavAction::Goto, Some(url)).await?;
         let _ = tokio::time::timeout(WAIT_DEADLINE, loaded.recv()).await;
