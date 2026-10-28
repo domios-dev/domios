@@ -1081,6 +1081,9 @@ export interface ProviderAttachmentCapabilities {
 
 export interface ProviderDescriptor {
   general_agent_offer_when_absent?: boolean;
+  /** Whether this provider can be a Neighbor's concierge here, for which machine access modes, and which of those this
+   *  platform actually confines; the per-friend folder enforcement note stays the precise projection. */
+  neighbor_concierge?: { supported: boolean; machine_access: readonly string[]; enforced_machine_access: readonly string[] };
   attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {

@@ -206,7 +206,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
       </div>
     </section>
     {changing && <ChangeConciergeDialog friendship={friendship} name={name} currentProvider={gateway?.agent_type ?? null}
-      client={conciergeClient} onClose={() => setChanging(false)} />}
+      machineAccess={permission?.machine_access ?? null} client={conciergeClient} onClose={() => setChanging(false)} />}
   </div>;
 }
 

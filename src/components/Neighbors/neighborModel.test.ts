@@ -2,6 +2,19 @@ import { expect, it } from "vitest";
 import { parseNeighbors, validNeighborLimit } from "./neighborModel";
 import { conciergeWork, readableBody, refusalLine } from "./neighborConversationModel";
 import type { HistoryEntry } from "./neighborConciergeClient";
+import { conciergeProviders } from "./ChangeConciergeDialog";
+import type { ProviderDescriptor } from "../../lib/types";
+
+it("offers as concierge only providers that declare support for the friend's machine access", () => {
+  const provider = (id: string, neighbor_concierge?: ProviderDescriptor["neighbor_concierge"]) => ({ id, neighbor_concierge }) as ProviderDescriptor;
+  const reads = provider("reads", { supported: true, machine_access: ["read_only"], enforced_machine_access: [] });
+  const folders = provider("folders", { supported: true, machine_access: ["read_only", "folder"], enforced_machine_access: ["read_only", "folder"] });
+  const none = provider("none", { supported: false, machine_access: [], enforced_machine_access: [] });
+  expect(conciergeProviders([reads, folders, none], "folder").map(entry => entry.id)).toEqual(["folders"]);
+  expect(conciergeProviders([reads, folders, none], "read_only").map(entry => entry.id)).toEqual(["reads", "folders"]);
+  // Before any provider declares the capability, every provider stays offered and the runtime decides.
+  expect(conciergeProviders([provider("old"), provider("older")], "folder").map(entry => entry.id)).toEqual(["old", "older"]);
+});
 
 it("accepts the server's locked registry so Free can manage existing connections", () => {
   const list = { schema_version: 1, access: "locked", friends: [], incoming: [], outgoing: [] };
