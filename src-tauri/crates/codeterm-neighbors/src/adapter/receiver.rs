@@ -31,25 +31,67 @@ pub struct Enrollment {
 }
 
 impl FirebaseRegistry {
-    pub async fn advertise_file_support(&self, status: &ReceiverStatus, keys: &crate::crypto::PrivateKeys) -> Result<bool> {
-        if !status.receiving_here() || status.receiver_installation_id.as_deref() != Some(self.installation_id.as_str()) {
+    pub async fn advertise_file_support(
+        &self,
+        status: &ReceiverStatus,
+        keys: &crate::crypto::PrivateKeys,
+    ) -> Result<bool> {
+        if !status.receiving_here()
+            || status.receiver_installation_id.as_deref() != Some(self.installation_id.as_str())
+        {
             return Err(Error::NotReceiver);
         }
         let key_id = keys.verifier_key_id(&self.uid);
-        if status.receiver_key_id.as_deref() != Some(key_id.as_str()) { return Err(Error::InvalidKey); }
-        let current = self.calls.invoke("friendsReceiverStatus", json!({"installation_id":self.installation_id})).await?;
-        let observed: ReceiverStatus = serde_json::from_value(current.clone()).map_err(|_| Error::Transport)?;
-        if observed != *status { return Err(Error::ReceiverRevisionStale); }
-        if current["receiver_features"].as_array().is_some_and(|features| features.iter().any(|feature| feature == "files.v1")) {
+        if status.receiver_key_id.as_deref() != Some(key_id.as_str()) {
+            return Err(Error::InvalidKey);
+        }
+        let current = self
+            .calls
+            .invoke(
+                "friendsReceiverStatus",
+                json!({"installation_id":self.installation_id}),
+            )
+            .await?;
+        let observed: ReceiverStatus =
+            serde_json::from_value(current.clone()).map_err(|_| Error::Transport)?;
+        if observed != *status {
+            return Err(Error::ReceiverRevisionStale);
+        }
+        if current["receiver_features"]
+            .as_array()
+            .is_some_and(|features| features.iter().any(|feature| feature == "files.v1"))
+        {
             return Ok(false);
         }
-        let operation = serde_json::to_vec(&json!(["receiver-files.v1", self.uid, self.installation_id, status.receiver_revision, key_id, self.machine_label])).map_err(|_| Error::InvalidEnvelope)?;
+        let operation = serde_json::to_vec(&json!([
+            "receiver-files.v1",
+            self.uid,
+            self.installation_id,
+            status.receiver_revision,
+            key_id,
+            self.machine_label
+        ]))
+        .map_err(|_| Error::InvalidEnvelope)?;
         let enrollment = Enrollment {
-            expected_revision: status.receiver_revision, takeover: false,
+            expected_revision: status.receiver_revision,
+            takeover: false,
             operation_id: Some(crate::crypto::sha256_hex(&operation)),
         };
-        let result = self.calls.invoke("friendsEnrollVerifierKey", self.enrollment_data(&keys.signing_spki(), &keys.encryption_spki(), &enrollment, false)).await?;
-        if result["verifier_key_id"].as_str() != Some(key_id.as_str()) { return Err(Error::InvalidKey); }
+        let result = self
+            .calls
+            .invoke(
+                "friendsEnrollVerifierKey",
+                self.enrollment_data(
+                    &keys.signing_spki(),
+                    &keys.encryption_spki(),
+                    &enrollment,
+                    false,
+                ),
+            )
+            .await?;
+        if result["verifier_key_id"].as_str() != Some(key_id.as_str()) {
+            return Err(Error::InvalidKey);
+        }
         Ok(true)
     }
 

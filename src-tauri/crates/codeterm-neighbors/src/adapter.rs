@@ -184,7 +184,13 @@ impl KeyRegistry for FirebaseRegistry {
 }
 
 impl FirebaseRegistry {
-    fn enrollment_data(&self, signing_spki: &str, encryption_spki: &str, enrollment: &Enrollment, replace_others: bool) -> Value {
+    fn enrollment_data(
+        &self,
+        signing_spki: &str,
+        encryption_spki: &str,
+        enrollment: &Enrollment,
+        replace_others: bool,
+    ) -> Value {
         json!({
             "public_key_spki_b64":signing_spki,
             "encryption_public_key_spki_b64":encryption_spki,
