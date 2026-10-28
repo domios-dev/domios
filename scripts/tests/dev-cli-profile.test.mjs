@@ -8,7 +8,7 @@ import test from 'node:test';
 const root = path.resolve(import.meta.dirname, '../..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 const source = readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
-const helpers = ['cli_profile_dir', 'cli_release_dir', 'cli_profile_binary', 'cli_release_binary', 'dev_cli_target_dir', 'build_dev_cli']
+const helpers = ['dev_build_phase', 'cli_profile_dir', 'cli_release_dir', 'cli_profile_binary', 'cli_release_binary', 'dev_cli_target_dir', 'build_dev_cli']
   .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))?.[0] || source.match(new RegExp(`^${name}\\(\\) \\{[^\\n]+`, 'm'))?.[0]).join('\n');
 const start = source.indexOf('    echo "Building CLI..."');
 const end = source.indexOf('\n    build_and_launch_dev "${@:2}"', start);

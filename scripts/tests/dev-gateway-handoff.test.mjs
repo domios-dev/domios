@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
-const fn = source.match(/^build_and_launch_dev\(\) \{[\s\S]*?^\}/m)[0];
+const phaseFn = source.match(/^dev_build_phase\(\) \{[\s\S]*?^\}/m)[0];
+const fn = `${phaseFn}\n${source.match(/^build_and_launch_dev\(\) \{[\s\S]*?^\}/m)[0]}`;
 const clientFn = source.match(/^build_dev_client\(\) \{[\s\S]*?^\}/m)[0];
 const serverFn = source.match(/^build_dev_server\(\) \{[\s\S]*?^\}/m)[0];
 const config = fs.readFileSync(new URL('../firebase-build-config.sh', import.meta.url), 'utf8');
@@ -126,6 +127,7 @@ test('prebuilt launch never runs Cargo preparation after gateway release', () =>
   const prebuilt = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('  dev)'));
   const preparation = prebuilt.slice(prebuilt.indexOf('    export PATH='), prebuilt.indexOf('    if [ "$CT_DEV_WAIT" -eq 1 ]; then'));
   const result = spawnSync(bash, ['-c', `set -euo pipefail
+${phaseFn}
 CT_DATA_DIR=/tmp CT_CDP_PORT=opaque
 DEV_NOTIFY_STAGE=
 dev_cli_path() { echo opaque-cli; }

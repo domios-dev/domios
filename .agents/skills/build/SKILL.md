@@ -160,6 +160,12 @@ its copy/sign path. Failed type checks or Vite builds preserve the last working
 frontend, and warning ratchets still block promotion.
 
 For measurements, keep commit, toolchain, features and job count identical.
+Set `CODETERM_BUILD_TIMINGS=1` on a named DEV measurement to emit timestamped
+`[dev-phase]` boundaries through gateway setup, Cargo, frontend, staging,
+provenance and native readiness. Markers contain fixed phase names and process
+IDs; command arguments and credentials are omitted. Separate gateway time from
+the later `dev-prebuilt` launch, and distinguish source-change builds from an
+unchanged-source second instance.
 On Linux, `/usr/bin/time -v ./build.sh release-inputs` records wall time, CPU
 and peak memory for the normal pipeline. Repeat without edits for a warm run.
 Distinguish empty Cargo outputs, a populated compiler cache, and unchanged

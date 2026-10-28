@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-const helpers = ['named_dev_target_dir', 'named_dev_isolated', 'configure_named_dev_cache', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
+const helpers = ['dev_build_phase', 'named_dev_target_dir', 'named_dev_isolated', 'configure_named_dev_cache', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
   'tauri_debug_dir', 'dev_built_app_path', 'dev_app_path', 'kill_dev', 'dev_provenance_record'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
 const dev = source.slice(source.indexOf('  dev)\n'), source.indexOf('  e2e)\n'));
 const kill = source.slice(source.indexOf('  kill)\n'), source.indexOf('  dev-server)\n'));
@@ -79,7 +79,7 @@ for (const platform of ['windows','linux']) for (const wait of [0, 1]) {
       const defaultApp = path.join(directory, `src-tauri/target/debug/domios-app${exe}`);
       fs.mkdirSync(path.dirname(defaultApp), { recursive: true });
       fs.writeFileSync(defaultApp, 'default running artifact');
-      const result = spawnSync(bash, ['-c', `set -euo pipefail
+      const result = spawnSync(bash, ['-s', '--', directory, String(wait), platform === 'windows'?'msys':'linux-gnu'], { encoding: 'utf8', input: `set -euo pipefail
 ${helpers}
 cd "$1"
 OSTYPE="$3"
@@ -134,7 +134,7 @@ ${prebuilt}
   esac
   rm -f "$PREBUILT_LOG"
 done
-`, '--', directory, String(wait), platform === 'windows'?'msys':'linux-gnu'], { encoding: 'utf8' });
+` });
       assert.equal(result.status, 0, result.stderr);
       for (const instance of ['meshqa', 'welcomeqa']) {
         const app = path.join(directory, 'src-tauri/target/dev-instances', instance, `debug/domios-app${exe}`);
