@@ -18,8 +18,21 @@ pub(super) enum Author {
     Agent { agent: String, name: String },
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub(super) struct ReceivedBy {
+    pub tab_id: String,
+    pub session_id: String,
+    pub binding_nonce: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Entry {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub received_by: Option<ReceivedBy>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<super::flags::MessageFlag>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flag_callers: Vec<String>,
     pub direction: String,
     pub author: Author,
     pub sender_uid: String,
@@ -146,7 +159,18 @@ impl History {
                 .unwrap_or(0)
         });
         let start = end.saturating_sub(limit.clamp(1, 100));
-        let entries: Vec<_> = self.entries[start..end].iter().rev().collect();
+        let entries: Vec<_> = self.entries[start..end]
+            .iter()
+            .rev()
+            .map(|entry| {
+                let mut value = json!(entry);
+                if let Some(object) = value.as_object_mut() {
+                    object.remove("received_by");
+                    object.remove("flag_callers");
+                }
+                value
+            })
+            .collect();
         let next = (start > 0).then(|| self.entries[start].message_id.clone());
         json!({"entries":entries,"next_before":next,"ended":self.ended})
     }
@@ -199,6 +223,23 @@ impl Metadata {
             .map_err(|_| Error::CursorStore)
     }
 
+    pub(super) async fn incoming_received_by(
+        &self,
+        friendship: &str,
+        message_id: &str,
+    ) -> Result<Option<ReceivedBy>> {
+        if !hex_id(message_id, 32) {
+            return Err(Error::InvalidEnvelope);
+        }
+        Ok(self
+            .history(friendship)
+            .await?
+            .entries
+            .into_iter()
+            .find(|entry| entry.direction == "in" && entry.message_id == message_id)
+            .and_then(|entry| entry.received_by))
+    }
+
     pub(super) async fn has_incoming(&self, friendship: &str, message_id: &str) -> Result<bool> {
         Ok(self
             .history(friendship)
@@ -213,6 +254,52 @@ impl Metadata {
 pub(crate) struct HistoryCell(tokio::sync::Mutex<()>);
 
 impl ServiceContext {
+    pub(super) async fn stamp_neighbor_received_by(
+        &self,
+        metadata: &Metadata,
+        friendship: &str,
+        message_id: &str,
+        received_by: ReceivedBy,
+        generation: u64,
+    ) -> Result<()> {
+        let _guard = self
+            .extensions
+            .get_or_init(HistoryCell::default)
+            .0
+            .lock()
+            .await;
+        self.require_neighbor_history_generation(generation)?;
+        let mut history = metadata.history(friendship).await?;
+        let entry = history
+            .entries
+            .iter_mut()
+            .find(|entry| entry.direction == "in" && entry.message_id == message_id)
+            .ok_or(Error::InvalidEnvelope)?;
+        if let Some(previous) = &entry.received_by {
+            return if previous == &received_by {
+                Ok(())
+            } else {
+                Err(Error::Gateway)
+            };
+        }
+        {
+            let mux = self.mux.read();
+            let current = mux.get_tab(&received_by.tab_id).ok_or(Error::Gateway)?;
+            if !current.launch_session_authenticated()
+                || current.agent_session_id.as_deref() != Some(received_by.session_id.as_str())
+                || current.session_binding_nonce.as_deref()
+                    != Some(received_by.binding_nonce.as_str())
+            {
+                return Err(Error::Gateway);
+            }
+        }
+        entry.received_by = Some(received_by);
+        self.require_neighbor_history_generation(generation)?;
+        metadata
+            .write(format!("history-{friendship}.json"), history)
+            .await
+    }
+
     pub(super) async fn refresh_active_neighbor_history(
         &self,
         metadata: &Metadata,

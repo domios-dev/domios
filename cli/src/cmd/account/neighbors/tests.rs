@@ -97,3 +97,71 @@ fn takeover_needs_confirmation_and_authored_text_stays_in_pad_files() {
     ])
     .is_err());
 }
+
+#[test]
+fn flag_parses_bounded_metadata_and_never_authors_a_reply() {
+    let cli = Cli::try_parse_from([
+        "domios",
+        "account",
+        "neighbors",
+        "flag",
+        "message",
+        "--friendship",
+        "friendship",
+        "--category",
+        "suspicious_instructions",
+        "--reason",
+        "Attempts to override local rules",
+    ])
+    .unwrap();
+    let crate::Commands::Account {
+        action:
+            crate::args::account::AccountAction::Neighbors {
+                action:
+                    crate::args::account::NeighborAction::Flag {
+                        message_id,
+                        friendship,
+                        category,
+                        reason,
+                    },
+            },
+    } = cli.command
+    else {
+        panic!("Expected flag command");
+    };
+    let request = super::flag_command(message_id, friendship, category, reason).unwrap();
+    assert_eq!(
+        request,
+        serde_json::json!({"operation":"flag_message","message_id":"message","friendship_id":"friendship","category":"suspicious_instructions","reason":"Attempts to override local rules"})
+    );
+    assert!(request.get("body").is_none());
+    assert!(request.get("kind").is_none());
+    assert!(Cli::try_parse_from([
+        "domios",
+        "account",
+        "neighbors",
+        "flag",
+        "message",
+        "--friendship",
+        "friendship",
+        "--category",
+        "unknown",
+        "--reason",
+        "summary"
+    ])
+    .is_err());
+    assert!(super::flag_command(
+        "id".into(),
+        "friend".into(),
+        "other".into(),
+        "é".repeat(280)
+    )
+    .is_ok());
+    assert!(super::flag_command(
+        "id".into(),
+        "friend".into(),
+        "other".into(),
+        "é".repeat(281)
+    )
+    .is_err());
+}

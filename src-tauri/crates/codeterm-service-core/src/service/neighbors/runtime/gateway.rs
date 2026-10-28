@@ -122,6 +122,9 @@ impl NeighborGateway for Gateway {
                 &self.metadata,
                 &self.friendship,
                 super::super::history::Entry {
+                    received_by: None,
+                    flags: Vec::new(),
+                    flag_callers: Vec::new(),
                     direction: "in".into(),
                     author: super::super::history::Author::Person("friend".into()),
                     sender_uid: message.doc.envelope.sender_uid.clone(),

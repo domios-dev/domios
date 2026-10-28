@@ -365,6 +365,8 @@ fn neighbor_failure(message: String) -> Response {
             | "neighbor_machine_access_unsupported"
             | "neighbor_memory_area_unknown",
         ) => StatusCode::BAD_REQUEST,
+        Some("invalid_flag") => StatusCode::BAD_REQUEST,
+        Some("neighbor_flag_limit") => StatusCode::CONFLICT,
         Some("friendship_not_found") => StatusCode::NOT_FOUND,
         Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(

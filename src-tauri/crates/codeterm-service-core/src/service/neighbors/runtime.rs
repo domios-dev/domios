@@ -55,6 +55,12 @@ pub struct NeighborRuntimeCell {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
+    FlagMessage {
+        friendship_id: String,
+        message_id: String,
+        reason: String,
+        category: super::FlagCategory,
+    },
     PauseFriend {
         friendship_id: String,
     },
@@ -275,6 +281,17 @@ impl ServiceContext {
         caller: Option<&str>,
         nonce: Option<&str>,
     ) -> Result<Value, String> {
+        if let NeighborRuntimeCommand::FlagMessage {
+            friendship_id,
+            message_id,
+            reason,
+            category,
+        } = &command
+        {
+            return self
+                .flag_neighbor_message(friendship_id, message_id, reason, *category, caller, nonce)
+                .await;
+        }
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
         if let NeighborRuntimeCommand::Send { body, .. } = &command {
@@ -413,7 +430,8 @@ impl ServiceContext {
                     );
                     Ok(result)
                 }
-                NeighborRuntimeCommand::History { .. }
+                NeighborRuntimeCommand::FlagMessage { .. }
+                | NeighborRuntimeCommand::History { .. }
                 | NeighborRuntimeCommand::Status
                 | NeighborRuntimeCommand::Permission { .. }
                 | NeighborRuntimeCommand::NotificationPreference { .. } => {
