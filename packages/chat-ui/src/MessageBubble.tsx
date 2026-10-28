@@ -26,6 +26,7 @@ import { ReminderCard } from "./codeterm/ReminderCard";
 import { AutomationCard } from "./codeterm/AutomationCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
+import { NeighborOriginHeader } from "./codeterm/NeighborOriginHeader";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
 import { ChatNoticeCard } from "./ChatNoticeCard";
 import { MessageTimeFrame } from "./MessageTimeFrame";
@@ -318,6 +319,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
     // codeterm channel (cross-tab, Telegram, plugin, Pebble, mesh) or wraps slash-commands.
     const originHeader = effectiveOrigin ? (() => {
+      if (effectiveOrigin.kind === "neighbor") return <NeighborOriginHeader origin={effectiveOrigin} />;
       const OriginIcon =
         effectiveOrigin.kind === "mesh"          ? Network :
         effectiveOrigin.kind === "command"       ? ChevronsRight :
