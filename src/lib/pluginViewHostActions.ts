@@ -3,10 +3,9 @@
  *
  * The iframe is untrusted: it names an action and its arguments, nothing else.
  * The app supplies everything that carries authority — the plugin id, the
- * host-held frame token and the user gesture, read from the app's own
- * `navigator.userActivation` (a click inside the frame activates its ancestors;
- * the frame cannot forge it). The daemon then enforces the manifest declaration
- * and media ownership. Every outcome is a typed result; nothing throws into the frame.
+ * host-held frame token and the user intent it observes itself (see
+ * `ViewHostIntent`). The daemon then enforces the manifest declaration and
+ * media ownership. Every outcome is a typed result; nothing throws into the frame.
  */
 
 export const VIEW_HOST_ACTIONS = ["copyText", "saveAs", "reveal"] as const;
@@ -31,8 +30,8 @@ export interface ViewHostDeps {
   writeText?: (text: string) => Promise<void>;
   /** The native save dialog; absent where the app cannot write a local file (web mirror, relayed peer). */
   pickDestination?: (suggestedName: string) => Promise<string | null>;
-  /** Saves through the browser instead of a dialog. */
-  download(request: ViewHostMediaRequest, fileName: string): Promise<ViewHostResult>;
+  /** Saves through the browser instead of a dialog; hands the file over only while `isCurrent()`. */
+  download(request: ViewHostMediaRequest, fileName: string, isCurrent: () => boolean): Promise<ViewHostResult>;
   /** The native file manager; absent on the web mirror and a relayed peer. */
   reveal?: (path: string) => Promise<void>;
 }
@@ -76,16 +75,64 @@ export function safeFileName(raw: unknown): string {
   return cleaned || "media";
 }
 
+/**
+ * Whether a request may act, judged only from what the app itself observes when it arrives:
+ * the view is shown, its own iframe holds focus (so the activation came from inside that frame,
+ * not from app chrome or a sibling view, whose clicks move focus elsewhere), and the app has
+ * transient user activation. A boolean sent by the frame is never consulted.
+ */
+export interface ViewHostIntent {
+  shown: boolean;
+  frameFocused: boolean;
+  activated: boolean;
+}
+
+export function intentGesture(intent: ViewHostIntent): boolean {
+  return intent.shown && intent.frameFocused && intent.activated;
+}
+
+/** One request at a time per frame, and a short pause after each effect, so one gesture yields one effect. */
+export const VIEW_HOST_COOLDOWN_MS = 1000;
+
+export function createViewHostGate(now: () => number = () => Date.now()) {
+  let busy = false;
+  let quietUntil = 0;
+  return {
+    /** Claims the gate for one request; `false` when another is running or an effect just happened. */
+    claim(): boolean {
+      if (busy || now() < quietUntil) return false;
+      busy = true;
+      return true;
+    },
+    release(acted: boolean) {
+      busy = false;
+      if (acted) quietUntil = now() + VIEW_HOST_COOLDOWN_MS;
+    },
+  };
+}
+
+export type ViewHostGate = ReturnType<typeof createViewHostGate>;
+
+/**
+ * Performs one request. `isCurrent` is the app's fence for the asking frame: it is rechecked after
+ * every await and before every effect (clipboard, dialog, daemon write, file manager, download), so
+ * a frame closed, reloaded or replaced meanwhile gets `denied / stale` and nothing happens.
+ */
 export async function performViewHostAction(
   pluginId: string,
   frame: string | null,
   message: { action?: unknown; args?: unknown },
-  gesture: boolean,
+  intent: ViewHostIntent,
   deps: ViewHostDeps,
+  isCurrent: () => boolean,
+  gate: ViewHostGate,
 ): Promise<ViewHostResult> {
   const action = VIEW_HOST_ACTIONS.find((name) => name === message.action);
   if (!action) return refused("invalid", "action");
-  if (!gesture) return refused("denied", "gesture");
+  if (!intentGesture(intent)) return refused("denied", "gesture");
+  if (!gate.claim()) return refused("denied", "busy");
+  let acted = false;
+  const stale = refused("denied", "stale");
   const args = record(message.args) ?? {};
   try {
     if (action === "copyText") {
@@ -95,6 +142,8 @@ export async function performViewHostAction(
       if (!writeText) return refused("unavailable", "clipboard");
       const declared = viewHostResult(await deps.call({ pluginId, action }));
       if (!declared.ok) return declared;
+      if (!isCurrent()) return stale;
+      acted = true;
       try {
         await writeText(text);
       } catch {
@@ -110,6 +159,8 @@ export async function performViewHostAction(
       const located = viewHostResult(await deps.call({ ...media, action }));
       if (!located.ok) return located;
       if (!located.path) return refused("unavailable", "host");
+      if (!isCurrent()) return stale;
+      acted = true;
       try {
         await deps.reveal(located.path);
       } catch {
@@ -118,17 +169,25 @@ export async function performViewHostAction(
       return { ok: true };
     }
     const name = safeFileName(args.suggestedName);
-    if (!deps.pickDestination) return await deps.download(media, name);
+    if (!deps.pickDestination) {
+      acted = true;
+      return await deps.download(media, name, isCurrent);
+    }
     // Preflight without a destination: only `invalid / destination` means the dialog is worth showing.
     const preflight = viewHostResult(await deps.call({ ...media, action }));
     if (preflight.ok || preflight.code !== "invalid" || preflight.reason !== "destination") {
       return preflight.ok ? refused("unavailable", "host") : preflight;
     }
+    if (!isCurrent()) return stale;
+    acted = true;
     const destination = await deps.pickDestination(name);
     if (!destination) return refused("denied", "cancelled");
+    if (!isCurrent()) return stale;
     const saved = viewHostResult(await deps.call({ ...media, action, destination }));
     return saved.ok ? { ok: true } : saved;
   } catch {
     return refused("unavailable", "host");
+  } finally {
+    gate.release(acted);
   }
 }

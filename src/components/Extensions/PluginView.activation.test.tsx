@@ -46,6 +46,12 @@ afterEach(async () => {
   documentLoad.mockClear();
 });
 
+/** Focus moves into a frame when the user clicks inside it. */
+function focusFrame(iframe: HTMLIFrameElement) {
+  iframe.tabIndex = 0;
+  iframe.focus();
+}
+
 function pressEscape() {
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
 }
@@ -134,25 +140,37 @@ describe("plugin view activation", () => {
 
   it("answers a host action from its own frame with the app's gesture and plugin id, never the frame's", async () => {
     await mount(<PluginView pluginId="studio" api={undefined} embedded />);
-    const ownWindow = host!.querySelector("iframe")!.contentWindow!;
+    const iframe = host!.querySelector("iframe")!;
+    const ownWindow = iframe.contentWindow!;
     const reply = vi.spyOn(ownWindow, "postMessage");
     const ask = (id: number) => act(async () => window.dispatchEvent(new MessageEvent("message", {
-      source: ownWindow, data: { __ctHost: id, action: "copyText", args: { text: "fox" }, pluginId: "other" },
+      source: ownWindow, data: { __ctHost: id, action: "copyText", args: { text: "fox" }, pluginId: "other", gesture: true },
     })));
 
+    focusFrame(iframe);
     await ask(1);
     expect(reply).toHaveBeenCalledWith({ __ctReply: 1, result: { ok: false, code: "denied", reason: "gesture" } }, "*");
     expect(hostDeps.call).not.toHaveBeenCalled();
 
     Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
     try {
+      // Activation from a click in app chrome: focus left the frame, so the frame is not the one asking.
+      const chrome = document.createElement("button");
+      document.body.append(chrome);
+      chrome.focus();
       await ask(2);
+      expect(reply).toHaveBeenCalledWith({ __ctReply: 2, result: { ok: false, code: "denied", reason: "gesture" } }, "*");
+      chrome.remove();
+
+      focusFrame(iframe);
+      await ask(3);
     } finally {
       delete (navigator as { userActivation?: unknown }).userActivation;
     }
+    expect(hostDeps.call).toHaveBeenCalledTimes(1);
     expect(hostDeps.call).toHaveBeenCalledWith({ pluginId: "studio", action: "copyText" });
     expect(hostDeps.writeText).toHaveBeenCalledWith("fox");
-    expect(reply).toHaveBeenCalledWith({ __ctReply: 2, result: { ok: true } }, "*");
+    expect(reply).toHaveBeenCalledWith({ __ctReply: 3, result: { ok: true } }, "*");
   });
 
   it("tells a ready frame which host actions this app can perform", async () => {
@@ -166,6 +184,7 @@ describe("plugin view activation", () => {
   it("ignores host actions posted by any window other than its own frame", async () => {
     await mount(<PluginView pluginId="studio" api={undefined} embedded />);
     hostDeps.call.mockClear();
+    focusFrame(host!.querySelector("iframe")!);
     Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
     try {
       await act(async () => window.dispatchEvent(new MessageEvent("message", {
@@ -175,5 +194,30 @@ describe("plugin view activation", () => {
       delete (navigator as { userActivation?: unknown }).userActivation;
     }
     expect(hostDeps.call).not.toHaveBeenCalled();
+  });
+
+  it("drops a pending host action when its frame is replaced before the daemon answers", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const oldFrame = host!.querySelector("iframe")!;
+    const oldWindow = oldFrame.contentWindow!;
+    const reply = vi.spyOn(oldWindow, "postMessage");
+    hostDeps.call.mockClear();
+    hostDeps.writeText.mockClear();
+    let answer!: (value: unknown) => void;
+    hostDeps.call.mockImplementationOnce(() => new Promise((done) => { answer = done; }));
+    focusFrame(oldFrame);
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: oldWindow, data: { __ctHost: 4, action: "copyText", args: { text: "late" } },
+      })));
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    await act(async () => root!.render(<PluginView pluginId="other-plugin" api={undefined} embedded />));
+    expect(host!.querySelector("iframe")).not.toBe(oldFrame);
+    await act(async () => answer({ ok: true }));
+    expect(hostDeps.writeText).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 4 }), "*");
   });
 });

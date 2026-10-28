@@ -211,7 +211,68 @@ fn save_as_copies_the_opened_file_to_the_chosen_destination() {
     save.destination = Some(destination.to_string_lossy().into_owned());
     assert_eq!(perform(&registry(), Some(&resolver), save), json!({ "ok": true }));
     assert_eq!(std::fs::read(&destination).unwrap(), b"png-bytes");
-    assert!(!dir.join(".picked.png.domios-save").exists());
+    assert_eq!(leftover_temps(&dir), 0);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+fn leftover_temps(dir: &std::path::Path) -> usize {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with(".domios-save-"))
+        .count()
+}
+
+#[test]
+fn save_as_never_touches_files_it_did_not_create() {
+    let dir = scratch("siblings");
+    let resolver = media(&dir);
+    let destination = dir.join("picked.png");
+    // A file at the name an earlier fixed-name scheme would have used, and the user's own file.
+    let sibling = dir.join(".picked.png.domios-save");
+    std::fs::write(&sibling, b"not ours").unwrap();
+    std::fs::write(&destination, b"kept on refusal").unwrap();
+
+    let mut foreign = request("other", ViewHostAction::SaveAs);
+    foreign.destination = Some(destination.to_string_lossy().into_owned());
+    assert_eq!(perform(&registry(), Some(&resolver), foreign), refusal("denied", "media_foreign"));
+    assert_eq!(std::fs::read(&destination).unwrap(), b"kept on refusal");
+
+    let mut save = request("studio", ViewHostAction::SaveAs);
+    save.destination = Some(destination.to_string_lossy().into_owned());
+    assert_eq!(perform(&registry(), Some(&resolver), save), json!({ "ok": true }));
+    assert_eq!(std::fs::read(&sibling).unwrap(), b"not ours");
+    assert_eq!(std::fs::read(&destination).unwrap(), b"png-bytes");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn concurrent_saves_to_one_destination_each_use_their_own_temp() {
+    let dir = scratch("concurrent");
+    let resolver = Arc::new(media(&dir));
+    let destination = dir.join("picked.png");
+    let workers: Vec<_> = (0..4)
+        .map(|_| {
+            let resolver = resolver.clone();
+            let destination = destination.clone();
+            std::thread::spawn(move || {
+                let mut save = request("studio", ViewHostAction::SaveAs);
+                save.destination = Some(destination.to_string_lossy().into_owned());
+                perform(&registry(), Some(resolver.as_ref()), save)
+            })
+        })
+        .collect();
+    // Racing renames onto one name may lose on some file systems; a loser must refuse cleanly.
+    let results: Vec<Value> = workers.into_iter().map(|worker| worker.join().unwrap()).collect();
+    assert!(results.contains(&json!({ "ok": true })), "{results:?}");
+    for result in &results {
+        assert!(
+            *result == json!({ "ok": true }) || *result == refusal("unavailable", "write_failed"),
+            "{result}"
+        );
+    }
+    assert_eq!(std::fs::read(&destination).unwrap(), b"png-bytes");
+    assert_eq!(leftover_temps(&dir), 0);
     let _ = std::fs::remove_dir_all(dir);
 }
 

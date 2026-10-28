@@ -797,11 +797,11 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
         .route(
             "/api/plugins/view-host-action",
-            post(plugin_host_action_routes::host_action),
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action),
         )
         .route(
             "/api/plugins/view-host-action/download",
-            post(plugin_host_action_routes::host_action_download),
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action_download),
         )
         .route(
             "/api/plugins/tab-menu",

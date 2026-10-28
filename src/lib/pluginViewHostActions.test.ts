@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { MAX_COPY_TEXT, performViewHostAction, safeFileName, viewHostResult, viewHostSupport, type ViewHostDeps } from "./pluginViewHostActions";
+import {
+  MAX_COPY_TEXT, VIEW_HOST_COOLDOWN_MS, createViewHostGate, performViewHostAction, safeFileName, viewHostResult, viewHostSupport,
+  type ViewHostDeps, type ViewHostGate, type ViewHostIntent,
+} from "./pluginViewHostActions";
 
 const HANDLE = "a".repeat(64);
 
@@ -16,8 +19,27 @@ function deps(answers: unknown[] = [{ ok: true }], native = true) {
   return { fake, calls };
 }
 
-const run = (fake: ViewHostDeps, action: unknown, args: unknown, gesture = true) =>
-  performViewHostAction("studio", "frame-1", { action, args }, gesture, fake);
+const CLICK_IN_FRAME: ViewHostIntent = { shown: true, frameFocused: true, activated: true };
+
+const run = (
+  fake: ViewHostDeps,
+  action: unknown,
+  args: unknown,
+  gesture: boolean | ViewHostIntent = true,
+  isCurrent: () => boolean = () => true,
+  gate: ViewHostGate = createViewHostGate(() => 0),
+) => {
+  const intent = gesture === true ? CLICK_IN_FRAME : gesture === false ? { ...CLICK_IN_FRAME, activated: false } : gesture;
+  return performViewHostAction("studio", "frame-1", { action, args }, intent, fake, isCurrent, gate);
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
+const STALE = { ok: false, code: "denied", reason: "stale" };
 
 describe("plugin view host actions", () => {
   it("refuses without the app's own user gesture before asking anything", async () => {
@@ -79,7 +101,7 @@ describe("plugin view host actions", () => {
   it("downloads on the web mirror and refuses reveal there", async () => {
     const { fake, calls } = deps([], false);
     expect(await run(fake, "saveAs", { handle: HANDLE, suggestedName: "clip.mp4" })).toEqual({ ok: true });
-    expect(fake.download).toHaveBeenCalledWith({ pluginId: "studio", frame: "frame-1", handle: HANDLE }, "clip.mp4");
+    expect(fake.download).toHaveBeenCalledWith({ pluginId: "studio", frame: "frame-1", handle: HANDLE }, "clip.mp4", expect.any(Function));
     expect(await run(fake, "reveal", { handle: HANDLE })).toEqual({ ok: false, code: "unavailable", reason: "reveal" });
     expect(calls).toEqual([]);
   });
@@ -106,6 +128,80 @@ describe("plugin view host actions", () => {
     expect(viewHostSupport(noClipboard).copyText).toBe(false);
     expect(await run(noClipboard, "copyText", { text: "x" })).toEqual({ ok: false, code: "unavailable", reason: "clipboard" });
     expect(calls).toEqual([]);
+  });
+
+  it("refuses activation that came from app chrome, a sibling view or a hidden view", async () => {
+    const { fake, calls } = deps();
+    // A click elsewhere still leaves the app activated, but focus is not in the asking frame.
+    expect(await run(fake, "copyText", { text: "x" }, { shown: true, frameFocused: false, activated: true }))
+      .toEqual({ ok: false, code: "denied", reason: "gesture" });
+    expect(await run(fake, "copyText", { text: "x" }, { shown: false, frameFocused: true, activated: true }))
+      .toEqual({ ok: false, code: "denied", reason: "gesture" });
+    expect(calls).toEqual([]);
+    expect(fake.writeText).not.toHaveBeenCalled();
+  });
+
+  it("does nothing once the frame is gone after the declaration check", async () => {
+    const { fake } = deps();
+    const answer = deferred<unknown>();
+    fake.call.mockImplementationOnce(() => answer.promise);
+    let current = true;
+    const pending = run(fake, "copyText", { text: "x" }, true, () => current);
+    current = false;
+    answer.resolve({ ok: true });
+    expect(await pending).toEqual(STALE);
+    expect(fake.writeText).not.toHaveBeenCalled();
+  });
+
+  it("never opens the file manager or the dialog for a frame replaced during preflight", async () => {
+    const reveal = deps();
+    const located = deferred<unknown>();
+    reveal.fake.call.mockImplementationOnce(() => located.promise);
+    let current = true;
+    const revealing = run(reveal.fake, "reveal", { handle: HANDLE }, true, () => current);
+    current = false;
+    located.resolve({ ok: true, path: "/data/1.png" });
+    expect(await revealing).toEqual(STALE);
+    expect(reveal.fake.reveal).not.toHaveBeenCalled();
+
+    const save = deps();
+    const preflight = deferred<unknown>();
+    save.fake.call.mockImplementationOnce(() => preflight.promise);
+    current = true;
+    const saving = run(save.fake, "saveAs", { handle: HANDLE }, true, () => current);
+    current = false;
+    preflight.resolve({ ok: false, code: "invalid", reason: "destination" });
+    expect(await saving).toEqual(STALE);
+    expect(save.fake.pickDestination).not.toHaveBeenCalled();
+  });
+
+  it("drops the chosen destination when the frame is replaced while the dialog is open", async () => {
+    const { fake, calls } = deps([{ ok: false, code: "invalid", reason: "destination" }]);
+    const picked = deferred<string | null>();
+    fake.pickDestination!.mockImplementationOnce(() => picked.promise);
+    let current = true;
+    const saving = run(fake, "saveAs", { handle: HANDLE }, true, () => current);
+    await vi.waitFor(() => expect(fake.pickDestination).toHaveBeenCalled());
+    current = false;
+    picked.resolve("/home/me/fox.png");
+    expect(await saving).toEqual(STALE);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("gives one effect per gesture: concurrent asks wait, and the next needs the pause to pass", async () => {
+    let now = 0;
+    const gate = createViewHostGate(() => now);
+    const { fake } = deps([{ ok: true }, { ok: true }]);
+    const answer = deferred<unknown>();
+    fake.call.mockImplementationOnce(() => answer.promise);
+    const first = run(fake, "copyText", { text: "one" }, true, () => true, gate);
+    expect(await run(fake, "copyText", { text: "two" }, true, () => true, gate)).toEqual({ ok: false, code: "denied", reason: "busy" });
+    answer.resolve({ ok: true });
+    expect(await first).toEqual({ ok: true });
+    expect(await run(fake, "copyText", { text: "three" }, true, () => true, gate)).toEqual({ ok: false, code: "denied", reason: "busy" });
+    now = VIEW_HOST_COOLDOWN_MS;
+    expect(await run(fake, "copyText", { text: "four" }, true, () => true, gate)).toEqual({ ok: true });
+    expect(fake.writeText.mock.calls).toEqual([["one"], ["four"]]);
   });
 
   it("narrows daemon answers and file names", () => {

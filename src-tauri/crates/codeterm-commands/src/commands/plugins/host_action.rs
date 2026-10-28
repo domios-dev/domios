@@ -96,28 +96,28 @@ fn save_destination(raw: Option<&str>) -> Result<PathBuf, Value> {
     }
 }
 
-/// Copy the already-opened media into a sibling temp file, then rename it over the destination,
-/// so a failed copy never leaves a truncated file where the user asked for one.
+fn write_failed(error: std::io::Error) -> Value {
+    log::warn!("[plugin] host action saveAs failed: {error}");
+    refused("unavailable", "write_failed")
+}
+
+/// Copy the already-opened media into a fresh, randomly named sibling temp file this call
+/// creates, then rename it over the destination. A failed copy never leaves a truncated file
+/// where the user asked for one, and cleanup only ever removes that temp file.
 fn copy_to(mut media: OpenedMedia, destination: &Path) -> Result<(), Value> {
-    let name = destination
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let partial = destination.with_file_name(format!(".{name}.domios-save"));
-    let written = (|| {
-        let mut out = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&partial)?;
-        std::io::copy(&mut media.file, &mut out)?;
-        out.sync_all()?;
-        std::fs::rename(&partial, destination)
-    })();
-    written.map_err(|error| {
-        let _ = std::fs::remove_file(&partial);
-        log::warn!("[plugin] host action saveAs failed: {error}");
-        refused("unavailable", "write_failed")
-    })
+    let folder = destination
+        .parent()
+        .ok_or_else(|| refused("invalid", "destination"))?;
+    let mut partial = tempfile::Builder::new()
+        .prefix(".domios-save-")
+        .tempfile_in(folder)
+        .map_err(write_failed)?;
+    std::io::copy(&mut media.file, partial.as_file_mut()).map_err(write_failed)?;
+    partial.as_file().sync_all().map_err(write_failed)?;
+    partial
+        .persist(destination)
+        .map(drop)
+        .map_err(|error| write_failed(error.error))
 }
 
 pub(super) fn perform(

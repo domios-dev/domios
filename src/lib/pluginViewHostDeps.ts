@@ -6,15 +6,17 @@ import { viewHostResult, type ViewHostDeps, type ViewHostMediaRequest, type View
 // there too, never through a selected mesh relay: the frame token and media belong to it.
 const HOST_ACTION_PATH = "/api/plugins/view-host-action";
 
-/** Streams the plugin's file from the daemon and hands it to the browser as a download. */
-async function download(request: ViewHostMediaRequest, fileName: string): Promise<ViewHostResult> {
+/** Streams the plugin's file from the daemon and hands it to the browser as a download, if the frame is still current. */
+async function download(request: ViewHostMediaRequest, fileName: string, isCurrent: () => boolean): Promise<ViewHostResult> {
   const response = await baseDaemonTransport().request!(`${HOST_ACTION_PATH}/download`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(request),
   }, true);
   if (!response.ok) return viewHostResult(await response.json().catch(() => null));
-  const url = URL.createObjectURL(await response.blob());
+  const blob = await response.blob();
+  if (!isCurrent()) return { ok: false, code: "denied", reason: "stale" };
+  const url = URL.createObjectURL(blob);
   try {
     const link = document.createElement("a");
     link.href = url;

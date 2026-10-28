@@ -17,7 +17,7 @@ import { invalidatePluginBubble } from "../../lib/pluginBubbleCache";
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
 import { DEFAULT_THEME, themeToCSS } from "../../lib/themeCss";
 import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
-import { performViewHostAction, viewHostSupport } from "../../lib/pluginViewHostActions";
+import { createViewHostGate, performViewHostAction, viewHostSupport, type ViewHostGate } from "../../lib/pluginViewHostActions";
 import { viewHostDeps } from "../../lib/pluginViewHostDeps";
 
 type ApiCfg = DaemonApiConfig;
@@ -62,6 +62,13 @@ export function PluginView({
   const activeRef = useRef(active);
   activeRef.current = active;
   const [runtime, setRuntime] = useState<{ path: string; state: PluginUiHostState } | null>(null);
+  // One host-action gate per frame generation: a reloaded frame starts fresh, a busy one waits its turn.
+  const hostGates = useRef(new WeakMap<Window, ViewHostGate>());
+  const hostGate = useCallback((win: Window) => {
+    let gate = hostGates.current.get(win);
+    if (!gate) hostGates.current.set(win, gate = createViewHostGate());
+    return gate;
+  }, []);
 
   // A hot-reloaded plugin ships a new bundle, but the iframe keeps the one it
   // already loaded until its src changes, so the reload has to bust it.
@@ -111,10 +118,15 @@ export function PluginView({
         return;
       }
       if (m.__ctHost != null) {
-        // Read before any await: the gesture is the app's own transient activation, not a frame claim.
-        const gesture = globalThis.navigator?.userActivation?.isActive === true;
+        // Observed by the app before any await, never taken from the frame.
+        const intent = {
+          shown: activeRef.current,
+          frameFocused: iframeRef.current !== null && document.activeElement === iframeRef.current,
+          activated: globalThis.navigator?.userActivation?.isActive === true,
+        };
+        const isCurrent = () => iframeRef.current?.contentWindow === win && activeRef.current;
         // The frame token arrives with media delivery (COD-2024); until then media actions refuse `invalid / frame`.
-        const result = await performViewHostAction(pluginId, null, m, gesture, viewHostDeps());
+        const result = await performViewHostAction(pluginId, null, m, intent, viewHostDeps(), isCurrent, hostGate(win));
         if (iframeRef.current?.contentWindow === win) win.postMessage({ __ctReply: m.__ctHost, result }, "*");
         return;
       }
@@ -137,7 +149,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath],
+    [pluginId, cwd, onClose, documentPath, hostGate],
   );
 
   useEffect(() => {

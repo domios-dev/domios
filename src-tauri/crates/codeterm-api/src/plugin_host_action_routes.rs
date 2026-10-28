@@ -3,18 +3,43 @@
 //! ownership (see `codeterm_commands::commands::plugins::view_host_action`).
 
 use axum::{
-    extract::State as AxumState,
+    extract::{Request, State as AxumState},
+    handler::Handler,
     http::{header, HeaderMap, HeaderValue, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
+    routing::{post, MethodRouter},
     Json,
 };
 use futures_util::StreamExt;
 use serde::Deserialize;
 
+use crate::auth::CallerIdentity;
 use crate::routes::{check_auth, AppState};
 use codeterm_commands::commands::plugins::{view_host_action, view_host_download, HostActionRequest};
 
 const DOWNLOAD_CHUNK: usize = 64 * 1024;
+
+/// Only the local owner (the desktop app, or the owner's own web session) may act for a view.
+/// A tab, peer or service credential could otherwise name any plugin, frame, handle and
+/// destination itself and skip the app's gesture and save dialog.
+pub async fn require_local_owner(request: Request, next: Next) -> Response {
+    if matches!(request.extensions().get::<CallerIdentity>(), Some(CallerIdentity::Local)) {
+        next.run(request).await
+    } else {
+        (StatusCode::FORBIDDEN, "Plugin view host actions are local-owner only").into_response()
+    }
+}
+
+/// `POST` behind [`require_local_owner`], so a refused caller never reaches the handler.
+pub fn owner_post<H, T, S>(handler: H) -> MethodRouter<S>
+where
+    H: Handler<T, S>,
+    T: 'static,
+    S: Clone + Send + Sync + 'static,
+{
+    post(handler).route_layer(middleware::from_fn(require_local_owner))
+}
 
 /// Refusals are typed results, so they share the success status.
 pub async fn host_action(
@@ -116,7 +141,67 @@ pub async fn host_action_download(
 
 #[cfg(test)]
 mod tests {
-    use super::download_name;
+    use super::{download_name, owner_post, CallerIdentity};
+    use axum::{body::Body, http::Request, http::StatusCode, Extension, Router};
+    use codeterm_service_core::mesh::types::AccessLevel;
+    use codeterm_service_core::service::tab_credentials::TabCaller;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn host_action_routes_admit_only_the_local_owner_before_the_handler() {
+        let callers = [
+            (Some(CallerIdentity::Local), StatusCode::OK),
+            (
+                Some(CallerIdentity::Tab(TabCaller {
+                    tab_id: "agent".into(),
+                    binding_nonce: "nonce".into(),
+                })),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Some(CallerIdentity::Peer {
+                    instance_id: "peer".into(),
+                    access_level: AccessLevel::ReadOnly,
+                    relay_protocol_version: 0,
+                }),
+                StatusCode::FORBIDDEN,
+            ),
+            (
+                Some(CallerIdentity::ServicePush {
+                    service_id: "svc".into(),
+                }),
+                StatusCode::FORBIDDEN,
+            ),
+            (None, StatusCode::FORBIDDEN),
+        ];
+        for (caller, expected) in callers {
+            let reached = Arc::new(AtomicBool::new(false));
+            let seen = reached.clone();
+            let mut router: Router = Router::new().route(
+                "/api/plugins/view-host-action",
+                owner_post(move || async move {
+                    seen.store(true, Ordering::SeqCst);
+                    StatusCode::OK
+                }),
+            );
+            let label = format!("{caller:?}");
+            if let Some(caller) = caller {
+                router = router.layer(Extension(caller));
+            }
+            let response = router
+                .oneshot(
+                    Request::post("/api/plugins/view-host-action")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "{label}");
+            assert_eq!(reached.load(Ordering::SeqCst), expected == StatusCode::OK, "{label}");
+        }
+    }
 
     #[test]
     fn download_names_lose_separators_quotes_and_leading_dots() {
