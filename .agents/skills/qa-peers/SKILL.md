@@ -155,6 +155,10 @@ Independently require on both peers before new QA sends:
 
 Select `CODETERM_INSTANCE` and `CODETERM_API_PORT` before sourcing `evals/_lib/lib.sh`. Benches use only `dc`, `dev_get`, `dev_post` or `dev_run`; `evals/qa/tools/dev-session.sh` records actions, UTC and raw exits. Host tab IDs/credentials are not DEV identities. Actual General/concierge actors use their own inherited launch credentials. Use the built-in Browser plugin for UI work.
 
+### Automated QA sign-in
+
+The hosted QA sign-in page runs App Check (reCAPTCHA Enterprise) before sign-in, which fails in an automated browser ("Browser verification could not be completed"). Never bypass it interactively. The supported path is QA project only: a registered App Check debug token in the secret store (ask the backend owner for its name; never print it). Read it through stdin and inject `self.FIREBASE_APPCHECK_DEBUG_TOKEN` before page scripts run (CDP `Page.addScriptToEvaluateOnNewDocument` or a Browser init script), start sign-in from the peer, type the QA account credentials from the secret store through stdin, then remove the script or close the tab. Token values never go into argv, chat, logs or this file.
+
 For a broken frontend on an unchanged build, preserve diagnostics, use supported named shutdown, then the same named `dev-prebuilt --wait` without recompiling. Requalify frontend and native attachment. A provenance mismatch remains a refusal. Windows single-tab watcher/static-server processes detach from the utility job; their instance pidfiles are JSON with `pid`, `created` (FILETIME) and `executable`. Supported cleanup verifies all three and pins process handles. Stale, mismatched or bare-PID records are skipped, never treated as ownership. Do not weaken cleanup or stop another peer's frontend.
 
 ## Acceptance order and evidence
