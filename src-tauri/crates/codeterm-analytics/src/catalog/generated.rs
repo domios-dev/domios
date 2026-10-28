@@ -179,6 +179,115 @@ impl Feature {
     }
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Resource {
+    #[serde(rename = "workspaces")]
+    Workspaces,
+    #[serde(rename = "teams")]
+    Teams,
+    #[serde(rename = "agent_tabs")]
+    AgentTabs,
+    #[serde(rename = "mesh_machines")]
+    MeshMachines,
+    #[serde(rename = "memory_items")]
+    MemoryItems,
+    #[serde(rename = "neighbors")]
+    Neighbors,
+}
+impl Resource {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "workspaces" => Some(Self::Workspaces),
+            "teams" => Some(Self::Teams),
+            "agent_tabs" => Some(Self::AgentTabs),
+            "mesh_machines" => Some(Self::MeshMachines),
+            "memory_items" => Some(Self::MemoryItems),
+            "neighbors" => Some(Self::Neighbors),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum UpgradeSource {
+    #[serde(rename = "limit_dialog")]
+    LimitDialog,
+    #[serde(rename = "account_settings")]
+    AccountSettings,
+}
+impl UpgradeSource {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "limit_dialog" => Some(Self::LimitDialog),
+            "account_settings" => Some(Self::AccountSettings),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CheckoutOutcome {
+    #[serde(rename = "opened")]
+    Opened,
+    #[serde(rename = "returned")]
+    Returned,
+    #[serde(rename = "failed")]
+    Failed,
+}
+impl CheckoutOutcome {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "opened" => Some(Self::Opened),
+            "returned" => Some(Self::Returned),
+            "failed" => Some(Self::Failed),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SettingsSection {
+    #[serde(rename = "root")]
+    Root,
+    #[serde(rename = "account")]
+    Account,
+    #[serde(rename = "privacy")]
+    Privacy,
+    #[serde(rename = "general")]
+    General,
+    #[serde(rename = "notifications")]
+    Notifications,
+    #[serde(rename = "agents")]
+    Agents,
+    #[serde(rename = "secrets")]
+    Secrets,
+    #[serde(rename = "jobs")]
+    Jobs,
+    #[serde(rename = "logs")]
+    Logs,
+    #[serde(rename = "guide")]
+    Guide,
+    #[serde(rename = "about")]
+    About,
+    #[serde(rename = "agent_provider")]
+    AgentProvider,
+}
+impl SettingsSection {
+    pub fn from_catalog(value: &str) -> Option<Self> {
+        match value {
+            "root" => Some(Self::Root),
+            "account" => Some(Self::Account),
+            "privacy" => Some(Self::Privacy),
+            "general" => Some(Self::General),
+            "notifications" => Some(Self::Notifications),
+            "agents" => Some(Self::Agents),
+            "secrets" => Some(Self::Secrets),
+            "jobs" => Some(Self::Jobs),
+            "logs" => Some(Self::Logs),
+            "guide" => Some(Self::Guide),
+            "about" => Some(Self::About),
+            "agent_provider" => Some(Self::AgentProvider),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ProviderId {
     #[serde(rename = "claude")]
     Claude,
@@ -254,5 +363,32 @@ pub enum Event {
     },
     FeatureUsed {
         feature: Feature,
+    },
+    LimitReachedShown {
+        resource: Resource,
+    },
+    UpgradeClicked {
+        source: UpgradeSource,
+    },
+    CheckoutOpened {
+        outcome: CheckoutOutcome,
+    },
+    CheckoutReturned {
+        outcome: CheckoutOutcome,
+    },
+    FriendAdded {
+        count: u32,
+    },
+    NeighborMessageSent {
+        count: u32,
+    },
+    FileShared {
+        count: u32,
+    },
+    ReadReceiptShown {
+        count: u32,
+    },
+    SettingsViewed {
+        section: SettingsSection,
     },
 }

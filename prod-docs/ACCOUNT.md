@@ -68,6 +68,15 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 | `plan_created` | None |
 | `active_day` | `mesh_machines`: u32, `workspaces`: u32 |
 | `feature_used` | `feature`: Feature |
+| `limit_reached_shown` | `resource`: Resource |
+| `upgrade_clicked` | `source`: UpgradeSource |
+| `checkout_opened` | `outcome`: CheckoutOutcome |
+| `checkout_returned` | `outcome`: CheckoutOutcome |
+| `friend_added` | `count`: u32 |
+| `neighbor_message_sent` | `count`: u32 |
+| `file_shared` | `count`: u32 |
+| `read_receipt_shown` | `count`: u32 |
+| `settings_viewed` | `section`: SettingsSection |
 
 - **Platform:** `macos`, `windows`, `linux`
 - **AuthProvider:** `local`, `fake`, `firebase`
@@ -76,6 +85,10 @@ Versions contain numeric major, minor and patch only, without prerelease labels 
 - **Role:** `general`, `orchestrator`, `planner`, `worker`, `manager`, `supporter`, `none`, `other`
 - **UpdateKind:** `app`, `frontend`
 - **Feature:** `dreaming_run`, `cron_created`, `blueprint_created`, `theme_changed`, `telegram_bridge_used`, `voice_input_used`, `plugin_installed`, `team_created`, `memory_saved`, `web_ui_opened`
+- **Resource:** `workspaces`, `teams`, `agent_tabs`, `mesh_machines`, `memory_items`, `neighbors`
+- **UpgradeSource:** `limit_dialog`, `account_settings`
+- **CheckoutOutcome:** `opened`, `returned`, `failed`
+- **SettingsSection:** `root`, `account`, `privacy`, `general`, `notifications`, `agents`, `secrets`, `jobs`, `logs`, `guide`, `about`, `agent_provider`
 - **ProviderId:** `claude`, `codex`, `cursor`, `opencode`, `other`
 <!-- analytics-catalog:end -->
 
@@ -104,4 +117,4 @@ Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, l
 
 Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

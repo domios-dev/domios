@@ -6,6 +6,10 @@ export type SubscriptionStatus = "active" | "past_due" | "canceled" | "revoked" 
 export type Role = "general" | "orchestrator" | "planner" | "worker" | "manager" | "supporter" | "none" | "other";
 export type UpdateKind = "app" | "frontend";
 export type Feature = "dreaming_run" | "cron_created" | "blueprint_created" | "theme_changed" | "telegram_bridge_used" | "voice_input_used" | "plugin_installed" | "team_created" | "memory_saved" | "web_ui_opened";
+export type Resource = "workspaces" | "teams" | "agent_tabs" | "mesh_machines" | "memory_items" | "neighbors";
+export type UpgradeSource = "limit_dialog" | "account_settings";
+export type CheckoutOutcome = "opened" | "returned" | "failed";
+export type SettingsSection = "root" | "account" | "privacy" | "general" | "notifications" | "agents" | "secrets" | "jobs" | "logs" | "guide" | "about" | "agent_provider";
 export type ProviderId = "claude" | "codex" | "cursor" | "opencode" | "other";
 export type Version = `${number}.${number}.${number}`;
 export type ProductEvent =
@@ -24,6 +28,15 @@ export type ProductEvent =
   | { event_type: "plan_created"; event_properties: Record<string, never> }
   | { event_type: "active_day"; event_properties: { mesh_machines: number; workspaces: number } }
   | { event_type: "feature_used"; event_properties: { feature: Feature } }
+  | { event_type: "limit_reached_shown"; event_properties: { resource: Resource } }
+  | { event_type: "upgrade_clicked"; event_properties: { source: UpgradeSource } }
+  | { event_type: "checkout_opened"; event_properties: { outcome: CheckoutOutcome } }
+  | { event_type: "checkout_returned"; event_properties: { outcome: CheckoutOutcome } }
+  | { event_type: "friend_added"; event_properties: { count: number } }
+  | { event_type: "neighbor_message_sent"; event_properties: { count: number } }
+  | { event_type: "file_shared"; event_properties: { count: number } }
+  | { event_type: "read_receipt_shown"; event_properties: { count: number } }
+  | { event_type: "settings_viewed"; event_properties: { section: SettingsSection } }
 ;
 export const PRODUCT_EVENT_CATALOG = {
   "app_first_run": {
@@ -69,6 +82,33 @@ export const PRODUCT_EVENT_CATALOG = {
   },
   "feature_used": {
     "feature": "Feature"
+  },
+  "limit_reached_shown": {
+    "resource": "Resource"
+  },
+  "upgrade_clicked": {
+    "source": "UpgradeSource"
+  },
+  "checkout_opened": {
+    "outcome": "CheckoutOutcome"
+  },
+  "checkout_returned": {
+    "outcome": "CheckoutOutcome"
+  },
+  "friend_added": {
+    "count": "u32"
+  },
+  "neighbor_message_sent": {
+    "count": "u32"
+  },
+  "file_shared": {
+    "count": "u32"
+  },
+  "read_receipt_shown": {
+    "count": "u32"
+  },
+  "settings_viewed": {
+    "section": "SettingsSection"
   }
 } as const;
 export const PRODUCT_EVENT_ENUMS = {
@@ -121,6 +161,37 @@ export const PRODUCT_EVENT_ENUMS = {
     "team_created",
     "memory_saved",
     "web_ui_opened"
+  ],
+  "Resource": [
+    "workspaces",
+    "teams",
+    "agent_tabs",
+    "mesh_machines",
+    "memory_items",
+    "neighbors"
+  ],
+  "UpgradeSource": [
+    "limit_dialog",
+    "account_settings"
+  ],
+  "CheckoutOutcome": [
+    "opened",
+    "returned",
+    "failed"
+  ],
+  "SettingsSection": [
+    "root",
+    "account",
+    "privacy",
+    "general",
+    "notifications",
+    "agents",
+    "secrets",
+    "jobs",
+    "logs",
+    "guide",
+    "about",
+    "agent_provider"
   ],
   "ProviderId": [
     "claude",

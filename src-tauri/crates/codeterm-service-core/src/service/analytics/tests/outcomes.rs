@@ -133,9 +133,14 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
     billing.checkout_browser_opened(&session, codeterm_billing::Plan::Pro);
     assert_eq!(
         sink.events().await,
-        vec![Event::CheckoutStarted {
-            plan: codeterm_analytics::PlanKey::Pro
-        }]
+        vec![
+            Event::CheckoutOpened {
+                outcome: codeterm_analytics::CheckoutOutcome::Opened
+            },
+            Event::CheckoutStarted {
+                plan: codeterm_analytics::PlanKey::Pro
+            }
+        ]
     );
 }
 #[test]

@@ -9,6 +9,7 @@ use tokio::sync::oneshot;
 pub type SecretReader = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
 
 enum Command {
+    Device(oneshot::Sender<Option<uuid::Uuid>>),
     Status(oneshot::Sender<Status>),
     Consent(Consent, oneshot::Sender<Result<Status, String>>),
     Event(Event, oneshot::Sender<Result<bool, String>>),
@@ -24,6 +25,13 @@ pub struct Worker {
 }
 
 impl Worker {
+    pub async fn device_id(&self) -> Result<Option<uuid::Uuid>, String> {
+        let (sender, receiver) = oneshot::channel();
+        self.send(Command::Device(sender))?;
+        receiver
+            .await
+            .map_err(|_| "analytics worker stopped".into())
+    }
     pub fn start(path: PathBuf, config: Config, secrets: SecretReader) -> Result<Self, String> {
         let mut engine = Engine::open(path, config)?;
         engine.sink = crate::sinks::from_config(config, secrets)?;
@@ -174,6 +182,9 @@ fn run(
             },
         };
         match command {
+            Some(Command::Device(reply)) => {
+                let _ = reply.send(engine.state.device_id);
+            }
             Some(Command::Status(reply)) => {
                 let _ = reply.send(engine.status());
             }

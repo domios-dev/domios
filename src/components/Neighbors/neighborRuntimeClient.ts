@@ -1,5 +1,6 @@
 import { listen } from "../../lib/bridge";
 import { localFetch } from "../../lib/webApi";
+import { recordProductEvent } from "../../lib/productAnalytics";
 
 export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
@@ -101,7 +102,7 @@ export async function runtimeCall(command: Record<string, unknown>, signal?: Abo
       try { return JSON.parse(detail); } catch { return null; }
     })();
     const reason = record(failure) && (["message_too_large", "tab_requests_not_allowed", "neighbor_permission_denied", "friendship_ended", "neighbor_forbidden", "session_revoked", "operation_id_conflict", "neighbors_disabled", "installation_unverified", "receiver_elsewhere", "receiver_revision_stale", "not_receiver", "recipient_not_receiving", "reply_target_stopped", "receiving_elsewhere"] as const).find(reason => reason === failure.code);
-    const message = (reason && REFUSAL_LINES[reason]) ?? (record(failure) && typeof failure.message === "string" ? failure.message : detail);
+    const message = (reason ? REFUSAL_LINES[reason] : undefined) ?? (record(failure) && typeof failure.message === "string" ? failure.message : detail);
     const limit = record(failure) && typeof failure.limit === "number" ? failure.limit : undefined;
     // A sending limit (HTTP 429) names its delivery reason and reset, which the conversation explains like a refused receipt.
     const refusal = record(failure) && typeof failure.reason === "string" && DELIVERY_REFUSALS.includes(failure.reason)
@@ -147,7 +148,11 @@ export const neighborRuntimeClient: NeighborRuntimeClient = {
     if (!record(value) || typeof value.allowed !== "boolean" || typeof value.scope !== "string" || typeof value.allow_tab_requests !== "boolean") throw new Error("Invalid Neighbor permission");
     return value as unknown as NeighborPermission;
   },
-  send: async (friendship, body) => receipt(await runtimeCall({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null })),
+  send: async (friendship, body) => {
+    const result = receipt(await runtimeCall({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: null }));
+    if (result.status !== "not_delivered" && result.submission !== "unconfirmed") void recordProductEvent({ event_type: "neighbor_message_sent", event_properties: { count: 1 } });
+    return result;
+  },
   deliveryStatus: async id => {
     const result = await runtimeCall({ operation: "delivery_status", message_id: id });
     if (!record(result)) throw new Error("Invalid Neighbor delivery status");
