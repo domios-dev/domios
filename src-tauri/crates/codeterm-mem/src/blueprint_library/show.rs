@@ -2,7 +2,7 @@ use super::*;
 use codeterm_blueprint_types::blueprint_document::calls::{
     self, projection::ExpandedGraph, CallPin,
 };
-pub(crate) fn project(
+pub fn project(
     mut document: Document,
     mut resolve: impl FnMut(&CallPin) -> Result<Document, String>,
 ) -> Result<ExpandedGraph, String> {
