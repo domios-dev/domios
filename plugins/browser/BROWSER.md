@@ -117,4 +117,8 @@ At the end of a QA run, close ephemeral sessions. For a persistent per-instance 
 
 Native file picker driving returns `unsupported` on all platforms, including Windows: the current host has no lifecycle-owned native dialog handle or file chooser interception. Use Take control to choose files in a dialog the page opened.
 
-<!-- revision: 4 -->
+## Accessible state waits
+
+`wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses Chromium's accessibility tree and its computed accessible names, including aria-only labels. States are `visible`, `hidden`, `enabled` and `expanded`. Hidden also succeeds when no matching accessible element remains; ambiguous matches refuse. Durations use `ms`, `s` or `m`, default to 15s, and are capped at 2m. DOM mutation and input events wake the check; elapsed time only bounds failure. Navigation during a pending wait returns `stale`.
+
+<!-- revision: 5 -->

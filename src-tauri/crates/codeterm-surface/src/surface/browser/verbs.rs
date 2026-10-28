@@ -301,6 +301,10 @@ impl BrowserRuntime {
                     .unwrap_or("(empty page)")
                     .to_string())
             }
+            "wait" if args.iter().any(|a| a == "--role") => {
+                self.wait_accessible(page, super::accessible_wait::parse(args)?)
+                    .await
+            }
             "wait" => self.wait(page, parse_wait(args)?).await,
             "viewport" => self.viewport_verb(args).await,
             "screenshot" => self.screenshot_verb(ctx, args).await,
