@@ -602,7 +602,7 @@ impl ServiceContext {
 
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
-        let Some((lines, tail, cursor_hidden, composer_ready, cursor_row)) = ({
+        let Some((lines, tail, cursor_hidden, composer_ready)) = ({
             let Some(screen_state) = self.screen_state.existing(pty_id) else {
                 return;
             };
@@ -634,21 +634,10 @@ impl ServiceContext {
                     })
                     .unwrap_or(false)
             };
-            let cursor_row = cursor_state.map(|(_alt, _vis, row, _rows)| row as usize);
-            Some((lines, tail, cursor_hidden, composer_ready, cursor_row))
+            Some((lines, tail, cursor_hidden, composer_ready))
         }) else {
             return;
         };
-
-        // Ephemeral stream preview: telemetry only, never feeds classification.
-        if let Some(event) =
-            crate::service::stream_preview::step(pty_id, &tab_id, &lines, cursor_row)
-        {
-            self.ui.emit(
-                "chat-stream-preview",
-                serde_json::to_value(&event).unwrap_or_default(),
-            );
-        }
 
         let status = extract_status_line(&lines);
 
