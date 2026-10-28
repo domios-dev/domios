@@ -159,11 +159,11 @@ Inbound default50 MiB/friend/UTC day; set0..52428800 bytes, zero blocks new file
 |---|---|
 | send | `{friendship_id,kind,body,in_reply_to:null,paths:["absolute local path"]}` seals/uploads/finalizes files before encrypted send; receipt has public attachments. |
 | list | `{friendship_id}` -> `{folder,files}` for owner/General. Rows: file_id,message_id,name,mime,size_bytes,direction,state; incoming state downloading/saved/failed/expired. |
-| open | `{friendship_id,file_id}` opens saved incoming file for owner/General. Granted concierge list/open instead return saved metadata/path without OS launch. |
+| open | `{friendship_id,file_id}`: owner/General launches saved incoming files; `launch:false` resolves only (API-LIFECYCLE). Concierge returns metadata/path. |
 | open_folder | `{friendship_id}` opens friend folder for owner/General. |
 | usage | `{friendship_id}` -> quota.friend/quota.sender with limit_bytes,used_bytes,resets_at; sender also limit_files,used_files. Read on page open/after send, never timer. |
 | set_daily_limit | `{friendship_id,file_daily_limit_bytes:null}` sets inbound limit for owner/General; friend rows expose my_file_daily_limit_bytes,their_file_daily_limit_bytes. |
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->

@@ -51,7 +51,7 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/account/neighbors/enabled` | Turn Neighbors on or off on this machine (`{"enabled": bool}`); off stops receiving and sending until turned back on. |
 | POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. |
 | POST | `/api/account/neighbors/read` | Local owner UI only: mark a friend's messages read up to `through_message_id` (`{friendship_id, through_message_id}`). |
-| POST | `/api/account/neighbors/files` | Send attachments, list saved friend files, open files or the folder, read usage and set inbound file limits. Owner/General manage; an authorized bound concierge may only list or resolve saved files. See NEIGHBORS. |
+| POST | `/api/account/neighbors/files` | Owner/General manage files. `{"operation":"open","friendship_id":"...","file_id":"...","launch":false}` resolves a saved incoming file with the usual authorization/path checks and returns `{"opened":false,"path":"<absolute path>"}` without launching. Absent/true launches as before, returning `{"opened":true}`. A bound authorized concierge always resolves metadata/path without launching. Other operations: send, list, open_folder, usage, set_daily_limit (NEIGHBORS). |
 | POST | `/api/analytics/consent` | Set analytics consent. |
 | POST | `/api/analytics/event` | Record an admitted typed analytics event. |
 | POST | `/api/app/quit` | Submit the exact Quit snapshot. |
@@ -92,4 +92,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 7 -->
+<!-- revision: 9 -->

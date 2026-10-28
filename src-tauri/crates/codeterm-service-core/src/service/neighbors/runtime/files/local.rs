@@ -29,6 +29,20 @@ impl ServiceContext {
         command: &Command,
         concierge: Option<&TabCaller>,
     ) -> Result<Value, String> {
+        self.neighbor_file_local_with(command, concierge, storage::open)
+            .await
+    }
+
+    async fn neighbor_file_local_with<F, Fut>(
+        &self,
+        command: &Command,
+        concierge: Option<&TabCaller>,
+        open: F,
+    ) -> Result<Value, String>
+    where
+        F: FnOnce(std::path::PathBuf) -> Fut,
+        Fut: std::future::Future<Output = codeterm_neighbors::Result<()>>,
+    {
         let generation = self.neighbor_history_generation();
         let account = self
             .ext::<crate::service::account::AccountCell>()
@@ -51,7 +65,7 @@ impl ServiceContext {
                     }
                     Ok(json!({"folder":metadata.friend_folder(friendship)?.to_string_lossy(),"files":entries}))
                 }
-                Command::Open { file_id, .. } => {
+                Command::Open { file_id, launch, .. } => {
                     let entries = metadata.file_entries(friendship).await?;
                     let entry = entries.iter().find(|entry| &entry.file_id == file_id && entry.direction == "in" && entry.state == "saved").ok_or(Error::InvalidRequest)?;
                     let path = metadata.saved_file(friendship, entry).await?;
@@ -60,7 +74,10 @@ impl ServiceContext {
                         view["path"] = json!(path.to_string_lossy());
                         return Ok(view);
                     }
-                    storage::open(path).await?;
+                    if *launch == Some(false) {
+                        return Ok(json!({"opened":false,"path":path.to_string_lossy()}));
+                    }
+                    open(path).await?;
                     Ok(json!({"opened":true}))
                 }
                 Command::OpenFolder { .. } if concierge.is_none() => {
