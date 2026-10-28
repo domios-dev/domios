@@ -11,6 +11,7 @@ mod dream_status_tests;
 
 pub use codeterm_mem::backend;
 pub use codeterm_mem::dream_status;
+pub use codeterm_mem::embedder;
 pub use codeterm_mem::{
     activity, body_is_embeddable, decision, docs_source, embed_queue, embeddings, file_sync, graph,
     graph_layout, graph_repair, ids, layers, learnings, ports, prompt_text, rerank, search, seed,
