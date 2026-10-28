@@ -64,16 +64,16 @@ async fn denied_requests_refuse_without_local_information_access_and_answers_do_
     };
     for kind in [Kind::Question, Kind::TabRequest] {
         assert!(matches!(
-            route_request(&Permission::default(), kind, &ports).await,
+            route_request(&Permission::default(), kind, false, &ports).await,
             Ok(GatewayReceipt::Delivered)
         ));
     }
     assert_eq!(ports.local.load(Ordering::Relaxed), 0);
     assert_eq!(ports.refusals.load(Ordering::Relaxed), 2);
-    route_request(&Permission::default(), Kind::Answer, &ports)
+    route_request(&Permission::default(), Kind::Answer, false, &ports)
         .await
         .unwrap();
-    route_request(&Permission::default(), Kind::Refusal, &ports)
+    route_request(&Permission::default(), Kind::Refusal, false, &ports)
         .await
         .unwrap();
     assert_eq!(ports.refusals.load(Ordering::Relaxed), 2);
@@ -84,12 +84,43 @@ async fn denied_requests_refuse_without_local_information_access_and_answers_do_
         allow_interactive_content: false,
         ..Default::default()
     };
-    route_request(&permission, Kind::Question, &ports)
+    route_request(&permission, Kind::Question, false, &ports)
         .await
         .unwrap();
-    route_request(&permission, Kind::TabRequest, &ports)
+    route_request(&permission, Kind::TabRequest, false, &ports)
         .await
         .unwrap();
     assert_eq!(ports.local.load(Ordering::Relaxed), 1);
     assert_eq!(ports.refusals.load(Ordering::Relaxed), 3);
+}
+
+#[tokio::test]
+async fn paused_requests_refuse_without_invoking_the_concierge_and_resume_restores_admission() {
+    use std::sync::atomic::Ordering;
+    let ports = Requests {
+        local: 0.into(),
+        refusals: 0.into(),
+    };
+    let permission = Permission {
+        allowed: true,
+        scope: "opaque".into(),
+        allow_tab_requests: true,
+        ..Default::default()
+    };
+    for kind in [
+        Kind::Question,
+        Kind::TabRequest,
+        Kind::Answer,
+        Kind::Refusal,
+    ] {
+        route_request(&permission, kind, true, &ports)
+            .await
+            .unwrap();
+    }
+    assert_eq!(ports.local.load(Ordering::Relaxed), 0);
+    assert_eq!(ports.refusals.load(Ordering::Relaxed), 2);
+    route_request(&permission, Kind::Question, false, &ports)
+        .await
+        .unwrap();
+    assert_eq!(ports.local.load(Ordering::Relaxed), 1);
 }

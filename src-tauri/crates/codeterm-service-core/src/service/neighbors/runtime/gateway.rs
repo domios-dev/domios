@@ -153,6 +153,7 @@ impl NeighborGateway for Gateway {
         codeterm_neighbors::gateway::route_request(
             &permission,
             message.doc.envelope.kind,
+            self.service.neighbor_friend_paused(&self.friendship),
             &Request {
                 gateway: self,
                 message,
@@ -178,8 +179,22 @@ struct Request<'a> {
 #[async_trait]
 impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
     async fn local_turn(&self) -> Result<GatewayReceipt> {
+        if self
+            .gateway
+            .service
+            .neighbor_friend_paused(&self.gateway.friendship)
+        {
+            if matches!(
+                self.message.doc.envelope.kind,
+                codeterm_neighbors::wire::Kind::Answer | codeterm_neighbors::wire::Kind::Refusal
+            ) {
+                return Ok(GatewayReceipt::Delivered);
+            }
+            return self.refusal().await;
+        }
         let events = self.events.lock().take().ok_or(Error::Gateway)?;
-        self.gateway
+        match self
+            .gateway
             .deliver_allowed(
                 self.message,
                 &self.plaintext,
@@ -188,6 +203,10 @@ impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
                 events,
             )
             .await
+        {
+            Err(Error::RecipientPaused) => self.refusal().await,
+            result => result,
+        }
     }
     async fn refusal(&self) -> Result<GatewayReceipt> {
         self.gateway
@@ -257,6 +276,9 @@ impl Gateway {
         events: tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
     ) -> Result<GatewayReceipt> {
         self.current()?;
+        if self.service.neighbor_friend_paused(&self.friendship) {
+            return Err(Error::RecipientPaused);
+        }
         self.service
             .validate_neighbor_gateway(&self.tab)
             .map_err(|_| Error::Gateway)?;
@@ -295,10 +317,23 @@ impl Gateway {
             .await?;
         let service = self.service.clone();
         let tab = self.tab.clone();
+        let friendship = self.friendship.clone();
+        let generation = self.generation;
         let outcome = tokio::task::spawn_blocking(move || {
             service
                 .require_neighbors_enabled()
                 .map_err(|error| (error, false))?;
+            if service.neighbor_friend_paused(&friendship) {
+                return Err((Error::RecipientPaused, false));
+            }
+            if service
+                .neighbor_cell()
+                .listener_generation
+                .load(std::sync::atomic::Ordering::Acquire)
+                != generation
+            {
+                return Err((Error::Revoked, false));
+            }
             Messenger::deliver(&service, &tab, envelope, &body).map_err(|error| {
                 (
                     Error::Gateway,

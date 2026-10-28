@@ -359,6 +359,13 @@ impl ServiceContext {
         if !super::same_session(account.session().await.as_ref(), &session) {
             return Err("neighbor_forbidden: Concierge account changed".into());
         }
+        if require_attested
+            && result
+                .as_ref()
+                .is_some_and(|(friendship, _)| self.neighbor_effective_pause(&settings, friendship))
+        {
+            return Err("neighbor_paused: This friendship's concierge is paused".into());
+        }
         Ok(result)
     }
 

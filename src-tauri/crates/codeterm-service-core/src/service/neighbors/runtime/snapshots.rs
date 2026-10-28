@@ -1,6 +1,25 @@
 use super::*;
 
 impl ServiceContext {
+    pub(in crate::service::neighbors) fn patch_neighbor_registry_pause(
+        &self,
+        friendship: &str,
+        paused: bool,
+    ) {
+        if let Some(snapshot) = self.neighbor_cell().registry_snapshot.lock().as_mut() {
+            if let Some(friends) = snapshot["friends"].as_array_mut() {
+                for friend in friends {
+                    if friend["friendship_id"] == friendship {
+                        friend["my_paused"] = json!(paused);
+                        friend["paused"] = json!(paused);
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl ServiceContext {
     pub(in crate::service::neighbors) async fn refresh_neighbor_registry_listeners(
         &self,
     ) -> Result<(), String> {
@@ -29,7 +48,7 @@ impl ServiceContext {
                     .take(48)
                     .collect();
                 Some(
-                    json!({"friendship_id":id,"displayName":name,"since":friend["since"].as_u64()}),
+                    json!({"friendship_id":id,"displayName":name,"since":friend["since"].as_u64(),"my_paused":friend["my_paused"].as_bool().unwrap_or_else(|| self.neighbor_friend_paused(id)),"their_paused":friend["their_paused"].as_bool().unwrap_or(false)}),
                 )
             })
             .collect::<Vec<_>>();

@@ -42,6 +42,7 @@ impl ServiceContext {
         self.tag_neighbor_root(&transport.uid, friendship, gateway)?;
         settings.bindings.insert(friendship.into(), gateway.into());
         metadata.save_settings(settings).await?;
+        self.settle_neighbor_pause(metadata, friendship).await?;
         self.stop_neighbor_listeners();
         self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
         self.ui.emit(
@@ -214,6 +215,12 @@ impl ServiceContext {
                 false,
             )
             .await?;
+        if self.neighbor_friend_paused(friendship) {
+            if let Err(error) = self.pause_neighbor_tab(&spawned.tab_id, friendship).await {
+                let _ = self.close_tab_async(&spawned.tab_id).await;
+                return Err(format!("Pausing new Neighbor concierge failed: {error}"));
+            }
+        }
         Ok(spawned.tab_id)
     }
 

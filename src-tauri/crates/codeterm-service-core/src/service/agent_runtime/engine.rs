@@ -1016,6 +1016,13 @@ pub fn publish(svc: &ServiceContext, tab: &str, session: &Session) {
                 codeterm_types::pty::BootStage::AgentReady,
                 None,
             );
+            if target
+                .neighbor_authority
+                .as_ref()
+                .is_some_and(|authority| svc.neighbor_friend_paused(&authority.friendship_id))
+            {
+                target.frozen = true;
+            }
         }
         target.agent_runtime_state = Some(value.clone());
         target.agent_booting = value["state"] == "loading";
