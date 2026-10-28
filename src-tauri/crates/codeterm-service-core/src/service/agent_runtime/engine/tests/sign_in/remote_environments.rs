@@ -8,7 +8,7 @@ const ID: &str = "sync-send-fixture";
 pub(super) fn register(fixture: &ServiceFixture, outcome: &str) -> Arc<PluginVm> {
     let manifest_json = json!({
         "id":ID,"version":"1.0.0","displayName":"Fixture",
-        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true},"agentRuntime":fixture.service.agent_registry.provider_arc(ID).unwrap().agent_runtime(),"remoteTask":{
+        "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":fixture.service.agent_registry.provider_arc(ID).unwrap().agent_runtime(),"remoteTask":{
             "mode":"cloud","displayName":"Cloud","backend":"fixture",
             "availability":{"status":"unavailable","reason":"Sign in"},
             "environments":[],"followUp":false,"cancel":false,"applyDiff":false
