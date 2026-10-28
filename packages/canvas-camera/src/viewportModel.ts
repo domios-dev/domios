@@ -13,6 +13,9 @@ export interface ViewportBox {
 
 export const DEF_MIN_SCALE = 0.1;
 export const DEF_MAX_SCALE = 4;
+/** An automatic fit only zooms out: a small layout (a card still loading, a sparse graph) shows at its natural size
+ *  rather than blown up. A fit the viewer asks for may zoom in up to the canvas's own maximum. */
+export const AUTO_FIT_MAX_SCALE = 1;
 export const DEF_FIT_PADDING = 28;
 export const FIT_MAX_ZOOM = 4;
 export const FIT_MARGIN = 0.1;

@@ -17,7 +17,7 @@ import { fetchEssenceSource, fetchWorkspaceEssenceMaps } from "./essenceMapApi";
 import { extractEssenceSection } from "./essenceSourceSection";
 import { EssenceMapProjectView, projectName } from "./EssenceMapProjectView";
 import { layoutEssenceMapWorld, parseEssenceMapProject, projectPathsForWorkspace, type EssenceMapFile, type EssenceMapNode, type EssenceMapProject } from "./essenceMapModel";
-import { formatLayerTransform, useCanvasViewport } from "@codeterm/canvas-camera";
+import { AUTO_FIT_MAX_SCALE, formatLayerTransform, useCanvasViewport } from "@codeterm/canvas-camera";
 import { EssenceDocumentTree, type EssenceDocumentEntry } from "./essenceDocumentTree";
 import { EssenceMapEmptyState } from "./EssenceMapEmptyState";
 import { askOrchestratorToBuildMap, findWorkspaceOrchestrator, type MapOrchestrator } from "./essenceMapOrchestrator";
@@ -59,8 +59,8 @@ function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error
     const key = world.projects.map((project) => project.file.project_path).join("|");
     if (fittedKey.current === key) return;
     fittedKey.current = key;
-    fitAll();
-  }, [fitAll, size.height, size.width, world.projects]);
+    fitToView({ x: 0, y: 0, width: world.width, height: world.height }, { maxScale: AUTO_FIT_MAX_SCALE });
+  }, [fitToView, size.height, size.width, world.projects, world.width, world.height]);
   useEffect(() => {
     if (!source) return;
     const mapNodeStillExists = projects.some((project) => project.nodes.some((node) => node.id === source.node.id));

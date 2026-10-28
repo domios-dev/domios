@@ -9,7 +9,7 @@ import { formatAge } from "../../lib/timeLabels";
 import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
 import { CanvasToolbar } from "@codeterm/chat-ui";
-import { useCanvasViewport, formatLayerTransform } from "@codeterm/canvas-camera";
+import { useCanvasViewport, formatLayerTransform, AUTO_FIT_MAX_SCALE } from "@codeterm/canvas-camera";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";
@@ -222,7 +222,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const initial = webGraphInitialView(width, height, contentBounds, userAdjustedRef.current);
     if (!initial || fittedBoundsRef.current === key) return;
     fittedBoundsRef.current = key;
-    fitToView(initial.bounds);
+    fitToView(initial.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
   }, [fitToView, contentBounds, width, height]);
 
   const reset = () => {
