@@ -1115,6 +1115,31 @@ it("shows your concierge working on a friend's message and stops it through the 
   expect(conciergeClient.stopConcierge).toHaveBeenCalledExactlyOnceWith("pair");
 });
 
+it("puts a settled concierge outcome in the time row, linked to the reply", async () => {
+  const conciergeClient = concierge([
+    { direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1", handling_state: "answered" },
+    { direction: "out", kind: "answer", author: "me", body: "Yes.", at: 1700000002000, message_id: "r1", in_reply_to: "m1" },
+  ]);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  const outcome = document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply");
+  expect(outcome?.textContent).toBe("Answered");
+  expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__stack > .neighbor-work")).toBeNull();
+});
+
+it("renders a friend's markdown like agent chat: headings, scrolling tables and copyable code", async () => {
+  const body = "## Status\n\n| Job | State |\n| --- | --- |\n| build | green |\n\n```\ncargo test\n```";
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()}
+    conciergeClient={concierge([{ direction: "in", kind: "question", author: "friend", body, at: 1700000000000, message_id: "md" }])} />));
+  const bubble = document.querySelector("#neighbor-msg-md .neighbor-msg__bubble")!;
+  expect(bubble.querySelector("h2")?.textContent).toBe("Status");
+  expect(bubble.querySelector("table")?.parentElement?.classList.contains("overflow-x-auto")).toBe(true);
+  expect(bubble.querySelector('button[aria-label="Copy code"]')).not.toBeNull();
+});
+
 it("closes the composer while the friend has disabled messages from you", async () => {
   await renderConversation({ ...neighbor, their_paused: true });
   expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);

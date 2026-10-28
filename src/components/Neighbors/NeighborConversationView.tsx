@@ -272,8 +272,9 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
               onOpenFile={file => { void filesClient.open(friendship, file.file_id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file could not be opened.")); }} grouped={!day && continuesGroup(entry, index > 0 ? entries![index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
               checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: readableBody(quoted.body, new Set(filesOf(quoted).map(file => file.file_id))) } : null}
               onOpenQuoted={() => scrollTo(entry.in_reply_to!)}
-              footer={work.has(entry.message_id) && <ConciergeWorkLine work={work.get(entry.message_id)!} tab={conciergeTab}
-                canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />} />
+              standing={work.has(entry.message_id) && <ConciergeWorkLine work={work.get(entry.message_id)!} tab={conciergeTab}
+                canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />}
+              settled={work.has(entry.message_id) && settledWork(work.get(entry.message_id)!.work)} />
           </Fragment>;
         })}
       </div>
@@ -301,9 +302,11 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   </div>;
 }
 
-function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, footer }: {
+function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled }: {
   entry: HistoryEntry; friend: ConversationFriend; friendName: string; agentLabel: string; files: NeighborFile[]; onOpenFile: (file: NeighborFile) => void; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
-  quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void; footer?: ReactNode;
+  quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
+  /** Your concierge's standing on this message: inside the time row once settled, its own line while under way. */
+  standing?: ReactNode; settled?: boolean;
 }) {
   const time = formatMessageTime(entry.at);
   const author = authorKind(entry);
@@ -339,8 +342,9 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
           {sent ? "sent" : DELIVERY_LABEL[entry.delivery_status]}</span>}
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
+        {settled && standing}
       </p>
-      {footer}
+      {!settled && standing}
     </div>
   </div>;
 }
@@ -350,22 +354,29 @@ function ConciergeIcon({ tab }: { tab: Tab | undefined }) {
     {tab?.agent_type ? <AgentIcon providerId={tab.agent_type} className="text-[12px]" /> : <Bot size={12} />}</span>;
 }
 
-/** Where your concierge stands on a friend's message, as one quiet line under it; Stop interrupts it while it works. */
+/** A settled outcome joins the message's time; work still under way keeps its own line with Stop. */
+const settledWork = (work: ConciergeWorkEntry["work"]) => !activeWork(work) && work !== "waiting";
+
+/** Where your concierge stands on a friend's message: settled, a quiet part of the time row; under way, one line under it that Stop interrupts. */
 function ConciergeWorkLine({ work, tab, canStop, stopping, onStop, onOpenReply }: {
   work: ConciergeWorkEntry; tab: Tab | undefined; canStop: boolean; stopping: boolean; onStop: () => void; onOpenReply: (messageId: string) => void;
 }) {
   const line = CONCIERGE_WORK_LINE[work.work];
   const active = activeWork(work.work);
+  const settled = settledWork(work.work);
   // Only a settled refusal or failure names its reason; an answer links to the reply instead.
   const reason = (work.work === "refused" || work.work === "failed") && work.reason ? `: ${work.reason}` : "";
-  return <div className="neighbor-work" data-work={work.work} role={active || work.work === "waiting" ? "status" : undefined}>
+  const content = <>
     <ConciergeIcon tab={tab} />
     {work.work === "answered" && work.reply
       ? <button type="button" className="neighbor-work__reply ct-liquid-interactive" onClick={() => onOpenReply(work.reply!)}>{line}</button>
       : <span className="min-w-0">{line}{reason}</span>}
     {work.work === "working" && <ActivityDots size="small" tone="muted" />}
     {active && canStop && <Button size="compact" loading={stopping} aria-label="Stop your concierge" onClick={onStop}>Stop</Button>}
-  </div>;
+  </>;
+  return settled
+    ? <span className="neighbor-work neighbor-work--inline" data-work={work.work}>{content}</span>
+    : <div className="neighbor-work" data-work={work.work} role="status">{content}</div>;
 }
 
 const FILE_STATE: Record<NeighborFile["state"], { label: string; tone: "ok" | "progress" | "muted" | "danger" }> = {

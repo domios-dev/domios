@@ -1460,7 +1460,7 @@ button.neighbor-file:hover {
   line-height: 1.4;
 }
 
-/* Your concierge's standing on a friend's message: one quiet line under it, a tone only where it settled. */
+/* Your concierge's standing on a friend's message: a quiet line under it while under way, a tone only where it settled. */
 .neighbor-work,
 .neighbor-chat__working {
   display: flex;
@@ -1493,14 +1493,31 @@ button.neighbor-file:hover {
   background: transparent;
   color: inherit;
   font: inherit;
-  text-decoration: underline;
+  text-decoration: none;
   text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
   text-underline-offset: 2px;
   cursor: pointer;
 }
 
-.neighbor-work__reply:hover {
+.neighbor-work__reply:hover,
+.neighbor-work__reply:focus-visible {
   color: var(--ct-fg);
+  text-decoration: underline;
+}
+
+/* A settled outcome reads as part of the time row: "10:04 · [concierge] Answered". */
+.neighbor-work--inline {
+  display: inline-flex;
+  min-width: 0;
+  gap: 0.3rem;
+}
+
+.neighbor-work--inline::before {
+  content: "·" / "";
+}
+
+.neighbor-work--inline .neighbor-work__reply {
+  padding: 0;
 }
 
 .neighbor-permissions .ct-settings-section + .ct-settings-section {
