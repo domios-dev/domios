@@ -137,8 +137,9 @@ For an approved before/after measurement, invalidate only the affected packages
 in the selected inactive instance through the gateway before seeding both
 checkouts. Do not delete the machine cache or another checkout's intermediates.
 Newly compiled matching Rust libraries can then hit across checkouts through
-the gateway. Instance-specific server identity and
-binary linking still require work. Use normal named operations; canonical QA
+the gateway. Instance identity, frontend URL and browser/CDP settings are applied
+at runtime in debug Development launches; source and CLI artifact changes can
+still relink the roots. Use normal named operations; canonical QA
 and lane-check retain their own profile and isolation policies.
 
 `release-inputs` keeps the normal release checks and profiles. TypeScript stores

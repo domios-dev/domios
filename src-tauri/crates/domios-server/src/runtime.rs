@@ -409,27 +409,20 @@ fn development_frontend_configuration(
     port: &str,
     identifier: &str,
 ) -> io::Result<(Option<url::Url>, String)> {
-    if !debug || !development || port.is_empty() {
-        return Ok((None, String::new()));
-    }
-    let port = port
-        .parse::<u16>()
-        .ok()
-        .filter(|port| *port != 0)
-        .ok_or_else(|| io::Error::other("Invalid development frontend port"))?;
-    if !(identifier == "com.domios.dev" || identifier.starts_with("com.domios.dev."))
-        || !identifier
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b".-".contains(&byte))
+    match codeterm_frontend_shell::development_runtime_frontend(
+        debug,
+        development,
+        port,
+        identifier,
+    )
+    .map_err(io::Error::other)?
     {
-        return Err(io::Error::other("Invalid development frontend identifier"));
+        Some(frontend) => Ok((Some(frontend.origin), frontend.identifier)),
+        None => Ok((None, String::new())),
     }
-    Ok((
-        development_frontend_origin(true, true, &format!("http://127.0.0.1:{port}"))?,
-        identifier.into(),
-    ))
 }
 
+#[cfg(test)]
 fn development_frontend_origin(
     debug: bool,
     development: bool,
