@@ -28,7 +28,14 @@ it("flags changes asked for under read-only access, but not changes to prose", (
   expect(grants("Fix the failing tests in the repo.", { machine_access: "full" })).toEqual([]);
   expect(grants("Write a short summary of the release.")).toEqual([]);
   expect(grants("Write a summary of the project.")).toEqual([]);
+  expect(grants("Write a summary of the code.")).toEqual([]);
+  expect(grants("Create a summary from the files.")).toEqual([]);
   expect(grants("Write code for the parser.")).toEqual(["writes"]);
+  expect(grants("Create a new file for the notes.")).toEqual(["writes"]);
+  expect(grants("Review the commit history of the repo.")).toEqual([]);
+  expect(grants("Обсудить изменения в проекте.")).toEqual([]);
+  expect(grants("Исправить ошибки в проекте.")).toEqual(["writes"]);
+  expect(grants("Напиши код для парсера.")).toEqual(["writes"]);
 });
 
 it("compares paths lexically: dot segments resolve, POSIX keeps case, Windows drives ignore it, and home is never guessed", () => {

@@ -8,12 +8,12 @@ export interface ScopeConflict { grant: "memory" | "files" | "tabs" | "writes" |
 const MEMORY = /\b(?:memory|memories)\b|памят/i;
 const FILES = /\b(?:files?|documents?|attachments?)\b|файл|документ/i;
 const TABS = /\b(?:tabs?|terminals?|run (?:a |the )?commands?)\b|вкладк|терминал/i;
-// Changing verbs claim a write on any work object; writing and creating also describe prose ("write a summary of the
-// project"), so those count only with an object that is itself files or code.
-const CHANGE_VERB = /\b(?:edit|change|modify|commit|delete|remove|fix|refactor|push)\b|измен|редакт|исправ|удал/i;
+// A changing verb (not the noun after an article: "the commit history", "изменения") claims a write on any work
+// object in its clause. Writing and creating also make prose ("write a summary of the code"), so they claim a write
+// only when what they make is itself files or code: "write code", "create a new file", "write to the file".
+const CHANGE_VERB = /(?<!\b(?:the|a|an|this|that|any|each|every|no)\s)\b(?:edit|change|modify|commit|delete|remove|fix|refactor|push)\b|(?:^|[\s,;:])(?:изменить|изменять|измени|измените|исправить|исправлять|исправь|исправьте|удалить|удалять|удали|удалите|редактировать|отредактировать|править|поправить|поправь)(?=[\s,.;:!?]|$)/i;
 const WORK_OBJECT = /\b(?:files?|code|repo(?:sitory)?|project|folder|directory|branch)\b|файл|код|репозитор|проект|папк/i;
-const AUTHOR_VERB = /\b(?:write|create)\b|созда|запис/i;
-const CODE_OBJECT = /\b(?:files?|code|branch)\b|файл|код/i;
+const AUTHORED_CODE = /\b(?:write|create)\s+(?:(?:to|into|in)\s+)?(?:(?:a|an|the|new|some|more)\s+)*(?:files?|code|branch(?:es)?|scripts?|tests?)\b|(?:^|\s)(?:создать|создай|создайте|создавать|записать|запиши|запишите|написать|напиши|напишите|писать)\s+(?:(?:в|новый|новые|новую)\s+)*(?:файл|код|ветк|скрипт|тест)/i;
 const NEGATION = /\b(?:not|never|no|nothing|without|except|don't|doesn't|cannot|can't|mustn't)\b|(?:^|\s)(?:не|нельзя|без|никогда)(?=\s|$)/i;
 // Absolute paths as people paste them: C:\work\x, C:/work/x, /home/x, ~/x. A trailing sentence mark is not part of the path;
 // "and/or" and the "//host/x" of a URL are not paths.
@@ -67,7 +67,7 @@ export function scopeConflicts(permission: NeighborPermission): ScopeConflict[] 
   if (!permission.allow_tab_requests && mentions(scope, TABS))
     found.push({ grant: "tabs", line: "The scope mentions tabs or commands, but Open tabs and agents is off." });
   if ((permission.machine_access ?? "read_only") === "read_only"
-    && clauses(scope).some(clause => (grants(clause, CHANGE_VERB) && WORK_OBJECT.test(clause)) || (grants(clause, AUTHOR_VERB) && CODE_OBJECT.test(clause))))
+    && clauses(scope).some(clause => (grants(clause, CHANGE_VERB) && WORK_OBJECT.test(clause)) || grants(clause, AUTHORED_CODE)))
     found.push({ grant: "writes", line: "The scope asks for changes, but machine access is Read only." });
   if (permission.machine_access === "folder" && permission.folder) {
     const folder = permission.folder;
