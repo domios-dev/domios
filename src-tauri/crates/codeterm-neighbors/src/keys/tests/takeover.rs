@@ -123,7 +123,7 @@ async fn confirmed_takeover_key_matrix_preserves_active_keys_replaces_revoked_an
                 installation_id: "returning".into(),
                 machine_label: "Desk".into(),
                 enrollment: Some(Enrollment {
-            installation_only: false,
+                    installation_only: false,
                     expected_revision: if stale { 6 } else { 7 },
                     takeover: true,
                     operation_id: None,

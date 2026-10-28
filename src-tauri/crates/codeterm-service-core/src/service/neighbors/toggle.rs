@@ -37,7 +37,8 @@ impl ServiceContext {
         }
         self.neighbors_config_changed();
         if !enabled {
-            self.wait_neighbor_stop_local(self.neighbor_history_generation()).await?;
+            self.wait_neighbor_stop_local(self.neighbor_history_generation())
+                .await?;
         }
         Ok(enabled)
     }

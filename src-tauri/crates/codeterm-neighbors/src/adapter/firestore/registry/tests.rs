@@ -231,7 +231,8 @@ fn delivery_signals_validate_identity_timestamp_and_terminal_status() {
 fn receiver_changed_signal_keeps_revision_without_a_friend_acceptance() {
     let mut doc = document("own");
     doc.fields.insert("type".into(), string("receiver_changed"));
-    doc.fields.insert("at".into(),value(fs::value::ValueType::IntegerValue(100)));
+    doc.fields
+        .insert("at".into(), value(fs::value::ValueType::IntegerValue(100)));
     doc.fields.insert(
         "friendship_id".into(),
         value(fs::value::ValueType::NullValue(0)),
@@ -249,23 +250,53 @@ fn receiver_changed_signal_keeps_revision_without_a_friend_acceptance() {
 #[test]
 fn friend_receiver_change_and_move_settlement_signals_have_exact_shapes() {
     let mut receiver = document("own");
-    receiver.fields.insert("type".into(),string("receiver_changed"));
-    receiver.fields.insert("at".into(),value(fs::value::ValueType::IntegerValue(100)));
-    receiver.fields.insert("receiver_revision".into(),value(fs::value::ValueType::IntegerValue(2)));
+    receiver
+        .fields
+        .insert("type".into(), string("receiver_changed"));
+    receiver
+        .fields
+        .insert("at".into(), value(fs::value::ValueType::IntegerValue(100)));
+    receiver.fields.insert(
+        "receiver_revision".into(),
+        value(fs::value::ValueType::IntegerValue(2)),
+    );
     let signal = parse_signal(receiver.clone()).unwrap();
-    assert_eq!(signal.receiver_friendship,Some("b".repeat(64)));
-    assert_eq!(signal.receiver_revision,Some(2));
-    receiver.fields.insert("unexpected".into(),string("opaque"));
+    assert_eq!(signal.receiver_friendship, Some("b".repeat(64)));
+    assert_eq!(signal.receiver_revision, Some(2));
+    receiver
+        .fields
+        .insert("unexpected".into(), string("opaque"));
     assert!(parse_signal(receiver).is_err());
     let mut settlement = document("own");
-    settlement.fields.insert("type".into(),string("message_expired"));
-    settlement.fields.insert("at".into(),value(fs::value::ValueType::IntegerValue(100)));
-    settlement.fields.insert("message_id".into(),string(&"c".repeat(32)));
-    settlement.fields.insert("reason".into(),string("receiver_moved"));
-    assert_eq!(parse_signal(settlement.clone()).unwrap().delivery.unwrap().reason,Some(crate::wire::DeliveryReason::ReceiverMoved));
-    settlement.fields.insert("reason".into(),string("unrecognized"));
+    settlement
+        .fields
+        .insert("type".into(), string("message_expired"));
+    settlement
+        .fields
+        .insert("at".into(), value(fs::value::ValueType::IntegerValue(100)));
+    settlement
+        .fields
+        .insert("message_id".into(), string(&"c".repeat(32)));
+    settlement
+        .fields
+        .insert("reason".into(), string("receiver_moved"));
+    assert_eq!(
+        parse_signal(settlement.clone())
+            .unwrap()
+            .delivery
+            .unwrap()
+            .reason,
+        Some(crate::wire::DeliveryReason::ReceiverMoved)
+    );
+    settlement
+        .fields
+        .insert("reason".into(), string("unrecognized"));
     assert!(parse_signal(settlement.clone()).is_err());
-    settlement.fields.insert("reason".into(),string("receiver_moved"));
-    settlement.fields.insert("type".into(),string("message_delivered"));
+    settlement
+        .fields
+        .insert("reason".into(), string("receiver_moved"));
+    settlement
+        .fields
+        .insert("type".into(), string("message_delivered"));
     assert!(parse_signal(settlement).is_err());
 }

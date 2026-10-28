@@ -8,9 +8,18 @@ fn registry_cache_retains_explicit_receiver_authority_including_malformed_projec
     let friendship = "a".repeat(64);
     let projection = json!({"source":"friend","installation_id":"elsewhere","revision":9});
     fixture.service.remember_neighbor_registry(&json!({"access":"paid","friends":[{"friendship_id":friendship,"my_receiver":projection,"peer_receiver":{"enc_key_id":"opaque-key","revision":2,"receiving":true}}]}));
-    let cached = fixture.service.neighbor_cell().registry_snapshot.lock().clone().unwrap();
-    assert_eq!(cached["friends"][0]["my_receiver"],projection);
-    assert_eq!(cached["friends"][0]["peer_receiver"]["enc_key_id"],"opaque-key");
+    let cached = fixture
+        .service
+        .neighbor_cell()
+        .registry_snapshot
+        .lock()
+        .clone()
+        .unwrap();
+    assert_eq!(cached["friends"][0]["my_receiver"], projection);
+    assert_eq!(
+        cached["friends"][0]["peer_receiver"]["enc_key_id"],
+        "opaque-key"
+    );
 }
 
 struct NoCalls;

@@ -60,7 +60,17 @@ impl ServiceContext {
                 if let Some(id) = friend["friendship_id"].as_str() {
                     views.insert(
                         id.into(),
-                        self.neighbor_concierge_view(id, settings, &self.neighbor_friend_receiver(id).unwrap_or_else(|| ReceiverStatus { is_me:false,receiving_enabled:false,..account_receiver.clone() })),
+                        self.neighbor_concierge_view(
+                            id,
+                            settings,
+                            &self
+                                .neighbor_friend_receiver(id)
+                                .unwrap_or_else(|| ReceiverStatus {
+                                    is_me: false,
+                                    receiving_enabled: false,
+                                    ..account_receiver.clone()
+                                }),
+                        ),
                     );
                 }
             }

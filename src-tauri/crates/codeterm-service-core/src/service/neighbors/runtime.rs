@@ -379,10 +379,14 @@ impl ServiceContext {
             }
             _ => registry,
         };
-        let friend_mutation = matches!(&command,NeighborRuntimeCommand::SetFriendReceiver { .. });
+        let friend_mutation = matches!(&command, NeighborRuntimeCommand::SetFriendReceiver { .. });
         let receiver_status = if friend_mutation {
-            self.refresh_neighbor_receiver_readonly(&registry,generation).await?
-        } else { self.refresh_neighbor_receiver(&registry, &scope, generation).await? };
+            self.refresh_neighbor_receiver_readonly(&registry, generation)
+                .await?
+        } else {
+            self.refresh_neighbor_receiver(&registry, &scope, generation)
+                .await?
+        };
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
             registry: registry.as_ref(),
@@ -619,9 +623,24 @@ impl ServiceContext {
         let result = match result {
             Ok(result) => result,
             Err(error) => {
-                if friend_mutation && matches!(error,Error::ReceiverRevisionStale | Error::ReceiverElsewhere | Error::NotReceiver) {
+                if friend_mutation
+                    && matches!(
+                        error,
+                        Error::ReceiverRevisionStale
+                            | Error::ReceiverElsewhere
+                            | Error::NotReceiver
+                    )
+                {
                     self.forget_neighbor_registry();
-                    let _ = self.start_neighbor_listeners(transport.clone(),registry.clone(),lifecycle.scope.clone(),metadata.clone(),generation).await;
+                    let _ = self
+                        .start_neighbor_listeners(
+                            transport.clone(),
+                            registry.clone(),
+                            lifecycle.scope.clone(),
+                            metadata.clone(),
+                            generation,
+                        )
+                        .await;
                     return Err(error.to_string());
                 }
                 if matches!(
@@ -727,7 +746,10 @@ impl ServiceContext {
         }
     }
 
-    pub(super) async fn neighbor_receiver_changed(&self, friendship: Option<&str>) -> Result<(), String> {
+    pub(super) async fn neighbor_receiver_changed(
+        &self,
+        friendship: Option<&str>,
+    ) -> Result<(), String> {
         self.require_neighbors_enabled()
             .map_err(|e| e.to_string())?;
         self.neighbor_cell().receiver.lock().take();
@@ -738,7 +760,10 @@ impl ServiceContext {
             self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":version}));
         } else {
             let version = self.forget_neighbor_friend_receivers();
-            self.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":version}));
+            self.ui.emit(
+                "neighbor-runtime-status",
+                json!({"receiver_unavailable":true,"friend_receivers_version":version}),
+            );
         }
         self.neighbor_operation(owner::Operation::ReceiverChanged)
             .await?;

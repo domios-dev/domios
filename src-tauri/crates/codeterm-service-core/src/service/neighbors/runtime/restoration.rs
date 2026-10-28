@@ -98,7 +98,8 @@ impl ServiceContext {
                 );
                 return Ok(false);
             }
-            self.neighbor_operation(owner::Operation::ReceiverChanged).await?;
+            self.neighbor_operation(owner::Operation::ReceiverChanged)
+                .await?;
             Ok(true)
         })
     }

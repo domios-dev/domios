@@ -243,7 +243,8 @@ struct Ports<'a> {
 impl Ports<'_> {
     fn current(&self) -> codeterm_neighbors::Result<()> {
         self.service.require_neighbors_enabled()?;
-        self.service.require_neighbor_friend_receiver(&self.envelope.friendship_id, None)?;
+        self.service
+            .require_neighbor_friend_receiver(&self.envelope.friendship_id, None)?;
         if self
             .service
             .neighbor_cell()

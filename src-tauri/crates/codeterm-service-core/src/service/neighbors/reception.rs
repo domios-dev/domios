@@ -18,7 +18,10 @@ pub(super) fn failure_detail(error: Error, previous: Option<Value>) -> Value {
 impl ServiceContext {
     pub(super) fn neighbor_watch_failure(&self, watch: &str, error: Error) {
         let version = self.forget_neighbor_friend_receivers();
-        self.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":version}));
+        self.ui.emit(
+            "neighbor-runtime-status",
+            json!({"receiver_unavailable":true,"friend_receivers_version":version}),
+        );
         self.neighbor_watch_state(watch, ListenerState::Reconnecting, Some(error));
         let detail = self
             .neighbor_cell()

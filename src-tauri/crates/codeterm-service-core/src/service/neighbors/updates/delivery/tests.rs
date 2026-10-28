@@ -2,19 +2,43 @@ use super::*;
 
 #[tokio::test]
 async fn receiver_move_settlement_is_persisted_for_pending_outgoing_history() {
-    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
-    let metadata = Metadata::new(fixture.temp.path().to_owned(),"owner");
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
-    let outgoing = entry(1,"owner","out",DeliveryStatus::Pending);
+    let outgoing = entry(1, "owner", "out", DeliveryStatus::Pending);
     let generation = fixture.service.neighbor_history_generation();
-    fixture.service.append_neighbor_history(&metadata,&friendship,outgoing.clone(),generation).await.unwrap();
-    let signal = DeliverySignal { friendship_id:friendship.clone(),message_id:outgoing.message_id,status:DeliveryStatus::NotDelivered,
-        reason:Some(codeterm_neighbors::wire::DeliveryReason::ReceiverMoved),at:100 };
-    fixture.service.apply_neighbor_delivery_signal(&metadata,"owner",&signal,generation).await.unwrap();
+    fixture
+        .service
+        .append_neighbor_history(&metadata, &friendship, outgoing.clone(), generation)
+        .await
+        .unwrap();
+    let signal = DeliverySignal {
+        friendship_id: friendship.clone(),
+        message_id: outgoing.message_id,
+        status: DeliveryStatus::NotDelivered,
+        reason: Some(codeterm_neighbors::wire::DeliveryReason::ReceiverMoved),
+        at: 100,
+    };
+    fixture
+        .service
+        .apply_neighbor_delivery_signal(&metadata, "owner", &signal, generation)
+        .await
+        .unwrap();
     let saved = metadata.history(&friendship).await.unwrap();
-    assert_eq!(saved.entries[0].delivery_status,Some(DeliveryStatus::NotDelivered));
-    assert_eq!(saved.entries[0].reason.as_deref(),Some("receiver_moved"));
-    assert!(fixture.ui.0.lock().iter().any(|(event,body)| event == "neighbor-history-changed" && body["friendship_id"] == friendship));
+    assert_eq!(
+        saved.entries[0].delivery_status,
+        Some(DeliveryStatus::NotDelivered)
+    );
+    assert_eq!(saved.entries[0].reason.as_deref(), Some("receiver_moved"));
+    assert!(fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .any(|(event, body)| event == "neighbor-history-changed"
+            && body["friendship_id"] == friendship));
 }
 use crate::service::neighbors::{history::Entry, storage::Settings};
 

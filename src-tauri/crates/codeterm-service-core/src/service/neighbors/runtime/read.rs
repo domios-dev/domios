@@ -31,7 +31,8 @@ impl ServiceContext {
     ) -> Result<Value, String> {
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
-        self.require_neighbor_friend_receiver(&friendship,None).map_err(|error| error.to_string())?;
+        self.require_neighbor_friend_receiver(&friendship, None)
+            .map_err(|error| error.to_string())?;
         let (transport, _, _, metadata) = self.neighbor_ports().await?;
         let _guard = self
             .extensions

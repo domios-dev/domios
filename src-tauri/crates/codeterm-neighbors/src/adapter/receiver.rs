@@ -71,7 +71,13 @@ impl FirebaseRegistry {
         }
         if current["receiver_features"]
             .as_array()
-            .is_some_and(|features| ["files.v1", "receivers.friend.v1"].iter().all(|required| features.iter().any(|feature| feature.as_str() == Some(*required))))
+            .is_some_and(|features| {
+                ["files.v1", "receivers.friend.v1"].iter().all(|required| {
+                    features
+                        .iter()
+                        .any(|feature| feature.as_str() == Some(*required))
+                })
+            })
         {
             return Ok(false);
         }

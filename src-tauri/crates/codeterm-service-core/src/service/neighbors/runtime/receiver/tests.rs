@@ -53,7 +53,7 @@ async fn friend_receiver_fence_requires_current_enabled_installation_and_revisio
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
     assert_eq!(
-        service.require_neighbor_friend_receiver("friend",None),
+        service.require_neighbor_friend_receiver("friend", None),
         Err(Error::NotReceiver)
     );
     let mut status = ReceiverStatus {
@@ -74,9 +74,17 @@ async fn friend_receiver_fence_requires_current_enabled_installation_and_revisio
         status.is_me = is_me;
         status.receiving_enabled = enabled;
         let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
-        service.remember_neighbor_friend_receiver("friend",friends::FriendReceiver::from_account(&status),generation).unwrap();
+        service
+            .remember_neighbor_friend_receiver(
+                "friend",
+                friends::FriendReceiver::from_account(&status),
+                generation,
+            )
+            .unwrap();
         assert_eq!(
-            service.require_neighbor_friend_receiver("friend",Some(revision)).is_ok(),
+            service
+                .require_neighbor_friend_receiver("friend", Some(revision))
+                .is_ok(),
             allowed
         );
     }

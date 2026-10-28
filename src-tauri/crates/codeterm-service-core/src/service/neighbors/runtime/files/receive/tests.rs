@@ -12,19 +12,52 @@ struct Calls {
 
 #[tokio::test]
 async fn moved_friend_files_are_never_downloaded_saved_or_confirmed_by_the_old_receiver() {
-    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
     let service = &fixture.service;
-    let metadata = Metadata::new(fixture.temp.path().to_owned(),"recipient");
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "recipient");
     let envelope = envelope();
-    service.set_neighbor_friend_receiver_for_test(&envelope.friendship_id,Some(false),2);
-    let (file,object) = files::seal(&binding(&envelope),&"c".repeat(32),"note.txt","text/plain",b"received bytes",&mut rand::rngs::OsRng).unwrap();
-    let calls = Arc::new(Calls { metadata:metadata.clone(),file:file.clone(),object,
-        folder:metadata.friend_folder(&envelope.friendship_id).unwrap(),trace:Mutex::default() });
-    let transport = FirebaseTransport { calls:calls.clone(),project:"fixture".into(),uid:"recipient".into(),installation_id:"machine".into() };
-    let ports = Ports { service,metadata:&metadata,transport:&transport,envelope:&envelope,listener_generation:0 };
-    assert_eq!(codeterm_neighbors::files::transfer::receive(&ports,&file,&binding(&envelope)).await,Err(Error::NotReceiver));
+    service.set_neighbor_friend_receiver_for_test(&envelope.friendship_id, Some(false), 2);
+    let (file, object) = files::seal(
+        &binding(&envelope),
+        &"c".repeat(32),
+        "note.txt",
+        "text/plain",
+        b"received bytes",
+        &mut rand::rngs::OsRng,
+    )
+    .unwrap();
+    let calls = Arc::new(Calls {
+        metadata: metadata.clone(),
+        file: file.clone(),
+        object,
+        folder: metadata.friend_folder(&envelope.friendship_id).unwrap(),
+        trace: Mutex::default(),
+    });
+    let transport = FirebaseTransport {
+        calls: calls.clone(),
+        project: "fixture".into(),
+        uid: "recipient".into(),
+        installation_id: "machine".into(),
+    };
+    let ports = Ports {
+        service,
+        metadata: &metadata,
+        transport: &transport,
+        envelope: &envelope,
+        listener_generation: 0,
+    };
+    assert_eq!(
+        codeterm_neighbors::files::transfer::receive(&ports, &file, &binding(&envelope)).await,
+        Err(Error::NotReceiver)
+    );
     assert!(calls.trace.lock().unwrap().is_empty());
-    assert!(metadata.file_entries(&envelope.friendship_id).await.unwrap().is_empty());
+    assert!(metadata
+        .file_entries(&envelope.friendship_id)
+        .await
+        .unwrap()
+        .is_empty());
 }
 
 #[async_trait]
@@ -95,7 +128,7 @@ async fn file_bearing_answer_saves_confirms_acks_and_commits_proof_before_read()
     *service.neighbor_cell().receiver.lock() = Some(serde_json::from_value(json!({"receiver_revision":1,"receiver_installation_id":"machine","receiver_key_id":null,"receiver_machine_label":"Here","receiving_enabled":true,"is_me":true})).unwrap());
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "recipient");
     let mut envelope = envelope();
-    service.set_neighbor_friend_receiver_for_test(&envelope.friendship_id,Some(true),1);
+    service.set_neighbor_friend_receiver_for_test(&envelope.friendship_id, Some(true), 1);
     envelope.kind = Kind::Answer;
     envelope.in_reply_to = Some("f".repeat(32));
     let (file, object) = files::seal(

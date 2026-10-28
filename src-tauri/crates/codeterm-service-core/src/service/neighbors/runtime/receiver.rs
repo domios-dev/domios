@@ -1,10 +1,10 @@
 use super::*;
 use codeterm_neighbors::adapter::ReceiverStatus;
-mod watch;
 pub(super) mod friends;
-mod startup;
 pub(super) mod selection;
+mod startup;
 mod stop;
+mod watch;
 
 impl ServiceContext {
     pub(super) fn receiver_view(status: &ReceiverStatus) -> Value {

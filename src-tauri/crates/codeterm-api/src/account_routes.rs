@@ -408,7 +408,8 @@ fn neighbor_failure(message: String) -> Response {
             StatusCode::BAD_REQUEST
         }
         Some(
-            "invalid_request" | "invalid_key"
+            "invalid_request"
+            | "invalid_key"
             | "neighbor_machine_access_unsupported"
             | "neighbor_memory_area_unknown",
         ) => StatusCode::BAD_REQUEST,
@@ -417,7 +418,10 @@ fn neighbor_failure(message: String) -> Response {
         Some("friendship_not_found" | "key_not_found") => StatusCode::NOT_FOUND,
         Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(
-            "receiver_elsewhere" | "receiving_elsewhere" | "feature_unsupported" | "key_revoked"
+            "receiver_elsewhere"
+            | "receiving_elsewhere"
+            | "feature_unsupported"
+            | "key_revoked"
             | "friendship_ended"
             | "reply_target_stopped"
             | "receiver_revision_stale"

@@ -70,10 +70,15 @@ impl DocumentSession for ControlWatch {
             self.current()?;
             self.service.neighbor_cell().receiver.lock().take();
             let version = self.service.forget_neighbor_friend_receivers();
-            self.service.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":version}));
+            self.service.ui.emit(
+                "neighbor-runtime-status",
+                json!({"receiver_unavailable":true,"friend_receivers_version":version}),
+            );
             self.service.forget_neighbor_registry();
-            self.service.neighbor_operation(owner::Operation::ReceiverChanged)
-                .await.map_err(|_| Error::Transport)?;
+            self.service
+                .neighbor_operation(owner::Operation::ReceiverChanged)
+                .await
+                .map_err(|_| Error::Transport)?;
             self.current()?;
             self.state(ListenerState::Receiving);
         }
