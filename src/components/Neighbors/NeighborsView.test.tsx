@@ -10,7 +10,7 @@ import { parseReferralClaim } from "./referralTrial";
 import { parseNeighbors } from "./neighborModel";
 import { neighborClient } from "./neighborClient";
 import type { NeighborNotify, HistoryEntry } from "./neighborConciergeClient";
-import type { NeighborListenerEvent, NeighborRuntimeClient } from "./neighborRuntimeClient";
+import { NeighborRuntimeFailure, type NeighborListenerEvent, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { missingConciergeLine } from "./useConciergeStatus";
 import { openNeighborPage } from "./neighborFocus";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
@@ -312,6 +312,23 @@ it("tells the old machine that receiving moved, and warns before taking it over"
     .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
   await act(async () => button("Receive Neighbor messages here").click());
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
+});
+
+it.each([
+  ["receiver_revision_stale", "Receiving changed; refresh and confirm again"],
+  ["unavailable", "Neighbor request refused"],
+] as const)("shows takeover failure %s and its diagnostic without expanding Details", async (reason, message) => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  vi.mocked(runtimeClient.enroll).mockRejectedValue(new NeighborRuntimeFailure(reason, message));
+  await render("paid", { runtimeClient });
+  await act(async () => button("Receive here").click());
+  await act(async () => button("Receive Neighbor messages here").click());
+  const alert = document.querySelector('[role="alert"]');
+  const diagnostic = Array.from(alert?.querySelectorAll("*") ?? [])
+    .find(node => node.textContent === `${reason}: ${message}` && !node.closest("details"));
+  expect(diagnostic).toBeDefined();
+  expect(alert?.querySelector("details")?.open).toBe(false);
 });
 
 it("requires a fresh confirmation if receiving moves while the active takeover prompt is open", async () => {
