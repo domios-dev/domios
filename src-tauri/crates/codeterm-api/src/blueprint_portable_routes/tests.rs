@@ -25,3 +25,11 @@ fn ui_import_accepts_the_same_yaml_and_json_document_as_cli() {
         .contains("import.yaml:"));
     assert!(import_recipe(&json!({"schema_version":1,"watch":{}}), &[]).is_err());
 }
+
+#[test]
+fn import_destination_is_explicit_without_requiring_a_team() {
+    let body: ImportBody = serde_json::from_value(json!({
+        "caller_tab_id":"creator", "recipe":{}, "assignments":[], "scope":"general"
+    })).unwrap();
+    assert_eq!(body.scope.as_deref(), Some("general"));
+}
