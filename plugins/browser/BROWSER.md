@@ -95,4 +95,8 @@ Treat it as a precise pointer: find the code behind the element, answer or chang
 
 `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` captures at the requested size and reports the saved path, layout width, content width and CDP layout metrics as JSON. `--restore` restores the previous device metrics even when capture fails; restoration failure is reported explicitly. Without `--restore`, requested metrics stay active.
 
-<!-- revision: 1 -->
+## Scoped atomic actions
+
+`click --within 'dialog:Settings' --role button --name Save` and `fill --within 'form:Composer' --role textbox --name Message --text 'hello'` resolve exact role/name matches from a fresh accessibility snapshot at action time. Missing, ambiguous, stale, hidden and disabled targets refuse with a reason code. The page performs the action in one JavaScript turn only if its document and mutation/input epoch still match the capture. An `action_unconfirmed` result means the action may have happened: inspect the page, never replay it.
+
+<!-- revision: 2 -->

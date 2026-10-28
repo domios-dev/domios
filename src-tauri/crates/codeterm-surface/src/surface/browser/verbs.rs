@@ -18,6 +18,7 @@ pub const VERBS: &[&str] = &[
     "reload",
     "snapshot",
     "click",
+    "fill",
     "type",
     "type-secret",
     "press",
@@ -241,6 +242,9 @@ impl BrowserRuntime {
             "snapshot" => {
                 self.snapshot(page, parse_limit(args.first(), DEFAULT_MAX_LINES))
                     .await
+            }
+            "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
+                self.atomic_action(page, args, verb == "fill").await
             }
             "click" => {
                 let target = self.resolve(args)?;

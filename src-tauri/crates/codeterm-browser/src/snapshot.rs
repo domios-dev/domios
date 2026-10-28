@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+pub mod query;
+
 pub const DEFAULT_MAX_LINES: usize = 200;
 pub const MAX_LINES: usize = 2000;
 const NAME_LIMIT: usize = 100;
