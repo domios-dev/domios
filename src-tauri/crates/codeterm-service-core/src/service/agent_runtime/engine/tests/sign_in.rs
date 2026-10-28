@@ -5,6 +5,7 @@ use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+#[path = "sign_in/remote_environments.rs"]
 mod remote_environments;
 
 const SOURCE: &str = r#"
