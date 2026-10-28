@@ -2,6 +2,20 @@ use super::*;
 use serde_json::Value;
 
 impl ServiceContext {
+    pub(crate) fn neighbor_spawn_friend_name(&self, target: &str) -> Option<String> {
+        let friendship = self
+            .mux
+            .read()
+            .get_tab(target)
+            .and_then(|tab| tab.neighbor_authority.as_ref())
+            .map(|authority| authority.friendship_id.clone())?;
+        Some(
+            self.neighbor_cell_names()
+                .get(&friendship)
+                .cloned()
+                .unwrap_or_else(|| "Neighbor".into()),
+        )
+    }
     pub fn stamp_neighbor_message(
         &self,
         mut envelope: crate::service::messenger::MessageEnvelope,

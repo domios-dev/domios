@@ -7,6 +7,7 @@ pub mod capabilities;
 mod confinement;
 mod delivery;
 pub(crate) mod history;
+mod launch_fence;
 mod notifications;
 mod pause;
 mod removal;

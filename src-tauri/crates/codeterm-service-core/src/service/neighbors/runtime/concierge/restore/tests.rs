@@ -149,6 +149,12 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
         });
         tabs.push(id);
     }
+    mux.get_tab_mut(&tabs[4])
+        .unwrap()
+        .neighbor_authority
+        .as_mut()
+        .unwrap()
+        .root_tab_id = Some(tabs[1].clone());
     let fixture = ServiceFixture::new(mux);
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");

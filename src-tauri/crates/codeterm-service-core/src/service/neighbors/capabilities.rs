@@ -6,6 +6,7 @@ use codeterm_neighbors::permissions::Permission;
 mod fixture;
 mod memory;
 mod self_reads;
+mod spawn;
 mod workspaces;
 
 #[derive(Clone, Copy, Debug)]
@@ -30,6 +31,16 @@ impl Capability {
         let reason = match self {
             Self::MemoryRead if permission.allowed && permission.allow_memory => return Ok(()),
             Self::MemoryRead => "neighbor_memory_not_allowed",
+            Self::Spawn
+                if permission.allowed
+                    && permission.allow_tab_requests
+                    && permission
+                        .workspaces
+                        .as_ref()
+                        .is_some_and(|ids| !ids.is_empty()) =>
+            {
+                return Ok(())
+            }
             Self::Spawn if permission.allowed && permission.allow_tab_requests => {
                 "neighbor_capability_denied"
             }
@@ -64,9 +75,7 @@ impl Capability {
 pub fn rpc_capability(method: &str) -> Option<Capability> {
     Some(match method {
         "mem.search" | "mem.get" | "mem.wake_up" => Capability::MemoryRead,
-        "tab.create" | "tab.new" | "agent.spawn" | "plan.task.dispatch" | "plan.task.respawn" => {
-            Capability::Spawn
-        }
+        "tab.create" | "tab.new" | "agent.spawn" => Capability::Spawn,
         "agent.report" => Capability::Report,
         "tab.agent_pad" | "tab.todo.list" => Capability::SelfRead,
         "tab.list" => Capability::TabList,
@@ -118,9 +127,7 @@ pub fn http_capability(method: &str, path: &str) -> Option<Capability> {
         Some(Capability::MemoryRead)
     } else if method == "POST"
         && (matches!(path, "/api/tabs" | "/api/agents/spawn")
-            || path.starts_with("/api/workspaces/") && path.ends_with("/tabs")
-            || path.starts_with("/api/plans/")
-                && (path.ends_with("/dispatch") || path.ends_with("/respawn")))
+            || path.starts_with("/api/workspaces/") && path.ends_with("/tabs"))
     {
         Some(Capability::Spawn)
     } else {
@@ -141,23 +148,6 @@ fn lifecycle_hook(path: &str) -> bool {
 }
 
 impl ServiceContext {
-    pub(crate) fn refuse_neighbor_descendant_launch(
-        &self,
-        callers: &[Option<&str>],
-    ) -> Result<(), String> {
-        let mux = self.mux.read();
-        let known = self.neighbor_cell().concierge_accounts.lock();
-        if callers.iter().flatten().any(|id| {
-            known.contains_key(*id)
-                || mux
-                    .get_tab(id)
-                    .is_some_and(|tab| tab.neighbor_authority.is_some())
-        }) {
-            return Err("neighbor_capability_denied: This launch path cannot preserve inherited Neighbor authority and machine confinement".into());
-        }
-        Ok(())
-    }
-
     pub(super) fn tag_neighbor_root(
         &self,
         uid: &str,
@@ -350,6 +340,19 @@ impl ServiceContext {
             self.require_neighbors_enabled()
                 .map_err(|error| error.to_string())?;
             let root = authority.root_tab_id.as_deref().unwrap_or(&caller.tab_id);
+            if authority.root_tab_id.is_some()
+                && !self.mux.read().get_tab(root).is_some_and(|tab| {
+                    tab.neighbor_authority
+                        .as_ref()
+                        .is_some_and(|root_authority| {
+                            root_authority.uid == authority.uid
+                                && root_authority.friendship_id == authority.friendship_id
+                                && root_authority.root_tab_id.is_none()
+                        })
+                })
+            {
+                return Err("neighbor_forbidden: Concierge root is no longer active".into());
+            }
             if !codeterm_neighbors::wire::hex_id(&authority.friendship_id, 64)
                 || require_attested
                     && settings
@@ -500,6 +503,12 @@ impl ServiceContext {
         }
         let capability = rpc_capability(method).unwrap_or(Capability::Denied);
         capability.require(&permission)?;
+        if matches!(capability, Capability::Spawn) {
+            self.require_neighbor_spawn_workspace(
+                &permission,
+                params.and_then(|params| params["workspace_id"].as_str()),
+            )?;
+        }
         if matches!(capability, Capability::TabSend) {
             let target = params
                 .and_then(|params| params["tab_id"].as_str())

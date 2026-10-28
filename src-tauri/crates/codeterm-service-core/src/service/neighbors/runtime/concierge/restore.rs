@@ -94,10 +94,9 @@ impl ServiceContext {
         current: &str,
     ) -> Result<(), String> {
         let generation = self.neighbor_history_generation();
-        let retired: Vec<_> = self
-            .mux
-            .read()
-            .snapshot()
+        let snapshot = self.mux.read().snapshot();
+        let current_exists = snapshot.tabs.contains_key(current);
+        let retired: Vec<_> = snapshot
             .tabs
             .iter()
             .filter_map(|(id, tab)| {
@@ -105,7 +104,10 @@ impl ServiceContext {
                     && tab.neighbor_authority.as_ref().is_some_and(|authority| {
                         authority.uid == uid
                             && authority.friendship_id == friendship
-                            && authority.root_tab_id.is_none()
+                            && authority
+                                .root_tab_id
+                                .as_deref()
+                                .is_none_or(|root| root != current || !current_exists)
                     }))
                 .then(|| id.clone())
             })
@@ -119,6 +121,9 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
             if settings.bindings.get(friendship).map(String::as_str) != Some(current) {
                 return Err("Neighbor binding changed during concierge retirement".into());
+            }
+            if self.mux.read().get_tab(&tab).is_none() {
+                continue;
             }
             self.close_tab_async(&tab)
                 .await

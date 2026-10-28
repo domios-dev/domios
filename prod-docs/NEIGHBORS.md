@@ -32,7 +32,7 @@ The daemon applies a default-deny command allowlist to the authenticated concier
 
 `allow_memory` defaults true and permits memory search, get and wake-up. Turning it off returns `neighbor_memory_not_allowed`. `memory_areas` is null for all non-secret memory or a list of current taxonomy area names. Restricted searches return only those areas; a caller's area filter can narrow but cannot widen the grant. A foreign get and global wake-up are refused with `neighbor_memory_area_denied`; use scoped search instead. Unknown area names are rejected when saving permissions with `neighbor_memory_area_unknown`.
 
-`allow_tab_requests` controls incoming tab requests and concierge creation requests, returning `tab_requests_not_allowed` when disabled. Creation paths that cannot preserve inherited friendship authority and machine confinement are currently refused with `neighbor_capability_denied` even when enabled. No unrestricted descendant is created. `allow_files` defaults true and permits only the bound concierge's list/open reads through friendship-checked attachment handles, returning `neighbor_files_not_allowed` on refusal. Downloads are independent of this grant. Owner and General retain permission-edit authority.
+`allow_tab_requests` controls incoming tab requests and concierge creation requests, returning `tab_requests_not_allowed` when disabled. Ordinary agent creation also requires an explicit granted workspace and inherits friendship authority and the configured machine access before launch. Paths that cannot preserve both are refused with `neighbor_capability_denied` even when enabled. No unrestricted descendant is created. `allow_files` defaults true and permits only the bound concierge's list/open reads through friendship-checked attachment handles, returning `neighbor_files_not_allowed` on refusal. Downloads are independent of this grant. Owner and General retain permission-edit authority.
 
 `folder` is an optional absolute directory; absent or null selects the friend's own local folder. `machine_access` accepts `none`, `read_only`, `folder` and `full`. The current provider contract cannot disable all shell/tool execution, so `none` is refused with `neighbor_machine_access_unsupported`, and the default is `read_only`. That level uses the provider's read-only sandbox when supported; it still permits command execution and reads of this OS user's files. `folder` requires an explicit folder and prefers the provider's workspace-write sandbox, falling back to read-only confinement when available. When the provider or platform supports neither sandbox, the concierge starts in advisory mode: the working folder does not confine reads or writes. The returned `folder_enforcement` describes the actual enforcement. `full` explicitly removes the sandbox. A folder or machine-access change replaces the concierge while retaining provider, model and permissions. Startup also replaces older concierges whose working folder or confinement does not match the current permission.
 
@@ -120,6 +120,22 @@ The owner or General may call `{operation:"pause_friend",friendship_id}` or `{op
 The local concierge is muted and frozen while paused; its binding and transcript remain. Already queued questions receive a polite linked refusal without invoking the concierge. Resume unmutes the same binding. Pause state follows the account to its other machines through account events and is persisted locally for startup.
 
 Friend-list rows expose `my_paused`, its local alias `paused`, and `their_paused`. Concierge status carries `paused` and `my_paused`, with state `paused` on the receiving machine. `neighbor-friend-paused` carries `{friendship_id,paused}`. A send blocked by the recipient returns HTTP 409 with `code` and `reason` both `recipient_paused`; a paused concierge's operational calls return HTTP 403 with `neighbor_paused`.
+## Setting up a friend's concierge
+
+General asks how much the owner trusts this friend, proposes one preset, and summarizes its settings in plain words before saving. Offer to narrow access to a project with memory areas, workspace IDs and a folder. Keep machine access off unless the owner asks for it: the current providers cannot implement `none`, so leave the concierge disabled when that is required. Explain and obtain their choice before applying a preset's `read_only` or `folder` access; never silently widen it to `full`.
+
+All presets use `allowed:true`, an owner-approved `scope`, `allow_files:true`, and `allow_interactive_content:false`. Message limits are set separately with `set_daily_limit`.
+
+| Preset | Exact permission choices | Daily messages |
+|---|---|---|
+| Trusted friend | `allow_memory:true`, `memory_areas:null`, `workspaces:null`, `allow_tab_requests:true`, `machine_access:"read_only"`, `folder:null` | 100 |
+| Acquaintance | `allow_memory:false`, `memory_areas:null`, `workspaces:null`, `allow_tab_requests:false`, `machine_access:"read_only"`, `folder:null` | 20 |
+| Project collaborator | `allow_memory:true`, `memory_areas:["project"]`, `workspaces:["<project workspace id>"]`, `allow_tab_requests:true`, `machine_access:"folder"`, `folder:"<absolute project folder>"` | 50 |
+| Custom | Ask for each grant, memory area, workspace, machine access and folder explicitly | Owner's choice |
+
+A creation grant requires at least one workspace. A Trusted friend preset therefore still needs a workspace selection before its concierge can create agents. General resolves the selected project to its actual workspace ID and validates memory areas against the current taxonomy. Explain read-only access honestly: it permits shell commands and reads of this OS user's files; the own-pad exception permits reply files, and provider/platform enforcement may be advisory. Show the returned `folder_enforcement.note` rather than promising confinement the provider does not support.
+
+Ordinary agent creation in a granted workspace inherits immutable friendship authority before launch, the same machine-access setting and configured working folder, and only its own AgentPad exception. Descendants retain the original concierge root. They get the same command allowlist and current grants; none can become General or edit permissions. Custom provider arguments, resumed foreign sessions, existing-tab claims, shell-only tabs, Team/plan dispatch and mesh launches stay refused. Any permission edit retires descendants, and replacing or closing the concierge closes its descendants into Recently Closed. The friendship log and saved files remain.
 ## Files
 
 Attach up to four files in a conversation. Each encrypted object is at most 2 MiB, leaving 2,097,120 bytes for the original file. Text and private attachment metadata together must fit the message's 32,752-byte plaintext limit. The receiving installation must support files; otherwise sending refuses with `recipient_files_unsupported`.
@@ -141,4 +157,4 @@ Use `POST /api/account/neighbors/files` with one of these JSON operations:
 
 `neighbor-files-changed` carries `friendship_id` when the local file index changes. Join files to conversation entries by `message_id`. `neighbor-file-daily-limit-changed` carries `friendship_id` and `file_daily_limit_bytes`. Local file listing and opening do not contact the relay. Each installation keeps its own saved files; changing the receiving machine does not copy them.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

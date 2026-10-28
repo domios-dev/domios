@@ -168,6 +168,25 @@ impl ServiceContext {
         let paused = self.neighbor_effective_pause(&settings, friendship);
         if paused {
             self.pause_neighbor_tab(tab, friendship).await?;
+            let children: Vec<_> = self
+                .mux
+                .read()
+                .snapshot()
+                .tabs
+                .iter()
+                .filter_map(|(id, child)| {
+                    child
+                        .neighbor_authority
+                        .as_ref()
+                        .is_some_and(|authority| {
+                            authority.root_tab_id.as_deref() == Some(tab.as_str())
+                        })
+                        .then(|| id.clone())
+                })
+                .collect();
+            for child in children {
+                self.pause_neighbor_tab(&child, friendship).await?;
+            }
         }
         Ok(())
     }

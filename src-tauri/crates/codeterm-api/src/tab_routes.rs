@@ -603,6 +603,18 @@ pub async fn release_remote_ownership(
 }
 
 fn create_shell_error_status(error: &str) -> StatusCode {
+    if error.split_once(':').is_some_and(|(code, _)| {
+        matches!(
+            code,
+            "neighbor_capability_denied"
+                | "neighbor_forbidden"
+                | "neighbor_paused"
+                | "tab_requests_not_allowed"
+                | "neighbor_machine_access_unsupported"
+        )
+    }) {
+        return StatusCode::FORBIDDEN;
+    }
     if error.starts_with("utility_tab_limit:") {
         StatusCode::CONFLICT
     } else if error.starts_with("Unknown Lucide icon") || error.starts_with("timeout requires ") {
