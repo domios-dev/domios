@@ -1,5 +1,7 @@
 use super::*;
 
+mod file_authority;
+
 #[tokio::test]
 async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_network_dispatch() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(
@@ -74,7 +76,7 @@ async fn public_file_only_send_still_enters_its_distinct_owner_operation() {
         request = requests.recv() => request.unwrap(),
     };
     assert!(
-        matches!(&request.operation,Operation::Files(super::super::files::Command::Send {body,paths,..}) if body.is_empty() && paths.len() == 1)
+        matches!(&request.operation,Operation::Files {command:super::super::files::Command::Send {body,paths,..},caller:None,nonce:None} if body.is_empty() && paths.len() == 1)
     );
     request
         .reply

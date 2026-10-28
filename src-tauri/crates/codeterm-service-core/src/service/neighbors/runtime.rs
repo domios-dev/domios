@@ -140,6 +140,7 @@ pub enum NeighborRuntimeCommand {
 }
 
 struct Outgoing {
+    authority: authority::SendAuthority,
     friendship: String,
     kind: Kind,
     body: OutboundBody,
@@ -345,6 +346,7 @@ impl ServiceContext {
     ) -> Result<Value, String> {
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
+        let send_authority = self.neighbor_send_authority(&command, caller, nonce)?;
         if command.is_local_read() {
             return self.neighbor_local_read(&command, caller, nonce).await;
         }
@@ -584,6 +586,7 @@ impl ServiceContext {
                         &lifecycle,
                         &metadata,
                         Outgoing {
+                            authority: send_authority,
                             friendship: friendship_id,
                             kind,
                             body: OutboundBody::Granted(Zeroizing::new(body)),
