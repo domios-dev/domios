@@ -112,8 +112,12 @@ fn code_for_http_status(status: u64) -> Option<ErrorCode> {
 }
 
 pub(crate) fn is_neighbor_reason(reason: &str) -> bool {
-    reason.starts_with("neighbor_") && reason.len() > "neighbor_".len() && reason.len() <= 80
-        && reason.bytes().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+    reason.starts_with("neighbor_")
+        && reason.len() > "neighbor_".len()
+        && reason.len() <= 80
+        && reason
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 const NOT_FOUND_MARKERS: [&str; 7] = [
@@ -211,7 +215,11 @@ pub fn error_object(message: &str, rpc_code: Option<i32>, data: Option<&Value>) 
         "hint": hint,
         "rpc_code": rpc_code,
     });
-    if let Some(reason) = data.and_then(|data| data.get("reason")).and_then(Value::as_str).filter(|reason| is_neighbor_reason(reason)) {
+    if let Some(reason) = data
+        .and_then(|data| data.get("reason"))
+        .and_then(Value::as_str)
+        .filter(|reason| is_neighbor_reason(reason))
+    {
         error["reason"] = reason.into();
     }
     error
