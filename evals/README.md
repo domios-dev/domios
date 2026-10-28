@@ -65,6 +65,7 @@ sockets) inside individual benches that then drift across platforms.
 
 - `dev_resolve` (alias `dev_env`) — resolves the dev connection (port, token, socket path) into lib-private state; exports nothing
 - `dev_run <cmd...>` — runs one child process with the dev connection composed into *its* environment
+- `dc --as-tab <id> ...`, `dev_run --as-tab <id> ...`, `dev_post_as_tab <id> <path> [json]` — run with that DEV tab's own scoped launch credential, never the instance token plus an asserted tab ID
 - `dev_auth_header` / `dev_data_dir` — the resolved values, for shell code that used to read an exported variable
 - `dev_pid` / `dev_alive` — find the dev process via `lsof` (Unix) or `netstat` (Win)
 - `dev_kill_hard` — `kill -9` (Unix) or `taskkill /F` (Win) → simulates Windows reboot / OOM
@@ -80,6 +81,21 @@ sockets) inside individual benches that then drift across platforms.
 OS detection is via `$OSTYPE` (works in git bash on Windows). All
 commands are POSIX-portable; Windows-only branches are isolated to
 `is_windows` guards.
+
+Tab-scoped probes must run inside the selected DEV tab's launch environment,
+with its `CODETERM_API_TOKEN`, tab ID, API URL/port and socket path intact before
+sourcing the library. The requested tab must match that environment; its session
+ID and binding nonce are retained for the child. An owner shell or a production
+tab cannot impersonate an arbitrary DEV tab: the helpers refuse with exit 7.
+Use owner `dc tab exec --tab <shell-tab> '<probe command>'` to start a probe inside a DEV shell
+tab; for an agent tab, have the agent execute the probe with its own tool.
+`tab exec` intentionally refuses agent tabs. Never print or copy credentials
+through terminal output, inspect metadata, or substitute an instance token.
+Omitting `--as-tab` still runs setup/owner operations against verified DEV only.
+
+The mocked helper regression check is `bash evals/_lib/test-source-purity.sh`;
+it contacts no daemon and covers scoped credentials, foreign/missing credential
+refusals, unchanged caller environment and production target isolation.
 
 ## Writing a new bench
 
