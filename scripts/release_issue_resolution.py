@@ -122,10 +122,14 @@ def git_output(args):
 
 def reachable_candidates(source_sha):
     tags = git_output(["tag", "--merged", source_sha, "--list", "release-*", "v*"]).splitlines()
-    selected = [tag for tag in tags if re.fullmatch(r"(?:release-|v)[0-9]+\.[0-9]+\.[0-9]+", tag)]
+    by_version = {}
+    for tag in sorted(tags, key=lambda tag: tag.startswith("v"), reverse=True):
+        if re.fullmatch(r"(?:release-|v)[0-9]+\.[0-9]+\.[0-9]+", tag):
+            by_version.setdefault(re.sub(r"^(?:release-|v)", "", tag), tag)
+    selected = list(by_version.values())
     if not selected:
         return []
-    objects = git_output(["rev-parse", *[tag + "^{commit}" for tag in selected]]).splitlines()
+    objects = git_output(["rev-parse", *["refs/tags/" + tag + "^{commit}" for tag in selected]]).splitlines()
     return [{"version": re.sub(r"^(?:release-|v)", "", tag), "sha": sha}
             for tag, sha in zip(selected, objects, strict=True)]
 

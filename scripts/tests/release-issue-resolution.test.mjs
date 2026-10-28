@@ -30,6 +30,22 @@ function resolve(f) {
   return JSON.parse(run.stdout);
 }
 
+test('canonical version tags supersede historical aliases and use fully qualified refs', () => {
+  const result = resolve({ sha, tags: ['release-1.10.16', 'v1.10.16', 'release-1.7.6', 'v1.17.0-beta', 'unrelated'],
+    objects: { 'refs/tags/v1.10.16^{commit}': previous, 'refs/tags/release-1.7.6^{commit}': older } });
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.result, [{ version: '1.10.16', sha: previous }, { version: '1.7.6', sha: older }]);
+  assert.deepEqual(result.calls[1], ['rev-parse', 'refs/tags/v1.10.16^{commit}', 'refs/tags/release-1.7.6^{commit}']);
+});
+
+test('conflicting canonical boundaries still refuse before remote history work', () => {
+  const f = fixture();
+  f.candidates.unshift({ version: '1.16.0', sha: older });
+  const result = resolve(f);
+  assert.match(result.error, /conflicting reachable release tags for 1.16.0/);
+  assert.deepEqual(result.calls, []);
+});
+
 test('newest verified reachable boundary stops remote history work', () => {
   const result = resolve(fixture());
   assert.equal(result.error, undefined);

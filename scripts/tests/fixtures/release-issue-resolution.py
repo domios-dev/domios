@@ -1,9 +1,10 @@
 import json
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from release_issue_resolution import included_history
+from release_issue_resolution import included_history, reachable_candidates
 
 fixture = json.load(sys.stdin)
 calls = []
@@ -24,7 +25,18 @@ def commits(start, source, limit):
 
 
 try:
-    result = included_history(fixture["version"], fixture["sha"], fixture["candidates"], commits, request)
+    if "tags" in fixture:
+        def git_output(args):
+            calls.append(args)
+            if args[0] == "tag":
+                return "\n".join(fixture["tags"])
+            assert args[0] == "rev-parse"
+            return "\n".join(fixture["objects"][ref] for ref in args[1:])
+
+        with patch("release_issue_resolution.git_output", git_output):
+            result = reachable_candidates(fixture["sha"])
+    else:
+        result = included_history(fixture["version"], fixture["sha"], fixture["candidates"], commits, request)
     print(json.dumps({"result": result, "calls": calls}))
 except Exception as error:
     print(json.dumps({"error": str(error), "calls": calls}))
