@@ -73,6 +73,52 @@ fn request(
 }
 
 #[test]
+fn concierge_socket_lists_only_granted_workspace_agents_and_denies_foreign_sends() {
+    let (fixture, concierge, token) = fixture();
+    let (workspace, allowed, shell) = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.create_workspace("opaque-project".into(), None).id;
+        let allowed = mux.create_tab(&workspace).unwrap();
+        mux.get_tab_mut(&allowed).unwrap().agent_type = Some("fixture".into());
+        let shell = mux.create_tab(&workspace).unwrap();
+        (workspace, allowed, shell)
+    };
+    codeterm_service_core::async_runtime::block_on(
+        fixture.seed_neighbor_concierge(
+            &concierge,
+            &"a".repeat(64),
+            serde_json::from_value(
+                json!({"allowed":true,"scope":"opaque","workspaces":[workspace]}),
+            )
+            .unwrap(),
+        ),
+    );
+    fixture.install_seeded_storage_desk();
+    let rows = request(
+        &fixture,
+        &token,
+        "tab.list",
+        Some(json!({"agents_only":false})),
+    )
+    .result
+    .unwrap();
+    let rows = rows.as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["id"], allowed);
+    assert!(rows[0].get("session_binding_nonce").is_none());
+    assert!(rows[0].get("other_workspace_tab_count").is_none());
+    for target in [&concierge, &shell, &"missing".to_owned()] {
+        let response = request(
+            &fixture,
+            &token,
+            "tab.send_text",
+            Some(json!({"tab_id":target,"text":"opaque"})),
+        );
+        assert_eq!(response.error.unwrap().code, -32003);
+    }
+}
+
+#[test]
 fn authenticated_concierge_socket_denies_early_bindings_and_omitted_or_forged_actor_before_dispatch(
 ) {
     let (fixture, concierge, token) = fixture();

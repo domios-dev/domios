@@ -4,6 +4,79 @@ use codeterm_service_core::{
 };
 use serde_json::{json, Value};
 
+#[tokio::test]
+async fn cli_rpc_workspace_grant_lists_agents_and_only_forwards_allowed_sends() {
+    let (fixture, state, concierge, token) = fixture().await;
+    let (workspace, allowed, shell) = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.create_workspace("opaque-project".into(), None).id;
+        let allowed = mux.create_tab(&workspace).unwrap();
+        mux.get_tab_mut(&allowed).unwrap().agent_type = Some("fixture".into());
+        let shell = mux.create_tab(&workspace).unwrap();
+        (workspace, allowed, shell)
+    };
+    fixture
+        .seed_neighbor_concierge(
+            &concierge,
+            &"a".repeat(64),
+            serde_json::from_value(
+                json!({"allowed":true,"scope":"opaque","workspaces":[workspace]}),
+            )
+            .unwrap(),
+        )
+        .await;
+    fixture.install_seeded_storage_desk();
+    codeterm_service_core::ports::socket::register_test_stub();
+    let rows = call(state.clone(), &token, "tab.list", None)
+        .await
+        .unwrap()
+        .0;
+    assert_eq!(rows["result"].as_array().unwrap().len(), 1);
+    assert_eq!(rows["result"][0]["id"], allowed);
+    for (target, expected) in [
+        (&allowed, StatusCode::BAD_REQUEST),
+        (&shell, StatusCode::FORBIDDEN),
+        (&concierge, StatusCode::FORBIDDEN),
+    ] {
+        let (status, body) = call(
+            state.clone(),
+            &token,
+            "tab.send_text",
+            Some(json!({"tab_id":target,"text":"opaque"})),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status, expected);
+        if target == &allowed {
+            assert_eq!(body.0["error"]["message"], "rpc bridge test stub");
+        }
+    }
+    assert_eq!(
+        call(
+            state.clone(),
+            &token,
+            "tab.send_text",
+            Some(json!({"tab_id":allowed,"caller_tab_id":"foreign"}))
+        )
+        .await
+        .unwrap_err()
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    fixture
+        .seed_neighbor_concierge(
+            &concierge,
+            &"a".repeat(64),
+            serde_json::from_value(json!({"allowed":true,"scope":"opaque","workspaces":null}))
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(
+        call(state, &token, "tab.list", None).await.unwrap_err().0,
+        StatusCode::FORBIDDEN
+    );
+}
+
 async fn fixture() -> (ServiceFixture, AppState, String, String) {
     let (mut mux, general) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&general).unwrap();
