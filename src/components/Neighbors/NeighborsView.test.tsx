@@ -419,7 +419,7 @@ it("re-syncs untouched limits to saved values that change after opening, so a sc
   // The window opens on one set of saved limits; the refreshed friend list then reports others (the default file limit as null).
   const before = { ...neighbor, my_daily_limit: 30, my_file_daily_limit_bytes: 52428800, inbound_per_hour: 10 };
   const after = { ...neighbor, my_daily_limit: null, my_file_daily_limit_bytes: null, inbound_per_hour: 15 };
-  let friends = [before];
+  let friends: NeighborList["friends"] = [before];
   const client: NeighborClient = { list: vi.fn(async (): Promise<NeighborList> => ({ schema_version: 1, access: "paid", can_invite: true, friends, incoming: [], outgoing: [] })),
     apply: vi.fn(async () => {}), claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
