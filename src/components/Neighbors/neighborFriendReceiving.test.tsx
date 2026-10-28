@@ -120,6 +120,37 @@ it("the conversation says where the friend is received and offers receiving them
   expect(runtimeClient.enroll).not.toHaveBeenCalled();
 });
 
+it("the conversation header's menu receives the friend here through the same confirmation", async () => {
+  const runtimeClient = receiving(elsewhere);
+  await mount(<NeighborConversationView friendship="pair" client={friends([neighbor])} runtimeClient={runtimeClient} conciergeClient={concierge([])} />);
+  const items = await openMenu("Actions for Ada");
+  expect(items).toContain("Receive this friend here");
+  await choose("Receive this friend here");
+  expect(button("Confirm receiving").dataset).toMatchObject({ friend: "Ada", operation: "set" });
+  await act(async () => button("Confirm receiving").click());
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
+  expect(runtimeClient.enroll).not.toHaveBeenCalled();
+});
+
+it("a friend the status does not know yet borrows nothing from the account: no line, no action, no notice", async () => {
+  // The account is received elsewhere, but Ada's own receiver is unknown, so nothing may claim where Ada arrives.
+  const unknown = (): NeighborRuntimeClient => {
+    const client = receiving(elsewhere, { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 4 });
+    vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true,
+      receiver_machine_label: "Studio Mac", revision: 4, machine_label: "This laptop", friend_receivers: {} } as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+    return client;
+  };
+  await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={unknown()} />);
+  expect(document.body.textContent).not.toContain("receiving on");
+  const sidebarItems = await openMenu("Actions for Ada");
+  expect(sidebarItems).not.toContain("Receive this friend here");
+  expect(sidebarItems).not.toContain("Use account receiver");
+  await act(async () => mounted.current!.root.unmount()); mounted.current!.host.remove(); mounted.current = null;
+  await mount(<NeighborConversationView friendship="pair" client={friends([neighbor])} runtimeClient={unknown()} conciergeClient={concierge([])} />);
+  expect(document.body.textContent).not.toContain("messages arrive on");
+  expect(hasButton("Receive this friend here")).toBe(false);
+});
+
 it("only the explicit all-friends control moves the account, naming the count and this machine", async () => {
   const runtimeClient = receiving(elsewhere, { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 4 });
   await render("paid", { runtimeClient });
