@@ -13,6 +13,8 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
     ] {
         for lifecycle in ["fresh", "resumed", "restored"] {
             let (mut mux, tab_id) = MultiplexerState::new();
+            mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("opaque-pty".into());
+            mux.get_tab_mut(&tab_id).unwrap().agent_session_id = Some("opaque-session".into());
             mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce =
                 Some("opaque-root-nonce".into());
             mux.get_tab_mut(&tab_id).unwrap().neighbor_authority = Some(NeighborAuthority {
@@ -83,6 +85,24 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
                 .restorable_launch = recorded.clone();
             let snapshot = svc.mux.read().to_session_snapshot();
             *svc.mux.write() = MultiplexerState::from_session_snapshot(&snapshot);
+            assert_eq!(
+                svc.mux
+                    .read()
+                    .get_tab(&tab_id)
+                    .unwrap()
+                    .agent_session_id
+                    .as_deref(),
+                Some("opaque-session")
+            );
+            assert_eq!(
+                svc.mux
+                    .read()
+                    .get_tab(&tab_id)
+                    .unwrap()
+                    .session_binding_nonce
+                    .as_deref(),
+                Some("opaque-root-nonce")
+            );
             let restored =
                 crate::service::restored_launch::restore_permission_bypass_authorization(
                     svc,
