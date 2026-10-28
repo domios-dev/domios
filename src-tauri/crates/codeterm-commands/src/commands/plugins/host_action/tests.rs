@@ -35,7 +35,12 @@ struct StubMedia {
 }
 
 impl PluginMediaResolver for StubMedia {
-    fn open(&self, plugin_id: &str, frame: &str, handle: &str) -> Result<OpenedMedia, MediaRefusal> {
+    fn open(
+        &self,
+        plugin_id: &str,
+        frame: &str,
+        handle: &str,
+    ) -> Result<OpenedMedia, MediaRefusal> {
         if handle == EXPIRED {
             return Err(MediaRefusal::Expired);
         }
@@ -68,7 +73,8 @@ fn media_ref<'a>(plugin_id: &'a str, frame: &'a str) -> MediaRef<'a> {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("domios-host-action-{name}-{}", std::process::id()));
+    let dir =
+        std::env::temp_dir().join(format!("domios-host-action-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch dir");
     dir
@@ -80,10 +86,20 @@ fn registry() -> ViewRegistry {
         "studio",
         Arc::new(StubView {
             id: "studio",
-            actions: vec![ViewHostAction::CopyText, ViewHostAction::SaveAs, ViewHostAction::Reveal],
+            actions: vec![
+                ViewHostAction::CopyText,
+                ViewHostAction::SaveAs,
+                ViewHostAction::Reveal,
+            ],
         }),
     );
-    registry.register("quiet", Arc::new(StubView { id: "quiet", actions: Vec::new() }));
+    registry.register(
+        "quiet",
+        Arc::new(StubView {
+            id: "quiet",
+            actions: Vec::new(),
+        }),
+    );
     registry.register(
         "other",
         Arc::new(StubView {
@@ -97,7 +113,10 @@ fn registry() -> ViewRegistry {
 fn media(dir: &std::path::Path) -> StubMedia {
     let file = dir.join("media.png");
     std::fs::write(&file, b"png-bytes").expect("fixture file");
-    StubMedia { owner: "studio", file }
+    StubMedia {
+        owner: "studio",
+        file,
+    }
 }
 
 fn request(plugin_id: &str, action: ViewHostAction) -> HostActionRequest {
@@ -119,7 +138,9 @@ fn host_action_request_refuses_unknown_actions_and_fields() {
     let parse = |body: Value| serde_json::from_value::<HostActionRequest>(body);
     assert!(parse(json!({ "pluginId": "studio", "action": "copyText" })).is_ok());
     assert!(parse(json!({ "pluginId": "studio", "action": "exec" })).is_err());
-    assert!(parse(json!({ "pluginId": "studio", "action": "reveal", "path": "/etc/hosts" })).is_err());
+    assert!(
+        parse(json!({ "pluginId": "studio", "action": "reveal", "path": "/etc/hosts" })).is_err()
+    );
 }
 
 #[test]
@@ -157,10 +178,17 @@ fn media_actions_refuse_malformed_and_foreign_handles_without_reading() {
     let dir = scratch("handles");
     let registry = registry();
     let resolver = media(&dir);
-    for handle in [None, Some("../media.png".to_string()), Some(HANDLE.to_uppercase())] {
+    for handle in [
+        None,
+        Some("../media.png".to_string()),
+        Some(HANDLE.to_uppercase()),
+    ] {
         let mut reveal = request("studio", ViewHostAction::Reveal);
         reveal.handle = handle;
-        assert_eq!(perform(&registry, Some(&resolver), reveal), refusal("invalid", "handle"));
+        assert_eq!(
+            perform(&registry, Some(&resolver), reveal),
+            refusal("invalid", "handle")
+        );
     }
     let mut expired = request("studio", ViewHostAction::Reveal);
     expired.handle = Some(EXPIRED.into());
@@ -182,10 +210,16 @@ fn media_actions_need_the_frame_that_owns_the_handle() {
     let resolver = media(&dir);
     let mut frameless = request("studio", ViewHostAction::Reveal);
     frameless.frame = None;
-    assert_eq!(perform(&registry, Some(&resolver), frameless), refusal("invalid", "frame"));
+    assert_eq!(
+        perform(&registry, Some(&resolver), frameless),
+        refusal("invalid", "frame")
+    );
     let mut malformed = request("studio", ViewHostAction::Reveal);
     malformed.frame = Some("frame-generation-1".into());
-    assert_eq!(perform(&registry, Some(&resolver), malformed), refusal("invalid", "frame"));
+    assert_eq!(
+        perform(&registry, Some(&resolver), malformed),
+        refusal("invalid", "frame")
+    );
     let mut reloaded = request("studio", ViewHostAction::Reveal);
     reloaded.frame = Some(RELOADED_FRAME.into());
     assert_eq!(
@@ -199,7 +233,11 @@ fn media_actions_need_the_frame_that_owns_the_handle() {
 fn reveal_returns_the_resolved_path_for_the_file_manager() {
     let dir = scratch("reveal");
     let resolver = media(&dir);
-    let result = perform(&registry(), Some(&resolver), request("studio", ViewHostAction::Reveal));
+    let result = perform(
+        &registry(),
+        Some(&resolver),
+        request("studio", ViewHostAction::Reveal),
+    );
     assert_eq!(result["ok"], json!(true));
     assert_eq!(result["path"], json!(resolver.file.to_string_lossy()));
     let _ = std::fs::remove_dir_all(dir);
@@ -213,7 +251,10 @@ fn save_as_copies_the_opened_file_to_the_chosen_destination() {
     std::fs::write(&destination, b"older").expect("existing file the dialog confirmed");
     let mut save = request("studio", ViewHostAction::SaveAs);
     save.destination = Some(destination.to_string_lossy().into_owned());
-    assert_eq!(perform(&registry(), Some(&resolver), save), json!({ "ok": true }));
+    assert_eq!(
+        perform(&registry(), Some(&resolver), save),
+        json!({ "ok": true })
+    );
     assert_eq!(std::fs::read(&destination).unwrap(), b"png-bytes");
     assert_eq!(leftover_temps(&dir), 0);
     let _ = std::fs::remove_dir_all(dir);
@@ -223,7 +264,12 @@ fn leftover_temps(dir: &std::path::Path) -> usize {
     std::fs::read_dir(dir)
         .unwrap()
         .flatten()
-        .filter(|entry| entry.file_name().to_string_lossy().starts_with(".domios-save-"))
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".domios-save-")
+        })
         .count()
 }
 
@@ -239,12 +285,18 @@ fn save_as_never_touches_files_it_did_not_create() {
 
     let mut foreign = request("other", ViewHostAction::SaveAs);
     foreign.destination = Some(destination.to_string_lossy().into_owned());
-    assert_eq!(perform(&registry(), Some(&resolver), foreign), refusal("denied", "media_foreign"));
+    assert_eq!(
+        perform(&registry(), Some(&resolver), foreign),
+        refusal("denied", "media_foreign")
+    );
     assert_eq!(std::fs::read(&destination).unwrap(), b"kept on refusal");
 
     let mut save = request("studio", ViewHostAction::SaveAs);
     save.destination = Some(destination.to_string_lossy().into_owned());
-    assert_eq!(perform(&registry(), Some(&resolver), save), json!({ "ok": true }));
+    assert_eq!(
+        perform(&registry(), Some(&resolver), save),
+        json!({ "ok": true })
+    );
     assert_eq!(std::fs::read(&sibling).unwrap(), b"not ours");
     assert_eq!(std::fs::read(&destination).unwrap(), b"png-bytes");
     let _ = std::fs::remove_dir_all(dir);
@@ -267,7 +319,10 @@ fn concurrent_saves_to_one_destination_each_use_their_own_temp() {
         })
         .collect();
     // Racing renames onto one name may lose on some file systems; a loser must refuse cleanly.
-    let results: Vec<Value> = workers.into_iter().map(|worker| worker.join().unwrap()).collect();
+    let results: Vec<Value> = workers
+        .into_iter()
+        .map(|worker| worker.join().unwrap())
+        .collect();
     assert!(results.contains(&json!({ "ok": true })), "{results:?}");
     for result in &results {
         assert!(
@@ -290,11 +345,19 @@ fn save_as_refuses_relative_folder_and_missing_destinations() {
         Some(String::new()),
         Some("picked.png".to_string()),
         Some(dir.to_string_lossy().into_owned()),
-        Some(dir.join("missing").join("picked.png").to_string_lossy().into_owned()),
+        Some(
+            dir.join("missing")
+                .join("picked.png")
+                .to_string_lossy()
+                .into_owned(),
+        ),
     ] {
         let mut save = request("studio", ViewHostAction::SaveAs);
         save.destination = destination;
-        assert_eq!(perform(&registry, Some(&resolver), save), refusal("invalid", "destination"));
+        assert_eq!(
+            perform(&registry, Some(&resolver), save),
+            refusal("invalid", "destination")
+        );
     }
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -308,7 +371,8 @@ fn download_needs_the_save_as_declaration() {
         open_download(&registry, Some(&resolver), media_ref("quiet", FRAME)).err(),
         Some(refusal("denied", "undeclared"))
     );
-    let opened = open_download(&registry, Some(&resolver), media_ref("studio", FRAME)).expect("declared and owned");
+    let opened = open_download(&registry, Some(&resolver), media_ref("studio", FRAME))
+        .expect("declared and owned");
     assert_eq!(opened.content_type, "image/png");
     drop(opened);
     let _ = std::fs::remove_dir_all(dir);

@@ -16,7 +16,9 @@ use serde::Deserialize;
 
 use crate::auth::CallerIdentity;
 use crate::routes::{check_auth, AppState};
-use codeterm_commands::commands::plugins::{view_host_action, view_host_download, HostActionRequest};
+use codeterm_commands::commands::plugins::{
+    view_host_action, view_host_download, HostActionRequest,
+};
 
 const DOWNLOAD_CHUNK: usize = 64 * 1024;
 
@@ -24,10 +26,17 @@ const DOWNLOAD_CHUNK: usize = 64 * 1024;
 /// A tab, peer or service credential could otherwise name any plugin, frame, handle and
 /// destination itself and skip the app's gesture and save dialog.
 pub async fn require_local_owner(request: Request, next: Next) -> Response {
-    if matches!(request.extensions().get::<CallerIdentity>(), Some(CallerIdentity::Local)) {
+    if matches!(
+        request.extensions().get::<CallerIdentity>(),
+        Some(CallerIdentity::Local)
+    ) {
         next.run(request).await
     } else {
-        (StatusCode::FORBIDDEN, "Plugin view host actions are local-owner only").into_response()
+        (
+            StatusCode::FORBIDDEN,
+            "Plugin view host actions are local-owner only",
+        )
+            .into_response()
     }
 }
 
@@ -69,7 +78,9 @@ pub struct DownloadRequest {
 fn download_name(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
-        .filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | '"' | ':' | '*' | '?' | '<' | '>' | '|'))
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '/' | '\\' | '"' | ':' | '*' | '?' | '<' | '>' | '|')
+        })
         .take(120)
         .collect();
     let trimmed = cleaned.trim().trim_start_matches('.');
@@ -122,7 +133,10 @@ pub async fn host_action_download(
             Ok(0) => None,
             Ok(n) => {
                 chunk.truncate(n);
-                Some((Ok::<_, std::io::Error>(axum::body::Bytes::from(chunk)), file))
+                Some((
+                    Ok::<_, std::io::Error>(axum::body::Bytes::from(chunk)),
+                    file,
+                ))
             }
             Err(error) => Some((Err(error), file)),
         }
@@ -130,10 +144,18 @@ pub async fn host_action_download(
     .boxed();
     let mut response = axum::body::Body::from_stream(body).into_response();
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
-    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/octet-stream"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    if let Ok(disposition) = HeaderValue::from_str(&format!("attachment; filename*=UTF-8''{encoded}")) {
+    if let Ok(disposition) =
+        HeaderValue::from_str(&format!("attachment; filename*=UTF-8''{encoded}"))
+    {
         headers.insert(header::CONTENT_DISPOSITION, disposition);
     }
     Ok(response)
@@ -199,7 +221,11 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(response.status(), expected, "{label}");
-            assert_eq!(reached.load(Ordering::SeqCst), expected == StatusCode::OK, "{label}");
+            assert_eq!(
+                reached.load(Ordering::SeqCst),
+                expected == StatusCode::OK,
+                "{label}"
+            );
         }
     }
 

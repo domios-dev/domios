@@ -41,7 +41,9 @@ pub trait ViewProvider: Send + Sync {
         &[]
     }
 
-    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> { None }
+    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> {
+        None
+    }
 
     async fn media_file(&self, _id: &str) -> Result<crate::media_delivery::MediaFile, ViewError> {
         Err(ViewError::Call("media delivery not supported".into()))

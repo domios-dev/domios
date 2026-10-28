@@ -64,7 +64,10 @@ pub(super) struct MediaRef<'a> {
     pub handle: Option<&'a str>,
 }
 
-fn open_media(resolver: Option<&dyn PluginMediaResolver>, media: MediaRef<'_>) -> Result<OpenedMedia, Value> {
+fn open_media(
+    resolver: Option<&dyn PluginMediaResolver>,
+    media: MediaRef<'_>,
+) -> Result<OpenedMedia, Value> {
     let handle = media
         .handle
         .filter(|handle| valid_media_handle(handle))
@@ -82,7 +85,10 @@ fn open_media(resolver: Option<&dyn PluginMediaResolver>, media: MediaRef<'_>) -
 /// An absolute file path in an existing folder that is not a folder or a link itself.
 fn save_destination(raw: Option<&str>) -> Result<PathBuf, Value> {
     let invalid = || refused("invalid", "destination");
-    let path = PathBuf::from(raw.filter(|raw| !raw.trim().is_empty()).ok_or_else(invalid)?);
+    let path = PathBuf::from(
+        raw.filter(|raw| !raw.trim().is_empty())
+            .ok_or_else(invalid)?,
+    );
     if !path.is_absolute() || path.file_name().is_none() {
         return Err(invalid());
     }
@@ -159,7 +165,10 @@ pub(super) fn open_download(
 }
 
 /// Shared by the desktop app and the web mirror (`POST /api/plugins/view-host-action`).
-pub fn view_host_action(svc: &codeterm_service_core::service::ServiceState, request: HostActionRequest) -> Value {
+pub fn view_host_action(
+    svc: &codeterm_service_core::service::ServiceState,
+    request: HostActionRequest,
+) -> Value {
     perform(svc.ext::<ViewRegistryHandle>(), Some(&FrameMedia), request)
 }
 
@@ -170,7 +179,11 @@ pub fn view_host_download(
     frame: Option<&str>,
     handle: Option<&str>,
 ) -> Result<OpenedMedia, Value> {
-    let media = MediaRef { plugin_id, frame, handle };
+    let media = MediaRef {
+        plugin_id,
+        frame,
+        handle,
+    };
     open_download(svc.ext::<ViewRegistryHandle>(), Some(&FrameMedia), media)
 }
 

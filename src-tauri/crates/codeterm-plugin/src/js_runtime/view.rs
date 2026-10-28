@@ -21,7 +21,13 @@ pub struct JsViewProvider {
 }
 
 impl JsViewProvider {
-    pub fn with_media_delivery(mut self, descriptor: Option<crate::media_delivery::MediaDeliveryDescriptor>) -> Self { self.media_delivery = descriptor; self }
+    pub fn with_media_delivery(
+        mut self,
+        descriptor: Option<crate::media_delivery::MediaDeliveryDescriptor>,
+    ) -> Self {
+        self.media_delivery = descriptor;
+        self
+    }
 
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
         Self::with_webhook_receiver(vm, id, None)
@@ -62,14 +68,19 @@ impl ViewProvider for JsViewProvider {
         &self.host_actions
     }
 
-    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> { self.media_delivery.clone().filter(|value| value.valid()) }
+    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> {
+        self.media_delivery.clone().filter(|value| value.valid())
+    }
 
     async fn media_file(&self, id: &str) -> Result<crate::media_delivery::MediaFile, ViewError> {
-        if self.media_delivery().is_none() || id.is_empty() || id.len() > 256 { return Err(ViewError::Call("media delivery denied".into())); }
+        if self.media_delivery().is_none() || id.is_empty() || id.len() > 256 {
+            return Err(ViewError::Call("media delivery denied".into()));
+        }
         let vm = self.vm.clone();
         let id = id.to_owned();
         tokio::task::spawn_blocking(move || call_json(&vm, "mediaFile", &[Value::String(id)]))
-            .await.map_err(|_| ViewError::Call("media task failed".into()))?
+            .await
+            .map_err(|_| ViewError::Call("media task failed".into()))?
             .map_err(|_| ViewError::Call("media file refused".into()))
     }
 

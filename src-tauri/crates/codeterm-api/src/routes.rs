@@ -15,10 +15,9 @@ use super::{
     config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_host_action_routes,
-    plugin_tab_menu_routes,
-    pty_routes, services_routes, session_routes, stream_mux, surface_routes, tab_agent_routes,
-    tab_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
-    usage_routes, web_routes, webhook_routes, workspace_routes,
+    plugin_tab_menu_routes, pty_routes, services_routes, session_routes, stream_mux,
+    surface_routes, tab_agent_routes, tab_routes, team_mission_control_routes, team_spend,
+    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 mod frontend_missing;
@@ -844,9 +843,19 @@ pub(super) fn create_router_with_preview_admission(
             post(web_routes::open_chat_backend_tab),
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
-        .route("/api/plugins/{id}/media-register/{frame}", post(crate::plugin_media_routes::register).layer(axum::extract::DefaultBodyLimit::max(4096)))
-        .route("/api/plugins/{id}/media-frame/{frame}", axum::routing::delete(crate::plugin_media_routes::revoke))
-        .route("/api/plugins/{id}/media/{frame}/{handle}", get(crate::plugin_media_routes::playback))
+        .route(
+            "/api/plugins/{id}/media-register/{frame}",
+            post(crate::plugin_media_routes::register)
+                .layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/api/plugins/{id}/media-frame/{frame}",
+            axum::routing::delete(crate::plugin_media_routes::revoke),
+        )
+        .route(
+            "/api/plugins/{id}/media/{frame}/{handle}",
+            get(crate::plugin_media_routes::playback),
+        )
         .route(
             inbound_webhook::ci::PATH,
             post(inbound_webhook::ci::receive),

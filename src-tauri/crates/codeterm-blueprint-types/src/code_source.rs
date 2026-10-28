@@ -38,8 +38,8 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
     if parts.is_empty() {
         return Err("contract_violation");
     }
-    let root = CString::new(directory.as_os_str().as_encoded_bytes())
-        .map_err(|_| "contract_violation")?;
+    let root =
+        CString::new(directory.as_os_str().as_encoded_bytes()).map_err(|_| "contract_violation")?;
     let fd = unsafe {
         libc::open(
             root.as_ptr(),

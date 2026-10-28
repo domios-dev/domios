@@ -209,7 +209,9 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     if is_inbound_webhook_path(method, path) {
         return true;
     }
-    if crate::plugin_media_routes::is_playback_path(method, path) { return true; }
+    if crate::plugin_media_routes::is_playback_path(method, path) {
+        return true;
+    }
     if is_graph_event_path(method, path) {
         return true;
     }

@@ -70,9 +70,22 @@ pub async fn plugin_ui(
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
     }
-    let media_provider = if rel.ends_with(".html") && matches!(caller.as_ref().map(|value| &value.0), Some(crate::auth::CallerIdentity::Local)) {
-        state.svc.try_ext::<codeterm_plugin::view_host::ViewRegistryHandle>().and_then(|registry| registry.get(&id).map(|provider| (provider, registry.clone())))
-    } else { None };
+    let media_provider = if rel.ends_with(".html")
+        && matches!(
+            caller.as_ref().map(|value| &value.0),
+            Some(crate::auth::CallerIdentity::Local)
+        ) {
+        state
+            .svc
+            .try_ext::<codeterm_plugin::view_host::ViewRegistryHandle>()
+            .and_then(|registry| {
+                registry
+                    .get(&id)
+                    .map(|provider| (provider, registry.clone()))
+            })
+    } else {
+        None
+    };
     let relative = rel.to_owned();
     let bytes = tokio::task::spawn_blocking(move || {
         codeterm_plugin::bundle_access::read_plugin_files(&id, || {
@@ -86,9 +99,15 @@ pub async fn plugin_ui(
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
 
     let mut response = plugin_ui_response(rel, bytes, &q);
-    if let Some((provider, registry)) = media_provider.filter(|(provider, _)| provider.media_delivery().is_some()) {
+    if let Some((provider, registry)) =
+        media_provider.filter(|(provider, _)| provider.media_delivery().is_some())
+    {
         if let Ok(frame) = codeterm_plugin::media_delivery::create_frame(&provider, &registry) {
-            if let Ok(value) = HeaderValue::from_str(&frame) { response.headers_mut().insert("x-domios-plugin-media-frame", value); }
+            if let Ok(value) = HeaderValue::from_str(&frame) {
+                response
+                    .headers_mut()
+                    .insert("x-domios-plugin-media-frame", value);
+            }
         }
     }
     Ok(response)

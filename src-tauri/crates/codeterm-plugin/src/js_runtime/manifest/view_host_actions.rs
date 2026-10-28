@@ -59,7 +59,11 @@ mod tests {
         .expect("valid host actions");
         assert_eq!(
             parsed.capabilities.view_host_actions,
-            vec![ViewHostAction::CopyText, ViewHostAction::SaveAs, ViewHostAction::Reveal]
+            vec![
+                ViewHostAction::CopyText,
+                ViewHostAction::SaveAs,
+                ViewHostAction::Reveal
+            ]
         );
     }
 

@@ -58,7 +58,9 @@ impl PluginManifest {
             .validate_agent_runtime()
             .map_err(|e| e.to_string())?;
         if let Some(media) = &manifest.capabilities.media_delivery {
-            if !media.valid() || (!manifest.capabilities.view && manifest.capabilities.remote_task.is_none()) {
+            if !media.valid()
+                || (!manifest.capabilities.view && manifest.capabilities.remote_task.is_none())
+            {
                 return Err("mediaDelivery requires a view and distinct passive MIME types".into());
             }
         }

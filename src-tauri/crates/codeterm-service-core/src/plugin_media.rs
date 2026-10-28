@@ -10,14 +10,20 @@ pub trait PluginMediaResolver: Send + Sync {
     /// Open the file behind a host-issued handle for the plugin the host (never the frame) names,
     /// only when that exact frame generation owns the handle; a handle of another frame is `Foreign`.
     /// `frame` is the host-held token of the iframe that asked, never a value the frame supplies.
-    fn open(&self, plugin_id: &str, frame: &str, handle: &str) -> Result<OpenedMedia, MediaRefusal>;
+    fn open(&self, plugin_id: &str, frame: &str, handle: &str)
+        -> Result<OpenedMedia, MediaRefusal>;
 }
 
 /// The production resolver: media delivery's atomic frame-ownership check and confined open.
 pub struct FrameMedia;
 
 impl PluginMediaResolver for FrameMedia {
-    fn open(&self, plugin_id: &str, frame: &str, handle: &str) -> Result<OpenedMedia, MediaRefusal> {
+    fn open(
+        &self,
+        plugin_id: &str,
+        frame: &str,
+        handle: &str,
+    ) -> Result<OpenedMedia, MediaRefusal> {
         codeterm_plugin::media_delivery::open_frame_media(plugin_id, frame, handle)
     }
 }
