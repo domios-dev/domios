@@ -4,6 +4,14 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
 fn register_file_provider(fixture: &ServiceFixture, runtime: bool) {
+    register_file_provider_with_history(fixture, runtime, false);
+}
+
+fn register_file_provider_with_history(
+    fixture: &ServiceFixture,
+    runtime: bool,
+    stored_history: bool,
+) {
     use codeterm_plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
 
     let path = fixture.temp.path().join("owned.jsonl");
@@ -20,7 +28,7 @@ fn register_file_provider(fixture: &ServiceFixture, runtime: bool) {
             "spawnable": true, "sessionConfig": true, "agentTasks": true,
         });
         manifest["capabilities"]["agentRuntime"] = serde_json::json!({
-            "runtime": "stdio-jsonrpc", "command": {"binary": "must-not-launch", "args": []},
+            "runtime": "stdio-jsonrpc", "storedHistory":stored_history, "command": {"binary": "must-not-launch", "args": []},
             "requestMethods": {"initialize": ["handshake"]}, "notificationMethods": [],
         });
         manifest["permissions"] = serde_json::json!({
@@ -29,8 +37,14 @@ fn register_file_provider(fixture: &ServiceFixture, runtime: bool) {
     }
     let manifest = PluginManifest::from_json_str(&manifest.to_string()).unwrap();
     manifest.validate_agent_runtime().unwrap();
+    let history_hooks = if stored_history {
+        "runtimeStoredHistoryAvailable: () => true, runtimeStoredHistory: (_, records) => JSON.parse(records),"
+    } else {
+        ""
+    };
     let source = format!(
         r#"module.exports = {{
+            {history_hooks}
             sessionFilePath: (_, session) => session === 'owned-session' ? {} : null,
             parseSessionDelta: (text) => ({{messages: text.trim().split('\n').map(JSON.parse)}}),
         }};"#,
@@ -161,4 +175,55 @@ async fn runtime_without_a_session_returns_pending_waking_without_launching() {
         })
     );
     assert!(codeterm_service_core::service::agent_runtime::engine::for_tab(&tab_id).is_none());
+}
+
+#[tokio::test]
+async fn runtime_history_missing_and_corrupt_return_typed_non_500_responses() {
+    for (missing, expected_status, code, state) in [
+        (
+            true,
+            StatusCode::NOT_FOUND,
+            "chat_history_missing",
+            "missing",
+        ),
+        (
+            false,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "chat_history_corrupt",
+            "corrupt",
+        ),
+    ] {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.frozen = true;
+        tab.agent_type = Some("snapshot-file".into());
+        tab.agent_session_id = Some("owned-session".into());
+        tab.session_binding_nonce = Some("owned-nonce".into());
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "snapshot-file".into(),
+            session_id: "owned-session".into(),
+        };
+        let fixture = ServiceFixture::new(mux);
+        register_file_provider_with_history(&fixture, true, true);
+        let path = fixture.temp.path().join("owned.jsonl");
+        if missing {
+            std::fs::remove_file(&path).unwrap();
+        } else {
+            std::fs::write(&path, "not-json\n").unwrap();
+        }
+        let response = snapshot(
+            AxumState(crate::transport_tabs::fixture::app_state(&fixture)),
+            Path(tab_id),
+            Query(ChatQuery { since: 0 }),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap_err()
+        .into_response();
+        assert_eq!(response.status(), expected_status);
+        let body = response_body(response).await;
+        assert_eq!(body["code"], code);
+        assert_eq!(body["state"], state);
+        assert!(body["error"].is_string());
+    }
 }

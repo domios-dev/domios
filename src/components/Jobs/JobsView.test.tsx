@@ -159,10 +159,12 @@ async function main() {
   test("Jobs import entry opens the placeholder form and cancel restores the list", async () => {
     const view = await mount(jobsView(workspaceTransport()));
     await act(async () => buttonWith(view.host, "Import Blueprint").click());
-    assert(view.host.querySelector('form[aria-label="Import Blueprint"]'));
-    assert(view.host.querySelector('input[type="file"]'));
-    await act(async () => buttonWith(view.host, "Cancel import").click());
-    assert.equal(view.host.querySelector('form[aria-label="Import Blueprint"]'), null);
+    // The import is a dialog of its own, portaled above the list.
+    const dialog = () => document.querySelector<HTMLFormElement>('form[role="dialog"]');
+    assert.equal(dialog()?.querySelector("h2")?.textContent, "Import Blueprint");
+    assert(dialog()?.querySelector('input[type="file"]'));
+    await act(async () => buttonWith(dialog()!, "Cancel").click());
+    assert.equal(dialog(), null);
     await view.close();
   });
 
@@ -449,7 +451,7 @@ async function main() {
       assert.equal(view.host.querySelector('[aria-label="Blueprints by owner"]'), null);
       assert.equal(view.host.querySelector(".bp-canvas"), null, "graphs stay out of the list");
       const open = entry(view.host, "blueprint:blueprint-echo");
-      assert.equal(open?.getAttribute("aria-label"), "Echo pipeline, Blueprint, active");
+      assert.equal(open?.getAttribute("aria-label"), "Echo pipeline, Blueprint, running", "a run in progress reads running, not merely active");
       await act(async () => open!.click());
       assert.ok(view.host.querySelector('[aria-label="Blueprint view"]'), "opening a pipeline enters its Blueprint view");
       await settle(() => view.host.querySelector('[aria-label="Echo pipeline graph"] .bp-node') !== null);

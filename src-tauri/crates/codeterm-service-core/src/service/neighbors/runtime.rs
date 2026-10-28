@@ -8,6 +8,7 @@ mod local;
 pub(crate) mod logout;
 mod owner;
 mod pending;
+mod read;
 mod receiver;
 mod restoration;
 mod send;
@@ -56,14 +57,14 @@ pub struct NeighborRuntimeCell {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
-    StopConcierge {
-        friendship_id: String,
-    },
     FlagMessage {
         friendship_id: String,
         message_id: String,
         reason: String,
         category: super::FlagCategory,
+    },
+    StopConcierge {
+        friendship_id: String,
     },
     PauseFriend {
         friendship_id: String,

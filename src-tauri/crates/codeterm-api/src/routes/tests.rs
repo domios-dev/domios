@@ -243,6 +243,48 @@ async fn orphan_reopen_route_preserves_typed_plan_refusal() {
 }
 
 #[tokio::test]
+async fn unauthenticated_pty_spawn_returns_typed_403_without_a_process() {
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let app = Router::new()
+        .route(
+            "/api/pty/spawn",
+            axum::routing::post(crate::pty_routes::pty_spawn),
+        )
+        .with_state(crate::test_support::app_state(&fixture));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/pty/spawn")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(
+                    r#"{"cols":80,"rows":24,"predicted_id":"unauthenticated-pty"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::FORBIDDEN);
+    assert_eq!(response.headers()[header::CONTENT_TYPE], "application/json");
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"]["code"], "request_failed");
+    assert!(body["error"]["message"].is_string());
+    assert!(fixture
+        .service
+        .pty
+        .lock()
+        .get_session("unauthenticated-pty")
+        .is_none());
+}
+
+#[tokio::test]
 async fn locked_pty_spawn_returns_typed_403_without_a_process() {
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
@@ -254,6 +296,8 @@ async fn locked_pty_spawn_returns_typed_403_without_a_process() {
     }
     let tab = mux.locks().agent_tabs.iter().next().unwrap().to_owned();
     let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("pty-fixture-token".into());
     let app = Router::new()
         .route(
             "/api/pty/spawn",
@@ -262,12 +306,13 @@ async fn locked_pty_spawn_returns_typed_403_without_a_process() {
         .layer(axum::middleware::from_fn(
             crate::plan_quota_status::typed_plan_refusal,
         ))
-        .with_state(crate::test_support::app_state(&fixture));
+        .with_state(state);
     let response = app
         .oneshot(
             Request::builder()
                 .method(Method::POST)
                 .uri("/api/pty/spawn")
+                .header(header::AUTHORIZATION, "Bearer pty-fixture-token")
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(
                     serde_json::json!({

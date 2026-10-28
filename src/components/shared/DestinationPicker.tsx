@@ -1,6 +1,7 @@
 import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { Check, ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Folder, Home, Users } from "lucide-react";
 import { AnchoredPopover } from "./AnchoredPopover";
+import { UI_INPUT } from "./design";
 import { SELECT_TRIGGER } from "./DropdownMenu";
 import { Segmented, type SegmentedOption } from "./Segmented";
 
@@ -14,6 +15,12 @@ export interface DestinationTeam { id: string; name?: string | null; workspace_i
 
 const KIND_LABEL: Record<DestinationKind, string> = { general: "General", workspace: "Workspaces", team: "Teams" };
 const OPTION = '[role="option"]:not([aria-disabled="true"])';
+const MIN_POPOVER_WIDTH = 280;
+
+function KindIcon({ kind }: { kind: DestinationKind }) {
+  const Icon = kind === "general" ? Home : kind === "workspace" ? Folder : Users;
+  return <Icon size={13} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />;
+}
 
 /** The wire form scoped APIs take: "general", "workspace:<id>" or "team:<id>". */
 export function destinationScope(destination: Destination): string {
@@ -46,8 +53,10 @@ export function DestinationPicker({ value, onChange, workspaces, teams, kinds = 
     : value.kind === "workspace" ? workspaceName(value.id) ?? value.id
     : teams.find((team) => team.id === value.id)?.name || value.id;
   const needle = query.trim().toLowerCase();
-  const rows: Array<{ destination: Destination; name: string; hint?: string }> = kind === "general" ? [{ destination: { kind: "general" }, name: "General" }]
-    : kind === "workspace" ? places.map((workspace) => ({ destination: { kind: "workspace" as const, id: workspace.id }, name: workspace.name }))
+  const teamCount = (id: string) => teams.filter((team) => team.workspace_id === id).length;
+  const rows: Array<{ destination: Destination; name: string; hint?: string }> = kind === "general" ? [{ destination: { kind: "general" }, name: "General", hint: "This machine's home" }]
+    : kind === "workspace" ? places.map((workspace) => ({ destination: { kind: "workspace" as const, id: workspace.id }, name: workspace.name,
+      ...(teamCount(workspace.id) > 0 ? { hint: `${teamCount(workspace.id)} ${teamCount(workspace.id) === 1 ? "Team" : "Teams"}` } : {}) }))
     : teams.map((team) => ({ destination: { kind: "team" as const, id: team.id }, name: team.name || team.id, hint: workspaceName(team.workspace_id) }));
   const shown = needle ? rows.filter((row) => `${row.name} ${row.hint ?? ""}`.toLowerCase().includes(needle)) : rows;
   const enabled = kinds.includes(kind);
@@ -77,10 +86,11 @@ export function DestinationPicker({ value, onChange, workspaces, teams, kinds = 
       <span className={`min-w-0 flex-1 truncate text-left ${label ? "" : "text-[var(--ct-muted-fg)]"}`}>{label ?? placeholder}</span>
       <ChevronDown size={12} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />
     </button>
-    <AnchoredPopover open={open} anchor={trigger} width={300} onClose={() => setOpen(false)}>
+    {/* Anchored under the trigger and never narrower than it. */}
+    <AnchoredPopover open={open} anchor={trigger} width={Math.max(MIN_POPOVER_WIDTH, trigger.current?.getBoundingClientRect().width ?? 0)} onClose={() => setOpen(false)}>
       <div role="dialog" aria-label={ariaLabel} className="ct-menu flex flex-col gap-1.5 p-1.5">
-        <Segmented<DestinationKind> aria-label={`${ariaLabel} kind`} value={kind} height={26} options={options} onChange={(next) => { setKind(next); setQuery(""); }} />
-        {kind !== "general" && <input type="search" className="ct-model-picker__search" aria-label={`Search ${KIND_LABEL[kind].toLowerCase()}`} placeholder={`Search ${KIND_LABEL[kind].toLowerCase()}`}
+        <Segmented<DestinationKind> aria-label={`${ariaLabel} kind`} className="self-start" value={kind} options={options} onChange={(next) => { setKind(next); setQuery(""); }} />
+        {kind !== "general" && <input type="search" className={UI_INPUT.fullCompact} aria-label={`Search ${KIND_LABEL[kind].toLowerCase()}`} placeholder={`Search ${KIND_LABEL[kind].toLowerCase()}`}
           value={query} disabled={!enabled} onChange={(event) => setQuery(event.target.value)}
           onKeyDown={(event) => { if (event.key !== "ArrowDown") return; event.preventDefault(); list.current?.querySelector<HTMLElement>(OPTION)?.focus(); }} />}
         <div ref={list} id={listId} role="listbox" aria-label={KIND_LABEL[kind]} className="flex max-h-60 flex-col overflow-y-auto" onKeyDown={onListKey}>
@@ -90,9 +100,11 @@ export function DestinationPicker({ value, onChange, workspaces, teams, kinds = 
             return <div key={row.destination.kind === "general" ? "general" : row.destination.id} role="option" tabIndex={-1} aria-selected={selected} aria-disabled={!enabled || undefined}
               className="ct-menu-row" onClick={() => { if (enabled) choose(row.destination); }}
               onKeyDown={(event) => { if ((event.key === "Enter" || event.key === " ") && enabled) { event.preventDefault(); choose(row.destination); } }}>
+              <KindIcon kind={row.destination.kind} />
               <span className="min-w-0 flex-1 truncate">{row.name}</span>
-              {row.hint && <span className="ct-menu-row__description shrink-0">{row.hint}</span>}
-              {selected && <Check size={13} aria-hidden="true" className="ct-menu-row__check" />}
+              {row.hint && <span className="ct-menu-row__description min-w-0 max-w-[45%] shrink truncate">{row.hint}</span>}
+              {/* A fixed slot keeps the check in one column whether or not a row has a hint. */}
+              <span className="flex w-[13px] shrink-0 justify-center">{selected && <Check size={13} aria-hidden="true" className="ct-menu-row__check" />}</span>
             </div>;
           })}
         </div>

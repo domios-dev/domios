@@ -310,3 +310,20 @@ fn runtime_session_snapshot_reads_exact_closed_session_with_provider_projection(
     .is_err());
     assert!(engine::for_tab(&tab_id).is_none());
 }
+
+#[test]
+fn runtime_stored_history_missing_and_corrupt_are_distinct_from_fresh_empty() {
+    use super::super::runtime_stored::StoredHistoryFailure;
+    let (fixture, cwd, _, tab_id) = fixture(true);
+    let missing = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap_err();
+    assert_eq!(
+        StoredHistoryFailure::from_error(&missing),
+        Some(StoredHistoryFailure::Missing)
+    );
+    std::fs::write(cwd.path().join("own-thread.runtime"), "not-json\n").unwrap();
+    let corrupt = super::super::tab_chat_snapshot(&fixture.service, &tab_id, 0).unwrap_err();
+    assert_eq!(
+        StoredHistoryFailure::from_error(&corrupt),
+        Some(StoredHistoryFailure::Corrupt)
+    );
+}

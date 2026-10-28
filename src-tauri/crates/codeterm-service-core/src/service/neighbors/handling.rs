@@ -61,6 +61,8 @@ pub(super) fn incoming(
         limit: None,
         resets_at: None,
         retry_after_seconds: None,
+        delivered_at: None,
+        read_at: None,
         delivery_status: None,
         submission: None,
     }
@@ -124,6 +126,7 @@ impl ServiceContext {
         .await
         .map_err(|_| Error::CursorStore)??;
         let snapshot = summary(&history);
+        let read_through = history.concierge_read_through();
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friend}.json"), history)
@@ -131,6 +134,10 @@ impl ServiceContext {
         self.remember_neighbor_handling(friend, snapshot, generation);
         self.ui
             .emit("neighbor-history-changed", json!({"friendship_id":friend}));
+        drop(_guard);
+        if let Some(through) = read_through {
+            self.queue_neighbor_read(friend, through, generation);
+        }
         Ok(())
     }
 

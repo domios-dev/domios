@@ -70,7 +70,7 @@ The API is `POST /api/account/neighbors/runtime` with `{operation:"flag_message"
 
 Only the exact bound concierge, a currently authenticated local tab with a matching confirmed receipt for that incoming message, the owner or General may flag it. A foreign tab, another friendship, an outgoing message or an unconfirmed delivery refuses. Flagging is idempotent per message and caller: repeating it returns the first flag with `created:false`, without changing its category/reason/time or notifying again. A message retains at most 32 local caller flags.
 
-A new flag emits `neighbor-history-changed` and one metadata-only in-app owner notice naming the agent and friend, with Open Neighbor. The friend's notification setting `off` suppresses the notice; enabled modes keep this flag notice in-app. No reason, body, secret or flag is sent to the friend or a bridge, and flagging never enters the network send queue. It remains a local operation while reception is paused or disabled; sign-out still invalidates the account operation.
+A new flag emits `neighbor-history-changed` and one metadata-only in-app owner notice naming the agent and friend, with Open Neighbor. The friend's notification setting `off` suppresses the notice; enabled modes keep this flag notice in-app. No reason, body, secret or flag is sent to the friend or a bridge, and flagging never enters the network send queue. Flagging does not resume reception or bypass the caller's existing API capability gates; a disabled channel still refuses concierge API calls, and sign-out invalidates the account operation.
 
 ## Send and confirm delivery
 
@@ -127,7 +127,11 @@ An outgoing text over 32752 UTF-8 bytes fails before network dispatch with HTTP 
 
 Restored runtime concierges start in the background when this machine prepares reception. A bound agent remains `concierge_starting` until its own live session is authenticated and ready; a restored session ID alone does not establish readiness.
 
-The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
+The account signal watch applies confirmed delivery, read and expiry events to local outgoing history and emits `neighbor-history-changed`. Outgoing entries expose optional `delivered_at` and `read_at` in UNIX milliseconds. Accepted sending is one tick, delivery is two ticks, and read is two blue ticks. A read implies delivery; a later pending or older receipt cannot clear it. On reconnect, a signal revision gap, or a read anchor absent from this installation, the watch checks status once for up to 256 locally pending or delivered-but-unread outgoing messages across at most 200 locally configured friendships. It never polls delivery.
+
+A message is read when the recipient owner has that inbound message visible in the open conversation, or the recipient concierge's persisted `handling_state` reaches `working`, `answered`, `refused` or `no_reply`. Delivery to a concierge by itself is not read. The owner UI reports the newest actually visible message with `POST /api/account/neighbors/read {friendship_id, through_message_id}`; fetching history never reports visibility, and agent credentials cannot claim it. The host also queues concierge pickup through the same monotonic read-up-to path. Paused/ended friendships and Neighbors off emit no read receipts. A durable reservation suppresses duplicate or older batches, including after an uncertain relay response.
+
+The relay callable is `friendsRead {installation_id, friendship_id, through_message_id}` from a valid recipient installation. It emits an exact `message_read` account signal with `schema_version:1`, `revision`, `event_id`, `request_id:null`, `friendship_id`, `message_id` (the through-message anchor), and `at` (server read time in UNIX milliseconds). No text, files, manifest or key is included. The sender marks its outgoing history through that anchor read. Delivery-status catch-up includes the persisted read timestamp if a latest-value signal was missed.
 
 ## Incoming message handling
 
@@ -192,4 +196,4 @@ The provider capability `supports_initial_prompt_update_on_resume` determines wh
 
 `status.concierges[friendship_id].initial_context_digest` and the permission projection's `initial_context_digest` expose the SHA-256 of the effective concierge initial context, never its text. The digest is persisted with the exact bound tab. Reconciliation compares that binding digest, rather than a provider's normalized prompt representation; an unchanged grant does not restart the concierge. A real context change restarts once and resumes the same session when the provider supports updated initial instructions on resume.
 
-<!-- revision: 35 -->
+<!-- revision: 37 -->

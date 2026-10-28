@@ -293,6 +293,36 @@ fn file_failure(message: &str) -> Option<Response> {
     Some((status, Json(details)).into_response())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighborRead {
+    friendship_id: String,
+    through_message_id: String,
+}
+
+pub async fn neighbor_read(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(command): Json<NeighborRead>,
+) -> Result<Json<serde_json::Value>, Response> {
+    if !matches!(
+        caller.as_ref().map(|caller| &caller.0),
+        Some(CallerIdentity::Local)
+    ) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Owner conversation visibility is local-only",
+        )
+            .into_response());
+    }
+    state
+        .svc
+        .neighbor_mark_read(command.friendship_id, command.through_message_id)
+        .await
+        .map(Json)
+        .map_err(neighbor_failure)
+}
+
 pub async fn neighbor_files(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,

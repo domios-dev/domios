@@ -175,7 +175,9 @@ async fn callable_delivery_and_ack_preserve_key_revoked_reason() {
             result,
             DeliveryResult {
                 status: DeliveryStatus::NotDelivered,
-                reason: Some(DeliveryReason::KeyRevoked)
+                reason: Some(DeliveryReason::KeyRevoked),
+                delivered_at: None,
+                read_at: None,
             }
         );
         assert_eq!(

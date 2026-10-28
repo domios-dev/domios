@@ -151,23 +151,38 @@ fn blueprint_apply_is_idempotent_scoped_and_persisted_for_watch_and_pipeline() {
 }
 
 #[test]
-fn blueprint_apply_without_team_refuses_before_writing() {
+fn blueprint_apply_without_team_uses_caller_scope_and_refuses_foreign_scope_before_writing() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
     mux.get_tab_mut(&tab).unwrap().cwd = Some(root.path().to_string_lossy().into_owned());
     let instance = ServiceInstance::open_with_mux(root.path(), mux);
-    let caller = instance
-        .fixture
-        .service
-        .sentinel_caller(&tab, None)
+    let service = &instance.fixture.service;
+    let handle = crate::scheduler::fixture_handle_with_ui(
+        Store::with_storage(
+            &instance.storage,
+            codeterm_service_core::cron::clock::system_clock(),
+        ),
+        service.ui.clone(),
+    );
+    crate::manage_fixture_ports(service, &handle);
+    let mut caller = service.sentinel_caller(&tab, None).unwrap();
+    let mut spec = definition(true);
+    spec["owner"] = json!("tab");
+    let created = service
+        .blueprint_apply(&caller, spec.clone(), false)
         .unwrap();
-    assert!(instance
-        .fixture
-        .service
-        .blueprint_apply(&caller, definition(true), false)
-        .unwrap_err()
-        .to_string()
-        .contains("Team"));
+    assert_eq!(created["action"], "create");
+    {
+        let store = handle.store.lock();
+        assert_eq!(store.jobs.len(), 1);
+        assert_eq!(store.jobs[0].creator_tab_id, tab);
+        assert_eq!(store.jobs[0].workspace_id, caller.workspace);
+        assert_eq!(store.jobs[0].team_id, None);
+    }
+    caller.workspace = "foreign-workspace".into();
+    spec["name"] = json!("Foreign scope");
+    assert!(service.blueprint_apply(&caller, spec, false).is_err());
+    assert_eq!(handle.store.lock().jobs.len(), 1);
     super::close(instance);
 }
 

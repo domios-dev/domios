@@ -43,6 +43,20 @@ pub(super) fn runtime_fixture_with_notifications(
     source: &str,
     notifications: &[&str],
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, notifications, false)
+}
+
+pub(super) fn runtime_fixture_with_stored_history(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, &[], true)
+}
+
+fn runtime_fixture_options(
+    source: &str,
+    notifications: &[&str],
+    stored_history: bool,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
     let nonce = uuid::Uuid::new_v4().to_string();
@@ -66,7 +80,7 @@ pub(super) fn runtime_fixture_with_notifications(
     let manifest = PluginManifest::from_json_str(&json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-            "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-cli","args":[]},
+            "agentRuntime":{"runtime":"stdio-jsonrpc","storedHistory":stored_history,"command":{"binary":"fixture-cli","args":[]},
                 "login":{"methods":["browser","device","apiKey"]},
                 "requestMethods":{"control":["fixture/control"],"initialize":["fixture/initialize"],"openThread":["fixture/open"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
@@ -257,7 +271,7 @@ fn restored_and_slept_user_sends_hold_then_flush_once_in_order() {
         });
         let epoch = session.context.lock().epoch;
         assert!(session.state.lock().load(epoch, "own-thread"));
-        bind(&fixture.service, &session, "own-thread").unwrap();
+        bind(&fixture.service, &session, "own-thread", false).unwrap();
         fixture.service.drain_user_owner(&tab_id).unwrap();
         let (mut peer, observed) = crate::async_runtime::block_on(peer).unwrap();
         assert_eq!(observed, send_ids);
