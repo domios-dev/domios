@@ -461,6 +461,7 @@ fn job(id: &str) -> CronJobImport {
 
 fn run(id: &str, started_at: u64) -> CronRunRecord {
     CronRunRecord {
+        cancel_reason: None,
         run_id: CronRunId::new(id).expect("run id"),
         started_at,
         finished_at: Some(started_at + 1),

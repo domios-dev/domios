@@ -47,6 +47,7 @@ pub(super) fn status_of(state: CronRunState) -> CronRunStatus {
 
 pub(super) fn run_record(run: &CronRunInfo) -> Result<CronRunRecord, StorageError> {
     Ok(CronRunRecord {
+        cancel_reason: run.cancel_reason,
         run_id: CronRunId::new(run.run_id.clone())?,
         started_at: run.started_at,
         finished_at: run.finished_at,
@@ -61,6 +62,7 @@ pub(super) fn run_record(run: &CronRunInfo) -> Result<CronRunRecord, StorageErro
 
 pub(super) fn run_info(run: CronRunRecord) -> CronRunInfo {
     CronRunInfo {
+        cancel_reason: run.cancel_reason,
         run_id: run.run_id.as_str().to_string(),
         started_at: run.started_at,
         finished_at: run.finished_at,

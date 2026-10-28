@@ -492,7 +492,10 @@ export interface SpawnWorkerReq {
 
 export type CronRunStatus = "Running" | "AwaitingOwnerPrompt" | "Success" | "Failed" | "Cancelled";
 
+export type CronCancelReason = "user_cancel" | "superseded" | "restart_reconcile" | "timeout" | "owner_closed";
+
 export interface CronRunInfo {
+  cancel_reason?: CronCancelReason | null;
   run_id: string;
   started_at: number;
   finished_at: number | null;

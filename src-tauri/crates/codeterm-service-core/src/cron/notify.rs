@@ -159,6 +159,7 @@ mod tests {
         let _ = store.record_run(
             job_id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: run_id.to_string(),
                 started_at: 0,
                 finished_at: None,
