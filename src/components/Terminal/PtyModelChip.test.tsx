@@ -41,4 +41,3 @@ test("reasoning control switches the bound tab once and reports the chosen path"
     await act(async () => root.unmount()); host.remove(); __setTabModelApiForTest(null);
   }
 });
-
