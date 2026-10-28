@@ -366,11 +366,9 @@ fn provider_skill_hash(path: &std::path::Path, render: bool) -> String {
                 if let Ok(mut bytes) = std::fs::read(&item) {
                     if render && item == root.join("SKILL.md") {
                         if let Ok(text) = String::from_utf8(bytes.clone()) {
-                            bytes = render_bundled_skill(
-                                std::ffi::OsStr::new(DOMIOS_SKILL_ID),
-                                &text,
-                            )
-                            .into_bytes();
+                            bytes =
+                                render_bundled_skill(std::ffi::OsStr::new(DOMIOS_SKILL_ID), &text)
+                                    .into_bytes();
                         }
                     }
                     files.push((

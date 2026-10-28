@@ -202,7 +202,10 @@ fn grant_command(
         ("allow_memory", fields.allow_memory),
         ("allow_files", fields.allow_files),
         ("allow_tab_requests", fields.allow_tab_requests),
-        ("allow_interactive_content", fields.allow_interactive_content),
+        (
+            "allow_interactive_content",
+            fields.allow_interactive_content,
+        ),
     ] {
         if let Some(value) = value {
             permission.insert(field.into(), json!(value));

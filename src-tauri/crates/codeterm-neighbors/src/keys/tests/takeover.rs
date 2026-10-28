@@ -1,7 +1,10 @@
 use super::*;
 use crate::adapter::{AuthenticatedCall, Enrollment, FirebaseRegistry};
 use serde_json::{json, Value};
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 struct Receiver {
     installation: String,
@@ -34,10 +37,21 @@ impl AuthenticatedCall for Calls {
             "friendsOwnKeys" => Ok(json!([{"key_id":receiver.key}])),
             "friendsEnrollVerifierKey" => {
                 self.enrollments.lock().unwrap().push(data.clone());
-                let key = format!("vk_{}", &sha256_hex(format!(
-                    "verifier-key:owner:{}", data["public_key_spki_b64"].as_str().unwrap()
-                ).as_bytes())[..32]);
-                assert_ne!(Some(key.as_str()), self.revoked.as_deref(), "never submit a revoked key for re-enrollment");
+                let key = format!(
+                    "vk_{}",
+                    &sha256_hex(
+                        format!(
+                            "verifier-key:owner:{}",
+                            data["public_key_spki_b64"].as_str().unwrap()
+                        )
+                        .as_bytes()
+                    )[..32]
+                );
+                assert_ne!(
+                    Some(key.as_str()),
+                    self.revoked.as_deref(),
+                    "never submit a revoked key for re-enrollment"
+                );
                 if data["expected_receiver_revision"] != receiver.revision {
                     return Err(Error::ReceiverRevisionStale);
                 }
@@ -65,8 +79,15 @@ impl EnrollmentState for Enabled {
 }
 
 #[tokio::test]
-async fn confirmed_takeover_key_matrix_preserves_active_keys_replaces_revoked_and_honors_revision() {
-    for case in ["first", "active", "revoked", "missing_local", "missing_registry"] {
+async fn confirmed_takeover_key_matrix_preserves_active_keys_replaces_revoked_and_honors_revision()
+{
+    for case in [
+        "first",
+        "active",
+        "revoked",
+        "missing_local",
+        "missing_registry",
+    ] {
         for stale in [false, true] {
             let store = Store::default();
             let mut rng = StdRng::seed_from_u64(29);
@@ -75,24 +96,51 @@ async fn confirmed_takeover_key_matrix_preserves_active_keys_replaces_revoked_an
             let scope = KeyScope::installation("returning", "owner").unwrap();
             let stored = matches!(case, "active" | "revoked" | "missing_registry");
             if stored {
-                store.save(&scope, Slot::Current, old.storage_bytes()).await.unwrap();
+                store
+                    .save(&scope, Slot::Current, old.storage_bytes())
+                    .await
+                    .unwrap();
             }
             let receiver_here = matches!(case, "active" | "missing_local");
-            let initial_key = if receiver_here { old.verifier_key_id("owner") } else { other.verifier_key_id("owner") };
+            let initial_key = if receiver_here {
+                old.verifier_key_id("owner")
+            } else {
+                other.verifier_key_id("owner")
+            };
             let calls = Arc::new(Calls {
-                receiver: Mutex::new(Receiver { installation:if receiver_here { "returning" } else { "other" }.into(),
-                    key:initial_key.clone(),revision:7 }),
-                revoked:(case == "revoked").then(|| old.verifier_key_id("owner")),
-                inventory_unavailable:false,enrollments:Mutex::default(),
+                receiver: Mutex::new(Receiver {
+                    installation: if receiver_here { "returning" } else { "other" }.into(),
+                    key: initial_key.clone(),
+                    revision: 7,
+                }),
+                revoked: (case == "revoked").then(|| old.verifier_key_id("owner")),
+                inventory_unavailable: false,
+                enrollments: Mutex::default(),
             });
             let registry = FirebaseRegistry {
-                calls:calls.clone(),uid:"owner".into(),installation_id:"returning".into(),machine_label:"Desk".into(),
-                enrollment:Some(Enrollment { expected_revision:if stale { 6 } else { 7 },takeover:true,operation_id:None }),
+                calls: calls.clone(),
+                uid: "owner".into(),
+                installation_id: "returning".into(),
+                machine_label: "Desk".into(),
+                enrollment: Some(Enrollment {
+                    expected_revision: if stale { 6 } else { 7 },
+                    takeover: true,
+                    operation_id: None,
+                }),
             };
-            let keys = InstallationKeys { store:&store,registry:&registry,scope:scope.clone(),uid:"owner" };
+            let keys = InstallationKeys {
+                store: &store,
+                registry: &registry,
+                scope: scope.clone(),
+                uid: "owner",
+            };
             let enabled = Enabled::default();
             let result = keys.enroll_and_enable(true, &mut rng, &enabled).await;
-            assert_eq!(calls.enrollments.lock().unwrap().len(), 1, "{case} stale={stale}");
+            assert_eq!(
+                calls.enrollments.lock().unwrap().len(),
+                1,
+                "{case} stale={stale}"
+            );
             assert_eq!(enabled.0.load(Ordering::Relaxed), !stale);
             let status = registry.receiver_status().await.unwrap();
             if stale {
@@ -107,9 +155,18 @@ async fn confirmed_takeover_key_matrix_preserves_active_keys_replaces_revoked_an
             } else {
                 let received = result.unwrap();
                 assert!(status.receiving_here());
-                assert_eq!(status.receiver_key_id, Some(received.verifier_key_id("owner")));
-                assert_eq!(keys.load().await.unwrap().unwrap().encryption_key_id(), received.encryption_key_id());
-                assert_eq!(received.encryption_key_id() == old.encryption_key_id(), case == "active");
+                assert_eq!(
+                    status.receiver_key_id,
+                    Some(received.verifier_key_id("owner"))
+                );
+                assert_eq!(
+                    keys.load().await.unwrap().unwrap().encryption_key_id(),
+                    received.encryption_key_id()
+                );
+                assert_eq!(
+                    received.encryption_key_id() == old.encryption_key_id(),
+                    case == "active"
+                );
                 assert!(store.load(&scope, Slot::Candidate).await.unwrap().is_none());
             }
         }
@@ -122,19 +179,49 @@ async fn unconfirmed_takeover_or_unavailable_inventory_never_replaces_the_stored
     let mut rng = StdRng::seed_from_u64(44);
     let old = PrivateKeys::generate(&mut rng);
     let scope = KeyScope::installation("returning", "owner").unwrap();
-    store.save(&scope, Slot::Current, old.storage_bytes()).await.unwrap();
+    store
+        .save(&scope, Slot::Current, old.storage_bytes())
+        .await
+        .unwrap();
     let calls = Arc::new(Calls {
-        receiver:Mutex::new(Receiver { installation:"other".into(),key:"vk_foreign".into(),revision:7 }),
-        revoked:Some(old.verifier_key_id("owner")),inventory_unavailable:true,enrollments:Mutex::default(),
+        receiver: Mutex::new(Receiver {
+            installation: "other".into(),
+            key: "vk_foreign".into(),
+            revision: 7,
+        }),
+        revoked: Some(old.verifier_key_id("owner")),
+        inventory_unavailable: true,
+        enrollments: Mutex::default(),
     });
     let registry = FirebaseRegistry {
-        calls:calls.clone(),uid:"owner".into(),installation_id:"returning".into(),machine_label:"Desk".into(),
-        enrollment:Some(Enrollment { expected_revision:7,takeover:true,operation_id:None }),
+        calls: calls.clone(),
+        uid: "owner".into(),
+        installation_id: "returning".into(),
+        machine_label: "Desk".into(),
+        enrollment: Some(Enrollment {
+            expected_revision: 7,
+            takeover: true,
+            operation_id: None,
+        }),
     };
-    let keys = InstallationKeys { store:&store,registry:&registry,scope:scope.clone(),uid:"owner" };
-    assert!(matches!(keys.enroll(false, &mut rng).await, Err(Error::Gateway)));
-    assert!(matches!(keys.enroll(true, &mut rng).await, Err(Error::Transport)));
+    let keys = InstallationKeys {
+        store: &store,
+        registry: &registry,
+        scope: scope.clone(),
+        uid: "owner",
+    };
+    assert!(matches!(
+        keys.enroll(false, &mut rng).await,
+        Err(Error::Gateway)
+    ));
+    assert!(matches!(
+        keys.enroll(true, &mut rng).await,
+        Err(Error::Transport)
+    ));
     assert!(calls.enrollments.lock().unwrap().is_empty());
-    assert_eq!(keys.load().await.unwrap().unwrap().encryption_key_id(), old.encryption_key_id());
+    assert_eq!(
+        keys.load().await.unwrap().unwrap().encryption_key_id(),
+        old.encryption_key_id()
+    );
     assert!(store.load(&scope, Slot::Candidate).await.unwrap().is_none());
 }

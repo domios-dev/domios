@@ -10,7 +10,8 @@ pub(super) fn merge(current: Permission, patch: Value) -> codeterm_neighbors::Re
         }
         fields.insert(name.clone(), value.clone());
     }
-    let permission: Permission = serde_json::from_value(merged).map_err(|_| Error::InvalidRequest)?;
+    let permission: Permission =
+        serde_json::from_value(merged).map_err(|_| Error::InvalidRequest)?;
     permission.validate().map_err(|_| Error::InvalidRequest)?;
     Ok(permission)
 }

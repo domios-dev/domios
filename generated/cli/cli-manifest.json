@@ -199,17 +199,82 @@
             },
             {
               "name": "grant",
-              "about": "General Agent only: grant a bounded scope authored in its pad",
+              "about": "General Agent only: apply permission edits and restart the concierge fresh",
               "aliases": [],
               "args": [
+                {
+                  "name": "allow-files",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_FILES",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "allow-interactive-content",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_INTERACTIVE_CONTENT",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "allow-memory",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOW_MEMORY",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
                 {
                   "name": "allow-tab-requests",
                   "positional": false,
                   "required": false,
                   "value_name": "ALLOW_TAB_REQUESTS",
-                  "possible_values": [],
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "allowed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "ALLOWED",
+                  "possible_values": [
+                    "true",
+                    "false"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "folder",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "FOLDER",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Absolute directory, or default to clear the folder override",
                   "aliases": []
                 },
                 {
@@ -225,11 +290,46 @@
                 {
                   "name": "from-pad",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "FROM_PAD",
                   "possible_values": [],
                   "default": null,
+                  "help": "Scope text in this tab's pad; omitted keeps the current scope",
+                  "aliases": []
+                },
+                {
+                  "name": "machine-access",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "MACHINE_ACCESS",
+                  "possible_values": [
+                    "none",
+                    "read_only",
+                    "folder",
+                    "full"
+                  ],
+                  "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "memory-areas",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "MEMORY_AREAS",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "all or comma-separated taxonomy area names",
+                  "aliases": []
+                },
+                {
+                  "name": "workspaces",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "WORKSPACES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "none or comma-separated local workspace IDs",
                   "aliases": []
                 }
               ],
