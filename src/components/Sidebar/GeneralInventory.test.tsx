@@ -46,7 +46,11 @@ test("General sidebar disclosures persist, navigate to original shells and open 
     await act(async () => view.root.render(<GeneralInventorySections {...props} jobsFailed inventory={{ ...props.inventory, error: "transient" }} />));
     assert.equal(view.host.querySelector('[role="alert"]'), null);
     assert.ok(named(view.host, `Open job ${teamCron.name}`));
-    assert.equal(toggle("Jobs").getAttribute("aria-label"), "JOBS 1, 1 working");
+    assert.equal(toggle("Jobs").getAttribute("aria-label"), "JOBS 1", "an enabled Cron waiting for its schedule is not working");
+    const running = { ...teamCron, workspace_id: workspaces[0].id, last_run: { run_id: "r", started_at: 1, finished_at: null, status: "Running" as const, tab_id: null } };
+    await act(async () => view.root.render(<GeneralInventorySections {...props} jobs={mergeJobs(NO_JOBS_FILTER, [running], [])} />));
+    assert.equal(toggle("Jobs").getAttribute("aria-label"), "JOBS 1, 1 working", "a run in progress is working");
+    await act(async () => view.root.render(<GeneralInventorySections {...props} jobsFailed inventory={{ ...props.inventory, error: "transient" }} />));
     await act(async () => named(view.host, `Open job ${teamCron.name}`)!.click());
     assert.equal(opened, 1);
     assert.deepEqual(cronSelectionStore.get(), { workspaceId: workspaces[0].id, cronId: teamCron.id });

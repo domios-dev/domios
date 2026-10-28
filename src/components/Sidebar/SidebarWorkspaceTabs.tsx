@@ -22,6 +22,7 @@ import { remoteTeamIdentity } from "./remoteOwnership";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
+import { isCronRunning } from "../Jobs/jobsModel";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
@@ -354,7 +355,7 @@ export function SidebarWorkspaceTabs({
         workingManagerCount={managers.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
         workingAgentCount={agents.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
         workingTerminalCount={terminals.filter(member => tabActivity(member.tab, tabStatuses[member.tab.id]).active).length}
-        workingCronCount={teamCrons.filter(job => job.last_run?.status === "Running" || job.last_run?.status === "AwaitingOwnerPrompt").length}
+        workingCronCount={teamCrons.filter(isCronRunning).length}
         managerCount={managers.length}
         managers={
           <SortableContext items={managerItems} strategy={verticalListSortingStrategy}>

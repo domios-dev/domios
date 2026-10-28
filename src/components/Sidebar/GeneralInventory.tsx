@@ -14,7 +14,7 @@ import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { tabActivity } from "../../lib/tabActivity";
 import { inventoryGroupVisibility } from "./generalInventoryModel";
 import { useGeneralJobs } from "./useGeneralJobs";
-import { jobStateLabel, mergedJobId, type MergedJob } from "../Jobs/jobsModel";
+import { isJobRunning, jobStateLabel, mergedJobId, type MergedJob } from "../Jobs/jobsModel";
 import { openTabJob } from "../Jobs/useTabJobs";
 
 const STORAGE_KEY = "codeterm.sidebar.general-disclosures";
@@ -77,7 +77,7 @@ export function GeneralInventorySections({ generalWorkspaceId, onShowAllJobs, wo
       onOpen={() => setDrawer({ kind: "service", id: row.resource.id, sourcePeerId: row.resource.source_peer_id ?? row.resource.source_peer })} />
   </li>);
   return <div className="min-w-0">
-    <InventoryGroup name="Jobs" count={localJobs.length} working={localJobs.filter(job => job.active).length} touchMode={touchMode} onShowAll={onShowAllJobs}>
+    <InventoryGroup name="Jobs" count={localJobs.length} working={localJobs.filter(isJobRunning).length} touchMode={touchMode} onShowAll={onShowAllJobs}>
       {localJobs.map((job) => <li key={`${job.kind}:${mergedJobId(job)}`}>
         {job.kind === "cron" ? <SidebarCronRow job={job.cron} tabs={tabs} onDeleted={onJobsChanged} />
           : <SidebarResourceRow name={job.title} state={jobStateLabel(job.state)} icon={<Clock3 size={11} aria-hidden="true" />}
