@@ -46,7 +46,7 @@ fn find_bundled_skills_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("skills")
 }
 
-const CODETERM_SKILL_ID: &str = "codeterm";
+const DOMIOS_SKILL_ID: &str = "domios";
 const PROVIDER_OWNERSHIP_FILE: &str = ".codeterm-owner";
 
 /// Placeholder → the one semantic source that fills it. Shared fragments also
@@ -64,7 +64,7 @@ fn codeterm_skill_render_map() -> [(&'static str, &'static str); 4] {
 }
 
 fn render_bundled_skill(id: &std::ffi::OsStr, content: &str) -> String {
-    if id != std::ffi::OsStr::new(CODETERM_SKILL_ID) {
+    if id != std::ffi::OsStr::new(DOMIOS_SKILL_ID) {
         return content.to_string();
     }
     codeterm_skill_render_map()
@@ -229,10 +229,10 @@ fn mirror_into_providers_if_allowed(
 
 /// Pure inner implementation — injectable paths make this testable without touching real home dirs.
 fn mirror_into_providers(canonical: &std::path::Path, targets: &[std::path::PathBuf]) {
-    let codeterm_src = canonical.join(CODETERM_SKILL_ID);
-    let codeterm_id = std::ffi::OsStr::new(CODETERM_SKILL_ID);
+    let codeterm_src = canonical.join(DOMIOS_SKILL_ID);
+    let codeterm_id = std::ffi::OsStr::new(DOMIOS_SKILL_ID);
     for target in targets {
-        let codeterm_dst = target.join(CODETERM_SKILL_ID);
+        let codeterm_dst = target.join(DOMIOS_SKILL_ID);
         let source_revision = read_skill_revision(&codeterm_src);
         if (!codeterm_dst.exists() || provider_entry_owned(&codeterm_dst))
             && should_write_provider_entry(&codeterm_src, &codeterm_dst, source_revision)
@@ -242,10 +242,10 @@ fn mirror_into_providers(canonical: &std::path::Path, targets: &[std::path::Path
             match copy_skill_rendered(codeterm_id, &codeterm_src, &codeterm_dst) {
                 Ok(()) => {
                     let _ = write_provider_ownership(&codeterm_dst, source_revision);
-                    log::info!("[skills] mirrored codeterm -> {}", codeterm_dst.display());
+                    log::info!("[skills] mirrored domios -> {}", codeterm_dst.display());
                 }
                 Err(e) => log::warn!(
-                    "[skills] mirror codeterm -> {} failed: {}",
+                    "[skills] mirror domios -> {} failed: {}",
                     codeterm_dst.display(),
                     e
                 ),
@@ -367,7 +367,7 @@ fn provider_skill_hash(path: &std::path::Path, render: bool) -> String {
                     if render && item == root.join("SKILL.md") {
                         if let Ok(text) = String::from_utf8(bytes.clone()) {
                             bytes = render_bundled_skill(
-                                std::ffi::OsStr::new(CODETERM_SKILL_ID),
+                                std::ffi::OsStr::new(DOMIOS_SKILL_ID),
                                 &text,
                             )
                             .into_bytes();
@@ -438,7 +438,7 @@ fn write_provider_ownership(path: &std::path::Path, revision: u32) -> Result<(),
 /// skill directory — a changed `references/` file counts. Never downgrades.
 #[cfg(test)]
 fn should_mirror_skill(src_dir: &std::path::Path, dst_dir: &std::path::Path) -> bool {
-    should_copy_skill(std::ffi::OsStr::new(CODETERM_SKILL_ID), src_dir, dst_dir)
+    should_copy_skill(std::ffi::OsStr::new(DOMIOS_SKILL_ID), src_dir, dst_dir)
 }
 
 #[cfg(test)]
@@ -447,8 +447,8 @@ mod skills_seed_tests {
 
     #[test]
     fn rendered_codeterm_skill_omits_the_plan_task_flag_fragment() {
-        const SKILL_SOURCE: &str = include_str!("../../../../skills/codeterm/SKILL.md");
-        let rendered = render_bundled_skill(std::ffi::OsStr::new(CODETERM_SKILL_ID), SKILL_SOURCE);
+        const SKILL_SOURCE: &str = include_str!("../../../../skills/domios/SKILL.md");
+        let rendered = render_bundled_skill(std::ffi::OsStr::new(DOMIOS_SKILL_ID), SKILL_SOURCE);
         let fragment = crate::prompts::PLAN_TASK_FLAGS.trim();
         assert!(!fragment.is_empty(), "an empty fragment proves nothing");
         assert_eq!(rendered.matches(crate::prompts::CODETERM_CLI).count(), 1);
@@ -468,14 +468,14 @@ mod skills_seed_tests {
     /// A bundled fixture carrying its render slots, plus one `references/` file
     /// so the directory-scoped rungs have something to compare beyond SKILL.md.
     fn bundled_fixture(root: &std::path::Path, skill_body: &str, reference: &str) {
-        let dir = root.join(CODETERM_SKILL_ID);
+        let dir = root.join(DOMIOS_SKILL_ID);
         std::fs::create_dir_all(dir.join("references")).unwrap();
         std::fs::write(dir.join("SKILL.md"), skill_body).unwrap();
         std::fs::write(dir.join("references").join("mem.md"), reference).unwrap();
     }
 
     fn canonical_skill(canonical: &std::path::Path) -> String {
-        std::fs::read_to_string(canonical.join(CODETERM_SKILL_ID).join("SKILL.md")).unwrap()
+        std::fs::read_to_string(canonical.join(DOMIOS_SKILL_ID).join("SKILL.md")).unwrap()
     }
 
     /// Round-trip through substitution: the rule arrives because the constant was
@@ -519,9 +519,9 @@ mod skills_seed_tests {
         // Gate and copy must agree, or every start reseeds the same bytes.
         assert!(
             !should_copy_skill(
-                std::ffi::OsStr::new(CODETERM_SKILL_ID),
-                &bundled.join(CODETERM_SKILL_ID),
-                &canonical.join(CODETERM_SKILL_ID),
+                std::ffi::OsStr::new(DOMIOS_SKILL_ID),
+                &bundled.join(DOMIOS_SKILL_ID),
+                &canonical.join(DOMIOS_SKILL_ID),
             ),
             "a freshly seeded tree must compare equal to its rendered source"
         );
@@ -542,12 +542,12 @@ mod skills_seed_tests {
         // Same revision, rendering from an older fragment.
         let stale = fresh.replace(crate::prompts::AGENT_PAD_RULE.trim(), "STALE_FRAGMENT");
         assert_ne!(stale, fresh, "the fixture must actually go stale");
-        let dst_skill = canonical.join(CODETERM_SKILL_ID).join("SKILL.md");
+        let dst_skill = canonical.join(DOMIOS_SKILL_ID).join("SKILL.md");
         std::fs::write(&dst_skill, &stale).unwrap();
         assert_eq!(
             extract_revision(&std::fs::read_to_string(&dst_skill).unwrap()),
             extract_revision(
-                &std::fs::read_to_string(bundled.join(CODETERM_SKILL_ID).join("SKILL.md")).unwrap()
+                &std::fs::read_to_string(bundled.join(DOMIOS_SKILL_ID).join("SKILL.md")).unwrap()
             ),
             "the equal-revision branch is what this test exercises"
         );
@@ -570,8 +570,8 @@ mod skills_seed_tests {
         bundled_fixture(&canonical, skill, "mem reference v2");
         bundled_fixture(&provider, skill, "mem reference v1");
 
-        let src_dir = canonical.join(CODETERM_SKILL_ID);
-        let dst_dir = provider.join(CODETERM_SKILL_ID);
+        let src_dir = canonical.join(DOMIOS_SKILL_ID);
+        let dst_dir = provider.join(DOMIOS_SKILL_ID);
         let channel = if cfg!(debug_assertions) {
             "dev"
         } else {
@@ -614,7 +614,7 @@ mod skills_seed_tests {
         assert_eq!(canonical_skill(&canonical), newer);
     }
 
-    /// A non-`codeterm` skill has no render map: its bytes seed verbatim,
+    /// A non-`domios` skill has no render map: its bytes seed verbatim,
     /// placeholder-looking text included.
     #[test]
     fn other_bundled_skills_are_copied_without_substitution() {
@@ -680,10 +680,10 @@ mod mirror_tests {
         let canonical = tmp.path().join("canonical");
         let provider = tmp.path().join("provider");
 
-        // Canonical has codeterm + another skill (atlassian stays in canonical only).
+        // Canonical has the Domios skill + another skill (atlassian stays in canonical only).
         write_skill(
-            &canonical.join("codeterm"),
-            "codeterm skill body\n<!-- revision: 2 -->",
+            &canonical.join(DOMIOS_SKILL_ID),
+            "domios skill body\n<!-- revision: 2 -->",
         );
         write_skill(&canonical.join("atlassian"), "atlassian skill body");
 
@@ -697,32 +697,38 @@ mod mirror_tests {
             "codeterm\n1\ndev\n0000000000000000000000000000000000000000000000000000000000000000\n",
         )
         .unwrap();
-        write_skill(&provider.join("codeterm"), "stale owned copy");
-        std::fs::write(
-            provider.join("codeterm").join(PROVIDER_OWNERSHIP_FILE),
-            "codeterm\n1\ndev\n0000000000000000000000000000000000000000000000000000000000000000\n",
-        )
-        .unwrap();
+        for owned in [DOMIOS_SKILL_ID, "codeterm"] {
+            write_skill(&provider.join(owned), "stale owned copy");
+            std::fs::write(
+                provider.join(owned).join(PROVIDER_OWNERSHIP_FILE),
+                "codeterm\n1\ndev\n0000000000000000000000000000000000000000000000000000000000000000\n",
+            )
+            .unwrap();
+        }
 
         mirror_into_providers(&canonical, &[provider.clone()]);
 
         assert!(
-            provider.join("codeterm").join("SKILL.md").exists(),
-            "codeterm SKILL.md must be present after mirror"
+            provider.join(DOMIOS_SKILL_ID).join("SKILL.md").exists(),
+            "domios SKILL.md must be present after mirror"
         );
         assert!(provider.join("synced").exists());
         assert!(provider.join("qa-foreign").exists());
         assert!(!provider.join("codeterm-owned-old").exists());
         assert!(
+            !provider.join("codeterm").exists(),
+            "the owned copy under the old skill name is pruned"
+        );
+        assert!(
             provider
-                .join("codeterm")
+                .join(DOMIOS_SKILL_ID)
                 .join(PROVIDER_OWNERSHIP_FILE)
                 .exists(),
             "owned marker must remain inside the mirrored entry"
         );
         assert!(
             !provider.join("atlassian").exists(),
-            "non-codeterm canonical skill must not appear in provider dir"
+            "non-domios canonical skill must not appear in provider dir"
         );
     }
 
@@ -731,14 +737,14 @@ mod mirror_tests {
         let tmp = tempfile::tempdir().unwrap();
         let canonical = tmp.path().join("canonical");
         let provider = tmp.path().join("provider");
-        write_skill(&canonical.join("codeterm"), "new global skill");
-        write_skill(&provider.join("codeterm"), "existing bytes");
-        let before = std::fs::read(provider.join("codeterm").join("SKILL.md")).unwrap();
+        write_skill(&canonical.join(DOMIOS_SKILL_ID), "new global skill");
+        write_skill(&provider.join(DOMIOS_SKILL_ID), "existing bytes");
+        let before = std::fs::read(provider.join(DOMIOS_SKILL_ID).join("SKILL.md")).unwrap();
 
         mirror_into_providers_if_allowed(&canonical, &[provider.clone()], false);
 
         assert_eq!(
-            std::fs::read(provider.join("codeterm").join("SKILL.md")).unwrap(),
+            std::fs::read(provider.join(DOMIOS_SKILL_ID).join("SKILL.md")).unwrap(),
             before
         );
     }

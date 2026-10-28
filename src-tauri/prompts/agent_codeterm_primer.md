@@ -2,7 +2,7 @@
 
 Use `domios` for tabs, agents, plans, mesh, memory and schedules. First search
 `domios mem search "<need>"`, then read `--help` or `domios docs`; never guess.
-Load the `codeterm` skill for these operations.
+Load the `domios` skill for these operations.
 
 A tab title is one word and stays stable. Dispatch derives the description from
 the task name (`--description` overrides); direct `agent spawn` needs

@@ -7,7 +7,7 @@ description: "Change Domios prompts, placeholders, skills, and on-demand documen
 
 Domios uses `domios` as the canonical CLI and retains `CODETERM_*` as its frozen
 host environment contract. Internal crate names, prompt filenames, the
-`codeterm` skill id and `@codeterm/plugin-sdk` are technical identifiers.
+`domios` skill id and `@codeterm/plugin-sdk` are technical identifiers.
 User data lives under `~/.domios` (`~/.domios-dev[-<instance>]` in development).
 Use the [consumer identity inventory](consumer-identities.md) to distinguish live
 consumers from retained technical names, rejection inputs and historical evidence.
@@ -32,7 +32,7 @@ src-tauri/prompts/
   mem_rerank.md                  Prompt for search-result reranking
   dreaming_rem.md                REM-phase dreaming prompt
 
-skills/codeterm/
+skills/domios/
   SKILL.md                       Project-agent CLI reference — template with {codeterm_cli}
   references/
     mem.md                       Full mem command catalog
@@ -80,7 +80,7 @@ The system-prompt channel and generated General instruction files share a runtim
 
 ### Skill rendering
 
-`skills/codeterm/SKILL.md` is also a template. On daemon startup, `commands::skills::seed_bundled_skills` copies the bundled `skills/codeterm/` directory to `~/.domios/skills/codeterm/` (or `~/.domios-dev/skills/codeterm/` for dev), substituting each placeholder in `codeterm_skill_render_map()` as it writes:
+`skills/domios/SKILL.md` is also a template. On daemon startup, `commands::skills::seed_bundled_skills` copies the bundled `skills/domios/` directory to `~/.domios/skills/domios/` (or `~/.domios-dev/skills/domios/` for dev), substituting each placeholder in `codeterm_skill_render_map()` as it writes:
 
 | Placeholder | Source constant |
 |---|---|
@@ -104,7 +104,7 @@ When you're about to add or move a piece of prompt content, ask:
 | Is it a **decision policy** that's GA-specific (implicit→ask, recon-before-action, mesh→Orchestrator, workspaces-are-commitments)? | `prompts/general_agent.md` |
 | Is it a **lifecycle hook** that only the GA bridges (forward report to originating channel, init handshake, voice transcribe awareness)? | `prompts/general_agent.md` |
 | Is it an **operational ladder** that fires rarely (Telegram bot setup, secrets store CLI, hook daemon config)? | `prod-docs/<TOPIC>.md` + register in `cli/src/cmd/docs.rs` |
-| Is it **project-agent framing** (workspace/Team authority and the no-General-Agent fallback boundary)? | `skills/codeterm/SKILL.md` (the non-template intro and outro around `{codeterm_cli}`) |
+| Is it **project-agent framing** (workspace/Team authority and the no-General-Agent fallback boundary)? | `skills/domios/SKILL.md` (the non-template intro and outro around `{codeterm_cli}`) |
 | Is it **mem protocol** (English-only, search-first, no fabrication)? | `prompts/bridge_mem.md` (installed into provider rules dirs by `service::bridge_rule`) |
 | Is it **a worker-task addendum** (must report, ack receipt, return exit code)? | `prompts/worker_suffix.md` / `orchestrator_suffix.md` |
 | Is it **per-cron-task boilerplate** (run id, completion call, report hint)? | `prompts/cron_complete_suffix.md` / `cron_report_hint.md` |
@@ -167,17 +167,17 @@ Moved from the embedded `SKILLS` doc.
 
 ### Installation from a checkout
 
-Domios installs the `codeterm` skill itself on every start — a manual copy is
+Domios installs the `domios` skill itself on every start — a manual copy is
 only for a checkout you are not running. See *Seeding, rendering and mirroring*
 below for what the app does.
 
 ```bash
-cp -r skills/codeterm ~/.claude/skills/
+cp -r skills/domios ~/.claude/skills/
 ```
 
 Or symlink:
 ```bash
-ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
+ln -s /path/to/codeterm/skills/domios ~/.claude/skills/domios
 ```
 
 ### Seeding, rendering and mirroring
@@ -186,7 +186,7 @@ ln -s /path/to/codeterm/skills/codeterm ~/.claude/skills/codeterm
 
 1. **Seed** — bundled `skills/<id>/` → the canonical dir
    (`<data_dir>/skills/<id>/`), whole directory, `references/` included.
-2. **Render** — the `codeterm` skill declares placeholders filled from the
+2. **Render** — the `domios` skill declares placeholders filled from the
    in-binary prompt constants, so the skill and the General Agent prompt share
    one source instead of two drifting copies:
 

@@ -95,7 +95,7 @@ Substitution is plain, ordered `String::replace()` with no template engine:
 
 - **Spawned agents** — `service/orchestrator/prompt_compose.rs` composes it into every launch prompt: solo, Orchestrator, Planner, watcher, and Worker, with or without an assignment.
 - **General Agent** — `general_cli_reference()` appends it to the CLI reference unconditionally, so a moved section heading cannot drop it.
-- **`codeterm` skill** — `service/skill_mirror.rs` substitutes it into `skills/codeterm/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
+- **`domios` skill** — `service/skill_mirror.rs` substitutes it into `skills/domios/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
 
 Delivery tests assert constant identity, never wording: `prompt_compose::tests` covers each launch class, `skills_seed_tests::seed_renders_shared_codeterm_fragments_from_constants` covers the skill, the GA writer covers `AGENT.md`/`AGENTS.md`, and `prompts.rs::agent_pad_rule_has_exactly_one_source` rejects duplicate sources.
 

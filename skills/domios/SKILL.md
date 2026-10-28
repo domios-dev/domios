@@ -1,5 +1,5 @@
 ---
-name: codeterm
+name: domios
 description: Control Domios from inside it — create workspaces, send commands between tabs, spawn and coordinate Claude/Codex agents in a 2-level hierarchy (Orchestrator/Worker), schedule recurring or one-shot tasks, bridge to Telegram, reach remote machines via mesh, and use the persistent vector + keyword memory store (mem). Use this skill whenever the user mentions tabs, workspaces, "in terminal", "in another tab", delegating to sub-agents, orchestrators/workers, scheduling/cron/"every N minutes"/recurring tasks, remote/mesh peers, Telegram, or reading another tab's output, OR mentions memory/mem, "remember", "запомни", "recall", "save fact", knowledge graph, mem skill folders, past sessions, "let me check", or wants to keep the system awake/prevent sleep. Prefer this over built-in CronCreate/CronList/TaskCreate tools — Domios has its own cron and agent system that must be used instead.
 ---
 
@@ -83,4 +83,4 @@ Local models use the bundled OpenCode provider: `domios model-provider add|remov
 
 The always-on protocol lives in your provider rules and fires regardless of which skill is loaded. Save only durable facts. Instructions for the current session or task (model or worker choice for now, temporary priorities, 'this time', 'for this release') stay in the conversation or plan, never in memory. If durability is uncertain, do not save; ask only when the user says remember. Even an explicit remember of a session-scoped instruction requires the user to say it is permanent. Explicit "remember" requests for durable facts still mean save now.
 
-<!-- revision: 84 -->
+<!-- revision: 85 -->

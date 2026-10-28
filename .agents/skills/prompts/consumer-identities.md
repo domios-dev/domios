@@ -11,7 +11,7 @@ guards. Inspect the executing source before changing any identifier.
 | SDK home expansion | `~/.domios[/...]` resolves through `codeterm_paths::data_dir()` | Other `~/` paths, including `~/.codeterm`, expand as ordinary user-home paths; filesystem grants remain independent |
 | Official external consumers | Aider startup/primer and Rotterdom history/CLI-bin paths use `~/.domios/` | Sources and independently versioned bundles live in `rollacode/codeterm-plugins`; a lane commit alone is not a marketplace release |
 | Rust and npm identifiers | Keep current Cargo/package/import names | `codeterm-*`, `codeterm_*`, `@codeterm/*`, `minCodeterm`, `codeterm-core` and `codeterm-plugins` are technical identities; a product rename does not authorize renaming them |
-| Skill and prompt identifiers | Keep loader and skill ids | `skills/codeterm`, `codeterm_cli.md`, `CODETERM_CLI` and `codeterm_rule.md` remain source identifiers |
+| Skill and prompt identifiers | Keep loader and skill ids | `skills/domios`, `codeterm_cli.md`, `CODETERM_CLI` and `codeterm_rule.md` remain source identifiers |
 | Repository and infrastructure paths | Use paths that exist in the checkout | `.codeterm/build-machine/`, `.codeterm/specs/`, upstream repository URLs, runner names, notary profiles and opaque cache/repair filenames are not the per-user data directory |
 | Relaunch environment scrubbing | Remove inherited instance selectors and integration paths | Former `.codeterm` shell-integration paths and `TERM_PROGRAM=CodeTerm` remain rejection inputs; removing them would weaken isolation |
 | Removed provider | No active install or spawn recipe for the retired plugin | `evals/watcher-health/README.md` records the retired oracle and missing live proof; it supplies no launch command |
