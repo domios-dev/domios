@@ -22,16 +22,12 @@ pub fn merge_area(
         .is_some_and(crate::mem::workers::is_dreaming_intent);
     let actor = super::mem_merge::merge_actor(intent.as_deref(), None);
     let outcome = store::with_changed_by(&actor, || {
-        svc.mem.with_conn(|conn| {
-            store::area_merge::merge_area(
-                conn,
-                svc.mem.blobs_dir(),
-                &body.from,
-                &body.into,
-                body.dry_run,
-                if dreaming { worker_id } else { None },
-            )
-        })
+        svc.mem.merge_area(
+            &body.from,
+            &body.into,
+            body.dry_run,
+            if dreaming { worker_id } else { None },
+        )
     })?;
     if !body.dry_run {
         for id in &outcome.item_ids {

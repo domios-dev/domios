@@ -8,6 +8,7 @@ pub mod error;
 pub mod graph;
 pub mod hubs;
 pub mod lesson;
+pub mod maintenance;
 pub mod migrations;
 pub mod plan_format;
 pub mod skill_folders;
