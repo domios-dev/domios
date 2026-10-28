@@ -1008,7 +1008,6 @@ fn paste_limit_capability_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
-    // Codex is chat-backed only, so it has no PTY paste limit to declare.
     let codex = load_js("codex");
     assert_eq!(codex.paste_limit_bytes(), None);
     assert_eq!(codex.describe().paste_limit_bytes, None);
