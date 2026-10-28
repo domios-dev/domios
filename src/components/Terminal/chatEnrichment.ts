@@ -20,7 +20,7 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
     const rows = single ? [{ content: raw.content, segments: raw.segments }] : envelopeRows(raw.segments);
     if (!rows.length && raw.attachments?.length) rows.push({ content: raw.content, segments: raw.segments });
     return rows.map((row, index) => {
-      const prefix = row.frame ? framePrefix({ ...row.frame.attrs, from: row.frame.from }, row.content) : detectChatPrefix(row.content);
+      const prefix = row.frame ? framePrefix({ ...row.frame.attrs, from: row.frame.from }, row.content, row.frame.tip) : detectChatPrefix(row.content);
       const msg: ChatMessage = {
         ...raw, id: `${raw.id}-segment-${index}`, content: prefix?.body ?? row.content,
         sourceMessageId: raw.sourceMessageId ?? raw.id,

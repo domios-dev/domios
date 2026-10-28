@@ -40,6 +40,10 @@ eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", via: "concie
   "a named friend's frame folds the host instruction away and shows their words as written");
 eq(framePrefix({ from: "neighbor", friendship: "f1" }, "Plain\n\nwords"), { origin: { kind: "neighbor", friendshipId: "f1" }, body: "Plain\n\nwords" },
   "an unnamed friend's frame carries no instruction to split off");
+eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", message: "m2", kind: "answer", in_reply_to: "m1" }, "Yes,\n\nall green &amp; merged", "Reply with domios neighbors reply."),
+  { origin: { kind: "neighbor", friendshipId: "f1", message: "m2", friend: "Ada", messageKind: "answer", inReplyTo: "m1", instruction: "Reply with domios neighbors reply." },
+    body: "Yes,\n\nall green & merged" },
+  "the routed envelope keeps the whole body and takes the reply instruction from the tip");
 eq(labelFor({ kind: "neighbor", friendshipId: "f1", friend: "Ada" }), "From Ada via Neighbors", "neighbor label names the friend");
 eq(labelFor({ kind: "system", context: "  SyStEm  " }), "System", "duplicate System context is omitted");
 eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw strings are never routed by TS");
