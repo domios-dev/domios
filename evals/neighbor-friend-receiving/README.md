@@ -57,6 +57,13 @@ DOMIOS_LIVE_PER_FRIEND=1 bash evals/neighbor-friend-receiving/run.sh \
   --out target-check/evals/per-friend-CANDIDATE-RUN
 ```
 
+The deployed desktop must expose authenticated local `GET /api/account/backend`.
+Missing diagnostics, unknown schemas, production/emulator targets, a different
+actual project or a non-QA functions endpoint kind refuse before mutations.
+This is an actual executing-daemon observation, not a manifest or environment
+assertion. Setting `DOMIOS_ACCOUNT_TARGET=qa` in the launcher cannot turn a
+production-target artifact into a QA-target artifact.
+
 The output directory must be new, directly beneath `target-check/evals` or an
 already existing child. Reusing an output directory refuses; a failed send or
 uncertain request is never replayed. `--help` and missing opt-in perform no
@@ -71,9 +78,12 @@ available. Instance names and all ports are fixed to the table.
 
 1. Qualify all four exact candidate/boot/instance/frontend/CDP identities and
    signed-in Firebase identities before any mutation. UID hashes must match
-   the pre-authorized QA fixtures. The backend project/deployment pin is an
-   operator attestation, recorded as `declared_qa_backend`; local health does
-   not expose a backend project and the bench does not pretend otherwise.
+   the pre-authorized QA fixtures. `GET /api/account/backend` must report
+   `{schema_version:1,target:"qa",project_id:"domios-signin-qa",functions_endpoint_kind:"qa"}`
+   between two same-boot health reads. All four peers are requalified before
+   every set, reset, send and shutdown. Only the deployed functions SHA remains
+   an explicitly unverified operator attestation in `declared_qa_backend`;
+   actual backend target/project/kind are recorded separately with each proof.
 2. Require account receiver B, both effective friend states sourced from
    `account`, B's ready bound roots and C's dormant X setup.
 3. Submit exactly one `set_friend_receiver` on C for X, using X's current
@@ -95,6 +105,15 @@ available. Instance names and all ports are fixed to the table.
    C's X setup dormant, no binding and no X root/descendants or former live IDs in the full mux
    snapshot. B's Y concierge stays the original session. Recheck all original
    nonreceiver histories once more.
+
+The restart entry point accepts the same private manifest path and C's expected
+boot ID, not a candidate SHA plus environment bypass flags. `restart.sh` only
+starts `restart.mjs` under `dev_run`; it cannot issue shutdown itself. That
+verifier reloads the full manifest, rechecks clean/pinned source and all four
+actual backend/account/instance/build identities, verifies X/Y reset on B and
+C dormant/nonreceiving, then requalifies immediately before the supported
+C-only shutdown/prebuilt commands. Calling either helper directly cannot skip
+these checks. A missing manifest, stale boot or missing backend proof refuses.
 
 Authenticated event streams are armed before actions. Reads advance only on
 events, with no sleeps, polling, warmups, mutation retries or deadline extension.

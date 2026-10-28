@@ -1,35 +1,15 @@
-import { createHash, randomUUID } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { authorityTabs, Changes, friend, observe, Peer, ready, receiving, requireThat, retired, root, topology } from "./peers.mjs";
 
+import { digest, loadManifest, qualifyPeer, repo } from "./qualification.mjs";
+
 const directory = dirname(fileURLToPath(import.meta.url));
-const repo = resolve(directory, "../..");
-const digest = value => createHash("sha256").update(value).digest("hex");
 const [manifestPath, outputPath] = process.argv.slice(2);
-requireThat(process.env.DOMIOS_LIVE_PER_FRIEND === "1", "Live bench opt-in required");
-const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-requireThat(manifest.schema === 1 && manifest.control_settled === true, "Explicit settled-control acknowledgement required");
-requireThat(/^[a-f0-9]{40}$/.test(manifest.candidate_sha), "Pin a full candidate SHA");
-requireThat(/^[a-f0-9]{40}$/.test(manifest.qa_backend?.functions_sha) &&
-  manifest.qa_backend.target === "qa" && /^[a-z][a-z0-9-]{4,61}$/.test(manifest.qa_backend.project_id) &&
-  manifest.qa_backend.project_id !== "domios-d9357", "Pin the authorized QA backend attestation");
-requireThat(/^[a-f0-9]{64}$/.test(manifest.friend_x) && /^[a-f0-9]{64}$/.test(manifest.friend_y) &&
-  manifest.friend_x !== manifest.friend_y, "Two distinct provisioned friendships are required");
-requireThat(Number.isInteger(manifest.deadline_seconds) && manifest.deadline_seconds >= 30 && manifest.deadline_seconds <= 180,
-  "Observation deadline must be 30..180 seconds");
-for (const label of Object.keys(topology)) {
-  requireThat(/^[a-f0-9]{64}$/.test(manifest.qa_identity_sha256?.[label]), `${label}: QA identity hash required`);
-}
-requireThat(manifest.qa_identity_sha256.B === manifest.qa_identity_sha256.C &&
-  new Set([manifest.qa_identity_sha256.A, manifest.qa_identity_sha256.B, manifest.qa_identity_sha256.D]).size === 3,
-  "B/C must share the Peer account; A and D must be independent QA friends");
-requireThat(execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8", windowsHide: true }).trim() === manifest.candidate_sha,
-  "Candidate checkout differs from the pinned build");
-requireThat(execFileSync("git", ["-C", repo, "status", "--porcelain"], { encoding: "utf8", windowsHide: true }).trim() === "",
-  "Candidate checkout is dirty");
+const manifest = loadManifest(manifestPath);
 const out = resolve(outputPath);
 const location = relative(join(repo, "target-check/evals"), out);
 requireThat(location && !isAbsolute(location) && !location.startsWith(".."), "Output must be a new directory inside target-check/evals");
@@ -61,19 +41,10 @@ const readBoth = async () => {
   }
   return { B, C };
 };
-async function checkIdentity(label, allowBootChange = false) {
-  const peer = peers[label];
-  const [health, account] = await Promise.all([peer.api("/api/health"), peer.api("/api/account/status")]);
-  requireThat(health.status === "ok" && health.startup?.state === "ready" && health.build_sha === manifest.candidate_sha &&
-    health.instance?.name === peer.target.instance && Number(health.instance.api_port) === peer.target.api &&
-    Number(health.instance.vite_port) === peer.target.frontend && Number(health.instance.cdp_port) === peer.target.cdp &&
-    typeof health.boot_id === "string" && health.boot_id.length > 0, `${label}: candidate/instance/readiness mismatch`);
-  requireThat(account.provider === "firebase" && account.pending === false && !account.session_revoked &&
-    typeof account.identity?.uid === "string" && digest(account.identity.uid) === manifest.qa_identity_sha256[label],
-    `${label}: not the pinned signed-in QA identity`);
-  if (peer.boot && !allowBootChange) requireThat(health.boot_id === peer.boot, `${label}: unexpected restart`);
-  peer.boot = health.boot_id;
-  return { build_sha: health.build_sha, boot_id: health.boot_id, instance: peer.target.instance, qa_identity_matches: true };
+async function qualifyAll() {
+  const proofs = await Promise.all(Object.values(peers).map(peer => qualifyPeer(peer, manifest)));
+  result.steps.push({ name: "qualify-before-mutation", at: new Date().toISOString(), peers: proofs });
+  save();
 }
 async function checkpoint(name, predicate) {
   const snapshots = await observe(changes, readBoth, predicate, seconds);
@@ -82,7 +53,7 @@ async function checkpoint(name, predicate) {
   return snapshots;
 }
 async function select(label, operation) {
-  await checkIdentity(label);
+  await qualifyAll();
   const state = (await peers[label].snapshot()).runtime.friend_receivers?.[x];
   requireThat(state && Number.isSafeInteger(state.revision) && state.revision >= 0, "Friend receiver revision is unknown");
   const action = { kind: "set_friend_receiver", peer: label, friendship_id: x, receiver_operation: operation,
@@ -95,7 +66,7 @@ async function select(label, operation) {
 const safeEntry = entry => entry && Object.fromEntries(["message_id", "direction", "at", "handling_state", "handling_updated_at",
   "submission", "delivery_status", "delivered_at", "read_at"].filter(key => entry[key] !== undefined).map(key => [key, entry[key]]));
 async function exchange(label, friendship, destination, other, phase) {
-  await checkIdentity(label);
+  await qualifyAll();
   const marker = `qa-per-friend-${randomUUID()}`;
   const body = `Automated QA routing check. Reply with this public marker once: ${marker}`;
   const action = { kind: "send", peer: label, destination, nonreceiver: other, friendship_id: friendship, marker, at: new Date().toISOString(), outcome: "intent_recorded" };
@@ -134,14 +105,15 @@ async function exchange(label, friendship, destination, other, phase) {
   save();
 }
 async function restartC() {
-  const before = await checkIdentity("C");
+  await qualifyAll();
+  const before = await qualifyPeer(peers.C, manifest);
   peers.C.close();
   const windowsBash = "C:/Program Files/Git/bin/bash.exe";
   const bash = process.platform === "win32" ? windowsBash : "bash";
   result.actions.push({ kind: "cold_restart", peer: "C", before_boot: before.boot_id, at: new Date().toISOString() }); save();
   const code = await new Promise((accept, reject) => {
-    const child = spawn(bash, [join(directory, "restart.sh"), manifest.candidate_sha], {
-      cwd: repo, windowsHide: true, env: { ...process.env, DOMIOS_PER_FRIEND_RESTART_C: "1" },
+    const child = spawn(bash, [join(directory, "restart.sh"), resolve(manifestPath), before.boot_id], {
+      cwd: repo, windowsHide: true, env: process.env,
       signal: AbortSignal.timeout(240_000), stdio: ["ignore", "pipe", "pipe"],
     });
     let log = "";
@@ -156,7 +128,7 @@ async function restartC() {
   });
   requireThat(code === 0, `C restart launcher exit ${code}; no retry`);
   peers.C = new Peer("C");
-  const after = await checkIdentity("C", true);
+  const after = await qualifyPeer(peers.C, manifest);
   requireThat(after.boot_id !== before.boot_id, "Cold restart did not change daemon boot identity");
   await peers.C.open(changes);
   result.steps.push({ name: "C-cold-restart", before, after, launcher_exit: code }); save();
@@ -166,7 +138,7 @@ try {
   save();
   for (const label of Object.keys(topology)) {
     peers[label] = new Peer(label);
-    const identity = await checkIdentity(label);
+    const identity = await qualifyPeer(peers[label], manifest);
     result.steps.push({ name: `qualify-${label}`, ...identity }); save();
   }
   await Promise.all(Object.values(peers).map(peer => peer.open(changes)));
@@ -198,7 +170,7 @@ try {
   await checkpoint("cold-nonreceiver-has-no-stale-concierge", ({ B, C }) => receiving(C, x, false, "account") && retired(C, x) &&
     absent(C, formerCIds) && authorityTabs(C, y).length === 0 && !C.runtime.bindings?.[y] &&
     receiving(B, x, true, "account") && ready(B, x) && receiving(B, y, true, "account") && ready(B, y));
-  for (const label of Object.keys(topology)) await checkIdentity(label);
+  for (const label of Object.keys(topology)) await qualifyPeer(peers[label], manifest);
   for (const action of result.actions.filter(action => action.kind === "send")) {
     const history = await peers[action.nonreceiver].runtime({ operation: "history", friendship_id: action.friendship_id, limit: 100 });
     requireThat(Array.isArray(history.entries) && !history.entries.some(entry => entry.direction === "in" && entry.message_id === action.message_id),

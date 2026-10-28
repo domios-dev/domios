@@ -47,6 +47,7 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/account/billing` | Run an account billing operation. |
 | POST | `/api/account/callback` | Complete account sign-in with the verified callback. |
 | POST | `/api/account/gift/redeem` | Local signed-in redemption: `{key, expected_uid}`; returns the server plan, duration and expiry receipt after signed entitlement refresh. No key generation. |
+| GET | `/api/account/backend` | Authenticated local owner only; uncached read-only `{schema_version:1,target,project_id,functions_endpoint_kind}` from the daemon's actual endpoint selection. Target/kind: qa, emulator, production; unknown endpoint kind yields null project. No credentials, URLs or deployment SHA. |
 | POST | `/api/account/neighbors` | Local owner manages channels; authenticated General may list or set_limit {friendship_id,per_hour}, but cannot request/respond/remove. |
 | POST | `/api/account/neighbors/enabled` | Turn Neighbors on or off on this machine (`{"enabled": bool}`); off stops receiving and sending until turned back on. |
 | POST | `/api/account/neighbors/runtime` | Manage the local Neighbor receiving runtime. Failed/missing receiver/account watches stop reception and invalidate snapshots. Key mutations invalidate operation caches; each batch reads peer keys once and verifies every message. On starts watches outside network work; off/sign-out cancel startup. No polling/warmup. |
@@ -123,4 +124,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

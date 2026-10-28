@@ -32,6 +32,27 @@ pub async fn status(
             .await,
     ))
 }
+
+pub async fn backend(
+    caller: Option<Extension<CallerIdentity>>,
+) -> Result<(axum::http::HeaderMap, Json<serde_json::Value>), Error> {
+    admit(caller.as_ref())?;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(axum::http::header::CACHE_CONTROL, axum::http::HeaderValue::from_static("no-store"));
+    Ok((headers, Json(backend_view(codeterm_account::firebase_endpoints::current()))))
+}
+
+fn backend_view(endpoints: codeterm_account::firebase_endpoints::Endpoints) -> serde_json::Value {
+    let target = if endpoints.qa { "qa" } else if endpoints.emulator { "emulator" } else { "production" };
+    let (project, kind) = match endpoints.functions {
+        "https://us-central1-domios-signin-qa.cloudfunctions.net/" => (Some("domios-signin-qa"), "qa"),
+        "https://us-central1-domios-d9357.cloudfunctions.net/" => (Some("domios-d9357"), "production"),
+        "http://127.0.0.1:15001/demo-domios/us-central1/" => (Some("demo-domios"), "emulator"),
+        _ => (None, "unknown"),
+    };
+    serde_json::json!({"schema_version":1,"target":target,"project_id":project,"functions_endpoint_kind":kind})
+}
+
 pub(crate) fn debug_login_router() -> axum::Router<AppState> {
     let router = axum::Router::new();
     #[cfg(debug_assertions)]

@@ -3,7 +3,7 @@
   "candidate_sha": "REPLACE_WITH_FULL_CANDIDATE_SHA",
   "qa_backend": {
     "target": "qa",
-    "project_id": "REPLACE_WITH_AUTHORIZED_QA_PROJECT",
+    "project_id": "domios-signin-qa",
     "functions_sha": "REPLACE_WITH_FULL_QA_BACKEND_SHA"
   },
   "control_settled": false,
