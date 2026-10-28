@@ -5,7 +5,7 @@ use codeterm_blueprint_types::{
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 pub mod authoring;
-pub(crate) mod call_revisions;
+pub mod call_revisions;
 pub mod catalog;
 mod changes;
 pub mod dedupe;
@@ -13,7 +13,7 @@ pub mod enrichment;
 #[cfg(test)]
 pub(crate) mod fakes;
 pub mod index;
-pub(crate) mod merge_policy;
+pub mod merge_policy;
 pub mod qualification;
 pub mod recall;
 pub mod services;

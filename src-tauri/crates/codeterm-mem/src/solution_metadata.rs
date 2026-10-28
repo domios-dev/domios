@@ -49,7 +49,7 @@ pub struct SolutionMetadata {
 }
 
 impl SolutionMetadata {
-    pub(crate) fn set_entry(&mut self, entry: &Entry) {
+    pub fn set_entry(&mut self, entry: &Entry) {
         self.blueprint = Some(BlueprintMetadata {
             intents: entry.intents.clone(),
             successes: entry.successes,
@@ -60,14 +60,14 @@ impl SolutionMetadata {
         });
     }
 
-    pub(crate) fn prior(&self, origin: Option<&str>) -> OutcomeCounts {
+    pub fn prior(&self, origin: Option<&str>) -> OutcomeCounts {
         origin
             .and_then(|origin| self.evidence.get(origin))
             .cloned()
             .unwrap_or_default()
     }
 
-    pub(crate) fn observe(&mut self, evidence: &Evidence, now: i64) {
+    pub fn observe(&mut self, evidence: &Evidence, now: i64) {
         if let Some(origin) = &evidence.origin {
             let counts = self.evidence.entry(origin.clone()).or_default();
             counts.successes = counts.successes.max(evidence.successes);
@@ -78,7 +78,7 @@ impl SolutionMetadata {
         }
     }
 
-    pub(crate) fn observe_curator(&mut self, proof: &CuratorEvidence, now: i64) {
+    pub fn observe_curator(&mut self, proof: &CuratorEvidence, now: i64) {
         let curator = self.curator.get_or_insert_with(|| CuratorMetadata {
             confidence: Confidence::Low,
             observed_at: now,
@@ -106,7 +106,7 @@ impl SolutionMetadata {
         }
     }
 
-    pub(crate) fn merge(&mut self, other: Self) {
+    pub fn merge(&mut self, other: Self) {
         for (origin, counts) in other.evidence {
             let own = self.evidence.entry(origin).or_default();
             own.successes = own.successes.max(counts.successes);
