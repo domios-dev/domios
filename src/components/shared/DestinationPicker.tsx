@@ -9,7 +9,8 @@ export type Destination = { kind: "general" } | { kind: "workspace"; id: string 
 export type DestinationKind = Destination["kind"];
 
 export interface DestinationWorkspace { id: string; name: string; protected?: boolean }
-export interface DestinationTeam { id: string; name: string; workspace_id?: string | null }
+/** A Team may be unnamed; it then reads as its id. */
+export interface DestinationTeam { id: string; name?: string | null; workspace_id?: string | null }
 
 const KIND_LABEL: Record<DestinationKind, string> = { general: "General", workspace: "Workspaces", team: "Teams" };
 const OPTION = '[role="option"]:not([aria-disabled="true"])';
@@ -38,11 +39,11 @@ export function DestinationPicker({ value, onChange, workspaces, teams, kinds = 
   const workspaceName = (id: string | null | undefined) => workspaces.find((workspace) => workspace.id === id)?.name;
   const label = !value ? null : value.kind === "general" ? "General"
     : value.kind === "workspace" ? workspaceName(value.id) ?? value.id
-    : teams.find((team) => team.id === value.id)?.name ?? value.id;
+    : teams.find((team) => team.id === value.id)?.name || value.id;
   const needle = query.trim().toLowerCase();
   const rows: Array<{ destination: Destination; name: string; hint?: string }> = kind === "general" ? [{ destination: { kind: "general" }, name: "General" }]
     : kind === "workspace" ? places.map((workspace) => ({ destination: { kind: "workspace" as const, id: workspace.id }, name: workspace.name }))
-    : teams.map((team) => ({ destination: { kind: "team" as const, id: team.id }, name: team.name, hint: workspaceName(team.workspace_id) }));
+    : teams.map((team) => ({ destination: { kind: "team" as const, id: team.id }, name: team.name || team.id, hint: workspaceName(team.workspace_id) }));
   const shown = needle ? rows.filter((row) => `${row.name} ${row.hint ?? ""}`.toLowerCase().includes(needle)) : rows;
   const enabled = kinds.includes(kind);
   const options: SegmentedOption<DestinationKind>[] = (["general", "workspace", "team"] as const).map((entry) => ({ value: entry, label: KIND_LABEL[entry], disabled: !kinds.includes(entry) }));
