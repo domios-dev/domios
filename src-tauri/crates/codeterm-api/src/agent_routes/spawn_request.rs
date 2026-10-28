@@ -11,6 +11,7 @@ pub(super) fn into_params(
     codeterm_service_core::service::SpawnAgentParams {
         context_files: None,
         neighbor_authority: None,
+        neighbor_machine_access: None,
         context_skills: None,
         agent: body.agent,
         agent_name: body.agent_name,
