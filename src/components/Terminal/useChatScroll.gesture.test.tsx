@@ -5,6 +5,7 @@ import { Window } from "happy-dom";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatScroll, type UseChatScrollResult } from "./useChatScroll";
+import { CHAT_TAP_MS } from "./useChatScrollGesture";
 
 const testWindow = new Window({ url: "http://localhost/" });
 for (const [key, value] of Object.entries({ window: testWindow, document: testWindow.document,
@@ -120,6 +121,24 @@ async function main() {
     await act(async () => fire("touchend"));
     assert.equal(writes, 1, "a tap without movement releases a deferred pinned repair");
     assert.equal(followTail.current, true);
+    {
+      // A hold, unlike a tap: content arriving under a finger held longer than a tap leaves the view where it is.
+      const realNow = performance.now.bind(performance);
+      let now = realNow();
+      Object.defineProperty(performance, "now", { configurable: true, value: () => now });
+      writes = 0;
+      await act(async () => fire("touchstart"));
+      now += CHAT_TAP_MS + 50;
+      height += 200;
+      await act(async () => { repair(); root.render(<Fixture active revision={41} />); });
+      assert.equal(followTail.current, false, "content arriving under a held finger detaches the view");
+      await act(async () => fire("touchend"));
+      assert.equal(writes, 0, "releasing a hold does not snap to the new bottom");
+      assert.equal(followTail.current, false, "the held view stays detached and offers the jump");
+      Object.defineProperty(performance, "now", { configurable: true, value: realNow });
+      await act(async () => hook.scrollToBottom());
+      assert.equal(followTail.current, true, "the jump re-pins the view");
+    }
     await act(async () => root.render(<Fixture active={false} revision={5} />));
     for (let proto: object | null = scroll; proto; proto = Object.getPrototypeOf(proto)) {
       if (Object.getOwnPropertyDescriptor(proto, "onscrollend")?.configurable) Reflect.deleteProperty(proto, "onscrollend");
