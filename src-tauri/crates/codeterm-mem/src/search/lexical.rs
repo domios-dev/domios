@@ -1,8 +1,6 @@
 //! Lexical lift applied after rank fusion so exact title and rare-keyword
 //! hits are not outvoted by generic items that both retrievers return.
 
-use std::collections::HashSet;
-
 use super::{extract_keywords, SearchHit};
 use crate::store::MemItem;
 
@@ -47,7 +45,8 @@ fn haystack(item: &MemItem) -> String {
 /// Per-item score multiplier (>= 1.0), aligned with `items`. Coverage weights
 /// each query keyword by how rare it is among the candidates.
 pub(super) fn lift_factors(query: &str, items: &[&MemItem]) -> Vec<f64> {
-    let keywords: HashSet<String> = extract_keywords(query);
+    let mut keywords: Vec<String> = extract_keywords(query).into_iter().collect();
+    keywords.sort();
     let haystacks: Vec<String> = items.iter().map(|i| haystack(i)).collect();
     let total = items.len() as f64;
     let weights: Vec<(&String, f64)> = keywords
@@ -96,6 +95,7 @@ pub(super) fn rerank_fts_hits(query: &str, hits: &mut Vec<SearchHit>) {
             .partial_cmp(&(b.score / fb))
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| fb.partial_cmp(fa).unwrap_or(std::cmp::Ordering::Equal))
+            .then_with(|| a.item.id.cmp(&b.item.id))
     });
     hits.extend(keyed.into_iter().map(|(_, h)| h));
 }

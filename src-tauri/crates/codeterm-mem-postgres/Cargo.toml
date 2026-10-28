@@ -1,0 +1,39 @@
+[package]
+name = "codeterm-mem-postgres"
+version = "0.0.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+
+[[example]]
+name = "mem_backend_parity"
+path = "../../../evals/mem-backend-parity/runner/main.rs"
+
+[dependencies]
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+codeterm-mem = { path = "../codeterm-mem", default-features = false }
+codeterm-types = { path = "../codeterm-types" }
+codeterm-blueprint-types = { path = "../codeterm-blueprint-types" }
+codeterm-mem-store = { path = "../../../crates/mem-store" }
+postgres = "0.19"
+pgvector = { version = "0.4", features = ["postgres"] }
+r2d2 = "0.8"
+r2d2_postgres = "0.18"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+chrono = "0.4"
+sha2 = "0.10"
+ulid = "1"
+
+[dev-dependencies]
+codeterm-mem-postgres = { path = ".", features = ["test-support"] }
+codeterm-mem = { path = "../codeterm-mem", default-features = false, features = ["test-support"] }
+tempfile = "3"
+uuid = { version = "1", features = ["v4"] }
+
+[features]
+test-support = ["codeterm-mem/test-support"]
+
+[lints]
+workspace = true

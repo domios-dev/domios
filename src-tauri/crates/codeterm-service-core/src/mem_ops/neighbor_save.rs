@@ -114,11 +114,12 @@ impl ServiceContext {
             validate(Some(&authority), &permission, body).map_err(|error| error.to_string())?;
         let service = self.clone();
         tokio::task::spawn_blocking(move || {
+            let mut context = crate::mem::backend::WriteContext::new(author, "neighbor");
+            context.replace_guard = Some(crate::mem::store::ReplaceGuard::new(permission.memory_write_areas));
             service.mem.save_with_context(
                 item,
                 false,
-                crate::mem::backend::WriteContext::new(author, "neighbor")
-                    .with_replace_guard(crate::mem::store::ReplaceGuard::new(permission.memory_write_areas)),
+                context,
             )
             .map(|outcome| serde_json::json!({"id":outcome.id}))
             .map_err(|error| match error {

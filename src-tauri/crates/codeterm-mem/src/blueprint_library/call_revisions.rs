@@ -2,7 +2,7 @@ use super::*;
 use codeterm_blueprint_types::blueprint_document::calls::{
     self, CallPin, FrozenClosure, MemoryResolver,
 };
-pub(crate) fn freeze(
+pub fn freeze(
     resolver: Option<&dyn MemoryResolver>,
     document: Document,
 ) -> Result<Document, String> {
@@ -120,7 +120,7 @@ impl MemManager {
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn freeze_bundle(
+pub fn freeze_bundle(
     document: Document,
     local: &[calls::LocalCallee],
     resolver: &dyn MemoryResolver,
@@ -135,7 +135,7 @@ pub(crate) fn freeze_bundle(
     Ok(closure.document())
 }
 
-pub(crate) fn drift(
+pub fn drift(
     closure: &FrozenClosure,
     resolver: &dyn MemoryResolver,
 ) -> Result<Vec<calls::Drift>, String> {

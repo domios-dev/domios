@@ -5,7 +5,7 @@ use codeterm_blueprint_types::{
 };
 use std::sync::atomic::{AtomicU64, Ordering};
 pub mod authoring;
-pub(crate) mod call_revisions;
+pub mod call_revisions;
 pub mod catalog;
 mod changes;
 pub mod dedupe;
@@ -13,16 +13,16 @@ pub mod enrichment;
 #[cfg(test)]
 pub(crate) mod fakes;
 pub mod index;
-pub(crate) mod merge_policy;
+pub mod merge_policy;
 pub mod qualification;
 pub mod recall;
 pub mod services;
-pub(crate) mod show;
+pub mod show;
 use qualification::PreparedBlueprint;
 pub use recall::{BlueprintHit, Fusion, RecallConfig, Weights};
 pub use services::{BlueprintEnricher, EnrichmentJob};
 
-pub(crate) const SOURCE: &str = "blueprint-library";
+pub const SOURCE: &str = "blueprint-library";
 static RECALLS: AtomicU64 = AtomicU64::new(0);
 static HITS: AtomicU64 = AtomicU64::new(0);
 static DREAM_AREA: AtomicU64 = AtomicU64::new(0);

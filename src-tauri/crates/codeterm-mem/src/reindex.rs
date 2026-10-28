@@ -17,7 +17,7 @@ pub fn body_is_embeddable(body: &str) -> bool {
     body.trim().chars().count() >= MIN_EMBED_BODY_CHARS
 }
 
-pub(crate) fn compose_item_embed_text(
+pub fn compose_item_embed_text(
     kind: &str,
     title: &str,
     area: Option<&str>,

@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use super::store::MemItem;
 
-pub(crate) mod score;
+pub mod score;
 
 #[cfg(test)]
 mod tests;
@@ -61,17 +61,44 @@ pub fn generate(
     opts: &WakeUpOptions,
     blobs_dir: &Path,
 ) -> Result<String, String> {
+    let identity = if opts.include_l0 {
+        super::store::get(conn, IDENTITY_ID, blobs_dir)?.map(|item| item.body)
+    } else {
+        None
+    };
+    let (pinned, ranked, breakdown) = if opts.include_l1 {
+        collect_l1_candidates(
+            conn,
+            blobs_dir,
+            opts.current_workspace.as_deref(),
+            opts.explain,
+        )?
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
+    };
+    Ok(render_selection(
+        identity.as_deref(),
+        opts,
+        &pinned,
+        &ranked,
+        &breakdown,
+    ))
+}
+
+pub fn render_selection(
+    identity: Option<&str>,
+    opts: &WakeUpOptions,
+    pinned: &[MemItem],
+    ranked: &[MemItem],
+    breakdown: &[ScoreParts],
+) -> String {
     let mut out = String::new();
     let mut l0_tokens = 0;
     let mut l1_tokens = 0;
 
     if opts.include_l0 {
-        let identity = super::store::get(conn, IDENTITY_ID, blobs_dir)?
-            .map(|i| i.body)
-            .unwrap_or_else(|| {
-                "No identity configured. Tell the agent what to call you and run `domios mem save --kind preference --title identity \"...\"`.".to_string()
-            });
-        let truncated = truncate_tokens(&identity, opts.l0_budget_tokens);
+        let identity = identity.unwrap_or("No identity configured. Tell the agent what to call you and run `domios mem save --kind preference --title identity \"...\"`.");
+        let truncated = truncate_tokens(identity, opts.l0_budget_tokens);
         l0_tokens = approx_tokens(&truncated);
         out.push_str("## L0 — Identity\n\n");
         out.push_str(&truncated);
@@ -79,9 +106,7 @@ pub fn generate(
     }
 
     if opts.include_l1 {
-        let ws = opts.current_workspace.as_deref();
-        let (pinned, ranked, breakdown) = collect_l1_candidates(conn, blobs_dir, ws, opts.explain)?;
-        let (rendered, used, evicted_pinned) = render_l1(&pinned, &ranked, opts.l1_budget_tokens);
+        let (rendered, used, evicted_pinned) = render_l1(pinned, ranked, opts.l1_budget_tokens);
         l1_tokens = used;
         if evicted_pinned > 0 {
             out.push_str(&format!(
@@ -97,7 +122,7 @@ pub fn generate(
         out.push_str(&rendered);
         if opts.explain {
             out.push_str("\n<!-- L1 score breakdown -->\n");
-            for p in &breakdown {
+            for p in breakdown {
                 out.push_str(&format!(
                     "[L1 score] id={} kind={} score={:.2} importance={:.1} evidence={} ws_match={} recent={}\n",
                     p.id, p.kind, p.score, p.importance, p.evidence_count, p.ws_match, p.recent_30d,
@@ -112,18 +137,18 @@ pub fn generate(
         l1_tokens,
         l0_tokens + l1_tokens,
     ));
-    Ok(out)
+    out
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct ScoreParts {
-    pub(crate) id: String,
-    pub(crate) kind: String,
-    pub(crate) importance: f64,
-    pub(crate) evidence_count: i64,
-    pub(crate) ws_match: bool,
-    pub(crate) recent_30d: bool,
-    pub(crate) score: f64,
+pub struct ScoreParts {
+    pub id: String,
+    pub kind: String,
+    pub importance: f64,
+    pub evidence_count: i64,
+    pub ws_match: bool,
+    pub recent_30d: bool,
+    pub score: f64,
 }
 
 fn collect_l1_candidates(

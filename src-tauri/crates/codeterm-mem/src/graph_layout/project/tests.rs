@@ -23,6 +23,30 @@ fn adjacency_is_undirected_and_active_only() {
     assert!(adj.get("c").is_none(), "invalidated edge must be excluded");
 }
 
+#[cfg(feature = "embeddings")]
+#[test]
+fn extracted_projection_preserves_the_single_vector_origin() {
+    let positions = project_positions(
+        &[("one".into(), vec![1.0, 0.0, 0.0])],
+        &HashMap::new(),
+        Vec::new(),
+    )
+    .unwrap();
+    assert_eq!(positions.len(), 1);
+    let position = positions["one"];
+    assert_eq!((position.x, position.y), (0.0, 0.0));
+    assert_eq!(position.cluster_id, 0);
+}
+
+#[cfg(not(feature = "embeddings"))]
+#[test]
+fn extracted_projection_preserves_the_feature_capability() {
+    assert_eq!(
+        project_positions(&[], &HashMap::new(), Vec::new()).unwrap_err(),
+        "layout projection unavailable on this build (needs the embeddings feature)"
+    );
+}
+
 #[cfg(all(feature = "embeddings", not(target_os = "macos")))]
 #[test]
 fn non_macos_project_2d_pca_seed_and_knn_are_populated() {

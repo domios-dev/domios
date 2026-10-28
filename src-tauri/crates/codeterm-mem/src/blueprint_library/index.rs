@@ -48,7 +48,7 @@ pub enum Slot {
 }
 
 impl Slot {
-    pub(crate) fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             Self::Intent => "intent",
             Self::Canon => "canon",
@@ -57,7 +57,7 @@ impl Slot {
         }
     }
 
-    pub(crate) fn parse(name: &str) -> Option<Self> {
+    pub fn parse(name: &str) -> Option<Self> {
         [Self::Intent, Self::Canon, Self::WorkerIntent, Self::Summary]
             .into_iter()
             .find(|slot| slot.name() == name)
@@ -80,7 +80,7 @@ impl Vectors {
     }
 }
 
-pub(crate) fn valid_dimension(vector: &[f32], dimension: usize) -> bool {
+pub fn valid_dimension(vector: &[f32], dimension: usize) -> bool {
     dimension > 0 && vector.len() == dimension && vector.iter().all(|value| value.is_finite())
 }
 
