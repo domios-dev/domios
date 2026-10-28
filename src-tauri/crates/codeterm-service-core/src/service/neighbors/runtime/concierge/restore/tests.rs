@@ -125,3 +125,61 @@ async fn failed_replacement_keeps_the_old_binding_and_permissions() {
     );
     assert!(service.mux.read().get_tab(&old).is_some());
 }
+
+#[tokio::test]
+async fn startup_retires_only_superseded_roots_into_recently_closed() {
+    let (mut mux, general) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&general).unwrap();
+    let friend = "a".repeat(64);
+    let mut tabs = Vec::new();
+    for (uid, friendship, root_tab_id) in [
+        ("owner", friend.clone(), None),
+        ("owner", friend.clone(), None),
+        ("other-owner", friend.clone(), None),
+        ("owner", "b".repeat(64), None),
+        ("owner", friend.clone(), Some("current-root".to_string())),
+    ] {
+        let id = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("advisory-provider".into());
+        tab.neighbor_authority = Some(crate::multiplexer::types::NeighborAuthority {
+            uid: uid.into(),
+            friendship_id: friendship,
+            root_tab_id,
+        });
+        tabs.push(id);
+    }
+    let fixture = ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let permission = Permission::default();
+    let cwd =
+        crate::service::neighbors::confinement::prepare_folder(&metadata, &friend, &permission)
+            .await
+            .unwrap();
+    service.mux.write().get_tab_mut(&tabs[1]).unwrap().cwd = Some(cwd);
+    let mut settings = crate::service::neighbors::storage::Settings::default();
+    settings.bindings.insert(friend.clone(), tabs[1].clone());
+    settings.permissions.insert(friend.clone(), permission);
+    metadata.save_settings(settings).await.unwrap();
+    for _ in 0..2 {
+        service
+            .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _| async {
+                Err("current launch must not be replaced".into())
+            })
+            .await
+            .unwrap();
+    }
+    let mux = service.mux.read();
+    assert!(mux.get_tab(&tabs[0]).is_none());
+    for tab in &tabs[1..] {
+        assert!(mux.get_tab(tab).is_some());
+    }
+    assert_eq!(
+        mux.list_recently_closed(&workspace)
+            .iter()
+            .filter(|tab| tab.tab_id == tabs[0])
+            .count(),
+        1
+    );
+}
