@@ -19,7 +19,8 @@ import { tabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
-import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { markNeighborRead, neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { useNeighborReadReceipt } from "./useNeighborReadReceipt";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
 import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, landedSends, mergeHistory, readableBody, receiptMark, refusalLine, speaker, type ConciergeWorkEntry, type OutgoingSend, type ReceiptMark } from "./neighborConversationModel";
@@ -37,8 +38,9 @@ import { formatBytes, neighborFilesClient, NeighborFilesFailure, type NeighborFi
 import { receivingLine, useReceiverState } from "./useReceiverState";
 
 /** Your conversation with one Neighbor: what they asked, what you and your agents answered, and how it was delivered. */
-export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient = neighborFilesClient }: {
+export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient = neighborFilesClient, markRead = markNeighborRead }: {
   friendship: string; enabled?: boolean; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient; filesClient?: NeighborFilesClient;
+  markRead?: (friendship: string, throughMessageId: string) => Promise<void>;
 }) {
   const { model } = useAccount();
   const identity = model.kind === "signed_in" ? model.identity.uid : null;
@@ -58,7 +60,7 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
     ?? { friendship_id: friendship, uid: friendship, displayName: "Former Neighbor", photoURL: null };
   const access = neighbors.list?.access ?? cached?.access;
   return <Conversation key={friendship} friend={shown} removed={removed} locked={access !== "paid"} enabled={enabled}
-    runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient} onSent={neighbors.refresh} />;
+    runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient} markRead={markRead} onSent={neighbors.refresh} />;
 }
 
 /** A friend from the fresh list, or the remembered one while it loads. */
@@ -66,9 +68,9 @@ type ConversationFriend = CachedFriend & Partial<Omit<Neighbor, keyof CachedFrie
 
 const MESSAGE_LIMIT_BYTES = 32752;
 
-function Conversation({ friend, removed, locked, enabled, runtimeClient, conciergeClient, filesClient, onSent }: {
+function Conversation({ friend, removed, locked, enabled, runtimeClient, conciergeClient, filesClient, markRead, onSent }: {
   friend: ConversationFriend; removed: boolean; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient;
-  filesClient: NeighborFilesClient; onSent: () => void;
+  filesClient: NeighborFilesClient; markRead: (friendship: string, throughMessageId: string) => Promise<void>; onSent: () => void;
 }) {
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
@@ -121,6 +123,8 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The General Agent could not be reached."));
   };
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
+  // Sent messages show at once; each becomes its history entry when that lands, keeping its bubble.
+  const [outgoing, setOutgoing] = useState<OutgoingSend[]>([]);
   const [before, setBefore] = useState<string | null>(null);
   // An ended friendship keeps its history readable but takes no new messages.
   const [historyEnded, setEnded] = useState(false);
@@ -164,6 +168,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     const element = scroller.current;
     if (element && stickToEnd.current) element.scrollTop = element.scrollHeight;
   }, [entries, outgoing]);
+  useNeighborReadReceipt(scroller, entries, friendship, markRead);
 
   const loadEarlier = async () => {
     if (!before) return;
@@ -191,8 +196,6 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const paused = usePausedFriends(conciergeClient)(friendship, listedPaused(friend));
   const theyPaused = friend.their_paused === true;
   const canSend = enabled && !locked && !limitReached && !ended && !theyPaused;
-  // Sent messages show at once; each becomes its history entry when that lands, keeping its bubble.
-  const [outgoing, setOutgoing] = useState<OutgoingSend[]>([]);
   const sendCount = useRef(0);
   const bubbleKeys = useRef(new Map<string, string>());
   const landed = entries ? landedSends(outgoing, entries, new Set(bubbleKeys.current.values())) : new Map<string, string>();
@@ -357,7 +360,7 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
       <AccountAvatar url={friend.photoURL} initial={accountInitials(friendName)} label="" size="node" />
       {author === "friend-agent" && <span className="neighbor-msg__badge"><Bot size={8} aria-hidden="true" /></span>}
     </span>;
-  return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-side={mine ? "out" : "in"} data-author={author}
+  return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-message-id={entry.message_id} data-side={mine ? "out" : "in"} data-author={author}
     data-kind={entry.kind} data-grouped={grouped || undefined} data-refused={refused || undefined}
     aria-label={author === "me" ? "You" : author === "my-agent" ? agentName : author === "friend-agent" ? agentName : friendName}>
     {!mine && avatar}

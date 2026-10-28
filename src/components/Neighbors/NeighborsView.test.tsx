@@ -705,6 +705,27 @@ it("keeps a message that is too long in the composer instead of sending it", asy
   expect(input.value.length).toBe(16377);
 });
 
+it("reports read only up to the newest message from them that is visible", async () => {
+  const visible = new Set(["b".repeat(32)]);
+  class SeenObserver {
+    constructor(private readonly callback: IntersectionObserverCallback) {}
+    observe(target: HTMLElement) {
+      this.callback([{ target, isIntersecting: visible.has(target.dataset.messageId ?? "") } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    }
+    disconnect() {}
+  }
+  vi.stubGlobal("IntersectionObserver", SeenObserver);
+  const markRead = vi.fn(async () => {});
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} markRead={markRead} conciergeClient={concierge([
+    { direction: "in", kind: "question", author: "friend", body: "First", at: 1700000000000, message_id: "a".repeat(32) },
+    { direction: "in", kind: "question", author: "friend", body: "Second", at: 1700000001000, message_id: "b".repeat(32) },
+    { direction: "in", kind: "question", author: "friend", body: "Off screen", at: 1700000002000, message_id: "c".repeat(32) }])} />));
+  vi.unstubAllGlobals();
+  expect(markRead).toHaveBeenCalledExactlyOnceWith("pair", "b".repeat(32));
+});
+
 it("marks a read message with accent ticks, labelled Read", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
