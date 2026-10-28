@@ -163,7 +163,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
                 <Button size="sm" variant="primary" onClick={onEnable}>Turn on Neighbors</Button>
               </div>
               : me.kind === "signed_in" ? <><span className="neighbor-node__name">You</span>
-                {receiver && <span role="status" className="neighbor-note neighbor-me__receiving">{receivingLine(receiver)}</span>}</>
+                {receiver && <span role="status" className="neighbor-note neighbor-me__receiving">Account default: {receivingLine(receiver)}</span>}</>
               : <div className="neighbor-me__signin">
                 <p className="neighbor-me__title">Sign in to meet your neighbors</p>
                 <p className="neighbor-me__hint">Invited? Sign in with that email for a free week.</p>

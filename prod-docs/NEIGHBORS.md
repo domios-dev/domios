@@ -6,7 +6,7 @@ Neighbors defaults on per instance. Off immediately stops receive/send/request n
 
 ## Receiving and keys
 
-Choose Receive here with confirmation; never take over automatically. Each friend uses its override or the account receiver. One installation key pair serves its concierges. Rotate explicitly; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
+Each friend receives on its chosen machine (override or account default). Receive this friend here changes only that friend; Receive all friends here confirms account takeover. Never take over automatically. One installation key pair serves its concierges; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
 
 ```bash
 domios account neighbors status
@@ -16,11 +16,11 @@ domios account neighbors rotate
 domios account neighbors revoke
 ```
 
-Use current revision; stale values require reread/reconfirmation. Status/events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, `revision`. Nonreceivers cannot accept new messages. Keys use Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext fallback. Sign-out clears local account access first; server session revocation stops receiving, and cleanup removes only this installation's private keys.
+Friend moves use the effective friend revision; account enrollment uses top-level revision. Reconfirm stale values. `status.friend_receivers[id]` exposes `receiving_here,receiver_machine_label,receiving_enabled,revision,source`; missing=unknown, never account fallback. Top-level receiver fields describe the account default. Keys: Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext. Sign-out clears local access first; session revocation stops reception, then cleanup removes only this installation's private keys.
 
-Grants/setup stay local. Receiver loss closes that friend's agents to Recently Closed and revokes credentials; return starts fresh. Unknown/nonreceivers refuse concierge changes/launch (`receiving_elsewhere`). Questions without a concierge stay encrypted/unacknowledged; no cursor advance until local setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Observers retain no names; recounts coalesce.
+Grants/setup stay local. Receiver loss closes that friend's agents to Recently Closed, revoking credentials; return starts fresh. Unknown/nonreceivers refuse concierge changes/launch (`receiving_elsewhere`). Questions without a concierge stay encrypted/unacknowledged; no cursor advance until local setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Observers retain no names; recounts coalesce.
 
-Receive retries: max3 consecutive failures; confirmed snapshots reset. Exhaustion: listen_retries_exhausted. Auth/revocation/off/account-generation/receiver changes terminate. Retry retains the cursor and never replays uncertain sends. status.watches and neighbors-watch-status expose watch/errors. Reconnect/cache/admission: API-LIFECYCLE.
+Receive retry budget3 resets on confirmed snapshots; exhaustion=listen_retries_exhausted. Auth/revocation/off/account-generation/receiver changes terminate. Retry retains cursor, never replays uncertain sends. status.watches/neighbors-watch-status expose errors. Reconnect/cache/admission: API-LIFECYCLE.
 
 ## Authority and permissions
 
@@ -82,7 +82,7 @@ domios account neighbors grant ID --memory-areas all
 
 Deny sets only allowed=false. Runtime set_permission merges partial permission; null clears nullable fields. Invalid input refuses typed before saving. CLI/UI share Apply; limits stay separate.
 
-## Concierge setup and Apply
+## Setting up a friend's concierge
 
 General asks trust level, proposes one preset, explains it before saving, and offers project restrictions via areas/workspaces/folder. Keep machine access off unless requested; because `none` is unsupported, leave the concierge disabled if required. Obtain the owner's choice before preset read-only/folder access; never silently widen to full. All presets: `allowed:true`, approved scope, `allow_files:true`, `allow_interactive_content:false`; message limits use separate `set_daily_limit`.
 
@@ -127,7 +127,7 @@ Refusal replies must target an incoming message in this friendship's local histo
 
 Owner/General `set_daily_limit {friendship_id,daily_limit:20}`; null removes it. Friend fields:`my_daily_limit,their_daily_limit,sent_today`. Recipient-limit failure: `not_delivered,reason:neighbor_daily_limit,limit,resets_at` (Unix seconds), retained in history; ask recipient to raise limit. Replies send `in_reply_to` for server-only once-per-inbound exemption.
 
-Receiving lifecycle (enroll/rotate/revoke/takeover) is owner-only. General reads status/edits grants/sends across friends. Other agents get history/send/retry only for their live binding; delivery status requires a local outgoing row. Other tabs cannot read status/list friends/control receiving:403 `neighbor_forbidden`. History/grant/notification-preference/status reads use local files/cache outside the network queue with unchanged auth checks, no Firestore refresh. `receiver_status_known:false` means no snapshot; receiver/registry events update it.
+Receiving changes (friend set/reset, enroll/rotate/revoke/takeover) are owner-only. General reads status/edits grants/sends across friends. Other agents get history/send/retry only for their live binding; delivery status requires a local outgoing row. Other tabs cannot read status/list friends/control receiving:403 `neighbor_forbidden`. History/grant/preference/status reads stay local, outside the network queue, with the same auth. Receiver observation: API-LIFECYCLE.
 
 ## Read receipts
 
@@ -177,4 +177,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->
