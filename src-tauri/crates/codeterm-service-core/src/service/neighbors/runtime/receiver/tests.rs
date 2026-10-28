@@ -149,10 +149,12 @@ async fn failed_receiver_watch_keeps_reconnecting_cause_and_visible_exhaustion()
         ListenerState::Reconnecting
     );
     assert_eq!(service.neighbor_cell().failures.lock()[&friend]["code"], 13);
-    assert!(observed
-        .lock()
-        .iter()
-        .all(|event| event["status"] == "reconnecting" && !event["error"].is_null()));
+    {
+        let events = observed.lock();
+        assert_eq!(events[0],json!({"receiver_unavailable":true,"friend_receivers_version":1}));
+        assert!(!events[1..].is_empty());
+        assert!(events[1..].iter().all(|event| event["status"] == "reconnecting" && !event["error"].is_null()));
+    }
     service.neighbor_watch_failure(
         "control",
         Error::ListenProtocol {

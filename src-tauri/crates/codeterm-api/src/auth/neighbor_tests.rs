@@ -327,7 +327,19 @@ async fn own_launch_hooks_work_before_attestation_but_foreign_hooks_and_self_app
 async fn real_history_route_refuses_other_friendships_without_identity_headers() {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
-    let (_fixture, state, _, token) = concierge_fixture(true).await;
+    let (fixture, state, concierge, token) = concierge_fixture(true).await;
+    let foreign = {
+        let mut mux = state.svc.mux.write();
+        let workspace = mux.find_workspace_for_tab(&concierge).unwrap();
+        let id = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("fixture".into());
+        tab.agent_session_id = Some("foreign-session".into());
+        tab.session_binding_nonce = Some("foreign-nonce".into());
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+        id
+    };
+    fixture.seed_neighbor_concierge(&foreign,&"b".repeat(64),serde_json::from_value(serde_json::json!({"allowed":true,"scope":"opaque foreign fixture"})).unwrap()).await;
     let router = crate::routes::create_router(state);
     for (friendship, status) in [
         ("a".repeat(64), StatusCode::OK),
