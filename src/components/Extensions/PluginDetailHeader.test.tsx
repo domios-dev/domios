@@ -1,6 +1,7 @@
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Extensions/PluginDetailHeader.test.tsx
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -172,7 +173,32 @@ async function main() {
   await configureWithAiIsTheHeaderActionAndFiresOnce();
   await uninstalledPluginOffersInstallOnly();
   await pluginNameAppearsOnceOnTheDetailPage();
-  console.log("PluginDetailHeader behavior: 4/4 passed");
+  await codexWithoutHtmlUiOffersNoView();
+  console.log("PluginDetailHeader behavior: 5/5 passed");
+}
+
+async function codexWithoutHtmlUiOffersNoView() {
+  const manifest = JSON.parse(readFileSync(new URL("../../../plugins/provider-codex/plugin.json", import.meta.url), "utf8")) as {
+    id: string; displayName: string; capabilities: { view?: boolean };
+  };
+  assert.notEqual(manifest.capabilities.view, true);
+  const { PluginDetailPanel } = await import("./PluginDetailPanel");
+  const host = document.createElement("div");
+  host.innerHTML = renderToStaticMarkup(<PluginDetailPanel
+    entry={{ ...telegram, id: manifest.id, displayName: manifest.displayName, configHelp: null, capabilities: { view: manifest.capabilities.view } }}
+    config={{ api: { host: "127.0.0.1", port: 7686 } }}
+    busy={null}
+    onAction={() => {}}
+    onHostGrant={() => {}}
+    onSave={async () => {}}
+    onUpdateFullConfig={() => {}}
+    onGone={() => {}}
+    activityDisplayMap={new Map()}
+  />);
+  assert.equal(host.querySelector("h2")?.textContent, "Codex");
+  assert.equal(host.querySelector('[data-testid="extensions-plugin-view"]'), null);
+  assert.equal(host.querySelector("iframe"), null);
+  assert.ok(!visibleButtonNames(host).some((name) => /^open(?:\s|$)/i.test(name)));
 }
 
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

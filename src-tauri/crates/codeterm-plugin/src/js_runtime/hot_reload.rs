@@ -152,7 +152,7 @@ impl CapabilityRegistries {
                 Arc::new(super::JsBubbleProvider::new(vm.clone(), id.clone())),
             );
         }
-        if caps.view {
+        if caps.view || caps.remote_task.is_some() {
             self.view.register(
                 id.clone(),
                 Arc::new(super::JsViewProvider::with_webhook_receiver(
@@ -975,6 +975,8 @@ mod converter_tests;
 mod keep_on_failure_tests;
 #[cfg(test)]
 mod recording_tests;
+#[cfg(test)]
+mod remote_task_tests;
 #[cfg(test)]
 mod surface_tests;
 #[cfg(test)]

@@ -90,7 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  cloudExecution.enabled = false;
+  cloudExecution.enabled = true;
   if (root) await act(async () => root!.unmount());
   root = null;
   host.remove();
@@ -334,6 +334,7 @@ it("offers folder relocation instead of session or team start for a missing work
 });
 
 it("hides Cloud execution while it is disabled, without refreshing remote providers", async () => {
+  cloudExecution.enabled = false;
   Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
     backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
     environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
@@ -344,7 +345,7 @@ it("hides Cloud execution while it is disabled, without refreshing remote provid
 });
 
 it("offers Remote only through declared capability and spawns the selected environment without local model controls", async () => {
-  cloudExecution.enabled = true;
+  expect(cloudExecution.enabled).toBe(true);
   Object.assign(fixture.providers.providers.find((provider: {id: string}) => provider.id === "opencode")!, {remote_task: {
     backend: "fixture", mode: "cloud", displayName: "Cloud", availability: {status: "available"},
     environments: [{id: "env-fixture", label: "Fixture environment", accountRef: "account-fixture"}], followUp: false, cancel: false, applyDiff: false,
