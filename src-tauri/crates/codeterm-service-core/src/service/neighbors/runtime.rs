@@ -722,13 +722,30 @@ impl ServiceContext {
             return Ok(());
         }
         self.require_neighbor_generation(generation)?;
+        let friendships = friends["friends"]
+            .as_array()
+            .ok_or("Invalid Neighbors response")?;
+        for friend in friendships {
+            if let Some(friendship) = friend["friendship_id"].as_str().filter(|id| hex_id(id, 64)) {
+                if settings
+                    .bindings
+                    .get(friendship)
+                    .is_some_and(|tab| self.validate_neighbor_gateway(tab).is_ok())
+                {
+                    self.restore_neighbor_concierge(&metadata, &transport.uid, friendship)
+                        .await?;
+                    self.require_neighbor_generation(generation)?;
+                }
+            }
+        }
+        let settings = metadata
+            .settings()
+            .await
+            .map_err(|error| error.to_string())?;
         let listener_generation = self
             .neighbor_cell()
             .listener_generation
             .load(Ordering::Acquire);
-        let friendships = friends["friends"]
-            .as_array()
-            .ok_or("Invalid Neighbors response")?;
         for friend in friendships {
             let friendship = friend["friendship_id"]
                 .as_str()

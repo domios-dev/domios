@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn manual_binding_cannot_reuse_an_unconfined_or_differently_rooted_launch() {
+fn bound_launch_matches_effective_sandbox_and_working_folder() {
     assert!(!bound_launch_matches(
         Some("friend"),
         None,
@@ -96,7 +96,7 @@ fn capability() -> codeterm_plugin::provider::ExecutionSandboxCapability {
 }
 
 #[test]
-fn read_only_machine_access_requires_exact_provider_support() {
+fn read_only_machine_access_uses_supported_sandbox_or_honest_advisory_mode() {
     for platform in ["windows", "linux", "macos"] {
         for runtime in [true, false] {
             assert_eq!(
@@ -107,17 +107,20 @@ fn read_only_machine_access_requires_exact_provider_support() {
             );
         }
     }
-    assert!(sandbox_label(
-        &Default::default(),
-        "windows",
-        true,
-        MachineAccess::ReadOnly
-    )
-    .is_err());
+    assert_eq!(
+        sandbox_label(
+            &Default::default(),
+            "windows",
+            true,
+            MachineAccess::ReadOnly
+        )
+        .unwrap(),
+        None
+    );
 }
 
 #[test]
-fn folder_machine_access_never_falls_back_to_another_level() {
+fn folder_machine_access_prefers_workspace_then_read_only_then_advisory() {
     let mut capability = capability();
     assert_eq!(
         sandbox_label(&capability, "windows", true, MachineAccess::Folder)
@@ -126,7 +129,17 @@ fn folder_machine_access_never_falls_back_to_another_level() {
         Some("workspace-write")
     );
     capability.mutating = None;
-    assert!(sandbox_label(&capability, "windows", true, MachineAccess::Folder).is_err());
+    assert_eq!(
+        sandbox_label(&capability, "windows", true, MachineAccess::Folder)
+            .unwrap()
+            .as_deref(),
+        Some("read-only")
+    );
+    capability.read_only = None;
+    assert_eq!(
+        sandbox_label(&capability, "windows", true, MachineAccess::Folder).unwrap(),
+        None
+    );
 }
 
 #[test]
