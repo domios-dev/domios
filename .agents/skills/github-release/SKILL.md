@@ -487,8 +487,10 @@ Integration PRs use metadata; the final master PR gets generated closing keyword
 and deferred issues with reasons; do not invent fixes or handwrite a second closing set.
 Public issues close only after this version's complete served-byte verification passes
 `check-release-closure.mjs`. The closure boundary records validator run ID/repository/URL and source
-SHA; readers confirm that successful run through Actions. Missing/unverifiable boundaries are
-refused, never inferred from asset presence or release ownership.
+SHA; readers confirm that run through Actions. A failed/cancelled run qualifies only when its
+exact-attempt jobs prove public-mirror verification, Debian verification and boundary minting
+succeeded in one job before any failure/cancellation. Missing/unverifiable boundaries are refused,
+never inferred from asset presence or release ownership.
 Included-history resolution prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
 alias of the same version, resolves fully qualified tag refs, and still requires verified publication boundaries.
 
@@ -507,4 +509,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
