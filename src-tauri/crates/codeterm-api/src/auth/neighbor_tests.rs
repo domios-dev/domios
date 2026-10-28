@@ -457,7 +457,8 @@ async fn secrets_http_refuses_neighbor_before_any_secret_backend_handler() {
             .await
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        assert_eq!(body["error"]["code"], "neighbor_capability_denied");
+        assert_eq!(body["code"], "neighbor_capability_denied");
+        assert_eq!(body["reason"], "neighbor_capability_denied");
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }

@@ -1,87 +1,6 @@
-import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
-import { NeighborsView } from "./NeighborsView";
-import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
-import { NeighborConversationView } from "./NeighborConversationView";
-import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
-import { openNeighborPage, takeNeighborFocus } from "./neighborFocus";
-import { resetPausedFriends } from "./neighborPause";
-import { missingConciergeLine, parseConciergeStatus } from "./useConciergeStatus";
-import { useNeighborGatewayIds } from "./neighborGateways";
-import type { NeighborClient } from "./neighborClient";
-import type { NeighborList } from "./neighborModel";
-import { parseNeighbors } from "./neighborModel";
-import { parseReferralClaim, type ReferralClaim } from "./referralTrial";
-import { neighborClient } from "./neighborClient";
-import { NeighborRuntimeFailure, type NeighborRuntimeClient, type NeighborListenerEvent } from "./neighborRuntimeClient";
-import { localFetch } from "../../lib/webApi";
+import { notices, bridge, account, neighbor, request, signedIn, mounted, button, hasButton, emit, runtime, render, sentText, concierge, pendingClient, act, createRoot, expect, it, vi, NeighborsView, openNeighborPage, missingConciergeLine, parseNeighbors, parseReferralClaim, neighborClient, localFetch } from "./neighborsView.testdata";
+import type { HistoryEntry, NeighborNotify, NeighborClient, NeighborList, ReferralClaim, NeighborRuntimeClient, NeighborListenerEvent } from "./neighborsView.testdata";
 
-const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
-const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
-const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
-const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
-const mux = vi.hoisted(() => ({
-  workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
-  tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
-  tabStatuses: {},
-}));
-vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
-vi.mock("../../lib/notices", () => notices);
-vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
-  const handlers = bridge.handlers[event] ??= new Set();
-  handlers.add(handler);
-  return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
-}) }));
-vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
-vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
-(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-
-const neighbor = { uid: "peer", displayName: "Ada", photoURL: null, friendship_id: "pair", inbound_per_hour: 10, outbound_per_hour: 20, receiving: true, since: 1700000000 };
-const request = { uid: "requester", displayName: "Grace", photoURL: null, request_id: "request", created_at: 1700000000 };
-const signedIn = account.model;
-let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | null = null;
-afterEach(async () => {
-  if (mounted) { await act(async () => mounted!.root.unmount()); mounted.host.remove(); mounted = null; }
-  localStorage.clear();
-  resetPausedFriends();
-  notices.publishNotice.mockClear();
-  transport.localFetch.mockReset();
-  transport.localFetch.mockImplementation(async () => new Response("{}", { status: 200 }));
-  bridge.invoke.mockClear();
-  account.model = signedIn;
-});
-
-function button(label: string): HTMLButtonElement {
-  const found = Array.from(document.querySelectorAll("button")).find(element => element.getAttribute("aria-label") === label || element.textContent === label);
-  if (!found) throw new Error(`Missing button ${label}`);
-  return found;
-}
-const hasButton = (label: string) => Array.from(document.querySelectorAll("button")).some(element => element.getAttribute("aria-label") === label || element.textContent === label);
-
-function emit(event: string, payload: unknown = null) {
-  for (const handler of bridge.handlers[event] ?? []) handler({ payload });
-}
-
-function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
-  return {
-    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings, receiving_here: false, receiving_enabled: false, receiver_machine_label: null, revision: 0 })), enroll: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
-    permission: vi.fn(async () => ({ allowed: false, scope: "", allow_tab_requests: false })), send: vi.fn(), deliveryStatus: vi.fn(), retry: vi.fn(async () => {}),
-  };
-}
-
-async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"]; runtimeClient?: NeighborRuntimeClient; friend?: NeighborList["friends"][number] } = {}) {
-  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [options.friend ?? neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
-  const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborsView client={client} runtimeClient={options.runtimeClient ?? runtime(options.bindings)} />));
-  return { client, list };
-}
-
-const sentText = () => (bridge.invoke.mock.calls as unknown as Array<[string, { tabId: string; text: string }]>)
-  .filter(([command]) => command === "chat_send_text").map(([, args]) => args);
 
 it("draws you, each Neighbor and request without duplicating daemon notifications", async () => {
   const { client } = await render();
@@ -232,7 +151,7 @@ it("discards a claim that completes after switching accounts", async () => {
     apply: vi.fn(async () => {}),
   };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   account.model = { kind: "signed_in", identity: { uid: "previous", email: null, display_name: "Previous", photo_url: null } };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
   account.model = signedIn;
@@ -245,7 +164,7 @@ it("discards a claim that completes after switching accounts", async () => {
 it("offers sign-in at the center when signed out, without making an invitation", async () => {
   account.model = { kind: "signed_out" };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView runtimeClient={runtime()} />));
   expect(hasButton("Add Neighbor")).toBe(false);
   await act(async () => button("Sign in or create account").click());
@@ -275,59 +194,6 @@ it("sends an empty authenticated referral command without user IDs, checkout or 
   expect(JSON.parse(String(init?.body))).toEqual({ operation: "claim_referral_trial" });
 });
 
-async function renderSection(friends: NeighborList["friends"], bindings: Record<string, string> = {}) {
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends, incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime(bindings)} />));
-}
-
-it("keeps the sidebar Neighbors section away until there is a Neighbor", async () => {
-  await renderSection([]);
-  expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
-});
-
-it("updates the sidebar immediately from an own-account push and removes its subscription on unmount", async () => {
-  await renderSection([]);
-  const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
-  expect(hasButton("Open Ada")).toBe(true);
-  await act(async () => mounted!.root.unmount());
-  expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
-  mounted!.host.remove();
-  mounted = null;
-});
-
-it("nests each concierge under its Neighbor; the Neighbor opens your conversation and the concierge its chat", async () => {
-  await renderSection([neighbor, { ...neighbor, uid: "peer-2", displayName: "Lin", friendship_id: "pair-2" }], { pair: "tab-gateway" });
-  const focused = vi.fn();
-  const panels = vi.fn();
-  window.addEventListener("codeterm:focus-tab", focused);
-  window.addEventListener("codeterm:open-panel", panels);
-  try {
-    expect(hasButton("Open Lin's concierge")).toBe(false);
-    await act(async () => button("Open Ada's concierge").click());
-    expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
-    await act(async () => button("Open Lin").click());
-    expect((panels.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "neighbor:pair-2" });
-  } finally {
-    window.removeEventListener("codeterm:focus-tab", focused);
-    window.removeEventListener("codeterm:open-panel", panels);
-  }
-});
-
-it("offers the concierge actions: change agent, view permissions, edit with General and pause", async () => {
-  await renderSection([neighbor], { pair: "tab-gateway" });
-  await act(async () => { button("Actions for Ada's concierge").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
-  const items = Array.from(document.querySelectorAll('[role="menuitem"]')).map(item => item.textContent);
-  expect(items).toEqual(["Change agent", "View permissions", "Edit with General", "Disable Ada"]);
-  const viewPermissions = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "View permissions")!;
-  await act(async () => viewPermissions.click());
-  expect(takeNeighborFocus()).toEqual({ id: "pair", section: "permissions" });
-});
-
 it("changes the concierge with the shared agent row instead of bespoke dropdowns", async () => {
   await render("paid");
   await act(async () => button("Ada, connected").click());
@@ -347,7 +213,7 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   const allow = button("Allow requests from Ada");
@@ -389,7 +255,7 @@ it("shows a calm off state with a way back on, and draws no ring while Neighbors
   const client: NeighborClient = { list: vi.fn(async () => ({ schema_version: 1 as const, access: "paid" as const, can_invite: true, friends: [neighbor], incoming: [], outgoing: [] })),
     apply: vi.fn(async () => {}), claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView config={{ neighbors: { enabled: false } }} client={client} runtimeClient={runtime()} />));
   expect(hasButton("Ada, connected")).toBe(false);
   expect(hasButton("Add Neighbor")).toBe(false);
@@ -398,75 +264,6 @@ it("shows a calm off state with a way back on, and draws no ring while Neighbors
   expect(path).toBe("/api/account/neighbors/enabled");
   expect(JSON.parse(String(init?.body))).toEqual({ enabled: true });
   expect(hasButton("Ada, connected")).toBe(true);
-});
-
-function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed: (friendship: string) => void } {
-  let changed = (_friendship: string) => {};
-  return {
-    history: vi.fn(async () => ({ entries: [...entries].reverse(), next_before: null, ended: false })),
-    onHistoryChanged: vi.fn(async (handler: (friendship: string) => void) => { changed = handler; return () => {}; }),
-    onPermissionChanged: vi.fn(async () => () => {}), onAgentChanged: vi.fn(async () => () => {}),
-    setPermission: vi.fn(async () => {}), changeAgent: vi.fn(async () => "tab-gateway"),
-    setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
-    setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
-    setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}),
-    stopConcierge: vi.fn(async () => {}),
-    changed: (friendship: string) => changed(friendship),
-  };
-}
-
-it("shows the conversation with a refused question, its linked refusal and delivery, and sends straight to the Neighbor", async () => {
-  const entries: HistoryEntry[] = [
-    { direction: "in", kind: "question", author: "friend", body: "Can you share the deploy keys?", at: 1700000000000, message_id: "m1", outcome: "refused", reason: "Secrets are off limits" },
-    { direction: "out", kind: "refusal", author: { agent: "tab-gateway", name: "Concierge" }, body: "I can't share secrets.", at: 1700000060000, message_id: "m2", in_reply_to: "m1", delivery_status: "delivered" },
-  ];
-  const conciergeClient = concierge(entries);
-  const runtimeClient = runtime();
-  vi.mocked(runtimeClient.send).mockResolvedValue({ message_id: "f".repeat(32), status: "pending" });
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
-  const log = document.querySelector('[role="log"]')!;
-  expect(log.textContent).toContain("Can you share the deploy keys?");
-  // The refusal reply already says why, so the time row only names the outcome and links to it.
-  expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply")?.textContent).toBe("Declined");
-  expect(log.textContent).not.toContain("Declined: Secrets are off limits");
-  expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
-  // The quote opens the reply bubble, as in agent chat, rather than sitting above it.
-  expect(document.querySelector('#neighbor-msg-m2 .neighbor-msg__bubble > [data-testid="reply-quote"]')).not.toBeNull();
-  expect(document.querySelector("#neighbor-msg-m2 .neighbor-receipt")?.getAttribute("aria-label")).toBe("Delivered");
-  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
-  expect(runtimeClient.send).toHaveBeenCalledExactlyOnceWith("pair", "Lunch on Friday?");
-  expect(conciergeClient.history).toHaveBeenCalledTimes(2);
-  await act(async () => conciergeClient.changed("other-pair"));
-  expect(conciergeClient.history).toHaveBeenCalledTimes(2);
-  await act(async () => conciergeClient.changed("pair"));
-  expect(conciergeClient.history).toHaveBeenCalledTimes(3);
-});
-
-it("shows their daily allowance, explains a limit refusal and holds the composer once the day is used up", async () => {
-  const entries: HistoryEntry[] = [
-    { direction: "out", kind: "question", author: "me", body: "One more thing", at: 1700000000000, message_id: "m9",
-      delivery_status: "not_delivered", reason: "neighbor_daily_limit", limit: 3, resets_at: 4102444800000 },
-  ];
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, outgoing: [], incoming: [],
-    friends: [{ ...neighbor, their_daily_limit: 3, sent_today: 3, my_daily_limit: null }] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
-  expect(document.body.textContent).toContain("3/day, 3 sent today");
-  expect(document.getElementById("neighbor-msg-m9")?.textContent).toContain("Limit reached: Ada allows 3 messages a day; ask them to raise it.");
-  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
 });
 
 it("tells the old machine that receiving moved, and warns before taking it over", async () => {
@@ -479,25 +276,6 @@ it("tells the old machine that receiving moved, and warns before taking it over"
     .toContain("Studio will stop receiving Neighbor messages. Concierges and permissions are per machine");
   await act(async () => button("Receive Neighbor messages here").click());
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
-});
-
-it("says when a friend has no concierge on this machine, with the waiting count only once it is known", async () => {
-  const missing = (pending_count: number | null) => ({ gateway_tab: null, concierge_missing: true, pending_count, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" });
-  const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: true, receiving_enabled: true, receiver_machine_label: null, revision: 2,
-    concierges: { pair: missing(3) } } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
-  expect(document.body.textContent).toContain("No concierge on this machine — 3 messages waiting");
-  await act(async () => { emit("neighbor-concierge-status", { friendship_id: "pair", ...missing(null) }); });
-  expect(document.body.textContent).toContain("No concierge on this machine");
-  expect(document.body.textContent).not.toContain("messages waiting");
-  await act(async () => button("Set up with General").click());
-  expect(sentText()[0].text).toContain("pair");
 });
 
 it("requires a fresh confirmation if receiving moves while the active takeover prompt is open", async () => {
@@ -514,83 +292,13 @@ it("requires a fresh confirmation if receiving moves while the active takeover p
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(5);
 });
 
-it("nests a concierge bound from any workspace under its friend and marks it hidden from workspace lists", async () => {
-  const seen: Array<ReadonlySet<string>> = [];
-  function Probe() { seen.push(useNeighborGatewayIds()); return null; }
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [],
-    friends: [{ ...neighbor, gateway_tab: "tab-gateway" }] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<><SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} /><Probe /></>));
-  expect(hasButton("Open Ada's concierge")).toBe(true);
-  expect(seen[seen.length - 1]?.has("tab-gateway")).toBe(true);
-});
-
-function pendingClient(): NeighborClient {
-  return { list: vi.fn(() => new Promise<NeighborList>(() => {})), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-}
-
-/** Ada as the one paid friend, so a conversation renders at once. */
-function friendClient(): NeighborClient {
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  return { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-}
-
-it("draws last known friends at once with a quiet refresh indicator, and stays away when there were none", async () => {
-  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] }));
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
-  expect(hasButton("Open Ada")).toBe(true);
-  expect(hasButton("Open Ada's concierge")).toBe(true);
-  expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).not.toBeNull();
-  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [] }));
-  await act(async () => root.render(<SidebarNeighborsSection key="empty" touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
-  expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
-});
-
-it("highlights an open concierge chat like an open tab, without the friend row", async () => {
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  const runtimeClient = runtime();
-  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-gateway" />));
-  expect(button("Open Ada's concierge").getAttribute("aria-current")).toBe("page");
-  expect(button("Open Ada's concierge").closest("[data-tab-active]")?.querySelector(".active-tab-pill")).not.toBeNull();
-  expect(button("Open Ada").getAttribute("aria-current")).toBeNull();
-  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-general" />));
-  expect(button("Open Ada's concierge").getAttribute("aria-current")).toBeNull();
-});
-
-it("gives the friend and concierge rows the sidebar's own hover kebab", async () => {
-  await renderSection([{ ...neighbor, gateway_tab: "tab-gateway" }]);
-  expect(button("Actions for Ada").closest(".sidebar-tab-kebab")).not.toBeNull();
-  expect(button("Actions for Ada's concierge").closest(".sidebar-tab-kebab")).not.toBeNull();
-});
-
-it("remembers only names, avatars and the concierge binding, and forgets them on sign-out", async () => {
-  await renderSection([{ ...neighbor, gateway_tab: "tab-gateway", my_daily_limit: 5 }]);
-  const stored = JSON.parse(localStorage.getItem("domios.neighbors.last-known:owner")!);
-  expect(stored).toEqual({ access: "paid", can_invite: true, incoming: [], outgoing: [],
-    friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] });
-  account.model = { kind: "signed_out" };
-  await act(async () => mounted!.root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtime()} />));
-  expect(localStorage.getItem("domios.neighbors.last-known:owner")).toBeNull();
-});
-
 it("draws the last known graph at once and says it is updating instead of loading", async () => {
   localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", can_invite: true,
     friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null }],
     incoming: [{ request_id: "request", uid: "requester", displayName: "Grace", photoURL: null }],
     outgoing: [{ id: "c".repeat(64), typed_email: "later@example.test", created_at: 1700000000 }] }));
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={pendingClient()} runtimeClient={runtime()} />));
   expect(hasButton("Ada, connected")).toBe(true);
   expect(hasButton("Grace, wants to connect")).toBe(true);
@@ -599,88 +307,9 @@ it("draws the last known graph at once and says it is updating instead of loadin
   expect(document.body.textContent).not.toContain("Loading Neighbors");
 });
 
-it("never runs a Neighbor's html or diagram fences: they stay code, with no script-capable frame", async () => {
-  const entries: HistoryEntry[] = [
-    { direction: "in", kind: "question", author: "friend", body: "```html\n<script>for(;;){}</script>\n```", at: 1700000000000, message_id: "h1" },
-    { direction: "in", kind: "question", author: "friend", body: "```mermaid\ngraph TD; A-->B\n```", at: 1700000001000, message_id: "h2" },
-  ];
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
-  expect(document.querySelector("iframe")).toBeNull();
-  expect(document.querySelector("svg[id^=mermaid]")).toBeNull();
-  expect(document.getElementById("neighbor-msg-h1")?.textContent).toContain("<script>for(;;){}</script>");
-});
-
 it("caps the waiting count the way the daemon does", () => {
   expect(missingConciergeLine({ gateway_tab: null, concierge_missing: true, pending_count: 100, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" }))
     .toBe("No concierge on this machine — 100+ messages waiting");
-});
-
-it("never claims a missing concierge when one is bound, and omits a zero count", async () => {
-  expect(missingConciergeLine({ gateway_tab: null, concierge_missing: true, pending_count: 0, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" }))
-    .toBe("No concierge on this machine");
-  const runtimeClient = runtime({ pair: "tab-gateway" });
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: true, receiving_enabled: true, receiver_machine_label: null, revision: 1,
-    concierges: { pair: { gateway_tab: null, concierge_missing: true, pending_count: 2, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" } } } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />));
-  expect(hasButton("Open Ada's concierge")).toBe(true);
-  expect(document.body.textContent).not.toContain("no concierge here");
-});
-
-it("opens a remembered friend's conversation at once, and checks a pending delivery on request", async () => {
-  localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null }], incoming: [], outgoing: [] }));
-  const runtimeClient = runtime();
-  vi.mocked(runtimeClient.deliveryStatus).mockResolvedValue({ status: "delivered" });
-  const pending: HistoryEntry = { direction: "out", kind: "question", author: "me", body: "Still there?", at: 1700000000000, message_id: "p".repeat(32), delivery_status: "pending" };
-  const conciergeClient = concierge([]);
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
-  expect(document.body.textContent).toContain("No messages yet");
-  expect(document.body.textContent).toContain("Say hi to Ada.");
-  vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [pending], next_before: null, ended: false });
-  await act(async () => conciergeClient.changed("pair"));
-  await act(async () => button("Check delivery").click());
-  expect(runtimeClient.deliveryStatus).toHaveBeenCalledExactlyOnceWith("p".repeat(32));
-});
-
-it("loads a conversation before calling it empty, and retries a failed first read", async () => {
-  const conciergeClient = concierge([]);
-  let fail!: (error: Error) => void;
-  vi.mocked(conciergeClient.history).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-  expect(document.body.textContent).not.toContain("No messages yet");
-  expect(document.querySelector(".ct-deferred-loader")).not.toBeNull();
-  await act(async () => fail(new Error("history unavailable")));
-  expect(document.body.textContent).not.toContain("No messages yet");
-  expect(document.querySelector(".ct-deferred-loader")).toBeNull();
-  await act(async () => button("Retry").click());
-  expect(document.body.textContent).toContain("No messages yet");
-  expect(hasButton("Retry")).toBe(false);
-});
-
-it("runs a friend's html only once the owner allowed interactive content from them", async () => {
-  const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "```html\n<p>hi</p>\n```", at: 1700000000000, message_id: "i1" }];
-  const runtimeClient = runtime();
-  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "anything", allow_tab_requests: false, allow_interactive_content: true });
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge(entries)} />));
-  expect(document.querySelector("iframe")).not.toBeNull();
 });
 
 it("says nothing about receiving until the daemon knows", async () => {
@@ -692,137 +321,13 @@ it("says nothing about receiving until the daemon knows", async () => {
   expect(hasButton("Receive here")).toBe(false);
 });
 
-it("keeps an ended conversation readable but takes no new messages", async () => {
-  const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Bye for now", at: 1700000000000, message_id: "e1" }]);
-  vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "in", kind: "question", author: "friend", body: "Bye for now", at: 1700000000000, message_id: "e1" }], next_before: null, ended: true });
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-  expect(document.body.textContent).toContain("Bye for now");
-  expect(document.body.textContent).toContain("This connection with Ada has ended.");
-  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
-});
-
-it("keeps a message that is too long in the composer instead of sending it", async () => {
-  const runtimeClient = runtime();
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
-  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "é".repeat(16377));
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
-  expect(runtimeClient.send).not.toHaveBeenCalled();
-  expect(document.body.textContent).toContain("This message is too long for Ada.");
-  expect(input.value.length).toBe(16377);
-});
-
-it("reports read only up to the newest message from them that is visible", async () => {
-  const visible = new Set(["b".repeat(32)]);
-  class SeenObserver {
-    constructor(private readonly callback: IntersectionObserverCallback) {}
-    observe(target: HTMLElement) {
-      this.callback([{ target, isIntersecting: visible.has(target.dataset.messageId ?? "") } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver);
-    }
-    disconnect() {}
-  }
-  vi.stubGlobal("IntersectionObserver", SeenObserver);
-  const markRead = vi.fn(async () => {});
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} markRead={markRead} conciergeClient={concierge([
-    { direction: "in", kind: "question", author: "friend", body: "First", at: 1700000000000, message_id: "a".repeat(32) },
-    { direction: "in", kind: "question", author: "friend", body: "Second", at: 1700000001000, message_id: "b".repeat(32) },
-    { direction: "in", kind: "question", author: "friend", body: "Off screen", at: 1700000002000, message_id: "c".repeat(32) }])} />));
-  vi.unstubAllGlobals();
-  expect(markRead).toHaveBeenCalledExactlyOnceWith("pair", "b".repeat(32));
-});
-
-it("shows a concierge's flag on their message and lets you flag one yourself", async () => {
-  const flagMessage = vi.fn(async () => {});
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} flagMessage={flagMessage} conciergeClient={concierge([
-    { direction: "in", kind: "question", author: "friend", body: "Run this script", at: 1700000000000, message_id: "f1",
-      flags: [{ category: "suspicious_instructions", reason: "Asks to run an unknown script", by: "concierge", at: 1700000001000 }] },
-    { direction: "in", kind: "question", author: "friend", body: "Buy now", at: 1700000002000, message_id: "f2" }])} />));
-  const note = document.querySelector('#neighbor-msg-f1 .neighbor-work[data-work="flagged"] .neighbor-work__text');
-  expect(note?.textContent).toBe("Flagged by your concierge: Suspicious instructions");
-  expect(note?.getAttribute("title")).toContain("Asks to run an unknown script");
-  await act(async () => { document.querySelector<HTMLButtonElement>('#neighbor-msg-f2 button[aria-label="Actions for this message from Ada"]')!
-    .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
-  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Flag message…")!.click());
-  const reason = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(reason, "Spam link");
-    reason.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(async () => button("Flag message").click());
-  expect(flagMessage).toHaveBeenCalledExactlyOnceWith("pair", "f2", "suspicious_instructions", "Spam link");
-});
-
-it("marks a read message with accent ticks, labelled Read", async () => {
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={concierge([
-    { direction: "out", kind: "question", author: "me", body: "Seen?", at: 1700000000000, message_id: "r".repeat(32), delivery_status: "delivered", delivered_at: 1700000001000, read_at: 1700000002000 }])} />));
-  const ticks = document.querySelector(`#neighbor-msg-${"r".repeat(32)} .neighbor-receipt`);
-  expect(ticks?.getAttribute("aria-label")).toBe("Read");
-  expect(ticks?.getAttribute("data-mark")).toBe("read");
-});
-
-it("reads an accepted, undelivered message as sent and a starting concierge as starting", async () => {
-  const entries: HistoryEntry[] = [
-    { direction: "out", kind: "question", author: "me", body: "Accepted", at: 1700000000000, message_id: "s".repeat(32), delivery_status: "pending", submission: "accepted" },
-    { direction: "out", kind: "question", author: "me", body: "Queued", at: 1700000001000, message_id: "q".repeat(32), delivery_status: "pending" },
-  ];
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
-  expect(document.querySelector(`#neighbor-msg-${"s".repeat(32)} .neighbor-receipt`)?.getAttribute("aria-label")).toBe("Sent");
-  expect(document.querySelector(`#neighbor-msg-${"q".repeat(32)} .ct-delivery[data-state="sending"]`)).not.toBeNull();
-  expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: null, receiving_here: true, receiver_machine_label: null, state: "concierge_starting" })?.state)
-    .toBe("concierge_starting");
-  // A paused friend's concierge keeps its status instead of dropping out as unparsable.
-  expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: 0, receiving_here: true, receiver_machine_label: null, state: "paused" })?.state)
-    .toBe("paused");
-});
-
-it("marks who wrote each message: you, your agent, your friend and their concierge", async () => {
-  const entries: HistoryEntry[] = [
-    { direction: "in", kind: "question", author: "friend", body: "Q", at: 1700000000000, message_id: "a1" },
-    { direction: "out", kind: "answer", author: { agent: "tab-gateway", name: "Concierge" }, body: "A", at: 1700000001000, message_id: "a2", in_reply_to: "a1" },
-    { direction: "out", kind: "question", author: "me", body: "Mine", at: 1700000002000, message_id: "a3" },
-    { direction: "in", kind: "refusal", author: "friend", body: "No", at: 1700000003000, message_id: "a4", in_reply_to: "a3" },
-  ];
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
-  expect(["a1", "a2", "a3", "a4"].map(id => document.getElementById(`neighbor-msg-${id}`)?.getAttribute("data-author")))
-    .toEqual(["friend", "my-agent", "me", "friend-agent"]);
-});
-
 it("turns off reading memory and files for one friend and saves it", async () => {
   const conciergeClient = concierge([]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   expect(button("Read my memory").getAttribute("aria-checked")).toBe("true");
@@ -830,18 +335,6 @@ it("turns off reading memory and files for one friend and saves it", async () =>
   await act(async () => button("Read files").click());
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ allow_memory: false, allow_files: false }));
-});
-
-it("keeps a removed friend's conversation readable and closed", async () => {
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()}
-    conciergeClient={concierge([{ direction: "in", kind: "question", author: "friend", body: "Old note", at: 1700000000000, message_id: "o1" }])} />));
-  expect(document.body.textContent).toContain("Old note");
-  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
 });
 
 it("sets machine access: the folder with its honest note, and a warning for full access", async () => {
@@ -853,7 +346,7 @@ it("sets machine access: the folder with its honest note, and a warning for full
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   expect(document.body.textContent).toContain("/work/shared");
@@ -872,7 +365,7 @@ it("shows the runtime's own-pad note for a saved read-only concierge", async () 
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
   await act(async () => button("Ada, connected").click());
   expect(document.body.textContent).toContain("Writes only its own pad; reads are not confined.");
@@ -886,7 +379,7 @@ it("blocks files from one friend with a zero daily file limit", async () => {
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={concierge([])} filesClient={filesClient} />));
   await act(async () => button("Ada, connected").click());
   const input = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Files per day from this friend")!.control as HTMLInputElement;
@@ -898,31 +391,6 @@ it("blocks files from one friend with a zero daily file limit", async () => {
   expect(filesClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 0);
 });
 
-it("shows a message's files with their state and opens a saved one from the friend", async () => {
-  const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "Here you go", at: 1700000000000, message_id: "f1" }];
-  const filesClient = { send: vi.fn(), open: vi.fn(async () => {}), openFolder: vi.fn(async () => {}), setDailyLimit: vi.fn(async () => {}),
-    usage: vi.fn(async () => null), onFilesChanged: vi.fn(async () => () => {}),
-    list: vi.fn(async () => ({ folder: "/neighbors/ada", files: [
-      { file_id: "file-1", name: "notes.txt", size_bytes: 2048, state: "saved" as const, message_id: "f1", direction: "in" as const },
-      { file_id: "file-2", name: "old.zip", size_bytes: 4096, state: "expired" as const, message_id: "f1", direction: "in" as const },
-    ] })) };
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} filesClient={filesClient} />));
-  expect(document.getElementById("neighbor-msg-f1")?.textContent).toContain("expired");
-  expect(hasButton("Open old.zip")).toBe(false);
-  // A saved file is a real button, held by a list item of the files list.
-  const chip = button("Open notes.txt");
-  expect(chip.getAttribute("role")).toBeNull();
-  expect(chip.parentElement?.getAttribute("role")).toBe("listitem");
-  expect(chip.closest('[role="list"]')?.getAttribute("aria-label")).toBe("Files");
-  await act(async () => chip.click());
-  expect(filesClient.open).toHaveBeenCalledExactlyOnceWith("pair", "file-1");
-});
-
 it("narrows a friend's memory to chosen areas", async () => {
   vi.mocked(localFetch).mockImplementation(async (path: string) => path === "/api/mem/taxonomy"
     ? new Response(JSON.stringify({ work: 3, family: 2, "(none)": 1 }), { status: 200 }) : new Response("null", { status: 404 }));
@@ -931,7 +399,7 @@ it("narrows a friend's memory to chosen areas", async () => {
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   await act(async () => { button("Memory areas: All areas").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
@@ -948,7 +416,7 @@ it("fills permissions from a trust preset, turns Custom on any later change, and
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   expect(button("Custom").getAttribute("aria-selected")).toBe("true");
@@ -964,53 +432,6 @@ it("fills permissions from a trust preset, turns Custom on any later change, and
   expect(button("Custom").getAttribute("aria-selected")).toBe("true");
 });
 
-it("shows a sent message at once and keeps one bubble when history brings it back", async () => {
-  const runtimeClient = runtime();
-  const id = "a".repeat(32);
-  let accept!: () => void;
-  vi.mocked(runtimeClient.send).mockImplementation(() => new Promise(resolve => { accept = () => resolve({ message_id: id, status: "pending" }); }));
-  const conciergeClient = concierge([]);
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
-  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
-  const bubbles = () => Array.from(document.querySelectorAll('.neighbor-msg[data-side="out"]')).filter(item => item.textContent?.includes("Lunch on Friday?"));
-  expect(bubbles()).toHaveLength(1);
-  expect(bubbles()[0].querySelector('.ct-delivery[data-state="sending"]')).not.toBeNull();
-  expect(input.value).toBe("");
-  const pending = bubbles()[0];
-  vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "out", kind: "question", author: "me", body: "Lunch on Friday?", at: Date.now(), message_id: id, delivery_status: "delivered" }], next_before: null, ended: false });
-  await act(async () => accept());
-  expect(bubbles()).toHaveLength(1);
-  expect(bubbles()[0]).toBe(pending);
-  expect(bubbles()[0].id).toBe(`neighbor-msg-${id}`);
-  expect(bubbles()[0].querySelector(".ct-delivery")).toBeNull();
-});
-
-it("explains a send refused by today's sending limit across all friends", async () => {
-  const runtimeClient = runtime();
-  vi.mocked(runtimeClient.send).mockRejectedValue(new NeighborRuntimeFailure("unavailable", "Too many", 200,
-    { status: "not_delivered", reason: "aggregate_daily_limited", limit: 200, resets_at: Math.floor(Date.now() / 1000) + 3 * 3600 }));
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge([])} />));
-  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Hello");
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
-  expect(document.body.textContent).toContain("You reached today's sending limit (200). It resets in");
-});
-
 it("shows today's numbers under the friend's name and leaves out what is unknown", async () => {
   const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Hi", at: Date.now(), message_id: "t1" }]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [],
@@ -1018,7 +439,7 @@ it("shows today's numbers under the friend's name and leaves out what is unknown
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   const stats = document.querySelector('[aria-label="Today with this friend"]')?.textContent ?? "";
@@ -1045,7 +466,7 @@ it("saves a cleared daily message limit as no limit", async () => {
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   const input = Array.from(document.querySelectorAll<HTMLLabelElement>("label")).find(label => label.textContent === "Messages per day")!.control as HTMLInputElement;
@@ -1076,7 +497,7 @@ it("stages edits until Apply, and Cancel puts every field back", async () => {
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   expect(button("Apply").disabled).toBe(true);
@@ -1108,7 +529,7 @@ it("still opens the friend window when the Neighborhood mounts before the accoun
   const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
   account.model = signedIn;
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
@@ -1140,7 +561,7 @@ it("shows today's received count as a floor while older pages may hold more of t
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   expect(document.querySelector('[aria-label="Today with this friend"]')?.textContent).toContain("2+ received today");
@@ -1152,7 +573,7 @@ it("disables a friend from the window header's Enabled switch and enables them a
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
   const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
+  const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
   expect(button("Enabled for Ada").getAttribute("aria-checked")).toBe("true");
@@ -1168,82 +589,4 @@ it("shows a friend you disabled as disabled on the graph", async () => {
   await render("paid", { friend: { ...neighbor, my_paused: true } });
   expect(hasButton("Ada, disabled")).toBe(true);
   expect(document.querySelector('[data-node-id="pair"]')?.hasAttribute("data-paused")).toBe(true);
-});
-
-it("disables a friend from their sidebar row menu and shows the row as disabled", async () => {
-  const conciergeClient = concierge([]);
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [], friends: [neighbor] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-  await act(async () => { button("Actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
-  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Disable Ada")!.click());
-  expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", true);
-  expect(button("Open Ada").textContent).toContain("disabled");
-});
-
-async function renderConversation(friend: NeighborList["friends"][number]) {
-  const conciergeClient = concierge([]);
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [friend], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-  return conciergeClient;
-}
-
-it("keeps writing open to a friend you disabled and offers Enable", async () => {
-  const conciergeClient = await renderConversation({ ...neighbor, my_paused: true });
-  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(false);
-  await act(async () => button("Enable").click());
-  expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", false);
-});
-
-it("shows your concierge working on a friend's message and stops it through the runtime", async () => {
-  const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1",
-    handling_state: "working", handling_updated_at: 1700000001000 }]);
-  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-  expect(document.getElementById("neighbor-msg-m1")?.textContent).toContain("Your concierge is working");
-  expect(document.querySelector(".neighbor-chat__working")?.textContent).toContain("Your concierge is working for Ada");
-  await act(async () => document.querySelector<HTMLButtonElement>('#neighbor-msg-m1 button[aria-label="Stop your concierge"]')!.click());
-  expect(conciergeClient.stopConcierge).toHaveBeenCalledExactlyOnceWith("pair");
-});
-
-it("puts a settled concierge outcome in the time row, linked to the reply", async () => {
-  const conciergeClient = concierge([
-    { direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1", handling_state: "answered" },
-    { direction: "out", kind: "answer", author: "me", body: "Yes.", at: 1700000002000, message_id: "r1", in_reply_to: "m1" },
-  ]);
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-  const outcome =document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply");
-  expect(outcome?.textContent).toBe("Answered");
-  expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__stack > .neighbor-work")).toBeNull();
-});
-
-it("renders a friend's markdown like agent chat: headings, scrolling tables and copyable code", async () => {
-  const body = "## Status\n\n| Job | State |\n| --- | --- |\n| build | green |\n\n```\ncargo test\n```";
-  const host = document.createElement("div"); document.body.append(host);
-  const root = createRoot(host); mounted = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()}
-    conciergeClient={concierge([{ direction: "in", kind: "question", author: "friend", body, at: 1700000000000, message_id: "md" }])} />));
-  const bubble = document.querySelector("#neighbor-msg-md .neighbor-msg__bubble")!;
-  expect(bubble.querySelector("h2")?.textContent).toBe("Status");
-  expect(bubble.querySelector("table")?.parentElement?.classList.contains("overflow-x-auto")).toBe(true);
-  expect(bubble.querySelector('button[aria-label="Copy code"]')).not.toBeNull();
-});
-
-it("closes the composer while the friend has disabled messages from you", async () => {
-  await renderConversation({ ...neighbor, their_paused: true });
-  expect(document.querySelector<HTMLTextAreaElement>("textarea")!.disabled).toBe(true);
-  expect(hasButton("Enable")).toBe(false);
 });

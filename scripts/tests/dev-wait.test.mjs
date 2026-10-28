@@ -52,7 +52,7 @@ test("DEV web watcher keeps a production-mode bundle with the DEV build flag on 
   const source = (await readFile(new URL("../../build.sh", import.meta.url), "utf8")).replaceAll("\r\n", "\n");
   const watch = source.match(/^start_web_watch\(\) \{\n([\s\S]*?)^\}/m)?.[1];
   assert.ok(watch, "DEV web watcher must exist");
-  const commands = watch.replaceAll(/\\\n\s*/g, " ").split("\n").filter(line => line.includes('node "') && line.includes('$vite_entry"'));
+  const commands = watch.replaceAll(/\s*\\\n\s*/g, " ").split("\n").filter(line => line.includes('node "') && line.includes('$vite_entry"'));
   assert.equal(commands.length, 2, "Unix and Windows watcher commands must be covered");
   for (const command of commands) {
     assert.match(command, /CODETERM_FRONTEND_DEV=1 (?:nohup |run_outside_tab_job --background "[^"\n]+" "\$log" )?node "(?:\$\(pwd -P\)\/)?\$vite_entry" build --watch/);

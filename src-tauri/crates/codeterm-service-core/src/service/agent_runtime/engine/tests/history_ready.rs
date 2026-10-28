@@ -9,6 +9,7 @@ fn fresh_runtime_history_is_empty_before_rollout_and_readable_when_ready() {
         .replace("resumeThread:'fixture/resume'", "openThread:'fixture/open',resumeThread:'fixture/resume'")
         .replace("if (op.kind === 'resumeThread')", "if (op.kind === 'openThread') return {kind:'complete',result:{kind:'threadLoaded',threadId:'own-thread',settings:op.settings}}; if (op.kind === 'resumeThread')");
     let (fixture, tab_id, peer, _cleanup) = runtime_fixture_with_stored_history(&source);
+    let _storage = fixture.install_seeded_storage_desk();
     let session = for_tab(&tab_id).unwrap();
     session
         .thread_loaded
