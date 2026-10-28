@@ -20,9 +20,9 @@ Use current status revision; stale revisions require reread/reconfirmation. Stat
 
 Concierges/grants are installation-local; takeover idles old agents, copying no grants. Missing-concierge questions stay encrypted/pending/unacknowledged without cursor advancement until permissions/binding enable admission. Status `concierges[friendship_id]`: `concierge_missing,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Unknown count=null, cap100 displayed `100+`. Observe-only streams retain no names; concurrent count refreshes coalesce.
 
-Failed streams use fresh authentication/durable cursor for at most3 reconnect attempts. Status: connecting/receiving/reconnecting/stopped; Retry reception resumes catch-up, never uncertain sends. Existence-filter mismatch allows3 target re-adds, then `existence_filter_retry_limit` until retry; cursors survive.
+gRPC4/10/13/14, reset/GoAway/EOF and connection failures auto-reconnect: fresh auth, jittered backoff, persisted inbox cursor. Max3 consecutive retries; confirmed snapshots reset the budget. Exhaustion: `listen_retries_exhausted` + last cause. Auth/permission/revocation/off/account-generation/receiver moves terminate. Reconnecting retains error until ready. `status.watches.control`/`.account`: status/error; event `neighbors-watch-status`: watch/status/error. Retry never replays uncertain sends. Existence-filter mismatch:3 target re-adds, then explicit retry; cursor retained.
 
-Failed/missing receiver/account watches stop reception and invalidate snapshots. Key mutations invalidate operation caches; each batch reads peer keys once and verifies every message. On starts watches outside network work; off/sign-out cancel startup. No polling/warmup.
+Runtime cache/admission details: API-LIFECYCLE.
 
 ## Authority and permissions
 
@@ -169,4 +169,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->

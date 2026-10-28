@@ -88,3 +88,79 @@ async fn receiver_fence_requires_current_enabled_installation_and_revision() {
     )
     .is_err());
 }
+
+#[tokio::test]
+async fn failed_receiver_watch_keeps_reconnecting_cause_and_visible_exhaustion() {
+    use codeterm_neighbors::supervisor::ListenerState;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    let friend = "a".repeat(64);
+    service
+        .neighbor_cell()
+        .states
+        .lock()
+        .insert(friend.clone(), ListenerState::Receiving);
+    let (shutdown, mut stopped) = tokio::sync::watch::channel(false);
+    let task = tokio::spawn(async move {
+        let _ = stopped.changed().await;
+    });
+    service.neighbor_cell().listeners.lock().active.insert(
+        friend.clone(),
+        listener::Handle {
+            gateway_tab: None,
+            task,
+            retry: Arc::new(tokio::sync::Notify::new()),
+            shutdown,
+        },
+    );
+    let observed = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let captured = observed.clone();
+    fixture.ui.listen("neighbor-runtime-status", move |value| {
+        captured.lock().push(value.clone())
+    });
+    service.neighbor_watch_failure(
+        "control",
+        Error::Firestore {
+            code: 13,
+            operation: "control.listen.read",
+        },
+    );
+    let retired = service
+        .neighbor_cell()
+        .listeners
+        .lock()
+        .retired
+        .remove(&friend)
+        .unwrap();
+    retired.await.unwrap();
+    assert_eq!(
+        service.neighbor_cell().states.lock()[&friend],
+        ListenerState::Reconnecting
+    );
+    assert_eq!(service.neighbor_cell().failures.lock()[&friend]["code"], 13);
+    assert!(observed
+        .lock()
+        .iter()
+        .all(|event| event["status"] == "reconnecting" && !event["error"].is_null()));
+    service.neighbor_watch_failure(
+        "control",
+        Error::ListenProtocol {
+            kind: "listen_retries_exhausted",
+        },
+    );
+    service.neighbor_watch_state("control", ListenerState::Stopped, None);
+    let watches = service.neighbor_cell().watch_states.lock();
+    assert_eq!(watches["control"]["status"], "stopped");
+    assert_eq!(
+        watches["control"]["error"]["kind"],
+        "listen_retries_exhausted"
+    );
+    assert_eq!(watches["control"]["error"]["last_error"]["code"], 13);
+    drop(watches);
+    assert_eq!(
+        service.neighbor_cell().failures.lock()[&friend]["kind"],
+        "listen_retries_exhausted"
+    );
+}

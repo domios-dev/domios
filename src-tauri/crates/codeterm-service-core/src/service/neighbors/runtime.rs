@@ -41,14 +41,16 @@ pub struct NeighborRuntimeCell {
     pub(super) generation: AtomicU64,
     listener_generation: AtomicU64,
     listeners: parking_lot::Mutex<listener::Slots>,
-    states: parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
-    failures: parking_lot::Mutex<HashMap<String, Value>>,
+    pub(super) states:
+        parking_lot::Mutex<HashMap<String, codeterm_neighbors::supervisor::ListenerState>>,
+    pub(super) failures: parking_lot::Mutex<HashMap<String, Value>>,
     pending_counts: parking_lot::Mutex<HashMap<String, u64>>,
     names: parking_lot::Mutex<HashMap<String, String>>,
     receiver: parking_lot::Mutex<Option<codeterm_neighbors::adapter::ReceiverStatus>>,
     control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
     control_start: tokio::sync::Mutex<()>,
     control_cancel: tokio::sync::Notify,
+    pub(super) watch_states: parking_lot::Mutex<std::collections::BTreeMap<String, Value>>,
     bootstrapped: std::sync::atomic::AtomicBool,
     restoration: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
     file_advertised_generation: tokio::sync::Mutex<Option<u64>>,
@@ -654,6 +656,17 @@ impl ServiceContext {
     }
 
     pub(crate) fn stop_neighbor_listeners(&self) {
+        self.stop_neighbor_listeners_state(
+            codeterm_neighbors::supervisor::ListenerState::Stopped,
+            None,
+        );
+    }
+
+    pub(super) fn stop_neighbor_listeners_state(
+        &self,
+        status: codeterm_neighbors::supervisor::ListenerState,
+        error: Option<Value>,
+    ) {
         self.neighbor_cell().pending_counts.lock().clear();
         self.neighbor_cell()
             .listener_generation
@@ -663,14 +676,19 @@ impl ServiceContext {
         for (friendship, listener) in active {
             let _ = listener.shutdown.send(true);
             listeners.retired.insert(friendship.clone(), listener.task);
-            self.neighbor_cell().states.lock().insert(
-                friendship.clone(),
-                codeterm_neighbors::supervisor::ListenerState::Stopped,
-            );
-            self.ui.emit(
-                "neighbor-runtime-status",
-                json!({"friendship_id":friendship,"status":"stopped"}),
-            );
+            self.neighbor_cell()
+                .states
+                .lock()
+                .insert(friendship.clone(), status);
+            let mut view = json!({"friendship_id":friendship,"status":status});
+            if let Some(error) = &error {
+                self.neighbor_cell()
+                    .failures
+                    .lock()
+                    .insert(friendship.clone(), error.clone());
+                view["error"] = error.clone();
+            }
+            self.ui.emit("neighbor-runtime-status", view);
         }
     }
 
@@ -685,6 +703,7 @@ impl ServiceContext {
     }
 
     pub(super) fn pause_neighbor_reception(&self) {
+        self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
@@ -926,6 +945,7 @@ impl ServiceContext {
         }
         self.neighbor_cell().receiver.lock().take();
         self.stop_neighbor_updates();
+        self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell()
             .generation
             .fetch_add(1, Ordering::AcqRel);

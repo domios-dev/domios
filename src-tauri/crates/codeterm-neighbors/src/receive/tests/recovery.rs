@@ -308,6 +308,7 @@ struct Reconnect {
     opens: Mutex<Vec<Option<Cursor>>>,
     states: Mutex<Vec<ListenerState>>,
     empty_current: bool,
+    stream_error: Error,
 }
 #[async_trait]
 impl NeighborTransport for Reconnect {
@@ -320,6 +321,9 @@ impl NeighborTransport for Reconnect {
         cursor: Option<&Cursor>,
     ) -> Result<Box<dyn InboxListener>> {
         self.opens.lock().unwrap().push(cursor.cloned());
+        if self.empty_current && self.opens.lock().unwrap().len() == 4 {
+            return Err(Error::Revoked);
+        }
         if self.empty_current {
             return Ok(Box::new(Stream(VecDeque::from([Ok(Some(
                 InboxEvent::Ready,
@@ -327,7 +331,7 @@ impl NeighborTransport for Reconnect {
         }
         Ok(Box::new(Stream(VecDeque::from([
             Ok(Some(InboxEvent::Messages(vec![message()]))),
-            Err(Error::Transport),
+            Err(self.stream_error),
         ]))))
     }
     async fn ack(&self, sender: &str, id: &str) -> Result<DeliveryResult> {
@@ -383,6 +387,7 @@ async fn stream_error_reopens_from_durable_cursor_and_admits_exactly_once() {
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
         empty_current: false,
+        stream_error: Error::Transport,
     };
     assert_eq!(
         supervise(
@@ -431,6 +436,7 @@ async fn empty_inbox_current_marks_receiving_without_admission_or_ack() {
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
         empty_current: true,
+        stream_error: Error::Transport,
     };
     assert_eq!(
         supervise(
@@ -440,7 +446,7 @@ async fn empty_inbox_current_marks_receiving_without_admission_or_ack() {
             &fixture
         )
         .await,
-        Err(Error::Transport)
+        Err(Error::Revoked)
     );
     assert!(fixture
         .states
@@ -480,6 +486,7 @@ async fn reconnect_opens_only_after_explicit_recovery_event() {
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
         empty_current: true,
+        stream_error: Error::Transport,
     });
     let (states, mut observed) = tokio::sync::mpsc::unbounded_channel();
     let events = Arc::new(RecoveryEvents {
@@ -508,11 +515,7 @@ async fn reconnect_opens_only_after_explicit_recovery_event() {
     }
     assert_eq!(fixture.opens.lock().unwrap().len(), 1);
     events.retry.add_permits(1);
-    for expected in [
-        ListenerState::Connecting,
-        ListenerState::Receiving,
-        ListenerState::Reconnecting,
-    ] {
+    for expected in [ListenerState::Receiving, ListenerState::Reconnecting] {
         assert_eq!(observed.recv().await, Some(expected));
     }
     assert_eq!(fixture.opens.lock().unwrap().len(), 2);
@@ -563,6 +566,7 @@ async fn shutdown_settles_inflight_admission_before_listener_exits() {
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
         empty_current: false,
+        stream_error: Error::Transport,
     });
     let (stop, stopped) = tokio::sync::watch::channel(false);
     let (admitted, mut entered) = tokio::sync::mpsc::unbounded_channel();
@@ -593,4 +597,50 @@ async fn shutdown_settles_inflight_admission_before_listener_exits() {
     assert_eq!(task.await.unwrap(), Err(Error::Revoked));
     assert!(session.persisted.load(Ordering::Acquire));
     assert_eq!(fixture.opens.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn internal_stream_reset_resumes_cursor_once_but_permission_and_auth_errors_are_terminal() {
+    for code in [13, 14, 4, 10, 7, 16] {
+        let error = Error::Firestore {
+            code,
+            operation: "inbox.listen.read",
+        };
+        let fixture = Reconnect {
+            fixture: Fixture::new(),
+            keys: recipient(),
+            opens: Mutex::new(vec![]),
+            states: Mutex::new(vec![]),
+            empty_current: false,
+            stream_error: error,
+        };
+        assert_eq!(
+            supervise(
+                &fixture,
+                &message().doc.envelope.friendship_id,
+                &fixture,
+                &fixture
+            )
+            .await,
+            Err(error)
+        );
+        let opens = fixture.opens.lock().unwrap();
+        assert_eq!(opens.len(), if [7, 16].contains(&code) { 1 } else { 4 });
+        assert!(opens[0].is_none());
+        assert!(opens[1..]
+            .iter()
+            .all(|cursor| *cursor == *fixture.fixture.cursor.lock().unwrap()));
+        assert_eq!(*fixture.fixture.writes.lock().unwrap(), 1);
+        assert_eq!(
+            fixture
+                .fixture
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|event| **event == "ack")
+                .count(),
+            1
+        );
+    }
 }

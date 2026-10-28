@@ -121,7 +121,7 @@ impl ServiceContext {
                     })
                     .collect::<codeterm_neighbors::Result<_>>()?;
                 Ok(
-                    json!({"incoming_handling":self.neighbor_handling_status(),"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
+                    json!({"watches":self.neighbor_cell().watch_states.lock().clone(),"incoming_handling":self.neighbor_handling_status(),"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
                 )
             }
             _ => Err(Error::InvalidEnvelope),
