@@ -18,6 +18,7 @@ mod tests {
             &test_mem_cfg(),
             "claude",
             &crate::service::spawn::CatalogBackgroundModelPort,
+            "general-workspace",
         )
     }
 

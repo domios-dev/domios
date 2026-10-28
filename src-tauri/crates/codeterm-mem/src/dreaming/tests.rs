@@ -494,6 +494,8 @@ mod cron_task {
         }
         fn create_job(&mut self, params: MemCronCreateParams) -> Result<(), String> {
             self.jobs.push(MemCronJob {
+                workspace_id: params.workspace_id.clone(),
+                model: params.model.clone(),
                 id: format!("job_{}", self.jobs.len()),
                 name: params.name.clone(),
                 agent: params.agent.clone().unwrap_or_default(),
@@ -532,6 +534,7 @@ mod cron_task {
             &MemoryConfig::default(),
             "claude",
             &FakeCompat,
+            "general-workspace",
         )
     }
 
@@ -614,4 +617,51 @@ mod cron_task {
         ensure(&mut store).unwrap();
         assert_eq!(healed, store.jobs[0].task, "no churn once task is correct");
     }
+    struct ProviderModels;
+    impl BackgroundModelPort for ProviderModels {
+        fn resolve(&self, provider: &str, _: &str) -> (String, bool) {
+            (format!("{provider}-model"), true)
+        }
+    }
+
+    #[test]
+    fn dreaming_provider_change_repairs_model_and_general_scope_together() {
+        let mut store = MockScheduler::default();
+        let mut config = MemoryConfig::default();
+        config.dreaming_agent = "provider-a".into();
+        crate::dreaming::ensure_dreaming_cron(
+            &mut store, &config, "fallback", &ProviderModels, "general-id",
+        ).unwrap();
+        assert_eq!(store.created[0].workspace_id, "general-id");
+        assert_eq!(store.jobs[0].model.as_deref(), Some("provider-a-model"));
+        store.jobs[0].workspace_id.clear();
+        store.jobs[0].enabled = false;
+        store.jobs[0].schedule = "30 12 * * *".into();
+        config.dreaming_agent = "provider-b".into();
+        assert!(!crate::dreaming::ensure_dreaming_cron(
+            &mut store, &config, "fallback", &ProviderModels, "general-id",
+        ).unwrap());
+        let job = &store.jobs[0];
+        assert_eq!(job.agent, "provider-b");
+        assert_eq!(job.model.as_deref(), Some("provider-b-model"));
+        assert_eq!(job.workspace_id, "general-id");
+        assert!(!job.enabled);
+        assert_eq!(job.schedule, "30 12 * * *");
+        assert_eq!(store.created.len(), 1);
+        store.jobs[0].model = Some("stale-model".into());
+        crate::dreaming::ensure_dreaming_cron(
+            &mut store, &config, "fallback", &ProviderModels, "general-id",
+        ).unwrap();
+        assert_eq!(store.jobs[0].model.as_deref(), Some("provider-b-model"));
+    }
+
+    #[test]
+    fn dreaming_cron_refuses_an_unresolved_general_scope() {
+        let mut store = MockScheduler::default();
+        assert!(crate::dreaming::ensure_dreaming_cron(
+            &mut store, &MemoryConfig::default(), "provider", &FakeCompat, "",
+        ).is_err());
+        assert!(store.created.is_empty());
+    }
+
 }
