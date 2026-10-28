@@ -1,40 +1,18 @@
-import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, vi } from "vitest";
+import { act } from "react";
+import { resetPausedFriends } from "./neighborPause";
+import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
+import type { NeighborList } from "./neighborModel";
+import type { ReferralClaim } from "./referralTrial";
+import type { NeighborClient } from "./neighborClient";
 import { NeighborsView } from "./NeighborsView";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
-import { NeighborConversationView } from "./NeighborConversationView";
 import type { HistoryEntry, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
-import { openNeighborPage, takeNeighborFocus } from "./neighborFocus";
-import { resetPausedFriends } from "./neighborPause";
-import { missingConciergeLine, parseConciergeStatus } from "./useConciergeStatus";
-import { useNeighborGatewayIds } from "./neighborGateways";
-import type { NeighborClient } from "./neighborClient";
-import type { NeighborList } from "./neighborModel";
-import { parseNeighbors } from "./neighborModel";
-import { parseReferralClaim, type ReferralClaim } from "./referralTrial";
-import { neighborClient } from "./neighborClient";
-import { NeighborRuntimeFailure, type NeighborRuntimeClient, type NeighborListenerEvent } from "./neighborRuntimeClient";
-import { localFetch } from "../../lib/webApi";
+import { NeighborConversationView } from "./NeighborConversationView";
+import type { createNeighborMocks } from "./neighborsMocks.testdata";
 
-const notices = vi.hoisted(() => ({ publishNotice: vi.fn() }));
-const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
-const bridge = vi.hoisted(() => ({ handlers: {} as Record<string, Set<(event: { payload: unknown }) => void>>, invoke: vi.fn(async () => undefined) }));
-const account = vi.hoisted(() => ({ model: { kind: "signed_in", identity: { uid: "owner", email: "me@example.test", display_name: "Me", photo_url: null } } as Record<string, unknown>, signIn: vi.fn() }));
-const mux = vi.hoisted(() => ({
-  workspaces: [{ id: "ws-general", name: "General", tabs: ["tab-general"], protected: true }, { id: "ws-work", name: "Work", tabs: ["tab-gateway"] }],
-  tabs: { "tab-general": { id: "tab-general", title: "Main", protected: true }, "tab-gateway": { id: "tab-gateway", title: "Concierge" } },
-  tabStatuses: {},
-}));
-vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), ...transport }));
-vi.mock("../../lib/notices", () => notices);
-vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async (event: string, handler: (event: { payload: unknown }) => void) => {
-  const handlers = bridge.handlers[event] ??= new Set();
-  handlers.add(handler);
-  return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
-}) }));
-vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
-vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
+export function createNeighborsViewFixture({ notices, transport, bridge, account }: ReturnType<typeof createNeighborMocks>) {
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const neighbor = { uid: "peer", displayName: "Ada", photoURL: null, friendship_id: "pair", inbound_per_hour: 10, outbound_per_hour: 20, receiving: true, since: 1700000000 };
@@ -129,5 +107,5 @@ async function renderConversation(friend: NeighborList["friends"][number]) {
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   return conciergeClient;
 }
-export { notices, transport, bridge, account, mux, neighbor, request, signedIn, mounted, button, hasButton, emit, runtime, render, sentText, renderSection, concierge, pendingClient, friendClient, renderConversation, act, createRoot, expect, it, vi, NeighborsView, SidebarNeighborsSection, NeighborConversationView, openNeighborPage, takeNeighborFocus, resetPausedFriends, missingConciergeLine, parseConciergeStatus, useNeighborGatewayIds, parseNeighbors, parseReferralClaim, neighborClient, NeighborRuntimeFailure, localFetch };
-export type { HistoryEntry, NeighborConciergeClient, NeighborNotify, NeighborClient, NeighborList, ReferralClaim, NeighborRuntimeClient, NeighborListenerEvent };
+return { neighbor, request, signedIn, mounted, button, hasButton, emit, runtime, render, sentText, renderSection, concierge, pendingClient, friendClient, renderConversation };
+}
