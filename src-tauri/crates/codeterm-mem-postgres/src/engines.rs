@@ -1,4 +1,13 @@
-use crate::PostgresMemStore;
+use crate::{db_error, vectors, PostgresMemStore};
+use postgres::Transaction;
+mod dreaming;
+mod layout;
+mod purge;
+mod rem;
+mod shadow;
+mod skills;
+mod sources;
+mod targets;
 use codeterm_mem::backend::{engines::*, MemStore, WriteContext};
 use codeterm_mem::embedder::{ActiveEmbedder, EmbedderIdentity};
 use codeterm_mem::graph_layout::{cache::LayoutCache, snapshot};
@@ -9,199 +18,310 @@ impl EngineStore for PostgresMemStore {
         MaintenanceMode::InProcess
     }
     fn background_store(&self) -> Result<Arc<dyn MemStore>, String> {
-        Err(crate::unsupported("background_store"))
+        Ok(Arc::new(self.clone()))
     }
-    fn engine_status(&self, _wait: bool) -> Result<EngineStatus, String> {
-        Err(crate::unsupported("engine_status"))
+    fn engine_status(&self, wait: bool) -> Result<EngineStatus, String> {
+        self.engine_transaction(wait, |tx| {
+            Ok((
+                vectors::stamp_in(tx)?,
+                shadow::vector_count(tx)?,
+                count(tx, "mem_vector_pending")?,
+            ))
+        })
     }
-    fn engine_plan(
-        &self,
-        _docs: u64,
-    ) -> Result<codeterm_mem::embedder::switch::SwitchPlan, String> {
-        Err(crate::unsupported("engine_plan"))
+    fn engine_plan(&self, docs: u64) -> Result<codeterm_mem::embedder::switch::SwitchPlan, String> {
+        self.transaction(|tx| targets::plan(tx, docs))
     }
     fn prepare_engine_switch(
         &self,
         _ctx: &WriteContext,
-        _identity: &EmbedderIdentity,
-        _docs: u64,
-        _wait: bool,
+        identity: &EmbedderIdentity,
+        docs: u64,
+        wait: bool,
     ) -> Result<codeterm_mem::embedder::switch::SwitchPlan, String> {
-        Err(crate::unsupported("prepare_engine_switch"))
+        self.engine_transaction(wait, |tx| {
+            let plan = targets::plan(tx, docs)?;
+            let stamp = serde_json::to_string(identity).map_err(|e| e.to_string())?;
+            tx.execute(
+                "DELETE FROM mem_shadow WHERE target<>$1 OR vectors IS NULL",
+                &[&stamp],
+            )
+            .map_err(db_error)?;
+            Ok(plan)
+        })
     }
-    fn clear_shadow(&self, _ctx: &WriteContext, _wait: bool) -> Result<(), String> {
-        Err(crate::unsupported("clear_shadow"))
+    fn clear_shadow(&self, _ctx: &WriteContext, wait: bool) -> Result<(), String> {
+        self.engine_transaction(wait, |tx| {
+            tx.execute("DELETE FROM mem_shadow", &[])
+                .map_err(db_error)?;
+            Ok(())
+        })
     }
     fn adopt_published(
         &self,
         _ctx: &WriteContext,
-        _active: &ActiveEmbedder,
-        _provider: codeterm_mem::embedder::provider::SharedProvider,
+        active: &ActiveEmbedder,
+        provider: codeterm_mem::embedder::provider::SharedProvider,
     ) {
-        std::panic::panic_any(crate::UnsupportedOperation {
-            method: "adopt_published",
-        })
+        let _gate = self.gate.lock();
+        active.replace_silent(provider);
     }
     fn reembed_item_targets(&self) -> Result<Vec<(String, String)>, String> {
-        Err(crate::unsupported("reembed_item_targets"))
+        self.transaction(|tx| targets::items(tx, false))
     }
     fn reembed_entity_targets(&self) -> Result<Vec<(String, String)>, String> {
-        Err(crate::unsupported("reembed_entity_targets"))
+        self.transaction(|tx| targets::entities(tx, false))
     }
     fn blueprint_reembed_targets(&self) -> Result<Vec<(String, String)>, String> {
-        Err(crate::unsupported("blueprint_reembed_targets"))
+        self.transaction(|tx| {
+            Ok(targets::blueprints(tx)?
+                .into_iter()
+                .map(|u| {
+                    (
+                        u.id,
+                        u.texts
+                            .into_iter()
+                            .map(|(_, _, t)| t)
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    )
+                })
+                .collect())
+        })
     }
     fn missing_item_vectors(&self) -> Vec<(String, String)> {
-        std::panic::panic_any(crate::UnsupportedOperation {
-            method: "missing_item_vectors",
-        })
+        self.transaction(|tx| targets::items(tx, true))
+            .unwrap_or_default()
     }
     fn missing_entity_vectors(&self) -> Result<Vec<(String, String)>, String> {
-        Err(crate::unsupported("missing_entity_vectors"))
+        self.transaction(|tx| targets::entities(tx, true))
     }
     fn pending_ids(&self) -> Result<Vec<String>, String> {
-        Err(crate::unsupported("pending_ids"))
-    }
-    fn mark_pending(&self, _ctx: &WriteContext, _id: &str, _reason: &str) -> Result<(), String> {
-        Err(crate::unsupported("mark_pending"))
-    }
-    fn clear_pending(&self, _ctx: &WriteContext, _id: &str) -> Result<(), String> {
-        Err(crate::unsupported("clear_pending"))
-    }
-    fn pending_embed_text(&self, _id: &str) -> Option<String> {
-        std::panic::panic_any(crate::UnsupportedOperation {
-            method: "pending_embed_text",
+        self.transaction(|tx| {
+            Ok(tx
+                .query(
+                    "SELECT mem_id FROM mem_vector_pending ORDER BY queued_at,mem_id",
+                    &[],
+                )
+                .map_err(db_error)?
+                .into_iter()
+                .map(|r| r.get(0))
+                .collect())
         })
     }
-    fn shadow_stale(&self, _stamp: &str) -> Result<(Vec<ShadowUnit>, u64), String> {
-        Err(crate::unsupported("shadow_stale"))
+    fn mark_pending(&self, _ctx: &WriteContext, id: &str, reason: &str) -> Result<(), String> {
+        self.transaction(|tx| mark(tx, id, reason))
+    }
+    fn clear_pending(&self, _ctx: &WriteContext, id: &str) -> Result<(), String> {
+        self.transaction(|tx| {
+            tx.execute("DELETE FROM mem_vector_pending WHERE mem_id=$1", &[&id])
+                .map_err(db_error)?;
+            Ok(())
+        })
+    }
+    fn pending_embed_text(&self, id: &str) -> Option<String> {
+        self.transaction(|tx| targets::pending_text(tx, id))
+            .ok()
+            .flatten()
+    }
+    fn shadow_stale(&self, stamp: &str) -> Result<(Vec<ShadowUnit>, u64), String> {
+        self.transaction(|tx| {
+            let units = targets::units(tx)?;
+            let total = units.len() as u64;
+            let mut stale = Vec::new();
+            for unit in units {
+                if shadow::checkpoint(tx, stamp, &unit.key())?
+                    .is_none_or(|(hash, _)| hash != unit.hash())
+                {
+                    stale.push(unit);
+                }
+            }
+            Ok((stale, total))
+        })
     }
     fn shadow_checkpoint(
         &self,
         _ctx: &WriteContext,
-        _stamp: &str,
-        _unit: &ShadowUnit,
-        _vectors: Option<&[u8]>,
-        _recovery: bool,
-        _current: &dyn Fn() -> bool,
+        stamp: &str,
+        unit: &ShadowUnit,
+        vectors: Option<&[u8]>,
+        recovery: bool,
+        current: &dyn Fn() -> bool,
     ) -> Result<(), String> {
-        Err(crate::unsupported("shadow_checkpoint"))
+        self.transaction(|tx| { if !current() { return Err("re-embed cancelled".into()); } if recovery { tx.execute("UPDATE mem_shadow SET vectors=$3 WHERE target=$1 AND unit_key=$2", &[&stamp,&unit.key(),&vectors]).map_err(db_error)?; } else { tx.execute("INSERT INTO mem_shadow(target,unit_key,text_hash,vectors) VALUES ($1,$2,$3,$4) ON CONFLICT(target,unit_key) DO UPDATE SET text_hash=excluded.text_hash,vectors=excluded.vectors", &[&stamp,&unit.key(),&unit.hash(),&vectors]).map_err(db_error)?; } Ok(()) })
     }
     fn publish_shadow(
         &self,
         _ctx: &WriteContext,
-        _target: &ActiveEmbedder,
-        _active: &ActiveEmbedder,
-        _stamp: &str,
-        _claim: &dyn Fn() -> bool,
+        target: &ActiveEmbedder,
+        active: &ActiveEmbedder,
+        stamp: &str,
+        claim: &dyn Fn() -> bool,
     ) -> Result<bool, String> {
-        Err(crate::unsupported("publish_shadow"))
+        self.publish_shadow_in(target, active, stamp, claim)
     }
     fn checkpoint(&self) -> Result<(i64, i64, i64), String> {
-        Err(crate::unsupported("checkpoint"))
+        // Postgres owns WAL checkpoints; the client has no local WAL to truncate.
+        Ok((0, 0, 0))
     }
     fn purge_precompact(
         &self,
         _ctx: &WriteContext,
-        _id: &str,
-        _apply: bool,
-        _verified_deleted: bool,
-        _vacuum: bool,
+        id: &str,
+        apply: bool,
+        verified_deleted: bool,
+        vacuum: bool,
     ) -> Result<codeterm_mem::precompact_purge::PurgeReport, String> {
-        Err(crate::unsupported("purge_precompact"))
+        self.purge_precompact_in(id, apply, verified_deleted, vacuum)
     }
     fn tracked_sources(&self) -> Result<Vec<TrackedSource>, String> {
-        Err(crate::unsupported("tracked_sources"))
+        self.transaction(sources::tracked)
     }
     fn refresh_source(
         &self,
-        _ctx: &WriteContext,
-        _expected: &TrackedSource,
-        _refresh: &SourceRefresh<'_>,
+        ctx: &WriteContext,
+        expected: &TrackedSource,
+        refresh: &SourceRefresh<'_>,
     ) -> Result<bool, String> {
-        Err(crate::unsupported("refresh_source"))
+        self.transaction(|tx| sources::refresh(tx, ctx, expected, refresh))
     }
-    fn pending_extraction(&self, _limit: usize) -> Result<Vec<PendingExtraction>, String> {
-        Err(crate::unsupported("pending_extraction"))
+    fn pending_extraction(&self, limit: usize) -> Result<Vec<PendingExtraction>, String> {
+        self.transaction(|tx| sources::extraction(tx, limit))
     }
-    fn bump_evidence(&self, _ctx: &WriteContext, _id: &str) -> Result<bool, String> {
-        Err(crate::unsupported("bump_evidence"))
+    fn bump_evidence(&self, _ctx: &WriteContext, id: &str) -> Result<bool, String> {
+        self.transaction(|tx| {
+            Ok(tx
+                .execute(
+                    "UPDATE mem_items SET evidence_count=evidence_count+1 WHERE id=$1",
+                    &[&id],
+                )
+                .map_err(db_error)?
+                > 0)
+        })
     }
-    fn dream_candidates(&self, _before: &str) -> Result<Vec<LightCandidate>, String> {
-        Err(crate::unsupported("dream_candidates"))
+    fn dream_candidates(&self, before: &str) -> Result<Vec<LightCandidate>, String> {
+        self.transaction(|tx| dreaming::candidates(tx, before))
     }
     fn dream_promote(
         &self,
-        _ctx: &WriteContext,
-        _candidate: &LightCandidate,
-        _now: chrono::DateTime<chrono::Utc>,
+        ctx: &WriteContext,
+        candidate: &LightCandidate,
+        now: chrono::DateTime<chrono::Utc>,
     ) -> Result<bool, String> {
-        Err(crate::unsupported("dream_promote"))
+        self.transaction(|tx| dreaming::promote(tx, ctx, candidate, now, true))
     }
-    fn dream_expire(&self, _ctx: &WriteContext, _kind: &str, _days: i64) -> Result<u64, String> {
-        Err(crate::unsupported("dream_expire"))
+    fn dream_expire(&self, _ctx: &WriteContext, kind: &str, days: i64) -> Result<u64, String> {
+        self.transaction(|tx| dreaming::expire(tx, kind, days))
     }
     fn dream_normalize(&self, _ctx: &WriteContext) -> Result<serde_json::Value, String> {
-        Err(crate::unsupported("dream_normalize"))
+        self.transaction(dreaming::normalize)
     }
     fn dream_worker(
         &self,
-        _ctx: &WriteContext,
-        _kind: &str,
-        _machine: &str,
-        _timeout: Duration,
+        ctx: &WriteContext,
+        kind: &str,
+        machine: &str,
+        timeout: Duration,
     ) -> Result<serde_json::Value, String> {
-        Err(crate::unsupported("dream_worker"))
+        self.transaction(|tx| dreaming::worker(tx, ctx, kind, machine, timeout))
     }
-    fn rem_snapshot(&self, _blueprint_merges: usize) -> Result<String, String> {
-        Err(crate::unsupported("rem_snapshot"))
+    fn rem_snapshot(&self, blueprint_merges: usize) -> Result<String, String> {
+        self.transaction(|tx| rem::snapshot(tx, blueprint_merges))
     }
     fn sync_skill_folders(
         &self,
         _ctx: &WriteContext,
-        _root: &std::path::Path,
+        root: &std::path::Path,
     ) -> codeterm_mem_store::skill_folders::SkillFolderReport {
-        std::panic::panic_any(crate::UnsupportedOperation {
-            method: "sync_skill_folders",
-        })
+        skills::sync(self, root)
     }
-    fn layout_run_full(&self, _cache: &LayoutCache) -> Result<u64, String> {
-        Err(crate::unsupported("layout_run_full"))
+    fn layout_run_full(&self, cache: &LayoutCache) -> Result<u64, String> {
+        layout::run_full(self, cache)
     }
-    fn layout_snapshot(&self, _cache: &LayoutCache) -> Result<snapshot::Snapshot, String> {
-        Err(crate::unsupported("layout_snapshot"))
+    fn layout_snapshot(&self, cache: &LayoutCache) -> Result<snapshot::Snapshot, String> {
+        self.transaction(|tx| layout::snapshot(tx, cache))
     }
     fn layout_delta(
         &self,
-        _cache: &LayoutCache,
-        _since: u64,
+        cache: &LayoutCache,
+        since: u64,
     ) -> Result<snapshot::DeltaResponse, String> {
-        Err(crate::unsupported("layout_delta"))
+        self.transaction(|tx| layout::delta(tx, cache, since))
     }
-    fn layout_labels(&self, _ids: &[String]) -> Result<Vec<(String, String)>, String> {
-        Err(crate::unsupported("layout_labels"))
+    fn layout_labels(&self, ids: &[String]) -> Result<Vec<(String, String)>, String> {
+        self.transaction(|tx| layout::labels(tx, ids))
     }
-    fn layout_edges(&self, _ids: &[String]) -> Result<Vec<snapshot::EdgeRow>, String> {
-        Err(crate::unsupported("layout_edges"))
+    fn layout_edges(&self, ids: &[String]) -> Result<Vec<snapshot::EdgeRow>, String> {
+        self.transaction(|tx| layout::edges(tx, ids))
     }
     fn layout_vectors(&self) -> Result<Vec<(String, Vec<f32>)>, String> {
-        Err(crate::unsupported("layout_vectors"))
+        self.transaction(layout::vectors)
     }
-    fn layout_place(
-        &self,
-        _cache: &LayoutCache,
-        _id: &str,
-        _vector: &[f32],
-    ) -> Result<bool, String> {
-        Err(crate::unsupported("layout_place"))
+    fn layout_place(&self, cache: &LayoutCache, id: &str, vector: &[f32]) -> Result<bool, String> {
+        layout::place(self, cache, id, vector)
     }
-    fn layout_place_stored(&self, _cache: &LayoutCache, _id: &str) {
-        std::panic::panic_any(crate::UnsupportedOperation {
-            method: "layout_place_stored",
-        })
+    fn layout_place_stored(&self, cache: &LayoutCache, id: &str) {
+        if cache.is_empty() {
+            return;
+        }
+        if let Ok(Some(vector)) = self.transaction(|tx| layout::stored_vector(tx, id)) {
+            let _ = layout::place(self, cache, id, &vector);
+        }
     }
     #[cfg(any(test, feature = "test-support"))]
     fn fixture_backend(&self) -> &dyn std::any::Any {
         self
+    }
+}
+
+fn count(tx: &mut Transaction<'_>, table: &str) -> Result<u64, String> {
+    Ok(tx
+        .query_one(&format!("SELECT count(*) FROM {table}"), &[])
+        .map_err(db_error)?
+        .get::<_, i64>(0) as u64)
+}
+fn mark(tx: &mut Transaction<'_>, id: &str, reason: &str) -> Result<(), String> {
+    tx.execute("INSERT INTO mem_vector_pending(mem_id,reason,queued_at) VALUES ($1,$2,$3) ON CONFLICT(mem_id) DO UPDATE SET reason=excluded.reason", &[&id,&reason,&crate::items::now()]).map_err(db_error)?;
+    Ok(())
+}
+impl PostgresMemStore {
+    fn engine_transaction<T>(
+        &self,
+        wait: bool,
+        f: impl FnOnce(&mut Transaction<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _guard = if wait {
+            self.gate.lock()
+        } else {
+            self.gate
+                .try_lock()
+                .ok_or("memory is busy; embedder switch cannot complete now")?
+        };
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|_| "Postgres memory pool unavailable")?;
+        let mut tx = conn.transaction().map_err(db_error)?;
+        let locked = if wait {
+            tx.query_one(
+                "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(),0))",
+                &[],
+            )
+            .map_err(db_error)?;
+            true
+        } else {
+            tx.query_one(
+                "SELECT pg_try_advisory_xact_lock(hashtextextended(current_schema(),0))",
+                &[],
+            )
+            .map_err(db_error)?
+            .get::<_, bool>(0)
+        };
+        if !locked {
+            return Err("memory is busy; embedder switch cannot complete now".into());
+        }
+        let value = f(&mut tx)?;
+        tx.commit().map_err(db_error)?;
+        Ok(value)
     }
 }

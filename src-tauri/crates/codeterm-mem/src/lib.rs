@@ -71,7 +71,9 @@ pub use extraction_authority::{
 pub use graph::{Entity, Relation};
 pub use layers::WakeUpOptions;
 pub use manager_crud::AreaForgetOutcome;
-pub use reindex::{body_is_embeddable, compose_embed_text, MIN_EMBED_BODY_CHARS};
+pub use reindex::{
+    body_is_embeddable, compose_embed_text, compose_item_embed_text, MIN_EMBED_BODY_CHARS,
+};
 pub use search::{SearchHit, SearchQuery};
 pub use store::{MemItem, MemKind, MemScope, NewMemItem};
 

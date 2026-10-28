@@ -2,6 +2,8 @@ use super::*;
 use codeterm_mem::backend::{contract, MemStore, SqliteMemStore, StoreTable, WriteContext};
 use codeterm_mem::store::MemAuthor;
 
+mod engines;
+mod maintenance;
 mod transfer;
 
 struct Fixture {

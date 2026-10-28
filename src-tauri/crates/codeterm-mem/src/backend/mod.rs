@@ -47,7 +47,7 @@ impl WriteContext {
         }
     }
 
-    pub(crate) fn default_system_author(&self, label: &str) -> MemAuthor {
+    pub fn default_system_author(&self, label: &str) -> MemAuthor {
         if self.use_system_default {
             MemAuthor::system(label)
         } else {

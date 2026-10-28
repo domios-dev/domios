@@ -22,7 +22,7 @@ use qualification::PreparedBlueprint;
 pub use recall::{BlueprintHit, Fusion, RecallConfig, Weights};
 pub use services::{BlueprintEnricher, EnrichmentJob};
 
-pub(crate) const SOURCE: &str = "blueprint-library";
+pub const SOURCE: &str = "blueprint-library";
 static RECALLS: AtomicU64 = AtomicU64::new(0);
 static HITS: AtomicU64 = AtomicU64::new(0);
 static DREAM_AREA: AtomicU64 = AtomicU64::new(0);

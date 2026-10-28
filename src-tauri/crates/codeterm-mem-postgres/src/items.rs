@@ -31,7 +31,7 @@ fn author(row: &Row) -> StoreResult<MemAuthor> {
 pub(crate) fn get_in(tx: &mut Transaction<'_>, id: &str) -> StoreResult<Option<MemItem>> {
     let Some(row) = tx.query_opt("SELECT m.*,b.body AS blob FROM mem_items m LEFT JOIN mem_blobs b ON b.name=m.body_blob_path WHERE m.id=$1", &[&id]).map_err(db_error)? else { return Ok(None); };
     let inline: Option<String> = row.get("body_inline");
-    let body = match inline {
+    let mut body = match inline {
         Some(body) => body,
         None => {
             let blob: Option<Vec<u8>> = row.get("blob");
@@ -46,6 +46,46 @@ pub(crate) fn get_in(tx: &mut Transaction<'_>, id: &str) -> StoreResult<Option<M
             }
         }
     };
+    let mut updated_at: String = row.get("updated_at");
+    if let Some(path) = row
+        .get::<_, Option<String>>("source")
+        .as_deref()
+        .and_then(|s| s.strip_prefix("file:"))
+    {
+        let recently_accessed = row
+            .get::<_, Option<String>>("accessed_at")
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
+            .is_some_and(|t| {
+                (chrono::Utc::now() - t.with_timezone(&chrono::Utc)).num_seconds() < 10
+            });
+        if !recently_accessed {
+            if let Ok(meta) = std::fs::metadata(path) {
+                let size = meta.len() as i64;
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339());
+                if row.get::<_, Option<i64>>("source_size") != Some(size)
+                    || row.get::<_, Option<String>>("source_mtime") != mtime
+                {
+                    let read_only: String = tx
+                        .query_one("SHOW transaction_read_only", &[])
+                        .map_err(db_error)?
+                        .get(0);
+                    if read_only == "off" {
+                        let bumped = now();
+                        tx.execute("UPDATE mem_items SET source_size=$1,source_mtime=$2,updated_at=$3 WHERE id=$4", &[&size,&mtime,&bumped,&id]).map_err(db_error)?;
+                        updated_at = bumped;
+                    }
+                }
+            }
+        }
+        if let Ok(content) = std::fs::read_to_string(path) {
+            if !content.trim().is_empty() {
+                body = content.trim().to_owned();
+            }
+        }
+    }
     Ok(Some(MemItem {
         author: author(&row)?,
         id: row.get("id"),
@@ -61,7 +101,7 @@ pub(crate) fn get_in(tx: &mut Transaction<'_>, id: &str) -> StoreResult<Option<M
         source: row.get("source"),
         importance: row.get("importance"),
         created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
+        updated_at,
         accessed_at: row.get("accessed_at"),
         access_count: row.get("access_count"),
         recurrence_count: row.get("recurrence_count"),
@@ -554,10 +594,21 @@ impl PostgresMemStore {
     }
     pub fn get(&self, id: &str) -> StoreResult<Option<MemItem>> {
         self.transaction(|tx| {
+            let mut item = get_in(tx, id)?;
             if !self.read_only {
                 crate::queries::touch_in(tx, &[id.to_owned()])?;
+                if let Some(item) = &mut item {
+                    let row = tx
+                        .query_one(
+                            "SELECT accessed_at,access_count FROM mem_items WHERE id=$1",
+                            &[&id],
+                        )
+                        .map_err(db_error)?;
+                    item.accessed_at = row.get(0);
+                    item.access_count = row.get(1);
+                }
             }
-            get_in(tx, id)
+            Ok(item)
         })
     }
     pub fn insert(&self, ctx: &WriteContext, item: &NewMemItem) -> StoreResult<String> {

@@ -182,7 +182,7 @@ pub(crate) fn desired_vectors(row: &index::IndexRow, intents: &[String]) -> Desi
     Desired { texts }
 }
 
-pub(crate) fn blueprint_vector_texts(
+pub fn blueprint_vector_texts(
     row: &index::IndexRow,
     intents: &[String],
 ) -> Vec<(String, usize, String)> {

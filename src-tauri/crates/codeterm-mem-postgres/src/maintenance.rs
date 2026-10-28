@@ -1,47 +1,62 @@
 use crate::PostgresMemStore;
 use codeterm_mem::backend::WriteContext;
+mod calibration;
+mod recluster;
+mod stale;
 
 impl PostgresMemStore {
     pub(crate) fn maintenance_recluster_prompt(&self) -> Result<Option<String>, String> {
-        Err(crate::unsupported("recluster_prompt"))
+        self.transaction(recluster::prompt)
     }
     pub(crate) fn maintenance_recluster_finalize(
         &self,
-        _response: &str,
-        _model: &str,
-        _plan_dir: &std::path::Path,
+        response: &str,
+        model: &str,
+        plan_dir: &std::path::Path,
     ) -> Result<codeterm_mem::dreaming::recluster::ReclusterReport, String> {
-        Err(crate::unsupported("recluster_finalize"))
+        recluster::finalize(self, response, model, plan_dir)
     }
     pub(crate) fn maintenance_calibration_sweep(
         &self,
-        _ctx: &WriteContext,
-        _force: bool,
+        ctx: &WriteContext,
+        force: bool,
     ) -> Result<serde_json::Value, String> {
-        Err(crate::unsupported("calibration_sweep"))
+        self.transaction(|tx| calibration::sweep(tx, ctx, force))
     }
     pub(crate) fn maintenance_calibration_log(
         &self,
-        _since: &str,
-        _limit: usize,
-        _count_only: bool,
+        since: &str,
+        limit: usize,
+        count_only: bool,
     ) -> Result<serde_json::Value, String> {
-        Err(crate::unsupported("calibration_log"))
+        self.transaction(|tx| calibration::log(tx, since, limit, count_only))
     }
     pub(crate) fn maintenance_nightly_calibration(
         &self,
-        _ctx: &WriteContext,
-        _hygiene: &codeterm_types::config::DreamHygieneConfig,
-        _now: chrono::DateTime<chrono::Utc>,
+        ctx: &WriteContext,
+        hygiene: &codeterm_types::config::DreamHygieneConfig,
+        now: chrono::DateTime<chrono::Utc>,
     ) -> Result<serde_json::Value, String> {
-        Err(crate::unsupported("nightly_calibration"))
+        self.transaction(|tx| {
+            let mut report = calibration::sweep(tx, ctx, false)?;
+            report["stale"] = stale::run(tx, hygiene, now, false, None)?;
+            Ok(report)
+        })
     }
     pub(crate) fn maintenance_stale(
         &self,
         _ctx: &WriteContext,
-        _p: &codeterm_mem::curation::calibration::stale::StaleParams,
-        _hygiene: &codeterm_types::config::DreamHygieneConfig,
+        p: &codeterm_mem::curation::calibration::stale::StaleParams,
+        hygiene: &codeterm_types::config::DreamHygieneConfig,
     ) -> Result<serde_json::Value, String> {
-        Err(crate::unsupported("stale"))
+        self.transaction(|tx| {
+            stale::run(
+                tx,
+                hygiene,
+                chrono::Utc::now(),
+                p.dry_run.unwrap_or(false),
+                p.limit,
+            )
+        })
     }
 }
