@@ -510,6 +510,12 @@
   resize: vertical;
 }
 
+/* In a friend's permissions the scope field lines up with the tiles above and below it. */
+.neighbor-permissions .neighbor-textarea {
+  padding-inline: 0.75rem;
+  border-radius: 12px;
+}
+
 .neighbor-receipts {
   display: flex;
   flex-direction: column;
@@ -834,8 +840,14 @@
   gap: 0.75rem;
 }
 
-.neighbor-permissions__label {
+/* Every field in a friend's permissions is named one way, below the section labels. */
+.neighbor-permissions__label,
+.neighbor-field > label {
+  color: var(--ct-fg);
   font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* A Neighbor's conversation reads like the main chat: their words on the left, your side on the right. */
@@ -1425,12 +1437,15 @@ button.neighbor-file:hover {
   color: color-mix(in srgb, var(--ct-red) 75%, var(--ct-fg));
 }
 
+/* A picker row is a tile like the switches around it. */
 .neighbor-areas {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
-  margin: -0.25rem 0 0 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
 }
 
 /* Under a message, Check delivery reads as part of the quiet meta line, not as a full button. */
@@ -1448,9 +1463,9 @@ button.neighbor-file:hover {
 
 .neighbor-folder--needed {
   align-items: center;
-  padding: 0.5rem 0.65rem;
+  padding: 0.625rem 0.75rem;
   border: 1px solid color-mix(in srgb, var(--ct-accent) 45%, transparent);
-  border-radius: 10px;
+  border-radius: 12px;
   background: color-mix(in srgb, var(--ct-accent) 6%, var(--ct-bg));
 }
 
