@@ -20,6 +20,7 @@ import {
   installInboundReportCardHarness,
 } from "@codeterm/chat-ui";
 import { nativeBridge } from "./lib/nativeBridge";
+import { neighborNotificationTarget } from "./lib/notificationActions";
 import { configureLocalPreviews } from "./lib/configureLocalPreviews";
 import { installScrollActivity } from "./lib/scrollActivity";
 import { installCodeTermTestChatHandle, isCodeTermFrontendTestMode } from "./components/Terminal/useChatSession";
@@ -57,7 +58,7 @@ installAgentStateIndicatorHarness();
 installInboundReportCardHarness(isCodeTermFrontendTestMode());
 installCodeTermTestChatHandle();
 configureLocalPreviews();
-configureMarkdownLinkOpener((url) => nativeBridge.openUrl(url));
+configureMarkdownLinkOpener((url) => nativeBridge.openUrl(url), (url) => neighborNotificationTarget(url) !== null);
 installScrollActivity();
 
 if (!missionControlPrototype && !isGalleryRoute && !snakePrototype) {

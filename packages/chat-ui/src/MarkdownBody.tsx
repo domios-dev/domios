@@ -7,7 +7,7 @@ import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { attachmentPathName, localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
-import { MarkdownLink } from "./MarkdownLink";
+import { MarkdownLink, markdownUrlTransform } from "./MarkdownLink";
 import remarkGfm from "remark-gfm";
 import { remarkCachedParse } from "./markdownParse";
 import { remarkBareDomains, remarkCodeMetadata } from "./remarkBareDomains";
@@ -371,6 +371,7 @@ export function RichMarkdown({
     cachedKeyRef.current = cacheKey;
     if (previousKey !== null && previousKey !== cacheKey) forgetMarkdownRender(previousKey);
     return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
+      urlTransform: markdownUrlTransform,
       remarkPlugins: REMARK_PLUGINS,
       rehypePlugins: [...(rehypePlugins ?? []), rehypePlanRefs, ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
       components,

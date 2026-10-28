@@ -42,6 +42,10 @@ Concierge authority is host-owned, attached before launch and persisted with the
 
 A denied concierge tool call returns the typed refusal with instructions to reply politely to the current Neighbor request using its `message_id` as `in_reply_to`. The daemon does not guess a request from the latest history row. Permission-off and disallowed incoming tab requests still receive the automatic linked refusal before agent involvement. Generic file-path serving and browsing routes are unavailable to concierges; received files must be read through their friendship-checked handles.
 
+CLI capability denials preserve the `neighbor_*` reason and the daemon's bounded explanation. JSON output retains the general `error.code: refused` category and adds the specific `error.reason`; permission refusal exits with 1. Secret backend outages retain exit 6 and withhold structured secret payloads.
+
+After editing a friend, General may include a link in its reply to open that friend's window: `domios://neighbor/<friendship_id>/permissions` or `domios://neighbor/<friendship_id>/concierge`. Use the actual 64-character lowercase hexadecimal friendship ID; the only section names are `permissions` and `concierge`. Markdown links with these URLs open the local friend window. The plain `domios://neighbor/<friendship_id>` URL opens the conversation. Settings-related notifications use the permissions link; arrival notifications open the conversation. These links only navigate; they do not change a grant.
+
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
 domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md
@@ -130,4 +134,4 @@ Use `POST /api/account/neighbors/files` with one of these JSON operations:
 
 `neighbor-files-changed` carries `friendship_id` when the local file index changes. Join files to conversation entries by `message_id`. `neighbor-file-daily-limit-changed` carries `friendship_id` and `file_daily_limit_bytes`. Local file listing and opening do not contact the relay. Each installation keeps its own saved files; changing the receiving machine does not copy them.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->

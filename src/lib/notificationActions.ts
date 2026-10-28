@@ -1,5 +1,5 @@
 import type { NotificationAction, NotificationPromptIdentity } from "./types";
-import { openNeighbor } from "../components/Neighbors/neighborFocus";
+import { openNeighbor, openNeighborPage, type NeighborFocus } from "../components/Neighbors/neighborFocus";
 
 function adoptPromptIdentity(raw: unknown): NotificationPromptIdentity | null {
   if (typeof raw !== "object" || raw === null) return null;
@@ -53,13 +53,21 @@ export function adoptStoredActions(raw: unknown): NotificationAction[] | undefin
 
 export async function runNotificationAction(action: NotificationAction): Promise<void> {
   if (action.type === "url" && action.value) {
-    const neighbor = neighborNotificationTarget(action.value);
-    if (neighbor) openNeighbor(neighbor);
-    else window.open(action.value, "_blank");
+    if (!handleNeighborLink(action.value)) window.open(action.value, "_blank");
   }
 }
 
-export function neighborNotificationTarget(value: string): string | null {
-  const match = /^domios:\/\/neighbor\/([a-f0-9]{64})$/.exec(value);
-  return match?.[1] ?? null;
+export function neighborNotificationTarget(value: string): NeighborFocus | null {
+  const match = /^domios:\/\/neighbor\/([a-f0-9]{64})(?:\/(permissions|concierge))?$/.exec(value);
+  if (!match || match[0] !== value) return null;
+  const section = match[2];
+  return { id: match[1], section: section === "permissions" || section === "concierge" ? section : null };
+}
+
+export function handleNeighborLink(value: string): boolean {
+  if (!value.startsWith("domios://neighbor/")) return false;
+  const target = neighborNotificationTarget(value);
+  if (target?.section) openNeighborPage(target.id, target.section);
+  else if (target) openNeighbor(target.id);
+  return true;
 }

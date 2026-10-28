@@ -117,7 +117,7 @@ async fn agent_rejections_notify_metadata_only_and_owner_sends_stay_silent() {
         assert!(notice["body"].is_null());
         assert_eq!(
             notice["actions"][0]["value"],
-            format!("domios://neighbor/{friendship}")
+            format!("domios://neighbor/{friendship}/permissions")
         );
     }
 }
