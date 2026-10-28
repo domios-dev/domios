@@ -1,3 +1,6 @@
+mod recall;
+pub(crate) use recall::{matched_entities_in, recall_with_embedding_in, scoped_vectors_in};
+
 use crate::{db_error, items, vectors, StoreResult};
 use codeterm_mem::{
     store::{GraphDump, GraphDumpStats, GraphEdge, GraphNode, TailEntry},
@@ -82,22 +85,7 @@ pub(crate) fn search_in(
     query: &SearchQuery,
     cfg: &codeterm_mem::search::SearchConfig,
 ) -> StoreResult<Vec<SearchHit>> {
-    let mut words: Vec<_> = query
-        .query
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|word| word.len() >= 2)
-        .map(str::to_lowercase)
-        .collect();
-    if cfg.fts_drop_stopwords {
-        let content: Vec<_> = words
-            .iter()
-            .filter(|word| !codeterm_mem::search::is_stop_word(word))
-            .cloned()
-            .collect();
-        if !content.is_empty() {
-            words = content;
-        }
-    }
+    let (words, conjunctive) = codeterm_mem::search::fts_terms(&query.query, cfg.fts_drop_stopwords);
     if words.is_empty() {
         return Ok(Vec::new());
     }
@@ -105,7 +93,7 @@ pub(crate) fn search_in(
         .iter()
         .map(|word| format!("'{word}'"))
         .collect::<Vec<_>>()
-        .join(" | ");
+        .join(if conjunctive { " & " } else { " | " });
     let limit = query.limit.unwrap_or(5).clamp(1, 50);
     let source = cfg
         .source_filter
@@ -114,56 +102,16 @@ pub(crate) fn search_in(
     let filter_source = cfg.source_filter.is_some();
     let rows=tx.query("SELECT m.id,ts_rank_cd(f.document,to_tsquery('simple',$1))::float8 FROM mem_fts f JOIN mem_items m ON m.id=f.mem_id WHERE f.document @@ to_tsquery('simple',$1) AND m.kind!='archived' AND ($2::text IS NULL OR m.kind=$2) AND ($3::text IS NULL OR m.scope=$3) AND ($4::text IS NULL OR m.area=$4) AND (NOT $5::boolean OR m.source IS NOT DISTINCT FROM $6::text) ORDER BY 2 DESC,m.id LIMIT $7",
         &[&expression,&query.kind,&query.scope,&query.area,&filter_source,&source,&((limit*5) as i64)]).map_err(db_error)?;
-    let keywords: Vec<_> = words
-        .iter()
-        .filter(|word| word.len() >= 3 && !codeterm_mem::search::is_stop_word(word))
-        .collect();
+    let scorer = codeterm_mem::search::ranking::Scorer::new(&query.query, cfg, chrono::Utc::now());
     let mut hits = Vec::new();
     for row in rows {
         let Some(item) = items::get_in(tx, &row.get::<_, String>(0))? else {
             continue;
         };
-        let text = format!(
-            "{} {} {} {}",
-            item.title,
-            item.summary.as_deref().unwrap_or(""),
-            item.body,
-            item.tags.join(" ")
-        )
-        .to_lowercase();
-        let overlap = if keywords.is_empty() {
-            0.0
-        } else {
-            keywords
-                .iter()
-                .filter(|word| text.contains(word.as_str()))
-                .count() as f64
-                / keywords.len() as f64
-        };
-        let title = if keywords
-            .iter()
-            .any(|word| item.title.to_lowercase().contains(word.as_str()))
-        {
-            cfg.title_match_bonus
-        } else {
-            0.0
-        };
-        let importance = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
-        let recurrence =
-            (item.recurrence_count as f64 * cfg.recurrence_step).min(cfg.recurrence_cap);
-        let rank: f64 = row.get(1);
-        let score = (1.0 / (1.0 + rank.abs()))
-            * (1.0 - cfg.keyword_overlap_weight * overlap)
-            * (1.0 - importance)
-            * (1.0 - recurrence)
-            * (1.0 - title);
+        let score = scorer.lexical(&item, row.get(1));
         hits.push(SearchHit { item, score });
     }
-    hits.sort_by(|a, b| {
-        a.score
-            .total_cmp(&b.score)
-            .then_with(|| a.item.id.cmp(&b.item.id))
-    });
+    codeterm_mem::search::ranking::sort_hits(&mut hits);
     hits.truncate(limit);
     Ok(hits)
 }
