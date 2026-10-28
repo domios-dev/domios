@@ -15,7 +15,7 @@ import { NeighborPrivacyNote, NeighborRequestPanel } from "./NeighborPanel";
 import { NeighborFriendPage } from "./NeighborFriendPage";
 import { askGeneralAgent, permissionInterviewTask, talkAboutTask, type NeighborSubject } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
-import { onNeighborFocus, takeNeighborFocus, type NeighborSection } from "./neighborFocus";
+import { onNeighborFocus, takeNeighborFocus, type NeighborFocus, type NeighborSection } from "./neighborFocus";
 import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighborhoodModel";
 import { listedPaused, neighborName } from "./neighborModel";
 import { usePausedFriends } from "./neighborPause";
@@ -53,14 +53,21 @@ export function NeighborsView({ config, client, runtimeClient = neighborRuntimeC
   const neighborsSwitch = useNeighborsSwitch(config);
   const account = useAccount();
   const identity = account.model.kind === "signed_in" ? account.model.identity.uid : null;
+  // The page remounts once the account resolves, so a friend another surface asked for is held here, above that key.
+  const [focus, setFocus] = useState<NeighborFocus | null>(null);
+  useEffect(() => {
+    const take = () => { const next = takeNeighborFocus(); if (next) setFocus(next); };
+    take();
+    return onNeighborFocus(take);
+  }, []);
   return <NeighborhoodPage key={identity} identity={identity} account={account} client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient}
-    enabled={neighborsSwitch.enabled} onEnable={() => { void neighborsSwitch.setEnabled(true); }} />;
+    focus={focus} enabled={neighborsSwitch.enabled} onEnable={() => { void neighborsSwitch.setEnabled(true); }} />;
 }
 
-function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeClient, filesClient, enabled, onEnable }: {
+function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeClient, filesClient, focus, enabled, onEnable }: {
   identity: string | null; account: ReturnType<typeof useAccount>; client?: NeighborClient; runtimeClient: NeighborRuntimeClient;
   conciergeClient: NeighborConciergeClient; filesClient?: NeighborFilesClient;
-  enabled: boolean; onEnable: () => void;
+  focus: NeighborFocus | null; enabled: boolean; onEnable: () => void;
 }) {
   const neighbors = useNeighbors(identity, client);
   const tabMap = useTabMap();
@@ -81,10 +88,9 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   const [agentError, setAgentError] = useState<string | null>(null);
   const awaitingAccept = useRef<string | null>(null);
   useEffect(() => {
-    const take = () => { const focus = takeNeighborFocus(); if (focus) { setOrigin(nodeCentre(focus.id)); setSelected(focus.id); setOpenSection(focus.section); } };
-    take();
-    return onNeighborFocus(take);
-  }, []);
+    if (!focus) return;
+    setOrigin(nodeCentre(focus.id)); setSelected(focus.id); setOpenSection(focus.section);
+  }, [focus]);
   const list = neighbors.list;
   // The last known graph draws at once; only a first load with nothing remembered shows a loading state.
   const cached = useMemo(() => readNeighborCache(identity), [identity]);
