@@ -181,12 +181,22 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
+    let author =
+        crate::mem_routes::memory_author(&state, &headers).map_err(|(status, message)| {
+            (
+                status,
+                Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+            )
+        })?;
+    let actor = codeterm_service_core::mem_ops::author::author_audit_label(&author);
     let svc = state.svc.clone();
     let method = request.method;
     let params = request.params;
     let result = tokio::task::spawn_blocking(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            (bridge.dispatch_service_rpc)(&method, params, &svc)
+            codeterm_service_core::mem::store::with_authored_change(author, &actor, || {
+                (bridge.dispatch_service_rpc)(&method, params, &svc)
+            })
         }))
     })
     .await;

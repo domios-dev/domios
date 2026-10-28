@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use super::provider::EmbedderIdentity;
 use super::StampedVector;
 
-const STAMP_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mem_embedder (
+pub(crate) const STAMP_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mem_embedder (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
