@@ -138,7 +138,7 @@ export const neighborRuntimeClient: NeighborRuntimeClient = {
   subscribe: handler => listen<NeighborListenerEvent>("neighbor-runtime-status", event => {
     const value = event.payload;
     if (receiverState(value) || ("receiver_unavailable" in value && value.receiver_unavailable === true)
-      || ("friendship_id" in value && typeof value.friendship_id === "string" && ["connecting", "receiving", "reconnecting", "stopped"].includes(value.status))) handler(value);
+      || ("friendship_id" in value && "status" in value && typeof value.friendship_id === "string" && ["connecting", "receiving", "reconnecting", "stopped"].includes(value.status))) handler(value);
   }),
   status: async signal => {
     const value = await runtimeCall({ operation: "status" }, signal);

@@ -9,7 +9,8 @@ vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { window: undefined, op
 it.each(["set", "reset"] as const)("moves only the requested friend for %s", async operation => {
   vi.mocked(localFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
   await neighborRuntimeClient.receiveFriend("f".repeat(64), 9, operation);
-  const [, init] = vi.mocked(localFetch).mock.calls.at(-1)!;
+  const calls = vi.mocked(localFetch).mock.calls;
+  const [, init] = calls[calls.length - 1]!;
   expect(JSON.parse(String(init?.body))).toEqual({ operation: "set_friend_receiver", friendship_id: "f".repeat(64),
     receiver_operation: operation, takeover_confirmed: true, expected_receiver_revision: 9 });
 });

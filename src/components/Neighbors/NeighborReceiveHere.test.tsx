@@ -6,7 +6,7 @@ import { NeighborRuntimeFailure, type ReceiverState } from "./neighborRuntimeCli
 
 vi.mock("../MeshPanel/AddPeerPanel", () => ({ default: () => <div role="region" aria-label="Manage machines">Machine controls</div> }));
 vi.mock("../../lib/bridge", () => ({ listen: vi.fn() }));
-vi.mock("../../lib/webApi", () => ({ localFetch: vi.fn() }));
+vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), localFetch: vi.fn() }));
 
 let unmount: (() => void) | undefined;
 afterEach(() => { unmount?.(); unmount = undefined; document.body.replaceChildren(); });
