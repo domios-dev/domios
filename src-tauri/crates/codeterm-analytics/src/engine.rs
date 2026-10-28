@@ -18,6 +18,7 @@ pub struct Status {
 }
 
 pub(crate) struct Engine {
+    pub authorized: bool,
     pub state: State,
     path: PathBuf,
     pub sink: Box<dyn AnalyticsSink>,
@@ -47,7 +48,12 @@ impl Engine {
             config,
             Arc::new(|_| Err("analytics credential unavailable".into())),
         )?;
-        Ok(Self { state, path, sink })
+        Ok(Self {
+            state,
+            path,
+            sink,
+            authorized: true,
+        })
     }
 
     pub fn status(&self) -> Status {
@@ -62,7 +68,7 @@ impl Engine {
         }
     }
 
-    fn commit(&mut self, next: State) -> Result<(), String> {
+    pub(crate) fn commit(&mut self, next: State) -> Result<(), String> {
         if let Err(error) = next.save(&self.path) {
             self.state.clear();
             return Err(error);
@@ -87,7 +93,7 @@ impl Engine {
     }
 
     pub fn identity(&mut self, uid: Option<String>) -> Result<(), String> {
-        if self.state.consent == Consent::Off {
+        if !self.authorized || self.state.consent == Consent::Off {
             return Ok(());
         }
         if uid
@@ -110,7 +116,7 @@ impl Engine {
         now: u64,
         day: chrono::NaiveDate,
     ) -> Result<bool, String> {
-        if self.state.consent != Consent::On || !self.sink.enabled() {
+        if !self.authorized || self.state.consent != Consent::On || !self.sink.enabled() {
             return Ok(false);
         }
         match &event {
@@ -168,7 +174,7 @@ impl Engine {
     }
 
     pub fn deadline(&self) -> Option<u64> {
-        if self.state.consent != Consent::On || !self.sink.enabled() {
+        if !self.authorized || self.state.consent != Consent::On || !self.sink.enabled() {
             return None;
         }
         self.state.queue.front().map(|event| event.retry_at)

@@ -30,6 +30,10 @@ export function FirstRunGeneralPicker({ providers, home }: { providers: Provider
         progress={login ? "Sign in to continue" : progress}
         navigation={navigation}
         home={home}
+        belowProviders={<p className="text-xs text-[var(--ct-muted-fg)]">Product analytics is on. Turn off in <a href="#settings/general" onClick={event => {
+          event.preventDefault();
+          window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:general" } }));
+        }}>Settings</a>.</p>}
       >
         <FirstRunSetupProgress phase={phase} />
         {login && home && <RuntimeLoginActions tabId={home.tabId} providerId={login.providerId} state={login.state} />}

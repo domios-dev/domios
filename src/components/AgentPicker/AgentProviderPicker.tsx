@@ -22,6 +22,7 @@ interface AgentProviderPickerProps {
   onInstall?: (providerId: string) => void;
   progress?: string | null;
   children?: ReactNode;
+  belowProviders?: ReactNode;
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
@@ -38,6 +39,7 @@ export function AgentProviderPicker({
   onInstall: installOverride,
   progress,
   children,
+  belowProviders,
   navigation,
   home,
 }: AgentProviderPickerProps) {
@@ -136,6 +138,7 @@ export function AgentProviderPicker({
             />
           ))}
         </div>
+        {belowProviders}
 
         {/* The command line is out of flow so the row never changes height;
             Re-check unfurls in flow so the pair spreads apart in one motion. */}

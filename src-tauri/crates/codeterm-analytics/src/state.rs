@@ -43,6 +43,9 @@ pub(crate) struct Queued {
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct State {
+    pub intent_sequence: u64,
+    pub account_uid: Option<String>,
+    pub withdrawals: Vec<crate::Withdrawal>,
     pub consent: Consent,
     pub device_id: Option<Uuid>,
     pub user_id: Option<String>,
@@ -66,7 +69,11 @@ impl State {
 
     pub fn read(path: &Path) -> Result<Self, String> {
         if !path.exists() {
-            return Ok(Self::default());
+            return Ok(Self {
+                consent: Consent::On,
+                device_id: Some(Uuid::new_v4()),
+                ..Self::default()
+            });
         }
         let meta = std::fs::metadata(path).map_err(|_| "analytics settings unavailable")?;
         if meta.len() > 2_000_000 {
@@ -81,6 +88,15 @@ impl State {
             return Err("invalid analytics device identity".into());
         }
         if state.user_id.as_deref().is_some_and(|uid| !valid_uid(uid))
+            || state
+                .account_uid
+                .as_deref()
+                .is_some_and(|uid| !valid_uid(uid))
+            || state.withdrawals.iter().any(|intent| {
+                !valid_uid(&intent.uid)
+                    || intent.device_id.is_some_and(|id| id.get_version_num() != 4)
+                    || intent.change_id.get_version_num() != 4
+            })
             || state.queue.iter().any(|event| {
                 event.failures > RETRY_DELAYS_MS.len()
                     || event.user_id.as_deref().is_some_and(|uid| !valid_uid(uid))

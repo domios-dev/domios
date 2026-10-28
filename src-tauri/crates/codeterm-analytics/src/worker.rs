@@ -9,6 +9,10 @@ use tokio::sync::oneshot;
 pub type SecretReader = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
 
 enum Command {
+    Control(
+        crate::consent::Control,
+        oneshot::Sender<Result<crate::ConsentTicket, String>>,
+    ),
     Device(oneshot::Sender<Option<uuid::Uuid>>),
     Status(oneshot::Sender<Status>),
     Consent(Consent, oneshot::Sender<Result<Status, String>>),
@@ -25,6 +29,65 @@ pub struct Worker {
 }
 
 impl Worker {
+    async fn control(
+        &self,
+        control: crate::consent::Control,
+    ) -> Result<crate::ConsentTicket, String> {
+        let (sender, receiver) = oneshot::channel();
+        let commands = self.sender.clone();
+        tokio::task::spawn_blocking(move || commands.send(Command::Control(control, sender)))
+            .await
+            .map_err(|_| "Analytics control unavailable")?
+            .map_err(|_| "Analytics worker stopped")?;
+        receiver.await.map_err(|_| "Analytics worker stopped")?
+    }
+
+    pub async fn begin_consent(
+        &self,
+        intent: Option<Consent>,
+    ) -> Result<crate::ConsentTicket, String> {
+        self.control(crate::consent::Control::Begin(intent)).await
+    }
+
+    pub async fn account_changed(&self, uid: Option<String>) -> Result<(), String> {
+        self.control(crate::consent::Control::Account(uid))
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn consent_ticket(&self) -> Result<crate::ConsentTicket, String> {
+        self.control(crate::consent::Control::Inspect).await
+    }
+
+    pub async fn approve_consent(&self, ticket: crate::ConsentTicket) -> Result<(), String> {
+        self.control(crate::consent::Control::Approve(ticket))
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn refuse_consent(&self, ticket: crate::ConsentTicket) -> Result<(), String> {
+        self.control(crate::consent::Control::Refuse(ticket))
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn acknowledge_withdrawal(&self, change: uuid::Uuid) -> Result<(), String> {
+        self.control(crate::consent::Control::Acknowledge(change))
+            .await
+            .map(|_| ())
+    }
+
+    pub fn start_paused(
+        path: PathBuf,
+        config: Config,
+        secrets: SecretReader,
+    ) -> Result<Self, String> {
+        let mut engine = Engine::open(path, config)?;
+        engine.authorized = false;
+        engine.state.queue.clear();
+        engine.sink = crate::sinks::from_config(config, secrets)?;
+        Self::spawn(engine)
+    }
     pub async fn device_id(&self) -> Result<Option<uuid::Uuid>, String> {
         let (sender, receiver) = oneshot::channel();
         self.send(Command::Device(sender))?;
@@ -50,7 +113,11 @@ impl Worker {
 
     fn spawn(engine: Engine) -> Result<Self, String> {
         let activity = Arc::new(crate::activity::Activity::new(
-            engine.state.consent,
+            if engine.authorized {
+                engine.state.consent
+            } else {
+                Consent::Off
+            },
             engine.state.last_active_day,
         ));
         let shared_activity = activity.clone();
@@ -182,6 +249,27 @@ fn run(
             },
         };
         match command {
+            Some(Command::Control(control, reply)) => {
+                let result = engine.control(control);
+                if !engine.authorized {
+                    account_uid = None;
+                }
+                if result.is_ok() && engine.authorized {
+                    account_uid = engine.state.account_uid.clone();
+                    if let Some(event) = startup.take() {
+                        let _ = engine.enqueue(event, now_ms());
+                    }
+                }
+                activity.publish(
+                    if engine.authorized {
+                        engine.state.consent
+                    } else {
+                        Consent::Off
+                    },
+                    engine.state.last_active_day,
+                );
+                let _ = reply.send(result);
+            }
             Some(Command::Device(reply)) => {
                 let _ = reply.send(engine.state.device_id);
             }
@@ -203,7 +291,14 @@ fn run(
                     }
                     Ok(engine.status())
                 });
-                activity.publish(engine.state.consent, engine.state.last_active_day);
+                activity.publish(
+                    if engine.authorized {
+                        engine.state.consent
+                    } else {
+                        Consent::Off
+                    },
+                    engine.state.last_active_day,
+                );
                 let _ = reply.send(result);
             }
             Some(Command::Event(event, reply)) => {
@@ -216,30 +311,65 @@ fn run(
                 if is_startup && matches!(result, Ok(true)) {
                     startup.take();
                 }
-                activity.publish(engine.state.consent, engine.state.last_active_day);
+                activity.publish(
+                    if engine.authorized {
+                        engine.state.consent
+                    } else {
+                        Consent::Off
+                    },
+                    engine.state.last_active_day,
+                );
                 let _ = reply.send(result);
             }
             Some(Command::Activity(event, day)) => {
                 suspended = false;
                 let _ = engine.enqueue_on_day(event, now_ms(), day);
-                activity.publish(engine.state.consent, engine.state.last_active_day);
+                activity.publish(
+                    if engine.authorized {
+                        engine.state.consent
+                    } else {
+                        Consent::Off
+                    },
+                    engine.state.last_active_day,
+                );
                 activity.release();
             }
             Some(Command::Identity(uid, reply)) => {
                 suspended = false;
                 account_uid = uid.clone();
                 let result = engine.identity(uid);
-                activity.publish(engine.state.consent, engine.state.last_active_day);
+                activity.publish(
+                    if engine.authorized {
+                        engine.state.consent
+                    } else {
+                        Consent::Off
+                    },
+                    engine.state.last_active_day,
+                );
                 let _ = reply.send(result);
             }
             Some(Command::Flush(reply)) => {
                 let result = engine.deliver(now_ms());
-                activity.publish(engine.state.consent, engine.state.last_active_day);
+                activity.publish(
+                    if engine.authorized {
+                        engine.state.consent
+                    } else {
+                        Consent::Off
+                    },
+                    engine.state.last_active_day,
+                );
                 let _ = reply.send(result);
             }
             None => {
                 suspended = engine.deliver(now_ms()).is_err();
-                activity.publish(engine.state.consent, engine.state.last_active_day);
+                activity.publish(
+                    if engine.authorized {
+                        engine.state.consent
+                    } else {
+                        Consent::Off
+                    },
+                    engine.state.last_active_day,
+                );
             }
         }
     }

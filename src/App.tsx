@@ -175,6 +175,7 @@ function AppInner() {
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsLinkId | undefined>(undefined);
+  const [firstRunSettings, setFirstRunSettings] = useState(false);
   const [requestedGuide, setRequestedGuide] = useState<GuideRequest | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
@@ -386,13 +387,16 @@ function AppInner() {
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
-      if (lockedRef.current) return;
       const detail = (e as CustomEvent<{
         panel?: string;
         cwd?: string | null;
         memoryState?: MemoryInitialState;
       }>).detail;
       const panel = detail?.panel;
+      if (lockedRef.current) {
+        if (panel === "settings:general") setFirstRunSettings(true);
+        return;
+      }
       if (panel?.startsWith("view:")) {
         const fp = stateRef.current.focused_tab_id
           ? stateRef.current.tabs[stateRef.current.focused_tab_id]
@@ -842,6 +846,7 @@ function AppInner() {
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {locked ? (configLoading ? <Loader label="Loading settings" deferred={false} />
+            : firstRunSettings ? <SettingsPanel config={config} onUpdateConfig={updateConfig} initialSection="general" onClose={() => setFirstRunSettings(false)} />
             : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
               ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !routeRestored && !state.storageUnavailable ? (
             <DeferredPresence present className="absolute inset-0">

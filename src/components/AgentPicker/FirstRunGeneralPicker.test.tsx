@@ -303,3 +303,27 @@ it("keeps multi-method sign-in on Get started and continues only authenticated c
     host.remove();
   }
 });
+
+it("shows only the passive analytics line on first run and links Settings to General", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const open = vi.fn();
+  window.addEventListener("codeterm:open-panel", open);
+  vi.mocked(invoke).mockResolvedValue(undefined);
+  try {
+    await act(async () => root.render(<FirstRunGeneralPicker providers={[]} />));
+    const link = [...host.querySelectorAll("a")].find(element => element.textContent === "Settings")!;
+    expect(link.parentElement?.textContent).toBe("Product analytics is on. Turn off in Settings.");
+    expect(host.querySelector('[role="dialog"], [role="alert"], [role="banner"], [data-notification-id]')).toBeNull();
+    await act(async () => link.click());
+    expect(open).toHaveBeenCalledOnce();
+    expect((open.mock.calls[0][0] as CustomEvent).detail).toEqual({ panel: "settings:general" });
+    const { AgentProviderPicker } = await import("./AgentProviderPicker");
+    await act(async () => root.render(<AgentProviderPicker headline="Choose agent" subhead="" providers={[]} onConfirm={() => {}} />));
+    expect(host.textContent).not.toContain("Product analytics is on.");
+    expect(host.querySelector('[role="dialog"], [role="alert"], [role="banner"], [data-notification-id]')).toBeNull();
+  } finally {
+    window.removeEventListener("codeterm:open-panel", open);
+    await act(async () => root.unmount()); host.remove();
+  }
+});

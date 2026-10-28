@@ -5,7 +5,11 @@ fn recording_engine(
     path: std::path::PathBuf,
     recording: Arc<Mutex<sinks::fake::Recording>>,
 ) -> Engine {
+    let fresh = !path.exists();
     let mut engine = Engine::open(path, config()).unwrap();
+    if fresh {
+        engine.consent(Consent::Off).unwrap();
+    }
     engine.sink = Box::new(sinks::fake::Fake { recording });
     engine
 }
@@ -175,6 +179,7 @@ async fn enabling_after_startup_records_lifecycle_under_signed_in_uid() {
         }),
     )
     .unwrap();
+    worker.set_consent(Consent::Off).await.unwrap();
     assert!(!worker.record(startup()).await.unwrap());
     worker
         .set_user_id(Some("firebase-uid".into()))
@@ -287,6 +292,7 @@ async fn consent_toggles_do_not_replay_startup_more_than_once() {
             }),
         )
         .unwrap();
+        worker.set_consent(Consent::Off).await.unwrap();
         if initially_enabled {
             worker.set_consent(Consent::On).await.unwrap();
         }
