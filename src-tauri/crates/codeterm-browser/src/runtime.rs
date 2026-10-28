@@ -388,7 +388,7 @@ pub(super) async fn apply_viewport(
             "width": viewport.width,
             "height": viewport.height,
             "deviceScaleFactor": viewport.dpr,
-            "mobile": false,
+            "mobile": viewport.mobile,
         }),
     )
     .await

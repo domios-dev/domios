@@ -3,6 +3,7 @@ mod grab;
 mod heuristics;
 mod inbox;
 mod input;
+mod metrics;
 mod page;
 mod redaction;
 mod resume;

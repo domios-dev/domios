@@ -88,3 +88,11 @@ Treat it as a precise pointer: find the code behind the element, answer or chang
 - `profiles`: the current profile and the named ones available.
 - `endpoint`: the browser's local CDP endpoint, for tools that need it.
 - `close`: close your browser.
+
+## Device viewport and capture metrics
+
+`viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
+
+`screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` captures at the requested size and reports the saved path, layout width, content width and CDP layout metrics as JSON. `--restore` restores the previous device metrics even when capture fails; restoration failure is reported explicitly. Without `--restore`, requested metrics stay active.
+
+<!-- revision: 1 -->

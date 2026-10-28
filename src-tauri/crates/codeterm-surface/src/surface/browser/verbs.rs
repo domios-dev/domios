@@ -25,6 +25,7 @@ pub const VERBS: &[&str] = &[
     "text",
     "wait",
     "screenshot",
+    "viewport",
     "inbox",
     "annotate",
     "endpoint",
@@ -289,19 +290,8 @@ impl BrowserRuntime {
                     .to_string())
             }
             "wait" => self.wait(page, parse_wait(args)?).await,
-            "screenshot" => {
-                let full = args.iter().any(|arg| arg == "--full");
-                let name = args.iter().find(|arg| !arg.starts_with("--"));
-                let fallback = format!("shot-{}", unix_ms());
-                let name = super::inbox::evidence_file_name(
-                    name.map(String::as_str).unwrap_or(""),
-                    &fallback,
-                );
-                let base64 = self.screenshot_base64(page, full).await?;
-                let path = self.save_evidence(ctx, name, base64).await?;
-                let path = path.to_string_lossy();
-                Ok(format!("saved {path} (show it with @ds-image {path})"))
-            }
+            "viewport" => self.viewport_verb(args).await,
+            "screenshot" => self.screenshot_verb(ctx, args).await,
             other => Err(format!("unknown verb \"{other}\"")),
         }
     }
@@ -458,13 +448,6 @@ impl BrowserRuntime {
             }
         }
     }
-}
-
-fn unix_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or(0)
 }
 
 #[cfg(test)]
