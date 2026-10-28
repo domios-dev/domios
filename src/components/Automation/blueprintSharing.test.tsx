@@ -4,13 +4,14 @@ import { Window } from "happy-dom";
 import { parseBlueprintRecipe, type BlueprintRecipe, type BlueprintSharingApi } from "./blueprintSharing";
 
 async function main() {
-  const recipe: BlueprintRecipe = { schema_version: 1, name: "Fixture watcher", inputs: { destination: { type: "string", description: "Destination tab" } }, watch: { observe: "tab:{{destination}}", question: "Ready?", buckets: ["done"] } };
+  const recipe: BlueprintRecipe = { name: "Fixture watcher", inputs: { destination: { type: "string", description: "Destination tab" } } };
   const source = "schema_version: 1\nname: Fixture watcher\ninputs:\n  destination: {type: string, description: Destination tab}\nwatch:\n  observe: 'tab:{{destination}}'\n  question: Ready?\n  buckets: [done]\n";
   assert.deepEqual(parseBlueprintRecipe(source), recipe);
   assert.throws(() => parseBlueprintRecipe("schema_version: 1\nname: First\nname: Second\nwatch: {}"), /unique|duplicate/i);
-  assert.deepEqual(parseBlueprintRecipe(JSON.stringify(recipe)), recipe);
-  assert.throws(() => parseBlueprintRecipe(JSON.stringify({ ...recipe, schema_version: 99 })), /schema version/);
-  assert.throws(() => parseBlueprintRecipe(JSON.stringify({ ...recipe, inputs: { destination: 1 } })), /input/);
+  assert.throws(() => parseBlueprintRecipe("- not\n- a mapping"), /Invalid Blueprint document/);
+  // The schema is the runtime's to judge: a native v2 recipe reads, and its bytes go to the import unchanged.
+  assert.deepEqual(parseBlueprintRecipe("schema_version: 2\nname: Native\nsteps: []\n"), { name: "Native" });
+  assert.deepEqual(parseBlueprintRecipe(JSON.stringify({ name: "Odd", inputs: { destination: 1 } })), { name: "Odd" }, "an input the form cannot bind is left to the runtime");
 
   const win = new Window({ url: "http://localhost/" });
   for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLButtonElement", "HTMLInputElement", "HTMLSelectElement", "Element", "Node", "Event", "MouseEvent"]) {
