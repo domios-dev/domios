@@ -244,6 +244,9 @@ pub(crate) fn plan_agent_call(
             "close only closes your own {noun}; {owner_name}'s stays open"
         ));
     }
+    if verb == "open" && surface.renderer == codeterm_plugin::surfaces::SurfaceRenderer::View {
+        return Err(format!("open only opens your own {noun}"));
+    }
     let actor = mux
         .get_tab(caller_tab)
         .and_then(|tab| sanitize_actor(&tab.title))

@@ -256,3 +256,42 @@ fn view_of_authorization_never_crosses_workspaces_and_open_close_stay_owner_only
     )
     .is_err());
 }
+
+#[test]
+fn foreign_view_open_never_dispatches_or_emits_activity_even_when_declared() {
+    for declared_open in [false, true] {
+        let (fixture, owner, visitor, tab) = fixture();
+        if declared_open {
+            let registry = fixture.service.ext::<SurfaceRegistryHandle>();
+            let mut declared = registry.get("studio").unwrap().to_vec();
+            declared[0].agent_verbs.push("open".into());
+            registry.register("studio", std::sync::Arc::new(declared));
+        }
+        let tab_count = fixture.service.mux.read().all_tabs().count();
+        let out: Value = serde_json::from_str(&fixture.service.surface_agent_call_json(
+            "studio",
+            Some(&visitor),
+            "open",
+            &json!({"of":owner,"args":["opaque-input"]}).to_string(),
+        ))
+        .unwrap();
+        assert!(out["error"]
+            .as_str()
+            .unwrap()
+            .contains("open only opens your own"));
+        assert!(
+            out.get("view_dispatch").is_none(),
+            "no callback plan may cross the VM port"
+        );
+        assert!(
+            fixture.ui.0.lock().is_empty(),
+            "no activity or lifecycle effects"
+        );
+        let mux = fixture.service.mux.read();
+        assert_eq!(mux.all_tabs().count(), tab_count);
+        assert_eq!(
+            mux.get_tab(&tab).unwrap().parent_tab_id.as_deref(),
+            Some(owner.as_str())
+        );
+    }
+}
