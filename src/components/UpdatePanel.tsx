@@ -6,7 +6,6 @@ import { ComponentStatus } from "./shared/ComponentStatus";
 import { UpdateChannelNotice } from "./shared/UpdateChannelNotice";
 import { SettingsCard } from "./Settings/shared";
 import type { ReactNode } from "react";
-import { BusySpinner } from "./shared/BusyState";
 import { Button } from "./shared/Button";
 import { BrandMark } from "./brand/BrandMark";
 import { DotMatrixCanvas } from "./brand/DotMatrixCanvas";
@@ -93,7 +92,7 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
         {children}
         <div className="flex items-center justify-between gap-2 border-t border-[var(--ct-border)] pt-3">
           <Button variant="ghost" size="compact" className="-ml-3 gap-1.5" disabled={update.checking || (update.busy && !update.error)} onClick={() => void update.retry()}><RotateCw size={13} aria-hidden="true" />Check again</Button>
-          <Button variant="primary" size="compact" className="gap-1.5" aria-label="Update all" disabled={update.busy || update.checking || update.awaitingRetry || !update.rows.some(item => !item.channelError && item.state !== "completed" && update.items.some(offer => offer.id === item.id))} onClick={() => void update.updateAll()}>{update.busy && <BusySpinner size={13} />}{update.busy ? "Updating components" : "Update all"}</Button>
+          <Button variant="primary" size="compact" className="gap-1.5" aria-label="Update all" disabled={update.busy || update.checking || update.awaitingRetry || !update.rows.some(item => !item.channelError && item.state !== "completed" && update.items.some(offer => offer.id === item.id))} loading={update.busy} onClick={() => void update.updateAll()}>{update.busy ? "Updating components" : "Update all"}</Button>
         </div>
       </div>
   );

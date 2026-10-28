@@ -13,6 +13,8 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { Clock3, Network, Plus, Square, Trash2, Workflow } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
+import { BusyState } from "../shared/BusyState";
+import { Loader } from "../shared/Loader";
 import { returnToOrigin, type ReturnTo, type ReturnToRoute } from "../../lib/returnTo";
 import type { PairedPeer, Tab, Team } from "../../lib/types";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
@@ -255,7 +257,7 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
       blueprintId={target.id} initialRunId={!scenarioId || initialScenarioId === scenarioId ? initialRunId : undefined} backLabel={backLabel} onBack={onBack} headingLevel={3} fill />;
     return <section className="flex min-w-0 flex-col gap-3 px-4 py-3" aria-label="Blueprint view">
       <BackPill label={backLabel} onBack={onBack} />
-      {graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : graphsFailed ? <p role="status" className="ct-job-note">Blueprint is unavailable.</p> : <p role="status" className="ct-job-note">Reading Blueprint…</p>}
+      {graphsRead ? <InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /> : graphsFailed ? <p role="status" className="ct-job-note">Blueprint is unavailable.</p> : <Loader label="Reading Blueprint…" />}
     </section>;
   }
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
@@ -266,7 +268,7 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
     {missing && <div ref={removed} tabIndex={-1} role="status" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none"><InlineErrorNotice error={{ code: "blueprint_unavailable", raw: "" }} /></div>}
     {crons.failed && crons.jobs === null && <p role="status" aria-label="Jobs unavailable" className="ct-job-note">Jobs are unavailable.</p>}
     <AutomationNotices state={notices} noun="Blueprints" />
-    {reading && <p role="status" className="mb-3 text-[var(--ct-muted-fg)]">Reading jobs…</p>}
+    {reading && <BusyState inline label="Reading jobs…" phase="work" className="mb-3 text-[var(--ct-muted-fg)]" />}
     <div role="status" aria-label={empty ? "No jobs" : undefined} className={empty ? "flex flex-1 flex-col items-center justify-center gap-1.5 py-10 text-center" : undefined}>
       {empty && <EmptyJobs scope={emptyScope} canWiden={canWiden} />}
     </div>

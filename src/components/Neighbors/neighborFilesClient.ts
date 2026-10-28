@@ -1,5 +1,6 @@
 import { listen } from "../../lib/bridge";
 import { localFetch } from "../../lib/webApi";
+import { nativeBridge, type NativeBridge } from "../../lib/nativeBridge";
 import { receipt, type NeighborReceipt } from "./neighborRuntimeClient";
 
 export type NeighborFileState = "saved" | "failed" | "expired" | "downloading";
@@ -70,6 +71,23 @@ function parseQuota(value: unknown): NeighborFileQuota | null {
   };
 }
 
+/** Opens a saved file from them. On the desktop the app opens it itself, so its window comes to the front; a window the
+ *  daemon launches is a background process's and stays behind Domios. Anywhere else, or when that fails, the daemon
+ *  opens it as before. */
+export async function openSavedFile(friendship: string, fileId: string,
+  runtime: (command: Record<string, unknown>) => Promise<unknown> = call, desktop: Pick<NativeBridge, "window" | "openFolder"> = nativeBridge): Promise<void> {
+  if (desktop.window) {
+    try {
+      const resolved = await runtime({ operation: "open", friendship_id: friendship, file_id: fileId, launch: false });
+      if (record(resolved) && typeof resolved.path === "string") {
+        await desktop.openFolder(resolved.path);
+        return;
+      }
+    } catch { /* An older daemon refuses launch, and a desktop open can fail; the daemon open below still serves. */ }
+  }
+  await runtime({ operation: "open", friendship_id: friendship, file_id: fileId });
+}
+
 export const neighborFilesClient: NeighborFilesClient = {
   send: async (friendship, body, paths, inReplyTo = null) =>
     receipt(await call({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: inReplyTo, paths })),
@@ -78,7 +96,7 @@ export const neighborFilesClient: NeighborFilesClient = {
     if (!record(value) || typeof value.folder !== "string" || !Array.isArray(value.files)) throw new Error("Invalid Neighbor files");
     return { folder: value.folder, files: value.files.flatMap(file => { const parsed = parseFile(file); return parsed ? [parsed] : []; }) };
   },
-  open: async (friendship, fileId) => { await call({ operation: "open", friendship_id: friendship, file_id: fileId }); },
+  open: (friendship, fileId) => openSavedFile(friendship, fileId),
   openFolder: async friendship => { await call({ operation: "open_folder", friendship_id: friendship }); },
   setDailyLimit: async (friendship, bytes) => { await call({ operation: "set_daily_limit", friendship_id: friendship, file_daily_limit_bytes: bytes }); },
   usage: async (friendship, signal) => {

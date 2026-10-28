@@ -5,10 +5,10 @@ pub(super) mod files;
 mod gateway;
 mod listener;
 mod local;
-mod read;
 pub(crate) mod logout;
 mod owner;
 mod pending;
+mod read;
 mod receiver;
 mod restoration;
 mod send;
@@ -57,6 +57,12 @@ pub struct NeighborRuntimeCell {
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
+    FlagMessage {
+        friendship_id: String,
+        message_id: String,
+        reason: String,
+        category: super::FlagCategory,
+    },
     StopConcierge {
         friendship_id: String,
     },
@@ -86,6 +92,8 @@ pub enum NeighborRuntimeCommand {
         friendship_id: String,
         provider: String,
         model: Option<String>,
+        reasoning_effort: Option<String>,
+        service_tier: Option<String>,
     },
     Status,
     Enroll {
@@ -280,6 +288,17 @@ impl ServiceContext {
         caller: Option<&str>,
         nonce: Option<&str>,
     ) -> Result<Value, String> {
+        if let NeighborRuntimeCommand::FlagMessage {
+            friendship_id,
+            message_id,
+            reason,
+            category,
+        } = &command
+        {
+            return self
+                .flag_neighbor_message(friendship_id, message_id, reason, *category, caller, nonce)
+                .await;
+        }
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
         if let NeighborRuntimeCommand::StopConcierge { friendship_id } = &command {
@@ -422,7 +441,8 @@ impl ServiceContext {
                     );
                     Ok(result)
                 }
-                NeighborRuntimeCommand::History { .. }
+                NeighborRuntimeCommand::FlagMessage { .. }
+                | NeighborRuntimeCommand::History { .. }
                 | NeighborRuntimeCommand::Status
                 | NeighborRuntimeCommand::Permission { .. }
                 | NeighborRuntimeCommand::NotificationPreference { .. } => {
@@ -432,10 +452,15 @@ impl ServiceContext {
                     friendship_id,
                     provider,
                     model,
+                    reasoning_effort,
+                    service_tier,
                 } => {
                     if !hex_id(&friendship_id, 64) {
                         return Err(Error::InvalidEnvelope);
                     }
+                    let options = super::storage::ConciergeOptions { reasoning_effort, service_tier };
+                    self.validate_neighbor_launch_options(&provider, model.as_deref(), &options)
+                        .map_err(|_| Error::InvalidRequest)?;
                     transport.peer_keys(&friendship_id).await?;
                     let tab = self
                         .replace_neighbor_concierge(
@@ -443,10 +468,11 @@ impl ServiceContext {
                             &friendship_id,
                             Some(provider),
                             model,
+                            options.clone(),
                         )
                         .await
                         .map_err(concierge::launch_error)?;
-                    Ok(json!({"gateway_tab":tab}))
+                    Ok(json!({"gateway_tab":tab,"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier}))
                 }
                 NeighborRuntimeCommand::Enroll {
                     takeover_confirmed,

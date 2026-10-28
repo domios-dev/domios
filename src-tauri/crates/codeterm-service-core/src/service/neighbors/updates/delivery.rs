@@ -48,7 +48,10 @@ impl Metadata {
             {
                 if entry.direction == "out"
                     && entry.sender_uid == uid
-                    && matches!(entry.delivery_status, Some(DeliveryStatus::Pending | DeliveryStatus::Delivered))
+                    && matches!(
+                        entry.delivery_status,
+                        Some(DeliveryStatus::Pending | DeliveryStatus::Delivered)
+                    )
                     && entry.read_at.is_none()
                     && codeterm_neighbors::wire::hex_id(&entry.message_id, 32)
                 {
@@ -64,6 +67,20 @@ impl Metadata {
 }
 
 impl ServiceContext {
+    pub(super) async fn catch_up_neighbor_delivered_read(&self, metadata: &Metadata, transport: &dyn NeighborTransport, uid: &str, signal: &DeliverySignal, generation: u64) -> Result<bool> {
+        if signal.status != DeliveryStatus::Delivered { return Ok(false); }
+        let history = metadata.history(&signal.friendship_id).await?;
+        if !history.entries.iter().any(|entry| entry.direction=="out" && entry.sender_uid==uid && entry.message_id==signal.message_id && entry.read_at.is_none()) { return Ok(false); }
+        self.require_neighbors_enabled()?;
+        self.require_neighbor_history_generation(generation)?;
+        let status = transport.delivery_status(&signal.message_id).await?;
+        let missed_read = status.read_at.is_some();
+        self.require_neighbors_enabled()?;
+        self.require_neighbor_history_generation(generation)?;
+        self.update_neighbor_history_status(metadata,&signal.message_id,status.into(),generation).await?;
+        Ok(missed_read)
+    }
+
     pub(super) async fn apply_neighbor_delivery_signal(
         &self,
         metadata: &Metadata,
@@ -72,9 +89,10 @@ impl ServiceContext {
         generation: u64,
     ) -> Result<()> {
         self.require_neighbor_history_generation(generation)?;
-        if !metadata
+        let history = metadata
             .history(&signal.friendship_id)
-            .await?
+            .await?;
+        if !history
             .entries
             .iter()
             .any(|entry| {
@@ -89,8 +107,12 @@ impl ServiceContext {
             metadata,
             &signal.message_id,
             HistoryReceipt {
-                delivery: codeterm_neighbors::wire::DeliveryResult { status: signal.status, reason: None,
-                    delivered_at: (signal.status == DeliveryStatus::Delivered).then_some(signal.at), read_at: None },
+                delivery: codeterm_neighbors::wire::DeliveryResult {
+                    status: signal.status,
+                    reason: None,
+                    delivered_at: (signal.status == DeliveryStatus::Delivered).then_some(signal.at),
+                    read_at: history.covered_read_at(uid, &signal.message_id),
+                },
                 rejection: None,
                 submission: Some(Submission::Accepted),
             },
@@ -117,9 +139,16 @@ impl Session {
                     generation,
                 )
                 .await?;
+            if !catch_up {
+                catch_up = self.service.catch_up_neighbor_delivered_read(&self.metadata,&self.transport,&self.transport.uid,delivery,generation).await?;
+            }
         }
         if let Some(read) = &signal.read {
-            if !self.service.apply_neighbor_read_signal(&self.metadata, &self.transport.uid, read, generation).await? {
+            if !self
+                .service
+                .apply_neighbor_read_signal(&self.metadata, &self.transport.uid, read, generation)
+                .await?
+            {
                 catch_up = true;
             }
         }
@@ -144,3 +173,5 @@ impl Session {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod order_tests;

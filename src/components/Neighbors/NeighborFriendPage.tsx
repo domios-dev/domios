@@ -1,8 +1,8 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Bell, Bot, FolderOpen, MessagesSquare, Pause, ShieldCheck, Sparkles, UserX, X } from "lucide-react";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
-import { SettingsCard, SettingsPage, SettingsPill } from "../Settings/shared";
+import { SettingsPage, SettingsPill } from "../Settings/shared";
 import { Button } from "../shared/Button";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
@@ -157,7 +157,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           onEditPermissions={() => permissions.current?.scrollIntoView({ block: "start", behavior: "smooth" })} />}
 
         <div ref={conciergeCard}>
-        <SettingsCard icon={<Bot size={16} />} title="Concierge" description={`The agent that answers ${name} within the permissions below.`}
+        <FriendSection icon={<Bot size={16} />} title="Concierge" description={`The agent that answers ${name} within the permissions below.`}
           headerRight={<SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
           <div className="neighbor-friend__row">
             <span className="min-w-0">
@@ -169,29 +169,29 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
               <Button size="sm" variant={gateway ? "ghost" : "accent"} onClick={() => setChanging(true)}>{gateway ? "Change agent" : "Set up concierge"}</Button>
             </span>
           </div>
-        </SettingsCard>
+        </FriendSection>
         </div>
 
         <div ref={permissions}>
-          <SettingsCard icon={<ShieldCheck size={16} />} title="Permissions" description={`What ${name}'s agents may ask yours for, and how often.`}>
+          <FriendSection icon={<ShieldCheck size={16} />} title="Permissions" description={`What ${name}'s agents may ask yours for, and how often.`}>
             <NeighborPermissionsEditor neighbor={friend} name={name} permission={permission} pending={pending}
               onSave={(permission: NeighborPermission) => conciergeClient.setPermission(friendship, permission)}
               onSaveDailyLimit={dailyLimit => conciergeClient.setDailyLimit(friendship, dailyLimit)}
               onSaveFileDailyLimit={bytes => filesClient.setDailyLimit(friendship, bytes)}
               onLimit={onLimit} onEditWithGeneral={onInterview} />
-          </SettingsCard>
+          </FriendSection>
         </div>
 
-        <SettingsCard icon={<FolderOpen size={16} />} title="Files" description={`Files ${name} sends you are saved in their own folder on this machine.`}
+        <FriendSection icon={<FolderOpen size={16} />} title="Files" description={`Files ${name} sends you are saved in their own folder on this machine.`}
           headerRight={<Button size="sm" onClick={() => { void filesClient.openFolder(friendship).catch((failure: unknown) => fail(failure, "Their folder could not be opened.")); }}>Open folder</Button>}>
           {quota && <p className="neighbor-note">Today you sent {formatBytes(quota.friend.used_bytes)} of the {formatBytes(quota.friend.limit_bytes)} {name} accepts, resets {formatUntil(quota.friend.resets_at, Date.now())}.</p>}
-        </SettingsCard>
+        </FriendSection>
 
-        <SettingsCard icon={<Bell size={16} />} title="Notifications" description={`Where ${name}'s messages reach you. Previews show only a first line.`}
+        <FriendSection icon={<Bell size={16} />} title="Notifications" description={`Where ${name}'s messages reach you. Previews show only a first line.`}
           headerRight={<DropdownSelect aria-label="Notifications" value={notify} options={NOTIFY_CHOICES}
             onChange={value => changeNotify(value as NeighborNotify)} />} />
 
-        <SettingsCard icon={<UserX size={16} />} title="Remove friend" className="neighbor-friend__danger"
+        <FriendSection icon={<UserX size={16} />} title="Remove friend" className="neighbor-friend__danger"
           description={`${name}'s agents lose access to yours, and you would need a new request to reconnect.`}
           headerRight={!confirmRemove && <Button size="sm" variant="danger" disabled={pending} onClick={() => setConfirmRemove(true)}>Remove friend</Button>}>
           {confirmRemove && <div role="group" aria-label="Confirm removal" className="neighbor-confirm">
@@ -201,13 +201,32 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
               <Button size="sm" disabled={pending} onClick={() => setConfirmRemove(false)}>Keep {name}</Button>
             </div>
           </div>}
-        </SettingsCard>
+        </FriendSection>
       </SettingsPage>
       </div>
     </section>
     {changing && <ChangeConciergeDialog friendship={friendship} name={name} currentProvider={gateway?.agent_type ?? null}
-      client={conciergeClient} onClose={() => setChanging(false)} />}
+      machineAccess={permission?.machine_access ?? null} client={conciergeClient} onClose={() => setChanging(false)} />}
   </div>;
+}
+
+/** One section of the friend's window: a heading with its icon, description and action, then its content.
+ *  The window is the only surface; sections are separated by space and a hairline, never nested cards. */
+function FriendSection({ icon, title, description, headerRight, className, children }: {
+  icon: ReactNode; title: string; description: ReactNode; headerRight?: ReactNode; className?: string; children?: ReactNode;
+}) {
+  const titleId = useId();
+  return <section role="group" aria-labelledby={titleId} className={`neighbor-section ${className ?? ""}`}>
+    <header className="neighbor-section__head">
+      <span className="neighbor-section__icon" aria-hidden="true">{icon}</span>
+      <div className="neighbor-section__heading">
+        <h3 id={titleId} className="neighbor-section__title">{title}</h3>
+        <p className="neighbor-section__desc">{description}</p>
+      </div>
+      {headerRight && <div className="neighbor-section__aside">{headerRight}</div>}
+    </header>
+    {children && <div className="neighbor-section__body">{children}</div>}
+  </section>;
 }
 
 /** One quiet line of today's numbers; a value we do not know yet is left out rather than guessed. */

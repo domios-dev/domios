@@ -41,6 +41,20 @@ const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allow
   && (a.workspaces ?? []).join("\n") === (b.workspaces ?? []).join("\n");
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
+/** A field that follows its saved value until the owner edits it. Only an edit can stage a write: a saved value that
+ *  arrives or changes after mount (the fresh friend list, a change made elsewhere) re-syncs an untouched field. */
+function useStagedValue<T>(saved: T) {
+  const [value, setValue] = useState(saved);
+  const [edited, setEdited] = useState(false);
+  useEffect(() => { if (!edited) setValue(saved); }, [saved, edited]);
+  return {
+    value, edited,
+    edit: (next: T) => { setValue(next); setEdited(true); },
+    /** Back to the saved value, untouched; after a save, the saved value arrives as the new one. */
+    reset: () => { setValue(saved); setEdited(false); },
+  };
+}
+
 /** Allowing requests needs a written scope; the relay refuses an empty or oversized one. */
 export function permissionProblem(permission: NeighborPermission): string | null {
   if (scopeBytes(permission.scope) > SCOPE_LIMIT) return "The scope is too long. Keep it to the essentials.";
@@ -62,9 +76,10 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const [draft, setDraft] = useState<NeighborPermission | null>(permission ?? null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [limit, setLimit] = useState(neighbor.inbound_per_hour);
   const [savedLimit, setSavedLimit] = useState(neighbor.inbound_per_hour);
   useEffect(() => { setSavedLimit(neighbor.inbound_per_hour); }, [neighbor.inbound_per_hour]);
+  const hourly = useStagedValue(savedLimit);
+  const limit = hourly.value;
   const { pickFolder, folderPicker } = useFolderPicker();
   const accessLabel = useId();
   const areas = useMemoryAreas(draft?.allow_memory !== false);
@@ -72,23 +87,26 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const allWorkspaces = useMuxSelector(state => state.workspaces);
   const workspaceOptions = allWorkspaces.filter(workspace => !workspace.protected).map(workspace => ({ value: workspace.id, label: workspace.name }));
   const access: MachineAccess = draft?.machine_access ?? "read_only";
-  const [daily, setDaily] = useState(neighbor.my_daily_limit == null ? "" : String(neighbor.my_daily_limit));
   const dailyField = useId();
   const fileField = useId();
-  const dailyValue = daily.trim() === "" ? null : Number(daily);
-  const dailyValid = dailyValue === null || (Number.isInteger(dailyValue) && dailyValue >= 1 && dailyValue <= 10000);
   // Compared with what was last saved here too, so clearing a limit just set can still be saved as no limit.
   const [savedDaily, setSavedDaily] = useState<number | null>(neighbor.my_daily_limit ?? null);
   useEffect(() => { setSavedDaily(neighbor.my_daily_limit ?? null); }, [neighbor.my_daily_limit]);
-  const dailyChanged = dailyValue !== savedDaily;
+  const dailyInput = useStagedValue(savedDaily === null ? "" : String(savedDaily));
+  const daily = dailyInput.value;
+  const dailyValue = daily.trim() === "" ? null : Number(daily);
+  const dailyValid = dailyValue === null || (Number.isInteger(dailyValue) && dailyValue >= 1 && dailyValue <= 10000);
+  const dailyChanged = dailyInput.edited && dailyValue !== savedDaily;
   const [savedFileLimit, setSavedFileLimit] = useState<number | null>(neighbor.my_file_daily_limit_bytes ?? null);
   useEffect(() => { setSavedFileLimit(neighbor.my_file_daily_limit_bytes ?? null); }, [neighbor.my_file_daily_limit_bytes]);
-  const [fileLimit, setFileLimit] = useState(mibText(savedFileLimit));
+  // An empty field is the default (null), never an explicit 50 MiB, unless the owner types one.
+  const fileInput = useStagedValue(mibText(savedFileLimit));
+  const fileLimit = fileInput.value;
   const fileMib = fileLimit.trim() === "" ? null : Number(fileLimit);
   const fileValid = fileMib === null || (Number.isFinite(fileMib) && fileMib >= 0 && fileMib <= FILE_LIMIT_MIB);
   const fileBytes = fileMib === null ? null : Math.round(fileMib * MIB);
-  const fileChanged = onSaveFileDailyLimit !== undefined && fileBytes !== savedFileLimit;
-  const limitChanged = limit !== savedLimit;
+  const fileChanged = onSaveFileDailyLimit !== undefined && fileInput.edited && fileBytes !== savedFileLimit;
+  const limitChanged = hourly.edited && limit !== savedLimit;
   const scopeField = useId();
   // The scope field keeps the height the owner dragged it to, per friend.
   const [storedScopeHeight] = useState(() => readScopeHeight(neighbor.friendship_id));
@@ -114,19 +132,20 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     if (!draft) return;
     setSaving(true); setError(null);
     // The hourly limit reports its own failure; a refusal just leaves it staged.
-    const limitSave = async () => { if (await onLimit(limit)) setSavedLimit(limit); };
+    const limitSave = async () => { if (await onLimit(limit)) { setSavedLimit(limit); hourly.reset(); } };
+    // Only fields the owner edited are sent; each one saved goes back to following its saved value.
     const saves = [changed ? onSave(draft).then(() => setBaseline(draft)) : Promise.resolve(),
-      dailyChanged ? onSaveDailyLimit(dailyValue).then(() => setSavedDaily(dailyValue)) : Promise.resolve(),
-      fileChanged ? onSaveFileDailyLimit!(fileBytes).then(() => setSavedFileLimit(fileBytes)) : Promise.resolve(),
+      dailyChanged ? onSaveDailyLimit(dailyValue).then(() => { setSavedDaily(dailyValue); dailyInput.reset(); }) : Promise.resolve(),
+      fileChanged ? onSaveFileDailyLimit!(fileBytes).then(() => { setSavedFileLimit(fileBytes); fileInput.reset(); }) : Promise.resolve(),
       limitChanged ? limitSave() : Promise.resolve()];
     void Promise.all(saves).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Permissions could not be saved."))
       .finally(() => setSaving(false));
   };
   const cancel = () => {
     if (baseline) setDraft(baseline);
-    setDaily(savedDaily === null ? "" : String(savedDaily));
-    setFileLimit(mibText(savedFileLimit));
-    setLimit(savedLimit);
+    dailyInput.reset();
+    fileInput.reset();
+    hourly.reset();
     setAwaitingFolder(false); setError(null);
   };
   const edit =(patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
@@ -136,7 +155,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         if (!draft || saving || preset === "custom") return;
         const applied = applyTrustPreset(preset, draft);
         edit(applied.patch);
-        setDaily(String(applied.dailyLimit));
+        dailyInput.edit(String(applied.dailyLimit));
         setAwaitingFolder(applied.needsFolder);
       }} />
     <SettingsSection title="Requests">
@@ -183,13 +202,14 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         }}>Choose folder</Button>
       </div>}
       {/* A saved read-only concierge may still write its own pad; the runtime's note for that saved state says so. */}
-      {access === "read_only" && !awaitingFolder && <p className="neighbor-note">
-        {baseline?.machine_access === "read_only" && baseline.folder_enforcement?.writes === "pad_only" ? baseline.folder_enforcement.note : "Looks things up; changes nothing on this machine."}</p>}
+      {access === "read_only" && !awaitingFolder && (baseline?.machine_access === "read_only" && baseline.folder_enforcement?.writes === "pad_only"
+        ? <EnforcementNote enforcement={baseline.folder_enforcement} />
+        : <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>)}
       {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning">Their requests can change anything your agents on this machine can reach.</p>}
       {access === "folder" && <div className="neighbor-folder">
         <div className="min-w-0">
           <p className="neighbor-folder__path" title={draft?.folder ?? undefined}>{draft?.folder ?? "No folder chosen"}</p>
-          {draft?.folder_enforcement?.note && <p className="neighbor-note">{draft.folder_enforcement.note}</p>}
+          {draft?.folder_enforcement && <EnforcementNote enforcement={draft.folder_enforcement} />}
         </div>
         <Button size="sm" disabled={!draft || saving} onClick={() => {
           void pickFolder(`Folder for ${name}'s concierge`, draft?.folder ?? draft?.effective_folder).then(folder => { if (folder) edit({ folder }); });
@@ -213,7 +233,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         <div className="neighbor-limit__row">
           <input id={dailyField} type="number" min={1} max={10000} step={1} inputMode="numeric" placeholder="No limit"
             className={`${UI_INPUT.compact} neighbor-limit__input`} value={daily} aria-invalid={!dailyValid} disabled={saving}
-            onChange={event => setDaily(event.currentTarget.value)} />
+            onChange={event => dailyInput.edit(event.currentTarget.value)} />
         </div>
       </FormRow>
     </div>
@@ -221,9 +241,9 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       <FormRow className="neighbor-field" label="Files per day from this friend" htmlFor={fileField}
         hint={!fileValid ? `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.` : savedFileLimit === 0 ? `Files from ${name} are blocked.` : `Empty for ${FILE_LIMIT_MIB} MiB; 0 blocks files.`}>
         <div className="neighbor-limit__row">
-          <input id={fileField} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={`${FILE_LIMIT_MIB} MiB`}
+          <input id={fileField} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={String(FILE_LIMIT_MIB)}
             className={`${UI_INPUT.compact} neighbor-limit__input`} value={fileLimit} aria-invalid={!fileValid} disabled={!onSaveFileDailyLimit || saving}
-            onChange={event => setFileLimit(event.currentTarget.value)} />
+            onChange={event => fileInput.edit(event.currentTarget.value)} />
           <span className="neighbor-note">MiB</span>
         </div>
       </FormRow>
@@ -232,7 +252,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       <FormRow className="neighbor-field" label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
         <div className="neighbor-limit__row">
           <input id={limitField} type="number" min={1} max={200} step={1} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limit} disabled={saving}
-            onChange={event => setLimit(event.currentTarget.valueAsNumber)} />
+            onChange={event => hourly.edit(event.currentTarget.valueAsNumber)} />
         </div>
       </FormRow>
     </div>
@@ -249,6 +269,27 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       </div>
     </div>
     {folderPicker}
+  </div>;
+}
+
+type FolderEnforcement = NonNullable<NeighborPermission["folder_enforcement"]>;
+
+const WRITES_LINE: Record<FolderEnforcement["writes"], string> = {
+  pad_only: "Only its own notes folder is writable.",
+  provider_sandbox: "Its sandbox keeps changes inside the allowed folder.",
+  unrestricted: "It can change files anywhere it can reach.",
+  advisory: "This agent has no file sandbox here, so the folder is a guideline, not a limit.",
+};
+
+/** How the runtime actually confines the concierge, in one short line; the runtime's full wording, paths included, stays under Details. */
+function EnforcementNote({ enforcement }: { enforcement: FolderEnforcement }) {
+  const reads = enforcement.reads === "not_confined" && enforcement.writes !== "advisory" && enforcement.writes !== "unrestricted" ? " Reads are not restricted." : "";
+  return <div className="neighbor-enforcement">
+    <p className="neighbor-note">{WRITES_LINE[enforcement.writes]}{reads}</p>
+    {enforcement.note && <details className="neighbor-enforcement__details">
+      <summary>Details</summary>
+      <p className="neighbor-note select-text [overflow-wrap:anywhere]">{enforcement.note}</p>
+    </details>}
   </div>;
 }
 

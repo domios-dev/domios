@@ -16,7 +16,7 @@ import { fetchStats, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
@@ -207,7 +207,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         )}
         {activeTab === "inspect" && inspectView === "graph" &&
           snapshot.status === "loading" && !snapshot.index && (
-          <RegionLoader className="absolute inset-0" data-testid="memory-graph-loading" label="Loading memory graph" />
+          <Loader variant="overlay" data-testid="memory-graph-loading" label="Loading memory graph" />
         )}
         {activeTab === "inspect" && inspectView === "graph" && snapshotError && (
           <div data-testid="memory-graph-error"><InlineErrorNotice error={snapshotError} operation="loading memory" blocking /></div>

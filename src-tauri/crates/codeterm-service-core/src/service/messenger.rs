@@ -1,4 +1,6 @@
 mod input;
+mod neighbor;
+pub use neighbor::NeighborMessage;
 mod turn_resume;
 pub use input::{
     AgentInput, FramedDelivery, HumanInput, HumanKeys, InputProvenance, LaunchBootstrap,
@@ -23,6 +25,7 @@ pub struct MessageEnvelope {
     pub from_plugin: Option<String>,
     pub from_neighbor: Option<String>,
     pub neighbor_friend: Option<String>,
+    pub neighbor_message: Option<NeighborMessage>,
     pub plugin_icon_svg: Option<String>,
     pub peer: Option<String>,
     pub set_at: Option<u64>,
@@ -775,6 +778,9 @@ impl Messenger {
 
     /// Render the opening `<domios>` tag for this envelope.
     pub fn build(&self) -> String {
+        if let Some(opening) = neighbor::opening(&self.envelope) {
+            return opening;
+        }
         let marker_kind = if self.envelope.from_neighbor.is_some() {
             "neighbor"
         } else if self.envelope.kind == MessageKind::Message && self.envelope.from_tab.is_empty() {
@@ -909,6 +915,9 @@ impl Messenger {
     }
 
     fn reply_hint(&self) -> Option<String> {
+        if self.envelope.neighbor_message.is_some() {
+            return neighbor::reply_hint(&self.envelope);
+        }
         if self.envelope.kind != MessageKind::Message || self.envelope.from_tab.is_empty() {
             return None;
         }
@@ -1035,6 +1044,9 @@ fn build_chatbackend_inbound(
 }
 
 fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
+    if envelope.neighbor_message.is_some() {
+        return Messenger::from(envelope.clone()).wrap(body);
+    }
     let label = clean_name(&envelope.from_label);
     let mut attrs = vec![("from", envelope_inbound_kind(envelope).to_string())];
     for (key, value) in [

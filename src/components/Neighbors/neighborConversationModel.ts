@@ -96,6 +96,26 @@ export const CONCIERGE_WORK_LINE: Record<ConciergeWork, string> = {
 /** States your concierge is still busy with; Stop applies to them. */
 export const activeWork = (work: ConciergeWork) => work === "delivered_to_concierge" || work === "working";
 
+/** A reason worth showing: the runtime's own words. A bare code such as "queued_for_concierge" says nothing a person
+ *  can use, and the state line already says it, so it is left out. */
+export function readableReason(reason: string | undefined): string | undefined {
+  const text = reason?.trim();
+  return text && !/^[a-z0-9]+(?:[_.:-][a-z0-9]+)*$/.test(text) ? text : undefined;
+}
+
+/** Which messages show their concierge's standing. A settled outcome (Answered, Declined, Stopped, failed) shows on its
+ *  own message; "no reply needed" shows nowhere; work still under way or waiting shows once, on the newest such message. */
+export function shownWork(work: ReadonlyMap<string, ConciergeWorkEntry>, order: readonly string[]): Map<string, ConciergeWorkEntry> {
+  const pending = (entry: ConciergeWorkEntry) => activeWork(entry.work) || entry.work === "waiting";
+  const newestPending = [...order].reverse().find(id => { const entry = work.get(id); return entry !== undefined && pending(entry); });
+  const shown = new Map<string, ConciergeWorkEntry>();
+  for (const [id, entry] of work) {
+    if (entry.work === "no_reply" || (pending(entry) && id !== newestPending)) continue;
+    shown.set(id, { ...entry, reason: readableReason(entry.reason) });
+  }
+  return shown;
+}
+
 export interface ConciergeWorkEntry { work: ConciergeWork; reply?: string; reason?: string }
 
 /** Each friend message's standing from the runtime's handling state, with the reply it links to.

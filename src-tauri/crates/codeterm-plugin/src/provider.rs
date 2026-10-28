@@ -227,6 +227,7 @@ mod launch_permissions;
 mod launch_session;
 mod model_group;
 mod model_info;
+mod neighbor_concierge;
 mod session_content;
 mod settings;
 mod spawn_strategy;
@@ -240,6 +241,7 @@ pub use launch_permissions::*;
 pub use launch_session::*;
 pub use model_group::*;
 pub use model_info::*;
+pub use neighbor_concierge::NeighborConciergeCapability;
 pub use session_content::*;
 pub use settings::*;
 pub use spawn_strategy::*;
@@ -268,6 +270,8 @@ pub struct ProviderDescriptor {
     pub supports_session_fork: bool,
     #[serde(default)]
     pub supports_initial_prompt_update_on_resume: bool,
+    #[serde(default)]
+    pub neighbor_concierge: NeighborConciergeCapability,
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli_status: Option<crate::provider_cli::ProviderCliStatus>,
@@ -415,7 +419,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 26;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 27;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

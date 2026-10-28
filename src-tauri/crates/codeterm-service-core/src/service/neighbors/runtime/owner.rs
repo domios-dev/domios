@@ -3,7 +3,11 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 
 pub(super) enum Operation {
-    Read { friendship_id: String, through_message_id: String, expected_generation: u64 },
+    Read {
+        friendship_id: String,
+        through_message_id: String,
+        expected_generation: u64,
+    },
     Files(super::files::Command),
     Command {
         command: NeighborRuntimeCommand,
@@ -73,9 +77,15 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
-            Operation::Read { friendship_id, through_message_id, expected_generation } => {
+            Operation::Read {
+                friendship_id,
+                through_message_id,
+                expected_generation,
+            } => {
                 self.require_neighbor_generation(expected_generation)?;
-                self.neighbor_read_owned(friendship_id, through_message_id, generation).await.map(Outcome::Value)
+                self.neighbor_read_owned(friendship_id, through_message_id, generation)
+                    .await
+                    .map(Outcome::Value)
             }
             Operation::Files(command) => self
                 .neighbor_files_owned(command, generation)

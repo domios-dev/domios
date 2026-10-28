@@ -24,8 +24,13 @@ impl StoredHistoryFailure {
     }
 
     pub fn from_error(error: &str) -> Option<Self> {
-        [Self::Missing, Self::Corrupt, Self::Unavailable].into_iter()
-            .find(|kind| error.strip_prefix(kind.tag()).is_some_and(|tail| tail.starts_with(": ")))
+        [Self::Missing, Self::Corrupt, Self::Unavailable]
+            .into_iter()
+            .find(|kind| {
+                error
+                    .strip_prefix(kind.tag())
+                    .is_some_and(|tail| tail.starts_with(": "))
+            })
     }
 
     fn projection(error: String) -> String {
@@ -133,7 +138,8 @@ fn read_window(path: &Path, before: Option<u64>) -> Result<(String, u64, u64), S
     }
     let (bytes, start) = codeterm_plugin::jsonl_window::read_range(path, page.start, page.end)
         .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?;
-    let records = String::from_utf8(bytes).map_err(|error| StoredHistoryFailure::Corrupt.error(error))?;
+    let records =
+        String::from_utf8(bytes).map_err(|error| StoredHistoryFailure::Corrupt.error(error))?;
     let records = if records.len() as u64 > WINDOW_BYTES {
         projection::oversized_record(&records, WINDOW_BYTES as usize)?
     } else {
@@ -213,41 +219,45 @@ fn read_stored_window(
     {
         return Ok(None);
     }
-    let path = provider
-        .session_file_path(cwd, session)
-        .ok_or_else(|| StoredHistoryFailure::Missing.error("Provider has no recorded runtime session"))?;
-    if !path.try_exists().map_err(|error| StoredHistoryFailure::Unavailable.error(error))? {
+    let path = provider.session_file_path(cwd, session).ok_or_else(|| {
+        StoredHistoryFailure::Missing.error("Provider has no recorded runtime session")
+    })?;
+    if !path
+        .try_exists()
+        .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
+    {
         return if live_session_may_be_unmaterialized {
             Ok(None)
         } else {
-            Err(StoredHistoryFailure::Missing.error(format!("Stored runtime history is unavailable for session {session}")))
+            Err(StoredHistoryFailure::Missing.error(format!(
+                "Stored runtime history is unavailable for session {session}"
+            )))
         };
     }
     let started = std::time::Instant::now();
     let input = if provider.record_source("storedHistory").is_some() {
-        StoredInput::Records(super::jsonl_kernel::stored_window(
-            provider,
-            session,
-            &path,
-            before,
-            WINDOW_BYTES,
-        ).map_err(|error| StoredHistoryFailure::Corrupt.error(error))?)
+        StoredInput::Records(
+            super::jsonl_kernel::stored_window(provider, session, &path, before, WINDOW_BYTES)
+                .map_err(|error| StoredHistoryFailure::Corrupt.error(error))?,
+        )
     } else {
-        let (records, start, end) = read_window(&path, before)
-            .map_err(StoredHistoryFailure::projection)?;
+        let (records, start, end) =
+            read_window(&path, before).map_err(StoredHistoryFailure::projection)?;
         StoredInput::Text(records, start, end)
     };
     let read_us = started.elapsed().as_micros();
     let projecting = std::time::Instant::now();
     let (messages, start, end) = match input {
         StoredInput::Text(records, start, end) => (
-            provider.runtime_stored_history(session, &records)
+            provider
+                .runtime_stored_history(session, &records)
                 .map_err(|error| StoredHistoryFailure::Corrupt.error(error))?,
             start,
             end,
         ),
         StoredInput::Records(window) => (
-            provider.runtime_stored_records(session, &window)
+            provider
+                .runtime_stored_records(session, &window)
                 .map_err(|error| StoredHistoryFailure::Corrupt.error(error))?,
             window.meta.from_offset,
             window.meta.new_offset,
@@ -289,12 +299,17 @@ pub(super) fn archived_window(
         return Ok(None);
     }
     let Some(window) = read_stored_window(provider.as_ref(), cwd, session, None, false)? else {
-        let present = provider.session_file_path(cwd, session)
+        let present = provider
+            .session_file_path(cwd, session)
             .map(|path| path.try_exists())
             .transpose()
             .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
             .unwrap_or(false);
-        let failure = if present { StoredHistoryFailure::Unavailable } else { StoredHistoryFailure::Missing };
+        let failure = if present {
+            StoredHistoryFailure::Unavailable
+        } else {
+            StoredHistoryFailure::Missing
+        };
         return Err(failure.error(format!(
             "Stored runtime history is unavailable for session {session}"
         )));

@@ -50,10 +50,24 @@ fn snapshot_failure(tab_id: &str, error: String) -> SnapshotError {
     log::error!("[chat-snapshot] tab={} error={}", tab_id, error);
     use codeterm_service_core::service::tab_chat::runtime_stored::StoredHistoryFailure;
     let (status, code, state) = match StoredHistoryFailure::from_error(&error) {
-        Some(StoredHistoryFailure::Missing) => (StatusCode::NOT_FOUND, "chat_history_missing", "missing"),
-        Some(StoredHistoryFailure::Corrupt) => (StatusCode::UNPROCESSABLE_ENTITY, "chat_history_corrupt", "corrupt"),
-        Some(StoredHistoryFailure::Unavailable) => (StatusCode::SERVICE_UNAVAILABLE, "chat_history_unavailable", "unavailable"),
-        None => (StatusCode::INTERNAL_SERVER_ERROR, "chat_snapshot_failed", "failed"),
+        Some(StoredHistoryFailure::Missing) => {
+            (StatusCode::NOT_FOUND, "chat_history_missing", "missing")
+        }
+        Some(StoredHistoryFailure::Corrupt) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "chat_history_corrupt",
+            "corrupt",
+        ),
+        Some(StoredHistoryFailure::Unavailable) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "chat_history_unavailable",
+            "unavailable",
+        ),
+        None => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "chat_snapshot_failed",
+            "failed",
+        ),
     };
     SnapshotError(status, SnapshotErrorBody { code, state, error })
 }

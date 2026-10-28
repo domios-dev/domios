@@ -236,6 +236,7 @@ pub async fn neighbors(
             if matches!(
                 &command,
                 codeterm_service_core::service::neighbors::NeighborCommand::List {}
+                    | codeterm_service_core::service::neighbors::NeighborCommand::SetLimit { .. }
             ) =>
         {
             state
@@ -305,10 +306,22 @@ pub async fn neighbor_read(
     caller: Option<Extension<CallerIdentity>>,
     Json(command): Json<NeighborRead>,
 ) -> Result<Json<serde_json::Value>, Response> {
-    if !matches!(caller.as_ref().map(|caller| &caller.0), Some(CallerIdentity::Local)) {
-        return Err((StatusCode::FORBIDDEN, "Owner conversation visibility is local-only").into_response());
+    if !matches!(
+        caller.as_ref().map(|caller| &caller.0),
+        Some(CallerIdentity::Local)
+    ) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Owner conversation visibility is local-only",
+        )
+            .into_response());
     }
-    state.svc.neighbor_mark_read(command.friendship_id, command.through_message_id).await.map(Json).map_err(neighbor_failure)
+    state
+        .svc
+        .neighbor_mark_read(command.friendship_id, command.through_message_id)
+        .await
+        .map(Json)
+        .map_err(neighbor_failure)
 }
 
 pub async fn neighbor_files(
@@ -390,6 +403,8 @@ fn neighbor_failure(message: String) -> Response {
             | "neighbor_machine_access_unsupported"
             | "neighbor_memory_area_unknown",
         ) => StatusCode::BAD_REQUEST,
+        Some("invalid_flag") => StatusCode::BAD_REQUEST,
+        Some("neighbor_flag_limit") => StatusCode::CONFLICT,
         Some("friendship_not_found") => StatusCode::NOT_FOUND,
         Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(

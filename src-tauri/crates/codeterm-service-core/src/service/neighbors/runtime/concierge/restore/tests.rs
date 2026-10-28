@@ -42,7 +42,7 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
                 &metadata,
                 "owner",
                 &friend,
-                |provider, model, cwd, grant, resume| async move {
+                |provider, model, cwd, grant, resume, _| async move {
                     assert!(resume.is_none());
                     invoked.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(provider.as_deref(), Some("advisory-provider"));
@@ -94,9 +94,12 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
             .neighbor_authority
             .is_some());
         service
-            .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _, _| async {
-                Err("matching launch must not respawn".into())
-            })
+            .restore_neighbor_concierge_with(
+                &metadata,
+                "owner",
+                &friend,
+                |_, _, _, _, _, _| async { Err("matching launch must not respawn".into()) },
+            )
             .await
             .unwrap();
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -120,7 +123,7 @@ async fn failed_replacement_keeps_the_old_binding_and_permissions() {
         .insert(friend.clone(), Permission::default());
     metadata.save_settings(settings.clone()).await.unwrap();
     assert!(service
-        .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _, _| async {
+        .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _, _, _| async {
             Err("injected launch failure".into())
         })
         .await
@@ -184,15 +187,19 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
         crate::service::neighbors::storage::InitialContext {
             gateway_tab: tabs[1].clone(),
             digest: initial_prompt::digest(&friend, &permission),
+            launch_options: None,
         },
     );
     settings.permissions.insert(friend.clone(), permission);
     metadata.save_settings(settings).await.unwrap();
     for _ in 0..2 {
         service
-            .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _, _| async {
-                Err("current launch must not be replaced".into())
-            })
+            .restore_neighbor_concierge_with(
+                &metadata,
+                "owner",
+                &friend,
+                |_, _, _, _, _, _| async { Err("current launch must not be replaced".into()) },
+            )
             .await
             .unwrap();
     }

@@ -7,7 +7,7 @@ import { ActivityDots } from "../shared/ActivityDots";
 import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
 import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { useStableStatusLabel } from "./useStableStatusLabel";
-import { ChatChannelLoadingStatus } from "./ChatChannelLoadingStatus";
+import { BusyState } from "../shared/BusyState";
 import type { Tab } from "../../lib/types";
 import { useComposerBackgroundWorkStatus } from "./ComposerBackgroundWorkContext";
 import { backgroundOwnsTool } from "./composerBackgroundWorkModel";
@@ -80,7 +80,7 @@ export function AgentStateIndicator({
   // With nothing to say there is no label to keep in place, so the slot goes too.
   const restingWithoutLabel = !animated && activity.kind !== "starting" && !status;
   const dots = channelLoadingLabel
-    ? <ChatChannelLoadingStatus label={channelLoadingLabel} />
+    ? <BusyState inline hideLabel label={channelLoadingLabel} phase="work" />
     : !showActivity || compacting || restingWithoutLabel ? null : (
       <span data-testid="agent-activity-slot" className="inline-flex w-6 shrink-0 items-center justify-center">
         {activity.kind === "starting"

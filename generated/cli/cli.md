@@ -90,6 +90,15 @@ Receive Neighbors on this machine; other machines stop receiving
 - `--confirm-takeover`
 - `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
 
+#### `domios account neighbors flag`
+
+Locally flag a suspicious incoming message for the owner without replying
+
+- `--category`
+- `--friendship`
+- `<message_id>`
+- `--reason` — Short explanation without message text or secrets (at most 280 characters)
+
 #### `domios account neighbors grant`
 
 General Agent only: grant a bounded scope authored in its pad
@@ -128,6 +137,27 @@ Encrypt and send one authored message; prints only its ID and status
 - `--from-pad`
 - `--in-reply-to`
 - `--kind`
+
+#### `domios account neighbors set-daily-limit`
+
+Set daily incoming messages; null removes the per-friend daily cap
+
+- `--daily-limit`
+- `<friendship_id>`
+
+#### `domios account neighbors set-file-daily-limit`
+
+Set daily incoming file bytes; null restores the 50 MiB default
+
+- `--file-daily-limit-bytes`
+- `<friendship_id>`
+
+#### `domios account neighbors set-limit`
+
+Set this friend's incoming request cap per hour (owner or General)
+
+- `<friendship_id>`
+- `--per-hour`
 
 #### `domios account neighbors status`
 

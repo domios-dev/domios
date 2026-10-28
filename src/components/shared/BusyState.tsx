@@ -64,30 +64,11 @@ export interface BusySpinnerProps {
   size?: number;
   className?: string;
   style?: React.CSSProperties;
-  icon?: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
-  "data-testid"?: string;
+  icon: React.ComponentType<{ size?: number; className?: string; style?: React.CSSProperties }>;
 }
 
-export function BusySpinner({
-  spinning = true,
-  size = 14,
-  className,
-  style,
-  icon: Icon,
-  "data-testid": testId,
-}: BusySpinnerProps) {
-  const spinClass = spinning ? "animate-spin ct-busy-spinner" : "";
-  const cls = `${spinClass} ${className ?? ""}`.trim();
-  if (Icon) {
-    return <Icon size={size} className={cls} style={style} />;
-  }
-  return (
-    <span
-      className={`ct-busy-ring ${spinning ? "animate-spin ct-busy-spinner" : ""} ${className ?? ""}`.trim()}
-      style={{ width: size, height: size, ...style }}
-      data-testid={testId}
-      role="status"
-      aria-label="Loading"
-    />
-  );
+/** Spins a control's own icon while its action runs, such as Refresh. Anything else that waits shows the dots
+ *  (BusyState, a Button's `loading`) or, for a whole area, Loader; never a separate spinner. */
+export function BusySpinner({ spinning = true, size = 14, className, style, icon: Icon }: BusySpinnerProps) {
+  return <Icon size={size} className={`${spinning ? "animate-spin ct-busy-spinner" : ""} ${className ?? ""}`.trim()} style={style} />;
 }

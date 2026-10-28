@@ -8,35 +8,85 @@ fn fixture_history(direction: &str) -> History {
 #[test]
 fn read_up_to_is_monotonic_and_reserves_one_receipt_for_each_new_batch() {
     let mut history = fixture_history("in");
-    let emitted = [2, 2, 1, 3, 2].into_iter().filter(|id| history.reserve_read_through(&format!("{id:032x}"), true, false)).count();
+    history.acknowledge_through(&format!("{:032x}",3));
+    let emitted = [2, 2, 1, 3, 2]
+        .into_iter()
+        .filter(|id| history.reserve_read_through(&format!("{id:032x}"), true, false))
+        .count();
     assert_eq!(emitted, 2);
     let bytes = serde_json::to_vec(&history).unwrap();
     let mut restored: History = serde_json::from_slice(&bytes).unwrap();
     assert!(!restored.reserve_read_through(&format!("{:032x}", 3), true, false));
     assert!(!restored.reserve_read_through(&"f".repeat(32), true, false));
     let mut bounded = fixture_history("in");
-    assert!(bounded.reserve_read_through(&format!("{:032x}",1),true,false));
+    bounded.acknowledge_through(&format!("{:032x}",3));
+    assert!(bounded.reserve_read_through(&format!("{:032x}", 1), true, false));
     bounded.entries.remove(0);
-    assert!(bounded.reserve_read_through(&format!("{:032x}",3),true,false));
+    assert!(bounded.reserve_read_through(&format!("{:032x}", 3), true, false));
+}
+
+#[test]
+fn visible_before_ack_waits_for_the_ack_event_without_consuming_the_read_cursor() {
+    let mut history = fixture_history("in");
+    let through = format!("{:032x}",2);
+    assert!(history.request_read_through(&through,true,false));
+    assert!(!history.reserve_read_through(&through,true,false));
+    assert!(history.read_receipt_through.is_none());
+    assert_eq!(history.pending_read_through(),Some(through.clone()));
+    assert!(history.acknowledge_through(&format!("{:032x}",1)));
+    assert!(!history.reserve_read_through(&through,true,false));
+    assert!(history.acknowledge_through(&through));
+    assert!(history.reserve_read_through(&through,true,false));
+    assert!(history.pending_read_through().is_none());
+    assert!(!history.reserve_read_through(&through,true,false));
+}
+
+#[test]
+fn ack_before_visibility_and_durable_ack_proof_allow_one_read_emission() {
+    let mut history = fixture_history("in");
+    let through = format!("{:032x}",2);
+    history.acknowledge_through(&through);
+    let mut history: History = serde_json::from_slice(&serde_json::to_vec(&history).unwrap()).unwrap();
+    assert!(history.request_read_through(&through,true,false));
+    assert!(history.reserve_read_through(&through,true,false));
+    assert!(!history.reserve_read_through(&through,true,false));
+    assert!(!history.reserve_read_through(&format!("{:032x}",3),true,false));
 }
 
 #[test]
 fn off_paused_and_ended_friendships_never_reserve_a_read_receipt() {
-    for (enabled, paused, ended) in [(false,false,false),(true,true,false),(true,false,true)] {
+    for (enabled, paused, ended) in [
+        (false, false, false),
+        (true, true, false),
+        (true, false, true),
+    ] {
         let mut history = fixture_history("in");
+        history.acknowledge_through(&format!("{:032x}",3));
         history.ended = ended;
-        assert!(!history.reserve_read_through(&format!("{:032x}",3), enabled, paused));
+        assert!(!history.reserve_read_through(&format!("{:032x}", 3), enabled, paused));
         assert!(history.read_receipt_through.is_none());
     }
-    assert!(!fixture_history("out").reserve_read_through(&format!("{:032x}",3),true,false));
+    assert!(!fixture_history("out").reserve_read_through(&format!("{:032x}", 3), true, false));
 }
 
 #[test]
 fn concierge_read_requires_pickup_or_a_terminal_reply_outcome() {
-    for (state, read) in [(State::Waiting,false),(State::DeliveredToConcierge,false),(State::Failed,false),(State::Stopped,false),(State::Working,true),(State::Answered,true),(State::Refused,true),(State::NoReply,true)] {
+    for (state, read) in [
+        (State::Waiting, false),
+        (State::DeliveredToConcierge, false),
+        (State::Failed, false),
+        (State::Stopped, false),
+        (State::Working, true),
+        (State::Answered, true),
+        (State::Refused, true),
+        (State::NoReply, true),
+    ] {
         let mut history = fixture_history("in");
         history.entries[1].handling.handling_state = Some(state);
-        assert_eq!(history.concierge_read_through(), read.then(|| format!("{:032x}",2)));
+        assert_eq!(
+            history.concierge_read_through(),
+            read.then(|| format!("{:032x}", 2))
+        );
     }
 }
 
@@ -44,12 +94,12 @@ fn concierge_read_requires_pickup_or_a_terminal_reply_outcome() {
 fn read_signal_marks_only_own_outgoing_prefix_and_never_regresses_timestamps() {
     let mut history = fixture_history("out");
     history.entries[0].delivered_at = Some(100);
-    assert!(!history.apply_read_through("foreign", &format!("{:032x}",2),200));
-    assert!(history.apply_read_through("owner", &format!("{:032x}",2),200));
-    assert_eq!(history.entries[0].delivered_at,Some(100));
-    assert_eq!(history.entries[1].delivered_at,Some(200));
-    assert_eq!(history.entries[1].read_at,Some(200));
+    assert!(!history.apply_read_through("foreign", &format!("{:032x}", 2), 200));
+    assert!(history.apply_read_through("owner", &format!("{:032x}", 2), 200));
+    assert_eq!(history.entries[0].delivered_at, Some(100));
+    assert_eq!(history.entries[1].delivered_at, Some(200));
+    assert_eq!(history.entries[1].read_at, Some(200));
     assert!(history.entries[2].read_at.is_none());
-    assert!(!history.apply_read_through("owner", &format!("{:032x}",1),300));
-    assert_eq!(history.entries[0].read_at,Some(200));
+    assert!(!history.apply_read_through("owner", &format!("{:032x}", 1), 300));
+    assert_eq!(history.entries[0].read_at, Some(200));
 }

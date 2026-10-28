@@ -398,19 +398,25 @@ body {
 }
 @media (max-width: 640px) {
   /* A closed drawer also hides once it has slid away: content wider than the capped drawer would otherwise peek in. */
+  /* It slides only while opening or closing ([data-sliding]); entering phone width with it closed hides it at once,
+     so a sliver never sweeps across the view. */
   .ct-sidebar-drawer {
     width: fit-content;
     max-width: min(85vw, calc(100vw - 1rem));
     transform: translateX(-100%);
     visibility: hidden;
     pointer-events: none;
-    transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s linear 300ms;
     will-change: transform;
+  }
+  .ct-sidebar-drawer[data-sliding] {
+    transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s linear 300ms;
   }
   .ct-sidebar-drawer.is-open {
     transform: translateX(0);
     visibility: visible;
     pointer-events: auto;
+  }
+  .ct-sidebar-drawer.is-open[data-sliding] {
     transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s;
   }
 }
@@ -802,10 +808,13 @@ button {
   filter: brightness(1.05);
 }
 
-.ct-btn-primary .ct-busy-ring {
-  border-color: color-mix(in srgb, currentColor 30%, transparent);
-  border-top-color: currentColor;
+/* A disabled primary reads as unavailable rather than a dimmed call to action; a pending one keeps its accent. */
+.ct-btn-primary:disabled:not([aria-busy="true"]) {
+  background: color-mix(in srgb, var(--ct-fg) 9%, transparent);
+  color: var(--ct-muted-fg);
+  filter: none;
 }
+
 
 .ct-btn-outline {
   background: transparent;

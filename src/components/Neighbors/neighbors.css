@@ -488,8 +488,20 @@
   gap: 0.4rem;
 }
 
+/* Wide enough for its placeholder ("No limit") and five digits. */
 .neighbor-limit__input {
-  width: 5rem;
+  width: 7.5rem;
+}
+
+.neighbor-enforcement__details summary {
+  width: fit-content;
+  color: var(--ct-muted-fg);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.neighbor-enforcement__details[open] summary {
+  margin-bottom: 0.25rem;
 }
 
 .neighbor-channel {
@@ -978,6 +990,27 @@
   font-size: 10.5px;
 }
 
+.neighbor-msg__bubble-row {
+  display: flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.neighbor-msg[data-side="out"] .neighbor-msg__bubble-row {
+  flex-direction: row-reverse;
+}
+
+.neighbor-msg__bubble-row > .neighbor-msg__bubble {
+  min-width: 0;
+}
+
+.neighbor-msg__menu {
+  flex: none;
+  margin-top: 0.25rem;
+}
+
 /* A message's own menu stays out of the way until you point at the message; touch keeps it shown. */
 @media (hover: hover) {
   .neighbor-msg__menu { opacity: 0; transition: opacity var(--ct-duration-fast) ease; }
@@ -1141,8 +1174,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
-  gap: 1rem;
-  padding: 1.25rem 1.25rem 1rem;
+  gap: var(--neighbor-space-3);
+  padding: var(--neighbor-space-4) var(--neighbor-space-5) var(--neighbor-space-3);
   border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 7%, transparent);
 }
 
@@ -1249,7 +1282,7 @@
   min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 1rem 1.25rem 1.5rem;
+  padding: var(--neighbor-space-3) var(--neighbor-space-5) var(--neighbor-space-5);
 }
 
 .neighbor-friend__name {
@@ -1271,8 +1304,96 @@
   font-weight: 600;
 }
 
-.neighbor-friend__danger {
-  --ct-card-tone: var(--ct-red);
+/* The friend's window is one surface. Its sections sit on it, divided by space and a hairline, on one spacing scale. */
+.neighbor-window {
+  --neighbor-space-1: 0.5rem;
+  --neighbor-space-2: 0.75rem;
+  --neighbor-space-3: 1.25rem;
+  --neighbor-space-4: 1.75rem;
+  --neighbor-space-5: 2.25rem;
+}
+
+.neighbor-window .ct-settings-page {
+  max-width: 54rem;
+  gap: 0;
+}
+
+.neighbor-section {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--neighbor-space-3);
+  padding-block: var(--neighbor-space-4);
+  border-top: 1px solid color-mix(in srgb, var(--ct-fg) 7%, transparent);
+}
+
+.neighbor-window .ct-settings-page > .neighbor-section:first-of-type,
+.neighbor-window .ct-settings-page > div:first-of-type > .neighbor-section {
+  padding-top: var(--neighbor-space-2);
+  border-top: 0;
+}
+
+.neighbor-section__head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--neighbor-space-2);
+}
+
+.neighbor-section__icon {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--ct-radius-md, 10px);
+  background: color-mix(in srgb, var(--ct-fg) 5%, transparent);
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-section__heading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.neighbor-section__title {
+  color: var(--ct-fg);
+  font-size: var(--ct-font-size-md);
+  font-weight: 600;
+}
+
+/* Descriptions keep a reading measure even when the window is wide. */
+.neighbor-section__desc {
+  max-width: 62ch;
+  color: var(--ct-muted-fg);
+  font-size: var(--ct-font-size-sm);
+  line-height: 1.45;
+}
+
+.neighbor-section__aside {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--neighbor-space-1);
+}
+
+.neighbor-section__body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: var(--neighbor-space-2);
+}
+
+.neighbor-friend__danger .neighbor-section__title {
+  color: var(--ct-red);
+}
+
+/* Inside a section, the editor's own groups (Requests, Access, Limits) breathe on the same scale. */
+.neighbor-section .neighbor-permissions {
+  gap: var(--neighbor-space-3);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1297,12 +1418,34 @@
     border-radius: 0;
   }
 
+  /* The close button keeps the top-right corner instead of wrapping into the action row. */
   .neighbor-window__hero {
-    padding: calc(1rem + var(--ct-safe-top, 0px)) 1rem 0.85rem;
+    position: relative;
+    padding: calc(1rem + var(--ct-safe-top, 0px)) 3rem 0.85rem 1rem;
+  }
+
+  .neighbor-window__close {
+    position: absolute;
+    top: calc(0.75rem + var(--ct-safe-top, 0px));
+    right: 0.75rem;
   }
 
   .neighbor-window__body {
     padding: 0.85rem 1rem calc(1.25rem + var(--ct-safe-bottom, 0px));
+  }
+
+  .neighbor-section {
+    padding-block: var(--neighbor-space-3);
+  }
+
+  /* A section's action drops under its heading rather than squeezing it. */
+  .neighbor-section__head {
+    flex-wrap: wrap;
+  }
+
+  .neighbor-section__aside {
+    flex-wrap: wrap;
+    padding-left: calc(2rem + var(--neighbor-space-2));
   }
 
   /* Four trust presets do not fit one row on a phone: they stack two by two, and the chosen one wears the thumb. */

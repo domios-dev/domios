@@ -245,17 +245,29 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         _ => None,
     };
     let read = if kind == "message_read" {
-        if field_count != 8 || !request.is_null() || revision.is_some_and(|revision| revision > crate::wire::MAX_SAFE_INTEGER) {
+        if field_count != 8
+            || !request.is_null()
+            || revision.is_some_and(|revision| revision > crate::wire::MAX_SAFE_INTEGER)
+        {
             return Err(Error::InvalidEnvelope);
         }
-        let read_at = field("at")?.as_u64().filter(|at| *at <= crate::wire::MAX_SAFE_INTEGER).ok_or(Error::InvalidEnvelope)?;
+        let read_at = field("at")?
+            .as_u64()
+            .filter(|at| *at <= crate::wire::MAX_SAFE_INTEGER)
+            .ok_or(Error::InvalidEnvelope)?;
         let message = field("message_id")?;
         Some(crate::registry::ReadSignal {
             friendship_id: friendship.as_str().ok_or(Error::InvalidEnvelope)?.into(),
-            message_id: message.as_str().filter(|id| hex_id(id, 32)).ok_or(Error::InvalidEnvelope)?.into(),
+            message_id: message
+                .as_str()
+                .filter(|id| hex_id(id, 32))
+                .ok_or(Error::InvalidEnvelope)?
+                .into(),
             read_at,
         })
-    } else { None };
+    } else {
+        None
+    };
     let pause = if kind == "pause_changed" {
         if !request.is_null() || field("at")?.as_u64().is_none() {
             return Err(Error::InvalidEnvelope);

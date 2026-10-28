@@ -1098,3 +1098,6 @@ fn transport_capability_paths_receive_the_primer_for_plain_orchestrator() {
         other => panic!("expected chatBackend route, got {other:?}"),
     }
 }
+
+#[path = "tests/binding_reconciliation.rs"]
+mod binding_reconciliation;

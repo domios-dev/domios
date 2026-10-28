@@ -8,7 +8,7 @@ import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./PlanFetchErr
 import { PlanParagraphAsk } from "./PlanParagraphAsk";
 import { PlanSwitcher } from "./PlanSwitcher";
 import { usePlanDocumentData } from "./usePlanDocumentData";
-import { RegionLoader } from "../../shared/RegionLoader";
+import { Loader } from "../../shared/Loader";
 
 type DocumentKind = "spec" | "plan";
 
@@ -285,7 +285,7 @@ export function PlanDocumentView({ kind, onOpenSpec, ...surfaceProps }: PlanDocu
             />
           )}
           {kind === "spec" && data.specLoading && (
-            <RegionLoader data-testid="plan-spec-loading" label="Loading the Spec" className="min-h-48" />
+            <Loader data-testid="plan-spec-loading" label="Loading the Spec" />
           )}
           {kind === "spec" && !data.specLoading && !selectedPlan.primary_spec_id && (
             <DocumentEmpty kind="spec" message="No Spec yet." />

@@ -17,10 +17,11 @@ pub async fn route_request(
     paused: bool,
     ports: &dyn RequestPorts,
 ) -> Result<GatewayReceipt> {
+    if matches!(kind, Kind::Answer | Kind::Refusal) {
+        return Ok(GatewayReceipt::Delivered);
+    }
     if !paused && permission.allows(kind) {
         ports.local_turn().await
-    } else if matches!(kind, Kind::Answer | Kind::Refusal) {
-        Ok(GatewayReceipt::Delivered)
     } else {
         ports.refusal().await
     }

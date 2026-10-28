@@ -116,6 +116,9 @@ impl ServiceContext {
             metadata,
             &friendship,
             super::super::history::Entry {
+                received_by: None,
+                flags: Vec::new(),
+                flag_callers: Vec::new(),
                 handling: Default::default(),
                 direction: "out".into(),
                 author,

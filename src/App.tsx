@@ -1,10 +1,9 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
 import { firstRunLocked, firstRunSelection } from "./lib/firstRunGate";
 import { FirstRunGeneralPicker } from "./components/AgentPicker/FirstRunGeneralPicker";
-import { BrandState } from "./components/brand/BrandState";
+import { Loader } from "./components/shared/Loader";
 import { DeferredPresence } from "./components/shared/DeferredPresence";
 import { releaseBootCover } from "./lib/bootCover";
-import { brandStateModel } from "./components/brand/brandStateModel";
 import { ServerConnectionLayer } from "./components/brand/ServerConnectionLayer";
 import { initialRouteReady } from "./store/multiplexer/pageSelection";
 import { useAppNavigation } from "./hooks/useAppNavigation";
@@ -842,11 +841,11 @@ function AppInner() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-          {locked ? (configLoading ? <BrandState model={brandStateModel({ loading: true, label: "Loading settings" })} />
+          {locked ? (configLoading ? <Loader label="Loading settings" deferred={false} />
             : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
               ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !routeRestored && !state.storageUnavailable ? (
             <DeferredPresence present className="absolute inset-0">
-              <BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />
+              <Loader label="Restoring workspace" deferred={false} />
             </DeferredPresence>
           ) : <>
           {/* All panels stay mounted — switching mainView only changes visibility.

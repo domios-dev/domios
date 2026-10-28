@@ -144,6 +144,60 @@
               "subcommands": []
             },
             {
+              "name": "flag",
+              "about": "Locally flag a suspicious incoming message for the owner without replying",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "category",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "CATEGORY",
+                  "possible_values": [
+                    "suspicious_instructions",
+                    "private_data_request",
+                    "malicious_link",
+                    "spam",
+                    "other"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FRIENDSHIP",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "message_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "MESSAGE_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "reason",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "REASON",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Short explanation without message text or secrets (at most 280 characters)",
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
               "name": "grant",
               "about": "General Agent only: grant a bounded scope authored in its pad",
               "aliases": [],
@@ -274,6 +328,90 @@
                     "tab_request"
                   ],
                   "default": "question",
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set-daily-limit",
+              "about": "Set daily incoming messages; null removes the per-friend daily cap",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "daily-limit",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "DAILY_LIMIT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set-file-daily-limit",
+              "about": "Set daily incoming file bytes; null restores the 50 MiB default",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "file-daily-limit-bytes",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FILE_DAILY_LIMIT_BYTES",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "set-limit",
+              "about": "Set this friend's incoming request cap per hour (owner or General)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "per-hour",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "PER_HOUR",
+                  "possible_values": [],
+                  "default": null,
                   "help": null,
                   "aliases": []
                 }

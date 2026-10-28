@@ -81,7 +81,7 @@
   "src/components/Canvas/PlanViewShell.mission-control.test.tsx",
   "src/components/Canvas/planPresenceMotion.test.tsx",
   "src/components/Canvas/planSidePanelContext.test.tsx",
-  "src/components/shared/RegionLoader.test.tsx",
+  "src/components/shared/Loader.test.tsx",
   "src/components/Canvas/missionControl/MissionControlBoard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlSpendCard.test.tsx",
   "src/components/Canvas/missionControl/MissionControlControls.test.tsx",
@@ -348,5 +348,7 @@
   "src/components/Jobs/BlueprintPlanLock.test.tsx",
   "src/components/Terminal/ChatComposer.attachments.test.tsx",
   "src/components/Terminal/composerAttachmentAdmission.test.ts",
-  "src/components/MeshPanel/networkTransport.test.ts"
+  "src/components/MeshPanel/networkTransport.test.ts",
+  "src/components/Neighbors/NeighborConversationView.test.tsx",
+  "src/components/Neighbors/SidebarNeighborsSection.test.tsx"
 ]

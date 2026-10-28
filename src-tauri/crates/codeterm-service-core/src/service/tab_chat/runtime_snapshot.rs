@@ -45,19 +45,26 @@ fn cached(
         session.state.lock().phase,
         crate::service::agent_runtime::model::RuntimePhase::Loading
     );
-    let process_live = session.process.lock().as_ref()
-        .is_some_and(|process| process.ended.borrow().is_none() && process.client.ended().borrow().is_none());
-    let fresh_unused = loading && process_live && tab.as_ref().is_some_and(|tab| {
-        context.thread_id.as_deref().is_some_and(|thread| {
-            tab.agent_runtime_config.as_ref()
-                .and_then(|config| config.get("unusedThreadId"))
-                .and_then(serde_json::Value::as_str) == Some(thread)
-        })
+    let process_live = session.process.lock().as_ref().is_some_and(|process| {
+        process.ended.borrow().is_none() && process.client.ended().borrow().is_none()
     });
+    let fresh_unused = loading
+        && process_live
+        && tab.as_ref().is_some_and(|tab| {
+            context.thread_id.as_deref().is_some_and(|thread| {
+                tab.agent_runtime_config
+                    .as_ref()
+                    .and_then(|config| config.get("unusedThreadId"))
+                    .and_then(serde_json::Value::as_str)
+                    == Some(thread)
+            })
+        });
     if !session.thread_loaded.load(Ordering::Acquire) && !fresh_unused {
         return Ok(None);
     }
-    let current = tab.as_ref().is_some_and(|tab| owns(tab, &session.provider, &context));
+    let current = tab
+        .as_ref()
+        .is_some_and(|tab| owns(tab, &session.provider, &context));
     if !current || engine::validate_binding(svc, &session).is_err() {
         return Err("Runtime transcript binding is not current".into());
     }

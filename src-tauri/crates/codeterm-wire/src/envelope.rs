@@ -31,10 +31,11 @@ pub enum FrameKind {
     PluginConfig,
     SystemPrompt,
     Voice,
+    Neighbor,
 }
 
 impl FrameKind {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Tab,
         Self::Report,
         Self::System,
@@ -46,6 +47,7 @@ impl FrameKind {
         Self::PluginConfig,
         Self::SystemPrompt,
         Self::Voice,
+        Self::Neighbor,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -61,6 +63,7 @@ impl FrameKind {
             Self::PluginConfig => "plugin_config",
             Self::SystemPrompt => "system_prompt",
             Self::Voice => "voice",
+            Self::Neighbor => "neighbor",
         }
     }
 

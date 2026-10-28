@@ -43,6 +43,9 @@ pub(super) fn incoming(
     let mut handling = super::history::handling::Handling::default();
     handling.set(State::Waiting, reason, now());
     super::history::Entry {
+        received_by: None,
+        flags: Vec::new(),
+        flag_callers: Vec::new(),
         handling,
         direction: "in".into(),
         author: super::history::Author::Person("friend".into()),
@@ -132,7 +135,9 @@ impl ServiceContext {
         self.ui
             .emit("neighbor-history-changed", json!({"friendship_id":friend}));
         drop(_guard);
-        if let Some(through) = read_through { self.queue_neighbor_read(friend, through, generation); }
+        if let Some(through) = read_through {
+            self.queue_neighbor_read(friend, through, generation);
+        }
         Ok(())
     }
 

@@ -49,6 +49,9 @@ function flags(value: unknown): MessageFlag[] {
     ? [{ category: flag.category as FlagCategory, reason: flag.reason, by: flag.by, at: unixMillis(flag.at) }] : []);
 }
 
+/** How a concierge runs beyond its provider and model: reasoning effort (a ReasoningEffortInfo id) and speed tier. */
+export interface ConciergeLaunchOptions { reasoning_effort?: string; service_tier?: string }
+
 /** Marks a message from them; their concierge and agents see the flag through history. */
 export async function flagNeighborMessage(friendship: string, messageId: string, category: FlagCategory, reason: string): Promise<void> {
   await runtimeCall({ operation: "flag_message", friendship_id: friendship, message_id: messageId, category, reason });
@@ -68,7 +71,8 @@ export interface NeighborConciergeClient {
   /** A null tab means the friendship no longer has a concierge here, for example after removal. */
   onAgentChanged(handler: (friendship: string, gatewayTab: string | null) => void): Promise<() => void>;
   setPermission(friendship: string, permission: NeighborPermission): Promise<void>;
-  changeAgent(friendship: string, provider: string, model?: string): Promise<string>;
+  /** Omitted options mean the provider's defaults; `service_tier` "default" is the standard speed. */
+  changeAgent(friendship: string, provider: string, model?: string, options?: ConciergeLaunchOptions): Promise<string>;
   setDailyLimit(friendship: string, dailyLimit: number | null): Promise<void>;
   onDailyLimitChanged(handler: (friendship: string) => void): Promise<() => void>;
   setNotify(friendship: string, notify: NeighborNotify): Promise<NeighborNotify>;
@@ -168,8 +172,9 @@ export const neighborConciergeClient: NeighborConciergeClient = {
   onDailyLimitChanged: handler => listen<{ friendship_id?: unknown }>("neighbor-daily-limit-changed", event => {
     if (typeof event.payload?.friendship_id === "string") handler(event.payload.friendship_id);
   }),
-  changeAgent: async (friendship, provider, model) => {
-    const value = await runtimeCall({ operation: "change_agent", friendship_id: friendship, provider, ...(model ? { model } : {}) });
+  changeAgent: async (friendship, provider, model, options) => {
+    const value = await runtimeCall({ operation: "change_agent", friendship_id: friendship, provider, ...(model ? { model } : {}),
+      ...(options?.reasoning_effort ? { reasoning_effort: options.reasoning_effort } : {}), ...(options?.service_tier ? { service_tier: options.service_tier } : {}) });
     if (!record(value) || typeof value.gateway_tab !== "string") throw new Error("Invalid concierge change");
     return value.gateway_tab;
   },

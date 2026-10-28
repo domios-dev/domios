@@ -2,10 +2,61 @@ use super::{handling::State, History, Submission};
 use codeterm_neighbors::wire::DeliveryStatus;
 
 impl History {
-    pub(crate) fn reserve_read_through(&mut self, message: &str, enabled: bool, paused: bool) -> bool {
+    fn incoming_position(&self, message: &str) -> Option<usize> {
+        self.entries.iter().position(|entry| entry.direction == "in" && entry.message_id == message)
+    }
+
+    pub(crate) fn request_read_through(&mut self, message: &str, enabled: bool, paused: bool) -> bool {
         if !enabled || paused || self.ended { return false; }
-        let Some(next) = self.entries.iter().position(|entry| entry.direction == "in" && entry.message_id == message) else { return false };
-        if self.read_receipt_through.as_ref().and_then(|previous| self.entries.iter().position(|entry| entry.direction == "in" && &entry.message_id == previous)).is_some_and(|previous| next <= previous) {
+        let Some(next) = self.incoming_position(message) else { return false };
+        if self.read_requested_through.as_deref().and_then(|id| self.incoming_position(id)).is_some_and(|previous| next <= previous) { return false; }
+        self.read_requested_through = Some(message.into());
+        true
+    }
+
+    pub(crate) fn acknowledge_through(&mut self, message: &str) -> bool {
+        let Some(next) = self.incoming_position(message) else { return false };
+        if self.received_acknowledged_through.as_deref().and_then(|id| self.incoming_position(id)).is_some_and(|previous| next <= previous) { return false; }
+        self.received_acknowledged_through = Some(message.into());
+        true
+    }
+
+    pub(crate) fn pending_read_through(&self) -> Option<String> {
+        let requested = self.read_requested_through.as_ref()?;
+        let next = self.incoming_position(requested)?;
+        if self.read_receipt_through.as_deref().and_then(|id| self.incoming_position(id)).is_some_and(|previous| next <= previous) { return None; }
+        Some(requested.clone())
+    }
+
+    pub(crate) fn reserve_read_through(
+        &mut self,
+        message: &str,
+        enabled: bool,
+        paused: bool,
+    ) -> bool {
+        if !enabled || paused || self.ended {
+            return false;
+        }
+        let Some(next) = self
+            .entries
+            .iter()
+            .position(|entry| entry.direction == "in" && entry.message_id == message)
+        else {
+            return false;
+        };
+        if !self.received_acknowledged_through.as_deref().and_then(|id| self.incoming_position(id)).is_some_and(|acked| next <= acked) {
+            return false;
+        }
+        if self
+            .read_receipt_through
+            .as_ref()
+            .and_then(|previous| {
+                self.entries
+                    .iter()
+                    .position(|entry| entry.direction == "in" && &entry.message_id == previous)
+            })
+            .is_some_and(|previous| next <= previous)
+        {
             return false;
         }
         self.read_receipt_through = Some(message.into());
@@ -13,18 +64,44 @@ impl History {
     }
 
     pub(crate) fn concierge_read_through(&self) -> Option<String> {
-        self.entries.iter().rev().find(|entry| entry.direction == "in" && matches!(entry.handling.handling_state,
-            Some(State::Working | State::Answered | State::Refused | State::NoReply)))
+        self.entries
+            .iter()
+            .rev()
+            .find(|entry| {
+                entry.direction == "in"
+                    && matches!(
+                        entry.handling.handling_state,
+                        Some(State::Working | State::Answered | State::Refused | State::NoReply)
+                    )
+            })
             .map(|entry| entry.message_id.clone())
     }
 
     pub(crate) fn apply_read_through(&mut self, uid: &str, message: &str, at: u64) -> bool {
-        if self.ended { return false; }
-        let Some(end) = self.entries.iter().position(|entry| entry.direction == "out" && entry.sender_uid == uid && entry.message_id == message) else { return false };
-        let mut changed = false;
+        if self.ended {
+            return false;
+        }
+        let Some(end) = self.entries.iter().position(|entry| {
+            entry.direction == "out" && entry.sender_uid == uid && entry.message_id == message
+        }) else {
+            return false;
+        };
+        let previous = self.outgoing_read_through.as_ref().and_then(|id| self.entries.iter().position(|entry| entry.direction == "out" && entry.sender_uid == uid && &entry.message_id == id));
+        let mut changed = previous.is_none_or(|previous| end > previous);
+        if changed {
+            self.outgoing_read_through = Some(message.into());
+            self.outgoing_read_at = Some(at);
+        }
         for entry in &mut self.entries[..=end] {
-            if entry.direction != "out" || entry.sender_uid != uid { continue; }
-            if entry.message_id != message && (entry.submission == Some(Submission::Refused) || entry.delivery_status == Some(DeliveryStatus::NotDelivered)) { continue; }
+            if entry.direction != "out" || entry.sender_uid != uid {
+                continue;
+            }
+            if entry.message_id != message
+                && (entry.submission == Some(Submission::Refused)
+                    || entry.delivery_status == Some(DeliveryStatus::NotDelivered))
+            {
+                continue;
+            }
             if entry.read_at.is_none() {
                 entry.read_at = Some(at);
                 entry.delivered_at.get_or_insert(at);
@@ -35,6 +112,12 @@ impl History {
             }
         }
         changed
+    }
+
+    pub(crate) fn covered_read_at(&self, uid: &str, message: &str) -> Option<u64> {
+        let end = self.entries.iter().position(|entry| entry.direction == "out" && entry.sender_uid == uid && Some(&entry.message_id)==self.outgoing_read_through.as_ref())?;
+        let index = self.entries.iter().position(|entry| entry.direction == "out" && entry.sender_uid == uid && entry.message_id==message)?;
+        (index <= end).then_some(self.outgoing_read_at).flatten()
     }
 }
 

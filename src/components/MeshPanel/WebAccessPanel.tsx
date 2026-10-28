@@ -4,8 +4,9 @@ import { Copy, ExternalLink, ShieldCheck, Maximize2, Minimize2 } from "lucide-re
 import logoUrl from "../../assets/logo.png";
 import type { AppConfig } from "../../lib/types";
 import type { ServeStatus } from "../../lib/webAccess";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { trapDialogTab } from "../shared/dialogFocusTrap";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
 import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
@@ -33,6 +34,28 @@ interface Props {
   embedded?: boolean;
   qrSize?: number;
   onExpand?: () => void;
+}
+
+/** The card's loaded layout in placeholder blocks, at its final size: host line, the framed QR square, the address
+ *  field, the route line, Open and Copy link, and one setup action. Swapping in the content moves nothing around it. */
+function WebAccessSkeleton({ embedded, qrSize }: { embedded: boolean; qrSize: number }) {
+  return <>
+    <span role="status" className="sr-only">Loading Mesh UI</span>
+    <Skeleton data-testid="web-access-skeleton" className={`flex flex-col ${embedded ? "gap-2" : "gap-3"}`}>
+      <SkeletonBlock width="55%" height={14} className="-mt-1" />
+      <div className="my-2 flex justify-center">
+        {/* The QR's gradient frame (3px) and white mat (12px) around the code, as in the loaded card. */}
+        <SkeletonBlock shape="tile" width={qrSize + 30} height={qrSize + 30} />
+      </div>
+      {!embedded && <SkeletonBlock width="100%" height={34} />}
+      <SkeletonBlock width="70%" height={14} />
+      <div className={`${embedded ? "my-1" : "my-3"} grid grid-cols-2 gap-2`}>
+        <SkeletonBlock shape="tile" width="100%" height={48} />
+        <SkeletonBlock shape="tile" width="100%" height={48} />
+      </div>
+      <SkeletonBlock shape="tile" width="100%" height={48} />
+    </Skeleton>
+  </>;
 }
 
 export function WebAccessPanel({ config, network, serve, loading, actions, onAction, onSetup, onClose, embedded = false, qrSize = 228, onExpand }: Props) {
@@ -100,11 +123,12 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
           <h2 id={embedded ? undefined : "web-access-heading"} ref={headingRef} tabIndex={embedded ? undefined : -1} className="text-xl font-semibold">Mesh UI</h2>
-          {(loading || busy) && <BusySpinner size={14} />}
+          {(loading || busy) && <BusyState inline hideLabel label="Loading" phase="work" />}
           </div>
           {embedded && onExpand && <button type="button" aria-label="Expand Mesh UI" title="Expand Mesh UI" className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon} rounded-full`} onClick={onExpand}><Maximize2 size={16} /></button>}
           {!embedded && <button type="button" aria-label="Collapse Mesh UI" onClick={onClose} className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon}`}><Minimize2 size={16} /></button>}
         </div>
+        {loading && !ready && <WebAccessSkeleton embedded={embedded} qrSize={qrSize} />}
         {ready && <p className="-mt-2 truncate text-sm text-[var(--ct-muted-fg)]">{host}</p>}
         {!ready && !loading && <p role="status">Set up Tailscale to open the web UI.</p>}
         {!ready && view.state !== "ready" && view.state !== "loading" && <p role="status" className="text-sm" data-testid="web-access-status">{view.label}</p>}
@@ -118,7 +142,10 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
                 <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex items-center justify-center">
                   <div className="rounded-[11px] bg-white p-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.18)]"><img src={logoUrl} alt="" className="h-9 w-9 rounded-lg" /></div>
                 </div>
-              </> : <span role="status" className="flex items-center justify-center text-sm text-slate-400" style={{ width: qrSize, height: qrSize }}>Generating QR…</span>}
+              </> : <span role="status" className="block" style={{ width: qrSize, height: qrSize }}>
+                <span className="sr-only">Generating QR…</span>
+                <Skeleton inline><SkeletonBlock shape="tile" width={qrSize} height={qrSize} /></Skeleton>
+              </span>}
             </div>
           </div>
         </div>

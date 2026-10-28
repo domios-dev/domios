@@ -70,6 +70,16 @@
   letter-spacing: -0.015em;
 }
 
+/* Loader's compact variant: the same loader for a small panel, with a smaller mark and caption. */
+.brand-state--compact {
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.brand-state--compact .brand-state-copy h2 {
+  font-size: var(--ct-font-size-sm);
+}
+
 .brand-state-copy p {
   margin: 0.35rem 0 0;
   color: var(--ct-muted-fg);

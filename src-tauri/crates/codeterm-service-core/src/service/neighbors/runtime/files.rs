@@ -28,6 +28,7 @@ pub(super) enum Command {
     Open {
         friendship_id: String,
         file_id: String,
+        launch: Option<bool>,
     },
     OpenFolder {
         friendship_id: String,
