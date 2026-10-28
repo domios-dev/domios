@@ -22,6 +22,11 @@ impl StoreTable {
             Self::Embedder => "mem_embedder",
             Self::Vectors => "mem_vectors",
             Self::SolutionMetadata => "solution_metadata",
+            Self::BlueprintCallScopes => "blueprint_call_scopes",
+            Self::BlueprintCallRevisions => "blueprint_call_revisions",
+            Self::BlueprintIndex => "blueprint_index",
+            Self::BlueprintVectors => "blueprint_vectors",
+            Self::BlueprintCleanupReceipt => "blueprint_v1_cleanup_receipt",
             Self::SourceTombstones => "mem_source_tombstones",
             Self::PrecompactPurges => "mem_precompact_purges",
             Self::PrecompactBlobs => "mem_precompact_purge_blobs",
@@ -29,12 +34,21 @@ impl StoreTable {
     }
     fn order_key(self) -> &'static str {
         match self {
-            Self::Items | Self::History | Self::Entities | Self::Relations => "id",
+            Self::Items
+            | Self::History
+            | Self::Entities
+            | Self::Relations
+            | Self::BlueprintCleanupReceipt => "id",
             Self::Aliases => "alias_id",
             Self::Pins | Self::Vectors => "mem_id",
             Self::Fts => "rowid",
             Self::Embedder => "singleton",
-            Self::SolutionMetadata | Self::PrecompactPurges => "item_id",
+            Self::SolutionMetadata
+            | Self::PrecompactPurges
+            | Self::BlueprintCallScopes
+            | Self::BlueprintIndex => "item_id",
+            Self::BlueprintCallRevisions => "item_id, hash, area, team",
+            Self::BlueprintVectors => "item_id, slot, ordinal",
             Self::SourceTombstones => "source_key",
             Self::PrecompactBlobs => "item_id, path",
         }
@@ -205,7 +219,10 @@ impl SqliteMemStore {
                 .collect::<Vec<_>>()
                 .join(",");
             let placeholders = vec!["?"; row.values.len()].join(",");
-            let verb = if page.table == StoreTable::Embedder {
+            let verb = if matches!(
+                page.table,
+                StoreTable::Embedder | StoreTable::BlueprintCleanupReceipt
+            ) {
                 "INSERT OR REPLACE"
             } else {
                 "INSERT"

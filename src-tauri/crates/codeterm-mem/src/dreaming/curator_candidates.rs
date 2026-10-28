@@ -1,4 +1,4 @@
-use crate::solution_metadata::{self, Confidence};
+use crate::solution_metadata::Confidence;
 use rusqlite::Connection;
 
 #[cfg(test)]
@@ -14,8 +14,8 @@ pub(super) fn render(conn: &Connection, now: i64) -> Result<Option<String>, Stri
     let mut ids = Vec::new();
     for row in rows {
         let id = row.map_err(|error| error.to_string())?;
-        let metadata =
-            solution_metadata::read(conn, &id)?.ok_or("solution metadata disappeared")?;
+        let metadata = crate::backend::sqlite::blueprint::metadata::read(conn, &id)?
+            .ok_or("solution metadata disappeared")?;
         let curator = metadata.curator.ok_or("Curator metadata absent")?;
         if curator.confidence == Confidence::Low
             && now.saturating_sub(curator.observed_at) >= 60 * 86400

@@ -314,7 +314,7 @@ fn recall_reembed_1k_items_need_one_provider_and_no_enrichment() {
     let mem = crate::MemManager::open_in_memory().unwrap();
     mem.embedder.replace(old.clone());
     index::recreate(&mem.conn.lock(), &old.identity()).unwrap();
-    crate::blueprint_library::initialize(&mem.conn.lock()).unwrap();
+    crate::backend::sqlite::blueprint::initialize(&mem.conn.lock()).unwrap();
     let (sender, events) = std::sync::mpsc::channel();
     mem.embedder.subscribe(Arc::new(move |event| {
         let _ = sender.send(event.clone());

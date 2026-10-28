@@ -9,9 +9,11 @@ use crate::{
     graph, search, store, Entity, MemItem, MemStats, NewMemItem, Relation, SearchHit, SearchQuery,
     WakeUpOptions,
 };
+pub mod blueprint;
 #[cfg(any(test, feature = "test-support"))]
 pub mod contract;
 pub mod sqlite;
+pub use blueprint::BlueprintStore;
 mod transfer;
 pub use sqlite::SqliteMemStore;
 pub use transfer::{ExportCursor, ExportPage, StoreRow, StoreTable, StoreValue, TableCounts};
@@ -69,7 +71,7 @@ impl WriteContext {
     }
 }
 
-pub trait MemStore: Send + Sync {
+pub trait MemStore: BlueprintStore + Send + Sync {
     fn seed_graph(
         &self,
         ctx: &WriteContext,

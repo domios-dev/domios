@@ -189,7 +189,7 @@ fn blueprint_recall_rejects_incidental_keyword_overlap() {
 
 #[test]
 fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
-    use crate::blueprint_library::index::{self, Slot};
+    use crate::blueprint_library::index::Slot;
     use crate::embedder::testing::{fixture, wait_for, MockProvider, StepClock};
     use crate::embedder::{EmbedderEvent, ReembedState};
 
@@ -202,7 +202,12 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
         .unwrap()
         .id;
     let old_identity = old.identity();
-    let old_vectors = index::read_vectors(&fx.mem.conn.lock(), &id, &old_identity).unwrap();
+    let old_vectors = crate::backend::sqlite::blueprint::index::read_vectors(
+        &fx.mem.conn.lock(),
+        &id,
+        &old_identity,
+    )
+    .unwrap();
     assert!(old_vectors.slot(Slot::Intent).next().is_some());
 
     let new = MockProvider::new("fixture-new", "wide-model", 1536);
@@ -218,15 +223,21 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
     assert_eq!(progress.failed, 0);
     assert_eq!(progress.done, plan.total());
     let identity = new.identity();
-    let vectors = index::read_vectors(&fx.mem.conn.lock(), &id, &identity).unwrap();
+    let vectors =
+        crate::backend::sqlite::blueprint::index::read_vectors(&fx.mem.conn.lock(), &id, &identity)
+            .unwrap();
     assert!(vectors
         .slot(Slot::Intent)
         .all(|(_, vector)| vector.len() == 1536));
     assert_eq!(vectors.slot(Slot::Intent).count(), 1);
-    assert!(index::read_vectors(&fx.mem.conn.lock(), &id, &old_identity)
-        .unwrap()
-        .by_slot
-        .is_empty());
+    assert!(crate::backend::sqlite::blueprint::index::read_vectors(
+        &fx.mem.conn.lock(),
+        &id,
+        &old_identity
+    )
+    .unwrap()
+    .by_slot
+    .is_empty());
     let config = RecallConfig {
         weights: recall::Weights {
             lexical: 0.0,
@@ -244,7 +255,14 @@ fn blueprint_vectors_follow_the_active_embedder_and_refuse_stale_stamps() {
         id
     );
     let conn = fx.mem.conn.lock();
-    let stale = index::replace_vectors(&conn, &id, &fx.embedder, &old_identity, &[], &[]);
+    let stale = crate::backend::sqlite::blueprint::index::replace_vectors(
+        &conn,
+        &id,
+        &fx.embedder,
+        &old_identity,
+        &[],
+        &[],
+    );
     assert!(stale.unwrap_err().contains("mixed-model"));
     conn.execute(
         "UPDATE blueprint_vectors SET provider=?1, model=?2 WHERE item_id=?3",

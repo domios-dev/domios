@@ -126,7 +126,13 @@ fn blueprint_v2_intent_scopes_candidates_before_ranking_and_limit() {
             )
             .unwrap();
         if let Some(team) = team {
-            super::super::call_revisions::scope(&mem.conn.lock(), &saved.id, scope, team).unwrap();
+            crate::backend::sqlite::blueprint::calls::scope(
+                &mem.conn.lock(),
+                &saved.id,
+                scope,
+                team,
+            )
+            .unwrap();
         }
         mem.index_blueprint(&saved.id).unwrap();
         if scope == "workspace" && team == Some("team") {

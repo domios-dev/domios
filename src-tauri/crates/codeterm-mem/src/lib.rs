@@ -171,8 +171,8 @@ impl MemManager {
 
         // WAL + synchronous=NORMAL pragmas come from store::init_schema.
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
-        blueprint_library::cleanup::remove_v1(&conn, &blobs_dir)?;
-        solution_metadata::initialize(&conn)?;
+        backend::sqlite::blueprint::cleanup::remove_v1(&conn, &blobs_dir)?;
+        backend::sqlite::blueprint::metadata::initialize(&conn)?;
 
         if let Err(e) = embeddings::init_index(&conn, &embedder.identity()) {
             log::warn!(
@@ -231,7 +231,7 @@ impl MemManager {
     fn empty_memory_connection() -> Result<Connection, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("open :memory:: {}", e))?;
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
-        solution_metadata::initialize(&conn)?;
+        backend::sqlite::blueprint::metadata::initialize(&conn)?;
         Ok(conn)
     }
 
@@ -304,8 +304,8 @@ impl MemManager {
             .map_err(|e| format!("set busy_timeout: {}", e))?;
 
         store::init_schema(&conn).map_err(|e| format!("init schema: {}", e))?;
-        blueprint_library::cleanup::remove_v1(&conn, &blobs_dir)?;
-        solution_metadata::initialize(&conn)?;
+        backend::sqlite::blueprint::cleanup::remove_v1(&conn, &blobs_dir)?;
+        backend::sqlite::blueprint::metadata::initialize(&conn)?;
 
         // Non-fatal: offline mode is allowed to run FTS5-only without vectors.
         let _ = embeddings::init_extension(&conn);

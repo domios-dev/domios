@@ -9,7 +9,7 @@ pub fn seed_schema(data_dir: &Path) {
         crate::embeddings::ensure_extension_registered();
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::store::init_schema(&conn).unwrap();
-        crate::solution_metadata::initialize(&conn).unwrap();
+        crate::backend::sqlite::blueprint::metadata::initialize(&conn).unwrap();
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("schema.db");
         conn.execute("VACUUM INTO ?1", [path.to_str().unwrap()])

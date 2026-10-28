@@ -2,6 +2,7 @@ use crate::{backend::WriteContext, store};
 use parking_lot::Mutex;
 use rusqlite::Connection;
 use std::{path::PathBuf, sync::Arc};
+pub(crate) mod blueprint;
 mod deletion;
 mod implementation;
 mod operations;
@@ -24,7 +25,7 @@ impl SqliteMemStore {
         std::fs::create_dir_all(blobs_dir).map_err(|e| e.to_string())?;
         let conn = Connection::open_in_memory().map_err(|e| e.to_string())?;
         store::init_schema(&conn).map_err(|e| e.to_string())?;
-        crate::solution_metadata::initialize(&conn)?;
+        crate::backend::sqlite::blueprint::metadata::initialize(&conn)?;
         Ok(Self::from_connection(
             Arc::new(Mutex::new(conn)),
             blobs_dir.to_path_buf(),

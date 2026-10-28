@@ -2,6 +2,7 @@ use crate::backend::{MemStore, SaveError, WriteContext};
 use crate::embedder::{EmbedderIdentity, StampedVector};
 use crate::store::{MemAuthor, ReplaceGuard, ReplaceGuardError};
 use crate::{MemKind, MemScope, NewMemItem, Relation, SearchQuery};
+pub mod blueprint;
 
 pub fn item(title: &str) -> NewMemItem {
     NewMemItem {

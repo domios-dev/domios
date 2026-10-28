@@ -13,13 +13,18 @@ pub enum StoreTable {
     Embedder,
     Vectors,
     SolutionMetadata,
+    BlueprintCallScopes,
+    BlueprintCallRevisions,
+    BlueprintIndex,
+    BlueprintVectors,
+    BlueprintCleanupReceipt,
     SourceTombstones,
     PrecompactPurges,
     PrecompactBlobs,
 }
 
 impl StoreTable {
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 18] = [
         Self::Items,
         Self::History,
         Self::Entities,
@@ -30,6 +35,11 @@ impl StoreTable {
         Self::Embedder,
         Self::Vectors,
         Self::SolutionMetadata,
+        Self::BlueprintCallScopes,
+        Self::BlueprintCallRevisions,
+        Self::BlueprintIndex,
+        Self::BlueprintVectors,
+        Self::BlueprintCleanupReceipt,
         Self::SourceTombstones,
         Self::PrecompactPurges,
         Self::PrecompactBlobs,

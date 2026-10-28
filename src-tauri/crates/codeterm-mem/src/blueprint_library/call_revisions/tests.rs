@@ -1,5 +1,7 @@
 use super::*;
+use crate::store;
 use codeterm_blueprint_types::blueprint_document::{calls::CallPin, projection};
+use rusqlite::params;
 use serde_json::json;
 
 fn callable(n: i64) -> Document {
@@ -125,8 +127,28 @@ fn blueprint_v2_call_far_purpose_vectors_refuse_keep_and_dream_merges() {
     {
         let conn = mem.conn.lock();
         let identity = mem.embedder.identity();
-        let a = Purpose::stored(&conn, &identity, &library[0]).unwrap();
-        let b = Purpose::stored(&conn, &identity, &library[1]).unwrap();
+        let a = Purpose::stored(
+            &crate::backend::sqlite::blueprint::index::read_vectors(
+                &conn,
+                &library[0].id,
+                &identity,
+            )
+            .unwrap(),
+            &identity,
+            &library[0],
+        )
+        .unwrap();
+        let b = Purpose::stored(
+            &crate::backend::sqlite::blueprint::index::read_vectors(
+                &conn,
+                &library[1].id,
+                &identity,
+            )
+            .unwrap(),
+            &identity,
+            &library[1],
+        )
+        .unwrap();
         assert!(!a.agrees(&b));
     }
     assert_eq!(mem.dream_blueprints().unwrap(), 0);
@@ -466,7 +488,16 @@ fn blueprint_v2_call_review_archive_warns_and_keeps_pins_but_refuses_new_pins() 
     let frozen = mem
         .pin_blueprint_calls("blueprints:workspace", "team", caller(&id))
         .unwrap();
-    archive(&mem.conn.lock(), &id, "blueprint solution area cap").unwrap();
+    crate::curation::calibration::archive::archive_item_with_context(
+        &MemManager::blueprint_write_context(),
+        &mem.conn.lock(),
+        &id,
+        "skill",
+        "system:blueprint-library",
+        "archive",
+        Some("blueprint solution area cap"),
+    )
+    .unwrap();
     let warnings = mem
         .blueprint_call_drift("blueprints:workspace", "team", frozen.clone())
         .unwrap();
