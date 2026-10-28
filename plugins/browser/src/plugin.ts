@@ -39,6 +39,7 @@ export function parseOf(raw: readonly unknown[]): ParsedArgs {
 // The core browser runtime does the work; the plugin forwards the agent's verb to its own surface or `--of` another's.
 export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = hostSurfaceCall()): AgentCommandReply {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
+  if (ctx.verb === "connect-secret") return { error: "connect accepts its token only through --stdin" };
   const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
   const verb = secret !== undefined && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb || "help";
   if (secret !== undefined && !["type", "connect"].includes(ctx.verb)) return { error: "Browser body input is supported only by type and connect" };

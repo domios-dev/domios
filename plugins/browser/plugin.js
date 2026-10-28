@@ -71,6 +71,7 @@ function parseOf(raw) {
 }
 function forward(ctx, call = hostSurfaceCall()) {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
+  if (ctx.verb === "connect-secret") return { error: "connect accepts its token only through --stdin" };
   const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
   const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb || "help";
   if (secret !== void 0 && !["type", "connect"].includes(ctx.verb)) return { error: "Browser body input is supported only by type and connect" };

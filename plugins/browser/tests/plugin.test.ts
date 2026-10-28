@@ -122,6 +122,8 @@ describe("Browser named instance connection", () => {
     const call = vi.fn(() => JSON.stringify({ error: "origin_mismatch" }));
     expect(forward({ sessionId: "qa", verb: "connect", args: [] }, call)).toHaveProperty("error");
     expect(call).not.toHaveBeenCalled();
+    expect(forward({ sessionId: "qa", verb: "connect-secret", args: ["raw-token"] }, call)).toHaveProperty("error");
+    expect(call).not.toHaveBeenCalled();
     expect(forward({ sessionId: "qa", verb: "connect", args: [], body: "opaque" }, call)).toEqual({ error: "origin_mismatch" });
     expect(call).toHaveBeenCalledTimes(1);
   });
