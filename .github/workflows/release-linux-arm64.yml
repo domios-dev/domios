@@ -139,6 +139,8 @@ jobs:
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb "$ART/out/"
           cp src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage "$ART/out/"
           cp release-artifacts/domios-headless-* "$ART/out/"
+      - name: Verify compiled analytics production key
+        run: node scripts/check-release-analytics-key.mjs target/domios-package/domios-server/domios-server
       - name: Frozen signer dependencies
         run: pnpm install --frozen-lockfile
       - name: Import temporary release signing material

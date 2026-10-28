@@ -207,6 +207,11 @@ jobs:
         run: |-
           node scripts/release-arm64-handoff.mjs unpack "$env:TARGET" "${{ inputs.tag }}" "${{ inputs.source_ref }}" "$env:RUNNER_TEMP/arm64-handoff.tar" "${{ needs.compile.outputs.sha256 }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify compiled analytics production key
+        shell: pwsh
+        run: |
+          node scripts/check-release-analytics-key.mjs target/domios-package/domios-server/domios-server.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Sign the updater bundle
         shell: pwsh
         env:

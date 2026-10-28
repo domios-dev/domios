@@ -364,6 +364,11 @@ Windows updater signatures are not Authenticode: no Authenticode signing is curr
 
 ### Runner map
 
+Release workflows verify the compiled server's production analytics fingerprint with
+`scripts/check-release-analytics-key.mjs` before uploads. The analytics build script tracks both
+key variables and emits non-secret hash cfgs so sccache cannot reuse a keyless build; never
+replace the binary check with a secret-presence check or print the keys.
+
 Workflows select runners by label, never by name. Heavy lanes combine a role with `host-<machine>` to retain warm per-runner targets.
 `./build.sh runner-pause` keeps host labels and never lends them; a pinned lane stays unavailable
 until its own host is restored.

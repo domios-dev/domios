@@ -9,6 +9,8 @@ use uuid::Uuid;
 #[derive(Clone, Debug, Serialize)]
 pub struct Status {
     pub vendor_available: bool,
+    pub amplitude_test_key_fingerprint: &'static str,
+    pub amplitude_prod_key_fingerprint: &'static str,
     pub consent: Consent,
     pub config: Config,
     pub queued: usize,
@@ -53,6 +55,8 @@ impl Engine {
     pub fn status(&self) -> Status {
         Status {
             vendor_available: self.state.config.mode == Mode::Amplitude && self.sink.available(),
+            amplitude_test_key_fingerprint: crate::AMPLITUDE_TEST_KEY_FINGERPRINT,
+            amplitude_prod_key_fingerprint: crate::AMPLITUDE_PROD_KEY_FINGERPRINT,
             consent: self.state.consent,
             config: self.state.config,
             queued: self.state.queue.len(),
