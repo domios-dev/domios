@@ -25,7 +25,8 @@ import { HostBlueprintView } from "../Automation/blueprint/HostBlueprintView";
 import { blueprintScenarioJobs } from "../Automation/scenarios";
 import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
-import { BlueprintImportForm } from "./BlueprintImportForm";
+import { BlueprintImportForm, type BlueprintCreator } from "./BlueprintImportForm";
+import type { Destination } from "../shared/DestinationPicker";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
 import { cronMeta, JobRow, sentinelRowText, sentinelStateLabel } from "./JobRow";
 import { JobsFilterBar } from "./JobsFilterBar";
@@ -302,6 +303,16 @@ function JobsSurface({ solutionsApi, adapter, connectionId, sources, cronWorkspa
   </div>;
 }
 
+/** Every tab that can import a Blueprint, with the one scope the runtime accepts from it: its Team, else General or its workspace. */
+export function importCreators(tabs: Record<string, Tab>, workspaces: readonly JobsWorkspace[], teams: readonly Team[]): BlueprintCreator[] {
+  return Object.values(tabs).flatMap((tab) => {
+    const workspace = workspaces.find((entry) => entry.tabs?.includes(tab.id)) ?? workspaces.find((entry) => entry.id === tab.workspace_id);
+    const scope: Destination | null = tab.team_id ? (teams.some((team) => team.id === tab.team_id) ? { kind: "team", id: tab.team_id } : null)
+      : !workspace ? null : workspace.protected ? { kind: "general" } : { kind: "workspace", id: workspace.id };
+    return scope ? [{ id: tab.id, label: tab.title, scope }] : [];
+  });
+}
+
 export interface JobsViewProps {
   solutionsApi?: BlueprintSolutionsApi;
   machinePeers?: readonly PairedPeer[];
@@ -337,6 +348,10 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
   const [machineId, setMachineId] = useState(jobsEntryState({ kind: "machine" }).machineId);
   const [importOpen, setImportOpen] = useState(false);
   const workspaceName = (id: string) => workspaces.find((workspace) => workspace.id === id)?.name ?? id;
+  // Jobs opened from General imports into General first; from a Team or workspace, into that.
+  const openedFrom: Destination | null = initialFilter.teamId ? { kind: "team", id: initialFilter.teamId }
+    : initialFilter.workspaceId ? workspaces.find((workspace) => workspace.id === initialFilter.workspaceId)?.protected ? { kind: "general" } : { kind: "workspace", id: initialFilter.workspaceId }
+    : null;
   const [detailOpen, setDetailOpen] = useState(false);
   const [importRevision, setImportRevision] = useState(0);
   const [filter, setFilter] = useJobsFilterNavigation(initialFilter, !initialScenarioId && !initialCronId && !initialBlueprintId, context.ready, workspaces);
@@ -368,7 +383,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {machines.failed && machinePeers === undefined && <p role="status" className="px-4 py-2">Paired machine list unavailable.</p>}
-      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={Object.values(tabs).filter((tab) => tab.team_id && teams.some((team) => team.id === tab.team_id && (filter.teamId === null || team.id === filter.teamId) && (filter.workspaceId === null || team.workspace_id === filter.workspaceId))).map((tab) => ({ id: tab.id, label: tab.title, teamId: tab.team_id ?? undefined }))} teams={teams} workspaces={workspaces} workspaceIds={sources} workspaceName={workspaceName} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
+      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={importCreators(tabs, workspaces, teams)} initialDestination={openedFrom} teams={teams} workspaces={workspaces} workspaceIds={sources} workspaceName={workspaceName} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />

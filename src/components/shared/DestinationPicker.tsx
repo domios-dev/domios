@@ -15,6 +15,11 @@ export interface DestinationTeam { id: string; name?: string | null; workspace_i
 const KIND_LABEL: Record<DestinationKind, string> = { general: "General", workspace: "Workspaces", team: "Teams" };
 const OPTION = '[role="option"]:not([aria-disabled="true"])';
 
+/** The wire form scoped APIs take: "general", "workspace:<id>" or "team:<id>". */
+export function destinationScope(destination: Destination): string {
+  return destination.kind === "general" ? "general" : `${destination.kind}:${destination.id}`;
+}
+
 export function sameDestination(a: Destination | null, b: Destination | null): boolean {
   if (!a || !b || a.kind !== b.kind) return false;
   return a.kind === "general" || a.id === (b as { id: string }).id;

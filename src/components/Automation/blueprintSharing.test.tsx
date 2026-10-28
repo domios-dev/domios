@@ -41,7 +41,11 @@ async function main() {
   assert.deepEqual(saved, [{ name: "Fixture watcher", yaml: source }]);
 
   let created = 0;
-  await act(async () => root.render(<BlueprintImportForm creators={[{ id: "scratch-creator", label: "Scratch Team" }]} onCreated={() => { created++; }} onCancel={() => undefined} api={api} />));
+  // Opened from General with a General tab and a Team tab: General comes first, and the import names it.
+  await act(async () => root.render(<BlueprintImportForm creators={[{ id: "team-creator", label: "Team tab", scope: { kind: "team", id: "team" } }, { id: "scratch-creator", label: "Main", scope: { kind: "general" } }]}
+    workspaces={[{ id: "general", name: "General", protected: true }]} teams={[{ id: "team", name: "Scratch Team" }]} initialDestination={{ kind: "general" }}
+    onCreated={() => { created++; }} onCancel={() => undefined} api={api} />));
+  assert.equal(host.querySelector('button[aria-haspopup="dialog"]')?.getAttribute("aria-label"), "Destination: General", "opened from General, General is preselected");
   const fileInput = host.querySelector<HTMLInputElement>('input[type="file"]');
   assert(fileInput);
   assert(host.textContent?.includes("No file chosen"), "the styled picker speaks English before a choice");
@@ -57,7 +61,7 @@ async function main() {
     field.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await act(async () => button("Import stopped Blueprint").click());
-  assert.deepEqual(imports, [["scratch-creator", source, ["destination=scratch-target"]]]);
+  assert.deepEqual(imports, [["scratch-creator", source, ["destination=scratch-target"], "general"]]);
   assert.equal(created, 1);
 
   await act(async () => root.unmount());

@@ -3,7 +3,7 @@ import { useId, useState, type CSSProperties } from "react";
 import { FileUp } from "lucide-react";
 import { blueprintSharingApi, parseBlueprintRecipe, type BlueprintRecipe, type BlueprintSharingApi } from "../Automation/blueprintSharing";
 import { AUTOMATION_LABEL, AUTOMATION_PRIMARY, AUTOMATION_TONE, AUTOMATION_TOOL } from "../Automation/styles";
-import { DestinationPicker, type Destination, type DestinationTeam, type DestinationWorkspace } from "../shared/DestinationPicker";
+import { DestinationPicker, destinationScope, sameDestination, type Destination, type DestinationKind, type DestinationTeam, type DestinationWorkspace } from "../shared/DestinationPicker";
 import { FileChooser } from "../shared/FileChooser";
 import { Segmented, type SegmentedOption } from "../shared/Segmented";
 import { BlueprintProjectList, type BlueprintProjectApi } from "./BlueprintProjectList";
@@ -11,27 +11,34 @@ import { BlueprintProjectList, type BlueprintProjectApi } from "./BlueprintProje
 export interface BlueprintCreator {
   id: string;
   label: string;
-  /** The Team the tab belongs to; choosing that Team as the destination imports as this tab. */
-  teamId?: string;
+  /** Where the tab lives: its Team, else General or its workspace. An import into that scope runs as this tab. */
+  scope?: Destination;
 }
 
 type ImportSource = "file" | "repository";
 const IMPORT_SOURCES: SegmentedOption<ImportSource>[] = [{ value: "file", label: "From file" }, { value: "repository", label: "From repository" }];
 
-export function BlueprintImportForm({ creators, onCreated, onCancel, api = blueprintSharingApi, workspaceIds = [], workspaceName, repositoryApi, workspaces = [], teams = [] }: {
+export function BlueprintImportForm({ creators, onCreated, onCancel, api = blueprintSharingApi, workspaceIds = [], workspaceName, repositoryApi, workspaces = [], teams = [], initialDestination = null }: {
   creators: BlueprintCreator[]; onCreated: () => void; onCancel: () => void; api?: BlueprintSharingApi;
   /** The workspaces in view; their repositories offer Blueprints to read. */
   workspaceIds?: readonly string[]; workspaceName?: (id: string) => string; repositoryApi?: BlueprintProjectApi;
   workspaces?: readonly DestinationWorkspace[]; teams?: readonly DestinationTeam[];
+  /** Where Jobs was opened; chosen first when a tab there can import. */
+  initialDestination?: Destination | null;
 }) {
   const prefix = useId();
   const [from, setFrom] = useState<ImportSource>("file");
   const [recipe, setRecipe] = useState<BlueprintRecipe | null>(null);
   const [source, setSource] = useState("");
   const [bindings, setBindings] = useState<Record<string, string>>({});
-  const [caller, setCaller] = useState(creators[0]?.id ?? "");
-  const callerTeam = creators.find((creator) => creator.id === caller)?.teamId;
-  const destination: Destination | null = callerTeam ? { kind: "team", id: callerTeam } : null;
+  // A destination is offered only when a tab already lives there: the runtime imports as that tab.
+  const creatorIn = (scope: Destination | null) => scope ? creators.find((creator) => sameDestination(creator.scope ?? null, scope)) : undefined;
+  const [caller, setCaller] = useState(() => (creatorIn(initialDestination) ?? creators[0])?.id ?? "");
+  const destination = creators.find((creator) => creator.id === caller)?.scope ?? null;
+  const offered = { general: creators.some((creator) => creator.scope?.kind === "general"),
+    workspaces: workspaces.filter((workspace) => creators.some((creator) => creator.scope?.kind === "workspace" && creator.scope.id === workspace.id)),
+    teams: teams.filter((team) => creators.some((creator) => creator.scope?.kind === "team" && creator.scope.id === team.id)) };
+  const kinds: DestinationKind[] = [...(offered.general ? ["general" as const] : []), ...(offered.workspaces.length ? ["workspace" as const] : []), ...(offered.teams.length ? ["team" as const] : [])];
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const read = async (file: File | undefined) => {
@@ -56,7 +63,8 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
     setBusy(true);
     setError(null);
     try {
-      await api.import(caller, source, Object.keys(recipe.inputs ?? {}).filter((key) => bindings[key] !== undefined).map((key) => `${key}=${bindings[key] ?? ""}`));
+      await api.import(caller, source, Object.keys(recipe.inputs ?? {}).filter((key) => bindings[key] !== undefined).map((key) => `${key}=${bindings[key] ?? ""}`),
+        destination ? destinationScope(destination) : undefined);
       onCreated();
     } catch (error) { setError(String(error)); }
     finally { setBusy(false); }
@@ -73,12 +81,11 @@ export function BlueprintImportForm({ creators, onCreated, onCancel, api = bluep
         <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-file`}>Blueprint YAML file</label>
         <FileChooser id={`${prefix}-file`} accept=".yaml,.yml,.json,application/yaml,application/json,text/yaml" disabled={busy} onFile={(file) => void read(file)} />
       </div>
-      {/* The import runs as a tab of the destination Team; until the runtime takes a General or workspace scope, only Teams are offered. */}
       <div className="flex flex-col gap-1.5">
         <span className={AUTOMATION_LABEL}>Destination</span>
-        <DestinationPicker kinds={["team"]} workspaces={workspaces} teams={teams.filter((team) => creators.some((creator) => creator.teamId === team.id))}
-          placeholder={creators.length ? "Choose a Team" : "No Team to import into"} disabled={busy || creators.length === 0}
-          value={destination} onChange={(next) => { if (next.kind === "team") setCaller(creators.find((creator) => creator.teamId === next.id)?.id ?? ""); }} />
+        <DestinationPicker kinds={kinds} workspaces={[...workspaces.filter((workspace) => workspace.protected), ...offered.workspaces]} teams={offered.teams}
+          placeholder={kinds.length ? "Choose a destination" : "No tab to import from"} disabled={busy || kinds.length === 0}
+          value={destination} onChange={(next) => setCaller(creatorIn(next)?.id ?? "")} />
       </div>
       {recipe && Object.entries(recipe.inputs ?? {}).map(([key, input]) => <div key={key} className="flex flex-col gap-1.5">
         <label className={AUTOMATION_LABEL} htmlFor={`${prefix}-${key}`}>{key}: {input.description ?? input.type}</label>
