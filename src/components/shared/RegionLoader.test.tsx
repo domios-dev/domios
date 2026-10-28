@@ -5,15 +5,15 @@ import { RegionLoader } from "./RegionLoader";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("renders the brand loader with its label and status line, behind the deferred reveal", async () => {
+it("renders the shared activity dots with its caption, behind the deferred reveal, never the brand", async () => {
   const host = document.createElement("div");
   const root = createRoot(host);
   try {
-    await act(async () => root.render(<RegionLoader label="Loading plans" detail="Reading the index" data-testid="region" />));
+    await act(async () => root.render(<RegionLoader label="Loading plans" data-testid="region" />));
     const status = host.querySelector('[role=status][aria-label="Loading plans"]')!;
-    expect(status.textContent).toContain("Reading the index");
-    expect(status.querySelector("svg")).not.toBeNull();
-    expect(status.querySelector("canvas")).not.toBeNull();
+    expect(status.textContent).toContain("Loading plans");
+    expect(status.querySelector(".activity-dots")).not.toBeNull();
+    expect(host.querySelector("canvas")).toBeNull();
     expect(host.querySelector('[data-testid="region"]')?.classList.contains("ct-deferred-loader")).toBe(true);
   } finally { await act(async () => root.unmount()); }
 });
