@@ -4,6 +4,10 @@ version = "0.0.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 
+[[example]]
+name = "mem_backend_parity"
+path = "../../../evals/mem-backend-parity/runner/main.rs"
+
 [dependencies]
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
