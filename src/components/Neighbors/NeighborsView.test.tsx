@@ -1230,6 +1230,21 @@ it("puts a settled concierge outcome in the time row, linked to the reply", asyn
   expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__stack > .neighbor-work")).toBeNull();
 });
 
+it("keeps handling lines calm: one waiting line, no raw codes, no line for no reply needed", async () => {
+  const conciergeClient = concierge([
+    { direction: "in", kind: "question", author: "friend", body: "First", at: 1700000000000, message_id: "w1", handling_state: "waiting", handling_reason: "queued_for_concierge" },
+    { direction: "in", kind: "question", author: "friend", body: "Second", at: 1700000001000, message_id: "w2", handling_state: "waiting", handling_reason: "queued_for_concierge" },
+    { direction: "in", kind: "question", author: "friend", body: "Thanks!", at: 1700000002000, message_id: "w3", handling_state: "no_reply" },
+  ]);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  const lines = Array.from(document.querySelectorAll(".neighbor-work")).map(line => line.closest(".neighbor-msg")?.id);
+  expect(lines).toEqual(["neighbor-msg-w2"]);
+  expect(document.body.textContent).not.toContain("queued_for_concierge");
+  expect(document.querySelector("#neighbor-msg-w3 time")?.getAttribute("title")).toContain("No reply needed");
+});
+
 it("renders a friend's markdown like agent chat: headings, scrolling tables and copyable code", async () => {
   const body = "## Status\n\n| Job | State |\n| --- | --- |\n| build | green |\n\n```\ncargo test\n```";
   const host = document.createElement("div"); document.body.append(host);
