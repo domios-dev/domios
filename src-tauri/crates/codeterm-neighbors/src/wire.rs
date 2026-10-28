@@ -227,6 +227,10 @@ pub struct DeliveryResult {
     pub status: DeliveryStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<DeliveryReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<u64>,
 }
 
 impl From<DeliveryStatus> for DeliveryResult {
@@ -234,6 +238,8 @@ impl From<DeliveryStatus> for DeliveryResult {
         Self {
             status,
             reason: None,
+            delivered_at: None,
+            read_at: None,
         }
     }
 }

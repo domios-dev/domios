@@ -2,6 +2,35 @@ use super::super::value;
 use super::*;
 
 #[test]
+fn message_read_signal_has_an_exact_shape_and_safe_timestamp() {
+    let mut doc = document("own-account-signal");
+    doc.fields.insert("type".into(), string("message_read"));
+    doc.fields.insert("message_id".into(), string(&"c".repeat(32)));
+    doc.fields.insert("at".into(), value(fs::value::ValueType::IntegerValue(1000)));
+    let signal = parse_signal(doc.clone()).unwrap();
+    assert_eq!(signal.read, Some(crate::registry::ReadSignal { friendship_id:"b".repeat(64), message_id:"c".repeat(32), read_at:1000 }));
+    assert!(signal.delivery.is_none());
+    for key in ["schema_version","revision","event_id","type","request_id","friendship_id","message_id","at"] {
+        let mut invalid = doc.clone();
+        invalid.fields.remove(key);
+        assert!(parse_signal(invalid).is_err(), "missing {key}");
+    }
+    for (key, wrong) in [
+        ("at",value(fs::value::ValueType::IntegerValue(-1))),
+        ("at",value(fs::value::ValueType::IntegerValue(crate::wire::MAX_SAFE_INTEGER as i64 + 1))),
+        ("at",string("1000")),
+        ("message_id",string(&"C".repeat(32))),
+        ("request_id",string(&"d".repeat(64))),
+        ("friendship_id",value(fs::value::ValueType::NullValue(0))),
+        ("unexpected",string("opaque")),
+    ] {
+        let mut invalid = doc.clone();
+        invalid.fields.insert(key.into(),wrong);
+        assert!(parse_signal(invalid).is_err(), "invalid {key}");
+    }
+}
+
+#[test]
 fn pause_changed_requires_the_exact_own_account_signal_shape() {
     let mut doc = document("own-account-signal");
     doc.fields.insert("type".into(), string("pause_changed"));

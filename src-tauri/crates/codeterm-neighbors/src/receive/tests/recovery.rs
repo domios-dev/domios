@@ -79,6 +79,8 @@ impl KeyRegistry for Registry {
         *self.receipt.lock().unwrap() = DeliveryResult {
             status: DeliveryStatus::NotDelivered,
             reason: Some(DeliveryReason::KeyRevoked),
+            delivered_at: None,
+            read_at: None,
         };
         Ok(())
     }
@@ -185,6 +187,8 @@ async fn rotation_crash(window: usize) {
             DeliveryResult {
                 status: DeliveryStatus::NotDelivered,
                 reason: Some(DeliveryReason::KeyRevoked),
+                delivered_at: None,
+                read_at: None,
             }
         );
     }
