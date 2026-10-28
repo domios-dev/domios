@@ -49,6 +49,8 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [limit, setLimit] = useState(neighbor.inbound_per_hour);
+  const [savedLimit, setSavedLimit] = useState(neighbor.inbound_per_hour);
+  useEffect(() => { setSavedLimit(neighbor.inbound_per_hour); }, [neighbor.inbound_per_hour]);
   const { pickFolder, folderPicker } = useFolderPicker();
   const accessLabel = useId();
   const areas = useMemoryAreas(draft?.allow_memory !== false);
@@ -57,14 +59,22 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const workspaceOptions = allWorkspaces.filter(workspace => !workspace.protected).map(workspace => ({ value: workspace.id, label: workspace.name }));
   const access: MachineAccess = draft?.machine_access ?? "read_only";
   const [daily, setDaily] = useState(neighbor.my_daily_limit == null ? "" : String(neighbor.my_daily_limit));
-  const [dailyError, setDailyError] = useState<string | null>(null);
   const dailyField = useId();
+  const fileField = useId();
   const dailyValue = daily.trim() === "" ? null : Number(daily);
   const dailyValid = dailyValue === null || (Number.isInteger(dailyValue) && dailyValue >= 1 && dailyValue <= 10000);
   // Compared with what was last saved here too, so clearing a limit just set can still be saved as no limit.
   const [savedDaily, setSavedDaily] = useState<number | null>(neighbor.my_daily_limit ?? null);
   useEffect(() => { setSavedDaily(neighbor.my_daily_limit ?? null); }, [neighbor.my_daily_limit]);
   const dailyChanged = dailyValue !== savedDaily;
+  const [savedFileLimit, setSavedFileLimit] = useState<number | null>(neighbor.my_file_daily_limit_bytes ?? null);
+  useEffect(() => { setSavedFileLimit(neighbor.my_file_daily_limit_bytes ?? null); }, [neighbor.my_file_daily_limit_bytes]);
+  const [fileLimit, setFileLimit] = useState(mibText(savedFileLimit));
+  const fileMib = fileLimit.trim() === "" ? null : Number(fileLimit);
+  const fileValid = fileMib === null || (Number.isFinite(fileMib) && fileMib >= 0 && fileMib <= FILE_LIMIT_MIB);
+  const fileBytes = fileMib === null ? null : Math.round(fileMib * MIB);
+  const fileChanged = onSaveFileDailyLimit !== undefined && fileBytes !== savedFileLimit;
+  const limitChanged = limit !== savedLimit;
   const scopeField = useId();
   const limitField = useId();
   const [awaitingFolder, setAwaitingFolder] = useState(false);
@@ -79,7 +89,29 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     setBaseline(permission); setDraft(permission); setIncoming(null);
   }, [permission]);
   const problem = draft ? permissionProblem(draft) : null;
-  const edit = (patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
+  // Every edit waits here until Apply sends it; permission changes restart the concierge, limits do not.
+  const staged = changed || dailyChanged || fileChanged || limitChanged;
+  const blocked = (changed && problem !== null) || !dailyValid || !fileValid || !validNeighborLimit(limit);
+  const apply = () => {
+    if (!draft) return;
+    setSaving(true); setError(null);
+    // The hourly limit reports its own failure; a refusal just leaves it staged.
+    const limitSave = async () => { if (await onLimit(limit)) setSavedLimit(limit); };
+    const saves = [changed ? onSave(draft).then(() => setBaseline(draft)) : Promise.resolve(),
+      dailyChanged ? onSaveDailyLimit(dailyValue).then(() => setSavedDaily(dailyValue)) : Promise.resolve(),
+      fileChanged ? onSaveFileDailyLimit!(fileBytes).then(() => setSavedFileLimit(fileBytes)) : Promise.resolve(),
+      limitChanged ? limitSave() : Promise.resolve()];
+    void Promise.all(saves).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Permissions could not be saved."))
+      .finally(() => setSaving(false));
+  };
+  const cancel = () => {
+    if (baseline) setDraft(baseline);
+    setDaily(savedDaily === null ? "" : String(savedDaily));
+    setFileLimit(mibText(savedFileLimit));
+    setLimit(savedLimit);
+    setAwaitingFolder(false); setError(null);
+  };
+  const edit =(patch: Partial<NeighborPermission>) => setDraft(current => current ? { ...current, ...patch } : current);
   return <div className="neighbor-permissions">
     <Segmented<TrustPreset> aria-label="Trust" className="neighbor-trust" value={awaitingFolder ? "collaborator" : draft ? trustPresetOf(draft, dailyValue) : "custom"} height={28} options={TRUST_OPTIONS}
       onChange={preset => {
@@ -152,87 +184,60 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
         <Button size="sm" onClick={() => { setBaseline(incoming); setIncoming(null); }}>Keep my edits</Button>
       </div>
     </div>}
-    {problem && changed && <p role="alert" className="neighbor-note">{problem}</p>}
-    {error && <InlineErrorNotice error={error} operation="saving Neighbor permissions" role="alert" />}
-    <div className="neighbor-confirm__actions">
-      <Button size="sm" variant="primary" loading={saving} disabled={(!changed && !(dailyChanged && dailyValid)) || problem !== null}
-        onClick={() => {
-          if (!draft) return;
-          setSaving(true); setError(null);
-          // A preset also sets the daily message limit, which saves through its own operation.
-          const saves = [changed ? onSave(draft).then(() => setBaseline(draft)) : Promise.resolve(),
-            dailyChanged && dailyValid ? onSaveDailyLimit(dailyValue).then(() => setSavedDaily(dailyValue)) : Promise.resolve()];
-          void Promise.all(saves).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "Permissions could not be saved."))
-            .finally(() => setSaving(false));
-        }}>Save permissions</Button>
-      <Button size="sm" variant="accent" onClick={onEditWithGeneral}>Edit with General</Button>
-    </div>
     <SettingsSection title="Limits">
-    <form className="neighbor-limit" onSubmit={event => {
-      event.preventDefault();
-      if (!dailyValid) return;
-      setDailyError(null);
-      void onSaveDailyLimit(dailyValue).then(() => setSavedDaily(dailyValue))
-        .catch((failure: unknown) => setDailyError(failure instanceof Error ? failure.message : "The daily limit could not be saved."));
-    }}>
+    <div className="neighbor-limit">
       <FormRow className="neighbor-field" label="Messages per day" htmlFor={dailyField}
         hint={dailyValid ? "Empty for no limit." : "Use a whole number from 1 to 10000, or leave it empty."}>
         <div className="neighbor-limit__row">
           <input id={dailyField} type="number" min={1} max={10000} step={1} inputMode="numeric" placeholder="No limit"
-            className={`${UI_INPUT.compact} neighbor-limit__input`} value={daily} aria-invalid={!dailyValid}
+            className={`${UI_INPUT.compact} neighbor-limit__input`} value={daily} aria-invalid={!dailyValid} disabled={saving}
             onChange={event => setDaily(event.currentTarget.value)} />
-          <Button size="sm" type="submit" aria-label="Save daily limit" disabled={!dailyValid || !dailyChanged}>Save</Button>
         </div>
       </FormRow>
-      {dailyError && <InlineErrorNotice error={dailyError} operation="saving the daily limit" role="alert" />}
-    </form>
-    <FileDailyLimit neighbor={neighbor} name={name} onSave={onSaveFileDailyLimit} />
-    <form className="neighbor-limit" onSubmit={event => { event.preventDefault(); if (validNeighborLimit(limit)) void onLimit(limit); }}>
+    </div>
+    <div className="neighbor-limit">
+      <FormRow className="neighbor-field" label="Files per day from this friend" htmlFor={fileField}
+        hint={!fileValid ? `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.` : savedFileLimit === 0 ? `Files from ${name} are blocked.` : `Empty for ${FILE_LIMIT_MIB} MiB; 0 blocks files.`}>
+        <div className="neighbor-limit__row">
+          <input id={fileField} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={`${FILE_LIMIT_MIB} MiB`}
+            className={`${UI_INPUT.compact} neighbor-limit__input`} value={fileLimit} aria-invalid={!fileValid} disabled={!onSaveFileDailyLimit || saving}
+            onChange={event => setFileLimit(event.currentTarget.value)} />
+          <span className="neighbor-note">MiB</span>
+        </div>
+      </FormRow>
+    </div>
+    <div className="neighbor-limit">
       <FormRow className="neighbor-field" label="Incoming requests per hour" htmlFor={limitField} hint={`They accept up to ${neighbor.outbound_per_hour} per hour from you.`}>
         <div className="neighbor-limit__row">
-          <input id={limitField} type="number" min={1} max={200} step={1} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limit}
+          <input id={limitField} type="number" min={1} max={200} step={1} className={`${UI_INPUT.compact} neighbor-limit__input`} value={limit} disabled={saving}
             onChange={event => setLimit(event.currentTarget.valueAsNumber)} />
-          <Button size="sm" type="submit" aria-label="Save limit" disabled={pending || !validNeighborLimit(limit)}>Save</Button>
         </div>
       </FormRow>
-    </form>
+    </div>
     </SettingsSection>
+    {problem && changed && <p role="alert" className="neighbor-note">{problem}</p>}
+    {error && <InlineErrorNotice error={error} operation="saving Neighbor permissions" role="alert" />}
+    <div className="neighbor-apply">
+      {changed && <p className="neighbor-note neighbor-apply__note">Applying restarts {name}'s concierge.</p>}
+      <div className="neighbor-apply__actions">
+        <Button size="sm" variant="accent" onClick={onEditWithGeneral}>Edit with General</Button>
+        <span className="ml-auto" />
+        <Button size="sm" disabled={!staged || saving} onClick={cancel}>Cancel</Button>
+        <Button size="sm" variant="primary" loading={saving} disabled={!staged || blocked || pending} onClick={apply}>Apply</Button>
+      </div>
+    </div>
     {folderPicker}
   </div>;
+}
+
+/** A stored byte limit as the MiB the field shows, empty for the default. */
+function mibText(bytes: number | null): string {
+  return bytes === null ? "" : String(Math.round((bytes / MIB) * 10) / 10);
 }
 
 const MIB = 1024 * 1024;
 /** The service default and its ceiling are the same 50 MiB a day. */
 const FILE_LIMIT_MIB = 50;
-
-/** Files a day you accept from a friend, in MiB: empty keeps the 50 MiB default, 0 blocks files. */
-function FileDailyLimit({ neighbor, name, onSave }: { neighbor: Neighbor; name: string; onSave?: (bytes: number | null) => Promise<void> }) {
-  const current = neighbor.my_file_daily_limit_bytes ?? null;
-  const [value, setValue] = useState(current === null ? "" : String(Math.round((current / MIB) * 10) / 10));
-  const [error, setError] = useState<string | null>(null);
-  const field = useId();
-  const mib = value.trim() === "" ? null : Number(value);
-  const valid = mib === null || (Number.isFinite(mib) && mib >= 0 && mib <= FILE_LIMIT_MIB);
-  const bytes = mib === null ? null : Math.round(mib * MIB);
-  const hint = current === 0 ? `Files from ${name} are blocked.` : `Empty for ${FILE_LIMIT_MIB} MiB; 0 blocks files.`;
-  return <form className="neighbor-limit" onSubmit={event => {
-    event.preventDefault();
-    if (!valid || !onSave) return;
-    setError(null);
-    void onSave(bytes).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file limit could not be saved."));
-  }}>
-    <FormRow className="neighbor-field" label="Files per day from this friend" htmlFor={field} hint={valid ? hint : `Use a number of MiB from 0 to ${FILE_LIMIT_MIB}, or leave it empty.`}>
-      <div className="neighbor-limit__row">
-        <input id={field} type="number" min={0} max={FILE_LIMIT_MIB} step={0.5} inputMode="decimal" placeholder={`${FILE_LIMIT_MIB} MiB`}
-          className={`${UI_INPUT.compact} neighbor-limit__input`} value={value} aria-invalid={!valid} disabled={!onSave}
-          onChange={event => setValue(event.currentTarget.value)} />
-        <span className="neighbor-note">MiB</span>
-        {onSave && <Button size="sm" type="submit" aria-label="Save file limit" disabled={!valid || bytes === current}>Save</Button>}
-      </div>
-    </FormRow>
-    {error && <InlineErrorNotice error={error} operation="saving the file limit" role="alert" />}
-  </form>;
-}
 
 /** Narrow what their agents may ask about to a few memory areas; nothing chosen shares every non-secret area. */
 function MemoryAreas({ areas, chosen, disabled, onChange }: { areas: string[] | null; chosen: string[]; disabled: boolean; onChange: (chosen: string[]) => void }) {
