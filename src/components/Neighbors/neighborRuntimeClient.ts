@@ -4,7 +4,7 @@ import { localFetch } from "../../lib/webApi";
 export type NeighborDeliveryStatus = "pending" | "delivered" | "not_delivered";
 export type NeighborListenerState = "connecting" | "receiving" | "reconnecting" | "stopped";
 export interface ReceiverState { receiving_here: boolean; receiver_machine_label: string | null; receiving_enabled: boolean; revision: number; source?: "account" | "friend" }
-export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | (ReceiverState & { friendship_id?: string }) | { receiver_unavailable: true; friendship_id?: string };
+export type NeighborListenerEvent = { friendship_id: string; status: NeighborListenerState } | (ReceiverState & { friendship_id?: string; friend_receivers_version?: number }) | { receiver_unavailable: true; friendship_id?: string; friend_receivers_version?: number };
 export type DeliveryRefusal = "receiver_moved" | "key_revoked" | "neighbor_daily_limit" | "rate_limited" | "aggregate_limited" | "aggregate_daily_limited" | "friends_locked" | "recipient_locked" | "recipient_not_receiving" | "recipient_paused";
 const DELIVERY_REFUSALS: readonly string[] = ["receiver_moved", "key_revoked", "neighbor_daily_limit", "rate_limited", "aggregate_limited", "aggregate_daily_limited", "friends_locked", "recipient_locked", "recipient_not_receiving", "recipient_paused"];
 export interface DeliveryResult {
@@ -18,6 +18,7 @@ export interface DeliveryResult {
 export interface ChannelStatus extends ReceiverState {
   machine_label?: string;
   friend_receivers?: Record<string, ReceiverState>;
+  friend_receivers_version?: number;
   listeners?: Record<string, NeighborListenerState>;
   enrolled: boolean;
   bindings: Record<string, string>;
@@ -139,7 +140,8 @@ export const neighborRuntimeClient: NeighborRuntimeClient = {
     const value = await runtimeCall({ operation: "status" }, signal);
     if (!record(value) || !receiverState(value) || typeof value.enrolled !== "boolean" || !record(value.bindings)
       || !Object.values(value.bindings).every(id => typeof id === "string")) throw new Error("Invalid Neighbor channel status");
-    if (value.friend_receivers !== undefined && (!record(value.friend_receivers) || !Object.values(value.friend_receivers).every(receiverState))) throw new Error("Invalid Neighbor friend receiver status");
+    if (value.friend_receivers !== undefined && (!record(value.friend_receivers) || !Object.values(value.friend_receivers).every(receiverState)
+      || typeof value.friend_receivers_version !== "number" || !Number.isSafeInteger(value.friend_receivers_version) || value.friend_receivers_version < 0)) throw new Error("Invalid Neighbor friend receiver status");
     return value as unknown as ChannelStatus;
   },
   enroll: async revision => { await runtimeCall({ operation: "enroll", takeover_confirmed: true, expected_receiver_revision: revision }); },

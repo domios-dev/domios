@@ -13,6 +13,8 @@ fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
             root_tab_id: None,
         });
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.set_neighbor_friend_receiver_for_test(&"a".repeat(64),Some(true),1);
+    fixture.service.set_neighbor_friend_receiver_for_test(&"b".repeat(64),Some(true),1);
     *fixture.service.neighbor_cell().receiver.lock() =
         Some(codeterm_neighbors::adapter::ReceiverStatus {
             receiver_revision: 1,

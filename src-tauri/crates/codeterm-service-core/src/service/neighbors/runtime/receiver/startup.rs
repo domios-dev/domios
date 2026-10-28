@@ -1,0 +1,140 @@
+use super::*;
+use friends::FriendReceiver;
+use std::collections::BTreeMap;
+
+impl ServiceContext {
+    pub(in crate::service::neighbors) async fn start_neighbor_listeners(
+        &self, transport: Arc<FirebaseTransport>, registry: Arc<FirebaseRegistry>,
+        scope: KeyScope, metadata: Metadata, generation: u64,
+    ) -> Result<(), String> {
+        self.start_neighbor_listeners_mode(transport,registry,scope,metadata,generation,true).await
+    }
+
+    pub(in crate::service::neighbors) async fn reconcile_neighbor_friend_receiver_rows(
+        &self, metadata: &Metadata, registry: &FirebaseRegistry, account: &ReceiverStatus,
+        list: &Value, local_key: Option<&str>, generation: u64,
+    ) -> Result<(), String> {
+        let mut receivers = BTreeMap::new();
+        for friend in list["friends"].as_array().ok_or("Invalid Neighbors response")? {
+            let id = friend["friendship_id"].as_str().filter(|id| hex_id(id,64)).ok_or("Invalid Neighbor friendship")?;
+            let receiver = match friend.get("my_receiver") {
+                Some(value) => FriendReceiver::from_projection(serde_json::from_value(value.clone()).map_err(|_| Error::InvalidEnvelope.to_string())?,&registry.installation_id)?,
+                None => FriendReceiver::from_account(account),
+            };
+            receivers.insert(id.to_owned(),receiver);
+        }
+        if receivers.values().any(|receiver| receiver.status.receiving_here()
+            && (local_key.is_none() || receiver.status.receiver_key_id.as_deref() != local_key)) {
+            return Err(Error::LocalKeyUnavailable.to_string());
+        }
+        let changes = self.remember_neighbor_friend_receivers(receivers,generation)?;
+        self.publish_neighbor_friend_receiver_changes(metadata,&registry.uid,changes,generation).await
+    }
+
+    pub(in crate::service::neighbors::runtime) async fn publish_neighbor_friend_receiver_changes(
+        &self, metadata: &Metadata, uid: &str, changes: Vec<friends::Change>, generation: u64,
+    ) -> Result<(), String> {
+        for change in changes {
+            self.require_neighbor_generation(generation)?;
+            self.stop_neighbor_concierge_listener(&change.friendship_id);
+            let status = change.current.as_ref().map(|receiver| &receiver.status);
+            let here = status.is_some_and(ReceiverStatus::receiving_here);
+            let revision = status.map(|status| status.receiver_revision)
+                .or_else(|| change.previous.as_ref().map(|receiver| receiver.status.receiver_revision)).unwrap_or(0);
+            let mut view = status.map(Self::receiver_view).unwrap_or_else(|| json!({"receiver_unavailable":true}));
+            view["friendship_id"] = json!(change.friendship_id);
+            if let Some(receiver) = &change.current { view["source"] = json!(receiver.source); }
+            view["friend_receivers_version"] = json!(self.neighbor_friend_receiver_version());
+            self.ui.emit("neighbor-runtime-status",view);
+            if !here && status.is_some() {
+                self.reconcile_neighbor_concierge_receiver(metadata,uid,&change.friendship_id,false,revision,generation).await?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(in crate::service::neighbors) async fn start_neighbor_listeners_mode(
+        &self, transport: Arc<FirebaseTransport>, registry: Arc<FirebaseRegistry>,
+        scope: KeyScope, metadata: Metadata, generation: u64, recover_keys: bool,
+    ) -> Result<(), String> {
+        let result = self.start_neighbor_friend_listeners(transport,registry,scope,metadata,generation,recover_keys).await;
+        if result.is_err() && self.require_neighbor_generation(generation).is_ok() {
+            self.forget_neighbor_friend_receivers();
+            self.stop_neighbor_listeners();
+            self.ui.emit("neighbor-runtime-status",json!({"receiver_unavailable":true,"friend_receivers_version":self.neighbor_friend_receiver_version()}));
+        }
+        result
+    }
+
+    async fn start_neighbor_friend_listeners(
+        &self, transport: Arc<FirebaseTransport>, registry: Arc<FirebaseRegistry>,
+        scope: KeyScope, metadata: Metadata, generation: u64, recover_keys: bool,
+    ) -> Result<(), String> {
+        self.require_neighbors_enabled().map_err(|error| error.to_string())?;
+        self.require_neighbor_generation(generation)?;
+        self.drain_neighbor_stop_local(generation).await?;
+        self.watch_neighbor_receiver(transport.clone(),generation).await?;
+        let mut account = if recover_keys {
+            self.refresh_neighbor_receiver(&registry,&scope,generation).await?
+        } else { self.refresh_neighbor_receiver_readonly(&registry,generation).await? };
+        let lifecycle = InstallationKeys { store:&OsKeyStore,registry:registry.as_ref(),scope:scope.clone(),uid:&transport.uid };
+        let local = if recover_keys { lifecycle.reconcile().await } else { lifecycle.load().await }.map_err(|error| error.to_string())?;
+        if let Some(keys) = local.as_ref().filter(|_| account.receiving_here()) {
+            if self.advertise_neighbor_files(&registry,&account,keys,generation).await.map_err(|error| error.to_string())? {
+                account = self.refresh_neighbor_receiver_readonly(&registry,generation).await?;
+                self.forget_neighbor_registry();
+            }
+        }
+        let cached = self.neighbor_cell().registry_snapshot.lock().clone();
+        let list = match cached { Some(list) => list,None => self.neighbor_registry(super::super::super::NeighborCommand::List {}).await? };
+        self.require_neighbor_generation(generation)?;
+        self.remember_neighbor_names(&list);
+        let local_id = local.as_ref().map(|keys| keys.verifier_key_id(&transport.uid));
+        drop(local);
+        self.reconcile_neighbor_friend_receiver_rows(&metadata,&registry,&account,&list,local_id.as_deref(),generation).await?;
+        if list["access"] != "paid" { self.stop_neighbor_listeners(); return Ok(()); }
+        let mut settings = metadata.settings().await.map_err(|error| error.to_string())?;
+        self.remember_neighbor_concierge_accounts(&transport.uid,&settings);
+        self.remember_neighbor_pause_settings(&transport.uid,&settings);
+        self.persist_neighbor_pauses(&metadata,generation).await.map_err(|error| error.to_string())?;
+        for friend in list["friends"].as_array().ok_or("Invalid Neighbors response")? {
+            let id = friend["friendship_id"].as_str().ok_or("Invalid Neighbor friendship")?;
+            let Some(receiver) = self.neighbor_friend_receiver(id).filter(ReceiverStatus::receiving_here) else { continue };
+            if local_id.as_deref() != receiver.receiver_key_id.as_deref() || local_id.is_none() {
+                self.forget_neighbor_friend_receivers();
+                self.stop_neighbor_listeners();
+                return Err(Error::LocalKeyUnavailable.to_string());
+            }
+            self.reconcile_neighbor_concierge_receiver(&metadata,&registry.uid,id,true,receiver.receiver_revision,generation).await?;
+            self.require_neighbor_generation(generation)?;
+        }
+        settings = metadata.settings().await.map_err(|error| error.to_string())?;
+        for id in settings.bindings.keys() { self.settle_neighbor_pause(&metadata,id).await.map_err(|error| error.to_string())?; }
+        if !settings.enabled && self.neighbor_friend_receiver_views().as_object().is_some_and(|views| views.values().any(|view| view["receiving_here"] == true)) {
+            settings.enabled = true;
+            metadata.save_settings(settings.clone()).await.map_err(|error| error.to_string())?;
+        }
+        let listener_generation = self.neighbor_cell().listener_generation.load(Ordering::Acquire);
+        for friend in list["friends"].as_array().ok_or("Invalid Neighbors response")? {
+            let id = friend["friendship_id"].as_str().ok_or("Invalid Neighbor friendship")?;
+            let Some(receiver) = self.neighbor_friend_receiver(id).filter(ReceiverStatus::receiving_here) else { continue };
+            let tab = settings.bindings.get(id).filter(|tab| self.validate_neighbor_gateway(tab).is_ok()).cloned();
+            let mut listeners = self.neighbor_cell().listeners.lock();
+            if listeners.active.get(id).is_some_and(|handle| !handle.task.is_finished() && handle.gateway_tab == tab) { continue; }
+            if let Some(previous) = listeners.active.remove(id) {
+                let _ = previous.shutdown.send(true);
+                listeners.retired.insert(id.to_owned(),previous.task);
+            }
+            let retry = Arc::new(tokio::sync::Notify::new());
+            let (shutdown,stopped) = tokio::sync::watch::channel(false);
+            let previous = listeners.retired.remove(id);
+            let task = tokio::spawn(listener::run(listener::Session {
+                service:self.clone(),transport:transport.clone(),scope:scope.clone(),registry:registry.clone(),metadata:metadata.clone(),
+                friendship:id.to_owned(),tab:tab.clone(),generation:listener_generation,receiver_revision:receiver.receiver_revision,
+                retry:retry.clone(),stopped,
+            },previous));
+            listeners.active.insert(id.to_owned(),listener::Handle { gateway_tab:tab,task,retry,shutdown });
+        }
+        Ok(())
+    }
+}

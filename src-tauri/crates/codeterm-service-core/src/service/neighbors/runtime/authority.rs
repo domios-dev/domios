@@ -29,6 +29,7 @@ impl ServiceContext {
         if matches!(
             command,
             NeighborRuntimeCommand::Enroll { .. }
+                | NeighborRuntimeCommand::SetFriendReceiver { .. }
                 | NeighborRuntimeCommand::Rotate
                 | NeighborRuntimeCommand::Revoke
         ) {

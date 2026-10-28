@@ -36,6 +36,9 @@ impl ServiceContext {
             );
         }
         self.neighbors_config_changed();
+        if !enabled {
+            self.wait_neighbor_stop_local(self.neighbor_history_generation()).await?;
+        }
         Ok(enabled)
     }
 
@@ -52,6 +55,7 @@ impl ServiceContext {
         } else {
             self.pause_neighbor_reception();
             self.stop_neighbor_updates();
+            self.queue_neighbor_stop_local();
         }
         self.ui
             .emit("neighbors-state-changed", json!({"enabled":enabled}));

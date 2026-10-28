@@ -16,7 +16,7 @@ export function useReceiverState(client: NeighborRuntimeClient, active: boolean,
 }
 
 export function receivingLine(state: ReceiverState): string {
-  if (state.receiving_here) return "Receiving here";
+  if (state.receiving_here) return `Receiving on ${state.receiver_machine_label ?? "this machine"}`;
   if (state.receiving_enabled) return `Receiving on ${state.receiver_machine_label ?? "another machine"}`;
   return state.revision === 0 ? "Receiver not chosen yet" : "Not receiving";
 }

@@ -27,6 +27,8 @@ import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
 import { LiquidToggle } from "../shared/LiquidToggle";
 import { receivingLine, useReceiverState } from "./useReceiverState";
+import { useNeighborStatus } from "./neighborStatusStore";
+import { NeighborReceiveHere } from "./NeighborReceiveHere";
 
 function conciergeState(status: ConciergeStatus | null, bound: boolean): { label: string; tone: "green" | "amber" | "muted" | "accent" } {
   if (status?.state === "concierge_missing" || (!status && !bound)) return { label: "missing", tone: "amber" };
@@ -52,7 +54,8 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
   const { permission } = useNeighborPermission(runtimeClient, conciergeClient, friendship);
-  const receiver = useReceiverState(runtimeClient, enabled);
+  const receiver = useReceiverState(runtimeClient, enabled, friendship);
+  const runtimeStatus = useNeighborStatus(runtimeClient, enabled);
   const concierge = useConciergeStatus(runtimeClient, enabled)[friendship] ?? null;
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
@@ -159,6 +162,13 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
         <div ref={conciergeCard}>
         <FriendSection icon={<Bot size={16} />} title="Concierge" description={`The agent that answers ${name} within the permissions below.`}
           headerRight={<SettingsPill tone={state.tone}>{state.label}</SettingsPill>}>
+          {concierge?.concierge_dormant && <p className="neighbor-note">Starts fresh when you receive this friend's messages here.</p>}
+          {enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere key={`${friendship}:set`}
+            receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
+            onReceive={revision => runtimeClient.receiveFriend(friendship, revision)} />}
+          {enabled && !locked && receiver?.source === "friend" && <NeighborReceiveHere key={`${friendship}:reset`}
+            receiver={receiver} friendName={name} operation="reset" targetMachine={runtimeStatus?.machine_label}
+            onReceive={revision => runtimeClient.receiveFriend(friendship, revision, "reset")} />}
           <div className="neighbor-friend__row">
             <span className="min-w-0">
               <span className="neighbor-friend__label">{gateway ? `${provider?.display_name ?? gateway.agent_type ?? "Agent"}${model ? `, ${model}` : ""}` : "No concierge on this machine"}</span>

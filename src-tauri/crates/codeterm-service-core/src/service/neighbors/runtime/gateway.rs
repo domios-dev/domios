@@ -289,8 +289,11 @@ impl codeterm_neighbors::gateway::RequestPorts for Request<'_> {
 
 impl Gateway {
     fn current(&self) -> Result<()> {
+        if *self.stopped.borrow() {
+            return Err(Error::Revoked);
+        }
         self.service.require_neighbors_enabled()?;
-        self.service.require_neighbor_receiver(None)?;
+        self.service.require_neighbor_friend_receiver(&self.friendship, None)?;
         if self
             .service
             .mux

@@ -77,17 +77,14 @@ impl ServiceContext {
             return Err(Error::Revoked);
         }
         let peers = transport.peer_keys(&friendship).await?;
-        let peer = peers
-            .keys
-            .iter()
-            .max_by_key(|key| key.created_at)
-            .ok_or(Error::InvalidKey)?;
+        peers.require_sender_receiver(&transport.installation_id)?;
+        let peer = peers.receiver_key()?;
         let mut envelope = Envelope {
             schema: SCHEMA.into(),
             friendship_id: friendship.clone(),
             message_id: uuid::Uuid::new_v4().simple().to_string(),
             sender_uid: transport.uid.clone(),
-            recipient_uid: peers.peer_uid,
+            recipient_uid: peers.peer_uid.clone(),
             kind,
             in_reply_to: in_reply_to.clone(),
             ciphertext: String::new(),

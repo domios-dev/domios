@@ -15,8 +15,9 @@ function takeoverWarning(receiver: ReceiverState, targetMachine: string, friendN
     return `${source} Receive ${friendName}'s messages on ${targetMachine}. Their concierge starts fresh using this machine's permissions.`;
   }
   const perMachine = "Concierges and permissions are per machine: friends without a concierge on this machine will wait until you set their permissions here.";
-  if (!receiver.receiving_enabled) return `Receive all ${friendCount} friends on ${targetMachine}. ${perMachine}`;
-  return `${receiver.receiver_machine_label ?? "The other machine"} will stop receiving Neighbor messages. Receive all ${friendCount} friends on ${targetMachine}. ${perMachine}`;
+  const count = `${friendCount} ${friendCount === 1 ? "friend" : "friends"}`;
+  if (!receiver.receiving_enabled) return `Receive messages from ${count} on ${targetMachine}. This changes receiving for all friends. ${perMachine}`;
+  return `${receiver.receiver_machine_label ?? "The other machine"} will stop receiving Neighbor messages. Receive messages from ${count} on ${targetMachine}. This changes receiving for all friends. ${perMachine}`;
 }
 
 export function NeighborReceiveHere({ receiver, onReceive, friendName, targetMachine = "This machine", friendCount = 0, operation = "set", initiallyOpen = false, onClose }: {

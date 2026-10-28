@@ -33,6 +33,7 @@ fn message(kind: Kind, reply: Option<String>, id: usize) -> InboxMessage {
 }
 
 fn gateway(fixture: &ServiceFixture) -> Gateway {
+    fixture.service.set_neighbor_friend_receiver_for_test(&"a".repeat(64),Some(true),1);
     *fixture.service.neighbor_cell().receiver.lock() =
         Some(codeterm_neighbors::adapter::ReceiverStatus {
             receiver_revision: 1,

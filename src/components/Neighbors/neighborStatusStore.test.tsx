@@ -91,3 +91,22 @@ it("a friend reset may lower its revision without changing other friends or the 
   await act(async () => emit({ receiver_unavailable: true, friendship_id: "first" }));
   expect(seen).toEqual([null, true, true]);
 });
+
+it.each([
+  ["friend", 10],
+  ["account", 2],
+] as const)("keeps a confirmed %s friend event when its reread returns the prior snapshot", async (source, revision) => {
+  const stale = deferred<ChannelStatus>();
+  const initial: ChannelStatus = { ...status(true, 3), friend_receivers_version: 1,
+    friend_receivers: { first: { ...status(false, 9), source: "friend" } } };
+  const { runtime, emit } = client(Promise.resolve(initial), stale.promise);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: ReturnType<typeof useReceiverState> = null;
+  const Probe = () => { seen = useReceiverState(runtime, true, "first"); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  await act(async () => emit({ ...status(true, revision), friendship_id: "first", source, friend_receivers_version: 2 }));
+  await act(async () => stale.resolve(initial));
+  expect(seen).toMatchObject({ receiving_here: true, revision, source });
+});

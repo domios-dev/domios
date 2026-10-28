@@ -857,3 +857,14 @@ async fn nonreceiver_concierge_mutation_is_a_typed_conflict() {
     assert_eq!(body["code"], "receiving_elsewhere");
     assert_eq!(body["reason"], "receiving_elsewhere");
 }
+
+#[tokio::test]
+async fn friend_receiver_machine_limit_preserves_typed_counts() {
+    let response = neighbor_failure("key_limit: {\"limit\":5,\"active\":5}".into());
+    assert_eq!(response.status(),StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(),1024*1024).await.unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"],"key_limit");
+    assert_eq!(body["limit"],5);
+    assert_eq!(body["active"],5);
+}
