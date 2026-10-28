@@ -127,7 +127,13 @@ prompts or planning modes alone do not establish filesystem confinement.
 Core persists the resolved intent, cwd, arguments, mode and host-owned roots,
 revalidates them on relaunch and rejects runtime overrides. Scoped launches
 reject custom arguments; use typed model and effort controls. Read-only adds
-no writable roots. Mutating roots include the lane, its pad and required Git
+no writable roots for ordinary agents. A provider may declare
+`spawn.executionSandbox.runtimeReadOnlyWritableRootsMode` for a runtime mode
+that enforces only explicit host writable roots while keeping cwd read-only.
+Neighbor concierges use it for their own AgentPad only; the provider must replace
+implicit workspace roots and confirm the exact result before accepting work.
+Neighbor folder launches add only their own pad beside the selected folder.
+Mutating Worker roots include the lane, its pad and required Git
 metadata. Confined mutating launches also persist canonical Cargo home, lane-check
 cache, sccache and pnpm store roots, with lane-local temp exported as TMPDIR/TEMP/TMP.
 The lane cache uses `$CODETERM_RUST_CACHE_ROOT/lanes`, falling back to

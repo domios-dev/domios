@@ -20,7 +20,7 @@ import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWritableRootsConfirmed } from "./runtimeSettings";
 import { modelServiceTiers, serviceTierSelection, tierAvailable } from "./runtimeServiceTiers";
 export { runtimeReduce } from "./runtimeReduce";
 
@@ -35,6 +35,7 @@ function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instruct
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
   return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:codexThreadConfig(settings,ctx.hostOwned),
+    ...(policies.runtimeWorkspaceRoots ? {runtimeWorkspaceRoots:policies.runtimeWorkspaceRoots} : {}),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
     ...(instructions !== undefined ? {developerInstructions:instructions} : {})};
@@ -163,6 +164,12 @@ function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
       if (settings.serviceTier !== undefined && !serviceTierSelection(settings.serviceTier)) fail("invalid_schema","Invalid service tier");
       const parsed = settings as RuntimeSettings;
       if (parsed.serviceTier && !tierAvailable({...parsed,serviceTierAvailability:ctx.settings.serviceTierAvailability},parsed.serviceTier)) fail("provider_refused","Service tier is not available for this account and model");
+      if (ctx.settings.mode === "read-only-with-writable-roots") {
+        if (parsed.mode !== ctx.settings.mode || JSON.stringify(parsed.additionalDirectories) !== JSON.stringify(ctx.settings.additionalDirectories)
+          || parsed.networkAccess !== ctx.settings.networkAccess) fail("provider_refused","Read-only writable roots require a new launch to change");
+        return request("thread/settings/update",{threadId:thread,...codexServiceTier(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
+      }
+      if (parsed.mode === "read-only-with-writable-roots") fail("provider_refused","Read-only writable roots require a new launch");
       return request("thread/settings/update",{threadId:thread,...codexRuntimePolicy(parsed),...codexServiceTier(parsed),model:parsed.model,effort:parsed.effort},{stage:"thread/settings/update",settings:parsed});
     }
   }
@@ -239,11 +246,13 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
+      if (!codexWritableRootsConfirmed(op.settings,value)) return refused("Provider did not confirm the exact read-only writable roots");
       return {kind:"complete",result:{kind:"threadLoaded",threadId,settings:codexEffectiveSettings(op.settings,value)}};
     }
     case "resumeThread": {
       if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
       if (!userThread(value,op.threadId)) return refused("Resumed thread identity unverified");
+      if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings,value)) return refused("Provider did not confirm the exact read-only writable roots");
       if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify",settings:codexEffectiveSettings(op.settings,value)}));
       const idle = threadStatus(object(value.thread).status)?.state === "idle";
       return {kind:"complete",result:{kind:"threadLoaded",threadId:op.threadId,settings:state.settings as RuntimeSettings},

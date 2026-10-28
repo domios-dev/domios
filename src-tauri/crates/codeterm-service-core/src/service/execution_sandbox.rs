@@ -5,6 +5,7 @@ use crate::{
 use codeterm_types::plan::{ExecutionIntent, ExecutionSandboxPolicy};
 mod build_roots;
 mod ceiling;
+mod neighbor;
 
 /// Every caller identity a delegated spawn names, plus the request's caller header, bounds its sandbox.
 pub fn enforce_delegation_ceiling(
@@ -212,7 +213,9 @@ pub(crate) fn for_launch(
         params.args.as_deref().unwrap_or_default(),
         runtime,
     )?;
+    let neighbor = neighbor::apply_roots(svc, tab, provider, runtime, &mut policy)?;
     if let (Some(saved), Some(resolved)) = (saved.as_ref(), policy.as_mut()) {
+        let allowed_roots = neighbor.then(|| resolved.writable_roots.clone());
         *resolved = restore_recorded(saved, resolved, |root| {
             build_roots::restore_recorded_root(root, &saved.cwd);
             std::path::Path::new(root)
@@ -222,10 +225,15 @@ pub(crate) fn for_launch(
                 .as_deref()
                 == Some(root)
         })?;
+        if let Some(allowed) = allowed_roots {
+            resolved
+                .writable_roots
+                .retain(|root| allowed.contains(root));
+        }
     }
     if let Some(policy) = policy
         .as_mut()
-        .filter(|policy| saved.is_none() && policy.intent == ExecutionIntent::Mutating)
+        .filter(|policy| !neighbor && saved.is_none() && policy.intent == ExecutionIntent::Mutating)
     {
         svc.ensure_agent_pad(tab)?;
         let project = crate::service::launch_session_detection::canonical_project_for_launch(

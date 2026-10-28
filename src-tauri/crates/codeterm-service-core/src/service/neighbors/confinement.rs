@@ -67,7 +67,7 @@ impl ServiceContext {
         permission: &Permission,
         cwd: &str,
     ) -> std::result::Result<(), String> {
-        let (provider, actual_cwd, intent) = {
+        let (provider, actual_cwd, policy) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("Neighbor concierge is missing")?;
             (
@@ -75,10 +75,7 @@ impl ServiceContext {
                     .clone()
                     .ok_or("Neighbor concierge has no provider")?,
                 tab.cwd.clone(),
-                tab.restorable_launch
-                    .execution_sandbox
-                    .as_ref()
-                    .map(|policy| policy.intent.clone()),
+                tab.restorable_launch.execution_sandbox.clone(),
             )
         };
         let sandbox = self.neighbor_concierge_sandbox(&provider, permission.machine_access)?;
@@ -87,8 +84,40 @@ impl ServiceContext {
             Some(_) => MachineAccess::Folder,
             None => MachineAccess::Full,
         };
+        let intent = policy.as_ref().map(|policy| policy.intent.clone());
         if !bound_launch_matches(actual_cwd.as_deref(), intent, effective_access, cwd) {
             return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
+        let mode = if effective_access == MachineAccess::ReadOnly
+            && crate::service::agent_runtime::engine::requested(self, &provider)
+        {
+            self.agent_registry
+                .with_provider(&provider, |provider| {
+                    provider
+                        .execution_sandbox_capability()
+                        .and_then(|capability| capability.runtime_read_only_writable_roots_mode)
+                })
+                .flatten()
+        } else {
+            None
+        };
+        if mode.is_some() || effective_access == MachineAccess::Folder {
+            let pad = self
+                .ensure_agent_pad(tab_id)?
+                .path()
+                .canonicalize()
+                .map_err(|error| error.to_string())?;
+            let root = pad
+                .to_str()
+                .map(codeterm_paths::strip_verbatim_prefix)
+                .ok_or("Neighbor AgentPad must be Unicode")?;
+            if !policy.as_ref().is_some_and(|policy| {
+                mode.as_ref()
+                    .is_none_or(|mode| policy.runtime_mode.as_deref() == Some(mode.as_str()))
+                    && policy.writable_roots == [root]
+            }) {
+                return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+            }
         }
         Ok(())
     }
@@ -143,9 +172,11 @@ impl ServiceContext {
             Some(policy) => {
                 let roots = if policy.writable_roots.is_empty() { String::new() }
                     else { format!(" Additional host writable roots: {}.", policy.writable_roots.join(", ")) };
-                let writes = if policy.intent == ExecutionIntent::ReadOnly { "Filesystem writes are disabled by the provider sandbox." }
+                let pad_only = policy.intent == ExecutionIntent::ReadOnly && !policy.writable_roots.is_empty();
+                let writes = if pad_only { "Only this concierge's own AgentPad is writable; the friend folder and other files are read-only." }
+                    else if policy.intent == ExecutionIntent::ReadOnly { "Filesystem writes are disabled by the provider sandbox." }
                     else { "Writes are limited to the folder by the provider sandbox." };
-                ("provider_sandbox", format!("{writes}{roots} Reads are not confined on {}.", std::env::consts::OS))
+                (if pad_only { "pad_only" } else { "provider_sandbox" }, format!("{writes}{roots} Reads are not confined on {}.", std::env::consts::OS))
             }
             None => (if permission.machine_access == MachineAccess::Full { "unrestricted" } else { "advisory" }, format!("This provider has no active OS filesystem sandbox on {}. The working folder is advisory; reads and writes are not confined.", std::env::consts::OS)),
         };
