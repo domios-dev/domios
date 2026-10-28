@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Window } from "happy-dom";
 import { BrandState } from "./BrandState";
 import { ServerConnectionLayerView } from "./ServerConnectionLayer";
-import { brandStateModel } from "./brandStateModel";
+import { brandConnectionModel, brandStateModel, RECONNECT_GRACE_MS } from "./brandStateModel";
 
 const window = new Window();
 
@@ -56,9 +56,9 @@ test("reduced motion keeps the mark and faint matrix static without waves", () =
   }
 });
 
-test("disconnect status blocks stale content without trapping focus", () => {
+test("first-connect status blocks content without trapping focus", () => {
   const host = parsed(renderToStaticMarkup(
-    <ServerConnectionLayerView model={{ kind: "reconnecting" }} contentClassName="content">
+    <ServerConnectionLayerView model={brandConnectionModel({ kind: "disconnected", disconnectedAt: 0 }, RECONNECT_GRACE_MS, false)} contentClassName="content">
       <button type="button">Stale action</button>
     </ServerConnectionLayerView>,
   ));
@@ -78,7 +78,7 @@ test("disconnect status blocks stale content without trapping focus", () => {
 
 test("a drop after load leaves the app usable and says updates are paused", () => {
   const host = parsed(renderToStaticMarkup(
-    <ServerConnectionLayerView model={{ kind: "paused" }} contentClassName="content">
+    <ServerConnectionLayerView model={brandConnectionModel({ kind: "disconnected", disconnectedAt: 0 }, RECONNECT_GRACE_MS, true)} contentClassName="content">
       <button type="button">Loaded action</button>
     </ServerConnectionLayerView>,
   ));

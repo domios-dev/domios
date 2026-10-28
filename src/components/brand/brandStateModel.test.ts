@@ -20,10 +20,10 @@ import {
 } from "./dotMatrixModel";
 import type { DotMatrixWave } from "./dotMatrixModel";
 
-test("disconnect remains hidden until the exact grace deadline", () => {
+test("first connect remains hidden until the exact grace deadline, then blocks", () => {
   const disconnected = transitionBrandConnection({ kind: "connected" }, "disconnect", 500);
-  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS - 1), { kind: "hidden" });
-  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS), { kind: "reconnecting" });
+  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS - 1, false), { kind: "hidden" });
+  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS, false), { kind: "reconnecting" });
   assert.equal(transitionBrandConnection(disconnected, "grace-expired", 500 + RECONNECT_GRACE_MS).kind, "disconnected");
 });
 
