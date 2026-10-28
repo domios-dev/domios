@@ -117,7 +117,7 @@ impl ServiceContext {
                         return Err(Error::InvalidRequest);
                     }
                     codeterm_neighbors::wire::validate_message_size(&body)?;
-                    let lifecycle = InstallationKeys { store: &OsKeyStore, registry: registry.as_ref(), scope, uid: &transport.uid };
+                    let lifecycle = InstallationKeys { store: &self.neighbor_key_store()?, registry: registry.as_ref(), scope, uid: &transport.uid };
                     let author = self.neighbor_author(None)?;
                     let mut receipt = self.send_neighbor(transport.as_ref(), &lifecycle, &metadata, Outgoing {
                         friendship: friendship.clone(), kind, body: OutboundBody::Files { text: Zeroizing::new(body), paths }, in_reply_to, author,

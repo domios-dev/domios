@@ -9,6 +9,7 @@ use std::{sync::Arc, time::Duration};
 pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
 mod credentials;
+mod login_paste;
 pub(crate) mod logout;
 pub(crate) use credentials::AccountCredentialCell;
 pub use credentials::AccountCredentials;
@@ -227,10 +228,18 @@ impl super::ServiceContext {
         &self,
         hint: codeterm_account::LoginHint,
     ) -> Result<codeterm_account::Status, String> {
+        self.finish_account_login_with_browser(hint, Arc::new(SystemBrowser))
+            .await
+    }
+    async fn finish_account_login_with_browser(
+        &self,
+        hint: codeterm_account::LoginHint,
+        browser: Arc<dyn Browser>,
+    ) -> Result<codeterm_account::Status, String> {
         let status = self
             .account()
             .await?
-            .login_with_hint(Arc::new(SystemBrowser), hint)
+            .login_with_hint(browser, hint)
             .await
             .map_err(|e| e.to_string());
         self.ui.emit("account-changed", serde_json::Value::Null);

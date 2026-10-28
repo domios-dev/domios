@@ -519,6 +519,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         // Local-only subcommands (PTY/subprocess/folders/keychain) never relay.
         // Return explicit errors; `Secret` is rejected upstream.
         MemAction::RunWorker { .. }
+        | MemAction::Backup { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
         | MemAction::Secret { .. }

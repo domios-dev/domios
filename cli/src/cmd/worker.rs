@@ -106,7 +106,7 @@ fn validate_worker_sqlite_path(path: &std::path::Path) -> Result<(), WorkerPathE
     }
 }
 
-fn register_sqlite_vec_extension() {
+pub(crate) fn register_sqlite_vec_extension() {
     use std::sync::Once;
     static REGISTER: Once = Once::new();
     REGISTER.call_once(|| unsafe {

@@ -137,7 +137,7 @@ impl ServiceContext {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
                 self.require_neighbor_generation(generation)?;
                 let lifecycle = InstallationKeys {
-                    store: &OsKeyStore,
+                    store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
                     registry: registry.as_ref(),
                     scope,
                     uid: &transport.uid,

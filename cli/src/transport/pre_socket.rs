@@ -36,6 +36,12 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
         }
 
         Commands::Mem {
+            action: MemAction::Backup { action },
+        } => {
+            cmd::mem::backup::handle(json, action);
+            None
+        }
+        Commands::Mem {
             action:
                 MemAction::Embedder {
                     action: crate::MemEmbedderAction::Key { action },

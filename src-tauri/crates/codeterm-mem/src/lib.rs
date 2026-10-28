@@ -3,6 +3,7 @@
 pub mod activity;
 pub mod auto_extract;
 pub mod backend;
+pub mod backup;
 pub mod blueprint_library;
 pub mod blueprint_wl;
 mod chunking;
