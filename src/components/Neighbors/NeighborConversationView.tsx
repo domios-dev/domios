@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, Check, CheckCheck, Paperclip } from "lucide-react";
+import { Bot, Check, CheckCheck, Flag, Paperclip } from "lucide-react";
 import { ChatDaySeparator, formatMessageTime, ReplyQuote, RichMarkdown } from "@codeterm/chat-ui";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
@@ -19,7 +19,8 @@ import { tabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
-import { markNeighborRead, neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { flagNeighborMessage, markNeighborRead, neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { flagLine, NeighborFlagDialog } from "./NeighborFlagDialog";
 import { useNeighborReadReceipt } from "./useNeighborReadReceipt";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
@@ -38,9 +39,10 @@ import { formatBytes, neighborFilesClient, NeighborFilesFailure, type NeighborFi
 import { receivingLine, useReceiverState } from "./useReceiverState";
 
 /** Your conversation with one Neighbor: what they asked, what you and your agents answered, and how it was delivered. */
-export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient = neighborFilesClient, markRead = markNeighborRead }: {
+export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient = neighborFilesClient, markRead = markNeighborRead, flagMessage = flagNeighborMessage }: {
   friendship: string; enabled?: boolean; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient; filesClient?: NeighborFilesClient;
   markRead?: (friendship: string, throughMessageId: string) => Promise<void>;
+  flagMessage?: typeof flagNeighborMessage;
 }) {
   const { model } = useAccount();
   const identity = model.kind === "signed_in" ? model.identity.uid : null;
@@ -60,7 +62,7 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
     ?? { friendship_id: friendship, uid: friendship, displayName: "Former Neighbor", photoURL: null };
   const access = neighbors.list?.access ?? cached?.access;
   return <Conversation key={friendship} friend={shown} removed={removed} locked={access !== "paid"} enabled={enabled}
-    runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient} markRead={markRead} onSent={neighbors.refresh} />;
+    runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient} markRead={markRead} flagMessage={flagMessage} onSent={neighbors.refresh} />;
 }
 
 /** A friend from the fresh list, or the remembered one while it loads. */
@@ -68,9 +70,9 @@ type ConversationFriend = CachedFriend & Partial<Omit<Neighbor, keyof CachedFrie
 
 const MESSAGE_LIMIT_BYTES = 32752;
 
-function Conversation({ friend, removed, locked, enabled, runtimeClient, conciergeClient, filesClient, markRead, onSent }: {
+function Conversation({ friend, removed, locked, enabled, runtimeClient, conciergeClient, filesClient, markRead, flagMessage, onSent }: {
   friend: ConversationFriend; removed: boolean; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient;
-  filesClient: NeighborFilesClient; markRead: (friendship: string, throughMessageId: string) => Promise<void>; onSent: () => void;
+  filesClient: NeighborFilesClient; markRead: (friendship: string, throughMessageId: string) => Promise<void>; flagMessage: typeof flagNeighborMessage; onSent: () => void;
 }) {
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
@@ -96,6 +98,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   // Their html and diagrams run only when the owner allowed interactive content from this friend.
   const friendInteractive = permission?.allow_interactive_content === true;
   const [checking, setChecking] = useState<string | null>(null);
+  const [flagging, setFlagging] = useState<string | null>(null);
   const checkDelivery = (messageId: string) => {
     if (checking) return;
     setChecking(messageId); setError(null);
@@ -310,7 +313,8 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
               standing={work.has(entry.message_id) && <ConciergeWorkLine work={work.get(entry.message_id)!} tab={conciergeTab}
                 canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />}
               settled={work.has(entry.message_id) && settledWork(work.get(entry.message_id)!.work)}
-              outgoing={pending && { state: pending.state, reason: pending.reason, onRetry: () => retrySend(pending) }} />
+              outgoing={pending && { state: pending.state, reason: pending.reason, onRetry: () => retrySend(pending) }}
+              onFlag={entry.direction === "in" && !pending ? () => setFlagging(entry.message_id) : undefined} />
           </Fragment>;
         })}
       </div>
@@ -335,16 +339,20 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
           : limitReached ? "Daily limit reached" : `Message ${name}`}
         onSend={send} onSendFiles={sendFiles} />
     </div>
+    {flagging && <NeighborFlagDialog name={name} onClose={() => setFlagging(null)}
+      onFlag={(category, reason) => flagMessage(friendship, flagging, category, reason).then(() => loadLatest())} />}
   </div>;
 }
 
-function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled }: {
+function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled, outgoing, onFlag }: {
   entry: HistoryEntry; friend: ConversationFriend; friendName: string; agentLabel: string; files: NeighborFile[]; onOpenFile: (file: NeighborFile) => void; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
   quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
   /** Your concierge's standing on this message: inside the time row once settled, its own line while under way. */
   standing?: ReactNode; settled?: boolean;
   /** A send history has not shown yet: the shared delivery dot, or the refusal that proved it never went out. */
   outgoing?: { state: "sending" | "failed"; reason?: string; onRetry: () => void };
+  /** Messages from them can be flagged by you from their menu. */
+  onFlag?: () => void;
 }) {
   const time = formatMessageTime(entry.at);
   const author = authorKind(entry);
@@ -353,6 +361,7 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
   const refused = entry.kind === "refusal" || entry.outcome === "refused" || refusal !== null;
   // Sending until the relay accepted it, then one tick, two once delivered, accent once read.
   const mark = receiptMark(entry);
+  const flagged = !mine && entry.flags?.length ? flagLine(entry.flags) : null;
   const agentName = typeof entry.author === "object" ? agentLabel : `${friendName}'s concierge`;
   const avatar = grouped ? <span className="neighbor-msg__avatar" aria-hidden="true" />
     : author === "me" || author === "my-agent" ? null
@@ -381,6 +390,10 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
         {settled && standing}
+        {flagged && <span className="neighbor-work neighbor-work--inline" data-work="flagged">
+          <Flag size={11} aria-hidden="true" /><span className="neighbor-work__text" title={flagged.detail}>{flagged.text}</span></span>}
+        {onFlag && <DropdownMenu className="neighbor-msg__menu" menuLabel="Message actions" items={[{ label: "Flag message…", onClick: onFlag }]}
+          trigger={<RowMenuButton label={`Actions for this message from ${friendName}`} title="Message actions" />} />}
       </p>
       {!settled && standing}
     </div>

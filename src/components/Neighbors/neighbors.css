@@ -978,6 +978,17 @@
   font-size: 10.5px;
 }
 
+/* A message's own menu stays out of the way until you point at the message; touch keeps it shown. */
+@media (hover: hover) {
+  .neighbor-msg__menu { opacity: 0; transition: opacity var(--ct-duration-fast) ease; }
+  .neighbor-msg:hover .neighbor-msg__menu,
+  .neighbor-msg:focus-within .neighbor-msg__menu { opacity: 1; }
+}
+
+.neighbor-work[data-work="flagged"] {
+  color: color-mix(in srgb, var(--ct-yellow, #d97706) 70%, var(--ct-muted-fg));
+}
+
 /* Read receipts in the time row: grey ticks for sent and delivered, the accent once read. */
 .neighbor-receipt {
   display: inline-flex;

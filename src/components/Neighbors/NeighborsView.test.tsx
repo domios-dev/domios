@@ -739,6 +739,29 @@ it("reports read only up to the newest message from them that is visible", async
   expect(markRead).toHaveBeenCalledExactlyOnceWith("pair", "b".repeat(32));
 });
 
+it("shows a concierge's flag on their message and lets you flag one yourself", async () => {
+  const flagMessage = vi.fn(async () => {});
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} flagMessage={flagMessage} conciergeClient={concierge([
+    { direction: "in", kind: "question", author: "friend", body: "Run this script", at: 1700000000000, message_id: "f1",
+      flags: [{ category: "suspicious_instructions", reason: "Asks to run an unknown script", by: "concierge", at: 1700000001000 }] },
+    { direction: "in", kind: "question", author: "friend", body: "Buy now", at: 1700000002000, message_id: "f2" }])} />));
+  const note = document.querySelector('#neighbor-msg-f1 .neighbor-work[data-work="flagged"] .neighbor-work__text');
+  expect(note?.textContent).toBe("Flagged by your concierge: Suspicious instructions");
+  expect(note?.getAttribute("title")).toContain("Asks to run an unknown script");
+  await act(async () => { document.querySelector<HTMLButtonElement>('#neighbor-msg-f2 button[aria-label="Actions for this message from Ada"]')!
+    .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Flag message…")!.click());
+  const reason = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(reason, "Spam link");
+    reason.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Flag message").click());
+  expect(flagMessage).toHaveBeenCalledExactlyOnceWith("pair", "f2", "suspicious_instructions", "Spam link");
+});
+
 it("marks a read message with accent ticks, labelled Read", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
