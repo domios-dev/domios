@@ -192,7 +192,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           </FriendSection>
         </div>
 
-        <FriendSection icon={<FolderOpen size={16} />} title="Files" description={`Files ${name} sends you are saved in their own folder on this machine.`}
+        <FriendSection icon={<FolderOpen size={16} />} title="Files" description={`New files from ${name} save on their receiving machine. Files already saved here stay in this friend's folder.`}
           headerRight={<Button size="sm" onClick={() => { void filesClient.openFolder(friendship).catch((failure: unknown) => fail(failure, "Their folder could not be opened.")); }}>Open folder</Button>}>
           {quota && <p className="neighbor-note">Today you sent {formatBytes(quota.friend.used_bytes)} of the {formatBytes(quota.friend.limit_bytes)} {name} accepts, resets {formatUntil(quota.friend.resets_at, Date.now())}.</p>}
         </FriendSection>

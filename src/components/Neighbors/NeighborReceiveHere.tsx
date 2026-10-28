@@ -8,7 +8,7 @@ import { receiverFailureDescription } from "./neighborReceiverError";
 
 function takeoverWarning(receiver: ReceiverState, targetMachine: string, friendName: string | undefined, operation: "set" | "reset", friendCount: number): string {
   if (friendName !== undefined) {
-    if (operation === "reset") return `Use the account receiver for ${friendName} instead of their individual receiver. Only ${friendName}'s messages move.`;
+    if (operation === "reset") return `Use the account receiver for ${friendName} instead of their individual receiver. Only ${friendName}'s receiving choice changes; other friends stay where they are. If the receiving machine changes, their concierge starts fresh with that machine's local permissions.`;
     const source = receiver.receiving_enabled
       ? `${receiver.receiver_machine_label ?? "The other machine"} will stop receiving messages from ${friendName}.`
       : `This machine will start receiving messages from ${friendName}.`;
