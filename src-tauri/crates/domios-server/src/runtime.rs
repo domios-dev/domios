@@ -113,6 +113,7 @@ pub fn run(
     )?;
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("DOMIOS_VERSION"));
+    crate::headless_update::register_if_managed();
     crate::bundle::install();
     codeterm_orchestration::register_orchestration();
     let runtime = tokio::runtime::Builder::new_multi_thread()

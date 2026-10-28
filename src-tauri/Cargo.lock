@@ -2532,6 +2532,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "uuid",
@@ -3379,6 +3380,7 @@ name = "domios-server"
 version = "0.0.0"
 dependencies = [
  "async-stream",
+ "async-trait",
  "axum",
  "chrono",
  "codeterm-api",
@@ -3402,6 +3404,7 @@ dependencies = [
  "codeterm-util",
  "dirs 6.0.0",
  "fern",
+ "flate2",
  "include_dir",
  "interprocess",
  "libc",
@@ -3410,6 +3413,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "tar",
  "tempfile",
  "tokio",
  "tower",

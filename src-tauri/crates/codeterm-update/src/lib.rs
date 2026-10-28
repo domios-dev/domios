@@ -5,6 +5,7 @@ pub mod apply;
 pub mod channel;
 pub mod checker;
 pub mod debian;
+pub mod headless;
 pub mod manifest;
 pub mod native_handoff;
 pub mod receipt;

@@ -260,25 +260,114 @@ host key. When supplied, the script opens an acknowledged tunnel, compares the
 entry page and health boot/build identity, and checks authenticated API access
 through it. This is a tunnel transport check, not a visual browser acceptance.
 
-## Update checks and the verified-install gap
+## Signed headless updates
 
-`domios update check --force` runs without a desktop and reports existing
-application/frontend/plugin discovery. Its application source is the stable
-desktop feed in `domios-dev/domios`, with `rollacode/codeterm-releases` as the
-second repository. Desktop AppImage/deb availability is **not** a signed offer
-for this independent server archive.
+The systemd-managed server discovers a headless feed instead of desktop packages.
+`domios update check --force` reports a signed headless offer, or the explicit
+`SignedHeadlessFeedMissing` discovery error. `domios update install` (also with
+`--auto`) refuses a missing feed with JSON code `signed_headless_feed_missing`.
+No archive is installed using a same-source checksum alone. Publication of these
+feeds is deferred until 1.17.0 has shipped and the release Team approves the
+pipeline change. The drill prints SKIP until a signed feed exists.
+
+For a fresh installation supporting updates, extract the entire verified bundle
+into `/opt/domios-releases/initial`, keep every directory/file root-owned and
+non-writable by group/others, and make `/opt/domios` a root-owned symlink to that
+slot. Record the exact verified bundle version as a single line in
+`/opt/domios-releases/initial/.domios-version` (root-owned, mode 0644). There must
+be no symlinks inside a bundle. Install the helper from that same verified build
+as a separate root-owned executable; it remains outside the switched bundle:
 
 ```bash
-domios cron create server-update-check --schedule "0 8 * * 1" --tz UTC --task "Run domios update check --force once and report discovery results and errors. Headless verified install is unsupported (COD-2005); do not install desktop artifacts or restart the server."
+sudo install -d -m 0755 /opt/domios-releases /usr/local/libexec
+sudo ln -s /opt/domios-releases/initial /opt/domios
+sudo install -m 0755 /opt/domios/domios-server/domios-server /usr/local/libexec/domios-update
+sudo install -d -m 0755 /var/lib/domios-update
+sudo install -m 0644 packaging/linux/domios-update.service /etc/systemd/system/domios-update.service
+sudo install -m 0644 packaging/linux/49-domios-update.rules /etc/polkit-1/rules.d/49-domios-update.rules
+sudo systemd-analyze verify /etc/systemd/system/domios-update.service
+sudo systemctl daemon-reload
 ```
 
-Verified headless self-install and systemd restart are tracked by Domios task
-`COD-2005` (`pl_lxh1hb/task_ujbr4p`); inspect it with `domios task show COD-2005`.
-The existing headless publication produces an archive, SHA-256 and metadata but
-has no signed updater feed. Existing native auto-install requires an attached
-desktop host; Debian staging verifies its signature but requests manual root
-installation. Neither is a supported server replacement path. Do not substitute
-an unsigned archive or disable verification. Unsupported installs leave the
-running server unchanged. The drill checks discovery and prints **SKIP
-update-install** with this reason. The release Team owns the signing/publication
-contract; no automatic replacement is claimed here.
+The polkit rule grants only `start` of `domios-update.service` to `domios-server`.
+It grants neither restart/stop of other units nor unit-file management. The
+server sends no version, URL, path, environment or verification result to the
+helper. Feed overrides and desktop continuation are refused on this path.
+Protect the helper, units, rule, release slots and all their parent directories
+from service-user writes. The installed helper must be from a build containing
+this updater; installing an older server binary as the helper is unsupported.
+
+The root oneshot independently fetches the latest stable release and its signed
+feed using the public updater key embedded from `tauri.conf.json`. It downloads
+into a root-owned 0700 temporary directory, verifies the signed size and SHA-256,
+and extracts only regular payload files into a neighboring release slot. Links,
+path escapes, duplicate files, special modes, oversized payloads, missing bundle
+resources and mismatched component/CLI digests are refused before activation.
+Downgrades require `allow_downgrade: true` inside the signed manifest.
+
+Activation atomically replaces the `/opt/domios` symlink, preserving both slots.
+The helper restarts `domios-server.service`, waits for its startup event, and
+checks `/api/health` against the expected version and build. Failed restart or
+health checks restore the old symlink, restart the old bundle and verify its
+health. A root-owned pending record also drives recovery through `ExecStopPost`
+if the helper is interrupted. Download/verification/staging failures leave the
+active bundle and running process untouched. If systemd or the old bundle cannot
+recover, the result explicitly reports `rollback_failed`; operator repair is
+required. The updater never deletes retained release slots.
+
+The install response `status: scheduled` means systemd accepted the job. Read
+`/api/update/status`, `/var/lib/domios-update/result.json`, or
+`journalctl -u domios-update.service` for its final outcome. A successful result
+records the new version and both bundle paths. Keep the previous slot until the
+updated server has passed the VM drill. The root helper requires the default
+loopback API address and port (`127.0.0.1:7685`).
+
+### Feed contract for the release Team
+
+At the immutable release URL publish
+`domios-headless-linux-x86_64.json` (and `domios-headless-linux-aarch64.json` when
+that archive exists). Each file is an envelope with exactly two string fields:
+`manifest` (base64 of the exact UTF-8 JSON bytes) and `signature` (base64 of the
+four-line minisign signature over those decoded bytes). Use the existing release
+minisign private key, not the dedicated frontend key. The decoded object has
+exactly these required fields:
+
+```json
+{
+  "schema": 1,
+  "platform": "linux-x86_64",
+  "version": "1.18.0",
+  "archive": "domios-headless-v1.18.0-linux-x86_64.tar.gz",
+  "url": "https://github.com/domios-dev/domios/releases/download/v1.18.0/domios-headless-v1.18.0-linux-x86_64.tar.gz",
+  "sha256": "LOWERCASE_SHA256_OF_FINAL_ARCHIVE",
+  "size": 123456,
+  "allow_downgrade": false
+}
+```
+
+The version must match the release tag, archive basename and platform. Size is
+in bytes, at most 1 GiB compressed; extraction is bounded to 4 GiB and 100,000
+files. URLs require HTTPS, including redirects. Sign finalized archive metadata,
+verify the signature with the configured public key, and read back the published
+feed and archive before declaring the offer installable. Test fixtures in
+`codeterm-update/src/headless/fixtures` use an ephemeral TEST key whose private
+half was discarded; the release key rejects them.
+
+### Periodic checks
+
+The optional timer checks weekly without installing or restarting anything:
+
+```bash
+sudo install -m 0644 packaging/linux/domios-update-check.service /etc/systemd/system/
+sudo install -m 0644 packaging/linux/domios-update-check.timer /etc/systemd/system/
+sudo systemd-analyze verify /etc/systemd/system/domios-update-check.service /etc/systemd/system/domios-update-check.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now domios-update-check.timer
+journalctl -u domios-update-check.service
+```
+
+The O2 drill installs the fixed helper, update unit and exact polkit rule on its
+disposable VM. It checks the signed feed, then requests and verifies an available
+update. Missing publication or an already-current signed version prints SKIP
+with the reason. The release Team must validate signing/publication in release
+CI; unit fixtures and a shipped drill are not evidence of a VM PASS.

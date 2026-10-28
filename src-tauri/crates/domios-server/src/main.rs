@@ -23,6 +23,10 @@ fn execute() -> io::Result<()> {
         std::process::exit(exit);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(args.as_slice(), [arg] if arg == "headless-update" || arg == "headless-update-recover")
+    {
+        return domios_server::headless_update::run_helper(args[0] == "headless-update-recover");
+    }
     if matches!(args.as_slice(), [arg] if arg == "--help" || arg == "help")
         || matches!(args.as_slice(), [command, arg] if command == "start" && arg == "--help")
     {

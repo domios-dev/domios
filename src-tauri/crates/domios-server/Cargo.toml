@@ -44,6 +44,9 @@ include_dir = "0.7"
 interprocess = { version = "2", features = ["tokio"] }
 sha2 = "0.10"
 tempfile = "3"
+async-trait = "0.1"
+flate2 = "1"
+tar = "0.4"
 
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }

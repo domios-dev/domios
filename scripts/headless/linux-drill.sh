@@ -26,6 +26,7 @@ for command in systemctl python3 curl runuser useradd install cmp; do
 done
 if id domios-server >/dev/null 2>&1; then refuse 'domios-server user already exists; refusing existing data'; fi
 [[ ! -e /var/lib/domios-server && ! -e /etc/systemd/system/domios-server.service ]] || refuse 'existing installation found'
+[[ ! -e /opt/domios-releases && ! -e /usr/local/libexec/domios-update && ! -e /var/lib/domios-update && ! -e /etc/systemd/system/domios-update.service && ! -e /etc/polkit-1/rules.d/49-domios-update.rules ]] || refuse 'existing updater installation found'
 bundle=/opt/domios
 [[ -x $bundle/domios-server/domios-server && -x $bundle/cli/codeterm && -f $bundle/dist/index.html ]] || refuse 'install the complete verified release bundle at /opt/domios first'
 [[ -n ${DOMIOS_MODEL_CACHE:-} && -d $DOMIOS_MODEL_CACHE ]] || refuse 'set DOMIOS_MODEL_CACHE to the prepared offline Hugging Face model cache'
@@ -40,6 +41,14 @@ printf 'Drill evidence: %s\n' "$scratch"
 pass
 
 begin install-unit
+[[ -d $bundle && ! -L $bundle ]] || refuse 'the initial verified bundle must be a real directory'
+install -d -m 0755 /opt/domios-releases /usr/local/libexec /var/lib/domios-update
+mv -- /opt/domios /opt/domios-releases/initial
+ln -s /opt/domios-releases/initial /opt/domios
+install -m 0755 "$bundle/domios-server/domios-server" /usr/local/libexec/domios-update
+install -m 0644 "$repo/packaging/linux/domios-update.service" /etc/systemd/system/domios-update.service
+install -d -m 0755 /etc/polkit-1/rules.d
+install -m 0644 "$repo/packaging/linux/49-domios-update.rules" /etc/polkit-1/rules.d/49-domios-update.rules
 useradd --system --user-group --create-home --home-dir /var/lib/domios-server --shell /bin/bash domios-server
 install -d -m 0700 -o domios-server -g domios-server /var/lib/domios-server/.domios /var/lib/domios-server/backups
 cp -a -- "$DOMIOS_MODEL_CACHE" /var/lib/domios-server/models
@@ -64,7 +73,7 @@ pass
 
 begin verify-unit
 if command -v systemd-analyze >/dev/null; then
-  systemd-analyze verify /etc/systemd/system/domios-server.service
+  systemd-analyze verify /etc/systemd/system/domios-server.service /etc/systemd/system/domios-update.service
   pass
 else
   printf 'SKIP %s: systemd-analyze is unavailable\n' "$step"
@@ -85,7 +94,10 @@ import json, sys
 health = json.load(open(sys.argv[1]))
 assert health['startup']['state'] == 'ready', health
 assert health.get('build_sha'), health
+with open('/opt/domios-releases/initial/.domios-version', 'w') as version:
+    version.write(health['version'] + '\n')
 PY
+chmod 0644 /opt/domios-releases/initial/.domios-version
 as_user identify > "$scratch/identity.txt"
 pass
 
@@ -211,12 +223,45 @@ pass
 
 begin update-discovery
 as_user --json update check --force > "$scratch/update-check.json"
-python3 - "$scratch/update-check.json" <<'PY'
+decision=$(python3 - "$scratch/update-check.json" <<'PY'
 import json, sys
 result = json.load(open(sys.argv[1]))
-assert not result.get('errors', {}).get('app'), result
-assert any(item['id'] == 'app' for item in result['items']), result
+error = result.get('errors', {}).get('app')
+if error and 'SignedHeadlessFeedMissing' in error:
+    print('missing')
+else:
+    assert not error, result
+    app = next(item for item in result['items'] if item['id'] == 'app')
+    assert app['reason'] == 'signed_headless_feed', app
+    print(app['latest'] if app['state'] == 'update_available' else 'current')
 PY
-printf 'PASS %s (existing desktop application feed; not a signed server update offer)\n' "$step"
-printf 'SKIP update-install: verified headless install is unsupported; headless archives have no signed update feed or systemd installer (COD-2005)\n'
+)
+if [[ $decision == missing ]]; then
+  printf 'SKIP %s: signed_headless_feed_missing; release Team publication is pending\n' "$step"
+  printf 'SKIP update-install: no signed headless feed exists; running server retained\n'
+else
+  pass
+  begin update-install
+  if [[ $decision == current ]]; then
+    printf 'SKIP %s: the signed headless feed has no version change for this VM\n' "$step"
+  else
+    as_user --json update install > "$scratch/update-install.json"
+    python3 - "$scratch/update-install.json" <<'PY'
+import json, sys
+assert json.load(open(sys.argv[1]))['status'] == 'scheduled', 'systemd update request was not accepted'
+PY
+    systemctl --wait start domios-update.service
+    systemctl is-active --quiet domios-server
+    curl --fail --silent --show-error --max-time 10 http://127.0.0.1:7685/api/health > "$scratch/updated-health.json"
+    python3 - "$scratch/updated-health.json" "$decision" <<'PY'
+import json, os, sys
+health = json.load(open(sys.argv[1]))
+assert health['startup']['state'] == 'ready' and health['version'] == sys.argv[2], health
+assert os.path.islink('/opt/domios') and os.path.isdir('/opt/domios-releases/initial')
+result = json.load(open('/var/lib/domios-update/result.json'))
+assert result['phase'] in ('success', 'idle'), result
+PY
+    pass
+  fi
+fi
 printf 'PASS required Linux drill steps; review the explicit SKIP rows. Evidence: %s\n' "$scratch"
