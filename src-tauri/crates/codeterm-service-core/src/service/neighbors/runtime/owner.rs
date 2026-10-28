@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 
 pub(super) enum Operation {
+    StopLocal { expected_generation: u64 },
     Read {
         friendship_id: String,
         through_message_id: String,
@@ -77,6 +78,11 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
+            Operation::StopLocal { expected_generation } => {
+                self.require_neighbor_generation(expected_generation)?;
+                self.drain_neighbor_stop_local(generation).await?;
+                Ok(Outcome::Value(Value::Null))
+            }
             Operation::Read {
                 friendship_id,
                 through_message_id,

@@ -8,7 +8,11 @@ impl ServiceContext {
         friendship: &str,
     ) -> ConciergeOptions {
         let Some(tab) = settings.bindings.get(friendship) else {
-            return ConciergeOptions::default();
+            return settings
+                .dormant_concierges
+                .get(friendship)
+                .map(|saved| saved.options.clone())
+                .unwrap_or_default();
         };
         settings
             .initial_contexts

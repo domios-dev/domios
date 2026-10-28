@@ -136,7 +136,7 @@ impl Session {
         }
         if signal.receiver_revision.is_some() {
             self.service
-                .neighbor_receiver_changed()
+                .neighbor_receiver_changed(signal.receiver_friendship.as_deref())
                 .await
                 .map_err(|_| Error::Transport)?;
             self.current()?;

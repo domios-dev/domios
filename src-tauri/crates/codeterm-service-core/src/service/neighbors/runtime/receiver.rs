@@ -1,6 +1,10 @@
 use super::*;
 use codeterm_neighbors::adapter::ReceiverStatus;
 mod watch;
+pub(super) mod friends;
+mod startup;
+pub(super) mod selection;
+mod stop;
 
 impl ServiceContext {
     pub(super) fn require_neighbor_receiver(
@@ -73,18 +77,18 @@ impl ServiceContext {
         let status = match result {
             Ok(status) => status,
             Err(error) => {
+                self.forget_neighbor_friend_receivers();
                 self.neighbor_cell().receiver.lock().take();
                 self.stop_neighbor_listeners();
                 self.ui.emit(
                     "neighbor-runtime-status",
-                    json!({"receiver_unavailable":true}),
+                    json!({"receiver_unavailable":true,"friend_receivers_version":self.neighbor_friend_receiver_version()}),
                 );
                 return Err(error.to_string());
             }
         };
         let changed = self.neighbor_cell().receiver.lock().as_ref() != Some(&status);
         if changed {
-            self.stop_neighbor_listeners();
             *self.neighbor_cell().receiver.lock() = Some(status.clone());
             self.ui
                 .emit("neighbor-runtime-status", Self::receiver_view(&status));

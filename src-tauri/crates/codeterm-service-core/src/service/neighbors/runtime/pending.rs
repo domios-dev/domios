@@ -45,13 +45,13 @@ impl ServiceContext {
         };
         let initial_context_digest = settings.initial_context_digest(friendship);
         let options = self.neighbor_launch_options(settings, friendship);
-        json!({"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier,"initial_context_digest":initial_context_digest,"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
+        json!({"concierge_dormant":settings.dormant_concierges.contains_key(friendship),"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier,"initial_context_digest":initial_context_digest,"gateway_tab":gateway,"paused":paused,"my_paused":paused,"concierge_missing":missing,"pending_count":count,"pending_count_capped":count.is_some_and(|count| count >= codeterm_neighbors::adapter::PENDING_COUNT_LIMIT),"receiving_here":here,"receiver_machine_label":receiver.receiver_machine_label,"state":state})
     }
 
     pub(super) fn neighbor_concierge_views(
         &self,
         settings: &Settings,
-        receiver: &ReceiverStatus,
+        account_receiver: &ReceiverStatus,
         friends: &Value,
     ) -> Value {
         let mut views = serde_json::Map::new();
@@ -60,7 +60,7 @@ impl ServiceContext {
                 if let Some(id) = friend["friendship_id"].as_str() {
                     views.insert(
                         id.into(),
-                        self.neighbor_concierge_view(id, settings, receiver),
+                        self.neighbor_concierge_view(id, settings, &self.neighbor_friend_receiver(id).unwrap_or_else(|| ReceiverStatus { is_me:false,receiving_enabled:false,..account_receiver.clone() })),
                     );
                 }
             }
@@ -74,10 +74,7 @@ pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::
     session.current()?;
     let receiver = session
         .service
-        .neighbor_cell()
-        .receiver
-        .lock()
-        .clone()
+        .neighbor_friend_receiver(&session.friendship)
         .ok_or(Error::NotReceiver)?;
     let mut view =
         session

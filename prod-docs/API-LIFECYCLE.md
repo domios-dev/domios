@@ -100,6 +100,7 @@ For open, owner/General `launch:false` returns `{opened:false,path:"<absolute pa
 |---|---|
 | Read relay/signal | Recipient `friendsRead {installation_id,friendship_id,through_message_id}` emits `message_read {schema_version:1,revision,event_id,request_id:null,friendship_id,message_id,at}`; anchor=message_id, server Unix milliseconds=at. No text/files/manifest/key. Sender marks through anchor read; status catch-up restores missed read times. |
 | Runtime flag_message | Runtime `{operation:"flag_message",friendship_id,message_id,category,reason}` returns `{friendship_id,message_id,flag:{category,reason,by,at},created}`; by=concierge/tab/owner, at=Unix seconds. |
+| Runtime set_friend_receiver | Owner UI `{operation:"set_friend_receiver",friendship_id,receiver_operation:"set"|"reset",takeover_confirmed:true,expected_receiver_revision}` changes one friend's receiver; the separate `enroll` action is for all friends. Effective state and observation versions: API, Per-friend receiving. |
 
 ## Provider lifecycle ingress
 
@@ -114,4 +115,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
