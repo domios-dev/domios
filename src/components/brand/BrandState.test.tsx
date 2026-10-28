@@ -76,4 +76,20 @@ test("disconnect status blocks stale content without trapping focus", () => {
   assert.equal(tab.defaultPrevented, false);
 });
 
+test("a drop after load leaves the app usable and says updates are paused", () => {
+  const host = parsed(renderToStaticMarkup(
+    <ServerConnectionLayerView model={{ kind: "paused" }} contentClassName="content">
+      <button type="button">Loaded action</button>
+    </ServerConnectionLayerView>,
+  ));
+  const content = host.querySelector(".content");
+  const status = host.querySelector('[data-testid="connection-paused"]');
+  assert.equal(content?.hasAttribute("inert"), false);
+  assert.equal(host.querySelector(".brand-connection-scrim"), null);
+  assert.ok(status);
+  assert.equal(status.getAttribute("role"), "status");
+  assert.equal(status.textContent?.replace(/\s+/g, " ").trim(), "Reconnecting…Updates paused");
+  assert.equal(status.querySelectorAll("button, a, input, select, textarea, [tabindex]").length, 0);
+});
+
 window.close();

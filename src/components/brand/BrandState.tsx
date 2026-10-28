@@ -4,6 +4,7 @@ import { DotMatrixCanvas } from "./DotMatrixCanvas";
 import type { DotMatrixCanvasHandle } from "./DotMatrixCanvas";
 import type { BrandStateModel } from "./brandStateModel";
 import { usePrefersReducedMotion } from "./usePrefersReducedMotion";
+import { ActivityDots } from "../shared/ActivityDots";
 
 export function BrandState({ model, className, children, pulse = false, markSize = 92 }: {
   model: BrandStateModel;
@@ -53,6 +54,15 @@ export function BrandState({ model, className, children, pulse = false, markSize
           <BrandMark motion={reducedMotion ? "static" : "load"} size={34} />
           <span>Reconnecting…</span>
         </div>
+      </div>
+    );
+  }
+  if (model.kind === "paused") {
+    return (
+      <div className={`brand-connection-pill ${className ?? ""}`} role="status" aria-live="polite" data-testid="connection-paused">
+        <ActivityDots size="small" tone="muted" rhythm="work" />
+        <span>Reconnecting…</span>
+        <span className="brand-connection-pill-hint">Updates paused</span>
       </div>
     );
   }

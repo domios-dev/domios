@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
+import { EVENT_STREAM_READY, eventStreamVersion } from "../../lib/eventStreamReady";
 import { BrandState } from "./BrandState";
 import { brandConnectionModel } from "./brandStateModel";
 import type { BrandStateModel } from "./brandStateModel";
@@ -29,7 +30,14 @@ export function ServerConnectionLayerView({
   );
 }
 
+const subscribeStreamReady = (notify: () => void) => {
+  window.addEventListener(EVENT_STREAM_READY, notify);
+  return () => window.removeEventListener(EVENT_STREAM_READY, notify);
+};
+const streamHasLoaded = () => eventStreamVersion() > 0;
+
 export function ServerConnectionLayer(props: Omit<Parameters<typeof ServerConnectionLayerView>[0], "model">) {
   const connection = useServerConnectionState();
-  return <ServerConnectionLayerView {...props} model={brandConnectionModel(connection, Date.now())} />;
+  const loaded = useSyncExternalStore(subscribeStreamReady, streamHasLoaded);
+  return <ServerConnectionLayerView {...props} model={brandConnectionModel(connection, Date.now(), loaded)} />;
 }
