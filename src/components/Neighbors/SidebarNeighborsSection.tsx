@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Bot, Pause } from "lucide-react";
 import { AgentIcon } from "../AgentIcon";
+import { ActiveTabPill } from "../Sidebar/ActiveTabPill";
 import type { Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
@@ -37,9 +38,11 @@ function readExpanded(): boolean {
 }
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
-export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, client, runtimeClient = neighborRuntimeClient,
+export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, activeTabId = null, client, runtimeClient = neighborRuntimeClient,
   conciergeClient = neighborConciergeClient }: {
-  uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; enabled?: boolean; activeChat?: string | null; client?: NeighborClient;
+  uiFontScale?: number; touchMode: boolean; onNavigateToTab?: () => void; enabled?: boolean; activeChat?: string | null;
+  /** The session tab shown in the workspace view, the same source ordinary tab rows highlight from. */
+  activeTabId?: string | null; client?: NeighborClient;
   runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient;
 }) {
   const { model } = useAccount();
@@ -139,7 +142,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
               items={[pauseItem, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]}
               trigger={<RowMenuButton label={`Actions for ${name}`} title="Friend actions" touchMode={touchMode} />} />
           </div>}
-          renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem}
+          renderAttachment={tab => <ConciergeRow tab={tab} friendName={name} text={text} touchMode={touchMode} paused={paused} pauseItem={pauseItem} active={tab.id === activeTabId}
             activity={paused ? "disabled" : idleNote ?? tabActivity(tab, tabStatuses[tab.id]).label}
             onOpen={() => { focusTab(tab.id, workspaceOfTab({ workspaces, tabs }, tab.id)); onNavigateToTab?.(); }}
             onChangeAgent={() => openNeighborPage(friend.friendship_id, "concierge")}
@@ -150,20 +153,23 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   </SidebarStructuralSection>;
 }
 
-function ConciergeRow({ tab, friendName, text, touchMode, activity, paused, pauseItem, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
+function ConciergeRow({ tab, friendName, text, touchMode, activity, paused, pauseItem, active, onOpen, onChangeAgent, onViewPermissions, onEditWithGeneral }: {
   tab: Tab; friendName: string; text: string; touchMode: boolean; activity: string; paused: boolean; pauseItem: { label: string; onClick: () => void };
-  onOpen: () => void; onChangeAgent: () => void; onViewPermissions: () => void; onEditWithGeneral: () => void;
+  active: boolean; onOpen: () => void; onChangeAgent: () => void; onViewPermissions: () => void; onEditWithGeneral: () => void;
 }) {
   const label = `${friendName}'s concierge`;
-  return <div className={`${ROW} sidebar-neighbor-concierge ${touchMode ? "min-h-9 pl-5 pr-2 py-1" : "pr-2 py-0.5"}`} data-paused={paused || undefined}>
-    <button type="button" className="sidebar-tab-activation flex flex-1 items-center min-w-0 gap-2 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer"
-      aria-label={`Open ${label}`} title={tab.title} onClick={onOpen}>
+  // An open concierge chat highlights like any open tab: the same pill, full-strength text, aria-current.
+  return <div className={`${active ? ROW.replace(" sidebar-tab-dimmed", "") : ROW} relative sidebar-neighbor-concierge ${touchMode ? "min-h-9 pl-5 pr-2 py-1" : "pr-2 py-0.5"}`}
+    data-paused={paused || undefined} data-tab-active={active || undefined}>
+    {active && <ActiveTabPill />}
+    <button type="button" className="sidebar-tab-activation relative z-[1] flex flex-1 items-center min-w-0 gap-2 border-0 bg-transparent p-0 text-left text-inherit cursor-pointer"
+      aria-label={`Open ${label}`} aria-current={active ? "page" : undefined} title={tab.title} onClick={onOpen}>
       <span className="sidebar-tab-body flex-1 min-w-0 gap-x-2">
         <span data-testid="tab-tab-icon" className="sidebar-tab-body__icon text-[var(--ct-muted-fg)]">{tab.agent_type
           ? <AgentIcon providerId={tab.agent_type} className="text-[12px]" title={tab.agent_type} />
           : <Bot size={12} aria-hidden="true" />}</span>
         <span className="sidebar-tab-body__title flex min-w-0 items-center gap-1.5">
-          <span className={`${text} block truncate min-w-0 text-[var(--ct-muted-fg)]`}>{label}</span>
+          <span className={`${text} block truncate min-w-0 ${active ? "font-medium text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)]"}`}>{label}</span>
         </span>
         <span className="sidebar-tab-body__sub block truncate text-[10px] leading-3 text-[var(--ct-muted-fg)]">{activity}</span>
       </span>

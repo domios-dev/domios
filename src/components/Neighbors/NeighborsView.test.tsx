@@ -533,6 +533,21 @@ it("draws last known friends at once with a quiet refresh indicator, and stays a
   expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
 });
 
+it("highlights an open concierge chat like an open tab, without the friend row", async () => {
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  const runtimeClient = runtime();
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-gateway" />));
+  expect(button("Open Ada's concierge").getAttribute("aria-current")).toBe("page");
+  expect(button("Open Ada's concierge").closest("[data-tab-active]")?.querySelector(".active-tab-pill")).not.toBeNull();
+  expect(button("Open Ada").getAttribute("aria-current")).toBeNull();
+  await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-general" />));
+  expect(button("Open Ada's concierge").getAttribute("aria-current")).toBeNull();
+});
+
 it("remembers only names, avatars and the concierge binding, and forgets them on sign-out", async () => {
   await renderSection([{ ...neighbor, gateway_tab: "tab-gateway", my_daily_limit: 5 }]);
   const stored = JSON.parse(localStorage.getItem("domios.neighbors.last-known:owner")!);
