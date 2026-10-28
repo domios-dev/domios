@@ -4,9 +4,19 @@ import type { TransportClient } from "./transportClient";
 
 export const MAX_PLUGIN_DOCUMENT_BYTES = 8 * 1024 * 1024;
 
+export interface PluginMediaHandle {
+  handle: string;
+  url: string | null;
+  content_type: string;
+  file_name: string;
+  expires_in_seconds: number;
+}
+
 export interface PluginDocument {
   html: string;
+  frameToken: string | null;
   dispose(): void;
+  media(id: string): Promise<PluginMediaHandle>;
 }
 
 export interface PluginAsset {
@@ -122,10 +132,34 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
   const response = await request(path);
   const policy = response.headers.get("Content-Security-Policy");
   if (!policy) throw new Error("Plugin document security policy missing");
-  const html = await materializePluginDocument(await response.text(), policy, path, client.origin(), async (assetPath) => {
-    const asset = await request(assetPath);
-    return { bytes: new Uint8Array(await asset.arrayBuffer()), mime: asset.headers.get("Content-Type")?.split(";")[0].trim() ?? "" };
-  });
-  signal.throwIfAborted();
-  return { html, dispose() {} };
+  const frame = response.headers.get("X-Domios-Plugin-Media-Frame");
+  const plugin = new URL(path, client.origin()).pathname.match(/^\/api\/plugins\/([a-z0-9_-]{1,128})\/ui\//)?.[1];
+  if (frame !== null && (!/^[a-f0-9]{64}$/.test(frame) || !plugin)) throw new Error("Invalid plugin media frame");
+  const base = frame && plugin ? `/api/plugins/${plugin}` : null;
+  let disposed = false;
+  const dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    if (base) void client.request!(`${base}/media-frame/${frame}`, { method: "DELETE", keepalive: true }, true).catch(() => undefined);
+  };
+  try {
+    const mediaPolicy = base
+      ? policy.replace(/(?:^|;\s*)media-src 'none'(?=;|$)/, (directive) => directive.replace("'none'", `${new URL(`${base}/media/${frame}/`, client.origin()).href} blob:`))
+      : policy;
+    if (base && mediaPolicy === policy) throw new Error("Plugin media security policy missing");
+    const html = await materializePluginDocument(await response.text(), mediaPolicy, path, client.origin(), async (assetPath) => {
+      const asset = await request(assetPath);
+      return { bytes: new Uint8Array(await asset.arrayBuffer()), mime: asset.headers.get("Content-Type")?.split(";")[0].trim() ?? "" };
+    });
+    signal.throwIfAborted();
+    return { html, frameToken: frame, dispose, async media(id) {
+      if (disposed || signal.aborted || !base || typeof id !== "string" || !id || id.length > 256) throw new Error("Plugin media unavailable");
+      const result = await client.localJson<PluginMediaHandle>("POST", `${base}/media-register/${frame}`, { id }, { signal });
+      if (disposed || signal.aborted) throw new Error("Plugin media unavailable");
+      if (!/^[a-f0-9]{64}$/.test(result.handle)) throw new Error("Invalid plugin media handle");
+      const expected = `${base}/media/${frame}/${result.handle}`;
+      if (result.url !== null && result.url !== expected) throw new Error("Invalid plugin media URL");
+      return { ...result, url: result.url === null ? null : new URL(expected, client.origin()).href };
+    } };
+  } catch (error) { dispose(); throw error; }
 }

@@ -72,6 +72,7 @@ pub fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) ->
         .allow_headers(FRONTEND_REQUEST_HEADERS.map(axum::http::HeaderName::from_static))
         .expose_headers([
             axum::http::header::CONTENT_SECURITY_POLICY,
+            axum::http::HeaderName::from_static("x-domios-plugin-media-frame"),
             axum::http::header::ETAG,
         ])
 }
@@ -834,6 +835,9 @@ pub(super) fn create_router_with_preview_admission(
             post(web_routes::open_chat_backend_tab),
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
+        .route("/api/plugins/{id}/media-register/{frame}", post(crate::plugin_media_routes::register).layer(axum::extract::DefaultBodyLimit::max(4096)))
+        .route("/api/plugins/{id}/media-frame/{frame}", axum::routing::delete(crate::plugin_media_routes::revoke))
+        .route("/api/plugins/{id}/media/{frame}/{handle}", get(crate::plugin_media_routes::playback))
         .route(
             inbound_webhook::ci::PATH,
             post(inbound_webhook::ci::receive),

@@ -15,7 +15,8 @@ fn plugin_frame_policy_allows_inline_styles_without_relaxing_scripts_or_network(
     assert_eq!(directives["form-action"], "'none'");
     assert_eq!(directives["img-src"], "blob: data:");
     assert_eq!(directives["font-src"], "blob: data:");
-    assert_eq!(directives.len(), 8);
+    assert_eq!(directives["media-src"], "'none'");
+    assert_eq!(directives.len(), 9);
 }
 
 #[tokio::test]
