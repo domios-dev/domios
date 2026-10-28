@@ -33,6 +33,7 @@ function conciergeState(status: ConciergeStatus | null, bound: boolean): { label
   if (status?.state === "concierge_starting") return { label: "starting", tone: "accent" };
   if (status?.state === "receiving_elsewhere") return { label: "idle", tone: "muted" };
   if (status?.state === "not_receiving") return { label: "not receiving", tone: "muted" };
+  if (status?.state === "paused") return { label: "paused", tone: "muted" };
   return { label: "ready", tone: "green" };
 }
 

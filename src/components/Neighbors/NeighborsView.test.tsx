@@ -680,6 +680,9 @@ it("reads an accepted, undelivered message as sent and a starting concierge as s
   expect(document.getElementById(`neighbor-msg-${"q".repeat(32)}`)?.textContent).toContain("sending");
   expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: null, receiving_here: true, receiver_machine_label: null, state: "concierge_starting" })?.state)
     .toBe("concierge_starting");
+  // A paused friend's concierge keeps its status instead of dropping out as unparsable.
+  expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: 0, receiving_here: true, receiver_machine_label: null, state: "paused" })?.state)
+    .toBe("paused");
 });
 
 it("marks who wrote each message: you, your agent, your friend and their concierge", async () => {
