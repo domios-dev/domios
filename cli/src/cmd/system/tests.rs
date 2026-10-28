@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_util::autostart::{build_linux_unit, build_macos_plist, build_windows_task_command};
 
 #[test]
 fn installed_application_candidates_never_select_a_cli_command() {
@@ -45,7 +46,8 @@ fn macos_plist_contains_label_and_binary_and_keepalive_and_runatload() {
     assert!(plist.contains("<string>system</string>"));
     assert!(plist.contains("<string>supervise</string>"));
     assert!(plist.contains("/Applications/Domios.app/Contents/MacOS/domios-app"));
-    assert!(plist.contains("<key>KeepAlive</key>\n    <false/>"));
+    assert!(plist.contains("<key>KeepAlive</key>\n    <dict>\n        <key>SuccessfulExit</key>\n        <false/>\n    </dict>"));
+    assert!(plist.contains("<key>ThrottleInterval</key>\n    <integer>30</integer>"));
     assert!(plist.contains("<key>RunAtLoad</key>\n    <true/>"));
     assert!(plist.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"));
 }
@@ -56,7 +58,8 @@ fn linux_unit_runs_supervisor_and_user_target() {
     assert!(unit.contains(
         "ExecStart=\"/usr/bin/domios\" system supervise --binary \"/usr/bin/domios-app\""
     ));
-    assert!(unit.contains("Restart=no"));
+    assert!(unit.contains("Restart=on-failure\nRestartSec=30"));
+    assert!(unit.contains("StartLimitIntervalSec=300\nStartLimitBurst=5"));
     assert!(unit.contains("WantedBy=default.target"));
     assert!(unit.contains("[Service]"));
     assert!(unit.contains("[Install]"));
@@ -92,6 +95,45 @@ fn windows_task_runs_supervisor_not_app_directly() {
     assert!(command.contains("--binary"));
     assert!(command.contains(r"C:\Users\me\.domios\bin\codeterm.exe"));
     assert!(command.contains(r"C:\Users\me\AppData\Local\Domios\domios-app.exe"));
+    assert!(command.contains("; & '"));
+    assert!(command.contains("exit $LASTEXITCODE"));
+}
+
+#[test]
+fn supervisor_lock_is_exclusive_until_the_handle_is_dropped() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("supervisor.lock");
+    let first = SupervisorLock::acquire_at(&path).unwrap();
+    let error = SupervisorLock::acquire_at(&path).err().unwrap();
+    assert!(error.contains("another Domios supervisor is already active"));
+    drop(first);
+    assert!(path.is_file(), "the stable lock inode must not be unlinked");
+    let second = SupervisorLock::acquire_at(&path).unwrap();
+    assert!(SupervisorLock::acquire_at(&path).is_err());
+    drop(second);
+}
+
+#[test]
+fn supervisor_lock_ignores_a_leftover_file_naming_a_live_unrelated_process() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("recovery/supervisor.lock");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    // This test process is alive but does not own the file lock.
+    std::fs::write(&path, format!("{}\n", std::process::id())).unwrap();
+    let lock = SupervisorLock::acquire_at(&path).unwrap();
+    drop(lock);
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        format!("{}\n", std::process::id())
+    );
+}
+
+#[test]
+fn windows_task_retries_failures_with_bounded_count_and_preserves_long_running_supervision() {
+    let policy = codeterm_util::autostart::windows_task_xml("DOMAIN\\user", "C:\\domios.exe", "C:\\domios-app.exe");
+    assert!(policy.contains("<Count>3</Count>"));
+    assert!(policy.contains("<Interval>PT1M</Interval>"));
+    assert!(policy.contains("<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>"));
 }
 
 #[test]
