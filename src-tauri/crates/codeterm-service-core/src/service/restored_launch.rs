@@ -172,13 +172,13 @@ pub fn restore_permission_bypass_authorization(
             .get_tab(tab_id)
             .is_some_and(|tab| tab.neighbor_authority.is_some())
     {
-        return Ok(
-            crate::service::permission_policy::authorize_permission_bypass(
-                registry,
-                provider_id,
-                true,
-            ),
-        );
+        return crate::service::permission_policy::authorize_permission_bypass(
+            registry,
+            provider_id,
+            true,
+        )
+        .map(Some)
+        .ok_or_else(|| codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
     }
     let worker = svc
         .mux

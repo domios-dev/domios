@@ -159,6 +159,41 @@ fn legacy_full_concierge_without_bypass_requires_reconciliation() {
 }
 
 #[test]
+fn restored_full_concierge_without_provider_authorization_refuses_before_relaunch() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().neighbor_authority =
+        Some(crate::multiplexer::types::NeighborAuthority {
+            uid: "owner".into(),
+            friendship_id: "a".repeat(64),
+            root_tab_id: None,
+        });
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("opaque-no-bypass"),
+    ));
+    let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        captured: true,
+        permission_bypass_requested: true,
+        ..Default::default()
+    };
+    for global in [false, true] {
+        fixture.set_agent_full_access(global);
+        let error = crate::service::restored_launch::restore_permission_bypass_authorization(
+            &fixture.service,
+            &fixture.service.agent_registry,
+            &tab_id,
+            "opaque-no-bypass",
+            &launch,
+        )
+        .unwrap_err();
+        assert_eq!(
+            error,
+            codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+        );
+    }
+}
+
+#[test]
 fn bound_launch_matches_effective_sandbox_and_working_folder() {
     assert!(!bound_launch_matches(
         Some("friend"),
