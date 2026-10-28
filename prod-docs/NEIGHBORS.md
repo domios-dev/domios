@@ -18,6 +18,8 @@ domios account neighbors revoke
 
 Use current status revision; stale revisions require reread/reconfirmation. Status/events expose `receiving_here`, `receiver_machine_label`, `receiving_enabled`, `revision`. A non-receiving friend cannot accept new messages. Keys use Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext fallback. Sign-out clears local account access first; server session revocation stops receiving, and cleanup removes only this installation's private keys.
 
+Headless Linux exception (A2): an owner may explicitly set `neighbors.key_store = "file"`. Only when Secret Service is unavailable, Neighbor private keys are stored unencrypted under the data directory's `neighbor-keys/`, mode 0700 for the directory and 0600 for files. Opens refuse wider modes, foreign ownership, symlinks and hard links. An available OS store always wins, including refusal by a locked store; absent configuration never selects files. The option is refused on Windows and macOS. Protect this directory with the server's credential backups. This is the sole explicit exception to "never plaintext fallback".
+
 Concierges/grants are installation-local; takeover idles old agents, copying no grants. Missing-concierge questions stay encrypted/pending/unacknowledged without cursor advancement until permissions/binding enable admission. Status `concierges[friendship_id]`: `concierge_missing,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Unknown count=null, cap100 displayed `100+`. Observe-only streams retain no names; concurrent count refreshes coalesce.
 
 Receive retries: max3 consecutive failures; confirmed snapshots reset. Exhaustion: listen_retries_exhausted. Auth/revocation/off/account-generation/receiver changes terminate. Retry retains the cursor and never replays uncertain sends. status.watches and neighbors-watch-status expose watch/errors. Reconnect/cache/admission: API-LIFECYCLE.
@@ -177,4 +179,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 49 -->
+<!-- revision: 50 -->

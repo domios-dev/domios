@@ -36,7 +36,7 @@ impl ServiceContext {
         if !settings.cleanup_pending {
             return Ok(());
         }
-        let native = OsKeyStore;
+        let native = self.neighbor_key_store().map_err(|e| e.to_string())?;
         let (store, registry): (&dyn KeyStore, &dyn KeyRegistry) =
             match self.try_ext::<LogoutKeyPorts>() {
                 Some(ports) => (ports.store.as_ref(), ports.registry.as_ref()),

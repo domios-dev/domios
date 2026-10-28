@@ -35,7 +35,15 @@ fn execute() -> io::Result<()> {
         if start.mode == HumanStartMode::IsolatedVerification {
             return run_isolated_verification(&executable, &start.options);
         }
+        let pid_file = start
+            .pid_file
+            .as_deref()
+            .map(domios_server::launch::pid_file::PidFile::prepare)
+            .transpose()?;
         let reply = launch_service(&executable, &start.options)?;
+        if let Some(pid_file) = pid_file {
+            pid_file.publish(reply.ready.process.pid)?;
+        }
         return write_human_ready(&mut io::stdout().lock(), &reply.ready, start.json);
     }
     if !private_stdio()? {

@@ -40,7 +40,7 @@ impl ServiceContext {
         let result = registry
             .receiver_status_for(
                 &InstallationKeys {
-                    store: &OsKeyStore,
+                    store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
                     registry,
                     scope: scope.clone(),
                     uid: &registry.uid,

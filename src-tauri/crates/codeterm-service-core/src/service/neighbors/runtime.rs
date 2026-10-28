@@ -3,6 +3,7 @@ pub(super) mod callable;
 mod concierge;
 pub(super) mod files;
 mod gateway;
+mod key_store;
 mod listener;
 mod local;
 pub(crate) mod logout;
@@ -376,7 +377,7 @@ impl ServiceContext {
             .refresh_neighbor_receiver(&registry, &scope, generation)
             .await?;
         let lifecycle = InstallationKeys {
-            store: &OsKeyStore,
+            store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
             registry: registry.as_ref(),
             scope,
             uid: &transport.uid,
@@ -784,7 +785,7 @@ impl ServiceContext {
         self.remember_neighbor_concierge_accounts(&transport.uid, &settings);
         self.remember_neighbor_pause_settings(&transport.uid, &settings);
         let keys = InstallationKeys {
-            store: &OsKeyStore,
+            store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
             registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,

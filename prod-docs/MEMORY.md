@@ -192,4 +192,12 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 57 -->
+## Memory backups
+
+`domios mem backup create --out DIR` creates a timestamped local archive while the daemon runs: an online consistent SQLite snapshot of `mem/knowledge.db`, plus copies of `mem/blobs/` and `storage/`, protected by a SHA-256 manifest. Output must be outside the instance data directory. Incomplete archives are not published. File copies are not a cross-store transaction; quiesce file writers when that consistency is required. The archive excludes credentials, configuration, Neighbor keys and model caches.
+
+Stop the daemon before `domios mem backup restore --from ARCHIVE`. Restore holds the daemon's filesystem ownership locks, verifies the manifest and SQLite integrity, replaces memory/storage and retains the previous trees in the printed private `.before-restore-*` directory. An active daemon refuses restore even if HTTP is down. Existing `domios mem restore ITEM_ID` restores one item's history.
+
+Schedule online creation with `domios cron create memory-backup --schedule "0 3 * * *" --task "Run domios mem backup create --out /absolute/backup-directory once and report its result. Never restore or delete archives."` Choose a private output directory and copy completed archives to encrypted off-machine storage. For a Postgres backend use `pg_dump --format=custom` and, with the daemon stopped, `pg_restore --single-transaction --exit-on-error`; back up storage separately with its writers quiesced. Use protected PostgreSQL service/password files rather than passwords in argv.
+
+<!-- revision: 58 -->
