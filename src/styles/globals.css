@@ -398,19 +398,25 @@ body {
 }
 @media (max-width: 640px) {
   /* A closed drawer also hides once it has slid away: content wider than the capped drawer would otherwise peek in. */
+  /* It slides only while opening or closing ([data-sliding]); entering phone width with it closed hides it at once,
+     so a sliver never sweeps across the view. */
   .ct-sidebar-drawer {
     width: fit-content;
     max-width: min(85vw, calc(100vw - 1rem));
     transform: translateX(-100%);
     visibility: hidden;
     pointer-events: none;
-    transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s linear 300ms;
     will-change: transform;
+  }
+  .ct-sidebar-drawer[data-sliding] {
+    transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s linear 300ms;
   }
   .ct-sidebar-drawer.is-open {
     transform: translateX(0);
     visibility: visible;
     pointer-events: auto;
+  }
+  .ct-sidebar-drawer.is-open[data-sliding] {
     transition: transform 300ms var(--ct-ease-liquid-settle), visibility 0s;
   }
 }
