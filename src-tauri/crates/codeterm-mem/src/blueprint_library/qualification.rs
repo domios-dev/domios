@@ -1,14 +1,14 @@
 use super::*;
 
-pub(crate) struct PreparedBlueprint {
-    pub(super) document: Document,
-    pub(super) team: Option<String>,
-    pub(super) intents: Vec<String>,
-    pub(super) evidence: Evidence,
-    pub(super) index: index::IndexRow,
+pub struct PreparedBlueprint {
+    pub document: Document,
+    pub team: Option<String>,
+    pub intents: Vec<String>,
+    pub evidence: Evidence,
+    pub index: index::IndexRow,
 }
 
-pub(super) fn index_row(original: &Document, intents: &[String]) -> index::IndexRow {
+pub fn index_row(original: &Document, intents: &[String]) -> index::IndexRow {
     use codeterm_blueprint_types::blueprint_memory::semantic_canon::{
         canonical_json, semantic_canon,
     };
@@ -26,7 +26,7 @@ pub(super) fn index_row(original: &Document, intents: &[String]) -> index::Index
 }
 
 impl MemManager {
-    pub(super) fn qualify_blueprint(
+    pub(crate) fn qualify_blueprint(
         &self,
         area: &str,
         document: Document,

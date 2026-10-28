@@ -4,18 +4,15 @@ use super::{seed, store, MemManager, MemStats};
 
 impl MemManager {
     pub fn graph_full(&self) -> Result<store::GraphDump, String> {
-        let conn = self.conn.lock();
-        store::graph_full(&conn)
+        self.store.graph_full()
     }
 
     pub fn list_pinned_positions(&self) -> Result<Vec<store::PinnedPosition>, String> {
-        let conn = self.conn.lock();
-        store::list_pinned_positions(&conn)
+        self.store.list_pinned_positions()
     }
 
     pub fn list_pinned(&self, limit: usize) -> Result<Vec<store::MemItem>, String> {
-        let conn = self.conn.lock();
-        store::list_pinned(&conn, &self.blobs_dir, limit)
+        self.store.list_pinned(limit)
     }
 
     pub fn list_by_source_prefix(
@@ -23,30 +20,27 @@ impl MemManager {
         kind: &str,
         prefix: &str,
     ) -> Result<Vec<store::MemItem>, String> {
-        let conn = self.conn.lock();
-        store::list_by_source_prefix(&conn, &self.blobs_dir, kind, prefix)
+        self.store.list_by_source_prefix(kind, prefix)
     }
 
     pub fn set_pinned_position(&self, mem_id: &str, x: f64, y: f64) -> Result<bool, String> {
-        let conn = self.conn.lock();
-        store::set_pinned_position(&conn, mem_id, x, y)
+        self.store
+            .set_pinned_position(&Self::write_context(), mem_id, x, y)
     }
 
     pub fn delete_pinned_position(&self, mem_id: &str) -> Result<usize, String> {
-        let conn = self.conn.lock();
-        store::delete_pinned_position(&conn, mem_id)
+        self.store
+            .delete_pinned_position(&Self::write_context(), mem_id)
     }
 
     pub fn stats(&self) -> Result<MemStats, String> {
-        let conn = self.conn.lock();
-        store::stats(&conn)
+        self.store.stats()
     }
 
     /// Full per-item audit trail: every create/update/promote/invalidate/
     /// merge/delete event ever logged for this id, ordered chronologically.
     pub fn get_item_history(&self, id: &str) -> Result<Vec<store::HistoryEntry>, String> {
-        let conn = self.conn.lock();
-        store::get_item_history(&conn, id)
+        self.store.get_item_history(id)
     }
 
     /// `{area -> {kind -> count}}` grouped by area (NULL -> "(none)") and
@@ -57,8 +51,7 @@ impl MemManager {
         workspace: Option<&str>,
     ) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, u64>>, String>
     {
-        let conn = self.conn.lock();
-        store::get_taxonomy(&conn, workspace)
+        self.store.get_taxonomy(workspace)
     }
 
     /// Recent mem writes (feeds `mem tail`). When `since` is Some, returns
@@ -69,14 +62,12 @@ impl MemManager {
         since: Option<&str>,
         limit: usize,
     ) -> Result<Vec<store::TailEntry>, String> {
-        let conn = self.conn.lock();
-        store::tail_recent(&conn, since, limit)
+        self.store.tail_recent(since, limit)
     }
 
     /// Dream diaries created at or after `since_ms` (epoch millis), newest first.
     pub fn dream_diaries_since(&self, since_ms: u64) -> Result<Vec<String>, String> {
-        let conn = self.conn.lock();
-        store::dream_diaries_since(&conn, since_ms)
+        self.store.dream_diaries_since(since_ms)
     }
 
     pub fn seed_bundled_if_needed(&self) -> Result<seed::SeedOutcome, String> {

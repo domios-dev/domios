@@ -13,7 +13,7 @@
 //!
 //! Plus: importance bumps highly-curated items by up to 20%.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::{params_from_iter, Connection, ToSql};
@@ -23,6 +23,7 @@ use super::store::MemItem;
 
 pub(crate) mod graph_source;
 mod lexical;
+pub mod ranking;
 mod scoped;
 use super::embedder::{ActiveEmbedder, StampedVector};
 pub(crate) use scoped::scoped_vectors;
@@ -373,50 +374,27 @@ pub fn run_with_config(
         })
         .map_err(|e| e.to_string())?;
 
-    let keywords = extract_keywords(&q.query);
-    let temporal = parse_temporal_offset(&q.query);
-    let now = chrono::Utc::now();
-
-    let mut hits: Vec<SearchHit> = Vec::new();
+    let scorer = ranking::Scorer::new(&q.query, cfg, chrono::Utc::now());
+    let mut hits = Vec::new();
     for row in rows {
         let (id, bm25) = row.map_err(|e| e.to_string())?;
         let Some(item) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir)? else {
             continue;
         };
-        let overlap = keyword_overlap(&keywords, &item);
-        let importance_boost = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
-        let recurrence_boost =
-            ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
-        let temporal_boost = match &temporal {
-            Some(days_ago) => temporal_boost_for(&item, *days_ago, now),
-            None => 0.0,
-        };
-        let title_boost =
-            if cfg.title_match_bonus > 0.0 && title_has_keyword(&keywords, &item.title) {
-                cfg.title_match_bonus
-            } else {
-                0.0
-            };
-        let distance = 1.0 / (1.0 + bm25.abs());
-        let fused = distance
-            * (1.0 - cfg.keyword_overlap_weight * overlap)
-            * (1.0 - temporal_boost)
-            * (1.0 - importance_boost)
-            * (1.0 - recurrence_boost)
-            * (1.0 - title_boost);
-        hits.push(SearchHit { item, score: fused });
+        let score = scorer.lexical(&item, bm25);
+        hits.push(SearchHit { item, score });
     }
-
-    hits.sort_by(|a, b| {
-        a.score
-            .partial_cmp(&b.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    ranking::sort_hits(&mut hits);
     hits.truncate(limit);
     Ok(hits)
 }
 
 fn sanitize_fts_query(q: &str, drop_stopwords: bool) -> String {
+    let (words, conjunctive) = fts_terms(q, drop_stopwords);
+    words.join(if conjunctive { " AND " } else { " OR " })
+}
+
+pub fn fts_terms(q: &str, drop_stopwords: bool) -> (Vec<String>, bool) {
     let cleaned: String = q
         .chars()
         .map(|c| {
@@ -434,19 +412,10 @@ fn sanitize_fts_query(q: &str, drop_stopwords: bool) -> String {
         .filter(|w| !drop_stopwords || !stops.contains(w.to_lowercase().as_str()))
         .map(|w| w.to_string())
         .collect();
-    if words.is_empty() {
-        if drop_stopwords {
-            return sanitize_fts_query(q, false);
-        }
-        String::new()
-    } else {
-        let operator = if is_canonical_issue_query(q) {
-            " AND "
-        } else {
-            " OR "
-        };
-        words.join(operator)
+    if words.is_empty() && drop_stopwords {
+        return fts_terms(q, false);
     }
+    (words, is_canonical_issue_query(q))
 }
 
 fn is_canonical_issue_query(query: &str) -> bool {
@@ -472,7 +441,7 @@ fn is_issue_number(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit())
 }
 
-pub(crate) fn extract_keywords(q: &str) -> HashSet<String> {
+pub fn extract_keywords(q: &str) -> HashSet<String> {
     let stops: HashSet<&str> = STOP_WORDS.iter().copied().collect();
     q.split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() >= 3)
@@ -653,7 +622,7 @@ pub(crate) fn hybrid_rrf_with_embedding(
         limit: Some(limit * 5),
         ..q.clone()
     };
-    let mut fts_hits = run_with_config(conn, &wide_query, blobs_dir, cfg).unwrap_or_default();
+    let fts_hits = run_with_config(conn, &wide_query, blobs_dir, cfg).unwrap_or_default();
 
     let vec_hits = {
         let pool = limit * 5;
@@ -691,114 +660,18 @@ pub(crate) fn hybrid_rrf_with_embedding(
         out
     };
 
-    if fts_hits.is_empty() && vec_hits.is_empty() {
-        return Ok(Vec::new());
-    }
-    if vec_hits.is_empty() {
-        lexical::rerank_fts_hits(&q.query, &mut fts_hits);
-        fts_hits.truncate(limit);
-        return Ok(fts_hits);
-    }
-    if fts_hits.is_empty() {
-        let mut sorted = vec_hits;
-        sorted.truncate(limit);
-        return Ok(sorted);
-    }
-
-    let mut rrf_scores: HashMap<String, (f64, MemItem)> = HashMap::new();
-
-    for (rank, hit) in fts_hits.iter().enumerate() {
-        let rrf = 1.0 / (cfg.rrf_k + rank as f64);
-        rrf_scores
-            .entry(hit.item.id.clone())
-            .and_modify(|(s, _)| *s += rrf)
-            .or_insert((rrf, hit.item.clone()));
-    }
-
-    for (rank, hit) in vec_hits.iter().enumerate() {
-        let rrf = 1.0 / (cfg.rrf_k + rank as f64);
-        rrf_scores
-            .entry(hit.item.id.clone())
-            .and_modify(|(s, _)| *s += rrf)
-            .or_insert((rrf, hit.item.clone()));
-    }
-
-    // Graph-aware: items linked to entities whose id matches query keywords.
-    let keywords = extract_keywords(&q.query);
-    let graph_boosted: HashSet<String> = if cfg.graph_entity_boost > 1.0 || cfg.graph_as_rrf_source
+    let graph = if !fts_hits.is_empty() && !vec_hits.is_empty()
+        && (cfg.graph_entity_boost > 1.0 || cfg.graph_as_rrf_source)
     {
-        find_graph_boosted_items(conn, &keywords).unwrap_or_default()
+        let ids = find_graph_boosted_items(conn, &extract_keywords(&q.query)).unwrap_or_default();
+        ids.into_iter().map(|id| {
+            let item = cfg.graph_as_rrf_source.then(|| super::store::get_or_synthesize_entity(conn, &id, blobs_dir).ok().flatten()).flatten();
+            (id, item)
+        }).collect()
     } else {
-        HashSet::new()
+        Vec::new()
     };
-
-    // Optional: feed graph hits as a third RRF source. This survives the title_match_bonus=1.0 score-collapse trick because RRF works on rank, not on bm25 score.
-    if cfg.graph_as_rrf_source && !graph_boosted.is_empty() {
-        let mut graph_ids: Vec<&String> = graph_boosted.iter().collect();
-        graph_ids.sort();
-        for (rank, gid) in graph_ids.iter().enumerate() {
-            let rrf = 1.0 / (cfg.rrf_k + rank as f64);
-            if let Some(entry) = rrf_scores.get_mut(*gid) {
-                entry.0 += rrf;
-            } else if let Ok(Some(item)) =
-                super::store::get_or_synthesize_entity(conn, gid, blobs_dir)
-            {
-                if let Some(ref k) = q.kind {
-                    if item.kind != *k {
-                        continue;
-                    }
-                }
-                if let Some(ref s) = q.scope {
-                    if item.scope != *s {
-                        continue;
-                    }
-                }
-                if let Some(ref a) = q.area {
-                    if item.area.as_deref() != Some(a) {
-                        continue;
-                    }
-                }
-                rrf_scores.insert((*gid).clone(), (rrf, item));
-            }
-        }
-    }
-
-    let entries: Vec<(f64, MemItem)> = rrf_scores.into_values().collect();
-    let lift = {
-        let items: Vec<&MemItem> = entries.iter().map(|(_, item)| item).collect();
-        lexical::lift_factors(&q.query, &items)
-    };
-    let mut merged: Vec<SearchHit> = entries
-        .into_iter()
-        .zip(lift)
-        .map(|((rrf, item), lift)| {
-            let is_auto = item.tags.iter().any(|t| t == "auto-extracted");
-            let auto_mul = if is_auto {
-                cfg.auto_extracted_penalty
-            } else {
-                1.0
-            };
-            let rec_mul = 1.0
-                + ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
-            let graph_mul = if graph_boosted.contains(&item.id) {
-                cfg.graph_entity_boost
-            } else {
-                1.0
-            };
-            let adjusted = rrf * auto_mul * rec_mul * graph_mul * lift;
-            SearchHit {
-                item,
-                score: -adjusted,
-            }
-        })
-        .collect();
-    merged.sort_by(|a, b| {
-        a.score
-            .partial_cmp(&b.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    merged.truncate(limit);
-    Ok(merged)
+    Ok(ranking::fuse(q, cfg, fts_hits, vec_hits, graph))
 }
 
 /// Vector-first retrieval + keyword/temporal re-rank.
@@ -849,60 +722,19 @@ fn vector_first_with_embedding(
         return Ok(Vec::new());
     }
 
-    let keywords = extract_keywords(&q.query);
-    let temporal = parse_temporal_offset(&q.query);
-    let now = chrono::Utc::now();
-
-    let mut hits: Vec<SearchHit> = Vec::with_capacity(raw.len());
+    let scorer = ranking::Scorer::new(&q.query, cfg, chrono::Utc::now());
+    let mut hits = Vec::with_capacity(raw.len());
     for (id, dist) in raw {
         let Some(item) = super::store::get_or_synthesize_entity(conn, &id, blobs_dir)? else {
             continue;
         };
-        if let Some(ref k) = q.kind {
-            if item.kind != *k {
-                continue;
-            }
+        if !ranking::matches_filters(&item, q, cfg) {
+            continue;
         }
-        if let Some(ref s) = q.scope {
-            if item.scope != *s {
-                continue;
-            }
-        }
-        if let Some(ref a) = q.area {
-            if item.area.as_deref() != Some(a) {
-                continue;
-            }
-        }
-
-        let overlap = keyword_overlap(&keywords, &item);
-        let temporal_boost = match &temporal {
-            Some(days_ago) => temporal_boost_for(&item, *days_ago, now),
-            None => 0.0,
-        };
-        let importance_boost = ((item.importance - 3.0) / 5.0).max(0.0) * 0.20;
-        let recurrence_boost =
-            ((item.recurrence_count as f64) * cfg.recurrence_step).min(cfg.recurrence_cap);
-        let auto_penalty = if item.tags.iter().any(|t| t == "auto-extracted") {
-            1.0 / cfg.auto_extracted_penalty.max(1e-6)
-        } else {
-            1.0
-        };
-
-        let fused = dist
-            * (1.0 - cfg.vector_rerank_weight * overlap)
-            * (1.0 - temporal_boost)
-            * (1.0 - importance_boost)
-            * (1.0 - recurrence_boost)
-            * auto_penalty;
-
-        hits.push(SearchHit { item, score: fused });
+        let score = scorer.vector(&item, dist);
+        hits.push(SearchHit { item, score });
     }
-
-    hits.sort_by(|a, b| {
-        a.score
-            .partial_cmp(&b.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    ranking::sort_hits(&mut hits);
     hits.truncate(limit);
     Ok(hits)
 }

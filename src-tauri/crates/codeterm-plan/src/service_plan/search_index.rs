@@ -658,8 +658,8 @@ fn insert_unit(conn: &Connection, unit: &Unit) -> Result<(), String> {
         "INSERT INTO mem_items
          (id, uid, kind, scope, title, summary, area, tags_json, body_inline,
           body_blob_path, source, importance, created_at, updated_at, accessed_at,
-         is_pinned_wakeup)
-         VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'plan', ?6, ?7, NULL, ?8, 3.0, ?9, ?9, NULL, 0)",
+         is_pinned_wakeup, author_kind, author_label)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'plan', ?6, ?7, NULL, ?8, 3.0, ?9, ?9, NULL, 0, 'system', 'plan-index')",
         params![
             &unit.id,
             &unit.id,

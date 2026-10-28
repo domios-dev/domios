@@ -36,9 +36,9 @@ pub fn build_service_context(
     surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
     cap_registries: &crate::plugin::js_runtime::CapabilityRegistries,
 ) -> Arc<ServiceContext> {
-    let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
+    let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::with_manager(
         crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
-        mem.db_path().to_path_buf(),
+        mem.clone(),
     ));
 
     let input_parser = Arc::new(crate::service::input_parser::InputParser::new(
@@ -125,6 +125,7 @@ pub fn build_service_context(
         crate::usage::UsageStore::open(&crate::paths::data_dir()).expect("usage.db init");
 
     let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+    extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
     extensions.insert_service_slots();
     extensions.insert(states.config.clone());
     extensions.insert(states.mesh.clone());
