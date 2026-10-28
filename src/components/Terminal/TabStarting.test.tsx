@@ -25,6 +25,13 @@ function assertLoading(host: ReturnType<typeof parsed>, label?: string, role = "
   if (label) assert.equal(mark.getAttribute("aria-label"), label);
   assert.equal(host.querySelector('[data-activity-state]'), null);
 }
+/** A starting terminal is a whole area waiting: the shared branded Loader, not the small starting mark. */
+function assertAreaLoader(host: ReturnType<typeof parsed>, label: string) {
+  const status = host.querySelector(`[role="status"][aria-label="${label}"]`);
+  assert.ok(status, `the branded loader names ${label}`);
+  assert.ok(status.querySelector("canvas"), "with its dot matrix");
+  assert.equal(host.querySelector('[data-testid="tab-loading-mark"]'), null);
+}
 for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as const) {
   const starting = { ...tab, boot_stage };
   const attention = tabAttention(starting, "Working", []);
@@ -37,11 +44,11 @@ for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as co
   const chat = parsed(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="provider-token" />);
   assert.ok(chat.querySelector('[role="progressbar"][aria-valuetext]'));
   assert.ok(chat.querySelector('[role="status"][aria-label]'));
-  assertLoading(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), mark.label);
+  assertAreaLoader(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), mark.label);
   const composer = parsed(<AgentStateIndicator tab={starting} activity={tabActivity(starting, "Working")} />);
   assert.ok(composer.querySelector('[data-testid="agent-activity-slot"] [data-testid="tab-loading-mark"]'), "the starting mark sits in the fixed activity slot, so the model capsule never shifts");
 }
-assertLoading(parsed(<TabBootOverlay view={{ kind: "none" }} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />));
+assertAreaLoader(parsed(<TabBootOverlay view={{ kind: "none" }} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), "Terminal starting");
 const lazyComposerReady: Tab = {
   ...tab,
   pty_id: "own-pty",

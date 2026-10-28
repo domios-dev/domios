@@ -4,7 +4,7 @@ import { tabStartingLabel } from "../Sidebar/tabAttention";
 import { tabActivity, type TabActivity } from "../../lib/tabActivity";
 import type { Tab, Workspace } from "../../lib/types";
 import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
-import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
+import { Loader } from "../shared/Loader";
 
 export type TabBootOverlayView =
   | { kind: "none" }
@@ -103,9 +103,7 @@ export function TabBootOverlay({
         </div>
       ) : (
         (view.kind === "starting" || !shellReady && overlayVisible) && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2">
-            <TabLoadingIndicator label={view.kind === "starting" ? view.label : "Terminal starting"} />
-          </div>
+          <Loader variant="overlay" label={view.kind === "starting" ? view.label : "Terminal starting"} />
         )
       )}
     </div>
