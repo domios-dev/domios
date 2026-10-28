@@ -131,6 +131,7 @@ impl ServiceContext {
             metadata,
             &friendship,
             super::super::history::Entry {
+                handling: Default::default(),
                 direction: "out".into(),
                 author,
                 body: visible_body,

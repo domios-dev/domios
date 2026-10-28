@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 pub mod capabilities;
 mod confinement;
 mod delivery;
+mod handling;
 pub(crate) mod history;
 mod launch_fence;
 mod notifications;

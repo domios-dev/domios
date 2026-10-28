@@ -47,6 +47,8 @@ impl ServiceContext {
         self.tag_neighbor_root(&transport.uid, friendship, gateway)?;
         settings.bindings.insert(friendship.into(), gateway.into());
         metadata.save_settings(settings).await?;
+        self.reconcile_neighbor_handling_restore(metadata, friendship, generation)
+            .await?;
         if let Some(previous) = previous.filter(|previous| previous != gateway) {
             self.retire_neighbor_children(&previous)
                 .await
@@ -170,6 +172,8 @@ impl ServiceContext {
         }
         self.remember_neighbor_concierge_accounts(uid, &settings);
         if created.is_some() {
+            self.reconcile_neighbor_handling_restore(metadata, friendship, generation)
+                .await?;
             self.stop_neighbor_listeners();
             if let Some(old) = old.filter(|id| Some(id) != gateway_tab.as_ref()) {
                 if let Err(error) = self.close_tab_async(&old).await {
@@ -302,6 +306,9 @@ impl ServiceContext {
             let _ = self.close_tab_async(&tab).await;
             return Err(error.to_string());
         }
+        self.reconcile_neighbor_handling_restore(metadata, friendship, generation)
+            .await
+            .map_err(|error| error.to_string())?;
         if let Some(old) = old.filter(|old| old != &tab) {
             if let Err(error) = self.close_tab_async(&old).await {
                 self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);

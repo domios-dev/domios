@@ -113,6 +113,13 @@ Restored runtime concierges start in the background when this machine prepares r
 
 The account signal watch applies confirmed delivery and expiry events to local outgoing history and emits `neighbor-history-changed`. On reconnect or a signal revision gap, it checks delivery once for up to 256 locally pending outgoing messages across at most 200 locally configured friendships. It never polls delivery. Confirmed terminal delivery cannot regress to pending when an earlier send response arrives late.
 
+## Incoming message handling
+
+Each incoming history row may include `handling_state`, optional `handling_reason`, and `handling_updated_at` (Unix milliseconds). States are `waiting`, `delivered_to_concierge`, `working`, `answered`, `refused`, `no_reply`, `failed`, and `stopped`. Waiting rows identify `concierge_missing`, `paused` or `queued_for_concierge`. A runtime reply is matched to the exact message and turn; PTY handling follows the exact bound tab's real turn events. There are no handling timers. A turn ending without an accepted linked reply becomes `no_reply`; an unconfirmed delivery becomes `failed`. A confirmed later reply still updates its incoming row. Internal session, nonce and turn correlation are not returned in history.
+
+`neighbor-history-changed {friendship_id}` publishes handling transitions. Local status adds bounded `incoming_handling[friendship_id]` rows containing `message_id` and those handling fields, without message text. Verified messages waiting for a missing concierge can enter local history through the existing file-prefetch stream; they remain unacknowledged and are not sent to an agent. A resumed history read marks an interrupted older concierge binding as `failed` with `concierge_restarted`.
+
+The owner or General may call `{operation:"stop_concierge",friendship_id}` through the Neighbors runtime API. It bypasses network work, interrupts only that friend's exact bound concierge through the existing stop path, and returns `{friendship_id,gateway_tab,stopped,message_ids}`. Confirmed stopped requests become `stopped` with `owner_stopped`. Stop does not send an answer or refusal to the friend. Other agents cannot call this operation.
 ## Pause a friend
 
 The owner or General may call `{operation:"pause_friend",friendship_id}` or `{operation:"resume_friend",friendship_id}` on the Neighbors runtime API. Both return `{friendship_id,paused}`. Pausing blocks new messages and file grants from that friend on the server, including replies. You can still write to the friend and download files already published. Daily limits and permissions stay unchanged.
@@ -157,4 +164,4 @@ Use `POST /api/account/neighbors/files` with one of these JSON operations:
 
 `neighbor-files-changed` carries `friendship_id` when the local file index changes. Join files to conversation entries by `message_id`. `neighbor-file-daily-limit-changed` carries `friendship_id` and `file_daily_limit_bytes`. Local file listing and opening do not contact the relay. Each installation keeps its own saved files; changing the receiving machine does not copy them.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->

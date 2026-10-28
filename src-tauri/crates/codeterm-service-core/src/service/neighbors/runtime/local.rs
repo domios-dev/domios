@@ -35,7 +35,7 @@ impl ServiceContext {
         self.authorize_neighbor_metadata(command, caller, nonce, &metadata)
             .await?;
         let value = self
-            .neighbor_local_metadata(command, &metadata)
+            .neighbor_local_metadata(command, &metadata, generation)
             .await
             .map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;
@@ -49,6 +49,7 @@ impl ServiceContext {
         &self,
         command: &NeighborRuntimeCommand,
         metadata: &Metadata,
+        generation: u64,
     ) -> codeterm_neighbors::Result<Value> {
         match command {
             NeighborRuntimeCommand::History {
@@ -56,9 +57,14 @@ impl ServiceContext {
                 before,
                 limit,
             } => {
-                metadata
+                self.reconcile_neighbor_handling_restore(metadata, friendship_id, generation)
+                    .await?;
+                let page = metadata
                     .history_page(friendship_id, before.as_deref(), limit.unwrap_or(50))
-                    .await
+                    .await?;
+                let summary=page["entries"].as_array().map(|entries|entries.iter().filter(|entry|entry["direction"]=="in"&&!entry["handling_state"].is_null()).map(|entry|json!({"message_id":entry["message_id"],"handling_state":entry["handling_state"],"handling_reason":entry["handling_reason"],"handling_updated_at":entry["handling_updated_at"]})).collect::<Vec<_>>()).unwrap_or_default();
+                self.remember_neighbor_handling(friendship_id, json!(summary), generation);
+                Ok(page)
             }
             NeighborRuntimeCommand::Permission { friendship_id } => {
                 if !hex_id(friendship_id, 64) {
@@ -115,7 +121,7 @@ impl ServiceContext {
                     })
                     .collect::<codeterm_neighbors::Result<_>>()?;
                 Ok(
-                    json!({"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
+                    json!({"incoming_handling":self.neighbor_handling_status(),"enabled":self.configuration().neighbors.enabled,"enrolled":key.is_some(),"verifier_key_id":key,"bindings":settings.bindings,"permissions":permissions,"concierges":concierges,"notification_preferences":notification_preferences,"listeners":states,"listener_errors":failures,"receiving_here":here,"receiver_machine_label":receiver.as_ref().and_then(|receiver| receiver.receiver_machine_label.clone()),"receiving_enabled":receiver.as_ref().is_some_and(|receiver| receiver.receiving_enabled),"revision":receiver.as_ref().map(|receiver| receiver.receiver_revision).unwrap_or(0),"receiver_status_known":receiver.is_some()}),
                 )
             }
             _ => Err(Error::InvalidEnvelope),

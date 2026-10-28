@@ -103,6 +103,7 @@ impl InboxSession for Session {
         self.current()?;
         let lifecycle = self.keys();
         let gateway = gateway::Gateway {
+            history_generation: self.service.neighbor_history_generation(),
             service: self.service.clone(),
             metadata: self.metadata.clone(),
             friendship: self.friendship.clone(),

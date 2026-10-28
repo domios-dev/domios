@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: usize = 768 * 1024;
+pub(crate) mod handling;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -20,6 +21,8 @@ pub(super) enum Author {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub(super) struct Entry {
+    #[serde(default, flatten)]
+    pub handling: handling::Handling,
     pub direction: String,
     pub author: Author,
     pub sender_uid: String,
@@ -94,8 +97,14 @@ impl History {
         {
             return Ok(false);
         }
+        let at = entry.at;
         self.entries.push(entry);
-        self.reconcile_outcomes();
+        self.reconcile_outcomes(at);
+        self.bound()?;
+        Ok(true)
+    }
+
+    pub(super) fn bound(&mut self) -> Result<()> {
         while self.entries.len() > MAX_ENTRIES
             || serde_json::to_vec(self)
                 .map_err(|_| Error::CursorStore)?
@@ -104,10 +113,10 @@ impl History {
         {
             self.entries.remove(0);
         }
-        Ok(true)
+        Ok(())
     }
 
-    fn reconcile_outcomes(&mut self) {
+    pub(super) fn reconcile_outcomes(&mut self, at: u64) {
         let mut outcomes = BTreeMap::new();
         for reply in self.entries.iter().filter(|entry| {
             entry.direction == "out"
@@ -135,6 +144,7 @@ impl History {
             let outcome = outcomes.get(&incoming.message_id);
             incoming.outcome = outcome.map(|(outcome, _)| outcome.clone());
             incoming.reason = outcome.and_then(|(_, reason)| reason.clone());
+            incoming.handling.outcome(incoming.outcome.as_deref(), at);
         }
     }
 
@@ -146,7 +156,15 @@ impl History {
                 .unwrap_or(0)
         });
         let start = end.saturating_sub(limit.clamp(1, 100));
-        let entries: Vec<_> = self.entries[start..end].iter().rev().collect();
+        let entries: Vec<_> = self.entries[start..end]
+            .iter()
+            .rev()
+            .filter_map(|entry| {
+                let mut value = serde_json::to_value(entry).ok()?;
+                value.as_object_mut()?.remove("handling_owner");
+                Some(value)
+            })
+            .collect();
         let next = (start > 0).then(|| self.entries[start].message_id.clone());
         json!({"entries":entries,"next_before":next,"ended":self.ended})
     }
@@ -210,7 +228,7 @@ impl Metadata {
 }
 
 #[derive(Default)]
-pub(crate) struct HistoryCell(tokio::sync::Mutex<()>);
+pub(crate) struct HistoryCell(pub(super) tokio::sync::Mutex<()>);
 
 impl ServiceContext {
     pub(super) async fn refresh_active_neighbor_history(
@@ -298,6 +316,7 @@ impl ServiceContext {
         if !changed {
             return Ok(());
         }
+        let handling = super::handling::summary(&history);
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)
@@ -321,6 +340,7 @@ impl ServiceContext {
             self.require_neighbor_history_generation(generation)?;
             metadata.write(index_path, index).await?;
         }
+        self.remember_neighbor_handling(friendship, handling, generation);
         self.ui.emit(
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),
@@ -416,11 +436,13 @@ impl ServiceContext {
             entry.resets_at = refusal.resets_at;
             entry.retry_after_seconds = refusal.retry_after_seconds;
         }
-        history.reconcile_outcomes();
+        history.reconcile_outcomes(chrono::Utc::now().timestamp_millis().max(0) as u64);
+        let handling = super::handling::summary(&history);
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)
             .await?;
+        self.remember_neighbor_handling(friendship, handling, generation);
         self.ui.emit(
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),
@@ -446,10 +468,23 @@ impl ServiceContext {
             return Ok(());
         }
         history.ended = true;
+        for entry in history
+            .entries
+            .iter_mut()
+            .filter(|entry| entry.direction == "in" && entry.handling.active())
+        {
+            entry.handling.set(
+                handling::State::Failed,
+                Some("friendship_ended"),
+                super::handling::now(),
+            );
+        }
+        let handling = super::handling::summary(&history);
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)
             .await?;
+        self.remember_neighbor_handling(friendship, handling, generation);
         self.ui.emit(
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),

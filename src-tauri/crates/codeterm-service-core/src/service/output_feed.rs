@@ -120,6 +120,7 @@ impl ServiceContext {
         self.output_stream_pty_changed(pty_id);
         let tab_id = self.mux.read().tab_id_for_pty(pty_id);
         if let Some(ref pid) = tab_id {
+            self.observe_neighbor_pty_handling(pid, now);
             if now == TabStatus::Idle {
                 self.apply_staged_model_switch_on_idle(pid);
             }
