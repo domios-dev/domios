@@ -88,6 +88,7 @@ General Agent only: deny this Neighbor's requests
 Receive Neighbors on this machine; other machines stop receiving
 
 - `--confirm-takeover`
+- `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
 
 #### `domios account neighbors grant`
 
@@ -491,9 +492,10 @@ Show immutable definition versions
 
 #### `domios blueprint import`
 
-Import a native v2 recipe into the caller's Team (stopped by default)
+Import a native v2 recipe into the caller's scope (stopped by default)
 
 - `<file>`
+- `--scope` — Destination: general, workspace:<id>, or team:<id>; caller must belong to it
 - `--set`
 - `--start` — Start immediately after validation
 - `--stopped`

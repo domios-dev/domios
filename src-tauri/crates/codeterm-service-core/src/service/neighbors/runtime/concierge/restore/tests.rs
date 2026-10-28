@@ -42,17 +42,23 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
                 &metadata,
                 "owner",
                 &friend,
-                |provider, model, cwd, access| async move {
+                |provider, model, cwd, grant, resume| async move {
+                    assert!(resume.is_none());
                     invoked.fetch_add(1, Ordering::SeqCst);
                     assert_eq!(provider.as_deref(), Some("advisory-provider"));
                     assert_eq!(model.as_deref(), Some("opaque-model"));
-                    assert_eq!(access, MachineAccess::ReadOnly);
+                    assert_eq!(
+                        grant.machine_access,
+                        codeterm_neighbors::permissions::MachineAccess::ReadOnly
+                    );
                     let mut mux = service.mux.write();
                     let id = mux.create_tab(&workspace).unwrap();
                     let tab = mux.get_tab_mut(&id).unwrap();
                     tab.agent_type = provider;
                     tab.agent_session_model = model;
                     tab.cwd = Some(cwd);
+                    tab.restorable_launch.identity_instructions =
+                        Some(initial_prompt::initial_prompt(&"a".repeat(64), &grant));
                     Ok(id)
                 },
             )
@@ -88,7 +94,7 @@ async fn older_concierge_is_replaced_in_friend_folder_without_losing_permissions
             .neighbor_authority
             .is_some());
         service
-            .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _| async {
+            .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _, _| async {
                 Err("matching launch must not respawn".into())
             })
             .await
@@ -114,7 +120,7 @@ async fn failed_replacement_keeps_the_old_binding_and_permissions() {
         .insert(friend.clone(), Permission::default());
     metadata.save_settings(settings.clone()).await.unwrap();
     assert!(service
-        .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _| async {
+        .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _, _| async {
             Err("injected launch failure".into())
         })
         .await
@@ -166,11 +172,25 @@ async fn startup_retires_only_superseded_roots_into_recently_closed() {
     service.mux.write().get_tab_mut(&tabs[1]).unwrap().cwd = Some(cwd);
     let mut settings = crate::service::neighbors::storage::Settings::default();
     settings.bindings.insert(friend.clone(), tabs[1].clone());
+    service
+        .mux
+        .write()
+        .get_tab_mut(&tabs[1])
+        .unwrap()
+        .restorable_launch
+        .identity_instructions = Some(initial_prompt::initial_prompt(&friend, &permission));
+    settings.initial_contexts.insert(
+        friend.clone(),
+        crate::service::neighbors::storage::InitialContext {
+            gateway_tab: tabs[1].clone(),
+            digest: initial_prompt::digest(&friend, &permission),
+        },
+    );
     settings.permissions.insert(friend.clone(), permission);
     metadata.save_settings(settings).await.unwrap();
     for _ in 0..2 {
         service
-            .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _| async {
+            .restore_neighbor_concierge_with(&metadata, "owner", &friend, |_, _, _, _, _| async {
                 Err("current launch must not be replaced".into())
             })
             .await

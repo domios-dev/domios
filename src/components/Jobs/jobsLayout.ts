@@ -4,6 +4,10 @@ import { NO_JOBS_FILTER, type JobsFilter } from "./jobsModel";
 export interface JobsWorkspace {
   id: string;
   name: string;
+  /** General, the machine's protected home. */
+  protected?: boolean;
+  /** The workspace's tabs, so an import can tell where a tab lives. */
+  tabs?: readonly string[];
 }
 
 /** Where the view was opened from. It decides only the initial filter, never the layout. */

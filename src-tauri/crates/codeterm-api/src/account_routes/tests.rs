@@ -2,6 +2,7 @@ use super::*;
 
 mod neighbor_authority;
 mod neighbor_files;
+mod neighbor_read;
 
 #[tokio::test]
 async fn recipient_pause_returns_a_typed_conflict_without_limit_metadata() {
@@ -726,6 +727,38 @@ async fn receiver_refusals_retain_machine_readable_codes() {
         neighbor_failure("unavailable".into()).status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+}
+
+#[tokio::test]
+async fn refusal_preflight_errors_report_nothing_sent_and_keep_byte_counts() {
+    for (error, status, reason) in [
+        (
+            "refusal_too_long: {\"limit\":1024,\"actual\":1025}",
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "refusal_too_long",
+        ),
+        (
+            "reply_target_unknown: Nothing was sent. Reply to a known incoming message",
+            StatusCode::BAD_REQUEST,
+            "reply_target_unknown",
+        ),
+    ] {
+        let response = neighbor_failure(error.to_string());
+        assert_eq!(response.status(), status);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(body["code"], reason);
+        assert!(body["message"]
+            .as_str()
+            .unwrap()
+            .contains("Nothing was sent"));
+        if reason == "refusal_too_long" {
+            assert_eq!(body["limit"], 1024);
+            assert_eq!(body["actual"], 1025);
+        }
+    }
 }
 
 #[tokio::test]

@@ -8,6 +8,7 @@ mod local;
 pub(crate) mod logout;
 mod owner;
 mod pending;
+mod read;
 mod receiver;
 mod restoration;
 mod send;
@@ -31,6 +32,7 @@ use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
+    pub(super) handling: super::handling::Cell,
     pub(super) launches: Arc<super::launch_fence::State>,
     pub(super) pauses: super::pause::State,
     pub(super) concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
@@ -60,6 +62,9 @@ pub enum NeighborRuntimeCommand {
         message_id: String,
         reason: String,
         category: super::FlagCategory,
+    },
+    StopConcierge {
+        friendship_id: String,
     },
     PauseFriend {
         friendship_id: String,
@@ -294,6 +299,9 @@ impl ServiceContext {
         }
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
+        if let NeighborRuntimeCommand::StopConcierge { friendship_id } = &command {
+            return self.stop_neighbor_concierge(friendship_id).await;
+        }
         if let NeighborRuntimeCommand::Send { body, .. } = &command {
             codeterm_neighbors::wire::validate_message_size(body)
                 .map_err(|error| error.to_string())?;
@@ -372,6 +380,7 @@ impl ServiceContext {
         );
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
+                NeighborRuntimeCommand::StopConcierge { .. } => Err(Error::InvalidRequest),
                 NeighborRuntimeCommand::PauseFriend { friendship_id } => {
                     self.set_neighbor_paused(
                         &transport,
@@ -903,6 +912,7 @@ impl ServiceContext {
         self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
         self.neighbor_cell().pauses.clear();
+        self.neighbor_cell().handling.clear();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();
         }

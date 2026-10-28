@@ -351,6 +351,7 @@ fn cron_job(run: CronRunInfo) -> CronJob {
 
 fn run_info(run_id: &str, tab_id: &str) -> CronRunInfo {
     CronRunInfo {
+        cancel_reason: None,
         run_id: run_id.into(),
         started_at: 1_000,
         finished_at: None,

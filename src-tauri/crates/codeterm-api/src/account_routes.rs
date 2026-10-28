@@ -293,6 +293,36 @@ fn file_failure(message: &str) -> Option<Response> {
     Some((status, Json(details)).into_response())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NeighborRead {
+    friendship_id: String,
+    through_message_id: String,
+}
+
+pub async fn neighbor_read(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(command): Json<NeighborRead>,
+) -> Result<Json<serde_json::Value>, Response> {
+    if !matches!(
+        caller.as_ref().map(|caller| &caller.0),
+        Some(CallerIdentity::Local)
+    ) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Owner conversation visibility is local-only",
+        )
+            .into_response());
+    }
+    state
+        .svc
+        .neighbor_mark_read(command.friendship_id, command.through_message_id)
+        .await
+        .map(Json)
+        .map_err(neighbor_failure)
+}
+
 pub async fn neighbor_files(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
@@ -322,6 +352,13 @@ fn neighbor_failure(message: String) -> Response {
         if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
             if let Some(limit) = data["limit"].as_u64() {
                 return (StatusCode::PAYLOAD_TOO_LARGE, Json(serde_json::json!({"code":"message_too_large","reason":"message_too_large","limit":limit,"message":format!("Neighbor messages allow at most {limit} UTF-8 bytes")}))).into_response();
+            }
+        }
+    }
+    if let Some(detail) = message.strip_prefix("refusal_too_long:") {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+            if let (Some(limit), Some(actual)) = (data["limit"].as_u64(), data["actual"].as_u64()) {
+                return (StatusCode::PAYLOAD_TOO_LARGE, Json(serde_json::json!({"code":"refusal_too_long","reason":"refusal_too_long","limit":limit,"actual":actual,"message":format!("Nothing was sent. The refusal is {actual} UTF-8 bytes; the limit is {limit}. Shorten it and resend once.")}))).into_response();
             }
         }
     }
@@ -359,7 +396,7 @@ fn neighbor_failure(message: String) -> Response {
         ) => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
         Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
-        Some("limit_out_of_range") => StatusCode::BAD_REQUEST,
+        Some("limit_out_of_range" | "reply_target_unknown") => StatusCode::BAD_REQUEST,
         Some(
             "invalid_request"
             | "neighbor_machine_access_unsupported"

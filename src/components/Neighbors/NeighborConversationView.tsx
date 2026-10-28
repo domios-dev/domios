@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, Paperclip } from "lucide-react";
+import { Bot, Check, CheckCheck, Flag, Paperclip } from "lucide-react";
 import { ChatDaySeparator, formatMessageTime, ReplyQuote, RichMarkdown } from "@codeterm/chat-ui";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
@@ -9,6 +9,8 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { BusyState } from "../shared/BusyState";
+import { RegionLoader } from "../shared/RegionLoader";
+import { ChatDeliveryState } from "../Terminal/ChatDeliveryState";
 import { UI_PANEL } from "../shared/design";
 import { ActivityDots } from "../shared/ActivityDots";
 import { AgentIcon } from "../AgentIcon";
@@ -17,10 +19,12 @@ import { tabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
-import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { flagNeighborMessage, markNeighborRead, neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
+import { flagLine, NeighborFlagDialog } from "./NeighborFlagDialog";
+import { useNeighborReadReceipt } from "./useNeighborReadReceipt";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
-import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, DELIVERY_LABEL, mergeHistory, readableBody, refusalLine, speaker, type ConciergeWorkEntry } from "./neighborConversationModel";
+import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, landedSends, mergeHistory, readableBody, receiptMark, refusalLine, speaker, type ConciergeWorkEntry, type OutgoingSend, type ReceiptMark } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { useNeighborGateway } from "./neighborGateways";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
@@ -35,8 +39,10 @@ import { formatBytes, neighborFilesClient, NeighborFilesFailure, type NeighborFi
 import { receivingLine, useReceiverState } from "./useReceiverState";
 
 /** Your conversation with one Neighbor: what they asked, what you and your agents answered, and how it was delivered. */
-export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient = neighborFilesClient }: {
+export function NeighborConversationView({ friendship, enabled = true, client, runtimeClient = neighborRuntimeClient, conciergeClient = neighborConciergeClient, filesClient = neighborFilesClient, markRead = markNeighborRead, flagMessage = flagNeighborMessage }: {
   friendship: string; enabled?: boolean; client?: NeighborClient; runtimeClient?: NeighborRuntimeClient; conciergeClient?: NeighborConciergeClient; filesClient?: NeighborFilesClient;
+  markRead?: (friendship: string, throughMessageId: string) => Promise<void>;
+  flagMessage?: typeof flagNeighborMessage;
 }) {
   const { model } = useAccount();
   const identity = model.kind === "signed_in" ? model.identity.uid : null;
@@ -56,7 +62,7 @@ export function NeighborConversationView({ friendship, enabled = true, client, r
     ?? { friendship_id: friendship, uid: friendship, displayName: "Former Neighbor", photoURL: null };
   const access = neighbors.list?.access ?? cached?.access;
   return <Conversation key={friendship} friend={shown} removed={removed} locked={access !== "paid"} enabled={enabled}
-    runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient} onSent={neighbors.refresh} />;
+    runtimeClient={runtimeClient} conciergeClient={conciergeClient} filesClient={filesClient} markRead={markRead} flagMessage={flagMessage} onSent={neighbors.refresh} />;
 }
 
 /** A friend from the fresh list, or the remembered one while it loads. */
@@ -64,9 +70,9 @@ type ConversationFriend = CachedFriend & Partial<Omit<Neighbor, keyof CachedFrie
 
 const MESSAGE_LIMIT_BYTES = 32752;
 
-function Conversation({ friend, removed, locked, enabled, runtimeClient, conciergeClient, filesClient, onSent }: {
+function Conversation({ friend, removed, locked, enabled, runtimeClient, conciergeClient, filesClient, markRead, flagMessage, onSent }: {
   friend: ConversationFriend; removed: boolean; locked: boolean; enabled: boolean; runtimeClient: NeighborRuntimeClient; conciergeClient: NeighborConciergeClient;
-  filesClient: NeighborFilesClient; onSent: () => void;
+  filesClient: NeighborFilesClient; markRead: (friendship: string, throughMessageId: string) => Promise<void>; flagMessage: typeof flagNeighborMessage; onSent: () => void;
 }) {
   const name = neighborName(friend);
   const friendship = friend.friendship_id;
@@ -92,6 +98,7 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   // Their html and diagrams run only when the owner allowed interactive content from this friend.
   const friendInteractive = permission?.allow_interactive_content === true;
   const [checking, setChecking] = useState<string | null>(null);
+  const [flagging, setFlagging] = useState<string | null>(null);
   const checkDelivery = (messageId: string) => {
     if (checking) return;
     setChecking(messageId); setError(null);
@@ -119,11 +126,15 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The General Agent could not be reached."));
   };
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
+  // Sent messages show at once; each becomes its history entry when that lands, keeping its bubble.
+  const [outgoing, setOutgoing] = useState<OutgoingSend[]>([]);
   const [before, setBefore] = useState<string | null>(null);
   // An ended friendship keeps its history readable but takes no new messages.
   const [historyEnded, setEnded] = useState(false);
   const ended = historyEnded || removed;
   const [error, setError] = useState<string | null>(null);
+  // Until the first history read succeeds there is nothing to call empty: a loader, or its failure with a retry.
+  const [historyFailure, setHistoryFailure] = useState<string | null>(null);
   const [notify, changeNotify] = useNeighborNotify(conciergeClient, friendship, friend.notify, setError);
   const [sending, setSending] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
@@ -138,8 +149,14 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
       setEnded(page.ended);
       if (!paged.current) { paged.current = true; setBefore(page.next_before); }
       setError(null);
-    } catch (failure: unknown) { setError(failure instanceof Error ? failure.message : "The conversation could not be loaded."); }
+      setHistoryFailure(null);
+    } catch (failure: unknown) {
+      const message = failure instanceof Error ? failure.message : "The conversation could not be loaded.";
+      if (paged.current) setError(message);
+      else setHistoryFailure(message);
+    }
   }, [conciergeClient, friendship]);
+  const retryHistory = () => { setHistoryFailure(null); void loadLatest(); };
 
   useEffect(() => {
     void loadLatest();
@@ -153,7 +170,8 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   useEffect(() => {
     const element = scroller.current;
     if (element && stickToEnd.current) element.scrollTop = element.scrollHeight;
-  }, [entries]);
+  }, [entries, outgoing]);
+  useNeighborReadReceipt(scroller, entries, friendship, markRead);
 
   const loadEarlier = async () => {
     if (!before) return;
@@ -166,6 +184,14 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   };
 
   const byId = new Map((entries ?? []).map(entry => [entry.message_id, entry]));
+  const bubbleKeys = useRef(new Map<string, string>());
+  const landed = entries ? landedSends(outgoing, entries, new Set(bubbleKeys.current.values())) : new Map<string, string>();
+  const bubbleKey = (messageId: string) => bubbleKeys.current.get(messageId)
+    ?? [...landed].find(([, id]) => id === messageId)?.[0] ?? messageId;
+  const pendingSends = outgoing.filter(item => !landed.has(item.key));
+  const pendingByKey = new Map(pendingSends.map(item => [item.key, item]));
+  const shown: HistoryEntry[] = [...(entries ?? []), ...pendingSends.map((item): HistoryEntry =>
+    ({ direction: "out", kind: "question", author: "me", body: item.body, at: item.at, message_id: item.key }))];
   const work = conciergeWork(entries ?? [], { working: tabWorking, missing: enabled && concierge?.concierge_missing === true && !conciergeTab });
   const conciergeWorking = enabled && [...work.values()].some(entry => activeWork(entry.work));
   const scrollTo = (messageId: string) => document.getElementById(`neighbor-msg-${messageId}`)?.scrollIntoView({ block: "center", behavior: "smooth" });
@@ -177,27 +203,47 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
   const paused = usePausedFriends(conciergeClient)(friendship, listedPaused(friend));
   const theyPaused = friend.their_paused === true;
   const canSend = enabled && !locked && !limitReached && !ended && !theyPaused;
+  const sendCount = useRef(0);
+  useEffect(() => {
+    if (landed.size === 0) return;
+    for (const [key, id] of landed) bubbleKeys.current.set(id, key);
+    setOutgoing(current => current.filter(item => !landed.has(item.key)));
+  });
+  const settleSend = (key: string, change: Partial<OutgoingSend>) => setOutgoing(current => current.map(item => item.key === key ? { ...item, ...change } : item));
+  const deliver = async (key: string, body: string) => {
+    try {
+      const receipt = await runtimeClient.send(friendship, body);
+      settleSend(key, { messageId: receipt.message_id });
+      onSent();
+    } catch (failure: unknown) {
+      // Only a refusal the runtime named proves nothing went out; anything else may have, so it stays sending and is never sent again.
+      if (failure instanceof NeighborRuntimeFailure && (failure.reason !== "unavailable" || failure.refusal)) {
+        const refused = failure.refusal;
+        const resetsAt = refused?.resets_at === undefined ? undefined : refused.resets_at < 1e12 ? refused.resets_at * 1000 : refused.resets_at;
+        const line = refused ? refusalLine({ direction: "out", kind: "question", author: "me", body: "", at: Date.now(), message_id: "", reason: refused.reason,
+          limit: refused.limit, resets_at: resetsAt, retry_after_seconds: refused.retry_after_seconds }, name, Date.now()) : null;
+        settleSend(key, { state: "failed", reason: line ?? failure.message });
+      } else settleSend(key, { uncertain: true });
+    }
+    await loadLatest();
+  };
   const send = async (body: string): Promise<boolean> => {
-    if (sending || !canSend) return false;
+    if (!canSend) return false;
     // The encrypted envelope carries at most 32752 UTF-8 bytes of text; the draft stays for trimming.
     if (new TextEncoder().encode(body).length > MESSAGE_LIMIT_BYTES) {
       setError(`This message is too long for ${name}. Keep it under 32 KB.`);
       return false;
     }
-    setSending(true); setError(null); stickToEnd.current = true;
-    try {
-      await runtimeClient.send(friendship, body);
-      onSent();
-      await loadLatest();
-      return true;
-    } catch (failure: unknown) {
-      const refused = failure instanceof NeighborRuntimeFailure ? failure.refusal : undefined;
-      const resetsAt = refused?.resets_at === undefined ? undefined : refused.resets_at < 1e12 ? refused.resets_at * 1000 : refused.resets_at;
-      const line = refused ? refusalLine({ direction: "out", kind: "question", author: "me", body: "", at: Date.now(), message_id: "", reason: refused.reason,
-        limit: refused.limit, resets_at: resetsAt, retry_after_seconds: refused.retry_after_seconds }, name, Date.now()) : null;
-      setError(line ?? (failure instanceof Error ? failure.message : "The message was not sent."));
-      return false;
-    } finally { setSending(false); }
+    const key = `outgoing-${++sendCount.current}`;
+    setError(null); stickToEnd.current = true;
+    setOutgoing(current => [...current, { key, body, at: Date.now(), state: "sending" }]);
+    void deliver(key, body);
+    return true;
+  };
+  // Retrying is the owner's choice and only follows a proven refusal, so the failed bubble gives way to a fresh send.
+  const retrySend = (item: OutgoingSend) => {
+    setOutgoing(current => current.filter(entry => entry.key !== item.key));
+    void send(item.body);
   };
   const sendFiles = async (body: string, paths: string[]): Promise<boolean> => {
     if (sending || !canSend) return false;
@@ -245,23 +291,30 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
     }}>
       <div className="neighbor-chat__column" role="log" aria-label={`Conversation with ${name}`}>
         {before && <div className="neighbor-chat__earlier"><Button size="sm" onClick={() => { void loadEarlier(); }}>Show earlier messages</Button></div>}
-        {(entries === null || entries.length === 0) && !error && <div className="neighbor-chat__empty">
+        {entries === null && !historyFailure && <RegionLoader label="Loading the conversation" className="min-h-48" />}
+        {entries === null && historyFailure && <InlineErrorNotice error={historyFailure} operation={`loading your conversation with ${name}`}
+          actions={[{ label: "Retry", onClick: retryHistory }]} />}
+        {entries !== null && entries.length === 0 && pendingSends.length === 0 && !error && <div className="neighbor-chat__empty">
           <p className="neighbor-me__title">{removed ? "No longer connected" : "No messages yet"}</p>
           <p className="neighbor-me__hint">{removed ? `You and ${name} are no longer Neighbors.` : `Say hi to ${name}. Your concierge answers their agents within the permissions you set.`}</p>
         </div>}
-        {(entries ?? []).map((entry, index) => {
-          const day = dayLabel(entry.at, index > 0 ? entries![index - 1].at : null);
+        {shown.map((entry, index) => {
+          const day = dayLabel(entry.at, index > 0 ? shown[index - 1].at : null);
+          const pending = pendingByKey.get(entry.message_id);
           const quoted = entry.in_reply_to ? byId.get(entry.in_reply_to) : undefined;
           const filesOf = (item: HistoryEntry) => files.filter(file => file.message_id === item.message_id);
-          return <Fragment key={entry.message_id}>
+          return <Fragment key={bubbleKey(entry.message_id)}>
             {day && <ChatDaySeparator label={day} />}
             <Entry entry={entry} friend={friend} friendName={name} agentLabel={agentLabel(entry)}
               files={filesOf(entry)}
-              onOpenFile={file => { void filesClient.open(friendship, file.file_id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file could not be opened.")); }} grouped={!day && continuesGroup(entry, index > 0 ? entries![index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
+              onOpenFile={file => { void filesClient.open(friendship, file.file_id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : "The file could not be opened.")); }} grouped={!day && continuesGroup(entry, index > 0 ? shown[index - 1] : null)} interactive={friendInteractive && entry.direction === "in" && entry.author === "friend"}
               checking={checking === entry.message_id} onCheckDelivery={() => checkDelivery(entry.message_id)} quoted={quoted ? { label: speaker(quoted, name), excerpt: readableBody(quoted.body, new Set(filesOf(quoted).map(file => file.file_id))) } : null}
               onOpenQuoted={() => scrollTo(entry.in_reply_to!)}
-              footer={work.has(entry.message_id) && <ConciergeWorkLine work={work.get(entry.message_id)!} tab={conciergeTab}
-                canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />} />
+              standing={work.has(entry.message_id) && <ConciergeWorkLine work={work.get(entry.message_id)!} tab={conciergeTab}
+                canStop={enabled} stopping={stopping} onStop={stopConcierge} onOpenReply={scrollTo} />}
+              settled={work.has(entry.message_id) && settledWork(work.get(entry.message_id)!.work)}
+              outgoing={pending && { state: pending.state, reason: pending.reason, onRetry: () => retrySend(pending) }}
+              onFlag={entry.direction === "in" && !pending ? () => setFlagging(entry.message_id) : undefined} />
           </Fragment>;
         })}
       </div>
@@ -286,20 +339,29 @@ function Conversation({ friend, removed, locked, enabled, runtimeClient, concier
           : limitReached ? "Daily limit reached" : `Message ${name}`}
         onSend={send} onSendFiles={sendFiles} />
     </div>
+    {flagging && <NeighborFlagDialog name={name} onClose={() => setFlagging(null)}
+      onFlag={(category, reason) => flagMessage(friendship, flagging, category, reason).then(() => loadLatest())} />}
   </div>;
 }
 
-function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, footer }: {
+function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, grouped, interactive, checking, onCheckDelivery, quoted, onOpenQuoted, standing, settled, outgoing, onFlag }: {
   entry: HistoryEntry; friend: ConversationFriend; friendName: string; agentLabel: string; files: NeighborFile[]; onOpenFile: (file: NeighborFile) => void; grouped: boolean; interactive: boolean; checking: boolean; onCheckDelivery: () => void;
-  quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void; footer?: ReactNode;
+  quoted: { label: string; excerpt: string } | null; onOpenQuoted: () => void;
+  /** Your concierge's standing on this message: inside the time row once settled, its own line while under way. */
+  standing?: ReactNode; settled?: boolean;
+  /** A send history has not shown yet: the shared delivery dot, or the refusal that proved it never went out. */
+  outgoing?: { state: "sending" | "failed"; reason?: string; onRetry: () => void };
+  /** Messages from them can be flagged by you from their menu. */
+  onFlag?: () => void;
 }) {
   const time = formatMessageTime(entry.at);
   const author = authorKind(entry);
   const mine = entry.direction === "out";
-  const refusal = mine ? refusalLine(entry, friendName, Date.now()) : null;
+  const refusal = outgoing?.state === "failed" ? outgoing.reason ?? "Not sent." : mine ? refusalLine(entry, friendName, Date.now()) : null;
   const refused = entry.kind === "refusal" || entry.outcome === "refused" || refusal !== null;
-  // The relay accepted it and delivery is awaited; "sending" is only for before acceptance.
-  const sent = entry.delivery_status === "pending" && entry.submission === "accepted";
+  // Sending until the relay accepted it, then one tick, two once delivered, accent once read.
+  const mark = receiptMark(entry);
+  const flagged = !mine && entry.flags?.length ? flagLine(entry.flags) : null;
   const agentName = typeof entry.author === "object" ? agentLabel : `${friendName}'s concierge`;
   const avatar = grouped ? <span className="neighbor-msg__avatar" aria-hidden="true" />
     : author === "me" || author === "my-agent" ? null
@@ -307,30 +369,47 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
       <AccountAvatar url={friend.photoURL} initial={accountInitials(friendName)} label="" size="node" />
       {author === "friend-agent" && <span className="neighbor-msg__badge"><Bot size={8} aria-hidden="true" /></span>}
     </span>;
-  return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-side={mine ? "out" : "in"} data-author={author}
+  return <div id={`neighbor-msg-${entry.message_id}`} className="neighbor-msg" data-message-id={entry.message_id} data-side={mine ? "out" : "in"} data-author={author}
     data-kind={entry.kind} data-grouped={grouped || undefined} data-refused={refused || undefined}
     aria-label={author === "me" ? "You" : author === "my-agent" ? agentName : author === "friend-agent" ? agentName : friendName}>
     {!mine && avatar}
     <div className="neighbor-msg__stack">
       {author === "my-agent" && !grouped && <p className="neighbor-msg__caption">{agentLabel}</p>}
       {entry.kind === "tab_request" && <p className="neighbor-note">asked to open a tab</p>}
-      {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
       <div className={mine ? "ct-user-bubble neighbor-msg__bubble" : "neighbor-msg__bubble"}>
+        {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
         <RichMarkdown text={readableBody(entry.body, new Set(files.map(file => file.file_id)))} localArtifacts={false} interactivePreviews={interactive} />
+        {outgoing ? <ChatDeliveryState state={outgoing.state} onRetry={outgoing.onRetry} /> : mark === "sending" && <ChatDeliveryState state="sending" />}
       </div>
       {files.length > 0 && <div className="neighbor-files" role="list" aria-label="Files">{files.map(file => <FileChip key={file.file_id} file={file} onOpen={onOpenFile} />)}</div>}
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
-        {mine && refusal ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />{refusal}</span>
-        : mine && entry.delivery_status && <span className="neighbor-status"><span className="neighbor-dot"
-          data-tone={entry.delivery_status === "delivered" ? "ok" : sent ? "muted" : entry.delivery_status === "pending" ? "progress" : "danger"} aria-hidden="true" />
-          {sent ? "sent" : DELIVERY_LABEL[entry.delivery_status]}</span>}
+        {mine && (refusal || mark === "not_delivered") ? <span className="neighbor-work neighbor-work--inline" data-work="refused">
+          <span className="neighbor-work__text" title={refusal ?? undefined}>{refusal ?? "Not delivered"}</span></span>
+        : mark && mark !== "sending" && mark !== "not_delivered" && <ReceiptTicks mark={mark} at={mark === "read" ? entry.read_at! : mark === "delivered" ? entry.delivered_at ?? null : entry.at} />}
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
+        {settled && standing}
+        {flagged && <span className="neighbor-work neighbor-work--inline" data-work="flagged">
+          <Flag size={11} aria-hidden="true" /><span className="neighbor-work__text" title={flagged.detail}>{flagged.text}</span></span>}
+        {onFlag && <DropdownMenu className="neighbor-msg__menu" menuLabel="Message actions" items={[{ label: "Flag message…", onClick: onFlag }]}
+          trigger={<RowMenuButton label={`Actions for this message from ${friendName}`} title="Message actions" />} />}
       </p>
-      {footer}
+      {!settled && standing}
     </div>
   </div>;
+}
+
+const RECEIPT_LABEL: Record<Exclude<ReceiptMark, "sending" | "not_delivered">, string> = { sent: "Sent", delivered: "Delivered", read: "Read" };
+
+/** One grey tick once sent, two once delivered, two in the accent once read; the tooltip says when. */
+function ReceiptTicks({ mark, at }: { mark: Exclude<ReceiptMark, "sending" | "not_delivered">; at: number | null }) {
+  const label = RECEIPT_LABEL[mark];
+  const Icon = mark === "sent" ? Check : CheckCheck;
+  return <span role="img" className="neighbor-receipt" data-mark={mark} aria-label={label}
+    title={at === null ? label : `${label} ${new Date(at).toLocaleString()}`}>
+    <Icon size={13} strokeWidth={2.25} aria-hidden="true" />
+  </span>;
 }
 
 function ConciergeIcon({ tab }: { tab: Tab | undefined }) {
@@ -338,22 +417,30 @@ function ConciergeIcon({ tab }: { tab: Tab | undefined }) {
     {tab?.agent_type ? <AgentIcon providerId={tab.agent_type} className="text-[12px]" /> : <Bot size={12} />}</span>;
 }
 
-/** Where your concierge stands on a friend's message, as one quiet line under it; Stop interrupts it while it works. */
+/** A settled outcome joins the message's time; work still under way keeps its own line with Stop. */
+const settledWork = (work: ConciergeWorkEntry["work"]) => !activeWork(work) && work !== "waiting";
+
+/** Where your concierge stands on a friend's message: settled, a quiet part of the time row; under way, one line under it that Stop interrupts. */
 function ConciergeWorkLine({ work, tab, canStop, stopping, onStop, onOpenReply }: {
   work: ConciergeWorkEntry; tab: Tab | undefined; canStop: boolean; stopping: boolean; onStop: () => void; onOpenReply: (messageId: string) => void;
 }) {
   const line = CONCIERGE_WORK_LINE[work.work];
   const active = activeWork(work.work);
-  // Only a settled refusal or failure names its reason; an answer links to the reply instead.
-  const reason = (work.work === "refused" || work.work === "failed") && work.reason ? `: ${work.reason}` : "";
-  return <div className="neighbor-work" data-work={work.work} role={active || work.work === "waiting" ? "status" : undefined}>
+  const settled = settledWork(work.work);
+  // An answer or a refusal links to the reply that already says it all; without a reply, the reason is one truncated line.
+  const reply = (work.work === "answered" || work.work === "refused") && work.reply;
+  const reason = !reply && work.reason ? work.reason : null;
+  const content = <>
     <ConciergeIcon tab={tab} />
-    {work.work === "answered" && work.reply
-      ? <button type="button" className="neighbor-work__reply ct-liquid-interactive" onClick={() => onOpenReply(work.reply!)}>{line}</button>
-      : <span className="min-w-0">{line}{reason}</span>}
+    {reply
+      ? <button type="button" className="neighbor-work__reply ct-liquid-interactive" onClick={() => onOpenReply(reply)}>{line}</button>
+      : <span className="neighbor-work__text" title={reason ?? undefined}>{line}{reason ? `: ${reason}` : ""}</span>}
     {work.work === "working" && <ActivityDots size="small" tone="muted" />}
     {active && canStop && <Button size="compact" loading={stopping} aria-label="Stop your concierge" onClick={onStop}>Stop</Button>}
-  </div>;
+  </>;
+  return settled
+    ? <span className="neighbor-work neighbor-work--inline" data-work={work.work}>{content}</span>
+    : <div className="neighbor-work" data-work={work.work} role="status">{content}</div>;
 }
 
 const FILE_STATE: Record<NeighborFile["state"], { label: string; tone: "ok" | "progress" | "muted" | "danger" }> = {

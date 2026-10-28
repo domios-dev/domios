@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { Button } from "../shared/Button";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { giftDurationLabel } from "./giftRedemptionModel";
 import { tierName } from "./desktopBilling";
 import { useGiftRedemption } from "./useGiftRedemption";
@@ -18,7 +19,7 @@ export function GiftRedemption({ identity, verifiedPlan }: { identity: string; v
         {gift.pending ? "Redeeming…" : "Redeem gift key"}
       </Button>
     </div>
-    {gift.error && <p role="alert">{gift.error}</p>}
+    {gift.error && <InlineErrorNotice role="alert" description={{ title: "The gift key was not redeemed", cause: gift.error, actions: [], raw: "" }} />}
     {gift.receipt && <div role="status">
       <p>Gift redeemed: {tierName(gift.receipt.plan)}, {giftDurationLabel[gift.receipt.duration]}.
         {gift.receipt.expires_at === null ? " No expiry." : ` Ends ${new Date(gift.receipt.expires_at * 1000).toLocaleDateString()}.`}</p>

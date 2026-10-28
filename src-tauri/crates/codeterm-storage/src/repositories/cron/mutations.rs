@@ -202,8 +202,8 @@ fn insert_run_row(
     let (started_at, finished_at) = run_values(run)?;
     cx.write(
         "INSERT INTO cron_runs (job_id, run_id, ordinal, started_at, finished_at, status, \
-         tab_id, session_id, cwd, summary, report_delivery) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+         tab_id, session_id, cwd, summary, report_delivery, cancel_reason) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
             job_id.0,
             run.run_id.0,
@@ -215,7 +215,8 @@ fn insert_run_row(
             run.session_id,
             run.cwd,
             run.summary,
-            run.report_delivery
+            run.report_delivery,
+            run.cancel_reason.map(|reason| reason.as_sql())
         ],
     )?;
     Ok(())
@@ -229,7 +230,7 @@ fn update_run_row(
     let (started_at, finished_at) = run_values(run)?;
     let changed = cx.write(
         "UPDATE cron_runs SET started_at = ?3, finished_at = ?4, status = ?5, tab_id = ?6, \
-         session_id = ?7, cwd = ?8, summary = ?9, report_delivery = ?10 \
+         session_id = ?7, cwd = ?8, summary = ?9, report_delivery = ?10, cancel_reason = ?11 \
          WHERE job_id = ?1 AND run_id = ?2",
         params![
             job_id.0,
@@ -241,7 +242,8 @@ fn update_run_row(
             run.session_id,
             run.cwd,
             run.summary,
-            run.report_delivery
+            run.report_delivery,
+            run.cancel_reason.map(|reason| reason.as_sql())
         ],
     )?;
     if changed != 1 {
@@ -434,7 +436,7 @@ fn evolve_mirror(
             cx.write(
                 "UPDATE cron_last_run_mirrors SET started_at = ?2, finished_at = ?3, \
                  status = ?4, tab_id = ?5, session_id = ?6, cwd = ?7, summary = ?8, \
-                 report_delivery = ?9 WHERE job_id = ?1",
+                 report_delivery = ?9, cancel_reason = ?10 WHERE job_id = ?1",
                 params![
                     job_id.0,
                     started_at,
@@ -444,7 +446,8 @@ fn evolve_mirror(
                     copy.session_id,
                     copy.cwd,
                     copy.summary,
-                    copy.report_delivery
+                    copy.report_delivery,
+                    copy.cancel_reason.map(|reason| reason.as_sql())
                 ],
             )?;
             Ok(())
@@ -465,7 +468,8 @@ fn drop_converged_mirror(cx: &mut WriteCx<'_>, job_id: &CronJobId) -> Result<(),
          AND r.session_id IS cron_last_run_mirrors.session_id \
          AND r.cwd IS cron_last_run_mirrors.cwd \
          AND r.summary IS cron_last_run_mirrors.summary \
-         AND r.report_delivery IS cron_last_run_mirrors.report_delivery)",
+         AND r.report_delivery IS cron_last_run_mirrors.report_delivery \
+         AND r.cancel_reason IS cron_last_run_mirrors.cancel_reason)",
         [job_id.as_str()],
     )?;
     Ok(())
@@ -610,9 +614,9 @@ pub(crate) fn write_import(cx: &mut WriteCx<'_>, import: &CronImport) -> Result<
         let differing = CronRunField::join(&CronRunField::differing(copy, listed));
         cx.write(
             "INSERT INTO cron_last_run_mirrors (job_id, run_id, started_at, finished_at, \
-             status, tab_id, session_id, cwd, summary, report_delivery, origin, \
+             status, tab_id, session_id, cwd, summary, report_delivery, cancel_reason, origin, \
              imported_revision, imported_differing) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'legacy_import', ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'legacy_import', ?12, ?13)",
             params![
                 job.record.id.0,
                 copy.run_id.0,
@@ -624,6 +628,7 @@ pub(crate) fn write_import(cx: &mut WriteCx<'_>, import: &CronImport) -> Result<
                 copy.cwd,
                 copy.summary,
                 copy.report_delivery,
+                copy.cancel_reason.map(|reason| reason.as_sql()),
                 revision,
                 differing
             ],

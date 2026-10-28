@@ -85,9 +85,12 @@ pub enum BlueprintAction {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
-    /// Import a native v2 recipe into the caller's Team (stopped by default)
+    /// Import a native v2 recipe into the caller's scope (stopped by default)
     Import {
         file: std::path::PathBuf,
+        /// Destination: general, workspace:<id>, or team:<id>; caller must belong to it
+        #[arg(long)]
+        scope: Option<String>,
         #[arg(long = "set")]
         set: Vec<String>,
         #[arg(long, conflicts_with = "start")]

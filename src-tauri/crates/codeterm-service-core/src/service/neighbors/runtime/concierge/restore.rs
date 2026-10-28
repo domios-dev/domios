@@ -11,8 +11,8 @@ impl ServiceContext {
             metadata,
             uid,
             friendship,
-            |provider, model, cwd, access| {
-                self.create_neighbor_concierge(friendship, provider, model, cwd, access)
+            |provider, model, cwd, permission, resume| {
+                self.create_neighbor_concierge(friendship, provider, model, cwd, permission, resume)
             },
         )
         .await
@@ -26,7 +26,7 @@ impl ServiceContext {
         create: F,
     ) -> Result<(), String>
     where
-        F: FnOnce(Option<String>, Option<String>, String, MachineAccess) -> Fut,
+        F: FnOnce(Option<String>, Option<String>, String, Permission, Option<String>) -> Fut,
         Fut: std::future::Future<Output = Result<String, String>>,
     {
         let generation = self.neighbor_history_generation();
@@ -58,6 +58,8 @@ impl ServiceContext {
         if self
             .validate_neighbor_bound_launch(tab_id, &permission, &cwd)
             .is_ok()
+            && settings.initial_context_digest(friendship)
+                == Some(initial_prompt::digest(friendship, &permission).as_str())
         {
             return Ok(());
         }
@@ -74,9 +76,13 @@ impl ServiceContext {
                     .or(tab.restorable_launch.requested_model.clone()),
             )
         };
-        self.replace_neighbor_concierge_with(metadata, friendship, |cwd, access| {
-            create(provider, model, cwd, access)
-        })
+        let resume = self.neighbor_initial_context_resume(tab_id);
+        self.replace_neighbor_concierge_with(
+            metadata,
+            friendship,
+            resume.is_some(),
+            |cwd, permission| create(provider, model, cwd, permission, resume),
+        )
         .await?;
         let settings = metadata
             .settings()
@@ -135,3 +141,6 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod digest_tests;

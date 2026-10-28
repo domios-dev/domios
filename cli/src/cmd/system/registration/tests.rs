@@ -1,5 +1,5 @@
 use super::*;
-use crate::cmd::system::{build_linux_unit, build_macos_plist, build_windows_task_command};
+use codeterm_util::autostart::{build_linux_unit, build_macos_plist, windows_task_xml};
 
 #[test]
 fn launchagent_target_round_trips_escaped_installed_path() {
@@ -20,12 +20,11 @@ fn launchagent_target_round_trips_escaped_installed_path() {
 
 #[test]
 fn task_target_round_trips_powershell_quoting_and_xml_entities() {
-    let command = build_windows_task_command(
+    let task = windows_task_xml(
+        "DOMAIN\\user",
         r"C:\Users\O'Neil & Co\cli\domios.exe",
         r"C:\Apps\Domios\domios-app.exe",
     );
-    let arguments = command.strip_prefix("powershell.exe ").unwrap();
-    let task = format!("<Task><Actions><Exec><Command>powershell.exe</Command><Arguments>{}</Arguments></Exec></Actions></Task>", crate::cmd::system::xml_escape(arguments));
     assert_eq!(
         windows_target(&task),
         Some(r"C:\Users\O'Neil & Co\cli\domios.exe".into())

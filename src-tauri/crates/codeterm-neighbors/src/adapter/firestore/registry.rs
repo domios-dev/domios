@@ -157,6 +157,7 @@ impl SignalState {
 
 fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
     let mut fields = document.fields;
+    let field_count = fields.len();
     if fields.len() > 12 {
         return Err(Error::InvalidEnvelope);
     }
@@ -182,6 +183,7 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
                 | "receiver_changed"
                 | "message_delivered"
                 | "message_expired"
+                | "message_read"
                 | "pause_changed"
         )
     ) {
@@ -220,11 +222,13 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
     };
     let delivery = match kind.as_str() {
         Some(kind @ ("message_delivered" | "message_expired")) => {
-            if !request.is_null() || field("at")?.as_u64().is_none() {
+            let at = field("at")?.as_u64().ok_or(Error::InvalidEnvelope)?;
+            if !request.is_null() {
                 return Err(Error::InvalidEnvelope);
             }
             let message_id = field("message_id")?;
             Some(DeliverySignal {
+                at,
                 friendship_id: friendship.as_str().ok_or(Error::InvalidEnvelope)?.into(),
                 message_id: message_id
                     .as_str()
@@ -240,6 +244,30 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         }
         _ => None,
     };
+    let read = if kind == "message_read" {
+        if field_count != 8
+            || !request.is_null()
+            || revision.is_some_and(|revision| revision > crate::wire::MAX_SAFE_INTEGER)
+        {
+            return Err(Error::InvalidEnvelope);
+        }
+        let read_at = field("at")?
+            .as_u64()
+            .filter(|at| *at <= crate::wire::MAX_SAFE_INTEGER)
+            .ok_or(Error::InvalidEnvelope)?;
+        let message = field("message_id")?;
+        Some(crate::registry::ReadSignal {
+            friendship_id: friendship.as_str().ok_or(Error::InvalidEnvelope)?.into(),
+            message_id: message
+                .as_str()
+                .filter(|id| hex_id(id, 32))
+                .ok_or(Error::InvalidEnvelope)?
+                .into(),
+            read_at,
+        })
+    } else {
+        None
+    };
     let pause = if kind == "pause_changed" {
         if !request.is_null() || field("at")?.as_u64().is_none() {
             return Err(Error::InvalidEnvelope);
@@ -254,6 +282,7 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
     Ok(RegistrySignal {
         revision,
         delivery,
+        read,
         pause,
         ignored: false,
         accepted,

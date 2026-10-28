@@ -14,6 +14,13 @@ pub(super) struct Metadata {
     root: PathBuf,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct InitialContext {
+    pub gateway_tab: String,
+    pub digest: String,
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Settings {
@@ -24,9 +31,19 @@ pub(super) struct Settings {
     pub bindings: BTreeMap<String, String>,
     pub permissions: BTreeMap<String, Permission>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub initial_contexts: BTreeMap<String, InitialContext>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub notifications: BTreeMap<String, super::NeighborNotify>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
     pub paused: std::collections::BTreeSet<String>,
+}
+
+impl Settings {
+    pub(super) fn initial_context_digest(&self, friendship: &str) -> Option<&str> {
+        let context = self.initial_contexts.get(friendship)?;
+        (self.bindings.get(friendship) == Some(&context.gateway_tab))
+            .then_some(context.digest.as_str())
+    }
 }
 
 #[async_trait]

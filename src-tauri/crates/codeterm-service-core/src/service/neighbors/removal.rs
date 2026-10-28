@@ -77,6 +77,7 @@ impl ServiceContext {
             }
             self.require_neighbor_history_generation(generation)?;
             settings.bindings.remove(friendship);
+            settings.initial_contexts.remove(friendship);
             self.ui.emit(
                 "neighbor-agent-changed",
                 json!({"friendship_id":friendship,"gateway_tab":null}),

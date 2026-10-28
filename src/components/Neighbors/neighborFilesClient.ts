@@ -90,11 +90,7 @@ export const neighborFilesClient: NeighborFilesClient = {
   }),
 };
 
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 102.4) / 10} KB`;
-  return `${Math.round(bytes / (1024 * 102.4)) / 10} MB`;
-}
+export { formatBytes } from "../../lib/formatBytes";
 
 /** Voice notes recorded in the composer are transcribed into the message rather than sent as files. */
 export function isVoiceNote(path: string): boolean {

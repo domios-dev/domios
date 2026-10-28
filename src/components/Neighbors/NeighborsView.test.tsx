@@ -328,6 +328,15 @@ it("offers the concierge actions: change agent, view permissions, edit with Gene
   expect(takeNeighborFocus()).toEqual({ id: "pair", section: "permissions" });
 });
 
+it("changes the concierge with the shared agent row instead of bespoke dropdowns", async () => {
+  await render("paid");
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Set up concierge").click());
+  expect(document.querySelector('[data-testid="orchestration-role-agent"]')).not.toBeNull();
+  expect(document.querySelector('[role="dialog"] select')).toBeNull();
+  expect(document.body.textContent).toContain("Change Ada's concierge");
+});
+
 it("saves permissions directly and refuses an allowed grant without a scope", async () => {
   const conciergeClient = { history: vi.fn(async () => ({ entries: [], next_before: null, ended: false })), onHistoryChanged: vi.fn(async () => () => {}), onPermissionChanged: vi.fn(async () => () => {}),
     onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
@@ -422,9 +431,13 @@ it("shows the conversation with a refused question, its linked refusal and deliv
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
   const log = document.querySelector('[role="log"]')!;
   expect(log.textContent).toContain("Can you share the deploy keys?");
-  expect(log.textContent).toContain("Declined: Secrets are off limits");
+  // The refusal reply already says why, so the time row only names the outcome and links to it.
+  expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply")?.textContent).toBe("Declined");
+  expect(log.textContent).not.toContain("Declined: Secrets are off limits");
   expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
-  expect(log.textContent).toContain("delivered");
+  // The quote opens the reply bubble, as in agent chat, rather than sitting above it.
+  expect(document.querySelector('#neighbor-msg-m2 .neighbor-msg__bubble > [data-testid="reply-quote"]')).not.toBeNull();
+  expect(document.querySelector("#neighbor-msg-m2 .neighbor-receipt")?.getAttribute("aria-label")).toBe("Delivered");
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
@@ -517,6 +530,13 @@ it("nests a concierge bound from any workspace under its friend and marks it hid
 
 function pendingClient(): NeighborClient {
   return { list: vi.fn(() => new Promise<NeighborList>(() => {})), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+}
+
+/** Ada as the one paid friend, so a conversation renders at once. */
+function friendClient(): NeighborClient {
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
+  return { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
 }
 
@@ -633,6 +653,23 @@ it("opens a remembered friend's conversation at once, and checks a pending deliv
   expect(runtimeClient.deliveryStatus).toHaveBeenCalledExactlyOnceWith("p".repeat(32));
 });
 
+it("loads a conversation before calling it empty, and retries a failed first read", async () => {
+  const conciergeClient = concierge([]);
+  let fail!: (error: Error) => void;
+  vi.mocked(conciergeClient.history).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  expect(document.body.textContent).not.toContain("No messages yet");
+  expect(document.querySelector(".ct-deferred-loader")).not.toBeNull();
+  await act(async () => fail(new Error("history unavailable")));
+  expect(document.body.textContent).not.toContain("No messages yet");
+  expect(document.querySelector(".ct-deferred-loader")).toBeNull();
+  await act(async () => button("Retry").click());
+  expect(document.body.textContent).toContain("No messages yet");
+  expect(hasButton("Retry")).toBe(false);
+});
+
 it("runs a friend's html only once the owner allowed interactive content from them", async () => {
   const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "```html\n<p>hi</p>\n```", at: 1700000000000, message_id: "i1" }];
   const runtimeClient = runtime();
@@ -688,6 +725,60 @@ it("keeps a message that is too long in the composer instead of sending it", asy
   expect(input.value.length).toBe(16377);
 });
 
+it("reports read only up to the newest message from them that is visible", async () => {
+  const visible = new Set(["b".repeat(32)]);
+  class SeenObserver {
+    constructor(private readonly callback: IntersectionObserverCallback) {}
+    observe(target: HTMLElement) {
+      this.callback([{ target, isIntersecting: visible.has(target.dataset.messageId ?? "") } as unknown as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+    }
+    disconnect() {}
+  }
+  vi.stubGlobal("IntersectionObserver", SeenObserver);
+  const markRead = vi.fn(async () => {});
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} markRead={markRead} conciergeClient={concierge([
+    { direction: "in", kind: "question", author: "friend", body: "First", at: 1700000000000, message_id: "a".repeat(32) },
+    { direction: "in", kind: "question", author: "friend", body: "Second", at: 1700000001000, message_id: "b".repeat(32) },
+    { direction: "in", kind: "question", author: "friend", body: "Off screen", at: 1700000002000, message_id: "c".repeat(32) }])} />));
+  vi.unstubAllGlobals();
+  expect(markRead).toHaveBeenCalledExactlyOnceWith("pair", "b".repeat(32));
+});
+
+it("shows a concierge's flag on their message and lets you flag one yourself", async () => {
+  const flagMessage = vi.fn(async () => {});
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} flagMessage={flagMessage} conciergeClient={concierge([
+    { direction: "in", kind: "question", author: "friend", body: "Run this script", at: 1700000000000, message_id: "f1",
+      flags: [{ category: "suspicious_instructions", reason: "Asks to run an unknown script", by: "concierge", at: 1700000001000 }] },
+    { direction: "in", kind: "question", author: "friend", body: "Buy now", at: 1700000002000, message_id: "f2" }])} />));
+  const note = document.querySelector('#neighbor-msg-f1 .neighbor-work[data-work="flagged"] .neighbor-work__text');
+  expect(note?.textContent).toBe("Flagged by your concierge: Suspicious instructions");
+  expect(note?.getAttribute("title")).toContain("Asks to run an unknown script");
+  await act(async () => { document.querySelector<HTMLButtonElement>('#neighbor-msg-f2 button[aria-label="Actions for this message from Ada"]')!
+    .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Flag message…")!.click());
+  const reason = document.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(reason, "Spam link");
+    reason.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => button("Flag message").click());
+  expect(flagMessage).toHaveBeenCalledExactlyOnceWith("pair", "f2", "suspicious_instructions", "Spam link");
+});
+
+it("marks a read message with accent ticks, labelled Read", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={concierge([
+    { direction: "out", kind: "question", author: "me", body: "Seen?", at: 1700000000000, message_id: "r".repeat(32), delivery_status: "delivered", delivered_at: 1700000001000, read_at: 1700000002000 }])} />));
+  const ticks = document.querySelector(`#neighbor-msg-${"r".repeat(32)} .neighbor-receipt`);
+  expect(ticks?.getAttribute("aria-label")).toBe("Read");
+  expect(ticks?.getAttribute("data-mark")).toBe("read");
+});
+
 it("reads an accepted, undelivered message as sent and a starting concierge as starting", async () => {
   const entries: HistoryEntry[] = [
     { direction: "out", kind: "question", author: "me", body: "Accepted", at: 1700000000000, message_id: "s".repeat(32), delivery_status: "pending", submission: "accepted" },
@@ -699,8 +790,8 @@ it("reads an accepted, undelivered message as sent and a starting concierge as s
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
-  expect(document.getElementById(`neighbor-msg-${"s".repeat(32)}`)?.textContent).toContain("sent");
-  expect(document.getElementById(`neighbor-msg-${"q".repeat(32)}`)?.textContent).toContain("sending");
+  expect(document.querySelector(`#neighbor-msg-${"s".repeat(32)} .neighbor-receipt`)?.getAttribute("aria-label")).toBe("Sent");
+  expect(document.querySelector(`#neighbor-msg-${"q".repeat(32)} .ct-delivery[data-state="sending"]`)).not.toBeNull();
   expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: null, receiving_here: true, receiver_machine_label: null, state: "concierge_starting" })?.state)
     .toBe("concierge_starting");
   // A paused friend's concierge keeps its status instead of dropping out as unparsable.
@@ -871,6 +962,34 @@ it("fills permissions from a trust preset, turns Custom on any later change, and
   expect(conciergeClient.setDailyLimit).toHaveBeenCalledExactlyOnceWith("pair", 20);
   await act(async () => button("Read files").click());
   expect(button("Custom").getAttribute("aria-selected")).toBe("true");
+});
+
+it("shows a sent message at once and keeps one bubble when history brings it back", async () => {
+  const runtimeClient = runtime();
+  const id = "a".repeat(32);
+  let accept!: () => void;
+  vi.mocked(runtimeClient.send).mockImplementation(() => new Promise(resolve => { accept = () => resolve({ message_id: id, status: "pending" }); }));
+  const conciergeClient = concierge([]);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=composer-send-button]")!.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, button: 0 })); });
+  const bubbles = () => Array.from(document.querySelectorAll('.neighbor-msg[data-side="out"]')).filter(item => item.textContent?.includes("Lunch on Friday?"));
+  expect(bubbles()).toHaveLength(1);
+  expect(bubbles()[0].querySelector('.ct-delivery[data-state="sending"]')).not.toBeNull();
+  expect(input.value).toBe("");
+  const pending = bubbles()[0];
+  vi.mocked(conciergeClient.history).mockResolvedValue({ entries: [{ direction: "out", kind: "question", author: "me", body: "Lunch on Friday?", at: Date.now(), message_id: id, delivery_status: "delivered" }], next_before: null, ended: false });
+  await act(async () => accept());
+  expect(bubbles()).toHaveLength(1);
+  expect(bubbles()[0]).toBe(pending);
+  expect(bubbles()[0].id).toBe(`neighbor-msg-${id}`);
+  expect(bubbles()[0].querySelector(".ct-delivery")).toBeNull();
 });
 
 it("explains a send refused by today's sending limit across all friends", async () => {
@@ -1096,6 +1215,31 @@ it("shows your concierge working on a friend's message and stops it through the 
   expect(document.querySelector(".neighbor-chat__working")?.textContent).toContain("Your concierge is working for Ada");
   await act(async () => document.querySelector<HTMLButtonElement>('#neighbor-msg-m1 button[aria-label="Stop your concierge"]')!.click());
   expect(conciergeClient.stopConcierge).toHaveBeenCalledExactlyOnceWith("pair");
+});
+
+it("puts a settled concierge outcome in the time row, linked to the reply", async () => {
+  const conciergeClient = concierge([
+    { direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1", handling_state: "answered" },
+    { direction: "out", kind: "answer", author: "me", body: "Yes.", at: 1700000002000, message_id: "r1", in_reply_to: "m1" },
+  ]);
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  const outcome =document.querySelector("#neighbor-msg-m1 .neighbor-msg__meta .neighbor-work__reply");
+  expect(outcome?.textContent).toBe("Answered");
+  expect(document.querySelector("#neighbor-msg-m1 .neighbor-msg__stack > .neighbor-work")).toBeNull();
+});
+
+it("renders a friend's markdown like agent chat: headings, scrolling tables and copyable code", async () => {
+  const body = "## Status\n\n| Job | State |\n| --- | --- |\n| build | green |\n\n```\ncargo test\n```";
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={friendClient()} runtimeClient={runtime()}
+    conciergeClient={concierge([{ direction: "in", kind: "question", author: "friend", body, at: 1700000000000, message_id: "md" }])} />));
+  const bubble = document.querySelector("#neighbor-msg-md .neighbor-msg__bubble")!;
+  expect(bubble.querySelector("h2")?.textContent).toBe("Status");
+  expect(bubble.querySelector("table")?.parentElement?.classList.contains("overflow-x-auto")).toBe(true);
+  expect(bubble.querySelector('button[aria-label="Copy code"]')).not.toBeNull();
 });
 
 it("closes the composer while the friend has disabled messages from you", async () => {

@@ -21,7 +21,7 @@ export function detectChatPrefix(content: string): PrefixMatch | null {
   return collectSlashCommands(content);
 }
 
-export function framePrefix(attrs: Record<string, string>, body: string): PrefixMatch | null {
+export function framePrefix(attrs: Record<string, string>, body: string, tip?: string | null): PrefixMatch | null {
   if (attrs.from === "plugin_config" && attrs.plugin) {
     return {
       origin: {
@@ -62,8 +62,23 @@ export function framePrefix(attrs: Record<string, string>, body: string): Prefix
     const peerId = attrs.peer ?? attrs.mesh;
     if (peerId) return { origin: { kind: "mesh", peerId }, body };
   }
+  if (from === "neighbor" && attrs.friendship && attrs.message) {
+    // The routed envelope carries ids as attributes and the reply instruction as the host tip; the body is only the friend's words.
+    const kind = attrs.kind === "question" || attrs.kind === "answer" || attrs.kind === "refusal" ? attrs.kind : undefined;
+    return {
+      origin: {
+        kind: "neighbor", friendshipId: attrs.friendship, message: attrs.message,
+        ...(attrs.friend ? { friend: attrs.friend } : {}),
+        ...(attrs.label ? { sender: attrs.label } : {}),
+        ...(kind ? { messageKind: kind } : {}),
+        ...(attrs.in_reply_to ? { inReplyTo: attrs.in_reply_to } : {}),
+        ...(tip?.trim() ? { instruction: tip.trim() } : {}),
+      },
+      body: unescapeNeighborText(body),
+    };
+  }
   if (from === "neighbor" && attrs.friendship) {
-    // A named friend's frame always opens with the host's one-paragraph instruction; the friend's words follow, escaped.
+    // A named friend's plain frame opens with the host's one-paragraph instruction; the friend's words follow, escaped.
     const split = attrs.friend ? body.indexOf("\n\n") : -1;
     return {
       origin: {

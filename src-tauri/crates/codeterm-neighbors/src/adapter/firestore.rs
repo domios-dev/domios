@@ -571,6 +571,7 @@ fn json(value: fs::Value, depth: usize) -> Result<serde_json::Value> {
         Some(ValueType::IntegerValue(i)) if i >= 0 && i as u64 <= crate::wire::MAX_SAFE_INTEGER => {
             Ok(i.into())
         }
+        Some(ValueType::BooleanValue(value)) => Ok(value.into()),
         Some(ValueType::NullValue(_)) => Ok(serde_json::Value::Null),
         Some(ValueType::MapValue(map)) if map.fields.len() <= 20 => {
             let map = map

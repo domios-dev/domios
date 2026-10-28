@@ -1,9 +1,12 @@
 [
+  "src/components/Neighbors/neighborNotify.test.tsx",
+  "src/components/Neighbors/neighborRuntimeClient.test.ts",
+  "src/components/Neighbors/neighborStatusStore.test.tsx",
+  "src/components/Settings/useAccountEnrollmentFailure.test.tsx",
   "src/components/billing/AccountLimits.test.tsx",
   "src/components/billing/useAccountUsage.test.tsx",
   "src/components/billing/giftRedemptionModel.test.ts",
   "src/components/Terminal/contextCompaction.wiring.test.tsx",
-  "src/components/Neighbors/NeighborChannel.test.tsx",
   "src/components/Neighbors/NeighborsView.test.tsx",
   "src/components/Neighbors/useNeighbors.test.tsx",
   "src/components/Neighbors/neighborModel.test.ts",

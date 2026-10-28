@@ -29,6 +29,7 @@ fn blueprint_v2_call_review_import_sends_local_bytes_for_host_admission() {
     let (method, params) = request(
         BlueprintAction::Import {
             file: path,
+            scope: Some("general".into()),
             set: vec![],
             stopped: true,
             start: false,
@@ -38,6 +39,7 @@ fn blueprint_v2_call_review_import_sends_local_bytes_for_host_admission() {
     )
     .unwrap();
     assert_eq!(method, "blueprint.import");
+    assert_eq!(params["scope"], "general");
     assert_eq!(params["local_callees"].as_array().unwrap().len(), 1);
     assert_eq!(params["local_callees"][0]["document"]["name"], "helper");
     assert!(params["recipe"]["definition"]["imports"]["helper"]

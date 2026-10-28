@@ -530,6 +530,9 @@ export interface DropdownSelectOption {
   group?: string;
 }
 
+/** The closed look of every value picker: a pill that names the current choice, with a trailing chevron. */
+export const SELECT_TRIGGER = "flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40";
+
 /**
  * A value-picker built on {@link DropdownMenu}. Same portal-rendered menu
  * (escapes transform/overflow-hidden ancestors and layers cleanly above the
@@ -594,7 +597,7 @@ export function DropdownSelect({
       data-value={value}
       disabled={disabled}
       aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
-      className={`flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
+      className={`${SELECT_TRIGGER} ${className ?? ""}`}
     >
       {leading}
       {prefix && (

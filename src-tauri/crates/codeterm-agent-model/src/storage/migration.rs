@@ -157,10 +157,11 @@ fn map_desk_snapshot(
 /// A run with every optional field present, so its serialized form names every kept key.
 fn full_run() -> CronRunInfo {
     CronRunInfo {
+        cancel_reason: Some(crate::storage::CronCancelReason::UserCancel),
         run_id: String::new(),
         started_at: 0,
         finished_at: Some(0),
-        status: CronRunStatus::Success,
+        status: CronRunStatus::Cancelled,
         tab_id: Some(String::new()),
         session_id: Some(String::new()),
         cwd: Some(String::new()),

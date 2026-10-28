@@ -58,30 +58,15 @@ impl ServiceContext {
             .get(&friendship)
             .cloned()
             .unwrap_or_default();
-        let refusal = kind == Kind::Refusal && in_reply_to.is_some();
-        if refusal
-            && !metadata
-                .has_incoming(&friendship, in_reply_to.as_deref().ok_or(Error::Gateway)?)
-                .await?
-        {
-            return Err(Error::Gateway);
-        }
-        let (body, paths) = match body {
-            OutboundBody::Granted(body) if refusal && body.len() <= 256 => (body, vec![]),
-            OutboundBody::Granted(body) if kind != Kind::Refusal => {
-                permission.require(kind)?;
-                (body, vec![])
-            }
-            OutboundBody::Files { text, paths } if kind != Kind::Refusal => {
-                permission.require(kind)?;
-                (text, paths)
-            }
-            OutboundBody::Refusal if refusal => (
-                Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned()),
-                vec![],
-            ),
-            _ => return Err(Error::Gateway),
-        };
+        let (body, paths) = prepare_outgoing_body(
+            metadata,
+            &friendship,
+            &permission,
+            kind,
+            body,
+            in_reply_to.as_deref(),
+        )
+        .await?;
         let keys = lifecycle.load().await?.ok_or(Error::Revoked)?;
         if !lifecycle
             .registry
@@ -134,6 +119,7 @@ impl ServiceContext {
                 received_by: None,
                 flags: Vec::new(),
                 flag_callers: Vec::new(),
+                handling: Default::default(),
                 direction: "out".into(),
                 author,
                 body: visible_body,
@@ -148,6 +134,8 @@ impl ServiceContext {
                 resets_at: None,
                 retry_after_seconds: None,
                 submission: None,
+                delivered_at: None,
+                read_at: None,
                 delivery_status: Some(codeterm_neighbors::wire::DeliveryStatus::Pending),
             },
             generation,
@@ -214,3 +202,44 @@ impl ServiceContext {
         })
     }
 }
+
+const MAX_REFUSAL_BYTES: usize = 1024;
+
+async fn prepare_outgoing_body(
+    metadata: &Metadata,
+    friendship: &str,
+    permission: &Permission,
+    kind: Kind,
+    body: OutboundBody,
+    in_reply_to: Option<&str>,
+) -> codeterm_neighbors::Result<(Zeroizing<String>, Vec<String>)> {
+    if kind == Kind::Refusal {
+        let target = in_reply_to.ok_or(Error::ReplyTargetUnknown)?;
+        if !metadata.has_incoming(friendship, target).await? {
+            return Err(Error::ReplyTargetUnknown);
+        }
+        let body = match body {
+            OutboundBody::Granted(body) => body,
+            OutboundBody::Refusal => {
+                Zeroizing::new(codeterm_neighbors::gateway::REFUSAL_BODY.to_owned())
+            }
+            OutboundBody::Files { .. } => return Err(Error::InvalidRequest),
+        };
+        if body.len() > MAX_REFUSAL_BYTES {
+            return Err(Error::RefusalTooLong {
+                limit: MAX_REFUSAL_BYTES as u64,
+                actual: body.len() as u64,
+            });
+        }
+        return Ok((body, vec![]));
+    }
+    permission.require(kind)?;
+    match body {
+        OutboundBody::Granted(body) => Ok((body, vec![])),
+        OutboundBody::Files { text, paths } => Ok((text, paths)),
+        OutboundBody::Refusal => Err(Error::InvalidRequest),
+    }
+}
+
+#[cfg(test)]
+mod tests;

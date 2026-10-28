@@ -88,7 +88,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           </div>
           {model.sessionOnly && <p role="status" className={MUTED}>Signed in for this session only: secure storage is unavailable, so sign in again after restarting Domios.</p>}
           <CopyRow label="Account ID" value={model.identity.uid} />
-          {enrollmentFailure && <p role="status" className={MUTED}>{failureMessage(enrollmentFailure)}</p>}
+          {enrollmentFailure && <InlineErrorNotice description={{ title: "This machine could not join your account", cause: failureMessage(enrollmentFailure), actions: [], raw: "" }} />}
         </div>;
       })() : <div className="flex flex-col items-start gap-3 text-xs">
         {model.kind === "signed_out" && model.sessionRevoked && <p role="status" className={MUTED}>{SESSION_REVOKED_MESSAGE}</p>}

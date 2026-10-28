@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 
 const MAX_ENTRIES: usize = 256;
 const MAX_BYTES: usize = 768 * 1024;
+pub(crate) mod handling;
+pub(super) mod read;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -33,6 +35,8 @@ pub(super) struct Entry {
     pub flags: Vec<super::flags::MessageFlag>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flag_callers: Vec<String>,
+    #[serde(default, flatten)]
+    pub handling: handling::Handling,
     pub direction: String,
     pub author: Author,
     pub sender_uid: String,
@@ -54,6 +58,10 @@ pub(super) struct Entry {
     pub retry_after_seconds: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivery_status: Option<DeliveryStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivered_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_at: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub submission: Option<Submission>,
 }
@@ -89,6 +97,8 @@ impl From<DeliveryStatus> for HistoryReceipt {
 
 #[derive(Default, Deserialize, Serialize)]
 pub(super) struct History {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub read_receipt_through: Option<String>,
     pub ended: bool,
     #[serde(default)]
     pub active_since: Option<u64>,
@@ -107,8 +117,14 @@ impl History {
         {
             return Ok(false);
         }
+        let at = entry.at;
         self.entries.push(entry);
-        self.reconcile_outcomes();
+        self.reconcile_outcomes(at);
+        self.bound()?;
+        Ok(true)
+    }
+
+    pub(super) fn bound(&mut self) -> Result<()> {
         while self.entries.len() > MAX_ENTRIES
             || serde_json::to_vec(self)
                 .map_err(|_| Error::CursorStore)?
@@ -117,10 +133,10 @@ impl History {
         {
             self.entries.remove(0);
         }
-        Ok(true)
+        Ok(())
     }
 
-    fn reconcile_outcomes(&mut self) {
+    pub(super) fn reconcile_outcomes(&mut self, at: u64) {
         let mut outcomes = BTreeMap::new();
         for reply in self.entries.iter().filter(|entry| {
             entry.direction == "out"
@@ -148,6 +164,7 @@ impl History {
             let outcome = outcomes.get(&incoming.message_id);
             incoming.outcome = outcome.map(|(outcome, _)| outcome.clone());
             incoming.reason = outcome.and_then(|(_, reason)| reason.clone());
+            incoming.handling.outcome(incoming.outcome.as_deref(), at);
         }
     }
 
@@ -167,6 +184,7 @@ impl History {
                 if let Some(object) = value.as_object_mut() {
                     object.remove("received_by");
                     object.remove("flag_callers");
+                    object.remove("handling_owner");
                 }
                 value
             })
@@ -251,7 +269,7 @@ impl Metadata {
 }
 
 #[derive(Default)]
-pub(crate) struct HistoryCell(tokio::sync::Mutex<()>);
+pub(crate) struct HistoryCell(pub(super) tokio::sync::Mutex<()>);
 
 impl ServiceContext {
     pub(super) async fn stamp_neighbor_received_by(
@@ -385,6 +403,7 @@ impl ServiceContext {
         if !changed {
             return Ok(());
         }
+        let handling = super::handling::summary(&history);
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)
@@ -408,6 +427,7 @@ impl ServiceContext {
             self.require_neighbor_history_generation(generation)?;
             metadata.write(index_path, index).await?;
         }
+        self.remember_neighbor_handling(friendship, handling, generation);
         self.ui.emit(
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),
@@ -456,7 +476,8 @@ impl ServiceContext {
             return Ok(());
         };
         let accepted_retry = entry.submission == Some(Submission::Refused)
-            && receipt.submission == Some(Submission::Accepted);
+            && (receipt.submission == Some(Submission::Accepted)
+                || receipt.delivery.read_at.is_some());
         let status = match (entry.delivery_status, receipt.delivery.status) {
             (Some(DeliveryStatus::Delivered), _) => DeliveryStatus::Delivered,
             (Some(DeliveryStatus::NotDelivered), DeliveryStatus::Pending) if !accepted_retry => {
@@ -464,7 +485,16 @@ impl ServiceContext {
             }
             (_, status) => status,
         };
+        let status = if receipt.delivery.read_at.is_some() {
+            DeliveryStatus::Delivered
+        } else {
+            status
+        };
+        let timestamps_changed = receipt.delivery.delivered_at.is_some()
+            && entry.delivered_at.is_none()
+            || receipt.delivery.read_at.is_some() && entry.read_at.is_none();
         if entry.delivery_status == Some(status)
+            && !timestamps_changed
             && receipt.rejection.is_none()
             && receipt
                 .submission
@@ -474,6 +504,12 @@ impl ServiceContext {
             return Ok(());
         }
         entry.delivery_status = Some(status);
+        if entry.delivered_at.is_none() {
+            entry.delivered_at = receipt.delivery.delivered_at.or(receipt.delivery.read_at);
+        }
+        if entry.read_at.is_none() {
+            entry.read_at = receipt.delivery.read_at;
+        }
         if accepted_retry {
             entry.reason = None;
             entry.limit = None;
@@ -503,11 +539,17 @@ impl ServiceContext {
             entry.resets_at = refusal.resets_at;
             entry.retry_after_seconds = refusal.retry_after_seconds;
         }
-        history.reconcile_outcomes();
+        history.reconcile_outcomes(chrono::Utc::now().timestamp_millis().max(0) as u64);
+        let handling = super::handling::summary(&history);
+        let read_through = history.concierge_read_through();
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)
             .await?;
+        self.remember_neighbor_handling(friendship, handling, generation);
+        if let Some(through) = read_through {
+            self.queue_neighbor_read(friendship, through, generation);
+        }
         self.ui.emit(
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),
@@ -533,10 +575,23 @@ impl ServiceContext {
             return Ok(());
         }
         history.ended = true;
+        for entry in history
+            .entries
+            .iter_mut()
+            .filter(|entry| entry.direction == "in" && entry.handling.active())
+        {
+            entry.handling.set(
+                handling::State::Failed,
+                Some("friendship_ended"),
+                super::handling::now(),
+            );
+        }
+        let handling = super::handling::summary(&history);
         self.require_neighbor_history_generation(generation)?;
         metadata
             .write(format!("history-{friendship}.json"), history)
             .await?;
+        self.remember_neighbor_handling(friendship, handling, generation);
         self.ui.emit(
             "neighbor-history-changed",
             json!({"friendship_id":friendship}),

@@ -18,6 +18,7 @@ pub enum MachineAccess {
 pub struct Permission {
     pub allowed: bool,
     pub scope: String,
+    #[serde(default)]
     pub allow_tab_requests: bool,
     #[serde(default)]
     pub allow_interactive_content: bool,

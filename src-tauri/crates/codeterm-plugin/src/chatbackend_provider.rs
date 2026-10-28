@@ -258,6 +258,7 @@ pub trait ChatBackendProvider: Send + Sync {
             agent_runtime: self.agent_runtime(),
             cli_login: None,
             supports_session_fork: false,
+            supports_initial_prompt_update_on_resume: false,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: self.id().to_string(),

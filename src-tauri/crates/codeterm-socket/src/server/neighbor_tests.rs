@@ -328,3 +328,62 @@ fn pad_resolution_requires_an_explicit_own_target_and_current_credential_nonce()
     .error
     .is_some());
 }
+
+#[test]
+fn secret_cli_preflight_refuses_neighbor_credentials_without_entering_the_secret_backend() {
+    let (fixture, concierge, token) = fixture();
+    let backend_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let calls = backend_calls.clone();
+    fixture
+        .service
+        .set_ext(codeterm_service_core::ports::rest::LocalApiRouter(
+            axum::Router::new().fallback(move || {
+                let calls = calls.clone();
+                async move {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    axum::http::StatusCode::NO_CONTENT
+                }
+            }),
+        ))
+        .unwrap_or_else(|_| panic!("local backend router already installed"));
+    for path in [
+        "/api/secrets/status",
+        "/api/secrets/auto-unlock",
+        "/api/secrets/items/opaque/value",
+    ] {
+        let error = request(
+            &fixture,
+            &token,
+            "api.request",
+            Some(json!({"method":"POST","path":path,"body":"opaque-secret-input"})),
+        )
+        .error
+        .unwrap();
+        assert_eq!(error.code, -32003);
+        assert_eq!(error.data.unwrap()["reason"], "neighbor_capability_denied");
+    }
+    for params in [
+        None,
+        Some(json!({})),
+        Some(json!({"caller_tab_id":"foreign"})),
+    ] {
+        let response = request(&fixture, &token, "mem.secret.authorize", params);
+        let error = response.error.unwrap();
+        assert_eq!(error.code, -32003);
+        assert!(error.message.starts_with("neighbor_capability_denied:"));
+        assert_eq!(error.data.unwrap()["reason"], "neighbor_capability_denied");
+    }
+    let ordinary = {
+        let mut mux = fixture.service.mux.write();
+        let workspace = mux.find_workspace_for_tab(&concierge).unwrap();
+        mux.create_tab(&workspace).unwrap()
+    };
+    let token = fixture
+        .service
+        .frontend_pty_env(Some(&ordinary))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    let response = request(&fixture, &token, "mem.secret.authorize", None);
+    assert_eq!(response.result.unwrap()["authorized"], true);
+    assert_eq!(backend_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+}

@@ -137,6 +137,9 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
     }
     for command in [
         NeighborRuntimeCommand::Status,
+        NeighborRuntimeCommand::StopConcierge {
+            friendship_id: friend_a.clone(),
+        },
         NeighborRuntimeCommand::PauseFriend {
             friendship_id: friend_a.clone(),
         },

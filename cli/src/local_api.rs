@@ -37,6 +37,14 @@ impl LocalApiClient {
         }
     }
 
+    pub(crate) fn authorize_secrets(&self) -> Result<(), LocalApiError> {
+        let mut client = self
+            .client
+            .lock()
+            .map_err(|_| LocalApiError::new("local API client lock poisoned"))?;
+        authorize_secrets_rpc(&mut *client)
+    }
+
     pub fn get(&self, url: impl AsRef<str>) -> LocalApiRequest {
         self.request("GET", url)
     }
@@ -240,6 +248,20 @@ impl std::fmt::Display for LocalApiError {
 
 impl std::error::Error for LocalApiError {}
 
+fn authorize_secrets_rpc(client: &mut impl crate::client::RpcClient) -> Result<(), LocalApiError> {
+    let response = client
+        .call_detailed("mem.secret.authorize", Some(serde_json::json!({})))
+        .map_err(LocalApiError::from_rpc)?;
+    if response
+        .get("authorized")
+        .and_then(serde_json::Value::as_bool)
+        != Some(true)
+    {
+        return Err(LocalApiError::new("Secret authorization was not confirmed"));
+    }
+    Ok(())
+}
+
 fn local_path(url: &str) -> String {
     if url.starts_with("/api/") {
         return url.to_owned();
@@ -276,3 +298,7 @@ mod tests {
         assert_eq!(response.text().unwrap(), "{\"error\":\"busy\"}");
     }
 }
+
+#[cfg(test)]
+#[path = "local_api/secret_tests.rs"]
+mod secret_tests;

@@ -6,6 +6,7 @@ fn incoming(id: u64) -> Entry {
         received_by: None,
         flags: Vec::new(),
         flag_callers: Vec::new(),
+        handling: Default::default(),
         direction: "in".into(),
         author: super::super::history::Author::Person("friend".into()),
         sender_uid: "sender".into(),
@@ -20,6 +21,8 @@ fn incoming(id: u64) -> Entry {
         resets_at: None,
         retry_after_seconds: None,
         submission: None,
+        delivered_at: None,
+        read_at: None,
         delivery_status: None,
     }
 }

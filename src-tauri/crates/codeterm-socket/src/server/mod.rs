@@ -139,6 +139,8 @@ impl JsonRpcResponse {
     }
 
     fn error(id: Option<serde_json::Value>, code: i32, message: String) -> Self {
+        let data = (code == -32003 && message.starts_with("neighbor_capability_denied:"))
+            .then(|| serde_json::json!({"reason":"neighbor_capability_denied"}));
         Self {
             jsonrpc: "2.0".to_string(),
             id,
@@ -146,7 +148,7 @@ impl JsonRpcResponse {
             error: Some(JsonRpcError {
                 code,
                 message,
-                data: None,
+                data,
             }),
             after_response: None,
         }
@@ -761,6 +763,7 @@ mod tests {
             .record_run(
                 &job_id,
                 CronRunInfo {
+                    cancel_reason: None,
                     run_id: "rpc-complete-run".into(),
                     started_at: 1,
                     finished_at: None,

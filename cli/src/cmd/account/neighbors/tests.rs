@@ -99,6 +99,23 @@ fn takeover_needs_confirmation_and_authored_text_stays_in_pad_files() {
 }
 
 #[test]
+fn presend_refusal_errors_keep_typed_reason_and_safe_retry_instruction() {
+    let body = serde_json::json!({"code":"refusal_too_long","reason":"refusal_too_long","limit":1024,"actual":1025,"message":"Nothing was sent. Shorten it and resend once."});
+    let error = crate::cmd::print::CliError::http(413, &body.to_string());
+    let mut out = vec![];
+    let mut err = vec![];
+    crate::cmd::print::write_cli_error(false, &error, &mut out, &mut err);
+    let text = String::from_utf8(err).unwrap();
+    assert!(text.contains("refusal_too_long"));
+    assert!(text.contains("Nothing was sent"));
+    out.clear();
+    err = vec![];
+    crate::cmd::print::write_cli_error(true, &error, &mut out, &mut err);
+    let envelope: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert_eq!(envelope["error"]["reason"], "refusal_too_long");
+}
+
+#[test]
 fn flag_parses_bounded_metadata_and_never_authors_a_reply() {
     let cli = Cli::try_parse_from([
         "domios",

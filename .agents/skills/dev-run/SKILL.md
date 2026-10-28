@@ -7,6 +7,8 @@ description: Start, restart, kill, and verify the Domios dev instance from insid
 
 Run, restart, and diagnose the Domios dev instance inside this repo. Dev is isolated from production: different config dir, different port, different data.
 
+For the pinned two-peer Neighbors acceptance setup and candidate advances, see [QA peers](../qa-peers/SKILL.md).
+
 **Never touch prod.** Prod listens on 7685, dev on 7686. If you ever kill a process, verify by port first.
 
 This skill owns only development instances. Local production installation is

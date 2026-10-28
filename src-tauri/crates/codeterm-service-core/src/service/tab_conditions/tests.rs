@@ -294,6 +294,7 @@ fn user_owned_cron_prompt_stays_out_of_bell_and_tracks_waiting_state() {
             .record_run(
                 &job.id,
                 crate::cron::store::CronRunInfo {
+                    cancel_reason: None,
                     run_id: run_id.into(),
                     started_at: 1,
                     finished_at: None,

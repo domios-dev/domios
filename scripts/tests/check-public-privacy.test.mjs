@@ -40,6 +40,12 @@ test('public, reserved and configuration material remains allowed', () => {
   ]) assert.deepEqual(scanText('guide.md', value), [], value);
 });
 
+test('release template delimiters do not create email findings', () => {
+  const manifest = readFileSync(new URL('../../distribution/scoop/bucket/domios.json', import.meta.url), 'utf8');
+  assert.deepEqual(scanText('manifest.json', manifest), []);
+  assert.ok(scanText('manifest.json', manifest + seeds.find(([rule]) => rule === 'email')[1]).some(finding => finding.rule === 'email'));
+});
+
 test('a reviewed synthetic vector is allowed only for its exact path, rule and token', () => {
   const seed = seeds[0][1];
   const allowance = { path: 'fixture.txt', rule: 'tailnet-ip', sha256: fingerprint(seed), reason: 'Synthetic parser fixture, never contacted.' };
