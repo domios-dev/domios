@@ -1005,7 +1005,34 @@ export interface TabMenuContribution {
 export type SurfaceRenderer = "view" | "stream";
 export type SurfaceRestore = "relaunch" | "placeholder" | "none";
 
+/** Host-injected iframe bridge; state subscriptions are hints, not a polling API. */
+export interface SurfaceViewBridge {
+  surface: { surface: string | null; instance: string | null; tab: string | null };
+  invoke(method: string, args?: unknown): Promise<unknown>;
+  close(): void;
+  onSurfaceStateChanged(callback: () => void): () => void;
+}
+
+export interface SurfaceCallContext {
+  surface: string;
+  instance: string;
+  tab: string;
+  owner: string;
+  /** Authenticated calling agent tab id, stamped by the host. */
+  actor: string;
+  /** Sanitized display label; attribution uses actor, never this label as authority. */
+  actorLabel: string;
+}
+
+export interface SurfaceAgentHandler {
+  onSurfaceCall(context: SurfaceCallContext, verb: string, args: string[]): string;
+}
+
 export interface SurfaceContribution {
+  /** View only: at most 32 unique lowercase kebab verbs, each at most 32 bytes. */
+  agentVerbs?: string[];
+  /** View only: permit identity-only state invalidation through host.surface.invalidate. */
+  stateInvalidation?: boolean;
   // 1-32 lowercase letters, digits or '-', unique within the plugin.
   id: string;
   // One word, no whitespace: the tab title.
@@ -1046,6 +1073,7 @@ export interface PluginModule
     Partial<ChatPreprocessor>,
     Partial<WebhookReceiver>,
     Partial<AgentCommandHandler>,
+    Partial<SurfaceAgentHandler>,
     Partial<ModelProviderConfig> {
   onPermissionChanged?(event: PermissionChangedEvent): void | { error: string };
   statusBubble?(ctx: TabContext): StatusBubble | null;

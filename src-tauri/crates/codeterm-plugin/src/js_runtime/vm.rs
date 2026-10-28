@@ -123,8 +123,21 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.surface = {
     call: function (verb, argsJson) {
       var args = typeof argsJson === "string" ? argsJson : JSON.stringify(argsJson === undefined ? [] : argsJson);
-      return host.surfaceCall(String(verb || ""), args);
+      var reply = host.surfaceCall(String(verb || ""), args);
+      var plan = parseJson(reply);
+      if (!plan || !plan.view_dispatch) return reply;
+      var dispatch = plan.view_dispatch;
+      // Reuse this active VM: re-entering the ViewProvider port would lock the same VM.
+      try {
+        if (!globalThis.__plugin__ || typeof globalThis.__plugin__.onSurfaceCall !== "function")
+          return JSON.stringify({error:"plugin declares view verbs but has no onSurfaceCall"});
+        var result = globalThis.__plugin__.onSurfaceCall(dispatch.context, dispatch.verb, dispatch.args);
+        if (typeof result !== "string") return JSON.stringify({error:"onSurfaceCall must return a string"});
+        if (result.length > 32768) return JSON.stringify({error:"surface result exceeds 32768 characters"});
+        return JSON.stringify({result:result});
+      } catch (_) { return JSON.stringify({error:"view surface verb failed"}); }
     },
+    invalidate: function (identity) { return parseJson(host.surfaceInvalidate(JSON.stringify(identity || {}))); },
   };
   host.receiverTarget = {
     get:   function () { return parseJson(host.receiverTargetGet()); },

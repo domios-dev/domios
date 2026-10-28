@@ -272,6 +272,8 @@ mod tests {
             runtime: runtime.map(str::to_string),
             chrome: None,
             icon: None,
+            agent_verbs: Vec::new(),
+            state_invalidation: false,
         }
     }
 

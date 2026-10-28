@@ -35,6 +35,8 @@ fn surface_manifest_parses_view_surface_with_defaults() {
             runtime: None,
             chrome: None,
             icon: None,
+            agent_verbs: Vec::new(),
+            state_invalidation: false,
         }]
     );
     assert_eq!(
@@ -217,4 +219,30 @@ fn surface_manifest_drops_an_invalid_icon_and_still_loads() {
     let mut not_a_string = surface();
     not_a_string["icon"] = serde_json::json!(7);
     assert!(manifest(with_view(vec![not_a_string])).is_err());
+}
+
+#[test]
+fn view_surface_agent_descriptor_roundtrips_and_refuses_invalid_bounds() {
+    let mut declared = surface();
+    declared["restore"] = serde_json::json!("relaunch");
+    declared["agentVerbs"] = serde_json::json!(["open", "submit"]);
+    declared["stateInvalidation"] = serde_json::json!(true);
+    let parsed = manifest(with_view(vec![declared.clone()])).unwrap();
+    assert_eq!(
+        serde_json::to_value(&parsed.capabilities.surfaces[0]).unwrap(),
+        declared
+    );
+    for verbs in [
+        serde_json::json!(["submit", "submit"]),
+        serde_json::json!(["private argument"]),
+        serde_json::json!(["x".repeat(33)]),
+        serde_json::json!(vec!["a"; 33]),
+    ] {
+        declared["agentVerbs"] = verbs;
+        assert!(manifest(with_view(vec![declared.clone()])).is_err());
+    }
+    declared["agentVerbs"] = serde_json::json!(["submit"]);
+    declared["renderer"] = serde_json::json!("stream");
+    declared["runtime"] = serde_json::json!("opaque-runtime");
+    assert!(manifest(with_view(vec![declared])).is_err());
 }

@@ -40,6 +40,9 @@ fn words(items: Vec<Value>) -> Vec<String> {
 
 /// `argsJson` is a JSON word array, or `{ args, of }` once the plugin parsed `--of`.
 pub(crate) fn parse_verb_call(args_json: &str) -> Result<VerbCall, String> {
+    if args_json.len() > 32 * 1024 {
+        return Err("surface arguments exceed 32768 bytes".into());
+    }
     if args_json.trim().is_empty() {
         return Ok(VerbCall::default());
     }
@@ -82,11 +85,11 @@ pub(crate) fn resolve_caller_tab(mux: &MultiplexerState, caller: &str) -> Option
     })
 }
 
-/// The first stream surface a plugin declares: the one its agent verbs act on.
-pub(crate) fn plugin_stream_surface(declared: &[SurfaceDecl]) -> Option<&SurfaceDecl> {
+/// The first stream or explicitly agent-callable view declaration.
+pub(crate) fn plugin_agent_surface(declared: &[SurfaceDecl]) -> Option<&SurfaceDecl> {
     declared
         .iter()
-        .find(|surface| surface.stream_runtime().is_some())
+        .find(|surface| surface.stream_runtime().is_some() || !surface.agent_verbs.is_empty())
 }
 
 /// The owner's open surface of that declaration, if any.
@@ -211,7 +214,7 @@ pub(crate) fn plan_agent_call(
     let open = caller_surface_tab(mux, plugin_id, &surface.id, &owner);
     if owner == caller_tab {
         return match (open, verb) {
-            (_, "annotate") => Err(format!(
+            (_, "annotate") if surface.stream_runtime().is_some() => Err(format!(
                 "annotate targets another agent's {noun}; use --of <agent>"
             )),
             (Some(tab_id), "close") => Ok(CallPlan::Close { tab_id }),
@@ -268,7 +271,10 @@ impl ServiceContext {
         verb: &str,
         args_json: &str,
     ) -> String {
-        reply(self.surface_agent_call(plugin_id, caller, verb, args_json))
+        match self.surface_agent_call(plugin_id, caller, verb, args_json) {
+            Ok(result) => result.to_string(),
+            Err(error) => reply(Err(error)),
+        }
     }
 
     fn surface_agent_call(
@@ -277,17 +283,24 @@ impl ServiceContext {
         caller: Option<&str>,
         verb: &str,
         args_json: &str,
-    ) -> Result<String, String> {
+    ) -> Result<Value, String> {
         let VerbCall { args, of } = parse_verb_call(args_json)?;
         let declared = self
             .ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
             .get(plugin_id)
             .map(|declared| declared.to_vec())
             .unwrap_or_default();
-        let surface = plugin_stream_surface(&declared)
-            .ok_or_else(|| format!("plugin {plugin_id} declares no stream surface"))?;
+        let surface = plugin_agent_surface(&declared)
+            .ok_or_else(|| format!("plugin {plugin_id} declares no agent-callable surface"))?;
         if verb == "help" {
-            return Ok(self.surface_agent_guide(plugin_id));
+            return Ok(json!({"result": self.surface_agent_guide(plugin_id)}));
+        }
+        let is_view = surface.renderer == codeterm_plugin::surfaces::SurfaceRenderer::View;
+        if is_view
+            && !matches!(verb, "open" | "close")
+            && !surface.agent_verbs.iter().any(|v| v == verb)
+        {
+            return Err("surface verb is not declared".into());
         }
         let caller_tab = {
             let mux = self.mux.read();
@@ -300,11 +313,12 @@ impl ServiceContext {
         }?;
         let noun = surface.title.to_lowercase();
         let (tab_id, actor) = match plan {
-            CallPlan::Answer(text) => return Ok(text),
+            CallPlan::Answer(text) => return Ok(json!({"result":text})),
             CallPlan::Close { tab_id } => {
+                self.note_surface_activity(&tab_id, verb, None);
                 self.close_surface(Some(caller_tab.as_str()), &tab_id)
                     .map_err(|error| error.message())?;
-                return Ok(format!("closed {noun} {tab_id}"));
+                return Ok(json!({"result":format!("closed {noun} {tab_id}")}));
             }
             CallPlan::Open => {
                 let opened = self
@@ -319,6 +333,17 @@ impl ServiceContext {
             }
             CallPlan::Run { tab_id, actor } => (tab_id, actor),
         };
+        if is_view {
+            let context = {
+                let mux = self.mux.read();
+                super::view::view_context(&mux, plugin_id, &surface.id, &tab_id, &caller_tab)?
+            };
+            self.note_surface_activity(&tab_id, verb, actor.as_deref());
+            if !surface.agent_verbs.iter().any(|v| v == verb) {
+                return Ok(json!({"result":format!("opened {noun} {tab_id}")}));
+            }
+            return Ok(json!({"view_dispatch":{"context":context,"verb":verb,"args":args}}));
+        }
         let (runtime, binding) = self
             .surface_runtime(&tab_id)
             .map_err(|error| error.message())?;
@@ -329,10 +354,13 @@ impl ServiceContext {
         if verb == "annotate" {
             let annotating = runtime.clone();
             let outcome = block_on_runtime(async move { annotating.annotate(&ctx, &args).await })?;
-            return Ok(self.deliver_agent_annotation(runtime.as_ref(), &binding, outcome));
+            return Ok(
+                json!({"result":self.deliver_agent_annotation(runtime.as_ref(), &binding, outcome)}),
+            );
         }
         let verb = verb.to_string();
         block_on_runtime(async move { runtime.agent_verb(&ctx, &verb, &args).await })
+            .map(|result| json!({"result":result}))
     }
 
     fn deliver_agent_annotation(

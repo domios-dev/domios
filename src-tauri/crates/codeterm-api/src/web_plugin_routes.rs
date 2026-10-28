@@ -7,14 +7,16 @@ use serde::Deserialize;
 use crate::routes::AppState;
 
 const PLUGIN_BRIDGE_JS: &str = r#"
-(function(){var p={},s=0;
+(function(){var p={},s=0,subscribers=new Set();
 window.addEventListener('message',function(e){var m=e.data||{};
  if(m.__ctReply!=null&&p[m.__ctReply]){var d=p[m.__ctReply];delete p[m.__ctReply];
   m.error?d.reject(new Error(m.error)):d.resolve(m.result);}
+ if(e.source===parent&&m.__ctSurfaceStateChanged===true){subscribers.forEach(function(fn){try{fn();}catch(_){}});}
  if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
 window.ct={surface:__CT_SURFACE__,invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
   p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
  close:function(){parent.postMessage({__ctClose:true},'*');}};
+window.ct.onSurfaceStateChanged=function(fn){if(typeof fn!=="function")throw new Error("callback required");subscribers.add(fn);return function(){subscribers.delete(fn);};};
 parent.postMessage({__ctReady:true},'*');
 function rz(){if(!document.body)return;var h=document.body.scrollHeight;if(h)parent.postMessage({__ctResize:h},'*');}
 function watch(){if(window.ResizeObserver){new ResizeObserver(rz).observe(document.body);}rz();}
