@@ -1,10 +1,13 @@
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { MultiplexerState, ProviderDescriptor, Tab, TabBootStageEvent } from "../../lib/types";
 import { FirstRunGeneralPicker } from "./FirstRunGeneralPicker";
 import { firstRunGeneralTarget } from "./firstRunNavigation";
 import { firstRunTransition, type FirstRunPhase } from "../../lib/firstRunFlow";
+
+const localJson = vi.hoisted(() => vi.fn());
+vi.mock("../../lib/webApi", async original => ({ ...await original<typeof import("../../lib/webApi")>(), localJson }));
 
 const navigation = vi.hoisted(() => ({ show: vi.fn(), activeTabId: () => "installer" }));
 
@@ -37,6 +40,7 @@ it("models installation, sign-in, startup, readiness and failure recovery", () =
   expect(firstRunTransition("failed", "install")).toBe("installing");
 });
 beforeEach(() => {
+  localJson.mockReset().mockResolvedValue({ consent: "on", queued: 0, has_device_id: true, has_user_id: false });
   vi.mocked(listen).mockImplementation(async (name, handler) => {
     events.set(name, handler as (event: { payload: unknown }) => void);
     return () => { events.delete(name); };
@@ -322,6 +326,62 @@ it("shows only the passive analytics line on first run and links Settings to Gen
     await act(async () => root.render(<AgentProviderPicker headline="Choose agent" subhead="" providers={[]} onConfirm={() => {}} />));
     expect(host.textContent).not.toContain("Product analytics is on.");
     expect(host.querySelector('[role="dialog"], [role="alert"], [role="banner"], [data-notification-id]')).toBeNull();
+  } finally {
+    window.removeEventListener("codeterm:open-panel", open);
+    await act(async () => root.unmount()); host.remove();
+  }
+});
+
+
+it.each(["off", "unknown"] as const)("hides the first-run analytics line when actual consent is %s", async consent => {
+  if (consent === "off") localJson.mockResolvedValue({ consent: "off" });
+  else localJson.mockRejectedValue(new Error("status unavailable"));
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<FirstRunGeneralPicker providers={[]} />));
+    expect(host.textContent).not.toContain("Product analytics is on.");
+    expect([...host.querySelectorAll("a")].some(link => link.textContent === "Settings")).toBe(false);
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+  }
+});
+
+it("updates the mounted first-run picker after turning OFF in General and returning", async () => {
+  const { AnalyticsToggle } = await import("../Settings/AnalyticsToggle");
+  const on = { consent: "on", queued: 0, has_device_id: true, has_user_id: false };
+  const off = { consent: "off", queued: 0, has_device_id: false, has_user_id: false };
+  let stored = on;
+  localJson.mockImplementation(async (method: string, _path: string, body?: { consent: string }) => {
+    if (method === "POST") { expect(body).toEqual({ consent: "off" }); stored = off; }
+    return stored;
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  let showSettings!: () => void;
+  const open = () => showSettings();
+  function Screen() {
+    const [settings, setSettings] = useState(false);
+    showSettings = () => setSettings(true);
+    return <>
+      <div hidden={settings}><FirstRunGeneralPicker providers={[]} /></div>
+      {settings && <section aria-label="General"><AnalyticsToggle /><button onClick={() => setSettings(false)}>Back</button></section>}
+    </>;
+  }
+  window.addEventListener("codeterm:open-panel", open);
+  try {
+    await act(async () => root.render(<Screen />));
+    const picker = host.querySelector('[data-testid="first-run-general-picker"]')!;
+    const link = [...picker.querySelectorAll("a")].find(element => element.textContent === "Settings")!;
+    expect(link.parentElement?.textContent).toBe("Product analytics is on. Turn off in Settings.");
+    await act(async () => link.click());
+    const toggle = host.querySelector<HTMLButtonElement>('[role="switch"][aria-label="Share product analytics"]')!;
+    await act(async () => toggle.click());
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    expect(picker.textContent).not.toContain("Product analytics is on.");
+    await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Back")!.click());
+    expect(host.querySelector('[data-testid="first-run-general-picker"]')).toBe(picker);
+    expect(picker.textContent).not.toContain("Product analytics is on.");
   } finally {
     window.removeEventListener("codeterm:open-panel", open);
     await act(async () => root.unmount()); host.remove();
