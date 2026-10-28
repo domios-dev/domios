@@ -12,7 +12,8 @@ pub(super) fn register(fixture: &ServiceFixture, outcome: &str) -> Arc<PluginVm>
             "mode":"cloud","displayName":"Cloud","backend":"fixture",
             "availability":{"status":"unavailable","reason":"Sign in"},
             "environments":[],"followUp":false,"cancel":false,"applyDiff":false
-        }}
+        }},
+        "permissions":{"subprocess":{"allow":["fixture-cli"]}}
     }).to_string();
     let manifest = PluginManifest::from_json_str(&manifest_json).unwrap();
     let source = format!(
