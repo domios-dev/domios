@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn recipient_pause_remains_a_typed_refusal_for_messages_and_file_grants() {
+    assert_eq!(
+        refusal(
+            &json!({"error":{"status":"FAILED_PRECONDITION","details":{"reason":"recipient_paused"}}})
+        ),
+        Error::RecipientPaused
+    );
+    assert!(Error::RecipientPaused
+        .to_string()
+        .starts_with("recipient_paused:"));
+}
+
+#[test]
 fn aggregate_daily_refusal_preserves_limit_and_utc_reset_without_guessing_missing_fields() {
     let error = refusal(
         &json!({"error":{"status":"RESOURCE_EXHAUSTED","details":{"reason":"aggregate_daily_limited","limit":500,"resets_at":1793145600u64}}}),

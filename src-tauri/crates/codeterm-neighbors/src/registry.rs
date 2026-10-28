@@ -12,10 +12,17 @@ pub struct DeliverySignal {
     pub status: crate::wire::DeliveryStatus,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PauseSignal {
+    pub friendship_id: String,
+    pub paused: bool,
+}
+
 #[derive(Default)]
 pub struct RegistrySignal {
     pub revision: Option<u64>,
     pub delivery: Option<DeliverySignal>,
+    pub pause: Option<PauseSignal>,
     pub ignored: bool,
     pub receiver_revision: Option<u64>,
     pub accepted: Vec<Acceptance>,

@@ -37,6 +37,7 @@ pub enum Error {
     ReceiverRevisionStale,
     NotReceiver,
     RecipientNotReceiving,
+    RecipientPaused,
     InstallationUnverified,
     SessionRevoked,
     OperationIdConflict,
@@ -125,6 +126,7 @@ impl std::fmt::Display for Error {
             Self::RecipientNotReceiving => {
                 "recipient_not_receiving: This Neighbor is not receiving right now"
             }
+            Self::RecipientPaused => "recipient_paused: This Neighbor paused messages from you",
             Self::Refused => "Neighbor request refused",
             Self::Disabled => "neighbors_disabled: Neighbors is turned off on this instance",
             Self::LimitOutOfRange => "limit_out_of_range: Choose a valid daily message limit",

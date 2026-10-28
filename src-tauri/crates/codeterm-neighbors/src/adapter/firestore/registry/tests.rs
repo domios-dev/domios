@@ -1,6 +1,39 @@
 use super::super::value;
 use super::*;
 
+#[test]
+fn pause_changed_requires_the_exact_own_account_signal_shape() {
+    let mut doc = document("own-account-signal");
+    doc.fields.insert("type".into(), string("pause_changed"));
+    doc.fields
+        .insert("at".into(), value(fs::value::ValueType::IntegerValue(100)));
+    for paused in [true, false] {
+        doc.fields.insert(
+            "paused".into(),
+            value(fs::value::ValueType::BooleanValue(paused)),
+        );
+        let signal = parse_signal(doc.clone()).unwrap();
+        assert_eq!(
+            signal.pause,
+            Some(crate::registry::PauseSignal {
+                friendship_id: "b".repeat(64),
+                paused
+            })
+        );
+        assert!(signal.delivery.is_none());
+        assert!(signal.removed.is_empty());
+    }
+    for (key, wrong) in [
+        ("paused", string("true")),
+        ("friendship_id", value(fs::value::ValueType::NullValue(0))),
+        ("request_id", string(&"a".repeat(64))),
+    ] {
+        let mut invalid = doc.clone();
+        invalid.fields.insert(key.into(), wrong);
+        assert!(parse_signal(invalid).is_err());
+    }
+}
+
 fn string(text: &str) -> fs::Value {
     value(fs::value::ValueType::StringValue(text.into()))
 }

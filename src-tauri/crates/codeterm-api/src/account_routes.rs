@@ -372,6 +372,7 @@ fn neighbor_failure(message: String) -> Response {
             | "receiver_revision_stale"
             | "not_receiver"
             | "recipient_not_receiving"
+            | "recipient_paused"
             | "installation_unverified"
             | "operation_id_conflict",
         ) => StatusCode::CONFLICT,
