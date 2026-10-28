@@ -1,5 +1,6 @@
 mod agent_commands;
 mod bin_resolve;
+mod blueprint_step;
 mod bubble;
 #[cfg(test)]
 mod call_gate;
@@ -37,6 +38,7 @@ pub use bin_resolve::{
     probe_bin_with_environment, refresh_user_path, resolved_bin_path, well_known_bin_dirs,
     BinProbe, BinResolution, BinSearchEnvironment, EnvironmentValue, PathSource, SystemPathSource,
 };
+pub use blueprint_step::JsBlueprintStep;
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;

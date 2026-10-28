@@ -555,6 +555,7 @@ export interface EventSourceDeclaration {
 
 /** Manifest `capabilities.graphNodes`. */
 export interface GraphNodesManifestCapability {
+  steps?: import("./blueprintSteps").BlueprintStepDescriptor[];
   converters?: GraphNodeConversion[];
   eventSources?: EventSourceDeclaration[];
 }
@@ -1041,6 +1042,7 @@ export interface PluginModule
     Partial<SecretBackend>,
     Partial<Transcriber>,
     Partial<Converter>,
+    Partial<import("./blueprintSteps").BlueprintSteps>,
     Partial<DecisionModelCapability>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,

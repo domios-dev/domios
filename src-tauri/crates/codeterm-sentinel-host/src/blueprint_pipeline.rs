@@ -6,6 +6,8 @@ use codeterm_blueprint_types::blueprint_pipeline::{
 use serde_json::{json, Value};
 
 use crate::scheduler::Handle;
+#[cfg(test)]
+mod plugin_steps_tests;
 use codeterm_service_core::service::ServiceContext;
 
 pub trait BlueprintExt {
@@ -162,6 +164,16 @@ impl BlueprintExt for ServiceContext {
             .chain(codeterm_blueprint_types::blueprint_catalog::SOURCES_AND_MODES)
             .map(codeterm_blueprint_types::blueprint_catalog::NodeDescriptor::value)
             .collect::<Vec<_>>();
+        for step in self
+            .ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>()
+            .steps()
+        {
+            nodes.push(
+                json!({"role":"step", "kind":step.descriptor.id, "title":step.descriptor.title,
+                "plugin":step.plugin, "descriptor":step.descriptor,
+                "available":false, "hold_reason":"plugin_step_runner_unavailable"}),
+            );
+        }
         for (_, conversion) in self
             .ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>()
             .available()
