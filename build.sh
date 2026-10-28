@@ -32,6 +32,14 @@ source scripts/firebase-build-config.sh
 dev_notify_capture_parent
 
 CMD="${1:-dev}"
+dev_build_phase() {
+  [ "${CODETERM_BUILD_TIMINGS:-0}" = 1 ] || return 0
+  case "${CMD:-}" in dev|dev-back|dev-prebuilt|dev-server) ;; *) return 0 ;; esac
+  local timestamp="${EPOCHREALTIME:-}"
+  [ -n "$timestamp" ] || timestamp="$(node -p 'Date.now()/1000')"
+  printf '[dev-phase] time=%s pid=%s phase=%s\n' "$timestamp" "${BASHPID:-$$}" "$1" >&2
+}
+dev_build_phase startup.begin
 if [ "$CMD" = dev-back ]; then
   export DEV_FRONT_EXTERNAL=1
   set -- dev --wait "${@:2}"
@@ -1322,10 +1330,13 @@ dev_cli_target_dir() {
 build_dev_cli() {
   local cli_target_dir
   cli_target_dir="$(dev_cli_target_dir)"
+  dev_build_phase cargo-cli.begin
   CARGO_TARGET_DIR="$cli_target_dir" cargo build --manifest-path cli/Cargo.toml \
     --message-format=json-render-diagnostics > "$1"
+  dev_build_phase cargo-cli.end
   built_cli_artifact="$(CARGO_TARGET_DIR="$cli_target_dir" cli_profile_binary debug)"
   built_cli_hash="$(cli_file_sha256_or_status "$built_cli_artifact")"
+  dev_build_phase cli-hash.end
 }
 
 cli_file_sha256() {
@@ -1550,9 +1561,11 @@ validate_dev_provenance() {
 }
 
 build_dev_server() {
+  dev_build_phase cargo-server.begin
   cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
     --message-format=json-render-diagnostics > "$1"
+  dev_build_phase cargo-server.end
 }
 
 reload_dev_server() {
@@ -2183,18 +2196,25 @@ build_and_launch_dev() {
   export CODETERM_WEB_DIST="$(pwd -P)/dist"
   configure_dev_cargo
   conf="$(dev_conf_path)"
+  dev_build_phase bundle-cli.begin
   node scripts/bundle-cli.js "$built_cli_artifact"
+  dev_build_phase bundle-cli.end
   local split_logs="$(tauri_debug_dir)/.domios-dev-build"
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
+  dev_build_phase firebase-server.begin
   ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
+  dev_build_phase firebase-server.end
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
     --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
+  dev_build_phase server-tree.end
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin domios-app
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   build_dev_client "$conf" "${build_args[@]}"
+  dev_build_phase cargo-client.end
   build_sha="$CODETERM_BUILD_SHA"
   if [[ "$OSTYPE" == darwin* ]] && named_dev_isolated; then prepare_local_macos_signing 0; fi
   build_dev_frontend
+  dev_build_phase frontend.end
   if [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
     if dev_live_window_exe >/dev/null && cmp -s "$(dev_built_app_path)" "$(dev_app_path)"; then
       swap_dev_server_keep_window "$split_logs" "$build_sha"
@@ -2203,13 +2223,18 @@ build_and_launch_dev() {
     stop_dev_before_replacement || return
   fi
   stop_dev_before_replacement || return
+  dev_build_phase stop-before-stage.end
   node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
+  dev_build_phase stage.end
   write_dev_provenance "$build_sha"
+  dev_build_phase provenance.end
   retain_dev_pdb "$build_sha"
+  dev_build_phase symbols.end
   release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
+  dev_build_phase gateway-release.end
   echo "Build gateway released; launching validated dev artifact."
   CT_DEV_HANDOFF_SHA="$CODETERM_BUILD_SHA" CT_DEV_HANDOFF_HASH="$CODETERM_BUILD_HASH" exec bash ./build.sh dev-prebuilt "$@"
 }
@@ -2587,8 +2612,11 @@ prepare_release_bundle_inputs() {
 }
 
 enter_cargo_gateway() {
+  dev_build_phase gateway-enter.begin
   enter_build_gateway "$@"
+  dev_build_phase gateway-enter.end
   ct_configure_sccache
+  dev_build_phase cache-setup.end
 }
 
 package_platform() {
@@ -3722,15 +3750,19 @@ LOCK_STORM_PY
       DEV_NOTIFY_LOG="$PREBUILT_LOG"
     fi
     DEV_NOTIFY_STAGE=preflight
+    dev_build_phase provenance-check.begin
     if ! run_prebuilt_preflight validate_dev_provenance; then
       refuse_prebuilt "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." \
         "Run CODETERM_DEV_INSTANCE='$CT_INSTANCE' CODETERM_DEV_API_PORT='$CT_PORT' ./build.sh dev --wait to rebuild and record valid dev provenance."
     fi
+    dev_build_phase provenance-check.end
     if ! run_prebuilt_preflight preflight_dev_prebuilt_runtime; then
       refuse_prebuilt "ERROR: prebuilt dev runtime prerequisites are unavailable; refusing before stopping dev." \
         "Run ./build.sh dev --wait to restore prerequisites and record valid dev provenance."
     fi
+    dev_build_phase runtime-preflight.end
     stop_dev_before_replacement
+    dev_build_phase launch-stop.end
     if [ -n "$DEV_NOTIFY_TAB" ]; then
       trap 'status=$?; dev_notify_exit_report "$status"; cleanup_failed_prebuilt_launch "$status"' EXIT
       trap 'dev_notify_exit_report 130; cleanup_failed_prebuilt_launch 130' INT
@@ -3747,10 +3779,13 @@ LOCK_STORM_PY
     # dev-back leaves the frontend to the separate dev-front (Vite HMR) tab.
     if [ "${DEV_FRONT_EXTERNAL:-0}" != 1 ]; then
       start_web_watch
+      dev_build_phase watcher-start.end
       start_dev_static_server
+      dev_build_phase static-start.end
     fi
     if [ "$CT_DEV_WAIT" -eq 1 ]; then
       DEV_NOTIFY_STAGE=launch
+      dev_build_phase native-launch.begin
       if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt \
         --app "$(dev_app_path)" --log "$PREBUILT_LOG" --api-port "$CT_PORT" --record "$(dev_provenance_record)"; then
         PREBUILT_STATUS=0
@@ -3763,10 +3798,12 @@ LOCK_STORM_PY
         exit 3
       fi
       [ "$PREBUILT_STATUS" -eq 0 ] || exit "$PREBUILT_STATUS"
+      dev_build_phase native-attachment.end
       HEALTH="$(dev_health_status)"
       EXPECTED_BUILD_SHA="$CODETERM_BUILD_SHA"
       SHA="$(validate_dev_health "$EXPECTED_BUILD_SHA" "$CT_INSTANCE" "$CT_PORT" "$CT_VITE_PORT" "$CT_CDP_PORT" "$CT_IDENTIFIER" "$HEALTH" server)"
       node scripts/dev-prep.mjs --check-attachment --log "$PREBUILT_LOG" --api-port "$CT_PORT" --listener-pid "$(dev_listener_pid)"
+      dev_build_phase readiness-check.end
       echo "Prebuilt dev ready: build ${SHA:0:8}, instance '${CT_INSTANCE:-default}', listener pid $(dev_listener_pid)"
       if [ -n "$DEV_NOTIFY_TAB" ]; then
         dev_notify_ready_after_proof "$DEV_NOTIFY_SENT_MARKER" "$DEV_NOTIFY_TAB" "$CT_INSTANCE" "$CT_PORT" "$SHA" "$(dev_listener_pid)" "$(pwd -P)"
@@ -3836,14 +3873,19 @@ LOCK_STORM_PY
       stop_dev_before_replacement
     fi
     enter_cargo_gateway "$CMD ${*:2}"
+    dev_build_phase qa-project.begin
     ct_configure_dev_qa_project
+    dev_build_phase qa-project.end
     prepare_dev_frontend_dist
+    dev_build_phase frontend-preflight.end
     ensure_deps
+    dev_build_phase dependencies.end
     echo "Building CLI..."
     mkdir -p "$(tauri_debug_dir)/.domios-dev-build"
     build_dev_cli "$(tauri_debug_dir)/.domios-dev-build/cli.jsonl"
     # Every dev instance gets its own CLI; production updates its bundled CLI.
     install_cli_to "$CT_DATA_DIR/bin" "$built_cli_artifact" "$built_cli_hash"
+    dev_build_phase cli-install.end
     export PATH="$CT_DATA_DIR/bin:$PATH"
     if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
       export CODETERM_CLI_PATH="$CT_DATA_DIR/bin/codeterm"

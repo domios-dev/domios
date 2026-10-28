@@ -274,7 +274,7 @@ cat args.txt
 });
 
 const preflight = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)')));
-const preflightHelpers = ['run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
+const preflightHelpers = ['dev_build_phase', 'run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
 for (const externalFrontend of [0, 1]) {
   test(`prebuilt timeout shell preserves ready server and window only in split mode=${externalFrontend}`, () => {
     const start = source.indexOf('      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt');

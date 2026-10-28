@@ -83,6 +83,7 @@ test('build verb never invokes whole-client cleanup, frontend build, or native c
   mkdirSync(path.join(directory, '.domios-dev-build'));
   try {
   const result = spawnSync(bash, [], { encoding: 'utf8', input: `set -e
+${source.match(/^dev_build_phase\(\) \{[^]*?^\}/m)[0]}
 ${body}
 ${server}
 ${config}
