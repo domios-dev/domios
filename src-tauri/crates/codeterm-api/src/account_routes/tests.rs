@@ -5,7 +5,8 @@ mod neighbor_files;
 
 #[tokio::test]
 async fn recipient_pause_returns_a_typed_conflict_without_limit_metadata() {
-    let response = neighbor_failure(codeterm_neighbors::Error::RecipientPaused.to_string());
+    let response =
+        neighbor_failure("recipient_paused: This Neighbor paused messages from you".to_string());
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
