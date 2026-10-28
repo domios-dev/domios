@@ -85,8 +85,9 @@ describe("plugin view activation", () => {
     documentState.dispose = vi.fn();
     await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
     const iframe = host!.querySelector("iframe")!;
-    await act(async () => iframe.dispatchEvent(new Event("load")));
+    // Happy DOM delivers the initial srcdoc load during mount.
     expect(documentState.dispose).not.toHaveBeenCalled();
+    expect(documentLoad).toHaveBeenLastCalledWith(expect.stringContaining("reload=0"));
     await act(async () => iframe.dispatchEvent(new Event("load")));
     expect(documentState.dispose).toHaveBeenCalledTimes(1);
     expect(documentLoad).toHaveBeenLastCalledWith(expect.stringContaining("reload=1"));
