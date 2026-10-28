@@ -422,7 +422,7 @@ it("keeps confirmed OFF after an unmounted toggle's delayed ON response resolves
     expect(toggle().getAttribute("aria-checked")).toBe("true");
     await act(async () => toggle().click());
     expect(toggle().getAttribute("aria-checked")).toBe("false");
-    expect(publications.at(-1)).toBe("off");
+    expect(publications[publications.length - 1]).toBe("off");
     const confirmed = [...publications];
     await act(async () => finishOn(on));
     expect(publications).toEqual(confirmed);
