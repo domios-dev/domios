@@ -40,6 +40,7 @@ export function scanText(path, text, allowances = []) {
   for (const [rule, pattern] of rules) {
     pattern.lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
+      if (rule === 'email' && text[match.index - 1] === '@' && /^[A-Z][A-Z0-9_]*@/.test(match[0])) continue;
       if (rule === 'captured-report' && !/\.(?:json|jsonl|ndjson|txt|cast)$/i.test(path)) continue;
       if (!candidate(rule, match[0])) continue;
       const digest = fingerprint(match[0]);

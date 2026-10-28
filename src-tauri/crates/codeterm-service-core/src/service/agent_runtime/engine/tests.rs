@@ -58,7 +58,7 @@ fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {
     tab.agent_booting = true;
     tab.session_binding_nonce = Some("nonce".into());
     let mut events = Vec::new();
-    commit_runtime_binding(tab, "nonce", "thread", |bound| {
+    commit_runtime_binding(tab, "nonce", "thread", true, |bound| {
         events.push(crate::service::boot_stage::boot_stage_event(
             &id,
             bound,
@@ -71,9 +71,10 @@ fn bind_commit_emits_one_ready_event_with_booting_and_session_bound() {
     assert_eq!(events[0]["stage"], "agent_ready");
     assert_eq!(events[0]["agent_booting"], false);
     assert_eq!(events[0]["session_bound"], true);
+    assert_eq!(tab.agent_runtime_config.as_ref().unwrap()["unusedThreadId"], "thread");
     assert_eq!(tab.agent_session_id.as_deref(), Some("thread"));
     let mut rejected_events = 0;
-    assert!(commit_runtime_binding(tab, "stale", "thread", |_| rejected_events += 1).is_err());
+    assert!(commit_runtime_binding(tab, "stale", "thread", true, |_| rejected_events += 1).is_err());
     assert_eq!(rejected_events, 0);
 }
 
@@ -120,3 +121,6 @@ async fn synchronous_stop_bridge_releases_the_tokio_worker_and_awaits_exit() {
     assert!(for_tab(&id).is_none());
     drop(live);
 }
+
+#[path = "tests/history_ready.rs"]
+mod history_ready;

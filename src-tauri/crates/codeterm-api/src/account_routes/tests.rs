@@ -2,6 +2,7 @@ use super::*;
 
 mod neighbor_authority;
 mod neighbor_files;
+mod neighbor_read;
 
 #[tokio::test]
 async fn recipient_pause_returns_a_typed_conflict_without_limit_metadata() {

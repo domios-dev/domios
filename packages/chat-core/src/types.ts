@@ -273,7 +273,9 @@ export type ChatOrigin =
   | { kind: "plugin"; pluginId: string; name?: string; iconSvg?: string | null }
   | { kind: "mesh"; peerId: string }
   /** A friend's request routed to their concierge; the host's own framing stays in `instruction`. */
-  | { kind: "neighbor"; friendshipId: string; friend?: string; sender?: string; instruction?: string }
+  | { kind: "neighbor"; friendshipId: string; friend?: string; sender?: string; instruction?: string;
+      /** The routed envelope's message id, its kind, and the message it answers. */
+      message?: string; messageKind?: "question" | "answer" | "refusal"; inReplyTo?: string }
   | { kind: "service"; service: string; userId: string }
   | { kind: "plugin_config"; pluginId: string; name: string }
   | { kind: "system"; context?: string }

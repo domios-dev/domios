@@ -111,6 +111,9 @@ function MarkdownCode({
           color: "var(--ct-fg)",
           overflowWrap: "anywhere",
           wordBreak: "break-word",
+          // A chip broken across lines keeps its padding and rounded ends on every line instead of being cut at the edge.
+          boxDecorationBreak: "clone",
+          WebkitBoxDecorationBreak: "clone",
         }}
         {...codeProps}
       >

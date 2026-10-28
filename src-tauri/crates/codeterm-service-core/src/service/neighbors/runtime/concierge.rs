@@ -54,6 +54,13 @@ impl ServiceContext {
         self.require_neighbor_history_generation(generation)?;
         self.tag_neighbor_root(&transport.uid, friendship, gateway)?;
         settings.bindings.insert(friendship.into(), gateway.into());
+        settings.initial_contexts.insert(
+            friendship.into(),
+            super::super::storage::InitialContext {
+                gateway_tab: gateway.into(),
+                digest: initial_prompt::digest(friendship, &permission),
+            },
+        );
         metadata.save_settings(settings).await?;
         self.reconcile_neighbor_handling_restore(metadata, friendship, generation)
             .await?;
@@ -157,16 +164,9 @@ impl ServiceContext {
                 .map_err(launch_error)?;
         }
         let (provider, model) = previous.unwrap_or_default();
-        let resume_session = old.as_deref().and_then(|id| {
-            let mux = self.mux.read();
-            let tab = mux.get_tab(id)?;
-            let provider = tab.agent_type.as_deref()?;
-            self.agent_registry
-                .with_provider(provider, |p| p.supports_initial_prompt_update_on_resume())
-                .unwrap_or(false)
-                .then(|| tab.agent_session_id.clone())
-                .flatten()
-        });
+        let resume_session = old
+            .as_deref()
+            .and_then(|id| self.neighbor_initial_context_resume(id));
         self.stop_neighbor_listeners();
         let history_retained = resume_session.is_some();
         if history_retained {
@@ -187,6 +187,7 @@ impl ServiceContext {
                 );
                 if history_retained {
                     settings.bindings.remove(friendship);
+                    settings.initial_contexts.remove(friendship);
                     metadata.save_settings(settings).await?;
                     self.ui.emit(
                         "neighbor-agent-changed",
@@ -207,6 +208,15 @@ impl ServiceContext {
         }
         if let Some(tab) = &created {
             settings.bindings.insert(friendship.into(), tab.clone());
+        }
+        if let Some(tab) = &created {
+            settings.initial_contexts.insert(
+                friendship.into(),
+                super::super::storage::InitialContext {
+                    gateway_tab: tab.clone(),
+                    digest: initial_prompt::digest(friendship, &permission),
+                },
+            );
         }
         settings.permissions.insert(friendship.into(), permission);
         let gateway_tab = settings.bindings.get(friendship).cloned();
@@ -245,6 +255,19 @@ impl ServiceContext {
             json!({"friendship_id":friendship}),
         );
         Ok(json!({"status":"saved","gateway_tab":gateway_tab,"history_retained":history_retained}))
+    }
+
+    fn neighbor_initial_context_resume(&self, id: &str) -> Option<String> {
+        let mux = self.mux.read();
+        let tab = mux.get_tab(id)?;
+        let provider = tab.agent_type.as_deref()?;
+        self.agent_registry
+            .with_provider(provider, |p| p.supports_initial_prompt_update_on_resume())
+            .unwrap_or(false)
+            .then(|| {
+                crate::service::restored_launch::restored_session_target(tab).map(str::to_owned)
+            })
+            .flatten()
     }
 
     pub(super) async fn create_neighbor_concierge(
@@ -319,7 +342,7 @@ impl ServiceContext {
         provider: Option<String>,
         model: Option<String>,
     ) -> Result<String, String> {
-        self.replace_neighbor_concierge_with(metadata, friendship, |cwd, permission| {
+        self.replace_neighbor_concierge_with(metadata, friendship, false, |cwd, permission| {
             self.create_neighbor_concierge(friendship, provider, model, cwd, permission, None)
         })
         .await
@@ -329,6 +352,7 @@ impl ServiceContext {
         &self,
         metadata: &Metadata,
         friendship: &str,
+        retire_before_create: bool,
         create: F,
     ) -> Result<String, String>
     where
@@ -351,13 +375,44 @@ impl ServiceContext {
             super::super::confinement::prepare_folder(metadata, friendship, &permission).await?;
         self.require_neighbor_history_generation(generation)
             .map_err(|error| error.to_string())?;
-        let tab = create(cwd, permission.clone()).await?;
+        if retire_before_create {
+            self.stop_neighbor_listeners();
+            if let Some(old) = &old {
+                self.retire_neighbor_children(old).await?;
+                self.close_tab_async(old).await?;
+            }
+        }
+        let tab = match create(cwd, permission.clone()).await {
+            Ok(tab) => tab,
+            Err(error) => {
+                if retire_before_create {
+                    settings.bindings.remove(friendship);
+                    settings.initial_contexts.remove(friendship);
+                    metadata
+                        .save_settings(settings)
+                        .await
+                        .map_err(|error| error.to_string())?;
+                    self.ui.emit(
+                        "neighbor-agent-changed",
+                        json!({"friendship_id":friendship,"gateway_tab":null}),
+                    );
+                }
+                return Err(error);
+            }
+        };
         if let Err(error) = self.require_neighbor_history_generation(generation) {
             let _ = self.close_tab_async(&tab).await;
             return Err(error.to_string());
         }
         self.stop_neighbor_listeners();
         settings.bindings.insert(friendship.into(), tab.clone());
+        settings.initial_contexts.insert(
+            friendship.into(),
+            super::super::storage::InitialContext {
+                gateway_tab: tab.clone(),
+                digest: initial_prompt::digest(friendship, &permission),
+            },
+        );
         if let Err(error) = metadata.save_settings(settings.clone()).await {
             let _ = self.close_tab_async(&tab).await;
             return Err(error.to_string());
@@ -365,7 +420,7 @@ impl ServiceContext {
         self.reconcile_neighbor_handling_restore(metadata, friendship, generation)
             .await
             .map_err(|error| error.to_string())?;
-        if let Some(old) = old.filter(|old| old != &tab) {
+        if let Some(old) = old.filter(|old| old != &tab && self.mux.read().get_tab(old).is_some()) {
             if let Err(error) = self.close_tab_async(&old).await {
                 self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
                 self.ui.emit(

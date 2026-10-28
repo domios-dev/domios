@@ -1,4 +1,5 @@
 import { listen } from "../../lib/bridge";
+import { localFetch } from "../../lib/webApi";
 import { deliveryStatus, PERMISSION_WORKSPACES, runtimeCall, type NeighborDeliveryStatus, type NeighborPermission } from "./neighborRuntimeClient";
 
 export type HistoryAuthor = "me" | "friend" | { agent: string; name: string };
@@ -29,6 +30,28 @@ export interface HistoryEntry {
   handling_state?: HandlingState;
   handling_reason?: string;
   handling_updated_at?: number;
+  /** Outgoing only: when it reached your friend and when they read it (unix milliseconds), once their Domios reports receipts. */
+  delivered_at?: number;
+  read_at?: number;
+  /** Incoming only: who marked it as unsafe or unwanted, and why. */
+  flags?: MessageFlag[];
+}
+
+export type FlagCategory = "suspicious_instructions" | "private_data_request" | "malicious_link" | "spam" | "other";
+const FLAG_CATEGORIES: readonly string[] = ["suspicious_instructions", "private_data_request", "malicious_link", "spam", "other"];
+/** `at` is unix milliseconds. */
+export interface MessageFlag { category: FlagCategory; reason: string; by: "concierge" | "tab" | "owner"; at: number }
+
+function flags(value: unknown): MessageFlag[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap(flag => record(flag) && FLAG_CATEGORIES.includes(flag.category as string) && typeof flag.reason === "string"
+    && (flag.by === "concierge" || flag.by === "tab" || flag.by === "owner") && typeof flag.at === "number"
+    ? [{ category: flag.category as FlagCategory, reason: flag.reason, by: flag.by, at: unixMillis(flag.at) }] : []);
+}
+
+/** Marks a message from them; their concierge and agents see the flag through history. */
+export async function flagNeighborMessage(friendship: string, messageId: string, category: FlagCategory, reason: string): Promise<void> {
+  await runtimeCall({ operation: "flag_message", friendship_id: friendship, message_id: messageId, category, reason });
 }
 
 export type HandlingState = "delivered_to_concierge" | "working" | "answered" | "refused" | "no_reply" | "failed" | "waiting" | "stopped";
@@ -90,9 +113,20 @@ export function parseHistory(value: unknown): HistoryPage {
         ...(HANDLING_STATES.includes(entry.handling_state as string) ? { handling_state: entry.handling_state as HandlingState } : {}),
         ...(typeof entry.handling_reason === "string" ? { handling_reason: entry.handling_reason } : {}),
         ...(typeof entry.handling_updated_at === "number" ? { handling_updated_at: entry.handling_updated_at } : {}),
+        ...(typeof entry.delivered_at === "number" ? { delivered_at: unixMillis(entry.delivered_at) } : {}),
+        ...(typeof entry.read_at === "number" ? { read_at: unixMillis(entry.read_at) } : {}),
+        ...(flags(entry.flags).length > 0 ? { flags: flags(entry.flags) } : {}),
         ...(entry.delivery_status === undefined ? {} : { delivery_status: deliveryStatus(entry.delivery_status) }) };
     }),
   };
+}
+
+/** Tells the runtime you have seen their messages up to this one; only the open, visible conversation calls it, never a history read. */
+export async function markNeighborRead(friendship: string, throughMessageId: string): Promise<void> {
+  const response = await localFetch("/api/account/neighbors/read", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ friendship_id: friendship, through_message_id: throughMessageId }),
+  });
+  if (!response.ok) throw new Error(`Read receipt failed (HTTP ${response.status})`);
 }
 
 export const neighborConciergeClient: NeighborConciergeClient = {

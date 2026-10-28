@@ -221,6 +221,7 @@ impl super::ServiceContext {
     ) -> Result<(), String> {
         match self.authenticate_local_credential(token)? {
             Some(caller) => {
+                self.authorize_neighbor_secret_rpc(&caller, method, params.as_ref())?;
                 if matches!(method, "mem.worker.report" | "mem.worker.progress") {
                     let worker_id = params
                         .as_ref()

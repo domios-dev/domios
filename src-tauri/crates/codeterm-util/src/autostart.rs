@@ -6,43 +6,94 @@ pub const MACOS_LABEL: &str = "com.domios.app";
 pub const LINUX_UNIT: &str = "domios.service";
 
 #[derive(Clone, Copy)]
-enum Platform { Windows, Macos, Linux }
-
-fn platform() -> Platform {
-    if cfg!(windows) { Platform::Windows } else if cfg!(target_os = "macos") { Platform::Macos } else { Platform::Linux }
+enum Platform {
+    Windows,
+    Macos,
+    Linux,
 }
 
-pub fn macos_path(home: &Path) -> PathBuf { home.join("Library/LaunchAgents/com.domios.app.plist") }
-pub fn linux_path(home: &Path) -> PathBuf { home.join(".config/systemd/user/domios.service") }
+fn platform() -> Platform {
+    if cfg!(windows) {
+        Platform::Windows
+    } else if cfg!(target_os = "macos") {
+        Platform::Macos
+    } else {
+        Platform::Linux
+    }
+}
+
+pub fn macos_path(home: &Path) -> PathBuf {
+    home.join("Library/LaunchAgents/com.domios.app.plist")
+}
+pub fn linux_path(home: &Path) -> PathBuf {
+    home.join(".config/systemd/user/domios.service")
+}
 
 #[derive(Debug, PartialEq, Eq)]
 enum Step {
     Write(PathBuf, Vec<u8>),
     Remove(PathBuf),
-    Run { program: &'static str, args: Vec<String>, required: bool },
+    Run {
+        program: &'static str,
+        args: Vec<String>,
+        required: bool,
+    },
 }
 
 fn run(program: &'static str, args: &[&str], required: bool) -> Step {
-    Step::Run { program, args: args.iter().map(|arg| (*arg).into()).collect(), required }
+    Step::Run {
+        program,
+        args: args.iter().map(|arg| (*arg).into()).collect(),
+        required,
+    }
 }
 
-fn install_plan(platform: Platform, home: &Path, task_file: &Path, user: &str, supervisor: &str, app: &str) -> Vec<Step> {
+fn install_plan(
+    platform: Platform,
+    home: &Path,
+    task_file: &Path,
+    user: &str,
+    supervisor: &str,
+    app: &str,
+) -> Vec<Step> {
     match platform {
         Platform::Windows => vec![
-            Step::Write(task_file.into(), utf16le_with_bom(&windows_task_xml(user, supervisor, app))),
+            Step::Write(
+                task_file.into(),
+                utf16le_with_bom(&windows_task_xml(user, supervisor, app)),
+            ),
             run("schtasks", &["/Delete", "/TN", WINDOWS_TASK, "/F"], false),
-            run("schtasks", &["/Create", "/TN", WINDOWS_TASK, "/XML", &task_file.to_string_lossy(), "/F"], true),
+            run(
+                "schtasks",
+                &[
+                    "/Create",
+                    "/TN",
+                    WINDOWS_TASK,
+                    "/XML",
+                    &task_file.to_string_lossy(),
+                    "/F",
+                ],
+                true,
+            ),
             Step::Remove(task_file.into()),
             run("schtasks", &["/Run", "/TN", WINDOWS_TASK], true),
         ],
         Platform::Macos => {
             let path = macos_path(home);
-            vec![Step::Write(path.clone(), build_macos_plist(MACOS_LABEL, supervisor, app).into_bytes()),
+            vec![
+                Step::Write(
+                    path.clone(),
+                    build_macos_plist(MACOS_LABEL, supervisor, app).into_bytes(),
+                ),
                 run("launchctl", &["unload", &path.to_string_lossy()], false),
-                run("launchctl", &["load", &path.to_string_lossy()], true)]
+                run("launchctl", &["load", &path.to_string_lossy()], true),
+            ]
         }
         Platform::Linux => vec![
-            Step::Write(linux_path(home), build_linux_unit(supervisor, app).into_bytes()),
+            Step::Write(
+                linux_path(home),
+                build_linux_unit(supervisor, app).into_bytes(),
+            ),
             run("systemctl", &["--user", "daemon-reload"], true),
             run("systemctl", &["--user", "enable", LINUX_UNIT], true),
             run("systemctl", &["--user", "start", LINUX_UNIT], true),
@@ -52,37 +103,68 @@ fn install_plan(platform: Platform, home: &Path, task_file: &Path, user: &str, s
 
 fn uninstall_plan(platform: Platform, home: &Path) -> Vec<Step> {
     match platform {
-        Platform::Windows => vec![run("schtasks", &["/End", "/TN", WINDOWS_TASK], false), run("schtasks", &["/Delete", "/TN", WINDOWS_TASK, "/F"], false)],
-        Platform::Macos => vec![run("launchctl", &["unload", &macos_path(home).to_string_lossy()], false), Step::Remove(macos_path(home))],
-        Platform::Linux => vec![run("systemctl", &["--user", "stop", LINUX_UNIT], false), run("systemctl", &["--user", "disable", LINUX_UNIT], false), Step::Remove(linux_path(home)), run("systemctl", &["--user", "daemon-reload"], false)],
+        Platform::Windows => vec![
+            run("schtasks", &["/End", "/TN", WINDOWS_TASK], false),
+            run("schtasks", &["/Delete", "/TN", WINDOWS_TASK, "/F"], false),
+        ],
+        Platform::Macos => vec![
+            run(
+                "launchctl",
+                &["unload", &macos_path(home).to_string_lossy()],
+                false,
+            ),
+            Step::Remove(macos_path(home)),
+        ],
+        Platform::Linux => vec![
+            run("systemctl", &["--user", "stop", LINUX_UNIT], false),
+            run("systemctl", &["--user", "disable", LINUX_UNIT], false),
+            Step::Remove(linux_path(home)),
+            run("systemctl", &["--user", "daemon-reload"], false),
+        ],
     }
 }
 
 fn execute(steps: Vec<Step>) -> Result<(), String> {
     let mut failure = None;
     for step in steps {
-        if failure.is_some() && !matches!(&step, Step::Remove(_)) { continue; }
+        if failure.is_some() && !matches!(&step, Step::Remove(_)) {
+            continue;
+        }
         let result = match step {
             Step::Write(path, bytes) => (|| {
-                if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+                if let Some(parent) = path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
                 std::fs::write(path, bytes)
-            })().map_err(|error: std::io::Error| error.to_string()),
+            })()
+            .map_err(|error: std::io::Error| error.to_string()),
             Step::Remove(path) => match std::fs::remove_file(path) {
-                Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
+                Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+                    Err(error.to_string())
+                }
                 _ => Ok(()),
             },
-            Step::Run { program, args, required } => {
+            Step::Run {
+                program,
+                args,
+                required,
+            } => {
                 let mut command = std::process::Command::new(program);
                 command.args(args);
                 crate::process_util::no_window_std(&mut command);
                 match command.output() {
-                    Ok(output) if required && !output.status.success() => Err(format!("{program}: {}", String::from_utf8_lossy(&output.stderr))),
+                    Ok(output) if required && !output.status.success() => Err(format!(
+                        "{program}: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    )),
                     Err(error) if required => Err(format!("{program}: {error}")),
                     _ => Ok(()),
                 }
             }
         };
-        if failure.is_none() { failure = result.err(); }
+        if failure.is_none() {
+            failure = result.err();
+        }
     }
     failure.map_or(Ok(()), Err)
 }
@@ -108,9 +190,19 @@ pub fn enable(home: &Path, data: &Path, supervisor: &Path, app: &Path) -> Result
             Ok(domain) if !domain.is_empty() => format!("{domain}\\{name}"),
             _ => name,
         }
-    } else { String::new() };
-    let task_file = std::env::temp_dir().join(format!("{WINDOWS_TASK}-{}.xml", uuid::Uuid::new_v4()));
-    execute(install_plan(platform(), home, &task_file, &user, &supervisor.to_string_lossy(), &app.to_string_lossy()))
+    } else {
+        String::new()
+    };
+    let task_file =
+        std::env::temp_dir().join(format!("{WINDOWS_TASK}-{}.xml", uuid::Uuid::new_v4()));
+    execute(install_plan(
+        platform(),
+        home,
+        &task_file,
+        &user,
+        &supervisor.to_string_lossy(),
+        &app.to_string_lossy(),
+    ))
 }
 
 pub fn disable(home: &Path, data: &Path) -> Result<(), String> {
@@ -140,7 +232,10 @@ fn windows_arguments(supervisor_path: &str, app_binary: &str) -> String {
 }
 
 pub fn build_windows_task_command(supervisor_path: &str, app_binary: &str) -> String {
-    format!("powershell.exe {}", windows_arguments(supervisor_path, app_binary))
+    format!(
+        "powershell.exe {}",
+        windows_arguments(supervisor_path, app_binary)
+    )
 }
 
 pub fn build_macos_plist(label: &str, supervisor_path: &str, binary_path: &str) -> String {
@@ -224,7 +319,9 @@ pub fn windows_task_xml(user: &str, supervisor: &str, app: &str) -> String {
 
 fn utf16le_with_bom(text: &str) -> Vec<u8> {
     let mut bytes = vec![0xFF, 0xFE];
-    for unit in text.encode_utf16() { bytes.extend_from_slice(&unit.to_le_bytes()); }
+    for unit in text.encode_utf16() {
+        bytes.extend_from_slice(&unit.to_le_bytes());
+    }
     bytes
 }
 

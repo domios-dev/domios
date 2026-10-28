@@ -18,6 +18,8 @@ fn entry(id: usize, direction: &str, kind: Kind, reply: Option<String>) -> Entry
         resets_at: None,
         retry_after_seconds: None,
         submission: None,
+        delivered_at: None,
+        read_at: None,
         delivery_status: (direction == "out").then_some(DeliveryStatus::Pending),
     }
 }
@@ -77,6 +79,8 @@ async fn linked_outcomes_require_accepted_submission_and_reconcile_delivery_fail
             DeliveryResult {
                 status: DeliveryStatus::NotDelivered,
                 reason: Some(codeterm_neighbors::wire::DeliveryReason::KeyRevoked),
+                delivered_at: None,
+                read_at: None,
             }
             .into(),
             generation,

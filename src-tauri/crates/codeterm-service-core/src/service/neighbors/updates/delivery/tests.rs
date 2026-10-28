@@ -28,7 +28,7 @@ fn signal_revisions_catch_up_once_per_connection_or_gap_and_ignore_replays() {
 }
 
 #[tokio::test]
-async fn catchup_selects_only_bounded_current_account_pending_outgoing_entries() {
+async fn catchup_selects_bounded_current_account_outgoing_entries_until_read() {
     let temp = tempfile::tempdir().unwrap();
     let metadata = Metadata::new(temp.path().to_owned(), "owner");
     let foreign = Metadata::new(temp.path().to_owned(), "foreign-account");
@@ -48,6 +48,9 @@ async fn catchup_selects_only_bounded_current_account_pending_outgoing_entries()
     entries.push(entry(900, "owner", "in", DeliveryStatus::Pending));
     entries.push(entry(901, "other", "out", DeliveryStatus::Pending));
     entries.push(entry(902, "owner", "out", DeliveryStatus::Delivered));
+    let mut read = entry(903, "owner", "out", DeliveryStatus::Delivered);
+    read.read_at = Some(1000);
+    entries.push(read);
     metadata
         .write(
             format!("history-{friendship}.json"),
@@ -67,7 +70,8 @@ async fn catchup_selects_only_bounded_current_account_pending_outgoing_entries()
         .unwrap();
     let pending = metadata.pending_outgoing("owner").await.unwrap();
     assert_eq!(pending.len(), MAX_PENDING);
-    for id in [900, 901, 902] {
+    assert!(pending.contains(&format!("{:032x}", 902)));
+    for id in [900, 901, 903] {
         assert!(!pending.contains(&format!("{id:032x}")));
     }
     assert!(foreign.pending_outgoing("owner").await.unwrap().is_empty());
@@ -87,6 +91,7 @@ async fn delivery_signal_updates_only_own_outgoing_history_and_emits_change_with
         .await
         .unwrap();
     let mut signal = DeliverySignal {
+        at: 100,
         friendship_id: "b".repeat(64),
         message_id: outgoing.message_id.clone(),
         status: DeliveryStatus::Delivered,
