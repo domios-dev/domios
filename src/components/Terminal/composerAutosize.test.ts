@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { COMPOSER_MAX_HEIGHT, resolveComposerAutosize } from "./composerAutosize";
-import { resolveComposerLayout } from "./composerLayoutModel";
+import { COMPOSER_PANEL_HEIGHT_SHARE, resolveComposerLayout } from "./composerLayoutModel";
 
 const draft = {
   focused: true,
@@ -55,8 +55,9 @@ test("a cap below the minimum still provides a usable single line", () => {
 test("scroll activation agrees with autosize at the shared editor cap", () => {
   for (const contentPx of [COMPOSER_MAX_HEIGHT, COMPOSER_MAX_HEIGHT + 1, 800]) {
     const measured = resolveComposerAutosize({ ...draft, contentPx, maxPx: COMPOSER_MAX_HEIGHT });
+    // A panel tall enough that the shared editor cap, not the panel share, is the binding limit.
     const layout = resolveComposerLayout({ contentPx, minPx: 20, editorMaxPx: COMPOSER_MAX_HEIGHT,
-      panelWidthPx: 1000, panelHeightPx: 1000, keyboardOpen: false });
+      panelWidthPx: 1000, panelHeightPx: Math.ceil(COMPOSER_MAX_HEIGHT / COMPOSER_PANEL_HEIGHT_SHARE), keyboardOpen: false });
     assert.equal(layout.editorPx, measured.editorPx);
     assert.equal(layout.scrolls, measured.scrollTop > 0);
   }
