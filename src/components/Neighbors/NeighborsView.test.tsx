@@ -424,7 +424,7 @@ it("shows the conversation with a refused question, its linked refusal and deliv
   expect(log.textContent).toContain("Can you share the deploy keys?");
   expect(log.textContent).toContain("Declined: Secrets are off limits");
   expect(document.getElementById("neighbor-msg-m2")?.textContent).toContain("Can you share the deploy keys?");
-  expect(log.textContent).toContain("delivered");
+  expect(document.querySelector("#neighbor-msg-m2 .neighbor-receipt")?.getAttribute("aria-label")).toBe("Delivered");
   const input = document.querySelector<HTMLTextAreaElement>("textarea")!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "Lunch on Friday?");
@@ -705,6 +705,16 @@ it("keeps a message that is too long in the composer instead of sending it", asy
   expect(input.value.length).toBe(16377);
 });
 
+it("marks a read message with accent ticks, labelled Read", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={pendingClient()} runtimeClient={runtime()} conciergeClient={concierge([
+    { direction: "out", kind: "question", author: "me", body: "Seen?", at: 1700000000000, message_id: "r".repeat(32), delivery_status: "delivered", delivered_at: 1700000001000, read_at: 1700000002000 }])} />));
+  const ticks = document.querySelector(`#neighbor-msg-${"r".repeat(32)} .neighbor-receipt`);
+  expect(ticks?.getAttribute("aria-label")).toBe("Read");
+  expect(ticks?.getAttribute("data-mark")).toBe("read");
+});
+
 it("reads an accepted, undelivered message as sent and a starting concierge as starting", async () => {
   const entries: HistoryEntry[] = [
     { direction: "out", kind: "question", author: "me", body: "Accepted", at: 1700000000000, message_id: "s".repeat(32), delivery_status: "pending", submission: "accepted" },
@@ -716,8 +726,8 @@ it("reads an accepted, undelivered message as sent and a starting concierge as s
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted = { root, host };
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={concierge(entries)} />));
-  expect(document.getElementById(`neighbor-msg-${"s".repeat(32)}`)?.textContent).toContain("sent");
-  expect(document.getElementById(`neighbor-msg-${"q".repeat(32)}`)?.textContent).toContain("sending");
+  expect(document.querySelector(`#neighbor-msg-${"s".repeat(32)} .neighbor-receipt`)?.getAttribute("aria-label")).toBe("Sent");
+  expect(document.querySelector(`#neighbor-msg-${"q".repeat(32)} .ct-delivery[data-state="sending"]`)).not.toBeNull();
   expect(parseConciergeStatus({ gateway_tab: "tab", concierge_missing: false, pending_count: null, receiving_here: true, receiver_machine_label: null, state: "concierge_starting" })?.state)
     .toBe("concierge_starting");
   // A paused friend's concierge keeps its status instead of dropping out as unparsable.

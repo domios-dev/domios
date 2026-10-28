@@ -21,7 +21,16 @@ export function dayLabel(at: number, previous: number | null, locale?: string): 
   return new Date(at).toLocaleDateString(locale, { weekday: "short", month: "short", day: "numeric" });
 }
 
-export const DELIVERY_LABEL = { pending: "sending", delivered: "delivered", not_delivered: "not delivered" } as const;
+/** Where your own message stands, as messengers mark it: sending until the relay took it, then sent, delivered, read. */
+export type ReceiptMark = "sending" | "sent" | "delivered" | "read" | "not_delivered";
+
+export function receiptMark(entry: HistoryEntry): ReceiptMark | null {
+  if (entry.direction !== "out" || !entry.delivery_status) return null;
+  if (entry.delivery_status === "not_delivered") return "not_delivered";
+  if (entry.read_at !== undefined) return "read";
+  if (entry.delivery_status === "delivered") return "delivered";
+  return entry.submission === "accepted" ? "sent" : "sending";
+}
 
 /** A message you sent that history has not shown yet: its bubble appears at once and becomes the history entry when it lands.
  *  An uncertain send has no receipt, so it is never sent again; it waits to be recognised in history by its words. */

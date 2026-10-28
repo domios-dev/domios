@@ -982,6 +982,16 @@
   font-size: 10.5px;
 }
 
+/* Read receipts in the time row: grey ticks for sent and delivered, the accent once read. */
+.neighbor-receipt {
+  display: inline-flex;
+  color: var(--ct-muted-fg);
+}
+
+.neighbor-receipt[data-mark="read"] {
+  color: var(--ct-accent);
+}
+
 .neighbor-msg__refused {
   white-space: normal;
 }

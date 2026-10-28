@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Bot, Paperclip } from "lucide-react";
+import { Bot, Check, CheckCheck, Paperclip } from "lucide-react";
 import { ChatDaySeparator, formatMessageTime, ReplyQuote, RichMarkdown } from "@codeterm/chat-ui";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
@@ -22,7 +22,7 @@ import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type HistoryEntry, type NeighborConciergeClient } from "./neighborConciergeClient";
 import { NOTIFY_CHOICES, useNeighborNotify } from "./neighborNotify";
 import { pausedLine, setFriendPaused, theyPausedLine, usePausedFriends } from "./neighborPause";
-import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, DELIVERY_LABEL, landedSends, mergeHistory, readableBody, refusalLine, speaker, type ConciergeWorkEntry, type OutgoingSend } from "./neighborConversationModel";
+import { activeWork, authorKind, CONCIERGE_WORK_LINE, conciergeWork, continuesGroup, dayLabel, landedSends, mergeHistory, readableBody, receiptMark, refusalLine, speaker, type ConciergeWorkEntry, type OutgoingSend, type ReceiptMark } from "./neighborConversationModel";
 import { openNeighborPage } from "./neighborFocus";
 import { useNeighborGateway } from "./neighborGateways";
 import { listedPaused, neighborName, type Neighbor } from "./neighborModel";
@@ -348,8 +348,8 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
   const mine = entry.direction === "out";
   const refusal = outgoing?.state === "failed" ? outgoing.reason ?? "Not sent." : mine ? refusalLine(entry, friendName, Date.now()) : null;
   const refused = entry.kind === "refusal" || entry.outcome === "refused" || refusal !== null;
-  // The relay accepted it and delivery is awaited; "sending" is only for before acceptance.
-  const sent = entry.delivery_status === "pending" && entry.submission === "accepted";
+  // Sending until the relay accepted it, then one tick, two once delivered, accent once read.
+  const mark = receiptMark(entry);
   const agentName = typeof entry.author === "object" ? agentLabel : `${friendName}'s concierge`;
   const avatar = grouped ? <span className="neighbor-msg__avatar" aria-hidden="true" />
     : author === "me" || author === "my-agent" ? null
@@ -367,15 +367,14 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
       {quoted && <ReplyQuote label={quoted.label} excerpt={quoted.excerpt} onOpen={onOpenQuoted} />}
       <div className={mine ? "ct-user-bubble neighbor-msg__bubble" : "neighbor-msg__bubble"}>
         <RichMarkdown text={readableBody(entry.body, new Set(files.map(file => file.file_id)))} localArtifacts={false} interactivePreviews={interactive} />
-        {outgoing && <ChatDeliveryState state={outgoing.state} onRetry={outgoing.onRetry} />}
+        {outgoing ? <ChatDeliveryState state={outgoing.state} onRetry={outgoing.onRetry} /> : mark === "sending" && <ChatDeliveryState state="sending" />}
       </div>
       {files.length > 0 && <div className="neighbor-files" role="list" aria-label="Files">{files.map(file => <FileChip key={file.file_id} file={file} onOpen={onOpenFile} />)}</div>}
       <p className="neighbor-msg__meta">
         <time dateTime={new Date(entry.at).toISOString()} title={new Date(entry.at).toLocaleString()}>{time}</time>
         {mine && refusal ? <span className="neighbor-status neighbor-msg__refused"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />{refusal}</span>
-        : mine && entry.delivery_status && <span className="neighbor-status"><span className="neighbor-dot"
-          data-tone={entry.delivery_status === "delivered" ? "ok" : sent ? "muted" : entry.delivery_status === "pending" ? "progress" : "danger"} aria-hidden="true" />
-          {sent ? "sent" : DELIVERY_LABEL[entry.delivery_status]}</span>}
+        : mark === "not_delivered" ? <span className="neighbor-status"><span className="neighbor-dot" data-tone="danger" aria-hidden="true" />not delivered</span>
+        : mark && mark !== "sending" && <ReceiptTicks mark={mark} at={mark === "read" ? entry.read_at! : mark === "delivered" ? entry.delivered_at ?? null : entry.at} />}
         {mine && entry.submission === "unconfirmed" && <span className="neighbor-note">submission unconfirmed</span>}
         {mine && !refusal && entry.delivery_status === "pending" && <Button size="compact" loading={checking} onClick={onCheckDelivery}>Check delivery</Button>}
         {settled && standing}
@@ -383,6 +382,18 @@ function Entry({ entry, friend, friendName, agentLabel, files, onOpenFile, group
       {!settled && standing}
     </div>
   </div>;
+}
+
+const RECEIPT_LABEL: Record<Exclude<ReceiptMark, "sending" | "not_delivered">, string> = { sent: "Sent", delivered: "Delivered", read: "Read" };
+
+/** One grey tick once sent, two once delivered, two in the accent once read; the tooltip says when. */
+function ReceiptTicks({ mark, at }: { mark: Exclude<ReceiptMark, "sending" | "not_delivered">; at: number | null }) {
+  const label = RECEIPT_LABEL[mark];
+  const Icon = mark === "sent" ? Check : CheckCheck;
+  return <span role="img" className="neighbor-receipt" data-mark={mark} aria-label={label}
+    title={at === null ? label : `${label} ${new Date(at).toLocaleString()}`}>
+    <Icon size={13} strokeWidth={2.25} aria-hidden="true" />
+  </span>;
 }
 
 function ConciergeIcon({ tab }: { tab: Tab | undefined }) {

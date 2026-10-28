@@ -29,6 +29,9 @@ export interface HistoryEntry {
   handling_state?: HandlingState;
   handling_reason?: string;
   handling_updated_at?: number;
+  /** Outgoing only: when it reached your friend and when they read it (unix milliseconds), once their Domios reports receipts. */
+  delivered_at?: number;
+  read_at?: number;
 }
 
 export type HandlingState = "delivered_to_concierge" | "working" | "answered" | "refused" | "no_reply" | "failed" | "waiting" | "stopped";
@@ -90,6 +93,8 @@ export function parseHistory(value: unknown): HistoryPage {
         ...(HANDLING_STATES.includes(entry.handling_state as string) ? { handling_state: entry.handling_state as HandlingState } : {}),
         ...(typeof entry.handling_reason === "string" ? { handling_reason: entry.handling_reason } : {}),
         ...(typeof entry.handling_updated_at === "number" ? { handling_updated_at: entry.handling_updated_at } : {}),
+        ...(typeof entry.delivered_at === "number" ? { delivered_at: unixMillis(entry.delivered_at) } : {}),
+        ...(typeof entry.read_at === "number" ? { read_at: unixMillis(entry.read_at) } : {}),
         ...(entry.delivery_status === undefined ? {} : { delivery_status: deliveryStatus(entry.delivery_status) }) };
     }),
   };
