@@ -57,6 +57,7 @@ pub(super) fn update_area(conn: &Connection, id: &str, into: &str) -> Result<boo
     if from.as_deref() == Some(into) {
         return Ok(false);
     }
+    let author = super::current_author();
     conn.execute_batch("SAVEPOINT mem_area_update")
         .map_err(|e| e.to_string())?;
     let applied = (|| -> Result<(), String> {
@@ -75,8 +76,8 @@ pub(super) fn update_area(conn: &Connection, id: &str, into: &str) -> Result<boo
             })
             .map_err(|e| e.to_string())?
         );
-        conn.execute("INSERT INTO mem_item_history (item_id, changed_at, changed_by, change_type, reason) VALUES (?1, ?2, ?3, 'update', ?4)",
-            params![id, chrono::Utc::now().to_rfc3339(), current_changed_by(), reason]).map_err(|e| e.to_string())?;
+        conn.execute("INSERT INTO mem_item_history (item_id, changed_at, changed_by, change_type, reason, author_kind, author_uid, author_friendship, author_label) VALUES (?1, ?2, ?3, 'update', ?4, ?5, ?6, ?7, ?8)",
+            params![id, chrono::Utc::now().to_rfc3339(), current_changed_by(), reason, author.kind.as_str(), author.account_uid, author.friendship_id, author.label]).map_err(|e| e.to_string())?;
         Ok(())
     })();
     if applied.is_err() {
@@ -110,6 +111,10 @@ pub fn merge_area(
     };
     if rows.is_empty() {
         return Err(format!("source area {from} is empty or does not exist"));
+    }
+    let unsafe_target: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM mem_items WHERE area=?1 AND author_kind='neighbor') AND EXISTS(SELECT 1 FROM mem_items WHERE area=?2 AND (kind IN ('rule','preference','skill') OR is_pinned_wakeup!=0))", params![from,into], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if unsafe_target {
+        return Err("neighbor area cannot merge into an instruction or pinned target".into());
     }
     let mut counts = BTreeMap::new();
     for (_, kind) in &rows {

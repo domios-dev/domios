@@ -117,6 +117,9 @@ impl MemManager {
                 item.kind
             ));
         }
+        if item.author.is_neighbor() {
+            return Err("neighbor content cannot be promoted".into());
+        }
         let old_importance = item.importance;
         let new_importance = old_importance.max(4.0);
         let conn = self.conn.lock();

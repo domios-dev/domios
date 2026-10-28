@@ -46,6 +46,10 @@ pub fn unarchive_item(
     actor: &str,
     reason: Option<&str>,
 ) -> Result<(), String> {
+    if let Some(author) = crate::store::item_author(conn, id)? {
+        crate::store::guard_instruction(&author, kind, false)?;
+    }
+    crate::store::guard_instruction(&crate::store::current_author(), kind, false)?;
     with_changed_by(actor, || {
         let changed = conn
             .execute(

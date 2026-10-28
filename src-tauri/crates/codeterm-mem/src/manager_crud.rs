@@ -103,7 +103,9 @@ impl MemManager {
                     })
                     .unwrap_or_default();
                 let normalize = |body: &str| body.split_whitespace().collect::<Vec<_>>().join(" ");
-                if normalize(&current_body) == normalize(&item.body) {
+                if normalize(&current_body) == normalize(&item.body)
+                    && store::item_author(&conn, &existing_id)? == Some(store::current_author())
+                {
                     let _ = conn.execute(
                         "UPDATE mem_items SET recurrence_count = recurrence_count + 1, accessed_at = ?1 WHERE id = ?2",
                         rusqlite::params![chrono::Utc::now().to_rfc3339(), &existing_id],
@@ -408,3 +410,6 @@ fn remove_folder_skill(source: Option<&str>, skills_root: &std::path::Path, id: 
         );
     }
 }
+
+#[cfg(test)]
+mod tests;

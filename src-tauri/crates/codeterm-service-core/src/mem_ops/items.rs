@@ -29,11 +29,12 @@ pub fn bump_on_get(conn: &rusqlite::Connection, kind: &str, id: &str) {
 
 pub fn save_schedules_extraction(
     outcome: &str,
+    author: &crate::mem::store::MemAuthor,
     skip: bool,
     auto_extracted: bool,
     enabled: bool,
 ) -> bool {
-    outcome != "unchanged" && !skip && !auto_extracted && enabled
+    !author.is_neighbor() && outcome != "unchanged" && !skip && !auto_extracted && enabled
 }
 
 #[derive(Deserialize)]

@@ -125,6 +125,7 @@ pub fn build_service_context(
         crate::usage::UsageStore::open(&crate::paths::data_dir()).expect("usage.db init");
 
     let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+    extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
     extensions.insert_service_slots();
     extensions.insert(states.config.clone());
     extensions.insert(states.mesh.clone());
