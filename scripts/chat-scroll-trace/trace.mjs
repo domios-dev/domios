@@ -9,10 +9,13 @@ import { parseArgs } from "node:util";
 const { values } = parseArgs({ options: {
   cdp: { type: "string" }, url: { type: "string" }, out: { type: "string" }, target: { type: "string" },
   strokes: { type: "string", default: "14" }, threshold: { type: "string", default: "8" }, jump: { type: "boolean", default: false },
-  scenario: { type: "string", default: "touch" },
+  scenario: { type: "string", default: "touch" }, seed: { type: "string", default: "1" }, actions: { type: "string", default: "80" },
 } });
-// "touch" drives finger strokes; "grow" grows and collapses rows like tool cards expanding, pinned and scrolled up.
-const growScenario = values.scenario === "grow";
+// "touch" drives finger strokes; "grow" grows and collapses rows like tool cards expanding, pinned and scrolled up;
+// "chaos" mixes it all at random (seeded): strokes and flings both ways, re-pinning, the jump button, new rows arriving
+// and rows growing and collapsing anywhere, also mid-gesture.
+const chaosScenario = values.scenario === "chaos";
+const growScenario = values.scenario === "grow" || chaosScenario;
 if (!values.cdp || !values.url) {
   console.error("usage: trace.mjs --cdp <browser ws> --url <harness url> [--out DIR] [--strokes N] [--threshold PX] [--jump]");
   process.exit(2);
@@ -95,7 +98,10 @@ await evaluate(`(() => {
   window.__frames = [];
   window.__sampling = true;
   let gesture = 0;
+  let touching = false;
   el.addEventListener("touchstart", () => { gesture++; }, { passive: true });
+  document.addEventListener("touchstart", () => { touching = true; }, { passive: true, capture: true });
+  document.addEventListener("touchend", () => { touching = false; }, { passive: true, capture: true });
   const sample = () => {
     if (!window.__sampling) return;
     const origin = el.getBoundingClientRect().top;
@@ -110,7 +116,7 @@ await evaluate(`(() => {
     const ids = Object.keys(rows);
     const anchor = ${growScenario} ? (ids.filter(id => rows[id] <= 0).at(-1) ?? ids[0]) : (ids.find(id => rows[id] >= 0) ?? ids.at(-1));
     window.__frames.push({ anchor, anchorTop: rows[anchor], t: performance.now(), scrollTop: el.scrollTop, spacer: el.firstElementChild.getBoundingClientRect().height, gesture, rows,
-      gap: el.scrollHeight - el.clientHeight - el.scrollTop });
+      gap: el.scrollHeight - el.clientHeight - el.scrollTop, touching, writes: window.__scrollWrites.length, jumpClicks: window.__jumpClicks ?? 0 });
     next();
   };
   // The grow scenario reads each frame after it painted, so a layout the frame corrects before paint is not a jump.
@@ -121,6 +127,107 @@ await evaluate(`(() => {
   return true;
 })()`);
 await screenshot("start.png");
+
+if (chaosScenario) {
+  // A seeded generator, so a failing seed replays exactly.
+  let state = Number(values.seed) >>> 0 || 1;
+  const random = () => { state = (state + 0x6d2b79f5) >>> 0; let t = state; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  const pick = (items) => items[Math.floor(random() * items.length)];
+  const between = (low, high) => low + Math.floor(random() * (high - low + 1));
+  const waitFrames = (count) => evaluate(`new Promise((resolve) => { let seen = 0; const tick = () => ++seen >= ${count} ? resolve(true) : requestAnimationFrame(tick); requestAnimationFrame(tick); })`);
+  const where = { above: "(rows) => rows.filter((row) => row.bottom < 0).at(-1)", across: "(rows) => rows.find((row) => row.top < 0 && row.bottom > 0)",
+    inView: "(rows, height) => rows.find((row) => row.top > 40 && row.bottom < height - 40)", last: "(rows) => rows.at(-1)" };
+  const growRow = (picker, px, timing) => evaluate(`(() => {
+    const el = document.getElementById("scroller");
+    const origin = el.getBoundingClientRect().top;
+    const rows = [...el.querySelectorAll("[data-chat-window-row]")].map((row) => {
+      const box = row.getBoundingClientRect();
+      return { index: Number(row.dataset.chatWindowRow.slice(1)), top: box.top - origin, bottom: box.bottom - origin };
+    });
+    const row = (${picker})(rows, el.clientHeight);
+    if (row) window.chatGrow({ index: row.index, px: ${px}, timing: "${timing}" });
+    return row?.index ?? null;
+  })()`);
+  const entries = [];
+  const log = { push: (text) => { entries.push({ text, frame: frameAt }); } };
+  let frameAt = 0;
+  const syncFrame = async () => { frameAt = await evaluate("window.__frames.length"); };
+  // Something happens in the transcript: new rows arrive, or a card grows or collapses somewhere.
+  const event = async () => {
+    await syncFrame();
+    const kind = pick(["append", "append", "stream", "grow", "grow", "collapse"]);
+    const timing = pick(["commit", "effect"]);
+    if (kind === "append") { const count = between(1, 3); await evaluate(`(window.chatAppend(${count}), true)`); log.push(`append ${count}`); return; }
+    const place = kind === "stream" ? "last" : pick(["above", "above", "across", "inView", "last"]);
+    const px = kind === "collapse" ? -between(40, 200) : between(60, 420);
+    const row = await growRow(where[place], px, timing);
+    log.push(`${kind} ${place} m${row} ${px} ${timing}`);
+  };
+  const point = (type, y) => send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: VIEWPORT.width / 2, y, id: 1 }] });
+  // A finger stroke: positive direction pulls the history down (scrolls up), negative pushes toward the latest.
+  const stroke = async (direction, steps, step) => {
+    let y = direction > 0 ? 220 : 680;
+    await point("touchStart", y);
+    for (let index = 0; index < steps; index++) {
+      y = Math.max(40, Math.min(800, y + direction * step));
+      await point("touchMove", y);
+      if (random() < 0.18) await event();
+      await nextFrame();
+    }
+    await point("touchEnd");
+  };
+  for (let action = 0; action < Number(values.actions); action++) {
+    const choice = pick(["up", "up", "down", "down", "fling-up", "fling-down", "idle", "jump", "tap"]);
+    await syncFrame();
+    log.push(`#${action} ${choice}`);
+    if (choice === "up") await stroke(1, between(4, 24), between(6, 22));
+    else if (choice === "down") await stroke(-1, between(4, 30), between(6, 24));
+    else if (choice === "fling-up" || choice === "fling-down") {
+      await stroke(choice === "fling-up" ? 1 : -1, between(3, 6), between(40, 70));
+      for (let index = between(4, 14); index > 0; index--) { if (random() < 0.3) await event(); await nextFrame(); }
+    } else if (choice === "idle") {
+      for (let index = between(2, 10); index > 0; index--) { if (random() < 0.4) await event(); await nextFrame(); }
+    } else if (choice === "tap") { await point("touchStart", 400); await point("touchEnd"); await event(); }
+    else {
+      // The jump button: a deliberate move to the latest, which the metric does not count as a jump.
+      await evaluate(`(() => { const button = document.querySelector("#jump button"); if (!button) return false;
+        window.__jumpClicks = (window.__jumpClicks ?? 0) + 1;
+        button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); button.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })); return true; })()`);
+    }
+    await waitFrames(between(1, 4));
+  }
+  await waitFrames(20);
+  await screenshot("end.png");
+  const frames = await evaluate("new Promise((resolve) => requestAnimationFrame(() => { window.__sampling = false; resolve(window.__frames); }))");
+  ws.close();
+  // Per painted frame: pinned with no finger down must stay at the bottom; otherwise the content in view must not move
+  // more than the scroll explains (or, in a frame the hook wrote scroll, must not move at all). A jump click is skipped.
+  const failures = [];
+  let pinnedChecks = 0, detachedChecks = 0;
+  for (let index = 1; index < frames.length; index++) {
+    const before = frames[index - 1], after = frames[index];
+    if (after.jumpClicks !== before.jumpClicks) continue;
+    if (before.gap <= 2 && !before.touching && !after.touching) {
+      pinnedChecks++;
+      if (after.gap > 2) failures.push({ frame: index, kind: "left the bottom", gap: Math.round(after.gap) });
+      continue;
+    }
+    const result = sameAnchorLayoutResidual(before, after, limit, false);
+    if (!result) continue;
+    detachedChecks++;
+    // A jump is content that moved on screen by more than the scroll explains. Content held still (the hook's write or
+    // the browser's own scroll anchoring) and content carried by a finger or a fling are both fine.
+    if (Math.abs(result.visualDelta) > limit && Math.abs(result.residual) > limit) failures.push({ frame: index, kind: "content moved", by: Math.round(result.visualDelta), anchor: after.anchor,
+      touching: [before.touching, after.touching], gap: [Math.round(before.gap), Math.round(after.gap)], wrote: after.writes !== before.writes,
+      scroll: Math.round(after.scrollTop - before.scrollTop), spacer: Math.round(after.spacer - before.spacer),
+      near: entries.filter((entry) => entry.frame <= index && entry.frame >= index - 12).map((entry) => `${entry.frame}: ${entry.text}`) });
+  }
+  const summary = { url: values.url, scenario: "chaos", seed: Number(values.seed), actions: Number(values.actions), frames: frames.length,
+    pinnedChecks, detachedChecks, failures: failures.length, firstFailures: failures.slice(0, 8) };
+  if (values.out) writeFileSync(path.join(values.out, "trace.json"), JSON.stringify({ summary, log: entries, failures, frames }));
+  console.log(JSON.stringify(summary, null, 1));
+  process.exit(failures.length > 0 ? 1 : 0);
+}
 
 if (growScenario) {
   const waitFrames = (count) => evaluate(`new Promise((resolve) => { let seen = 0; const tick = () => ++seen >= ${count} ? resolve(true) : requestAnimationFrame(tick); requestAnimationFrame(tick); })`);

@@ -64,6 +64,24 @@ pub trait NeighborGateway: Send + Sync {
     ) -> Result<GatewayReceipt>;
 }
 
+pub async fn acknowledge_inbound(
+    transport: &dyn NeighborTransport,
+    gateway: &dyn NeighborGateway,
+    message: &InboxMessage,
+) -> Result<DeliveryResult> {
+    let result = transport
+        .ack(
+            &message.doc.envelope.sender_uid,
+            &message.doc.envelope.message_id,
+        )
+        .await?;
+    if result.status == DeliveryStatus::Pending {
+        return Err(Error::Transport);
+    }
+    gateway.acknowledged(message, result).await?;
+    Ok(result)
+}
+
 pub fn verify_inbound<'a>(
     doc: &InboxDocument,
     peers: &'a PeerKeys,
@@ -196,17 +214,7 @@ impl Receiver<'_> {
             GatewayReceipt::Delivered => {}
             GatewayReceipt::SubmitUnconfirmed => return Err(Error::Gateway),
         }
-        let status = self
-            .transport
-            .ack(
-                &message.doc.envelope.sender_uid,
-                &message.doc.envelope.message_id,
-            )
-            .await?;
-        if status.status == DeliveryStatus::Pending {
-            return Err(Error::Transport);
-        }
-        self.gateway.acknowledged(message, status).await?;
+        let status = acknowledge_inbound(self.transport, self.gateway, message).await?;
         self.cursors.save(self.friendship_id, &cursor).await?;
         Ok(if status.status == DeliveryStatus::Delivered {
             ReceiveOutcome::Delivered

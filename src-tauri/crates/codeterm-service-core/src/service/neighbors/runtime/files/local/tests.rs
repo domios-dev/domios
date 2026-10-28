@@ -75,7 +75,10 @@ async fn owner_open_can_resolve_without_launching_and_keeps_default_launch_behav
             .await
             .unwrap();
         if launch == Some(false) {
-            assert_eq!(result, json!({"opened":false,"path":path.to_string_lossy()}));
+            assert_eq!(
+                result,
+                json!({"opened":false,"path":path.to_string_lossy()})
+            );
             assert_eq!(launches.load(Ordering::Relaxed), 0);
         } else {
             assert_eq!(result, json!({"opened":true}));

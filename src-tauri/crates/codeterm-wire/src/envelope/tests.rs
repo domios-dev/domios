@@ -248,7 +248,10 @@ fn neighbor_envelope_parses_as_a_neighbor_frame() {
     );
     assert!(segments.iter().any(|segment| matches!(
         segment,
-        MessageSegment::Frame { kind: FrameKind::Neighbor, .. }
+        MessageSegment::Frame {
+            kind: FrameKind::Neighbor,
+            ..
+        }
     )));
 }
 

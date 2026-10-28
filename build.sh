@@ -2383,6 +2383,10 @@ build_dev_frontend() {
 # The static server serves dist/ during the watcher's first rebuild, so the watcher overwrites in place.
 start_web_watch() {
   kill_web_watch || true
+  if [ "${CODETERM_DEV_WATCH:-1}" = 0 ]; then
+    echo "Web bundle watcher disabled; serving the provenance-validated frontend unchanged."
+    return 0
+  fi
   local log="/tmp/codeterm-web-watch${CT_SUFFIX}.log"
   local vite_entry="node_modules/vite/bin/vite.js"
   local pid shell_pid spawn_status
@@ -2820,9 +2824,10 @@ Domios build commands
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
-  chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--scenario touch|grow] [--out DIR] [--cdp WS]
+  chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--scenario touch|grow|chaos] [--seed N] [--actions N] [--out DIR] [--cdp WS]
                               Scripted iPhone touch scroll over the mounted Chat window (grow: rows expand and collapse
-                              while pinned, scrolled up and scrolling); fails on any visual jump
+                              while pinned, scrolled up and scrolling; chaos: a seeded mix of strokes, flings, the jump
+                              button, arriving rows and growth anywhere); fails on any visual jump
   install-local               Build and install locally (cheap fmt/size/clean gates first)
   script-guards               Run the script catalogue gate and uncalled fixture guards
   qa-lock-storm [--seconds N] --out FILE  Measure DEV routes and lock holds (default 120s; --notify-tab supported)
@@ -3703,21 +3708,25 @@ LOCK_STORM_PY
     cst_out=""
     cst_cdp="${CHAT_SCROLL_TRACE_CDP:-}"
     cst_scenario="touch"
+    cst_seed=1
+    cst_actions=80
     shift
     while [ "$#" -gt 0 ]; do
       case "$1" in
         --webkit) cst_webkit=1 ;;
         --scenario) cst_scenario="${2:-}"; shift ;;
+        --seed) cst_seed="${2:-}"; shift ;;
+        --actions) cst_actions="${2:-}"; shift ;;
         --fix) cst_fix="${2:-}"; shift ;;
         --strokes) cst_strokes="${2:-}"; shift ;;
         --out) cst_out="${2:-}"; shift ;;
         --cdp) cst_cdp="${2:-}"; shift ;;
-        *) echo "ERROR: usage: chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--scenario touch|grow] [--out DIR] [--cdp WS]" >&2; exit 2 ;;
+        *) echo "ERROR: usage: chat-scroll-trace [--webkit] [--fix 0|1] [--strokes N] [--scenario touch|grow|chaos] [--seed N] [--actions N] [--out DIR] [--cdp WS]" >&2; exit 2 ;;
       esac
       shift
     done
     case "$cst_fix" in 0|1) ;; *) echo "ERROR: --fix must be 0 or 1" >&2; exit 2 ;; esac
-    case "$cst_scenario" in touch|grow) ;; *) echo "ERROR: --scenario must be touch or grow" >&2; exit 2 ;; esac
+    case "$cst_scenario" in touch|grow|chaos) ;; *) echo "ERROR: --scenario must be touch, grow or chaos" >&2; exit 2 ;; esac
     ensure_deps
     if [ -z "$cst_cdp" ]; then
       codeterm plugin browser status 2>/dev/null | grep -q "no browser open" && codeterm plugin browser open >/dev/null
@@ -3736,7 +3745,7 @@ LOCK_STORM_PY
     [ -n "$cst_url" ] || { echo "ERROR: chat-scroll-trace harness server did not report ready" >&2; exit 1; }
     cst_status=0
     node scripts/chat-scroll-trace/trace.mjs --cdp "$cst_cdp" --url "${cst_url}?fix=${cst_fix}&webkit=${cst_webkit}" \
-      --strokes "$cst_strokes" --scenario "$cst_scenario" --out "$cst_out" || cst_status=$?
+      --strokes "$cst_strokes" --scenario "$cst_scenario" --seed "$cst_seed" --actions "$cst_actions" --out "$cst_out" || cst_status=$?
     echo "chat-scroll-trace: trace.json and screenshots in $cst_out"
     exit "$cst_status"
     ;;

@@ -100,7 +100,7 @@ impl CursorStore for Fixture {
 #[async_trait]
 impl NeighborGateway for Fixture {
     async fn acknowledged(&self, _: &InboxMessage, result: DeliveryResult) -> Result<()> {
-        assert_ne!(result.status,DeliveryStatus::Pending);
+        assert_ne!(result.status, DeliveryStatus::Pending);
         self.events.lock().unwrap().push("ack_committed");
         Ok(())
     }
@@ -217,7 +217,13 @@ async fn verified_decrypted_gateway_delivery_precedes_ack_and_cursor() {
     );
     assert_eq!(
         *f.events.lock().unwrap(),
-        ["verify", "decrypted_gateway", "ack", "ack_committed", "cursor"]
+        [
+            "verify",
+            "decrypted_gateway",
+            "ack",
+            "ack_committed",
+            "cursor"
+        ]
     );
     assert_eq!(
         receiver.process(&message, NOW).await.unwrap(),
@@ -277,7 +283,15 @@ async fn failed_ack_keeps_cursor_and_gateway_dedup_prevents_rewrite() {
         ReceiveOutcome::Delivered
     );
     assert_eq!(*f.writes.lock().unwrap(), 1);
-    assert_eq!(f.events.lock().unwrap().iter().filter(|event| **event=="ack_committed").count(),1);
+    assert_eq!(
+        f.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|event| **event == "ack_committed")
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

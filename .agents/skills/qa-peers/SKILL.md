@@ -18,6 +18,14 @@ Both peers use the detached worktree `C:/Developer/codeterm/codeterm-candidate`.
 
 Both select `DOMIOS_ACCOUNT_TARGET=qa`. State remains separate in `~/.domios-dev-acceptance-r161` and `~/.domios-dev-curated`. Never copy configuration, accounts, databases, receiving keys or user data between them. QA admin is a separate refusal identity; `domios-qa-unpaid` is the separately authorized non-staff unpaid account. Buyer/free staff access does not prove subscription or unpaid limits. Retrieve credentials privately from the authorized store; record aliases and equality booleans only, never emails, UIDs, secrets or authentication URLs.
 
+Both persistent DEV owners must export `CODETERM_DEV_WATCH=0` before `dev` or
+`dev-prebuilt`. This skips only the bundle watcher; static serving, provenance
+validation and native attachment remain required. A watcher rebuild mutates the
+recorded artifact tree and invalidates cross-instance staging, even at unchanged
+source. Keep the candidate frontend immutable throughout QA; rebuild and restage
+through the supported flow after any change, never recapture changed live bytes
+to bypass a provenance refusal.
+
 Use Team DEV utilities without timeouts and descriptions beginning `persistent: ...`. Reuse these deliberately for relaunches and close them at phase end. Timeout QA/build utilities are one-shot: one job, then close; never restart or reuse them.
 
 ## Candidate advance
@@ -29,6 +37,7 @@ Stop both peers from the existing checkout with explicit selectors, preserving e
 ```bash
 cd /c/Developer/codeterm/codeterm-candidate
 export DOMIOS_ACCOUNT_TARGET=qa
+export CODETERM_DEV_WATCH=0
 export CODETERM_DEV_INSTANCE=acceptance-r161 CODETERM_DEV_API_PORT=7707
 export CODETERM_DEV_VITE_PORT=15007 CODETERM_DEV_CDP_PORT=9407
 bash ./build.sh kill
@@ -60,6 +69,7 @@ Compare current listener owners and process creation times/paths with that insta
 Select A's four explicit variables above plus `DOMIOS_ACCOUNT_TARGET=qa`, check the full SHA, then in its persistent owner:
 
 ```bash
+export CODETERM_DEV_WATCH=0
 bash ./build.sh dev --wait --wait-build
 ```
 
@@ -129,6 +139,7 @@ foreach ($qaName in @('app','cli','frontend','server','inventory','resources')) 
 Retain all six artifact comparisons and exits. This official writer records a verified same-source transfer; never use it to bypass stale source or changed bytes, or hand-edit its JSON. Select B's four explicit variables plus `DOMIOS_ACCOUNT_TARGET=qa`, then:
 
 ```bash
+export CODETERM_DEV_WATCH=0
 bash ./build.sh dev-prebuilt --wait
 ```
 
@@ -161,4 +172,4 @@ Raw artifacts and ownership manifests go under `target-check/evals/qa/<stamp>/<C
 
 Restore owned temporary policies/limits; reconcile jobs, tabs, files and pending messages against the manifest. Close only owned Browser profiles via the Browser plugin and close completed timeout utilities immediately. When the owner ends the peers' phase, stop both through explicit named `build.sh kill`, confirm their selected processes/listeners absent, then close persistent DEV/controller utilities. Retain the shared candidate checkout/account state unless removal is explicitly requested. Never delete unrelated tabs or another worker's evidence.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
