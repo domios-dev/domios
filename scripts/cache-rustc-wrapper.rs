@@ -5,9 +5,16 @@ use std::process::{Command, ExitCode};
 
 const BRIDGE: &str = "CODETERM_CACHE_COMPILER_BRIDGE";
 const REMAP: &str = "CODETERM_CACHE_REMAP_GENERATED";
+const REMAP_ROOT: &str = "CODETERM_CACHE_GENERATED_ROOT";
+const BUILD_DIRECTORY: &str = "CODETERM_CACHE_BUILD_DIRECTORY";
 const POLICY: &str = "CARGO_CODETERM_CACHE_OUTPUT_POLICY";
 const OUTPUT_PREFIX: &str = env!("CODETERM_CACHE_OUTPUT_PREFIX");
-const SETTINGS: [&str; 2] = ["CARGO_TARGET_DIR", "CARGO_INCREMENTAL"];
+const CACHE_CLIENT: &str = env!("CODETERM_CACHE_CLIENT");
+const SETTINGS: [&str; 3] = [
+    "CARGO_TARGET_DIR",
+    "CARGO_BUILD_BUILD_DIR",
+    "CARGO_INCREMENTAL",
+];
 
 fn forward(mut command: Command) -> ExitCode {
     #[cfg(unix)]
@@ -36,7 +43,7 @@ fn main() -> ExitCode {
             .first()
             .is_none_or(|arg| arg.to_string_lossy().starts_with('-'))
     {
-        let mut command = Command::new("sccache");
+        let mut command = Command::new(CACHE_CLIENT);
         command.args(args);
         return forward(command);
     }
@@ -66,16 +73,19 @@ fn main() -> ExitCode {
         let mut command = Command::new(compiler);
         command.args(args).env_remove(BRIDGE);
         if std::env::var_os(REMAP).as_deref() == Some(OsStr::new("1")) {
-            let target = std::env::var_os("CODETERM_CACHE_SAVED_CARGO_TARGET_DIR").unwrap();
+            let root = std::env::var_os(REMAP_ROOT).unwrap();
             let output = std::env::var_os("OUT_DIR").unwrap();
-            let relative = std::path::Path::new(&output).strip_prefix(&target).unwrap();
+            let relative = std::path::Path::new(&output).strip_prefix(&root).unwrap();
             let mut mapping = OsString::from("--remap-path-prefix=");
             mapping.push(&output);
             mapping.push("=");
             mapping.push(std::path::Path::new(OUTPUT_PREFIX).join(relative));
             command.arg(mapping).env_remove(POLICY);
         }
-        command.env_remove(REMAP);
+        command
+            .env_remove(REMAP)
+            .env_remove(REMAP_ROOT)
+            .env_remove(BUILD_DIRECTORY);
         for name in SETTINGS {
             let saved = format!("CODETERM_CACHE_SAVED_{name}");
             let present = format!("CODETERM_CACHE_PRESENT_{name}");
@@ -103,31 +113,36 @@ fn main() -> ExitCode {
         let mut command = Command::new(if rust {
             requested
         } else {
-            OsStr::new("sccache")
+            OsStr::new(CACHE_CLIENT)
         });
         command.args(if rust { &args[1..] } else { &args });
         return forward(command);
     }
 
-    let mut command = Command::new("sccache");
+    let mut command = Command::new(CACHE_CLIENT);
     command.arg(executable).args(&args[1..]).env(BRIDGE, "1");
-    let generated = std::env::var_os("CARGO_TARGET_DIR")
-        .zip(std::env::var_os("OUT_DIR"))
-        .and_then(|(target, output)| {
-            let relative = std::path::Path::new(&output).strip_prefix(&target).ok()?;
-            if output.to_str().is_some_and(|path| !path.contains('=')) {
-                Some(relative.to_path_buf())
-            } else {
-                None
-            }
-        });
-    if let Some(relative) = generated {
-        command.env(REMAP, "1").env(
+    let generated = std::env::var_os("OUT_DIR").and_then(|output| {
+        if !output.to_str().is_some_and(|path| !path.contains('=')) {
+            return None;
+        }
+        ["CARGO_BUILD_BUILD_DIR", BUILD_DIRECTORY, "CARGO_TARGET_DIR"]
+            .into_iter()
+            .find_map(|name| {
+                let root = std::env::var_os(name).filter(|root| !root.is_empty())?;
+                let relative = std::path::Path::new(&output)
+                    .strip_prefix(&root)
+                    .ok()?
+                    .to_path_buf();
+                Some((root, relative))
+            })
+    });
+    if let Some((root, relative)) = generated {
+        command.env(REMAP, "1").env(REMAP_ROOT, root).env(
             POLICY,
             format!("generated-v1:{OUTPUT_PREFIX}:{}", relative.display()),
         );
     } else {
-        command.env_remove(REMAP);
+        command.env_remove(REMAP).env_remove(REMAP_ROOT);
     }
     for name in SETTINGS {
         let saved = format!("CODETERM_CACHE_SAVED_{name}");

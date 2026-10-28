@@ -391,8 +391,10 @@ ct_configure_sccache() {
 
 ct_select_compiler_cache_wrapper() {
   [ "${CODETERM_PORTABLE_COMPILER_CACHE:-0}" = 1 ] || return 0
-  local wrapper
+  local wrapper directory
+  directory="$(node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-rustc-wrapper.mjs" --build-directory)" || return $?
   wrapper="$(node "$CT_CACHE_POLICY_SCRIPT_ROOT/scripts/cache-rustc-wrapper.mjs")" || return $?
+  export CODETERM_CACHE_BUILD_DIRECTORY="$directory"
   export RUSTC_WRAPPER="$wrapper"
 }
 
