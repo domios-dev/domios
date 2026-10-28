@@ -37,4 +37,8 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 security-framework = { version = "3", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 secret-service = { version = "=5.2.0", default-features = false, features = ["rt-tokio-crypto-rust"], optional = true }
+
+[dev-dependencies]
+tempfile = "3"

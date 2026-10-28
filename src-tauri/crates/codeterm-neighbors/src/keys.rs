@@ -2,6 +2,10 @@
 mod os;
 #[cfg(feature = "runtime")]
 pub use os::OsKeyStore;
+mod file;
+mod selected;
+pub use file::FileKeyStore;
+pub use selected::ConfiguredKeyStore;
 
 use crate::crypto::{sha256_hex, PrivateKeys};
 use crate::{Error, Result};
@@ -41,6 +45,9 @@ pub enum Slot {
 
 #[async_trait]
 pub trait KeyStore: Send + Sync {
+    async fn available(&self) -> bool {
+        true
+    }
     async fn load(&self, scope: &KeyScope, slot: Slot) -> Result<Option<Zeroizing<Vec<u8>>>>;
     async fn save(&self, scope: &KeyScope, slot: Slot, bytes: Zeroizing<Vec<u8>>) -> Result<()>;
     async fn delete(&self, scope: &KeyScope, slot: Slot) -> Result<()>;

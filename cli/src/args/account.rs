@@ -1,8 +1,15 @@
 use clap::Subcommand;
 #[derive(Subcommand)]
 pub enum AccountAction {
-    /// Sign in using the system browser and wait for completion
-    Login,
+    /// Sign in and wait for completion
+    Login {
+        /// Print the authorization URL and accept the whole redirected callback URL
+        #[arg(long)]
+        no_browser: bool,
+        /// Complete the pending browserless sign-in using a whole callback URL from this tab's pad
+        #[arg(long, requires = "no_browser")]
+        code_from_pad: Option<String>,
+    },
     /// Show the current plan and stale-cache marker
     Plan,
     /// Open an upgrade checkout in the system browser

@@ -3,6 +3,7 @@ use crate::{
     cmd::print::{fail, fail_http, print_human},
 };
 
+mod login_paste;
 mod neighbors;
 
 pub fn handle(json_mode: bool, action: AccountAction) {
@@ -14,7 +15,11 @@ pub fn handle(json_mode: bool, action: AccountAction) {
             .json(&serde_json::json!({"plan":plan_key})),
         AccountAction::Portal => client.post("/api/account/portal"),
         AccountAction::Status => client.get("/api/account/status"),
-        AccountAction::Login => client.post("/api/account/login"),
+        AccountAction::Login {
+            no_browser: true,
+            code_from_pad,
+        } => return login_paste::handle(&client, json_mode, code_from_pad.as_deref()),
+        AccountAction::Login { .. } => client.post("/api/account/login"),
         AccountAction::Logout => client.post("/api/account/logout"),
         AccountAction::Neighbors { action } => return neighbors::handle(json_mode, action),
     };
@@ -38,20 +43,4 @@ pub fn handle(json_mode: bool, action: AccountAction) {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::{Cli, Commands};
-    use clap::Parser;
-    #[test]
-    fn account_actions_parse_and_are_local() {
-        assert!(Cli::try_parse_from(["codeterm", "account", "upgrade", "pro"]).is_ok());
-        assert!(Cli::try_parse_from(["codeterm", "account", "upgrade"]).is_err());
-        for action in ["status", "login", "logout", "plan", "portal"] {
-            let cli = Cli::try_parse_from(["codeterm", "account", action]).unwrap();
-            assert!(matches!(cli.command, Commands::Account { .. }));
-            assert_eq!(
-                crate::transport::transport_for(&cli.command).local,
-                crate::transport::Local::PreSocket
-            );
-        }
-    }
-}
+mod tests;

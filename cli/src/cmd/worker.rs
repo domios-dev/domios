@@ -86,7 +86,7 @@ pub(crate) fn open_worker_db(db_path: &std::path::Path) -> Result<rusqlite::Conn
     Ok(conn)
 }
 
-fn register_sqlite_vec_extension() {
+pub(crate) fn register_sqlite_vec_extension() {
     use std::sync::Once;
     static REGISTER: Once = Once::new();
     REGISTER.call_once(|| unsafe {

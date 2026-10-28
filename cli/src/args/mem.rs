@@ -3,6 +3,11 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum MemAction {
+    /// Create an online SQLite archive or restore a stopped instance
+    Backup {
+        #[command(subcommand)]
+        action: MemBackupAction,
+    },
     /// Merge an area reversibly; use taxonomy to list areas and counts.
     Area {
         #[command(subcommand)]
@@ -394,6 +399,20 @@ pub enum MemAction {
     Embedder {
         #[command(subcommand)]
         action: MemEmbedderAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemBackupAction {
+    /// Copy knowledge.db, memory blobs and storage into a timestamped archive
+    Create {
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
+    /// Replace memory and storage from an archive; requires a stopped daemon
+    Restore {
+        #[arg(long)]
+        from: std::path::PathBuf,
     },
 }
 
