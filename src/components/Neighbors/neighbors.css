@@ -1715,6 +1715,22 @@ button.neighbor-file:hover {
   text-align: right;
 }
 
+/* Where the written scope promises more than the switches grant: a warm aside, never a blocker. */
+.neighbor-scope-conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.5rem 0.7rem;
+  border-left: 2px solid color-mix(in srgb, var(--ct-yellow) 70%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--ct-yellow) 8%, transparent);
+}
+
+.neighbor-scope-conflicts .neighbor-note {
+  margin: 0;
+  color: var(--ct-fg);
+}
+
 .neighbor-apply__actions {
   display: flex;
   flex-wrap: wrap;
