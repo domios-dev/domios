@@ -132,8 +132,12 @@ Named `dev` and `dev-server` select nonincremental compilation and the portable
 compiler-cache wrapper automatically. Incremental workspace libraries otherwise
 bypass sccache entirely. Cargo retains the machine's configured build directory,
 and final artifacts remain under `src-tauri/target/dev-instances/<name>`.
-The first run seeds the changed configuration; matching Rust libraries can then
-hit across checkouts through the gateway. Instance-specific server identity and
+Cargo-fresh intermediates can retain metadata from the previous wrapper policy.
+For an approved before/after measurement, invalidate only the affected packages
+in the selected inactive instance through the gateway before seeding both
+checkouts. Do not delete the machine cache or another checkout's intermediates.
+Newly compiled matching Rust libraries can then hit across checkouts through
+the gateway. Instance-specific server identity and
 binary linking still require work. Use normal named operations; canonical QA
 and lane-check retain their own profile and isolation policies.
 
