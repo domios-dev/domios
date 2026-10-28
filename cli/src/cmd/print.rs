@@ -3,6 +3,7 @@ use std::io::Write;
 use crate::client::SocketCallError;
 use crate::cmd::error_contract::{json_mode, ErrorCode};
 use crate::cmd::plan_output::error_envelope_with_data;
+mod neighbor_refusal;
 
 /// Exit status of every failed CLI command, with and without `--json`.
 pub const CLI_ERROR_EXIT_CODE: i32 = 1;
