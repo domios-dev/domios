@@ -1,4 +1,5 @@
 use super::*;
+use super::authority::SendAuthority;
 
 impl ServiceContext {
     pub(super) async fn send_neighbor(
@@ -42,6 +43,7 @@ impl ServiceContext {
         self.require_neighbors_enabled()?;
         let generation = self.neighbor_history_generation();
         let Outgoing {
+            authority,
             friendship,
             kind,
             body,
@@ -62,6 +64,7 @@ impl ServiceContext {
             metadata,
             &friendship,
             &permission,
+            authority,
             kind,
             body,
             in_reply_to.as_deref(),
@@ -206,6 +209,7 @@ async fn prepare_outgoing_body(
     metadata: &Metadata,
     friendship: &str,
     permission: &Permission,
+    authority: SendAuthority,
     kind: Kind,
     body: OutboundBody,
     in_reply_to: Option<&str>,
@@ -258,7 +262,7 @@ async fn prepare_outgoing_body(
         }
         return Ok((body, vec![]));
     }
-    permission.require(kind)?;
+    authority.require(permission, kind)?;
     match body {
         OutboundBody::Granted(body) => Ok((body, vec![])),
         OutboundBody::Files { text, paths } => Ok((text, paths)),

@@ -150,7 +150,7 @@ try {
     B.runtime.receiving_here === true && C.runtime.receiving_here === false &&
     receiving(B, x, true, "account") && receiving(C, x, false, "account") &&
     receiving(B, y, true, "account") && receiving(C, y, false, "account") && ready(B, x) && ready(B, y) && retired(C, x));
-  requireThat(initial.C.runtime.permissions?.[x]?.enabled === true, "C must already have its own enabled local grant; setup is never copied");
+  requireThat(initial.C.runtime.permissions?.[x]?.allowed === true, "C must already have its own enabled local grant; setup is never copied");
   const originalX = root(initial.B, x);
   const formerBIds = authorityTabs(initial.B, x).map(tab => tab.id);
   otherSession = session(root(initial.B, y));
