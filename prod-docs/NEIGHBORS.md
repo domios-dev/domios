@@ -1,6 +1,6 @@
 # Encrypted Neighbors
 
-Neighbors encrypt account messages. Neighborhood/sidebar manage friends. Free retains/accepts/configures/removes them; messaging stays upgrade-locked.
+Encrypted account messages; Neighborhood/sidebar manage friends. Free keeps connections; messaging is upgrade-locked.
 
 Neighbors defaults on per instance. Off immediately stops receive/send/request notices without restart, retaining connections/keys/scopes/listing. Sends/grants/binding/admission refuse `neighbors_disabled`. On resumes signed-in listeners; sign-out revokes this installation's receiving keys.
 
@@ -20,9 +20,7 @@ Use current status revision; stale revisions require reread/reconfirmation. Stat
 
 Concierges/grants are installation-local; takeover idles old agents, copying no grants. Missing-concierge questions stay encrypted/pending/unacknowledged without cursor advancement until permissions/binding enable admission. Status `concierges[friendship_id]`: `concierge_missing,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Unknown count=null, cap100 displayed `100+`. Observe-only streams retain no names; concurrent count refreshes coalesce.
 
-gRPC4/10/13/14, reset/GoAway/EOF and connection failures auto-reconnect: fresh auth, jittered backoff, persisted inbox cursor. Max3 consecutive retries; confirmed snapshots reset the budget. Exhaustion: `listen_retries_exhausted` + last cause. Auth/permission/revocation/off/account-generation/receiver moves terminate. Reconnecting retains error until ready. `status.watches.control`/`.account`: status/error; event `neighbors-watch-status`: watch/status/error. Retry never replays uncertain sends. Existence-filter mismatch:3 target re-adds, then explicit retry; cursor retained.
-
-Runtime cache/admission details: API-LIFECYCLE.
+Receive retries: max3 consecutive failures; confirmed snapshots reset. Exhaustion: listen_retries_exhausted. Auth/revocation/off/account-generation/receiver changes terminate. Retry retains the cursor and never replays uncertain sends. status.watches and neighbors-watch-status expose watch/errors. Reconnect/cache/admission: API-LIFECYCLE.
 
 ## Authority and permissions
 
@@ -30,13 +28,10 @@ Owner edits grants in friend view; only authenticated General may view/author th
 
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
-domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md
-domios account neighbors grant FRIENDSHIP_ID --from-pad scope.md --allow-tab-requests
-domios account neighbors deny FRIENDSHIP_ID
 domios account neighbors bind FRIENDSHIP_ID --tab GATEWAY_TAB_ID
 ```
 
-Saving grants creates/binds a concierge; provider/model replacement retains scope/limits. Independent agents require matching instructions/folder/confinement; General/Team/role-bound agents cannot bind. Never reuse broader launches. Host-owned authority persists from prelaunch; restart/sign-out/role changes/ended bindings never grant unrestricted access.
+Grants create/bind a concierge; provider/model edits retain scope/limits. Binding requires matching instructions/folder/confinement and an independent agent, never General/Team/role-bound tabs or broader launches. Authority persists from prelaunch; restart/sign-out/role changes/ended bindings never widen access.
 
 `change_agent`: `provider`, optional `model`, provider effort ID `reasoning_effort`, declared tier ID `service_tier` (`default`=Standard). Omitted=provider defaults; unsupported choices refuse before replacement. Restore/Apply retain choices. Result/`status.concierges[friendship_id]` expose effort/tier fields, null for defaults.
 
@@ -74,6 +69,18 @@ Owner/General set their inbound limits. Include `friendship_id`; POST routes are
 | File bytes/day | `/files`: `set_daily_limit` / `file_daily_limit_bytes` | `null` = 50 MiB default; 0 blocks files | `set-file-daily-limit ID --file-daily-limit-bytes N` |
 
 For two incoming requests/hour: `domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2`. Use literal `null` instead of N only where supported. Limit edits are separate from permission Apply.
+
+## General permission command
+
+Partial grants preserve other fields. --allowed, --allow-memory, --allow-files, --allow-tab-requests, --allow-interactive-content take true/false. --from-pad reads scope and implies --allowed true unless overridden. --memory-areas: all=null, none=[], or comma-separated areas. --workspaces: none=null or comma-separated IDs. --folder: absolute path/default=null. --machine-access: none/read_only/folder/full; folder requires a folder.
+
+~~~bash
+domios account neighbors grant ID --from-pad scope.md --allow-memory false
+domios account neighbors grant ID --allow-memory true --memory-areas project,team
+domios account neighbors grant ID --memory-areas all
+~~~
+
+Deny sets only allowed=false. Runtime set_permission merges partial permission; null clears nullable fields. Invalid input refuses typed before saving. CLI/UI share Apply; limits stay separate.
 
 ## Concierge setup and Apply
 
@@ -170,4 +177,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 47 -->
+<!-- revision: 49 -->

@@ -8,6 +8,7 @@ mod local;
 pub(crate) mod logout;
 mod owner;
 mod pending;
+mod permission;
 mod read;
 mod receiver;
 mod restoration;
@@ -119,7 +120,7 @@ pub enum NeighborRuntimeCommand {
     },
     SetPermission {
         friendship_id: String,
-        permission: Permission,
+        permission: Value,
     },
     Send {
         friendship_id: String,
@@ -545,6 +546,14 @@ impl ServiceContext {
                     friendship_id,
                     permission,
                 } => {
+                    let current = metadata
+                        .settings()
+                        .await?
+                        .permissions
+                        .get(&friendship_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    let permission = permission::merge(current, permission)?;
                     self.set_neighbor_permission(&metadata, &transport, &friendship_id, permission)
                         .await
                 }

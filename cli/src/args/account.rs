@@ -77,13 +77,11 @@ pub enum NeighborAction {
     },
     /// Read a Neighbor's local permission policy
     Permission { friendship_id: String },
-    /// General Agent only: grant a bounded scope authored in its pad
+    /// General Agent only: apply permission edits and restart the concierge fresh
     Grant {
         friendship_id: String,
-        #[arg(long)]
-        from_pad: String,
-        #[arg(long)]
-        allow_tab_requests: bool,
+        #[command(flatten)]
+        fields: NeighborGrant,
     },
     /// General Agent only: deny this Neighbor's requests
     Deny { friendship_id: String },
@@ -119,5 +117,72 @@ impl std::str::FromStr for NeighborLimit {
                 .map(Self::Value)
                 .map_err(|_| "Expected a non-negative integer or null".into())
         }
+    }
+}
+
+#[derive(clap::Args, Default)]
+pub struct NeighborGrant {
+    /// Scope text in this tab's pad; omitted keeps the current scope
+    #[arg(long)]
+    pub from_pad: Option<String>,
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub allowed: Option<bool>,
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub allow_memory: Option<bool>,
+    /// all or comma-separated taxonomy area names
+    #[arg(long, value_parser = memory_selection)]
+    pub memory_areas: Option<NeighborSelection>,
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub allow_files: Option<bool>,
+    /// Absolute directory, or default to clear the folder override
+    #[arg(long)]
+    pub folder: Option<String>,
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub allow_tab_requests: Option<bool>,
+    #[arg(long, action = clap::ArgAction::Set)]
+    pub allow_interactive_content: Option<bool>,
+    /// none or comma-separated local workspace IDs
+    #[arg(long, value_parser = workspace_selection)]
+    pub workspaces: Option<NeighborSelection>,
+    #[arg(long, value_parser = ["none", "read_only", "folder", "full"])]
+    pub machine_access: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct NeighborSelection(pub Option<Vec<String>>);
+
+impl std::str::FromStr for NeighborSelection {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let items: Vec<String> = value
+            .split(',')
+            .map(|item| item.trim().to_owned())
+            .collect();
+        if items
+            .iter()
+            .any(|item| item.is_empty() || matches!(item.as_str(), "all" | "none"))
+        {
+            return Err("Expected non-empty comma-separated names without all or none".into());
+        }
+        Ok(Self(Some(items)))
+    }
+}
+
+fn memory_selection(value: &str) -> Result<NeighborSelection, String> {
+    if value == "all" {
+        Ok(NeighborSelection(None))
+    } else if value == "none" {
+        Ok(NeighborSelection(Some(Vec::new())))
+    } else {
+        value.parse()
+    }
+}
+
+fn workspace_selection(value: &str) -> Result<NeighborSelection, String> {
+    if value == "none" {
+        Ok(NeighborSelection(None))
+    } else {
+        value.parse()
     }
 }
