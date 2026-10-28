@@ -22,6 +22,11 @@ pub async fn refresh_agent_provider_models(
     let (discovery_required, refreshed, reason) = if let Some(provider) =
         state.svc.agent_registry.provider_arc(&body.provider_id)
     {
+        state
+            .svc
+            .refresh_remote_task_environments(&body.provider_id)
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
         let discovery_required = provider
             .model_catalogue_capability()
             .live_discovery_required;
@@ -75,3 +80,6 @@ pub async fn refresh_agent_provider_models(
         "reason": reason,
     })))
 }
+
+#[cfg(test)]
+mod tests;
