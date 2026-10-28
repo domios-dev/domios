@@ -46,22 +46,33 @@ async function main() {
   await act(async () => root.render(<BlueprintImportForm creators={[{ id: "team-creator", label: "Team tab", scope: { kind: "team", id: "team" } }, { id: "scratch-creator", label: "Main", scope: { kind: "general" } }]}
     workspaces={[{ id: "general", name: "General", protected: true }]} teams={[{ id: "team", name: "Scratch Team" }]} initialDestination={{ kind: "general" }}
     onCreated={() => { created++; }} onCancel={() => undefined} api={api} />));
-  assert.equal(host.querySelector('button[aria-haspopup="dialog"]')?.getAttribute("aria-label"), "Destination: General", "opened from General, General is preselected");
-  const fileInput = host.querySelector<HTMLInputElement>('input[type="file"]');
+  // The import is a portaled dialog, so it is read from the document.
+  const dialog = document.querySelector<HTMLFormElement>('form[role="dialog"]')!;
+  assert(dialog, "the import opens as a dialog");
+  const inDialog = (name: string) => {
+    const element = Array.from(dialog.querySelectorAll("button")).find((button) => button.textContent === name);
+    assert(element, `missing button ${name}`);
+    return element;
+  };
+  assert.equal(dialog.querySelector('button[aria-haspopup="dialog"]')?.getAttribute("aria-label"), "Destination: General", "opened from General, General is preselected");
+  assert.equal(inDialog("Import").disabled, true, "Import waits for a recipe");
+  const fileInput = dialog.querySelector<HTMLInputElement>('input[type="file"]');
   assert(fileInput);
-  assert(host.textContent?.includes("No file chosen"), "the styled picker speaks English before a choice");
+  assert(dialog.textContent?.includes("Drop a Blueprint YAML or choose a file…"), "the drop area speaks English before a choice");
   Object.defineProperty(fileInput, "files", { configurable: true, value: [{ name: "watcher.yaml", size: 100, text: async () => source }] });
   await act(async () => fileInput.dispatchEvent(new Event("change", { bubbles: true })));
-  assert(host.textContent?.includes("watcher.yaml"), "the picker shows the chosen file's name");
-  const field = host.querySelector<HTMLInputElement>('input:not([type="file"])');
+  assert(dialog.textContent?.includes("watcher.yaml"), "the drop area shows the chosen file's name");
+  assert(dialog.textContent?.includes("100 B"), "and its size");
+  assert.equal(inDialog("Import").disabled, true, "Import waits for the required input");
+  const field = dialog.querySelector<HTMLInputElement>('input:not([type="file"]):not([type="search"])');
   assert(field, "placeholder field must be presented");
-  assert(host.querySelector(`label[for="${field.id}"]`));
+  assert(dialog.querySelector(`label[for="${field.id}"]`));
   await act(async () => {
     Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value")?.set?.call(field, "scratch-target");
     field.dispatchEvent(new Event("input", { bubbles: true }));
     field.dispatchEvent(new Event("change", { bubbles: true }));
   });
-  await act(async () => button("Import stopped Blueprint").click());
+  await act(async () => inDialog("Import").click());
   assert.deepEqual(imports, [["scratch-creator", source, ["destination=scratch-target"], "general"]]);
   assert.equal(created, 1);
 

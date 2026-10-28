@@ -383,7 +383,7 @@ export function JobsView({ solutionsApi = blueprintSolutionsApi, machinePeers, p
     </header>
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {machines.failed && machinePeers === undefined && <p role="status" className="px-4 py-2">Paired machine list unavailable.</p>}
-      {importOpen && <div className="mx-auto w-full max-w-3xl px-4 pt-4 sm:px-6"><BlueprintImportForm creators={importCreators(tabs, workspaces, teams)} initialDestination={openedFrom} teams={teams} workspaces={workspaces} workspaceIds={sources} workspaceName={workspaceName} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} /></div>}
+      {importOpen && <BlueprintImportForm creators={importCreators(tabs, workspaces, teams)} initialDestination={openedFrom} teams={teams} workspaces={workspaces} workspaceIds={sources} workspaceName={workspaceName} onCancel={() => setImportOpen(false)} onCreated={() => { setImportOpen(false); setImportRevision((revision) => revision + 1); }} />}
       {importRevision > 0 && <p role="status" className="px-4 py-2">Blueprint imported stopped.</p>}
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
         : !layout.teamAvailable ? <InlineErrorNotice error={{ code: "team_unavailable", raw: "" }} />
