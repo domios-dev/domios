@@ -315,9 +315,12 @@ it("tells the old machine that receiving moved, and warns before taking it over"
 });
 
 it.each([
-  ["receiver_revision_stale", "Receiving changed; refresh and confirm again"],
-  ["unavailable", "Neighbor request refused"],
-] as const)("shows takeover failure %s and its diagnostic without expanding Details", async (reason, message) => {
+  ["receiver_revision_stale", "Receiving changed; refresh and confirm again", "Receiving changed; refresh and confirm again"],
+  ["unavailable", "Neighbor request refused", "The receiving service is unavailable. Try again."],
+  ["unavailable", 'Authorization: Bearer opaque-secret-response', "The receiving service is unavailable. Try again."],
+  ["receiver_revision_stale", "Receiving changed\nAuthorization: Bearer opaque-secret-typed", "Receiving changed [redacted]"],
+  ["receiver_revision_stale", "x".repeat(4096) + "opaque-secret-tail", "x".repeat(255) + "…"],
+] as const)("shows safe takeover failure %s without expanding Details", async (reason, message, displayed) => {
   const runtimeClient = runtime();
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
   vi.mocked(runtimeClient.enroll).mockRejectedValue(new NeighborRuntimeFailure(reason, message));
@@ -326,9 +329,27 @@ it.each([
   await act(async () => button("Receive Neighbor messages here").click());
   const alert = document.querySelector('[role="alert"]');
   const diagnostic = Array.from(alert?.querySelectorAll("*") ?? [])
-    .find(node => node.textContent === `${reason}: ${message}` && !node.closest("details"));
+    .find(node => node.textContent === `${reason}: ${displayed}` && !node.closest("details"));
   expect(diagnostic).toBeDefined();
   expect(alert?.querySelector("details")?.open).toBe(false);
+  expect(alert?.querySelector("pre")?.textContent).toBe(`${reason}: ${displayed}`);
+  expect(alert?.textContent).not.toContain("opaque-secret");
+});
+
+it.each([
+  new Error("opaque-secret-error"),
+  { token: "opaque-secret-object", message: "opaque-secret-message" },
+])("does not retain non-runtime takeover rejection %# in the alert or Details", async failure => {
+  const runtimeClient = runtime();
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  vi.mocked(runtimeClient.enroll).mockRejectedValue(failure);
+  await render("paid", { runtimeClient });
+  await act(async () => button("Receive here").click());
+  await act(async () => button("Receive Neighbor messages here").click());
+  const alert = document.querySelector('[role="alert"]');
+  expect(alert?.textContent).toContain("Receiving could not move here. Try again.");
+  expect(alert?.textContent).not.toContain("opaque-secret");
+  expect(alert?.querySelector("pre")?.textContent).toBe("Receiving could not move here. Try again.");
 });
 
 it("requires a fresh confirmation if receiving moves while the active takeover prompt is open", async () => {
