@@ -36,7 +36,8 @@ function enrichUserMessage(raw: ChatMessage, rawItem: TimelineItem): EnrichedCha
     return rows.map((row, index) => {
       const prefix = row.frame ? framePrefix({ ...row.frame.attrs, from: row.frame.from }, row.content, row.frame.tip) : detectChatPrefix(row.content);
       // A Neighbors frame's header and host instruction fold into its origin header; the bubble shows only the friend's words.
-      const neighborBody = row.frame?.from === "neighbor" && prefix && !row.frame.segments?.length;
+      // A daemon-parsed frame may carry its own text segments; they still hold the escaped words, so they give way too.
+      const neighborBody = row.frame?.from === "neighbor" && prefix && !(row.frame.segments ?? []).some((segment) => segment.type === "attachment");
       const msg: ChatMessage = {
         ...raw, id: `${raw.id}-segment-${index}`, content: prefix?.body ?? row.content,
         sourceMessageId: raw.sourceMessageId ?? raw.id,

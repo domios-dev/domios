@@ -53,4 +53,15 @@ for (const name of ["fenced example", "unclosed tag", "indented tag is content",
   assert.equal(entry.msg.content, "R161-PUBLIC-CONTROL-B");
   assert.deepEqual(entry.msg.segments, [{ type: "text", text: "R161-PUBLIC-CONTROL-B" }], "the bubble shows only the friend's words");
 }
-console.log("envelope enrichment: 12 cases passed");
+{
+  // Since 29d29865b7 the daemon parses the routed envelope as a "neighbor" frame, with its own text segments and the tip apart.
+  const attrs = { from: "neighbor", friend: "QA Peer", friendship: "f1", message: "m3", kind: "question" };
+  const raw: NormalizedChatMessage = { id: "neighbor-frame", type: "user", content: "<domios from=\"neighbor\">…</domios>",
+    segments: [{ type: "frame", kind: "neighbor", from: "neighbor", attrs, body: "Is 2 &lt; 3?", tip: "Reply through domios account neighbors send.",
+      segments: [{ type: "text", text: "Is 2 &lt; 3?" }] }] };
+  const [entry] = enrichTimelineItems([item(raw)], new WeakMap());
+  assert.deepEqual(entry.origin, { kind: "neighbor", friendshipId: "f1", message: "m3", friend: "QA Peer", messageKind: "question",
+    instruction: "Reply through domios account neighbors send." });
+  assert.deepEqual(entry.msg.segments, [{ type: "text", text: "Is 2 < 3?" }], "the bubble shows the friend's words as written");
+}
+console.log("envelope enrichment: 13 cases passed");
