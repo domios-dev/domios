@@ -1,4 +1,4 @@
-use super::{collapse_whitespace, AxNode, AxValue};
+use super::{collapse_whitespace, role_matches, AxNode, AxValue};
 use std::collections::{HashMap, HashSet};
 
 pub fn unique<'a>(
@@ -8,7 +8,9 @@ pub fn unique<'a>(
 ) -> Result<&'a AxNode, String> {
     let mut matches = nodes.iter().filter(|n| {
         !n.ignored
-            && n.role.as_ref().map(AxValue::as_str) == Some(role)
+            && n.role
+                .as_ref()
+                .is_some_and(|actual| role_matches(actual.as_str(), role))
             && name.is_none_or(|name| {
                 collapse_whitespace(n.name.as_ref().map(AxValue::as_str).unwrap_or(""))
                     .eq_ignore_ascii_case(&collapse_whitespace(name))

@@ -121,4 +121,8 @@ Native file picker driving returns `unsupported` on all platforms, including Win
 
 `wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses Chromium's accessibility tree and its computed accessible names, including aria-only labels. States are `visible`, `hidden`, `enabled` and `expanded`. Hidden also succeeds when no matching accessible element remains; ambiguous matches refuse. Durations use `ms`, `s` or `m`, default to 15s, and are capped at 2m. DOM mutation and input events wake the check; elapsed time only bounds failure. Navigation during a pending wait returns `stale`.
 
-<!-- revision: 5 -->
+## Disclosure controls
+
+Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`summary` is a role alias). `expand summary 'Details'` and `collapse summary 'Details'` capture the current control, click only when its expanded state differs, then re-read the accessibility tree to confirm the requested state. Already matching state succeeds without a click. Ambiguous or stale controls refuse; `action_unconfirmed` or `state_unconfirmed` never triggers a replay.
+
+<!-- revision: 6 -->

@@ -15,6 +15,8 @@ mod agent_tests;
 
 const INTERACTIVE: &[&str] = &[
     "button",
+    "DisclosureTriangle",
+    "summary",
     "link",
     "textbox",
     "searchbox",
@@ -322,6 +324,10 @@ impl std::fmt::Display for ResolveError {
     }
 }
 
+fn role_matches(actual: &str, wanted: &str) -> bool {
+    actual == wanted || (wanted == "summary" && actual == "DisclosureTriangle")
+}
+
 /// Resolve `@e3` or `(role, name)` against the latest snapshot: exact name first, then substring.
 pub fn resolve_target(
     snapshot: Option<&Snapshot>,
@@ -344,7 +350,12 @@ pub fn resolve_target(
     }
     let name = args.get(1).copied().unwrap_or("");
     let want = name.to_lowercase();
-    let same_role = || snapshot.index.iter().filter(|entry| entry.role == first);
+    let same_role = || {
+        snapshot
+            .index
+            .iter()
+            .filter(|entry| role_matches(&entry.role, first))
+    };
     let exact = same_role().any(|entry| entry.name.to_lowercase() == want);
     let mut matches = same_role().filter(|entry| {
         let actual = entry.name.to_lowercase();

@@ -48,7 +48,9 @@
     "viewport set WIDTH HEIGHT [--mobile] [--dpr N]",
     "fill --within role:name --role ROLE --name NAME --text TEXT",
     "file-picker choose --paths PATH (unsupported; use Take control)",
-    "wait --role ROLE --name NAME --state visible|hidden|enabled|expanded [--timeout DURATION]"
+    "wait --role ROLE --name NAME --state visible|hidden|enabled|expanded [--timeout DURATION]",
+    "expand summary NAME",
+    "collapse summary NAME"
   ],
   "agentKeywords": [
     "browser",

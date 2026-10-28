@@ -65,7 +65,40 @@ impl BrowserRuntime {
         args: &[String],
         fill: bool,
     ) -> Result<String, String> {
-        let args = parse(args, fill)?;
+        self.atomic_request(page, parse(args, fill)?, fill, None)
+            .await
+    }
+
+    pub(super) async fn disclosure_verb(
+        &self,
+        page: &PageChannel,
+        args: &[String],
+        expand: bool,
+    ) -> Result<String, String> {
+        if args.len() != 2 || !matches!(args[0].as_str(), "summary" | "DisclosureTriangle") {
+            return Err("usage: expand|collapse summary <name>".into());
+        }
+        self.atomic_request(
+            page,
+            AtomicArgs {
+                within: String::new(),
+                role: "summary".into(),
+                name: args[1].clone(),
+                text: None,
+            },
+            false,
+            Some(expand),
+        )
+        .await
+    }
+
+    async fn atomic_request(
+        &self,
+        page: &PageChannel,
+        args: AtomicArgs,
+        fill: bool,
+        desired: Option<bool>,
+    ) -> Result<String, String> {
         let epoch = self.evaluate(page, BEGIN, false).await?;
         let capture = self
             .shared
@@ -75,14 +108,27 @@ impl BrowserRuntime {
         let tree = self
             .send(page, "Accessibility.getFullAXTree", json!({}))
             .await?;
-        let nodes = query::scoped(&parse_full_ax_tree(&tree)?, &args.within)?;
+        let nodes = parse_full_ax_tree(&tree)?;
+        let nodes = if args.within.is_empty() {
+            nodes
+        } else {
+            query::scoped(&nodes, &args.within)?
+        };
         let target = query::unique(&nodes, &args.role, Some(&args.name))?;
+        let before = super::accessible_wait::expanded(target);
+        if desired.is_some() && before.is_none() {
+            return Err("unsupported: disclosure exposes no expanded state".into());
+        }
         let backend = target
             .backend_dom_node_id
             .ok_or("stale: missing DOM node")?;
         self.shared
             .finish_snapshot(&capture, Default::default())
             .map_err(|_| "stale: page changed during capture")?;
+        if desired.is_some() && desired == before {
+            self.shared.invalidate_snapshot();
+            return Ok("disclosure state confirmed; no action needed".into());
+        }
         let object = self
             .send(page, "DOM.resolveNode", json!({"backendNodeId":backend}))
             .await?;
@@ -100,7 +146,23 @@ impl BrowserRuntime {
         })?;
         match result.pointer("/result/value").and_then(|v| v.as_str()) {
             Some("performed") => {
-                Ok("action performed; re-snapshot to prove the resulting state".into())
+                if let Some(desired) = desired {
+                    let observed = self.send(page,"Accessibility.getFullAXTree",json!({})).await.map_err(|_| "state_unconfirmed: disclosure action occurred; inspect before continuing")?;
+                    let nodes = parse_full_ax_tree(&observed)?;
+                    let target = query::unique(&nodes, "summary", Some(&args.name))
+                        .map_err(|_| "state_unconfirmed: disclosure changed after action")?;
+                    if super::accessible_wait::expanded(target) != Some(desired) {
+                        return Err("state_unconfirmed: disclosure action occurred; never replay without inspection".into());
+                    }
+                    Ok(if desired {
+                        "expanded state confirmed"
+                    } else {
+                        "collapsed state confirmed"
+                    }
+                    .into())
+                } else {
+                    Ok("action performed; re-snapshot to prove the resulting state".into())
+                }
             }
             Some(reason) => Err(format!("{reason}: atomic action refused")),
             None => Err("action_unconfirmed: inspect before continuing; never replay".into()),

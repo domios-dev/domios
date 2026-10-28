@@ -21,6 +21,8 @@ pub const VERBS: &[&str] = &[
     "snapshot",
     "click",
     "fill",
+    "expand",
+    "collapse",
     "type",
     "type-secret",
     "press",
@@ -251,6 +253,7 @@ impl BrowserRuntime {
             "forward" => self.history_step(page, NavAction::Forward).await,
             "reload" => self.history_step(page, NavAction::Reload).await,
             "snapshot" => self.snapshot_verb(page, args).await,
+            "expand" | "collapse" => self.disclosure_verb(page, args, verb == "expand").await,
             "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
                 self.atomic_action(page, args, verb == "fill").await
             }
