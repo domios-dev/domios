@@ -246,4 +246,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->
