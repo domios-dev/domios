@@ -97,6 +97,8 @@ Choose 1-3 catalogue tags from `domios blueprint tags` and pass each with `--tag
 
 Remote provider sign-in: `domios agent login --tab ID --device` starts a declared code flow; `domios agent login --tab ID --show --mesh PEER --json` reads its link, code and expiry for the owner. Never save or log login values. The sign-in card can send one phone notification. See `domios docs API-CLI`.
 
+Memory backend switching is explicit: stop the daemon, run `domios mem backend migrate --to postgres` or `--to sqlite`, verify the 21-table summary, then set `memory.backend` to the target before restarting. The source is retained. Postgres needs server support and the secret `domios.mem:postgres_url`; see `domios docs MEMORY`.
+
 ## Mesh (remote peers)
 
 Adopt an unbound remote Worker into a local Team with `domios team adopt-agent <team> <worker> --peer <peer>`, or re-parent it in place with `domios agent reparent <worker> --to <local-orchestrator> --peer <peer>`; omit `--peer` for an unbound local Worker. Only the current parent or local owner may transfer, and both peers require Full access. The destination cannot pull it. Retry an uncertain request to recover the same durable operation. Task-bound Workers keep their Plan ownership path. `--mesh` executes on another daemon and is refused for these origin-side operations.

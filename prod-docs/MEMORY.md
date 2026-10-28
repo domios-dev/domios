@@ -4,7 +4,7 @@ Persistent memory survives restarts, provider switches and upgrades.
 
 ## Overview
 
-One local database, `~/.domios/mem/knowledge.db`, holds text/vector indexes and temporal people/project relations; large bodies live beside it. Pins lead wake-up selection, followed by importance, use, workspace and recency (default budget 300 tokens). Folder skills are indexed too. Hidden workers enrich memory; the Librarian syncs source files. Dreaming starts at 6 AM with 0..30 minutes of jitter and runs light, deep, normalize, calibration and REM cleanup; merges archive rather than delete. Hooks track sessions without exporting scrollback.
+The selected memory backend holds text/vector indexes and temporal people/project relations. SQLite is the default (`~/.domios/mem/knowledge.db`, with large bodies beside it); Postgres with pgvector is selectable through `memory.backend`. Pins lead wake-up selection, followed by importance, use, workspace and recency (default budget 300 tokens). Folder skills are indexed too. Hidden workers enrich memory; the Librarian syncs source files. Dreaming starts at 6 AM with 0..30 minutes of jitter and runs light, deep, normalize, calibration and REM cleanup; merges archive rather than delete. Hooks track sessions without exporting scrollback.
 
 Save durable facts immediately when asked to remember. Keep session/task instructions in conversation or the plan unless the user says they are permanent.
 
@@ -14,10 +14,27 @@ Separate stores:
 
 | Surface | Stored where | Asks | Used for |
 |---|---|---|---|
-| **mem** (`~/.domios/mem/knowledge.db`) | local database with text and vector indexes | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
+| **mem** | selected SQLite or Postgres backend with text and vector indexes | "what did the agent learn / decide / save?" | Curated facts, learnings, skills, conversations the agent chose to keep |
 | **sessions** (provider-owned files) | Claude JSONLs / Codex rollouts / OpenCode's sqlite store | "what did we talk about that one time?" | Raw conversation history; on-demand search via `domios sessions search`, atomic resume via `domios sessions resume` |
 
 These stores never share storage. Session API: `domios docs API-STATE`.
+
+## Backend selection and migration
+
+Set `[memory] backend = "sqlite"` (default) or `"postgres"` in the instance configuration. A Postgres-enabled server reads its connection URL exclusively from the active secret store key `domios.mem:postgres_url`. Missing or empty credentials, unavailable secrets and a build without Postgres support refuse startup. The selected backend being empty while the other configured store has items also refuses startup and names the migration command.
+
+Stop the daemon before switching. The local CLI pins its resolved instance data directory and delegates to the installed server, which holds the same instance ownership locks throughout the copy and refuses a running daemon:
+
+```bash
+domios mem backend migrate --to postgres
+domios mem backend migrate --to sqlite
+```
+
+The source is always the backend opposite `--to`; this works whether configuration has already changed or still names the source. The command copies all 21 memory tables in bounded pages, including history, original authors, graph data, vectors and bodies. Source opens are read-only: no schema changes, cleanup or seeding. A source with an outdated schema must first be opened once with its own Domios. The source is retained after success or failure. The command never starts or stops a daemon and never changes configuration.
+
+A target containing data is refused unless `--into-nonempty` explicitly authorizes import. Conflicting row identities still fail; the command does not merge or replace unrelated target records. A populated target with a different embedding stamp is refused before import. Copy counts are verified for every table. When the target embedding stamp (or configured embedder for a new target) differs from the source, the command builds and publishes a shadow index on the target. The configured remote embedder requires its existing consent and credentials. Final counts verify the copied tables and the rebuilt vector projections separately, and the summary reports all counts. Embedding failure leaves the source intact and reports migration failure.
+
+Only after a verified success, set `memory.backend` to the destination and start Domios. An interrupted or failed migration may leave a partial target; retain the source, inspect the failure and use a fresh target before trying again. Offline migration needs the URL available through the configured secret store; a plugin-only vault unavailable outside daemon composition must be made available before migration can run. The installed CLI uses an owner-only resource hint written during installation. A missing, stale or unverifiable hint refuses migration and asks you to reinstall the CLI; it never searches PATH or guesses a server location.
 
 ## Storage layer
 
@@ -200,4 +217,4 @@ Stop the daemon before `domios mem backup restore --from ARCHIVE`. Restore holds
 
 Schedule online creation with `domios cron create memory-backup --schedule "0 3 * * *" --task "Run domios mem backup create --out /absolute/backup-directory once and report its result. Never restore or delete archives."` Choose a private output directory and copy completed archives to encrypted off-machine storage. For a Postgres backend use `pg_dump --format=custom` and, with the daemon stopped, `pg_restore --single-transaction --exit-on-error`; back up storage separately with its writers quiesced. Use protected PostgreSQL service/password files rather than passwords in argv.
 
-<!-- revision: 58 -->
+<!-- revision: 59 -->

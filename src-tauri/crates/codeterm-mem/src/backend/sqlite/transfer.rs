@@ -189,14 +189,14 @@ impl SqliteMemStore {
             tx.execute_batch(crate::embedder::index::STAMP_SCHEMA)
                 .map_err(|e| e.to_string())?;
             crate::embedder::pending::init(&tx)?;
-            crate::embedder::index::recreate_in(
-                &tx,
-                &crate::embedder::EmbedderIdentity {
-                    provider: text("provider")?,
-                    model: text("model")?,
-                    dimension,
-                },
-            )?;
+            let identity = crate::embedder::EmbedderIdentity {
+                provider: text("provider")?,
+                model: text("model")?,
+                dimension,
+            };
+            if crate::embedder::index::stamp(&tx)?.as_ref() != Some(&identity) {
+                crate::embedder::index::recreate_in(&tx, &identity)?;
+            }
         }
         let sql = format!("SELECT * FROM {} LIMIT 0", page.table.sqlite_name());
         let stmt = tx.prepare(&sql).map_err(|e| e.to_string())?;
