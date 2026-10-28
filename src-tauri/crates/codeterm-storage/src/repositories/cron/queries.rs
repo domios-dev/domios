@@ -164,7 +164,11 @@ fn raw_run(row: &Row<'_>) -> rusqlite::Result<RawRun> {
 
 fn decode_run(raw: RawRun) -> Result<CronRunRecord, StorageError> {
     Ok(CronRunRecord {
-        cancel_reason: raw.cancel_reason.as_deref().map(CronCancelReason::from_sql).transpose()?,
+        cancel_reason: raw
+            .cancel_reason
+            .as_deref()
+            .map(CronCancelReason::from_sql)
+            .transpose()?,
         run_id: run_id(raw.run_id)?,
         started_at: from_sql_u64("run start", raw.started_at)?,
         finished_at: optional_u64("run finish", raw.finished_at)?,

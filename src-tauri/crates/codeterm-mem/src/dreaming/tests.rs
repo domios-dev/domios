@@ -630,8 +630,13 @@ mod cron_task {
         let mut config = MemoryConfig::default();
         config.dreaming_agent = "provider-a".into();
         crate::dreaming::ensure_dreaming_cron(
-            &mut store, &config, "fallback", &ProviderModels, "general-id",
-        ).unwrap();
+            &mut store,
+            &config,
+            "fallback",
+            &ProviderModels,
+            "general-id",
+        )
+        .unwrap();
         assert_eq!(store.created[0].workspace_id, "general-id");
         assert_eq!(store.jobs[0].model.as_deref(), Some("provider-a-model"));
         store.jobs[0].workspace_id.clear();
@@ -639,8 +644,13 @@ mod cron_task {
         store.jobs[0].schedule = "30 12 * * *".into();
         config.dreaming_agent = "provider-b".into();
         assert!(!crate::dreaming::ensure_dreaming_cron(
-            &mut store, &config, "fallback", &ProviderModels, "general-id",
-        ).unwrap());
+            &mut store,
+            &config,
+            "fallback",
+            &ProviderModels,
+            "general-id",
+        )
+        .unwrap());
         let job = &store.jobs[0];
         assert_eq!(job.agent, "provider-b");
         assert_eq!(job.model.as_deref(), Some("provider-b-model"));
@@ -650,8 +660,13 @@ mod cron_task {
         assert_eq!(store.created.len(), 1);
         store.jobs[0].model = Some("stale-model".into());
         crate::dreaming::ensure_dreaming_cron(
-            &mut store, &config, "fallback", &ProviderModels, "general-id",
-        ).unwrap();
+            &mut store,
+            &config,
+            "fallback",
+            &ProviderModels,
+            "general-id",
+        )
+        .unwrap();
         assert_eq!(store.jobs[0].model.as_deref(), Some("provider-b-model"));
     }
 
@@ -659,9 +674,13 @@ mod cron_task {
     fn dreaming_cron_refuses_an_unresolved_general_scope() {
         let mut store = MockScheduler::default();
         assert!(crate::dreaming::ensure_dreaming_cron(
-            &mut store, &MemoryConfig::default(), "provider", &FakeCompat, "",
-        ).is_err());
+            &mut store,
+            &MemoryConfig::default(),
+            "provider",
+            &FakeCompat,
+            "",
+        )
+        .is_err());
         assert!(store.created.is_empty());
     }
-
 }

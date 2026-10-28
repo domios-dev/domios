@@ -168,7 +168,8 @@ fn apply_document(
             && document.result.port.is_some()
         {
             if dry_run {
-                let call_drift = crate::blueprint_calls::call_drift(service, caller, document.clone())?;
+                let call_drift =
+                    crate::blueprint_calls::call_drift(service, caller, document.clone())?;
                 return Ok(
                     json!({"action":"check", "dry_run":true,"after":definition,"diagnostics":diagnostics,"call_drift":call_drift}),
                 );
@@ -178,7 +179,11 @@ fn apply_document(
                     .into(),
             );
         }
-        let call_drift = serde_json::to_value(crate::blueprint_calls::call_drift(service, caller, document.clone())?)
+        let call_drift = serde_json::to_value(crate::blueprint_calls::call_drift(
+            service,
+            caller,
+            document.clone(),
+        )?)
         .map_err(|error| error.to_string())?;
         let curator = service
             .role_policy_for_tab(&caller.tab)

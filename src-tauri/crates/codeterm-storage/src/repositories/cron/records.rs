@@ -115,7 +115,10 @@ impl CronCancelReason {
             "restart_reconcile" => Ok(Self::RestartReconcile),
             "timeout" => Ok(Self::Timeout),
             "owner_closed" => Ok(Self::OwnerClosed),
-            _ => Err(StorageError::invalid("cron cancel reason", "unknown reason")),
+            _ => Err(StorageError::invalid(
+                "cron cancel reason",
+                "unknown reason",
+            )),
         }
     }
 }
@@ -138,7 +141,10 @@ pub struct CronRunRecord {
 impl CronRunRecord {
     pub(crate) fn validate(&self) -> Result<(), StorageError> {
         if self.cancel_reason.is_some() && self.status != CronRunState::Cancelled {
-            return Err(StorageError::invalid("cron cancel reason", "requires cancelled status"));
+            return Err(StorageError::invalid(
+                "cron cancel reason",
+                "requires cancelled status",
+            ));
         }
         to_sql_u64("run start", self.started_at)?;
         if let Some(finished) = self.finished_at {

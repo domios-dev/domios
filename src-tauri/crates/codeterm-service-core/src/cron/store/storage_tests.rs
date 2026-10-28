@@ -961,17 +961,25 @@ mod consumers {
             store.record_run(&job.id, running("r1")).unwrap();
             job.id
         };
-        fixture.service.cron_cancel_running(&cron, &id, crate::cron::store::CronCancelReason::UserCancel).unwrap();
+        fixture
+            .service
+            .cron_cancel_running(&cron, &id, crate::cron::store::CronCancelReason::UserCancel)
+            .unwrap();
         let store = cron.lock();
         assert_eq!(store.get_history(&id)[0].status, CronRunStatus::Cancelled);
         let last = store.get(&id).unwrap().last_run.clone().unwrap();
         assert_eq!(last.status, CronRunStatus::Cancelled, "one run, one status");
-        assert_eq!(last.cancel_reason, Some(crate::cron::store::CronCancelReason::UserCancel));
-        assert_eq!(serde_json::to_value(&last).unwrap()["cancel_reason"], "user_cancel");
+        assert_eq!(
+            last.cancel_reason,
+            Some(crate::cron::store::CronCancelReason::UserCancel)
+        );
+        assert_eq!(
+            serde_json::to_value(&last).unwrap()["cancel_reason"],
+            "user_cancel"
+        );
         assert_eq!(Some(&last), store.get_history(&id).first().copied());
     }
 }
-
 
 #[test]
 fn storage_cron_cancel_reason_survives_hydration_and_repeated_cancellation() {
@@ -985,11 +993,18 @@ fn storage_cron_cancel_reason_survives_hydration_and_repeated_cancellation() {
         ("Closed owner", CronCancelReason::OwnerClosed),
     ] {
         let job = f.create(params(name));
-        commit(&f.cron, |store| store.prepare_record_run(&job.id, running("cancel-run"))).unwrap();
-        commit(&f.cron, |store| store.prepare_cancel_running(&job.id, START_MS + 10, reason)).unwrap();
-        commit(&f.cron, |store| store.prepare_cancel_running(
-            &job.id, START_MS + 20, CronCancelReason::UserCancel,
-        )).unwrap();
+        commit(&f.cron, |store| {
+            store.prepare_record_run(&job.id, running("cancel-run"))
+        })
+        .unwrap();
+        commit(&f.cron, |store| {
+            store.prepare_cancel_running(&job.id, START_MS + 10, reason)
+        })
+        .unwrap();
+        commit(&f.cron, |store| {
+            store.prepare_cancel_running(&job.id, START_MS + 20, CronCancelReason::UserCancel)
+        })
+        .unwrap();
         let fresh = f.rehydrated();
         let run = fresh.get_history(&job.id)[0];
         assert_eq!(run.cancel_reason, Some(reason));

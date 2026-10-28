@@ -30,6 +30,7 @@ fn ui_import_accepts_the_same_yaml_and_json_document_as_cli() {
 fn import_destination_is_explicit_without_requiring_a_team() {
     let body: ImportBody = serde_json::from_value(json!({
         "caller_tab_id":"creator", "recipe":{}, "assignments":[], "scope":"general"
-    })).unwrap();
+    }))
+    .unwrap();
     assert_eq!(body.scope.as_deref(), Some("general"));
 }

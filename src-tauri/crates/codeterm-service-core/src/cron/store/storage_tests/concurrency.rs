@@ -233,9 +233,14 @@ fn storage_cron_scheduler_port_draft_commits_after_lock_release() {
     {
         let mut store = f.cron.lock();
         let port = &mut CronSchedulerPort(&mut store);
-        assert!(
-            ensure_dreaming_cron(port, &config, "claude", &CatalogBackgroundModelPort, "general-workspace").unwrap()
-        );
+        assert!(ensure_dreaming_cron(
+            port,
+            &config,
+            "claude",
+            &CatalogBackgroundModelPort,
+            "general-workspace"
+        )
+        .unwrap());
         assert!(
             store.list().is_empty(),
             "a draft is not published before it commits"
@@ -257,9 +262,14 @@ fn storage_cron_scheduler_port_draft_commits_after_lock_release() {
     {
         let mut store = f.cron.lock();
         let port = &mut CronSchedulerPort(&mut store);
-        assert!(
-            !ensure_dreaming_cron(port, &config, &job.agent, &CatalogBackgroundModelPort, "general-workspace").unwrap()
-        );
+        assert!(!ensure_dreaming_cron(
+            port,
+            &config,
+            &job.agent,
+            &CatalogBackgroundModelPort,
+            "general-workspace"
+        )
+        .unwrap());
     }
     assert_eq!(
         settle_port(&f.cron),
@@ -328,7 +338,14 @@ fn open_dreaming_draft(f: &Fixture) -> bool {
     let config = codeterm_types::config::MemoryConfig::default();
     let mut store = f.cron.lock();
     let port = &mut CronSchedulerPort(&mut store);
-    ensure_dreaming_cron(port, &config, "claude", &CatalogBackgroundModelPort, "general-workspace").unwrap()
+    ensure_dreaming_cron(
+        port,
+        &config,
+        "claude",
+        &CatalogBackgroundModelPort,
+        "general-workspace",
+    )
+    .unwrap()
 }
 
 fn dreaming_rows(f: &Fixture) -> usize {

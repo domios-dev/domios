@@ -341,7 +341,11 @@ pub(super) fn dispatch(
                     data: None,
                 })?;
             let cancelled = svc
-                .cron_cancel_running(cron_state, &id, codeterm_service_core::cron::store::CronCancelReason::UserCancel)
+                .cron_cancel_running(
+                    cron_state,
+                    &id,
+                    codeterm_service_core::cron::store::CronCancelReason::UserCancel,
+                )
                 .map_err(|e| JsonRpcError {
                     code: -32603,
                     message: e,

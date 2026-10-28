@@ -14,7 +14,11 @@ pub trait BlueprintPortableExt {
         assignments: &[String],
         scope: Option<&str>,
     ) -> Result<Value, String>;
-    fn blueprint_import_destination(&self, caller: &SentinelCaller, scope: Option<&str>) -> Result<(), String>;
+    fn blueprint_import_destination(
+        &self,
+        caller: &SentinelCaller,
+        scope: Option<&str>,
+    ) -> Result<(), String>;
     fn blueprint_export(&self, caller: &SentinelCaller, id: &str) -> Result<Recipe, String>;
     fn blueprint_import(
         &self,
@@ -51,15 +55,22 @@ impl BlueprintPortableExt for ServiceContext {
         self.blueprint_import(&caller, recipe, assignments, true)
     }
 
-    fn blueprint_import_destination(&self, caller: &SentinelCaller, scope: Option<&str>) -> Result<(), String> {
+    fn blueprint_import_destination(
+        &self,
+        caller: &SentinelCaller,
+        scope: Option<&str>,
+    ) -> Result<(), String> {
         let mux = self.mux.read();
         if !crate::service_adapter::caller_is_live(&mux, caller) {
             return Err("Blueprint caller scope changed".into());
         }
-        let Some(scope) = scope else { return Ok(()); };
+        let Some(scope) = scope else {
+            return Ok(());
+        };
         let matches = if scope == "general" {
             caller.team.is_none()
-                && codeterm_service_core::service::general_agent::general_workspace_id(&mux).as_deref()
+                && codeterm_service_core::service::general_agent::general_workspace_id(&mux)
+                    .as_deref()
                     == Some(caller.workspace.as_str())
         } else if let Some(workspace) = scope.strip_prefix("workspace:") {
             !workspace.is_empty() && caller.team.is_none() && caller.workspace == workspace
@@ -69,7 +80,9 @@ impl BlueprintPortableExt for ServiceContext {
             return Err("Blueprint scope must be general, workspace:<id>, or team:<id>".into());
         };
         if !matches {
-            return Err("Blueprint destination requires a caller belonging to that exact scope".into());
+            return Err(
+                "Blueprint destination requires a caller belonging to that exact scope".into(),
+            );
         }
         crate::graph::validate_scope(&mux, &caller.workspace, caller.team.as_deref())
     }

@@ -821,8 +821,16 @@ impl CronStore {
         run_id: &str,
         status: CronRunStatus,
     ) -> Result<bool, String> {
-        let reason = (status == CronRunStatus::Cancelled).then_some(super::CronCancelReason::UserCancel);
-        let prepared = self.prepare_finish_run_with_summary(job_id, run_id, status.clone(), None, None, reason);
+        let reason =
+            (status == CronRunStatus::Cancelled).then_some(super::CronCancelReason::UserCancel);
+        let prepared = self.prepare_finish_run_with_summary(
+            job_id,
+            run_id,
+            status.clone(),
+            None,
+            None,
+            reason,
+        );
         let finished = self.legacy(prepared)?;
         log_finished(job_id, run_id, &status, finished);
         Ok(finished.fresh)

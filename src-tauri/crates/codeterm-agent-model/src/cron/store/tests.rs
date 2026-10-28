@@ -879,20 +879,42 @@ fn cron_creation_uses_injected_default_and_preserves_explicit_provider() {
     assert_eq!(job.agent, "opaque-explicit-provider");
 }
 
-
 #[test]
 fn cron_cancellation_requires_a_typed_reason_and_other_states_refuse_one() {
     let mut store = temp_store();
-    let job = store.create(make_params("Typed cancellation", "ws", "0 * * * *")).unwrap();
-    store.record_run(&job.id, run("typed-run", 1000, CronRunStatus::Running)).unwrap();
-    assert!(store.prepare_finish_run_with_summary(
-        &job.id, "typed-run", CronRunStatus::Cancelled, None, None, None,
-    ).is_err());
-    assert!(store.prepare_finish_run_with_summary(
-        &job.id, "typed-run", CronRunStatus::Success, None, None,
-        Some(CronCancelReason::UserCancel),
-    ).is_err());
+    let job = store
+        .create(make_params("Typed cancellation", "ws", "0 * * * *"))
+        .unwrap();
+    store
+        .record_run(&job.id, run("typed-run", 1000, CronRunStatus::Running))
+        .unwrap();
+    assert!(store
+        .prepare_finish_run_with_summary(
+            &job.id,
+            "typed-run",
+            CronRunStatus::Cancelled,
+            None,
+            None,
+            None,
+        )
+        .is_err());
+    assert!(store
+        .prepare_finish_run_with_summary(
+            &job.id,
+            "typed-run",
+            CronRunStatus::Success,
+            None,
+            None,
+            Some(CronCancelReason::UserCancel),
+        )
+        .is_err());
     assert_eq!(store.get_history(&job.id)[0].cancel_reason, None);
-    assert_eq!(serde_json::to_value(CronCancelReason::UserCancel).unwrap(), "user_cancel");
-    assert_eq!(serde_json::to_value(CronCancelReason::RestartReconcile).unwrap(), "restart_reconcile");
+    assert_eq!(
+        serde_json::to_value(CronCancelReason::UserCancel).unwrap(),
+        "user_cancel"
+    );
+    assert_eq!(
+        serde_json::to_value(CronCancelReason::RestartReconcile).unwrap(),
+        "restart_reconcile"
+    );
 }

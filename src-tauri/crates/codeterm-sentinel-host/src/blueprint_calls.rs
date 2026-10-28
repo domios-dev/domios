@@ -534,7 +534,11 @@ pub(crate) fn pin_document(
     document: Document,
 ) -> Result<Document, String> {
     if let Some(team) = caller.team.as_deref() {
-        return service.mem.pin_blueprint_calls(&format!("blueprints:{}", caller.workspace), team, document);
+        return service.mem.pin_blueprint_calls(
+            &format!("blueprints:{}", caller.workspace),
+            team,
+            document,
+        );
     }
     refuse_unscoped_calls(&document)?;
     Ok(document)
@@ -546,7 +550,11 @@ pub(crate) fn call_drift(
     document: Document,
 ) -> Result<Vec<calls::Drift>, String> {
     if let Some(team) = caller.team.as_deref() {
-        return service.mem.blueprint_call_drift(&format!("blueprints:{}", caller.workspace), team, document);
+        return service.mem.blueprint_call_drift(
+            &format!("blueprints:{}", caller.workspace),
+            team,
+            document,
+        );
     }
     refuse_unscoped_calls(&document)?;
     Ok(Vec::new())

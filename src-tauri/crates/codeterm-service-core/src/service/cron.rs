@@ -563,12 +563,19 @@ impl ServiceContext {
 
     /// Tabs close only once the cancellation is recorded; legacy JSON keeps its
     /// in-memory cancellation even when the file save fails.
-    pub fn cron_cancel_running(&self, cron: &CronState, id: &str, reason: crate::cron::store::CronCancelReason) -> Result<usize, String> {
+    pub fn cron_cancel_running(
+        &self,
+        cron: &CronState,
+        id: &str,
+        reason: crate::cron::store::CronCancelReason,
+    ) -> Result<usize, String> {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
-        match commit(cron, |store| store.prepare_cancel_running(id, now_ms, reason)) {
+        match commit(cron, |store| {
+            store.prepare_cancel_running(id, now_ms, reason)
+        }) {
             Ok(done) => {
                 for (run_id, elapsed_ms) in &done.value {
                     // Observability parity with update_run_status — see crud::log_finished.

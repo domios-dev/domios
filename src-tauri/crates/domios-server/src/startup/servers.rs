@@ -268,14 +268,18 @@ pub(crate) fn start_servers(
         let mut cs = cron_state.lock();
         let mem_cfg = codeterm_service_core::config::memory_config();
         let default_agent = codeterm_service_core::config::default_agent_provider();
-        match general_workspace.as_deref().ok_or_else(|| "General workspace unavailable".to_string())
-            .and_then(|workspace| mem::dreaming::ensure_dreaming_cron(
-                &mut codeterm_service_core::mem_host::CronSchedulerPort(&mut cs),
-                &mem_cfg,
-                &default_agent,
-                &codeterm_service_core::service::spawn::CatalogBackgroundModelPort,
-                workspace,
-            )) {
+        match general_workspace
+            .as_deref()
+            .ok_or_else(|| "General workspace unavailable".to_string())
+            .and_then(|workspace| {
+                mem::dreaming::ensure_dreaming_cron(
+                    &mut codeterm_service_core::mem_host::CronSchedulerPort(&mut cs),
+                    &mem_cfg,
+                    &default_agent,
+                    &codeterm_service_core::service::spawn::CatalogBackgroundModelPort,
+                    workspace,
+                )
+            }) {
             Ok(true) => log::info!("[mem] auto-installed dreaming cron"),
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),

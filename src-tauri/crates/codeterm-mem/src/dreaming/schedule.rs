@@ -33,7 +33,10 @@ pub fn ensure_dreaming_cron(
     }
     let desired_agent = resolve_worker_agent(None, &mem_cfg.dreaming_agent, default_agent);
     let (model, _) = resolve_worker_model(
-        &mem_cfg.dreaming_model, &mem_cfg.worker_model, &desired_agent, compat,
+        &mem_cfg.dreaming_model,
+        &mem_cfg.worker_model,
+        &desired_agent,
+        compat,
     );
     let desired_model = (!model.is_empty()).then_some(model);
     if let Some(job) = cron_store.find_job_by_name(DREAMING_CRON_NAME) {

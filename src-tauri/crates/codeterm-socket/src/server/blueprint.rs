@@ -157,7 +157,8 @@ pub(super) fn dispatch(
                 Some(Value::String(scope)) => Some(scope.as_str()),
                 _ => return Err(error("Blueprint scope must be a string")),
             };
-            svc.blueprint_import_destination(&caller, scope).map_err(error)?;
+            svc.blueprint_import_destination(&caller, scope)
+                .map_err(error)?;
             let recipe = params
                 .as_ref()
                 .and_then(|p| p.get("recipe"))

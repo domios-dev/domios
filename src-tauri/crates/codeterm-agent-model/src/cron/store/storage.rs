@@ -1081,7 +1081,14 @@ pub fn finish_run_with_summary(
     cancel_reason: Option<super::CronCancelReason>,
 ) -> Result<bool, CronCommitError> {
     let finished = commit(cron, |store| {
-        store.prepare_finish_run_with_summary(job_id, run_id, status.clone(), None, Some(summary), cancel_reason)
+        store.prepare_finish_run_with_summary(
+            job_id,
+            run_id,
+            status.clone(),
+            None,
+            Some(summary),
+            cancel_reason,
+        )
     })?
     .value;
     log_finished(job_id, run_id, &status, finished);

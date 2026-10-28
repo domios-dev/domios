@@ -252,8 +252,10 @@ fn each(
 /// The nine run columns every run query selects first.
 fn run_at(row: &Row<'_>, cancel_index: usize) -> Result<CronRunRecord, StorageError> {
     Ok(CronRunRecord {
-        cancel_reason: col::<Option<String>>(row, cancel_index)?.as_deref()
-            .map(crate::CronCancelReason::from_sql).transpose()?,
+        cancel_reason: col::<Option<String>>(row, cancel_index)?
+            .as_deref()
+            .map(crate::CronCancelReason::from_sql)
+            .transpose()?,
         run_id: run_id(col(row, 0)?)?,
         started_at: unsigned(row, 1, "run start")?,
         finished_at: optional_unsigned(row, 2, "run finish")?,

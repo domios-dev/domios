@@ -101,7 +101,9 @@ pub async fn import(
         ))?;
     tokio::task::spawn_blocking(move || {
         let recipe = import_recipe(&body.recipe, &body.assignments)?;
-        state.svc.blueprint_import_host(&caller, recipe, &[], body.scope.as_deref())
+        state
+            .svc
+            .blueprint_import_host(&caller, recipe, &[], body.scope.as_deref())
     })
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?

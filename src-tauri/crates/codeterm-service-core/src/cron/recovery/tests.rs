@@ -80,7 +80,10 @@ fn cron_recovery_preserves_live_prompt_and_recovers_vanished_workspace_run() {
     assert_eq!(live.finished_at, None);
     let orphan = cron.lock().get_history(&orphan_job.id)[0].clone();
     assert_eq!(orphan.status, CronRunStatus::Cancelled);
-    assert_eq!(orphan.cancel_reason, Some(crate::cron::store::CronCancelReason::RestartReconcile));
+    assert_eq!(
+        orphan.cancel_reason,
+        Some(crate::cron::store::CronCancelReason::RestartReconcile)
+    );
     assert!(!cron.lock().is_job_running(&orphan_job.id));
     assert!(orphan.finished_at.is_some());
     let reason = orphan.summary.expect("terminal reason persisted");
@@ -130,7 +133,10 @@ fn cron_recovery_preserves_live_prompt_and_recovers_vanished_workspace_run() {
     .expect("read committed reconciliation");
     let committed_orphan = verified_cron.get_history(&orphan_job.id)[0];
     assert_eq!(committed_orphan.status, CronRunStatus::Cancelled);
-    assert_eq!(committed_orphan.cancel_reason, Some(crate::cron::store::CronCancelReason::RestartReconcile));
+    assert_eq!(
+        committed_orphan.cancel_reason,
+        Some(crate::cron::store::CronCancelReason::RestartReconcile)
+    );
     assert!(committed_orphan
         .summary
         .as_deref()
