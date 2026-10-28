@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 
 use super::store::MemItem;
 
-mod score;
+pub(crate) mod score;
 
 #[cfg(test)]
 mod tests;

@@ -2,6 +2,7 @@
 
 pub mod activity;
 pub mod auto_extract;
+pub mod backend;
 pub mod blueprint_library;
 pub mod blueprint_wl;
 mod chunking;
@@ -50,6 +51,7 @@ mod manager_graph;
 mod manager_layout;
 mod manager_queries;
 mod manager_search;
+mod manager_storage;
 #[cfg(test)]
 mod manager_tests;
 mod reindex;
@@ -92,7 +94,8 @@ const HEAVY_OPS_PERMITS: usize = 2;
 
 pub struct MemManager {
     blueprint: blueprint_library::services::BlueprintServices,
-    pub(crate) conn: Mutex<Connection>,
+    pub(crate) store: Arc<dyn backend::MemStore>,
+    pub(crate) conn: Arc<Mutex<Connection>>,
     pub(crate) db_path: PathBuf,
     pub(crate) blobs_dir: PathBuf,
     skill_dir: PathBuf,
@@ -108,6 +111,13 @@ pub struct MemManager {
 }
 
 impl MemManager {
+    pub(crate) fn write_context() -> backend::WriteContext {
+        match store::scoped_author() {
+            Some(author) => backend::WriteContext::new(author, store::current_changed_by()),
+            None => backend::WriteContext::unscoped(store::current_changed_by()),
+        }
+    }
+
     pub fn extraction_authority(&self) -> &Arc<ExtractionAuthority> {
         &self.extraction
     }
@@ -180,9 +190,15 @@ impl MemManager {
             embedder.clone(),
         );
 
+        let conn = Arc::new(Mutex::new(conn));
+        let store = Arc::new(backend::SqliteMemStore::from_connection(
+            conn.clone(),
+            blobs_dir.clone(),
+        ));
         let manager = Arc::new(Self {
             blueprint: Default::default(),
-            conn: Mutex::new(conn),
+            store,
+            conn,
             db_path,
             blobs_dir,
             skill_dir: data_dir.join("skills"),
@@ -236,9 +252,15 @@ impl MemManager {
         };
         #[cfg(not(test))]
         let embedder = embedder::ActiveEmbedder::global();
+        let conn = Arc::new(Mutex::new(conn));
+        let store = Arc::new(backend::SqliteMemStore::from_connection(
+            conn.clone(),
+            tmp.join("blobs"),
+        ));
         Ok(Arc::new(Self {
             blueprint: Default::default(),
-            conn: Mutex::new(conn),
+            store,
+            conn,
             db_path: tmp.join("knowledge.db"),
             blobs_dir: tmp.join("blobs"),
             skill_dir: tmp.join("skills"),
@@ -300,9 +322,15 @@ impl MemManager {
         };
         #[cfg(not(test))]
         let embedder = embedder::ActiveEmbedder::global();
+        let conn = Arc::new(Mutex::new(conn));
+        let store = Arc::new(backend::SqliteMemStore::from_connection(
+            conn.clone(),
+            blobs_dir.clone(),
+        ));
         Ok(Arc::new(Self {
             blueprint: Default::default(),
-            conn: Mutex::new(conn),
+            store,
+            conn,
             db_path,
             blobs_dir,
             skill_dir: data_dir.join("skills"),
@@ -345,7 +373,7 @@ impl MemManager {
         Ok(row)
     }
 
-    pub fn conn(&self) -> &parking_lot::Mutex<rusqlite::Connection> {
+    pub(crate) fn conn(&self) -> &parking_lot::Mutex<rusqlite::Connection> {
         &self.conn
     }
 
@@ -353,7 +381,8 @@ impl MemManager {
     /// another holder still owns it when the deadline expires — callers in
     /// request-handler paths translate that into HTTP 503 so the daemon
     /// stays responsive under heavy background load.
-    pub fn try_conn_for(
+    #[cfg(test)]
+    pub(crate) fn try_conn_for(
         &self,
         timeout: std::time::Duration,
     ) -> Option<parking_lot::MutexGuard<'_, rusqlite::Connection>> {
@@ -384,13 +413,13 @@ impl MemManager {
 
     /// Initialize the vector index for the active embedder.
     pub fn init_embeddings(&self) -> Result<(), String> {
-        let conn = self.conn.lock();
-        embeddings::init_index(&conn, &self.embedder.identity())
+        self.store
+            .init_vectors(&Self::write_context(), &self.embedder.identity())
     }
 
     /// Run a read-only SQL closure against the underlying connection.
     /// Used by sibling modules that need direct query access.
-    pub fn with_conn<R>(&self, f: impl FnOnce(&rusqlite::Connection) -> R) -> R {
+    pub(crate) fn with_conn<R>(&self, f: impl FnOnce(&rusqlite::Connection) -> R) -> R {
         let conn = self.conn.lock();
         f(&*conn)
     }

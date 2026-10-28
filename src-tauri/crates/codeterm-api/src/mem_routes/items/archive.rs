@@ -26,12 +26,16 @@ pub async fn mem_archive(
         .filter(|value| !value.is_empty())
         .map(sanitize_actor)
         .unwrap_or_else(|| changed_by_from_headers(&headers));
+    let author = crate::mem_routes::memory_author(&state, &headers)?;
     let svc = state.svc.clone();
     let target = id.clone();
-    let output =
-        tokio::task::spawn_blocking(move || archive_mem_item(&svc, &target, &reason, &actor))
-            .await
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {error}")))??;
+    let output = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::mem::store::with_author(author, || {
+            archive_mem_item(&svc, &target, &reason, &actor)
+        })
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {error}")))??;
     emit_activity(&state, &headers, "update", vec![id]);
     Ok(Json(output))
 }

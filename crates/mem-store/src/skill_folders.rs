@@ -295,8 +295,8 @@ fn merge_duplicate_registrations(
 fn remove_item(conn: &Connection, id: &str, merged_into: &str) -> MemStoreResult<()> {
     conn.execute(
         "INSERT INTO mem_item_history
-           (item_id, changed_at, changed_by, change_type, old_title, old_body, old_kind, reason)
-           SELECT id, ?2, 'librarian', 'merge', title, body_inline, kind, ?3
+           (item_id, changed_at, changed_by, change_type, old_title, old_body, old_kind, reason, author_kind, author_uid, author_friendship, author_label)
+           SELECT id, ?2, 'librarian', 'merge', title, body_inline, kind, ?3, author_kind, author_uid, author_friendship, author_label
            FROM mem_items WHERE id = ?1",
         params![
             id,
@@ -394,8 +394,8 @@ fn register_folder(conn: &Connection, folder: &Path, skill_md: &Path) -> MemStor
     let inserted = conn.execute(
         "INSERT OR IGNORE INTO mem_items
            (id, uid, kind, scope, title, summary, area, tags_json,
-            body_inline, source, importance, created_at, updated_at, source_path)
-           VALUES (?1, ?2, 'skill', 'global', ?3, NULL, ?4, ?5, ?6, ?7, 4.0, ?8, ?8, ?7)",
+            body_inline, source, importance, created_at, updated_at, source_path, author_kind, author_label)
+           VALUES (?1, ?2, 'skill', 'global', ?3, NULL, ?4, ?5, ?6, ?7, 4.0, ?8, ?8, ?7, 'system', 'skill-folders')",
         params![
             id,
             uid,

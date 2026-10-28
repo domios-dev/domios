@@ -70,6 +70,14 @@ enum CalibAction {
 }
 
 pub fn run_calibration_sweep(conn: &Connection, force: bool) -> Result<serde_json::Value, String> {
+    run_calibration_sweep_with_context(&crate::MemManager::write_context(), conn, force)
+}
+
+pub fn run_calibration_sweep_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    force: bool,
+) -> Result<serde_json::Value, String> {
     let dow: String = conn
         .query_row("SELECT strftime('%w','now')", [], |r| r.get(0))
         .map_err(|e| e.to_string())?;
@@ -131,17 +139,17 @@ pub fn run_calibration_sweep(conn: &Connection, force: bool) -> Result<serde_jso
             examined += 1;
             match classify_calibration(cand) {
                 CalibAction::Promote(new_imp) => {
-                    apply_promote(conn, cand, new_imp)?;
+                    apply_promote_with_context(ctx, conn, cand, new_imp)?;
                     applied += 1;
                     total_changes += 1;
                 }
                 CalibAction::Demote(new_imp) => {
-                    apply_demote(conn, cand, new_imp)?;
+                    apply_demote_with_context(ctx, conn, cand, new_imp)?;
                     applied += 1;
                     total_changes += 1;
                 }
                 CalibAction::Archive => {
-                    apply_archive(conn, cand)?;
+                    apply_archive_with_context(ctx, conn, cand)?;
                     archived_ids.push(cand.id.clone());
                     archived += 1;
                     total_changes += 1;
@@ -175,8 +183,24 @@ pub fn run_nightly_calibration(
     hygiene: &codeterm_types::config::DreamHygieneConfig,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<serde_json::Value, String> {
-    let mut result = run_calibration_sweep(conn, false)?;
-    let stale = stale::run_stale_archive(conn, hygiene, now, stale::StaleMode::Apply, None)?;
+    run_nightly_calibration_with_context(&crate::MemManager::write_context(), conn, hygiene, now)
+}
+
+pub fn run_nightly_calibration_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    hygiene: &codeterm_types::config::DreamHygieneConfig,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<serde_json::Value, String> {
+    let mut result = run_calibration_sweep_with_context(ctx, conn, false)?;
+    let stale = stale::run_stale_archive_with_context(
+        ctx,
+        conn,
+        hygiene,
+        now,
+        stale::StaleMode::Apply,
+        None,
+    )?;
     if let Some(obj) = result.as_object_mut() {
         obj.insert("stale".into(), stale);
     }
@@ -190,7 +214,7 @@ fn load_candidates(conn: &Connection) -> Result<Vec<Candidate>, String> {
                 CASE
                     WHEN evidence_count = 1 AND importance <= 2 AND created_at < datetime('now','-90 days') AND kind IN ('fact','note')
                         THEN 'archive'
-                    WHEN evidence_count >= 10 AND importance < 4 AND accessed_at > datetime('now','-30 days')
+                    WHEN author_kind != 'neighbor' AND evidence_count >= 10 AND importance < 4 AND accessed_at > datetime('now','-30 days')
                         THEN 'promote'
                     WHEN evidence_count <= 1 AND importance >= 4 AND created_at < datetime('now','-60 days')
                         THEN 'demote'
@@ -200,7 +224,7 @@ fn load_candidates(conn: &Connection) -> Result<Vec<Candidate>, String> {
              WHERE is_pinned_wakeup = 0
                AND updated_at < datetime('now','-14 days')
                AND (
-                    (evidence_count >= 10 AND importance < 4 AND accessed_at > datetime('now','-30 days'))
+                    (author_kind != 'neighbor' AND evidence_count >= 10 AND importance < 4 AND accessed_at > datetime('now','-30 days'))
                  OR (evidence_count <= 1 AND importance >= 4 AND created_at < datetime('now','-60 days'))
                  OR (evidence_count = 1 AND importance <= 2 AND created_at < datetime('now','-90 days') AND kind IN ('fact','note'))
                )
@@ -233,8 +257,20 @@ fn classify_calibration(c: &Candidate) -> CalibAction {
     }
 }
 
+#[cfg(test)]
 fn apply_promote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(), String> {
-    crate::store::with_changed_by("dreamer-calibration:promote", || {
+    apply_promote_with_context(&crate::MemManager::write_context(), conn, cand, new_imp)
+}
+
+fn apply_promote_with_context(
+    _ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    cand: &Candidate,
+    new_imp: f64,
+) -> Result<(), String> {
+    crate::store::refuse_neighbor_promotion(conn, &cand.id)?;
+    {
+        let ctx = &crate::backend::WriteContext::system("dreamer-calibration:promote");
         conn.execute(
             "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![new_imp, cand.id],
@@ -248,13 +284,19 @@ fn apply_promote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<()
             importance: Some(new_imp),
             ..Default::default()
         };
-        crate::store::history_log(conn, &cand.id, "update", &old, &new, None);
+        crate::store::history_log_with_context(ctx, conn, &cand.id, "update", &old, &new, None);
         Ok(())
-    })
+    }
 }
 
-fn apply_demote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(), String> {
-    crate::store::with_changed_by("dreamer-calibration:demote", || {
+fn apply_demote_with_context(
+    _ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    cand: &Candidate,
+    new_imp: f64,
+) -> Result<(), String> {
+    {
+        let ctx = &crate::backend::WriteContext::system("dreamer-calibration:demote");
         conn.execute(
             "UPDATE mem_items SET importance = ?1, updated_at = datetime('now') WHERE id = ?2",
             params![new_imp, cand.id],
@@ -268,350 +310,32 @@ fn apply_demote(conn: &Connection, cand: &Candidate, new_imp: f64) -> Result<(),
             importance: Some(new_imp),
             ..Default::default()
         };
-        crate::store::history_log(conn, &cand.id, "update", &old, &new, None);
+        crate::store::history_log_with_context(ctx, conn, &cand.id, "update", &old, &new, None);
         Ok(())
-    })
+    }
 }
 
-fn apply_archive(conn: &Connection, cand: &Candidate) -> Result<(), String> {
-    archive::archive_item(
-        conn,
-        &cand.id,
-        &cand.kind,
-        "dreamer-calibration:archive",
-        "archive",
-        None,
-    )
+fn apply_archive_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    cand: &Candidate,
+) -> Result<(), String> {
+    {
+        let ctx = &ctx.with_author(ctx.default_system_author("calibration"));
+        archive::archive_item_with_context(
+            ctx,
+            conn,
+            &cand.id,
+            &cand.kind,
+            "dreamer-calibration:archive",
+            "archive",
+            None,
+        )
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod tests;
 
-    fn open_test_conn() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::store::init_schema(&conn).unwrap();
-        conn
-    }
-
-    fn insert_candidate(
-        conn: &Connection,
-        id: &str,
-        kind: &str,
-        importance: f64,
-        evidence_count: i64,
-        accessed_at_expr: &str,
-        created_at_expr: &str,
-        updated_at_expr: Option<&str>,
-    ) {
-        let upd = updated_at_expr.unwrap_or("datetime('now','-15 days')");
-        let sql = format!(
-            "INSERT INTO mem_items (id, uid, kind, scope, title, importance,
-                evidence_count, created_at, updated_at, accessed_at, tags_json,
-                is_pinned_wakeup)
-             VALUES (?1, ?1, ?2, 'global', ?1, ?3, ?4,
-                {created_at_expr}, {upd}, {accessed_at_expr}, '[]', 0)"
-        );
-        conn.execute(&sql, params![id, kind, importance, evidence_count])
-            .unwrap();
-    }
-
-    fn dow_today(conn: &Connection) -> String {
-        conn.query_row("SELECT strftime('%w','now')", [], |r| r.get::<_, String>(0))
-            .unwrap()
-    }
-
-    #[test]
-    fn calibration_sweep_skips_on_non_sunday() {
-        let conn = open_test_conn();
-        let r = run_calibration_sweep(&conn, false).unwrap();
-        let dow = r["day_of_week"].as_str().unwrap();
-        if dow != "0" {
-            assert_eq!(r["skipped_reason"], "not_sunday");
-            assert_eq!(r["applied"], 0);
-            assert_eq!(r["archived"], 0);
-            assert_eq!(r["examined"], 0);
-        }
-    }
-
-    #[test]
-    fn calibration_sweep_force_bypasses_dow_gate() {
-        let conn = open_test_conn();
-        let r = run_calibration_sweep(&conn, true).unwrap();
-        let skip = r["skipped_reason"].as_str().unwrap_or("");
-        assert!(
-            skip != "not_sunday",
-            "force=true must bypass DOW gate, got: {r:?}"
-        );
-    }
-
-    #[test]
-    fn calibration_sweep_promote_high_evidence_low_importance() {
-        let conn = open_test_conn();
-        insert_candidate(
-            &conn,
-            "fact_p",
-            "fact",
-            2.0,
-            15,
-            "datetime('now')",
-            "datetime('now','-100 days')",
-            None,
-        );
-        let _ = run_calibration_sweep(&conn, true).unwrap();
-        let new_imp: f64 = conn
-            .query_row(
-                "SELECT importance FROM mem_items WHERE id = 'fact_p'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert!(
-            (new_imp - 2.5).abs() < 0.01,
-            "promote should add +0.5, got {new_imp}"
-        );
-        let hist_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM mem_item_history
-                 WHERE item_id = 'fact_p' AND changed_by LIKE 'dreamer-calibration%'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(hist_count, 1);
-    }
-
-    #[test]
-    fn calibration_sweep_demotes_old_high_importance_no_evidence() {
-        let conn = open_test_conn();
-        insert_candidate(
-            &conn,
-            "fact_d",
-            "fact",
-            4.5,
-            1,
-            "datetime('now','-90 days')",
-            "datetime('now','-100 days')",
-            None,
-        );
-        let _ = run_calibration_sweep(&conn, true).unwrap();
-        let new_imp: f64 = conn
-            .query_row(
-                "SELECT importance FROM mem_items WHERE id = 'fact_d'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert!(
-            (new_imp - 4.0).abs() < 0.01,
-            "demote should subtract 0.5, got {new_imp}"
-        );
-        let label: String = conn
-            .query_row(
-                "SELECT changed_by FROM mem_item_history WHERE item_id = 'fact_d'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(label, "dreamer-calibration:demote");
-    }
-
-    #[test]
-    fn calibration_sweep_archives_stale_low_importance() {
-        let conn = open_test_conn();
-        insert_candidate(
-            &conn,
-            "fact_old",
-            "fact",
-            1.5,
-            1,
-            "datetime('now','-200 days')",
-            "datetime('now','-100 days')",
-            None,
-        );
-        let _ = run_calibration_sweep(&conn, true).unwrap();
-        let kind: String = conn
-            .query_row(
-                "SELECT kind FROM mem_items WHERE id = 'fact_old'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(kind, "archived");
-        let label: String = conn
-            .query_row(
-                "SELECT changed_by FROM mem_item_history WHERE item_id = 'fact_old'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(label, "dreamer-calibration:archive");
-    }
-
-    #[test]
-    fn calibration_sweep_skips_on_recent_run() {
-        let conn = open_test_conn();
-        conn.execute(
-            "INSERT INTO mem_item_history (item_id, changed_at, changed_by, change_type)
-             VALUES ('fake', datetime('now','-1 hour'), 'dreamer-calibration:promote', 'update')",
-            [],
-        )
-        .unwrap();
-        let r = run_calibration_sweep(&conn, true).unwrap();
-        assert_eq!(r["skipped_reason"], "recent_run");
-        assert_eq!(r["applied"], 0);
-    }
-
-    #[test]
-    fn calibration_sweep_caps_at_30_changes_per_run() {
-        let conn = open_test_conn();
-        for i in 0..50 {
-            let id = format!("p_{}", i);
-            insert_candidate(
-                &conn,
-                &id,
-                "fact",
-                2.0,
-                15,
-                "datetime('now')",
-                "datetime('now','-100 days')",
-                None,
-            );
-        }
-        let r = run_calibration_sweep(&conn, true).unwrap();
-        if r.get("skipped_reason").is_some() {
-            assert_eq!(r["skipped_reason"], "too_many_candidates");
-        } else {
-            let applied = r["applied"].as_u64().unwrap_or(0);
-            assert!(
-                applied <= MAX_CHANGES_PER_SESSION,
-                "must cap at 30, got {applied}"
-            );
-        }
-    }
-
-    #[test]
-    fn calibration_sweep_aborts_on_too_many_candidates() {
-        let conn = open_test_conn();
-        for i in 0..150 {
-            let id = format!("c_{}", i);
-            insert_candidate(
-                &conn,
-                &id,
-                "fact",
-                2.0,
-                15,
-                "datetime('now')",
-                "datetime('now','-100 days')",
-                None,
-            );
-        }
-        let r = run_calibration_sweep(&conn, true).unwrap();
-        if r.get("skipped_reason").is_some() {
-            assert_eq!(r["skipped_reason"], "too_many_candidates");
-        } else {
-            assert!(r["applied"].as_u64().unwrap_or(0) <= MAX_CHANGES_PER_SESSION);
-        }
-    }
-
-    #[test]
-    fn calibration_sweep_skips_recently_updated_items() {
-        let conn = open_test_conn();
-        conn.execute(
-            "INSERT INTO mem_items (id, uid, kind, scope, title, importance,
-                evidence_count, created_at, updated_at, accessed_at, tags_json,
-                is_pinned_wakeup)
-             VALUES ('fresh', 'fresh', 'fact', 'global', 'fresh', 2.0, 15,
-                datetime('now','-50 days'), datetime('now','-3 days'),
-                datetime('now'), '[]', 0)",
-            [],
-        )
-        .unwrap();
-        let _ = run_calibration_sweep(&conn, true).unwrap();
-        let imp: f64 = conn
-            .query_row(
-                "SELECT importance FROM mem_items WHERE id = 'fresh'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert!((imp - 2.0).abs() < 0.01, "fresh item must not be touched");
-    }
-
-    #[test]
-    fn calibration_log_count_only() {
-        let conn = open_test_conn();
-        conn.execute(
-            "INSERT INTO mem_item_history (item_id, changed_at, changed_by, change_type)
-             VALUES ('a', datetime('now'), 'dreamer-calibration:promote', 'update'),
-                    ('b', datetime('now'), 'dreamer-calibration:archive', 'update'),
-                    ('c', datetime('now'), 'user', 'update')",
-            [],
-        )
-        .unwrap();
-        let n: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM mem_item_history
-                 WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at >= ?1",
-                params!["1970-01-01T00:00:00Z"],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(n, 2);
-    }
-
-    #[test]
-    fn dow_today_returns_zero_through_six() {
-        let conn = open_test_conn();
-        let dow = dow_today(&conn);
-        let n: i64 = dow.parse().unwrap();
-        assert!((0..=6).contains(&n));
-    }
-
-    #[test]
-    fn calibration_sweep_never_touches_pinned_items() {
-        let conn = open_test_conn();
-        // Insert a pinned item with archive-eligible fields.
-        conn.execute(
-            "INSERT INTO mem_items (id, uid, kind, scope, title, importance,
-                evidence_count, created_at, updated_at, accessed_at, tags_json,
-                is_pinned_wakeup)
-             VALUES ('pinned_old', 'pinned_old', 'fact', 'global', 'pinned_old', 2.0, 1,
-                datetime('now','-100 days'), datetime('now','-15 days'),
-                datetime('now','-200 days'), '[]', 1)",
-            [],
-        )
-        .unwrap();
-        let _ = run_calibration_sweep(&conn, true).unwrap();
-        let kind: String = conn
-            .query_row(
-                "SELECT kind FROM mem_items WHERE id = 'pinned_old'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(kind, "fact", "pinned item kind must not change");
-        let imp: f64 = conn
-            .query_row(
-                "SELECT importance FROM mem_items WHERE id = 'pinned_old'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert!(
-            (imp - 2.0).abs() < 0.01,
-            "pinned item importance must not change"
-        );
-        let hist_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM mem_item_history WHERE item_id = 'pinned_old'",
-                [],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert_eq!(
-            hist_count, 0,
-            "pinned item must have no history rows from sweep"
-        );
-    }
-}
+#[cfg(test)]
+mod organizer_guard;
