@@ -6,6 +6,118 @@ use std::sync::{
 };
 
 #[tokio::test]
+async fn contradictory_advisory_bypass_is_repaired_once_into_a_fresh_nonfull_session() {
+    use codeterm_neighbors::permissions::MachineAccess;
+    for access in [MachineAccess::ReadOnly, MachineAccess::Folder] {
+        for global in [false, true] {
+            let (mut mux, general) = MultiplexerState::new();
+            let workspace = mux.find_workspace_for_tab(&general).unwrap();
+            let old = mux.create_tab(&workspace).unwrap();
+            let tab = mux.get_tab_mut(&old).unwrap();
+            tab.agent_type = Some("advisory-provider".into());
+            tab.agent_session_id = Some("unsafe-old-session".into());
+            tab.session_binding_nonce = Some("old-nonce".into());
+            tab.restorable_launch.permission_bypass_requested = true;
+            let fixture = ServiceFixture::new(mux);
+            fixture.set_agent_full_access(global);
+            let service = &fixture.service;
+            service.agent_registry.register_provider(Box::new(
+                crate::agent::test_provider::MockProvider::new("advisory-provider")
+                    .with_initial_prompt_resume(),
+            ));
+            let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
+            let friend = "a".repeat(64);
+            let permission = Permission {
+                allowed: true,
+                scope: "opaque scope".into(),
+                machine_access: access,
+                folder: (access == MachineAccess::Folder)
+                    .then(|| fixture.temp.path().to_string_lossy().into_owned()),
+                ..Default::default()
+            };
+            let cwd = crate::service::neighbors::confinement::prepare_folder(
+                &metadata,
+                &friend,
+                &permission,
+            )
+            .await
+            .unwrap();
+            service.mux.write().get_tab_mut(&old).unwrap().cwd = Some(cwd);
+            let mut settings = crate::service::neighbors::storage::Settings::default();
+            settings.bindings.insert(friend.clone(), old.clone());
+            settings
+                .permissions
+                .insert(friend.clone(), permission.clone());
+            settings.initial_contexts.insert(
+                friend.clone(),
+                crate::service::neighbors::storage::InitialContext {
+                    gateway_tab: old.clone(),
+                    digest: initial_prompt::digest(&friend, &permission),
+                    launch_options: None,
+                },
+            );
+            metadata.save_settings(settings).await.unwrap();
+            service
+                .restore_neighbor_concierge_with(
+                    &metadata,
+                    "owner",
+                    &friend,
+                    |provider, _, cwd, grant, resume, _| async move {
+                        assert!(resume.is_none());
+                        assert_eq!(grant.machine_access, access);
+                        let mut mux = service.mux.write();
+                        let id = mux.create_tab(&workspace).unwrap();
+                        let tab = mux.get_tab_mut(&id).unwrap();
+                        tab.agent_type = provider;
+                        tab.agent_session_id = Some("safe-fresh-session".into());
+                        tab.session_binding_nonce = Some("fresh-nonce".into());
+                        tab.cwd = Some(cwd);
+                        Ok(id)
+                    },
+                )
+                .await
+                .unwrap();
+            let settings = metadata.settings().await.unwrap();
+            let current = &settings.bindings[&friend];
+            assert_ne!(current, &old);
+            assert!(service.mux.read().get_tab(&old).is_none());
+            assert_eq!(
+                service
+                    .mux
+                    .read()
+                    .get_tab(current)
+                    .unwrap()
+                    .agent_session_id
+                    .as_deref(),
+                Some("safe-fresh-session")
+            );
+            assert!(
+                !service
+                    .mux
+                    .read()
+                    .get_tab(current)
+                    .unwrap()
+                    .restorable_launch
+                    .permission_bypass_requested
+            );
+            for _ in 0..2 {
+                service
+                    .restore_neighbor_concierge_with(
+                        &metadata,
+                        "owner",
+                        &friend,
+                        |_, _, _, _, _, _| async {
+                            panic!("corrected unchanged binding must remain stable")
+                        },
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn resumable_providers_keep_unchanged_sessions_but_start_fresh_for_changed_context() {
     for provider in ["opaque-provider-one", "opaque-provider-two"] {
         let (mut mux, general) = MultiplexerState::new();

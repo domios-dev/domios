@@ -160,6 +160,7 @@ pub fn restore_permission_bypass_authorization(
     provider_id: &str,
     launch: &RestorableLaunchParameters,
 ) -> Result<Option<crate::service::permission_policy::PermissionBypassAuthorization>, String> {
+    svc.require_neighbor_restore_grant(tab_id, launch.permission_bypass_requested)?;
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
     }

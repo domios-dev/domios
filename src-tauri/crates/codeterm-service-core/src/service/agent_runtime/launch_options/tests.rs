@@ -118,6 +118,13 @@ fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_and_rest
                 resume_session_id: resumed.then(|| "resumed-thread".into()),
                 ..Default::default()
             };
+            params.neighbor_authority = svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .neighbor_authority
+                .clone();
             svc.configure_neighbor_launch_access("pad-runtime", access, &mut params)
                 .unwrap();
             svc.prepare_agent_runtime_launch_options(&tab_id, &params)
@@ -168,6 +175,99 @@ fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_and_rest
                     "fresh-thread"
                 })
             );
+        }
+    }
+}
+
+#[test]
+fn contradictory_neighbor_bypass_records_require_current_root_grant_for_both_restore_adapters() {
+    use crate::{
+        multiplexer::{state::MultiplexerState, types::NeighborAuthority},
+        service::test_fixture::ServiceFixture,
+    };
+    use codeterm_neighbors::permissions::MachineAccess;
+    for access in [MachineAccess::ReadOnly, MachineAccess::Folder] {
+        for global in [false, true] {
+            let (mut mux, root) = MultiplexerState::new();
+            let workspace = mux.find_workspace_for_tab(&root).unwrap();
+            let child = mux.create_tab(&workspace).unwrap();
+            let friend = "a".repeat(64);
+            for (id, parent, nonce) in [
+                (&root, None, "root-nonce"),
+                (&child, Some(root.clone()), "child-nonce"),
+            ] {
+                let tab = mux.get_tab_mut(id).unwrap();
+                tab.agent_type = Some("pad-runtime".into());
+                tab.session_binding_nonce = Some(nonce.into());
+                tab.neighbor_authority = Some(NeighborAuthority {
+                    uid: "owner".into(),
+                    friendship_id: friend.clone(),
+                    root_tab_id: parent,
+                });
+                tab.restorable_launch.captured = true;
+                tab.restorable_launch.permission_bypass_requested = true;
+            }
+            let fixture = ServiceFixture::new(mux);
+            fixture.set_agent_full_access(global);
+            register_neighbor_runtime(&fixture.service);
+            let svc = &fixture.service;
+            let mut params = SpawnAgentParams {
+                neighbor_authority: svc
+                    .mux
+                    .read()
+                    .get_tab(&root)
+                    .unwrap()
+                    .neighbor_authority
+                    .clone(),
+                ..Default::default()
+            };
+            svc.configure_neighbor_launch_access("pad-runtime", access, &mut params)
+                .unwrap();
+            svc.prepare_neighbor_restore_grant(&root, "pad-runtime", &params)
+                .unwrap();
+            for id in [&root, &child] {
+                let launch = svc
+                    .mux
+                    .read()
+                    .get_tab(id)
+                    .unwrap()
+                    .restorable_launch
+                    .clone();
+                assert_eq!(
+                    crate::service::restored_launch::restore_permission_bypass_authorization(
+                        svc,
+                        &svc.agent_registry,
+                        id,
+                        "pad-runtime",
+                        &launch
+                    )
+                    .unwrap_err(),
+                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                );
+                assert_eq!(
+                    super::restore(svc, id).unwrap_err(),
+                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                );
+                assert!(svc
+                    .mux
+                    .read()
+                    .get_tab(id)
+                    .unwrap()
+                    .restorable_launch
+                    .runtime_launch_options
+                    .is_none());
+            }
+            for id in [&root, &child] {
+                svc.mux
+                    .write()
+                    .get_tab_mut(id)
+                    .unwrap()
+                    .restorable_launch
+                    .permission_bypass_requested = false;
+                assert!(svc.require_neighbor_restore_grant(id, false).is_ok());
+            }
+            svc.neighbor_identity_changed();
+            assert!(svc.require_neighbor_restore_grant(&root, false).is_err());
         }
     }
 }

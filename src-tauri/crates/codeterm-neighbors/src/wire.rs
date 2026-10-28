@@ -6,6 +6,13 @@ pub const SCHEMA: &str = "domios.friend-envelope.v2";
 pub const MAX_CIPHERTEXT_BYTES: usize = 32768;
 pub const MAX_PLAINTEXT_BYTES: usize = MAX_CIPHERTEXT_BYTES - 16;
 
+pub fn validate_nonempty_text(body: &str) -> Result<()> {
+    if body.trim().is_empty() {
+        return Err(Error::EmptyBody);
+    }
+    Ok(())
+}
+
 pub fn validate_message_size(body: &str) -> Result<()> {
     if body.len() > MAX_PLAINTEXT_BYTES {
         return Err(Error::MessageTooLarge {

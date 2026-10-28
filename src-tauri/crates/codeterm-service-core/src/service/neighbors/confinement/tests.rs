@@ -13,6 +13,8 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
     ] {
         for lifecycle in ["fresh", "resumed", "restored"] {
             let (mut mux, tab_id) = MultiplexerState::new();
+            mux.get_tab_mut(&tab_id).unwrap().session_binding_nonce =
+                Some("opaque-root-nonce".into());
             mux.get_tab_mut(&tab_id).unwrap().neighbor_authority = Some(NeighborAuthority {
                 uid: "owner".into(),
                 friendship_id: "a".repeat(64),
@@ -74,6 +76,7 @@ fn concierge_pty_access_matrix_preserves_explicit_full_grants_and_prepares_pads(
             let mut recorded = crate::multiplexer::types::RestorableLaunchParameters::default();
             recorded.captured = true;
             recorded.permission_bypass_requested = params.permission_bypass_requested("claude");
+            svc.remember_neighbor_restore_grant(&tab_id, access == MachineAccess::Full);
             svc.mux
                 .write()
                 .get_tab_mut(&tab_id)
@@ -176,6 +179,16 @@ fn restored_full_concierge_without_provider_authorization_refuses_before_relaunc
         permission_bypass_requested: true,
         ..Default::default()
     };
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .session_binding_nonce = Some("opaque-root-nonce".into());
+    fixture
+        .service
+        .remember_neighbor_restore_grant(&tab_id, true);
     for global in [false, true] {
         fixture.set_agent_full_access(global);
         let error = crate::service::restored_launch::restore_permission_bypass_authorization(

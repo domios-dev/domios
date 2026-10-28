@@ -213,13 +213,12 @@ async fn prepare_outgoing_body(
     body: OutboundBody,
     in_reply_to: Option<&str>,
 ) -> codeterm_neighbors::Result<(Zeroizing<String>, Vec<String>)> {
-    let empty = match &body {
-        OutboundBody::Granted(text) => text.trim().is_empty(),
-        OutboundBody::Files { text, paths } => text.trim().is_empty() && paths.is_empty(),
-        OutboundBody::Refusal => false,
-    };
-    if empty {
-        return Err(Error::EmptyBody);
+    match &body {
+        OutboundBody::Granted(text) => codeterm_neighbors::wire::validate_nonempty_text(text)?,
+        OutboundBody::Files { text, paths } if paths.is_empty() => {
+            codeterm_neighbors::wire::validate_nonempty_text(text)?;
+        }
+        _ => {}
     }
     if kind != Kind::Refusal {
         match &body {

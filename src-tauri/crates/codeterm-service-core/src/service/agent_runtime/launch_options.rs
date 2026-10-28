@@ -88,6 +88,7 @@ impl ServiceContext {
         {
             return Err("Runtime launch capability or provider changed".into());
         }
+        self.prepare_neighbor_restore_grant(tab_id, &provider, params)?;
         let policy =
             crate::service::execution_sandbox::for_launch(self, tab_id, &provider, params, true)?;
         let skip = policy.is_none() && params.permission_bypass_requested(&provider);
@@ -229,6 +230,7 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
             tab.restorable_launch.structured_runtime_mode.clone(),
         )
     };
+    svc.require_neighbor_restore_grant(tab_id, requested)?;
     let independently_authorized = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
         tab.role == Some(crate::multiplexer::types::AgentRole::Worker)
             || tab.neighbor_authority.is_some()
