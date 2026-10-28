@@ -84,6 +84,10 @@ impl codeterm_neighbors::adapter::AuthenticatedCall for NoNetwork {
     async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
         panic!("pre-send fence must not contact relay")
     }
+
+    async fn id_token(&self) -> codeterm_neighbors::Result<Zeroizing<String>> {
+        panic!("pre-send fence must not request a relay token")
+    }
 }
 
 #[derive(Default)]
