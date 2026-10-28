@@ -57,6 +57,7 @@ fn local_api_neighbor_secret_refusal_keeps_reason_and_message_without_vault_data
     assert_eq!(status, 403);
     let (exit, error) = secret_failure(status, &body).unwrap();
     assert_eq!(exit, 1);
+    assert_eq!(error.code, Some(-32003));
     assert_eq!(error.message, message);
     for json_mode in [false, true] {
         let (mut out, mut err) = (Vec::new(), Vec::new());

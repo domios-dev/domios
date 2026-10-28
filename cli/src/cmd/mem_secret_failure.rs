@@ -36,7 +36,10 @@ pub fn secret_failure(status: u16, body: &serde_json::Value) -> Option<(i32, Cli
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or_default()
                 .into(),
-            code: None,
+            code: body
+                .get("rpc_code")
+                .and_then(serde_json::Value::as_i64)
+                .and_then(|code| i32::try_from(code).ok()),
             data: Some(serde_json::json!({"http_status":403,"reason":body.get("reason")})),
         };
         if let Some(refusal) = error.neighbor_refusal() {
@@ -81,13 +84,13 @@ pub fn secret_failure(status: u16, body: &serde_json::Value) -> Option<(i32, Cli
     ))
 }
 
-pub(super) fn transport_failure(
+pub(crate) fn transport_failure(
     error: &crate::local_api::LocalApiError,
 ) -> (u16, serde_json::Value) {
     if let Some(refusal) = error.neighbor_refusal() {
         return (
             403,
-            serde_json::json!({"reason":refusal.data.as_ref().and_then(|data| data.get("reason")),"error":{"kind":"refused","message":refusal.message}}),
+            serde_json::json!({"rpc_code":refusal.code,"reason":refusal.data.as_ref().and_then(|data| data.get("reason")),"error":{"kind":"refused","message":refusal.message}}),
         );
     }
     (

@@ -137,9 +137,12 @@ pub(crate) async fn dispatch(
         .svc
         .bind_local_rpc(token, &request.method, &mut request.params)
         .map_err(|message| {
+            let data = message
+                .starts_with("neighbor_capability_denied:")
+                .then(|| serde_json::json!({"reason":"neighbor_capability_denied"}));
             (
                 StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":null}})),
+                Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":data}})),
             )
         })?;
     state.svc.authorize_neighbor_rpc_credential(token, &request.method, request.params.as_ref()).await

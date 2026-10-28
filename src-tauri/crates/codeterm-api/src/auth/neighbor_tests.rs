@@ -414,3 +414,50 @@ async fn own_todo_read_is_intrinsic_but_foreign_todos_never_reach_http_dispatch(
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn secrets_http_refuses_neighbor_before_any_secret_backend_handler() {
+    use axum::{body::Body, http::Request, Router};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    use tower::ServiceExt;
+    let (_fixture, state, _, token) = concierge_fixture(true).await;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let downstream = calls.clone();
+    let router = Router::new()
+        .fallback(move || {
+            let calls = downstream.clone();
+            async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                StatusCode::NO_CONTENT
+            }
+        })
+        .layer(axum::middleware::from_fn_with_state(state, auth_middleware));
+    for path in [
+        "/api/secrets/status",
+        "/api/secrets/unlock",
+        "/api/secrets/items/opaque/value",
+    ] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(path)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["error"]["code"], "neighbor_capability_denied");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}

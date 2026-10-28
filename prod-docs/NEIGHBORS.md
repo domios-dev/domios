@@ -172,4 +172,6 @@ Before applying a permission edit, General must tell the owner: "Applying restar
 
 The provider capability `supports_initial_prompt_update_on_resume` determines whether Apply resumes the same session with updated instructions. Claude, Codex and OpenCode support this through their existing resume instruction channels and retain agent history. Providers without that capability start a fresh concierge; the friend's local conversation history is retained. Restore uses the persisted initial instructions, and reconciles older concierge launches before accepting new turns. A failed restart is reported; it is not a successful Apply.
 
-<!-- revision: 33 -->
+`domios mem secret` first checks the authenticated caller through the payload-free `mem.secret.authorize` RPC. A concierge is refused with `neighbor_capability_denied` (RPC -32003, CLI exit 1) before reading stdin, unlocking a vault or requesting secret backend data. This check grants no secret access; ordinary callers still use the existing authenticated secrets routes.
+
+<!-- revision: 34 -->
