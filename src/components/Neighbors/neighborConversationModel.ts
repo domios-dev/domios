@@ -1,5 +1,5 @@
 import { formatUntil } from "../../lib/timeLabels";
-import type { HistoryEntry } from "./neighborConciergeClient";
+import type { HandlingState, HistoryEntry } from "./neighborConciergeClient";
 
 /** Pages arrive newest first; the conversation reads oldest first, one copy per message id. */
 export function mergeHistory(current: readonly HistoryEntry[], page: readonly HistoryEntry[]): HistoryEntry[] {
@@ -50,27 +50,37 @@ export function authorKind(entry: HistoryEntry): AuthorKind {
 }
 
 /** Where your concierge stands on a message from your friend. */
-export type ConciergeWork = "working" | "answered" | "refused" | "no_reply" | "failed" | "waiting";
+export type ConciergeWork = HandlingState;
 
 export const CONCIERGE_WORK_LINE: Record<ConciergeWork, string> = {
-  working: "Your concierge is working", answered: "Answered", refused: "Declined", no_reply: "No reply needed",
-  failed: "Couldn't reach your concierge", waiting: "Waiting for a concierge on this machine",
+  delivered_to_concierge: "With your concierge", working: "Your concierge is working", answered: "Answered", refused: "Declined",
+  no_reply: "No reply needed", failed: "Couldn't reach your concierge", waiting: "Waiting for a concierge on this machine", stopped: "Stopped",
 };
 
-/** Each friend message's standing, with the reply it links to; working and waiting mark only the newest message still open. */
-export function conciergeWork(entries: readonly HistoryEntry[], concierge: { working: boolean; missing: boolean }): Map<string, { work: ConciergeWork; reply?: string }> {
+/** States your concierge is still busy with; Stop applies to them. */
+export const activeWork = (work: ConciergeWork) => work === "delivered_to_concierge" || work === "working";
+
+export interface ConciergeWorkEntry { work: ConciergeWork; reply?: string; reason?: string }
+
+/** Each friend message's standing from the runtime's handling state, with the reply it links to.
+ *  Before a runtime reports handling, the concierge tab's activity marks only the newest open message. */
+export function conciergeWork(entries: readonly HistoryEntry[], concierge: { working: boolean; missing: boolean }): Map<string, ConciergeWorkEntry> {
   const replies = new Map<string, string>();
   for (const entry of entries) if (entry.direction === "out" && entry.in_reply_to) replies.set(entry.in_reply_to, entry.message_id);
-  const work = new Map<string, { work: ConciergeWork; reply?: string }>();
+  const work = new Map<string, ConciergeWorkEntry>();
+  const reported = entries.some(entry => entry.handling_state !== undefined);
   let open: string | null = null;
   for (const entry of entries) {
     if (authorKind(entry) !== "friend") continue;
     const reply = replies.get(entry.message_id);
-    if (entry.outcome === "refused") work.set(entry.message_id, { work: "refused", ...(reply ? { reply } : {}) });
-    else if (entry.outcome === "answered" || reply) work.set(entry.message_id, { work: "answered", ...(reply ? { reply } : {}) });
+    const reason = entry.handling_reason ?? entry.reason;
+    const settled = (state: ConciergeWork) => work.set(entry.message_id, { work: state, ...(reply ? { reply } : {}), ...(reason ? { reason } : {}) });
+    if (entry.handling_state) settled(entry.handling_state);
+    else if (entry.outcome === "refused") settled("refused");
+    else if (entry.outcome === "answered" || reply) settled("answered");
     else open = entry.message_id;
   }
-  if (open && (concierge.working || concierge.missing)) work.set(open, { work: concierge.working ? "working" : "waiting" });
+  if (!reported && open && (concierge.working || concierge.missing)) work.set(open, { work: concierge.working ? "working" : "waiting" });
   return work;
 }
 

@@ -333,7 +333,7 @@ it("saves permissions directly and refuses an allowed grant without a scope", as
     onAgentChanged: vi.fn(async () => () => {}), setPermission: vi.fn(async () => {}), changeAgent: vi.fn(),
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
     setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
-    setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}) };
+    setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}), stopConcierge: vi.fn(async () => {}) };
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
@@ -401,6 +401,7 @@ function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed
     setDailyLimit: vi.fn(async () => {}), onDailyLimitChanged: vi.fn(async () => () => {}),
     setNotify: vi.fn(async (_friendship: string, notify: NeighborNotify) => notify), onNotifyChanged: vi.fn(async () => () => {}),
     setPaused: vi.fn(async (_friendship: string, paused: boolean) => paused), onPausedChanged: vi.fn(async () => () => {}),
+    stopConcierge: vi.fn(async () => {}),
     changed: (friendship: string) => changed(friendship),
   };
 }
@@ -1048,22 +1049,19 @@ it("keeps writing open to a friend you paused and offers Resume", async () => {
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", false);
 });
 
-it("shows your concierge working on the friend's open message and stops that exact tab", async () => {
-  const idle = mux.tabs["tab-gateway"];
-  (mux.tabs as Record<string, unknown>)["tab-gateway"] = { ...idle, agent_type: "claude", agent_session_id: "session", pty_id: "pty-gateway", boot_stage: "agent_ready", agent_state: { state: "working" } };
-  try {
-    const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1" }]);
-    const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
-    const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-      claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
-    const host = document.createElement("div"); document.body.append(host);
-    const root = createRoot(host); mounted = { root, host };
-    await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
-    expect(document.getElementById("neighbor-msg-m1")?.textContent).toContain("Your concierge is working");
-    expect(document.querySelector(".neighbor-chat__working")?.textContent).toContain("Your concierge is working for Ada");
-    await act(async () => document.querySelector<HTMLButtonElement>('#neighbor-msg-m1 button[aria-label="Stop your concierge"]')!.click());
-    expect(bridge.invoke).toHaveBeenCalledWith("interrupt_agent", { ptyId: "pty-gateway", tabId: "tab-gateway" });
-  } finally { mux.tabs["tab-gateway"] = idle; }
+it("shows your concierge working on a friend's message and stops it through the runtime", async () => {
+  const conciergeClient = concierge([{ direction: "in", kind: "question", author: "friend", body: "Is the build green?", at: 1700000000000, message_id: "m1",
+    handling_state: "working", handling_updated_at: 1700000001000 }]);
+  const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  expect(document.getElementById("neighbor-msg-m1")?.textContent).toContain("Your concierge is working");
+  expect(document.querySelector(".neighbor-chat__working")?.textContent).toContain("Your concierge is working for Ada");
+  await act(async () => document.querySelector<HTMLButtonElement>('#neighbor-msg-m1 button[aria-label="Stop your concierge"]')!.click());
+  expect(conciergeClient.stopConcierge).toHaveBeenCalledExactlyOnceWith("pair");
 });
 
 it("closes the composer while the friend has paused messages from you", async () => {

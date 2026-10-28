@@ -25,7 +25,14 @@ export interface HistoryEntry {
   delivery_status?: NeighborDeliveryStatus;
   /** Outgoing only: whether the relay took the message at all. */
   submission?: "accepted" | "unconfirmed" | "refused";
+  /** Incoming only: where your concierge stands on it, why when it settled that way, and since when (unix milliseconds). */
+  handling_state?: HandlingState;
+  handling_reason?: string;
+  handling_updated_at?: number;
 }
+
+export type HandlingState = "delivered_to_concierge" | "working" | "answered" | "refused" | "no_reply" | "failed" | "waiting" | "stopped";
+const HANDLING_STATES: readonly string[] = ["delivered_to_concierge", "working", "answered", "refused", "no_reply", "failed", "waiting", "stopped"];
 
 export type NeighborNotify = "off" | "in_app" | "in_app_and_bridges";
 
@@ -46,6 +53,8 @@ export interface NeighborConciergeClient {
   /** Pausing keeps the friendship but stops their messages until you resume; resolves to the saved state. */
   setPaused(friendship: string, paused: boolean): Promise<boolean>;
   onPausedChanged(handler: (friendship: string, paused: boolean) => void): Promise<() => void>;
+  /** Stops this friend's concierge turn; the entries it was handling become stopped. */
+  stopConcierge(friendship: string): Promise<void>;
 }
 
 const KINDS: readonly HistoryKind[] = ["question", "answer", "refusal", "tab_request"];
@@ -78,6 +87,9 @@ export function parseHistory(value: unknown): HistoryPage {
         ...(typeof entry.resets_at === "number" ? { resets_at: unixMillis(entry.resets_at) } : {}),
         ...(typeof entry.retry_after_seconds === "number" ? { retry_after_seconds: entry.retry_after_seconds } : {}),
         ...(entry.submission === "accepted" || entry.submission === "unconfirmed" || entry.submission === "refused" ? { submission: entry.submission } : {}),
+        ...(HANDLING_STATES.includes(entry.handling_state as string) ? { handling_state: entry.handling_state as HandlingState } : {}),
+        ...(typeof entry.handling_reason === "string" ? { handling_reason: entry.handling_reason } : {}),
+        ...(typeof entry.handling_updated_at === "number" ? { handling_updated_at: entry.handling_updated_at } : {}),
         ...(entry.delivery_status === undefined ? {} : { delivery_status: deliveryStatus(entry.delivery_status) }) };
     }),
   };
@@ -117,6 +129,7 @@ export const neighborConciergeClient: NeighborConciergeClient = {
   onPausedChanged: handler => listen<{ friendship_id?: unknown; paused?: unknown }>("neighbor-friend-paused", event => {
     if (typeof event.payload?.friendship_id === "string" && typeof event.payload.paused === "boolean") handler(event.payload.friendship_id, event.payload.paused);
   }),
+  stopConcierge: async friendship => { await runtimeCall({ operation: "stop_concierge", friendship_id: friendship }); },
   setDailyLimit: async (friendship, dailyLimit) => { await runtimeCall({ operation: "set_daily_limit", friendship_id: friendship, daily_limit: dailyLimit }); },
   onDailyLimitChanged: handler => listen<{ friendship_id?: unknown }>("neighbor-daily-limit-changed", event => {
     if (typeof event.payload?.friendship_id === "string") handler(event.payload.friendship_id);

@@ -48,13 +48,20 @@ it("marks each friend message with your concierge's standing, and work only on t
     ask("c"), { direction: "out", kind: "answer", author: { agent: "tab", name: "Concierge" }, body: "!", at: 2, message_id: "r", in_reply_to: "c" },
     ask("d"),
   ];
+  // Before the runtime reports handling, the concierge tab's activity marks only the newest open message.
   const working = conciergeWork(entries, { working: true, missing: false });
-  expect(working.get("b")).toEqual({ work: "refused" });
+  expect(working.get("b")).toEqual({ work: "refused", reason: "No" });
   expect(working.get("c")).toEqual({ work: "answered", reply: "r" });
   expect(working.get("d")).toEqual({ work: "working" });
   expect(working.has("a")).toBe(false);
   expect(conciergeWork(entries, { working: false, missing: true }).get("d")).toEqual({ work: "waiting" });
   expect(conciergeWork(entries, { working: false, missing: false }).has("d")).toBe(false);
+  // Once it does, its states win and the tab no longer guesses.
+  const reported = [...entries.slice(0, 4), ask("d", { handling_state: "stopped" }), ask("e", { handling_state: "failed", handling_reason: "Tab closed" })];
+  const handled = conciergeWork(reported, { working: true, missing: false });
+  expect(handled.get("d")).toEqual({ work: "stopped" });
+  expect(handled.get("e")).toEqual({ work: "failed", reason: "Tab closed" });
+  expect(handled.has("a")).toBe(false);
 });
 
 it("explains each delivery refusal in plain words and says when to retry only when it is known", () => {
