@@ -88,7 +88,7 @@ pub fn verify_build(health: &Value, expected: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub async fn check_build(origin: &str, expected: &str) -> Result<(), String> {
+pub async fn health(origin: &str) -> Result<Value, String> {
     let origin = normalize_origin(origin)?;
     let client = reqwest::Client::builder()
         .no_proxy()
@@ -105,7 +105,34 @@ pub async fn check_build(origin: &str, expected: &str) -> Result<(), String> {
         .json()
         .await
         .map_err(|_| "invalid_health")?;
-    verify_build(&health, expected)
+    Ok(health)
+}
+
+pub async fn check_build(origin: &str, expected: &str) -> Result<(), String> {
+    verify_build(&health(origin).await?, expected)
+}
+
+pub fn verify_dev_identity(health: &Value, name: &str, port: u16) -> Result<(), String> {
+    let instance = health
+        .get("instance")
+        .ok_or("instance_identity_unavailable")?;
+    let actual_port = instance.get("api_port").and_then(|v| {
+        v.as_str()
+            .and_then(|s| s.parse::<u16>().ok())
+            .or_else(|| v.as_u64().and_then(|p| u16::try_from(p).ok()))
+    });
+    if port == 0
+        || port == 7685
+        || instance.get("name").and_then(Value::as_str) != Some(name)
+        || instance.get("identifier").and_then(Value::as_str)
+            != Some(format!("com.domios.dev.{name}").as_str())
+        || actual_port != Some(port)
+    {
+        return Err(
+            "instance_identity_mismatch: requested DEV name and API port were not confirmed".into(),
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

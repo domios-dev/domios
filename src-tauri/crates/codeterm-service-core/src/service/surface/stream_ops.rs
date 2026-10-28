@@ -131,6 +131,7 @@ impl ServiceContext {
         SurfaceCallCtx {
             host: Arc::new(self.clone()),
             owner_tab_id: binding.owner_tab_id.clone(),
+            caller_tab_id: None,
             data_dir: self.agent_pad_data_dir.clone(),
             actor: None,
         }

@@ -120,3 +120,50 @@ async fn aria_only_accessible_name_wait_rechecks_on_binding_evidence_without_tex
     assert_eq!(result, "accessible state confirmed");
     assert_eq!(connection.captures.load(Ordering::SeqCst), 2);
 }
+
+#[test]
+fn control_predicates_require_explicit_binary_ax_evidence() {
+    for (property, positive, negative) in [
+        ("checked", State::Checked, State::Unchecked),
+        ("pressed", State::Pressed, State::Unpressed),
+        ("selected", State::Selected, State::Unselected),
+    ] {
+        for value in [
+            json!(true),
+            json!("true"),
+            json!(false),
+            json!("false"),
+            json!("mixed"),
+            json!(null),
+        ] {
+            let node: AxNode = serde_json::from_value(
+                json!({"nodeId":"x","properties":[{"name":property,"value":{"value":value}}]}),
+            )
+            .unwrap();
+            assert_eq!(
+                control_matches(&node, positive),
+                value == json!(true) || value == json!("true")
+            );
+            assert_eq!(
+                control_matches(&node, negative),
+                value == json!(false) || value == json!("false")
+            );
+        }
+        let absent: AxNode = serde_json::from_value(json!({"nodeId":"x"})).unwrap();
+        assert!(!control_matches(&absent, positive));
+        assert!(!control_matches(&absent, negative));
+    }
+    for state in [
+        "checked",
+        "unchecked",
+        "pressed",
+        "unpressed",
+        "selected",
+        "unselected",
+    ] {
+        assert!(parse(
+            &["--role", "switch", "--name", "Ligatures", "--state", state].map(String::from)
+        )
+        .is_ok());
+    }
+}

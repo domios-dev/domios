@@ -324,6 +324,7 @@ impl ServiceContext {
             .map_err(|error| error.message())?;
         let mut ctx = self.surface_call_ctx(&binding);
         ctx.actor = actor.clone();
+        ctx.caller_tab_id = Some(caller_tab.clone());
         self.note_surface_activity(&binding.tab_id, verb, actor.as_deref());
         if verb == "annotate" {
             let annotating = runtime.clone();

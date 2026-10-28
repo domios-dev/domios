@@ -30,12 +30,12 @@
     "profiles",
     "goto <url>",
     "back | forward | reload",
-    "snapshot [limit] [--json] [--scope SCOPE] [--actions-only] [--max-items N]",
+    "snapshot [limit] [--json] [--with-text] [--out FILE] [--scope SCOPE] [--actions-only] [--max-items N]",
     "click @ref | <role> <name> | --within role:name --role ROLE --name NAME",
     "type @ref | <role> <name> <text> (or --stdin for masked secret input)",
     "press <key> [shift|ctrl|alt|meta]",
     "scroll <dy>",
-    "text [limit]",
+    "text [limit] [--out FILE]",
     "wait --text T | --url U | --selector S",
     "screenshot [file] [--full] [--viewport WIDTHxHEIGHT] [--mobile] [--dpr N] [--restore] [--metrics-json]",
     "inbox [all]",
@@ -48,9 +48,10 @@
     "viewport set WIDTH HEIGHT [--mobile] [--dpr N]",
     "fill --within role:name --role ROLE --name NAME --text TEXT",
     "file-picker choose --paths PATH (unsupported; use Take control)",
-    "wait --role ROLE --name NAME --state visible|hidden|enabled|expanded [--timeout DURATION]",
+    "wait --role ROLE --name NAME --state visible|hidden|enabled|expanded|checked|unchecked|pressed|unpressed|selected|unselected [--timeout DURATION]",
     "expand summary NAME",
-    "collapse summary NAME"
+    "collapse summary NAME",
+    "open --domios-instance NAME --api-port PORT [--ephemeral]"
   ],
   "agentKeywords": [
     "browser",

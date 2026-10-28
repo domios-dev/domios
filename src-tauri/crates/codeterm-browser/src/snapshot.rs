@@ -180,6 +180,16 @@ pub fn build_snapshot_filtered(
     scope: &str,
     actions_only: bool,
 ) -> Snapshot {
+    build_snapshot_with_text(nodes, max_lines, scope, actions_only, false)
+}
+
+pub fn build_snapshot_with_text(
+    nodes: &[AxNode],
+    max_lines: usize,
+    scope: &str,
+    actions_only: bool,
+    with_text: bool,
+) -> Snapshot {
     let max_lines = max_lines.clamp(1, MAX_LINES);
     let by_id: HashMap<&str, &AxNode> = nodes.iter().map(|n| (n.node_id.as_str(), n)).collect();
     let root = nodes
@@ -197,12 +207,14 @@ pub fn build_snapshot_filtered(
         }
         let role = node.role.as_ref().map(AxValue::as_str).unwrap_or("");
         let name = collapse_whitespace(node.name.as_ref().map(AxValue::as_str).unwrap_or(""));
-        let visible = !node.ignored && !HIDDEN_ROLES.contains(&role);
+        let static_leaf = with_text && role == "StaticText" && !name.is_empty();
+        let visible = !node.ignored && (!HIDDEN_ROLES.contains(&role) || static_leaf);
         let backend = node.backend_dom_node_id.filter(|id| *id != 0);
         let interactive = visible && INTERACTIVE.contains(&role) && backend.is_some();
         let mut next_depth = depth;
         if visible
             && (interactive
+                || static_leaf
                 || (!actions_only
                     && (STRUCTURAL.contains(&role) || (!name.is_empty() && role != "paragraph"))))
         {

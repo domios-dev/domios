@@ -45,3 +45,21 @@ fn instance_origins_and_expected_builds_refuse_credential_or_identity_skew() {
     assert!(verify_build(&json!({"build_sha":"other"}), "abc").is_err());
     assert!(verify_build(&json!({}), "abc").is_err());
 }
+
+#[test]
+fn dev_identity_requires_exact_name_port_and_development_identifier() {
+    let health =
+        json!({"instance":{"name":"qa","api_port":"7790","identifier":"com.domios.dev.qa"}});
+    verify_dev_identity(&health, "qa", 7790).unwrap();
+    for (field, value) in [
+        ("name", "other"),
+        ("api_port", "7685"),
+        ("identifier", "com.domios.app"),
+    ] {
+        let mut wrong = health.clone();
+        wrong["instance"][field] = json!(value);
+        assert!(verify_dev_identity(&wrong, "qa", 7790).is_err());
+    }
+    assert!(verify_dev_identity(&health, "qa", 7685).is_err());
+    assert!(verify_dev_identity(&json!({}), "qa", 7790).is_err());
+}

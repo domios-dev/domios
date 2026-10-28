@@ -147,3 +147,27 @@ fn disclosure_triangles_have_actionable_summary_alias_refs_and_expanded_state() 
         77
     );
 }
+
+#[test]
+fn with_text_includes_bounded_static_leaves_without_refs_and_preserves_redaction() {
+    let mut nodes: Vec<AxNode> = serde_json::from_value(json!([
+      {"nodeId":"root","childIds":["value","secret","control"]},
+      {"nodeId":"value","parentId":"root","role":{"value":"StaticText"},"name":{"value":"Description value"},"backendDOMNodeId":2},
+      {"nodeId":"secret","parentId":"root","role":{"value":"StaticText"},"name":{"value":"opaque-private-value"},"backendDOMNodeId":3},
+      {"nodeId":"control","parentId":"root","role":{"value":"button"},"name":{"value":"Apply"},"backendDOMNodeId":4}
+    ])).unwrap();
+    sensitive::redact(&mut nodes,&json!({"root":{"backendNodeId":1,"children":[{"backendNodeId":3,"attributes":["data-sensitive",""]}]}})).unwrap();
+    let snapshot = build_snapshot_with_text(&nodes, 2, "capture", true, true);
+    assert!(snapshot.truncated);
+    assert_eq!(snapshot.items.len(), 2);
+    assert!(snapshot.refs.is_empty());
+    assert_eq!(snapshot.items[0].name, "Description value");
+    assert_eq!(snapshot.items[1].name, "REDACTED");
+    assert!(!snapshot.text.contains("opaque-private-value"));
+    assert_eq!(
+        build_snapshot_filtered(&nodes, 10, "capture", true)
+            .index
+            .len(),
+        1
+    );
+}
