@@ -73,6 +73,28 @@ fn request(
 }
 
 #[test]
+fn socket_spawn_requires_a_granted_workspace_and_rejects_unsafe_flags_without_a_child() {
+    let (fixture, concierge, token) = fixture();
+    let workspace = fixture
+        .service
+        .mux
+        .read()
+        .find_workspace_for_tab(&concierge)
+        .unwrap();
+    codeterm_service_core::async_runtime::block_on(fixture.seed_neighbor_concierge(&concierge,&"a".repeat(64),serde_json::from_value(json!({"allowed":true,"scope":"opaque","allow_tab_requests":true,"workspaces":[workspace]})).unwrap()));
+    let before = fixture.service.mux.read().snapshot().tabs.len();
+    for params in [
+        json!({"workspace_id":"foreign"}),
+        json!({"workspace_id":workspace,"args":["opaque-option"]}),
+        json!({"workspace_id":workspace,"caller_tab_id":"foreign"}),
+    ] {
+        let response = request(&fixture, &token, "agent.spawn", Some(params));
+        assert!(response.error.is_some());
+        assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+    }
+}
+
+#[test]
 fn concierge_socket_lists_only_granted_workspace_agents_and_denies_foreign_sends() {
     let (fixture, concierge, token) = fixture();
     let (workspace, allowed, shell) = {

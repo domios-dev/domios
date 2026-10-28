@@ -289,7 +289,12 @@ pub async fn spawn_agent(
             body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
         },
     )?;
-    let params = spawn_request::into_params(body, role_probe, ownership);
+    let mut params = spawn_request::into_params(body, role_probe, ownership);
+    state
+        .svc
+        .inherit_neighbor_agent_spawn(&mut params)
+        .await
+        .map_err(SpawnRejection::from)?;
     codeterm_service_core::service::execution_sandbox_enforce_delegation_ceiling(
         &state.svc,
         &params,

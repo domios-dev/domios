@@ -20,6 +20,10 @@ impl ServiceContext {
         friendship: &str,
         gateway: &str,
     ) -> codeterm_neighbors::Result<Value> {
+        let _mutation = self
+            .begin_neighbor_mutation(friendship)
+            .await
+            .map_err(|_| Error::Gateway)?;
         if !hex_id(friendship, 64) {
             return Err(Error::InvalidEnvelope);
         }
@@ -28,6 +32,7 @@ impl ServiceContext {
         let generation = self.neighbor_history_generation();
         transport.peer_keys(friendship).await?;
         let mut settings = metadata.settings().await?;
+        let previous = settings.bindings.get(friendship).cloned();
         let permission = settings
             .permissions
             .get(friendship)
@@ -42,6 +47,16 @@ impl ServiceContext {
         self.tag_neighbor_root(&transport.uid, friendship, gateway)?;
         settings.bindings.insert(friendship.into(), gateway.into());
         metadata.save_settings(settings).await?;
+        if let Some(previous) = previous.filter(|previous| previous != gateway) {
+            self.retire_neighbor_children(&previous)
+                .await
+                .map_err(|_| Error::Gateway)?;
+            if self.mux.read().get_tab(&previous).is_some() {
+                self.close_tab_async(&previous)
+                    .await
+                    .map_err(|_| Error::Gateway)?;
+            }
+        }
         self.settle_neighbor_pause(metadata, friendship).await?;
         self.stop_neighbor_listeners();
         self.emit_state_changed(crate::service::MuxEmitCause::TabMetadata);
@@ -59,6 +74,10 @@ impl ServiceContext {
         friendship: &str,
         permission: Permission,
     ) -> codeterm_neighbors::Result<Value> {
+        let _mutation = self
+            .begin_neighbor_mutation(friendship)
+            .await
+            .map_err(|_| Error::Gateway)?;
         if !hex_id(friendship, 64) {
             return Err(Error::InvalidEnvelope);
         }
@@ -123,6 +142,15 @@ impl ServiceContext {
         } else {
             None
         };
+        if let Some(old) = &old {
+            if let Err(error) = self.retire_neighbor_children(old).await {
+                if let Some(created) = &created {
+                    let _ = self.close_tab_async(created).await;
+                }
+                log::debug!("[neighbors] retiring concierge descendants root={old}: {error}");
+                return Err(Error::Gateway);
+            }
+        }
         if let Some(tab) = &created {
             settings.bindings.insert(friendship.into(), tab.clone());
         }
@@ -247,6 +275,7 @@ impl ServiceContext {
         F: FnOnce(String, MachineAccess) -> Fut,
         Fut: std::future::Future<Output = Result<String, String>>,
     {
+        let _mutation = self.begin_neighbor_mutation(friendship).await?;
         let generation = self.neighbor_history_generation();
         let mut settings = metadata
             .settings()

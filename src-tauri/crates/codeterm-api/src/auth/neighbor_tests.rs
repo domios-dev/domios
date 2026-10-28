@@ -1,6 +1,36 @@
 use super::*;
 
 #[tokio::test]
+async fn granted_workspace_spawn_still_refuses_unsafe_launch_flags_before_creating_a_child() {
+    use axum::{body::Body, http::Request, routing::post, Router};
+    use tower::ServiceExt;
+    let (fixture, state, concierge, token) = concierge_fixture(true).await;
+    let workspace = state
+        .svc
+        .mux
+        .read()
+        .find_workspace_for_tab(&concierge)
+        .unwrap();
+    fixture.seed_neighbor_concierge(&concierge,&"a".repeat(64),serde_json::from_value(serde_json::json!({"allowed":true,"scope":"opaque","allow_tab_requests":true,"workspaces":[workspace]})).unwrap()).await;
+    let before = state.svc.mux.read().snapshot().tabs.len();
+    let router = Router::new()
+        .route("/api/agents/spawn", post(crate::agent_routes::spawn_agent))
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
+    let response = router.oneshot(Request::builder().method("POST").uri("/api/agents/spawn").header("authorization",format!("Bearer {token}")).header("content-type","application/json").body(Body::from(serde_json::json!({"agent":"missing-provider","workspace_id":workspace,"cwd":fixture.temp.path(),"args":["opaque-option"]}).to_string())).unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let body = axum::body::to_bytes(response.into_body(), 8192)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(body["error"]["code"], "neighbor_capability_denied");
+    assert_eq!(state.svc.mux.read().snapshot().tabs.len(), before);
+}
+
+#[tokio::test]
 async fn workspace_http_boundary_filters_listing_and_refuses_foreign_or_raw_sends() {
     use axum::{
         body::Body,

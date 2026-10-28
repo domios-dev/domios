@@ -5,6 +5,42 @@ use codeterm_service_core::{
 use serde_json::{json, Value};
 
 #[tokio::test]
+async fn cli_rpc_spawn_forwards_only_the_granted_workspace_to_the_launch_boundary() {
+    let (fixture, state, concierge, token) = fixture().await;
+    let workspace = state
+        .svc
+        .mux
+        .read()
+        .find_workspace_for_tab(&concierge)
+        .unwrap();
+    fixture.seed_neighbor_concierge(&concierge,&"a".repeat(64),serde_json::from_value(json!({"allowed":true,"scope":"opaque","allow_tab_requests":true,"workspaces":[workspace]})).unwrap()).await;
+    codeterm_service_core::ports::socket::register_test_stub();
+    let (status, body) = call(
+        state.clone(),
+        &token,
+        "agent.spawn",
+        Some(json!({"workspace_id":workspace})),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body.0["error"]["message"], "rpc bridge test stub");
+    for params in [
+        None,
+        Some(json!({"workspace_id":"foreign"})),
+        Some(json!({"workspace_id":workspace,"caller_tab_id":"foreign"})),
+    ] {
+        assert_eq!(
+            call(state.clone(), &token, "agent.spawn", params)
+                .await
+                .unwrap_err()
+                .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+}
+
+#[tokio::test]
 async fn cli_rpc_workspace_grant_lists_agents_and_only_forwards_allowed_sends() {
     let (fixture, state, concierge, token) = fixture().await;
     let (workspace, allowed, shell) = {

@@ -31,6 +31,7 @@ use zeroize::Zeroizing;
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
+    pub(super) launches: Arc<super::launch_fence::State>,
     pub(super) pauses: super::pause::State,
     pub(super) concierge_accounts: parking_lot::Mutex<HashMap<String, String>>,
     registry_snapshot: parking_lot::Mutex<Option<Value>>,

@@ -51,6 +51,10 @@ impl ServiceContext {
         generation: u64,
     ) -> Result<()> {
         self.require_neighbor_history_generation(generation)?;
+        let _mutation = self
+            .begin_neighbor_mutation(friendship)
+            .await
+            .map_err(|_| Error::Gateway)?;
         if !hex_id(friendship, 64) {
             return Err(Error::InvalidEnvelope);
         }
@@ -61,6 +65,9 @@ impl ServiceContext {
         settings.paused.remove(friendship);
         self.neighbor_cell().pauses.forget(friendship);
         if let Some(tab) = settings.bindings.get(friendship).cloned() {
+            self.retire_neighbor_children(&tab)
+                .await
+                .map_err(|_| Error::Gateway)?;
             self.require_neighbor_history_generation(generation)?;
             let tab_exists = self.mux.read().get_tab(&tab).is_some();
             if tab_exists {
