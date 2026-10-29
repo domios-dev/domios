@@ -68,6 +68,9 @@ export function AgentProviderPicker({
   const reducedMotion = usePrefersReducedMotion();
   const working = Boolean(busy || installBusy);
   const { matrix, emitWave } = useBusyWaves(working, Boolean(retry));
+  // The mark breathes every beat; its ring of dots goes out on every second beat.
+  const beat = useRef(0);
+  const emitEveryOtherBeat = () => { if (beat.current++ % 2 === 0) emitWave(); };
 
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
@@ -111,15 +114,15 @@ export function AgentProviderPicker({
       role="region"
       aria-labelledby={headlineId}
       data-testid="agent-provider-picker"
-      className="brand-dot-stage flex h-full w-full items-center justify-center overflow-auto p-6"
+      className="brand-dot-stage flex h-full w-full flex-col items-center overflow-auto px-6 pb-4 pt-6"
     >
       {/* The boot cover's dot field carries on here: the mark opens, then each beat sends a ring of dots out; starting the agent turns them up. */}
       <DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={working ? 3.5 : 2.5} restIntensity={5} />
       {/* One centred column: the header, the cards and the confirm share an axis however many providers are shown. */}
-      <div className="flex w-fit max-w-full flex-col items-center gap-7" data-testid="agent-picker-group">
+      <div className="my-auto flex w-fit max-w-full flex-col items-center gap-7" data-testid="agent-picker-group">
         {installError && <InlineErrorNotice error={installError} operation="installing this provider" blocking />}
         <div className="flex max-w-full flex-col items-center gap-4 text-center">
-          <BrandMark motion="load" size={72} onRelease={emitWave} />
+          <BrandMark motion="load" size={72} onRelease={emitEveryOtherBeat} />
           <div className="min-w-0">
             <h1
               id={headlineId}
@@ -196,8 +199,9 @@ export function AgentProviderPicker({
             </div>
           </div>
         </div>
-        {belowConfirm && <div className="pt-2">{belowConfirm}</div>}
       </div>
+      {/* Last in the region: pinned to the bottom edge, still after the confirm in reading order. */}
+      {belowConfirm && <div className="pt-4">{belowConfirm}</div>}
     </div>
   );
 }
