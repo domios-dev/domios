@@ -203,10 +203,21 @@ fn provider_absent_before_first_seen_is_not_exit_evidence() {
 #[test]
 fn provider_exit_evidence_ends_first_turn_waiting() {
     let mut tab = launching_tab("pty-resume-exit", "nonce-resume-exit");
-    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.boot_stage = Some(BootStage::ProviderReady);
     tab.agent_booting = false;
     let attempt = attempt_of(&tab);
+    let mut composer = provisional_launch_for(
+        &tab,
+        &attempt.pty_id,
+        &attempt.binding_nonce,
+        "opaque composer readiness",
+    )
+    .unwrap();
+    composer.awaiting_binding_ack = true;
+    composer.first_turn_input_ready = true;
+    tab.provisional_launch = Some(composer);
 
+    assert!(!tab.launch_session_authenticated());
     assert!(launch_attempt_is_waiting_for_first_turn(&tab, &attempt));
 
     tab.exit_suspected_at = Some(std::time::Instant::now());
