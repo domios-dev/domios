@@ -146,7 +146,7 @@ impl RuntimeFixture {
         let manifest = PluginManifest::from_json_str(&json!({
             "id":PROVIDER,"version":"1.0.0","displayName":"Fixture","binaryName":"node",
             "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-                "agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
+                "agentRuntime":{"runtimeModes":[{"id":"auto-accept-edits","displayName":"Auto accept edits"}],"runtime":"stdio-jsonrpc","command":{"binary":"node","args":[]},"requestMethods":methods,"notificationMethods":[],"login":{"methods":["browser"]}}},
             "spawn":{"readinessStrategy":{"kind":"poll_shell_prompt","timeoutSecs":1},
                 "taskDelivery":"inline_flag","systemPromptDelivery":{"kind":"cli_flag","flag":"--opaque-system"},
                 "verifySubmit":{"kind":"none"}},
