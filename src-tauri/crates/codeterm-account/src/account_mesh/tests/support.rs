@@ -160,8 +160,12 @@ pub struct Script {
     pub sync_cursor: Option<MeshCursor>,
     pub rename_race: Option<String>,
     pub enrollment: Option<RegistryRefusal>,
+    pub challenge: Option<RegistryRefusal>,
+    pub challenge_once: Option<RegistryRefusal>,
+    pub membership_seconds: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
+    pub membership_once: Option<RegistryRefusal>,
     pub lose_membership_reply: Option<RegistryRefusal>,
     pub lose_key_reply: Option<RegistryRefusal>,
     pub publication: Option<RegistryRefusal>,
@@ -356,6 +360,13 @@ impl MeshRegistry for FakeRegistry {
         request: &ChallengeRequest,
     ) -> RegistryResult<String> {
         self.admit(session, "challenge");
+        let refusal = {
+            let mut script = self.script.lock().unwrap();
+            script.challenge_once.take().or(script.challenge)
+        };
+        if let Some(refusal) = refusal {
+            return Err(refusal);
+        }
         *self.challenged.lock().unwrap() = Some(request.body.clone());
         Ok(format!(
             "{}.{}.{}",
@@ -461,9 +472,14 @@ impl MeshRegistry for FakeRegistry {
         let proof = &envelope.installation_proof;
         self.verify(session, "meshAdmission", &envelope.request, proof, None)?;
         let script = {
-            let script = self.script.lock().unwrap();
+            let mut script = self.script.lock().unwrap();
+            let membership = if membership_op {
+                script.membership_once.take().or(script.membership)
+            } else {
+                script.membership
+            };
             (
-                script.membership,
+                membership,
                 script.publication,
                 script.permit,
                 script.issuer_ahead,
@@ -505,8 +521,11 @@ impl MeshRegistry for FakeRegistry {
                 };
                 account.slot = Some(slot);
                 account.inactive = false;
-                let payload =
+                let mut payload =
                     Issuer::membership_payload(&uid, &proof.key_id, proof.generation, slot, now);
+                if let Some(seconds) = self.script.lock().unwrap().membership_seconds {
+                    payload["expires_at"] = json!(now + seconds);
+                }
                 let result = MeshResult::Membership(MembershipResult {
                     operation: match &envelope.request.operation {
                         MeshOperation::Enroll { .. } => MembershipOperation::Enroll,
@@ -766,11 +785,26 @@ pub fn row(id: &str, metadata_revision: u64, name: Option<&str>) -> MeshManageme
 }
 
 #[derive(Default)]
-pub struct FakeSessions(pub Mutex<Option<Session>>);
+pub struct FakeSessions(
+    pub Mutex<Option<Session>>,
+    pub AtomicU64,
+    pub Mutex<Option<AccountMeshRefusal>>,
+);
 #[async_trait]
 impl SessionSource for FakeSessions {
     async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
         Ok(self.0.lock().unwrap().clone())
+    }
+    async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        if let Some(refusal) = *self.2.lock().unwrap() {
+            return Err(refusal);
+        }
+        let mut session = self.0.lock().unwrap();
+        if let Some(session) = session.as_mut() {
+            session.id_token = Secret::new("refreshed-token");
+        }
+        Ok(session.clone())
     }
 }
 

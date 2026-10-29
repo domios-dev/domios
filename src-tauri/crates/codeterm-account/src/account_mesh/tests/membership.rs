@@ -52,7 +52,7 @@ fn with(mut payload: Value, field: &str, value: Value) -> Value {
 fn account_mesh_membership_accepts_only_its_exact_window() {
     let verified = verify(&valid_payload(), START).unwrap();
     assert_eq!(verified.account_id, account_id(UID));
-    assert_eq!(verified.refresh_after(), START + 1800);
+    assert_eq!(verified.refresh_after(), START + 3480);
     assert!(verify(&valid_payload(), START + 3599).is_ok());
     assert_eq!(
         verify(&valid_payload(), START + 3600),
@@ -452,5 +452,16 @@ fn account_mesh_refusal_details_map_exactly_and_only_mesh_machines_is_a_plan_lim
             RegistryRefusal::Unavailable,
             "{malformed}"
         );
+    }
+}
+
+#[test]
+fn account_mesh_short_membership_renewal_is_strictly_after_issuance() {
+    for (seconds, refresh) in [(1, 1), (119, 60), (120, 60), (121, 61), (3600, 3480)] {
+        let payload = with(valid_payload(), "expires_at", json!(START + seconds));
+        let membership = verify(&payload, START).unwrap();
+        assert_eq!(membership.refresh_after(), START + refresh);
+        assert!(membership.is_current(START));
+        assert!(!membership.is_current(START + seconds));
     }
 }

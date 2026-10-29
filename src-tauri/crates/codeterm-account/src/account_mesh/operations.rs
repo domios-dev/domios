@@ -281,31 +281,6 @@ impl AccountMesh {
         Ok(enrolled.generation)
     }
 
-    /// Every registry operation goes through the one proof-bound admission callable.
-    pub(super) async fn admission(
-        &self,
-        signed: &Signed,
-        operation: MeshOperation,
-    ) -> Outcome<MeshResult> {
-        let generation = self.generation(signed).await?;
-        let request = MeshAdmissionBody {
-            schema_version: MESH_SCHEMA_VERSION,
-            installation_id: self.installation(),
-            request_id: request_id(),
-            operation,
-        };
-        self.with(|inner| inner.last_request = Some(request.request_id.clone()));
-        let installation_proof = self
-            .prove(signed, ProofEndpoint::MeshAdmission, &request, generation)
-            .await?;
-        let envelope = SignedEnvelope {
-            request,
-            installation_proof,
-        };
-        self.call(self.ports.registry.admission(&signed.session, &envelope))
-            .await
-    }
-
     fn own_slot(&self, account: &str) -> Option<u64> {
         self.with(|inner| inner.record.slots.get(account).copied())
     }
@@ -349,14 +324,15 @@ impl AccountMesh {
         Ok(Some(slot_revision))
     }
 
-    pub(super) async fn enroll_once(&self, epoch: u64, trigger: EnrollTrigger) -> Outcome<()> {
+    pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
         let now = self.now();
-        let current = self.with(|inner| inner.state.current_membership(now).is_some());
-        if current
-            && !self.own_removed()
-            && (trigger == EnrollTrigger::Network || self.state().publication_failure.is_some())
-        {
+        let current = self.with(|inner| {
+            inner.state.current_membership(now).is_some_and(|membership| {
+                now < membership.verified.refresh_after()
+            })
+        });
+        if current && !self.own_removed() {
             if self.with(|inner| inner.sync_pending) {
                 return self.sync_registry(&signed).await;
             }

@@ -66,6 +66,11 @@ impl SessionSource for AccountSessions {
         let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
         account.current_session().await.map_err(session_refusal)
     }
+
+    async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal> {
+        let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
+        account.fresh_session().await.map_err(session_refusal)
+    }
 }
 
 #[derive(Default)]
@@ -231,6 +236,17 @@ impl ServiceContext {
             return;
         }
         if matches!(service.mesh.state().presence, Presence::SignedIn { .. }) {
+            self.spawn_account_mesh_refresh(EnrollTrigger::Automatic);
+        }
+    }
+
+    pub(crate) fn account_mesh_credentials_refreshed(&self, session: &Session) {
+        let resumed = self
+            .extensions
+            .try_get::<AccountMeshCell>()
+            .and_then(|cell| cell.0.get())
+            .is_some_and(|service| service.mesh.credentials_refreshed(session));
+        if resumed {
             self.spawn_account_mesh_refresh(EnrollTrigger::Automatic);
         }
     }

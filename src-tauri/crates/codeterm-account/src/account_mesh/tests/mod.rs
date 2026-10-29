@@ -1,3 +1,6 @@
+mod admission_recovery;
+mod admission_reuse;
+mod credential_rearm;
 mod callable;
 mod enrollment_refusals;
 mod entitlements;

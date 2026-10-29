@@ -285,6 +285,10 @@ impl SessionSource for NoSession {
     async fn session(&self) -> Result<Option<codeterm_account::Session>, AccountMeshRefusal> {
         Ok(None)
     }
+
+    async fn refresh(&self) -> Result<Option<codeterm_account::Session>, AccountMeshRefusal> {
+        Ok(None)
+    }
 }
 
 struct NoKeys;

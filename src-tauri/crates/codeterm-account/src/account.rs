@@ -282,6 +282,15 @@ impl Account {
                 .changed(state.session.as_ref().map(|session| &session.identity))
                 .await;
         }
+        let refreshed = if announce_sign_in {
+            None
+        } else {
+            state.session.clone()
+        };
+        drop(state);
+        if let (Some(observer), Some(session)) = (&self.observer, refreshed) {
+            observer.session_refreshed(&session).await;
+        }
         Ok(())
     }
     pub async fn refresh(&self) -> Result<Status> {
