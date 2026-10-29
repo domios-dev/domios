@@ -68,9 +68,6 @@ export function AgentProviderPicker({
   const reducedMotion = usePrefersReducedMotion();
   const working = Boolean(busy || installBusy);
   const { matrix, emitWave } = useBusyWaves(working, Boolean(retry));
-  // The mark breathes every beat; its ring of dots goes out on every second beat.
-  const beat = useRef(0);
-  const emitEveryOtherBeat = (releasedAt: number) => { if (beat.current++ % 2 === 0) emitWave(releasedAt); };
 
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
@@ -122,7 +119,7 @@ export function AgentProviderPicker({
       <div className="my-auto flex w-fit max-w-full flex-col items-center gap-7" data-testid="agent-picker-group">
         {installError && <InlineErrorNotice error={installError} operation="installing this provider" blocking />}
         <div className="flex max-w-full flex-col items-center gap-4 text-center">
-          <BrandMark motion="load" size={72} onRelease={emitEveryOtherBeat} />
+          <BrandMark motion="load" size={72} onRelease={emitWave} beatEvery={2} />
           <div className="min-w-0">
             <h1
               id={headlineId}
