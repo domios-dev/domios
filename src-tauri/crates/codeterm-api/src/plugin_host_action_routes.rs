@@ -521,30 +521,38 @@ mod tests {
         let (cancel, cancelled) = tokio::sync::watch::channel(false);
         let request = super::UploadCancel(cancel);
         let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), far_deadline(), cancelled);
-        let reading = std::thread::spawn(move || reader.read(&mut [0; 8]).map_err(|error| error.kind()));
-        parks.recv().unwrap(); // the read is parked on the stalled body
+        let (done, finished) = std::sync::mpsc::channel();
+        std::thread::spawn(move || done.send(reader.read(&mut [0; 8]).map_err(|error| error.kind())));
+        // Failure bounds only: these waits end as soon as the event arrives.
+        parks.recv_timeout(FAILURE_BOUND).expect("the read parks on the stalled body");
         drop(request); // the request future went away
-        assert_eq!(reading.join().unwrap(), Err(std::io::ErrorKind::Interrupted));
+        assert_eq!(
+            finished.recv_timeout(FAILURE_BOUND).expect("the parked read wakes"),
+            Err(std::io::ErrorKind::Interrupted)
+        );
     }
 
-    #[test]
-    fn upload_reader_parked_on_a_stalled_body_ends_at_the_absolute_deadline() {
+    /// Real-time limit on a channel wait that should be satisfied at once; reached only on failure.
+    const FAILURE_BOUND: std::time::Duration = std::time::Duration::from_secs(30);
+
+    #[tokio::test(start_paused = true)]
+    async fn upload_reader_parked_on_a_stalled_body_ends_at_the_absolute_deadline() {
         use std::io::Read;
-        // Paused time on a runtime driven by its own thread: the parked wait fires at the deadline
-        // the moment the runtime is otherwise idle, without real waiting.
-        let runtime = tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().unwrap();
-        let handle = runtime.handle().clone();
-        let deadline = runtime.block_on(async { tokio::time::Instant::now() + std::time::Duration::from_secs(120) });
-        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-        let driver = std::thread::spawn(move || runtime.block_on(async { let _ = stopped.await; }));
+        // One driven runtime with paused time. While the reader runs on its blocking pool, the clock
+        // never auto-advances, so it moves only when this test advances it, after the read parked.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
         let (_chunks, parks, stream) = channel_body();
         let (_cancel, cancelled) = tokio::sync::watch::channel(false);
-        let mut reader = super::BodyReader::new(stream, handle, deadline, cancelled);
-        let reading = std::thread::spawn(move || reader.read(&mut [0; 8]).map_err(|error| error.kind()));
-        parks.recv().unwrap();
-        assert_eq!(reading.join().unwrap(), Err(std::io::ErrorKind::TimedOut));
-        let _ = stop.send(());
-        driver.join().unwrap();
+        let mut reader = super::BodyReader::new(stream, tokio::runtime::Handle::current(), deadline, cancelled);
+        let (done, finished) = std::sync::mpsc::channel();
+        let _reading = tokio::task::spawn_blocking(move || {
+            let _ = done.send(reader.read(&mut [0; 8]).map_err(|error| error.kind()));
+        });
+        let parked = tokio::task::spawn_blocking(move || parks.recv_timeout(FAILURE_BOUND)).await.unwrap();
+        parked.expect("the read parks on the stalled body before the clock moves");
+        tokio::time::advance(std::time::Duration::from_secs(120)).await;
+        let result = tokio::task::spawn_blocking(move || finished.recv_timeout(FAILURE_BOUND)).await.unwrap();
+        assert_eq!(result.expect("the parked read ends at the deadline"), Err(std::io::ErrorKind::TimedOut));
     }
 
     #[test]
