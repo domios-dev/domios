@@ -7,7 +7,7 @@ import type { SidebarWorkspaceDetailActions, SidebarWorkspaceDetailData } from "
 import { SidebarDnd } from "./sortable";
 import { publishNeighborGateways } from "../Neighbors/neighborGateways";
 
-vi.mock("../../lib/bridge", () => ({ invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock("../../lib/bridge", async actual => ({ ...await actual<object>(), invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../../hooks/useWorkspaceCrons", () => ({ useWorkspaceCrons: () => ({ jobs: [], refresh: () => {} }) }));
 vi.mock("./useGeneralJobs", () => ({ useGeneralJobs: () => ({ jobs: [], failed: false, refresh: () => {} }) }));
 vi.mock("../MeshPanel/useMeshData", () => ({ useMeshData: () => ({
