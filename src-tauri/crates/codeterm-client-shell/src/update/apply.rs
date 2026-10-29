@@ -2,9 +2,6 @@ use tauri_plugin_updater::UpdaterExt;
 use url::Url;
 
 use codeterm_update::apply::{begin_apply, ApplyOptions, ApplyResult};
-use codeterm_update::channel::{
-    default_endpoints_for_install_method, immutable_endpoint_for_release, Channel,
-};
 use codeterm_update::{manifest, InstallMethod, UpdatePhase, UpdateStateHandle};
 
 use crate::app_runtime::AppHandle;
@@ -42,30 +39,25 @@ pub(crate) async fn check_and_apply(
     check_and_apply_plugin(app, opts, update_state, server_stop).await
 }
 
-async fn resolve_manifest_endpoint(opts: &ApplyOptions) -> Result<String, String> {
-    if let Some(url) = &opts.manifest_url {
-        manifest::validate_url(url)?;
-        return Ok(url.clone());
-    }
-    if opts.channel == Channel::Stable {
-        let latest = codeterm_update::checker::latest_release_tag().await?;
-        return Ok(immutable_endpoint_for_release(
-            latest.repository,
-            &latest.tag,
-            opts.channel,
-            &opts.install_method,
-        ));
-    }
-    Ok(default_endpoints_for_install_method(opts.channel, &opts.install_method)[0].clone())
-}
-
 async fn check_and_apply_plugin(
     app: &AppHandle,
     opts: ApplyOptions,
     update_state: UpdateStateHandle,
     server_stop: std::sync::Arc<dyn ServerStop>,
 ) -> Result<ApplyResult, String> {
-    let endpoint_str = resolve_manifest_endpoint(&opts).await?;
+    let resolved_manifest = codeterm_update::checker::resolve_manifest(
+        &opts.install_method,
+        opts.channel,
+        opts.manifest_url.as_deref(),
+    )
+    .await?;
+    let endpoint_str = opts.manifest_url.clone().unwrap_or_else(|| {
+        codeterm_update::channel::default_endpoints_for_install_method(
+            opts.channel,
+            &opts.install_method,
+        )[0]
+        .clone()
+    });
 
     let endpoint = Url::parse(&endpoint_str)
         .map_err(|e| format!("invalid manifest URL '{}': {}", endpoint_str, e))?;
@@ -109,10 +101,10 @@ async fn check_and_apply_plugin(
         .build()
         .map_err(|e| format!("failed to build updater: {}", e))?;
 
-    let update = match updater.check().await {
+    let update = match prepare_update(&updater, &resolved_manifest) {
         Ok(u) => u,
         Err(e) => {
-            let msg = format!("updater.check() error: {}", e);
+            let msg = format!("updater.restore_update() error: {}", e);
             log::error!("[updater] {}", msg);
             return Err(msg);
         }
@@ -129,12 +121,12 @@ async fn check_and_apply_plugin(
         }
         None => {
             log::warn!(
-                "[updater] plugin returned None — running manual manifest probe (local={} os={} arch={})",
+                "[updater] plugin reported no applicable update (local={} os={} arch={})",
                 local_version,
                 target_os,
                 target_arch,
             );
-            diagnose_no_update(&endpoint_str, local_version).await;
+
             return Ok(ApplyResult::NoUpdate);
         }
     };
@@ -251,38 +243,18 @@ async fn restart_after_plugin_install(app: &AppHandle) -> Result<ApplyResult, St
     Ok(ApplyResult::Restarting)
 }
 
-async fn diagnose_no_update(endpoint: &str, local_version: &str) {
-    match manifest::fetch(endpoint).await {
-        Ok(m) => {
-            let plat_key = manifest::current_platform_key();
-            let has_payload = plat_key.is_some_and(|key| m.platforms.contains_key(key));
-            log::warn!(
-                "[updater] manual manifest probe: remote_version={} platform_key={} has_payload_for_platform={} platforms={:?}",
-                m.version,
-                plat_key.unwrap_or("<unknown>"),
-                has_payload,
-                m.platforms.keys().collect::<Vec<_>>(),
-            );
-            // The diagnostic must follow the same platform artifact rule as apply, not a bare version comparison.
-            match manifest::offered_version(local_version, &m, plat_key) {
-                Ok(Some(v)) => log::error!(
-                    "[updater] DIAGNOSTIC: manual compare says local {} < remote {} with a payload for '{}' (UPDATE AVAILABLE) but plugin returned None — likely a signature issue",
-                    local_version, v, plat_key.unwrap_or("<unknown>"),
-                ),
-                Ok(None) if has_payload => log::info!(
-                    "[updater] manual compare confirms local {} >= remote {} — already up to date",
-                    local_version, m.version,
-                ),
-                Ok(None) => log::info!(
-                    "[updater] manual compare: remote {} has no payload for platform '{}' — nothing to offer this client",
-                    m.version, plat_key.unwrap_or("<unknown>"),
-                ),
-                Err(e) => log::error!("[updater] manual diff parse error: {}", e),
-            }
-        }
-        Err(e) => log::warn!("[updater] manual manifest fetch failed: {}", e),
-    }
+fn prepare_update(
+    updater: &tauri_plugin_updater::Updater,
+    manifest: &manifest::Manifest,
+) -> Result<Option<tauri_plugin_updater::Update>, String> {
+    let raw = serde_json::to_value(manifest).map_err(|error| error.to_string())?;
+    updater
+        .restore_update(raw)
+        .map_err(|error| error.to_string())
 }
+
+#[cfg(test)]
+mod manifest_tests;
 
 #[cfg(test)]
 mod server_stop_tests;

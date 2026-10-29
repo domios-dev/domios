@@ -29,19 +29,12 @@ impl StagedDebianPackage {
 }
 
 pub async fn stage(manifest_url: Option<&str>) -> Result<Option<StagedDebianPackage>, String> {
-    let endpoint = match manifest_url {
-        Some(url) => url.to_string(),
-        None => {
-            let latest = crate::checker::latest_release_tag().await?;
-            crate::channel::immutable_endpoint_for_release(
-                latest.repository,
-                &latest.tag,
-                crate::Channel::Stable,
-                &crate::InstallMethod::Deb,
-            )
-        }
-    };
-    let manifest = crate::manifest::fetch(&endpoint).await?;
+    let manifest = crate::checker::resolve_manifest(
+        &crate::InstallMethod::Deb,
+        crate::Channel::Stable,
+        manifest_url,
+    )
+    .await?;
     if crate::manifest::offered_version(
         codeterm_build_info::version(),
         &manifest,
