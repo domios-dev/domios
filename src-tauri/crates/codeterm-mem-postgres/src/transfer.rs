@@ -369,7 +369,10 @@ impl PostgresMemStore {
             .map_err(db_error)?;
         self.fence.admit(&mut tx)?;
         visitor(&Snapshot(std::cell::RefCell::new(tx)))?;
-        if !self.fence.exclusive {
+        if self.fence.exclusive {
+            conn.simple_query("SELECT 1")
+                .map_err(|_| "postgres_memory_fence_lost: reopen the store".to_string())?;
+        } else {
             self.fence.check()?;
         }
         Ok(())

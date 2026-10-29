@@ -235,3 +235,40 @@ fn engine_try_operation_lock_refuses_competing_session() {
     tx.rollback().unwrap();
     fixture.store().clear_shadow(&ctx, true).unwrap();
 }
+
+#[test]
+#[ignore = "requires disposable pgvector and DOMIOS_TEST_POSTGRES_URL"]
+fn exclusive_snapshot_refuses_claim_loss_after_last_visitor_query() {
+    let mut fixture = Fixture::new();
+    fixture.store.take();
+    let before = persisted(&fixture);
+    let lease = MigrationLease::try_acquire(&fixture.url, fixture.options.clone()).unwrap();
+    let opened = lease.open(true).unwrap();
+    let store = opened
+        .fixture_backend()
+        .downcast_ref::<PostgresMemStore>()
+        .unwrap();
+    let pid: i32 = store
+        .fence
+        .client
+        .lock()
+        .query_one("SELECT pg_backend_pid()", &[])
+        .unwrap()
+        .get(0);
+    let visited = Cell::new(false);
+    let result = store.with_export_snapshot(&mut |snapshot| {
+        snapshot.table_counts()?;
+        assert!(fixture
+            .client()
+            .query_one("SELECT pg_terminate_backend($1, 5000)", &[&pid])
+            .unwrap()
+            .get::<_, bool>(0));
+        visited.set(true);
+        Ok(())
+    });
+    assert!(visited.get());
+    assert!(result.unwrap_err().contains("fence_lost"));
+    assert_eq!(persisted(&fixture), before);
+    drop(opened);
+    drop(lease);
+}
