@@ -49,7 +49,10 @@ fn starting_layout_requires_the_current_document_acknowledgement_once() {
 #[test]
 fn unavailable_starting_layout_is_not_ready_and_only_current_failure_can_open_recovery() {
     let failure = |generation| {
-        Url::parse(&format!("domios-starting-unavailable://localhost/{generation}")).unwrap()
+        Url::parse(&format!(
+            "domios-starting-unavailable://localhost/{generation}"
+        ))
+        .unwrap()
     };
     let layout = StartingLayout::default();
     assert!(layout.refuse(&failure(0)).is_none());
@@ -75,10 +78,7 @@ fn starting_eval_and_reveal_refusals_select_native_recovery_once() {
     for reveal_refused in [false, true] {
         let layout = StartingLayout::default();
         let generation = layout.begin();
-        let ready = Url::parse(&format!(
-            "domios-starting-ready://localhost/{generation}"
-        ))
-        .unwrap();
+        let ready = Url::parse(&format!("domios-starting-ready://localhost/{generation}")).unwrap();
         let called = std::cell::Cell::new(0);
         let refusal = || {
             called.set(called.get() + 1);
@@ -97,9 +97,11 @@ fn starting_eval_and_reveal_refusals_select_native_recovery_once() {
         assert!(!layout.request(generation, || -> Result<(), ()> {
             panic!("A resolved document must not evaluate again")
         }));
-        assert!(layout.reveal(&ready, || -> Result<(), ()> {
-            panic!("A failed document must not reveal")
-        }).is_none());
+        assert!(layout
+            .reveal(&ready, || -> Result<(), ()> {
+                panic!("A failed document must not reveal")
+            })
+            .is_none());
         layout.begin();
         assert!(!layout.recovery_active(generation));
         assert!(!layout.claim_recovery(generation));
@@ -125,14 +127,17 @@ async fn starting_missing_acknowledgement_deadline_selects_failure_never_readine
     assert!(!layout.awaiting(generation));
     assert!(layout.claim_recovery(generation));
     assert!(!layout.claim_recovery(generation));
-    assert!(!layout.observe_failure(generation, std::future::ready(Err(()))).await);
-    let ready = Url::parse(&format!(
-        "domios-starting-ready://localhost/{generation}"
-    ))
-    .unwrap();
-    assert!(layout.reveal(&ready, || -> Result<(), ()> {
-        panic!("Expiry cannot reveal the window")
-    }).is_none());
+    assert!(
+        !layout
+            .observe_failure(generation, std::future::ready(Err(())))
+            .await
+    );
+    let ready = Url::parse(&format!("domios-starting-ready://localhost/{generation}")).unwrap();
+    assert!(layout
+        .reveal(&ready, || -> Result<(), ()> {
+            panic!("Expiry cannot reveal the window")
+        })
+        .is_none());
 }
 
 #[tokio::test]
@@ -146,18 +151,23 @@ async fn starting_success_replacement_and_destruction_resolve_the_failure_wait()
             .is_pending());
         match resolution {
             "ready" => {
-                let ready = Url::parse(&format!(
-                    "domios-starting-ready://localhost/{generation}"
-                )).unwrap();
+                let ready =
+                    Url::parse(&format!("domios-starting-ready://localhost/{generation}")).unwrap();
                 assert!(layout.reveal(&ready, || Ok::<(), ()>(())).is_none());
                 assert!(!layout.awaiting(generation));
             }
-            "replaced" => { layout.begin(); }
+            "replaced" => {
+                layout.begin();
+            }
             "destroyed" => layout.retire(),
             _ => unreachable!(),
         }
         wait.await;
-        assert!(!layout.observe_failure(generation, std::future::ready(Err(()))).await);
+        assert!(
+            !layout
+                .observe_failure(generation, std::future::ready(Err(())))
+                .await
+        );
         assert!(!layout.claim_recovery(generation));
     }
 }
@@ -177,12 +187,15 @@ fn starting_port_failures_cannot_select_recovery_for_a_replaced_generation() {
     let ready = Url::parse(&format!(
         "domios-starting-ready://localhost/{}",
         layout.generation()
-    )).unwrap();
+    ))
+    .unwrap();
     let replaced = layout.generation();
-    assert!(layout.reveal(&ready, || {
-        layout.begin();
-        Err::<(), _>("old reveal refused")
-    }).is_none());
+    assert!(layout
+        .reveal(&ready, || {
+            layout.begin();
+            Err::<(), _>("old reveal refused")
+        })
+        .is_none());
     assert!(!layout.claim_recovery(replaced));
     assert!(layout.awaiting(layout.generation()));
 }

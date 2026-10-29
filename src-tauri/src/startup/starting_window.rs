@@ -33,8 +33,13 @@ pub(crate) fn show(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 let generation = page_layout.generation();
                 if page_layout.request(generation, || {
-                    window.eval(&format!("window.__DOMIOS_STARTING_READY__?.({generation})"))
-                        .inspect_err(|error| log::debug!("[startup] starting document layout request failed: {error}"))
+                    window
+                        .eval(&format!("window.__DOMIOS_STARTING_READY__?.({generation})"))
+                        .inspect_err(|error| {
+                            log::debug!(
+                                "[startup] starting document layout request failed: {error}"
+                            )
+                        })
                 }) {
                     super::frontend_shell::initial_document::show_layout_failure(
                         window.app_handle(),
@@ -47,7 +52,8 @@ pub(crate) fn show(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         .on_navigation(move |url| {
             if url.scheme() == super::frontend_shell::initial_document::STARTING_READY_SCHEME {
                 if let Some(generation) = navigation_layout.reveal(url, || {
-                    let window = handle.get_webview_window("starting")
+                    let window = handle
+                        .get_webview_window("starting")
                         .ok_or_else(|| "Starting window is no longer available".to_string())?;
                     window.show().map_err(|error| {
                         log::debug!("[startup] prepared starting window reveal failed: {error}");

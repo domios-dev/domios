@@ -89,8 +89,7 @@ impl StartingLayout {
         self.0.send_if_modified(|state| {
             let may_fail = state.phase == StartingPhase::Awaiting
                 || (!awaiting_only && state.phase == StartingPhase::Ready);
-            if generation == 0 || state.generation != generation || !may_fail
-            {
+            if generation == 0 || state.generation != generation || !may_fail {
                 return false;
             }
             state.phase = StartingPhase::Failed;
