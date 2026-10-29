@@ -1,6 +1,8 @@
 // Run: npx tsx src/components/Terminal/chatBodyVisibility.test.ts
 
 import { describe, expect, finish, it } from "../../test/standaloneTest";
+import { firstTurnLocalSends, isFirstTurnLocalRow } from "./firstTurnLocalRows";
+import { sendRow } from "@codeterm/chat-core";
 import {
   chatBodyView,
   chatChannelLoadingRow,
@@ -31,11 +33,23 @@ function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
 }
 
 describe("chat body authority", () => {
-  it("an empty first-turn-ready composer does not wait for a nonexistent transcript", () => {
+  it("pending first-turn rendering selects only exact current-attempt local sends", () => {
+    const send = { id: "own-send", correlationId: "own-send", content: "opaque", sentAtMs: 1,
+      localAttempt: { ptyId: "own-pty", bindingNonce: "own-nonce" } };
+    const own = firstTurnLocalSends([send], "own-pty", "own-nonce");
+    expect(own.length).toBe(1);
+    expect(firstTurnLocalSends([send], "other-pty", "own-nonce").length).toBe(0);
+    expect(firstTurnLocalSends([send], "own-pty", "other-nonce").length).toBe(0);
+    expect(isFirstTurnLocalRow(sendRow(send), own)).toBe(true);
+    expect(isFirstTurnLocalRow({ ...sendRow(send), sourceSessionId: "foreign-session" }, own)).toBe(false);
+    expect(isFirstTurnLocalRow({ ...sendRow(send), content: "cached-content" }, own)).toBe(false);
+    expect(isFirstTurnLocalRow({ ...sendRow(send), id: "cached-row" }, own)).toBe(false);
+  });
+  it("a first-turn-ready composer does not wait for a nonexistent transcript", () => {
     const input = { firstTurnReady: true, snapshotReady: false, hasTranscript: false,
       chatLoading: false, unavailable: null, bootView: { kind: "none" as const } };
     expect(chatBodyView(input).kind).toBe("none");
-    expect(chatBodyView({ ...input, hasTranscript: true }).kind).toBe("starting");
+    expect(chatBodyView({ ...input, hasTranscript: true }).kind).toBe("none");
     expect(chatBodyView({ ...input, firstTurnReady: false }).kind).toBe("starting");
     expect(chatBodyView({ ...input, attachmentError: "opaque-refusal" }).kind).toBe("attach_failed");
     expect(chatBodyView({ ...input, locked: true }).kind).toBe("locked");

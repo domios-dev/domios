@@ -106,6 +106,7 @@ export function useChatSession({
   retainAttachment = false,
   diagnosticSink,
   allowUnboundAuthority = false,
+  localAttempt,
   followTailRef: suppliedFollowTailRef,
   history,
   live = true,
@@ -120,6 +121,7 @@ export function useChatSession({
   diagnosticSink?: ChatSessionDiagnosticSink;
   /** Plugin chatBackend tabs have tab-owned backing without a PTY session id. */
   allowUnboundAuthority?: boolean;
+  localAttempt?: import("./chatDeliveryModel").DeliverySend["localAttempt"];
   followTailRef?: MutableRefObject<boolean>;
   /** Runtime history replay state; its completion re-reads the transcript snapshot. */
   history?: RuntimeHistoryState;
@@ -452,6 +454,7 @@ export function useChatSession({
   }, [tabId]);
 
   const view = useChatWindowView({
+    localAttempt,
     tabId,
     agentSessionId,
     windowKey,
