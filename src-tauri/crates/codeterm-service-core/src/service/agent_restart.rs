@@ -481,16 +481,25 @@ impl ServiceContext {
             self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
                 .map_err(AgentRestartError::Internal)?;
         }
-        if model_switch.is_some_and(|launch| {
-            launch.is_sessionless() && !launch.sessionless_is_current(self, &snap)
-        }) {
-            return Err(AgentRestartError::BadRequest(
-                "first-turn launch changed before model switch".into(),
-            )
-            .into());
-        }
-        crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
-        if let Err(reason) = self.tear_down_restart_pty(&snap) {
+        let teardown = || {
+            crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
+            self.tear_down_restart_pty(&snap)
+        };
+        let teardown_result =
+            if let Some(launch) = model_switch.filter(|launch| launch.is_sessionless()) {
+                launch.teardown_sessionless_switch(self, &snap, teardown, || {
+                    launch.commit(self, &snap.tab_id)
+                })
+            } else {
+                teardown().map_err(model_switch::SessionlessTeardownError::Teardown)
+            };
+        if let Err(error) = teardown_result {
+            let reason = match error {
+                model_switch::SessionlessTeardownError::Admission(error) => {
+                    return Err(error.into())
+                }
+                model_switch::SessionlessTeardownError::Teardown(reason) => reason,
+            };
             crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
                 outcome,
@@ -522,7 +531,7 @@ impl ServiceContext {
             }
             self.schedule_session_persist_debounced();
         }
-        if let Some(launch) = model_switch {
+        if let Some(launch) = model_switch.filter(|launch| !launch.is_sessionless()) {
             launch.commit(self, &snap.tab_id);
         }
 

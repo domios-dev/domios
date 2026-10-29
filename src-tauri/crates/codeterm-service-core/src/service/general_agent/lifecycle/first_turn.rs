@@ -79,7 +79,6 @@ fn publish(svc: &ServiceContext, attempt: &LaunchAttempt) {
         return;
     }
     svc.record_first_turn_input_ready(attempt, "provider composer accepts the first user turn");
-    svc.wake_parked_user_send(&attempt.tab_id);
     svc.emit_state_changed(MuxEmitCause::GeneralAgent);
 }
 

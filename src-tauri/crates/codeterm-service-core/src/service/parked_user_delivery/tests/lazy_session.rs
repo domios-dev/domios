@@ -85,6 +85,7 @@ fn restart_first_send_case(resumed: bool) {
     );
 
     let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert!(fixture.service.latch_user_input_authority(&authority));
     assert!(!fixture.service.user_authority_is_ready(&authority));
 
     let (writes_tx, writes_rx) = mpsc::channel();

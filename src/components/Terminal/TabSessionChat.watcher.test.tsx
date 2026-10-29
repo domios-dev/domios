@@ -257,10 +257,17 @@ async function firstSendTransition(sessionId: string | null) {
     localAttempt: { ptyId: "prior-pty", bindingNonce: "prior-nonce" } });
   let bound = false;
   let resolveSnapshot!: (value: unknown) => void;
+  // A resumed binding keeps its SID/nonce, so its existing attach must stay pending.
+  const snapshot = new Promise<unknown>(resolve => { resolveSnapshot = resolve; });
+  let pendingSnapshotRequests = 0;
   let token = "";
   const text = "opaque-first-user-value";
   const { host, root, updateTab, commands, emitChat } = await renderTabSessionChat(tabId, state,
-    () => bound ? new Promise(resolve => { resolveSnapshot = resolve; }) : ({ text: "", offset: 0, pending: true, messages: [] }),
+    () => {
+      if (!bound && sessionId == null) return { text: "", offset: 0, pending: true, messages: [] };
+      pendingSnapshotRequests += 1;
+      return snapshot;
+    },
     (name, args) => {
       if (name === "chat_send_status" || name === "chat_send_dismissals" || name === "chat_send_admissions") return [];
       if (name === "chat_send_text") {
@@ -302,8 +309,10 @@ async function firstSendTransition(sessionId: string | null) {
     assert(bubbleCount() === 1, "binding does not hide the bubble while the snapshot is pending");
     const local = sends.readChatSends(tabId).find(send => send.correlationId === token);
     assert(local, "own local record remains retained");
+    assert(pendingSnapshotRequests > 0, "the current session has requested its deferred snapshot");
     const echo = { id: "provider-user-row", type: "user" as const, content: text, timestamp: String(local.sentAtMs + 1), correlationId: token };
     await act(async () => resolveSnapshot({ text: "", offset: 1, messages: [echo] }));
+    assert(host.querySelector('[data-testid="tab-session-chat"]')?.getAttribute("data-snapshot-ready") === "true", "the bound session adopts its authoritative snapshot");
     assert(bubbleCount() === 1, "snapshot echo replaces the local projection without a duplicate");
     await act(async () => emitChat({ tab_id: tabId, source_session_id: "own-session", session_binding_nonce: "own-nonce", messages: [echo] }));
     assert(bubbleCount() === 1, "live echo keeps the same logical send once");
