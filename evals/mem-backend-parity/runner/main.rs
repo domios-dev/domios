@@ -8,8 +8,6 @@ use codeterm_mem_postgres::PostgresOptions;
 use sha2::{Digest, Sha256};
 use std::{path::PathBuf, process::Command};
 
-const POSTGRES_URL: &str = "postgresql://domios_parity:domios_parity@127.0.0.1:55439/domios_parity";
-
 struct Options {
     embedder: String,
     model: Option<String>,
@@ -47,6 +45,24 @@ fn hash(bytes: &[u8]) -> String {
 }
 
 fn run(options: Options) -> Result<i32, String> {
+    let postgres_url = std::env::var("MEM_PARITY_POSTGRES_URL")
+        .map_err(|_| "MEM_PARITY_POSTGRES_URL is required".to_string())?;
+    let config: postgres::Config = postgres_url
+        .parse()
+        .map_err(|_| "invalid MEM_PARITY_POSTGRES_URL".to_string())?;
+    let scheme = postgres_url
+        .split_once("://")
+        .map(|(scheme, _)| scheme)
+        .filter(|scheme| matches!(*scheme, "postgres" | "postgresql"))
+        .ok_or("MEM_PARITY_POSTGRES_URL must be a Postgres URL")?;
+    let [postgres::config::Host::Tcp(host)] = config.get_hosts() else {
+        return Err("MEM_PARITY_POSTGRES_URL must have one TCP host".into());
+    };
+    let redacted_url = format!(
+        "{scheme}://{host}:{}/{}",
+        config.get_ports().first().copied().unwrap_or(5432),
+        config.get_dbname().ok_or("Postgres database is required")?
+    );
     let (corpus, queries) = fixture::read()?;
     let Some(prepared) = embedding::prepare(
         &options.embedder,
@@ -75,7 +91,7 @@ fn run(options: Options) -> Result<i32, String> {
         "query_vectors_sha256": hash(&serde_json::to_vec(&prepared.queries).map_err(|e| e.to_string())?),
         "search_config": format!("{:?}", codeterm_mem::search::SearchConfig::default()),
         "sqlite_vector_implementation": "exact scan without codeterm-mem/embeddings; sqlite-vec when that feature is enabled",
-        "postgres_url": POSTGRES_URL,
+        "postgres_url": redacted_url,
     });
     println!("INPUTS {input}");
     std::fs::write(
@@ -97,7 +113,7 @@ fn run(options: Options) -> Result<i32, String> {
     }
     let schema = format!("parity_{}", ulid::Ulid::new().to_string().to_lowercase());
     let postgres = codeterm_mem_postgres::open(
-        POSTGRES_URL,
+        &postgres_url,
         PostgresOptions {
             schema: schema.clone(),
             ..PostgresOptions::default()
@@ -138,7 +154,7 @@ fn run(options: Options) -> Result<i32, String> {
         })
     })();
     drop(postgres);
-    let cleanup = postgres::Client::connect(POSTGRES_URL, postgres::NoTls)
+    let cleanup = postgres::Client::connect(&postgres_url, postgres::NoTls)
         .and_then(|mut client| client.batch_execute(&format!("DROP SCHEMA {schema} CASCADE")))
         .map_err(|e| format!("disposable schema cleanup failed: {e}"));
     cleanup?;

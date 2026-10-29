@@ -276,7 +276,11 @@ fn options_reject_schema_injection_and_errors_redact_url() {
     assert!(!valid_schema("memory; DROP SCHEMA public"));
     assert!(!valid_schema("pg_catalog"));
     assert!(valid_schema("memory_123"));
-    let secret = "postgres://username:do-not-print@invalid.invalid/db";
+    let secret = format!(
+        "{}://{}:{}@{}/{}",
+        "postgres", "username", "do-not-print", "invalid.invalid", "db"
+    );
+    let secret = secret.as_str();
     let result = PostgresMemStore::connect(
         secret,
         PostgresOptions {

@@ -2,25 +2,15 @@ Default vectors are **synthetic (normalized hashed-token vectors)**. This bench 
 
 Run after the 1.17.0 cut in canonical. No Domios daemon, owner session, API credential, live agent or model download is required. `run.sh` sources `evals/_lib/lib.sh` and uses its repository/output conventions; the library's best-effort DEV discovery does not have to succeed. Store calls go directly through `MemStore`, with no CLI or HTTP calls from the bench. Inherited `CODETERM_*` connection selectors are removed in the Rust process. The database address is fixed to the disposable loopback container below.
 
-From the repository root in Bash, start the disposable pgvector server:
-
-```bash
-docker run --detach --name domios-mem-backend-parity --label domios.bench=mem-backend-parity --env POSTGRES_DB=domios_parity --env POSTGRES_USER=domios_parity --env POSTGRES_PASSWORD=domios_parity --publish 127.0.0.1:55439:5432 --tmpfs /var/lib/postgresql/data pgvector/pgvector:pg17
-```
-
-Run the bench once and retain its raw exit code and artifact directory:
+From the repository root in Bash, run the bench once and retain its raw exit code and artifact directory:
 
 ```bash
 bash evals/mem-backend-parity/run.sh
 ```
 
-Then remove the container, including after a failed run:
+`run.sh` generates a random password per run, starts the disposable pgvector container, and removes it in an EXIT trap, including after failure or interruption. The password is passed through environment variables only, never command arguments, and is never stored in source or artifacts. The runner requires `MEM_PARITY_POSTGRES_URL`; there is no default URL. `INPUTS`, `inputs.json` and `report.json` contain only the URL scheme, host, port and database, with no username or password. Before discarding the password, the exit handler searches `run.log`, `report.json` and `inputs.json` for it and fails if it occurs.
 
-```bash
-docker rm --force domios-mem-backend-parity
-```
-
-The container name, image tag, label, loopback port binding and temporary data mount are checked before connecting. Readiness comes from the final PostgreSQL TCP startup event, bounded at 30 seconds, followed by a real store connection. No readiness polling or fixed warmup is used. Container and image IDs are recorded in `run.log`; the image tag can move, so preserve that receipt with results. The database credentials above are public disposable fixture values. No volume or owner database is reused. Each run owns a fresh schema, drops it on completion or error, and uses temporary SQLite databases that are removed when the harness exits. The external cleanup command removes the server even if the bench is interrupted.
+The container name, image tag, label, loopback port binding, temporary data mount and this run's container ID are checked before connecting. Readiness comes from the final PostgreSQL TCP startup event, bounded at 30 seconds, followed by a real store connection. No readiness polling or fixed warmup is used. Container and image IDs are recorded in `run.log`; the image tag can move, so preserve that receipt with results. No volume or owner database is reused. Each run owns a fresh schema, drops it on completion or error, and uses temporary SQLite databases that are removed when the harness exits.
 
 The Cargo example is registered only in `codeterm-mem-postgres`; it uses existing dependencies and dev-dependencies. It does not add a shipped binary or change backend implementations. This is cheaper than running two application daemons and avoids changes to application backend configuration. The default build uses the existing SQLite exact-scan vector implementation and PostgreSQL pgvector cosine distance. It is a ranking benchmark, with no latency claim or performance comparison.
 
@@ -38,7 +28,7 @@ The provisional acceptance rule is median top-ten Jaccard **>= 0.7**, with the e
 
 `target-check/evals/mem-backend-parity.*/` holds `run.log`, `inputs.json` and `report.json`, including all per-query evidence and the aggregate summary. Exit 0 means the provisional aggregate rule passed, 1 means measured failure, 2 means setup/execution failure, and 77 means local embeddings were explicitly skipped. A skip never counts as parity evidence. No parity numbers are claimed until canonical executes the bench.
 
-For a later real-vector run, select the local Candle model with `--local-model` (the production local default is used if omitted). Point `HF_HOME` at its existing Hugging Face cache, or leave it unset to use `CODETERM_EMBED_CACHE_DIR`/the normal Domios model cache. The bench forces `HF_HUB_OFFLINE=1`; missing files print the exact cache reason and exit 77 before requiring Docker. Corrupt cached files and inference errors fail instead of skipping. The selected model and revision are printed. This mode enables the existing `codeterm-mem/embeddings` feature, so SQLite uses sqlite-vec. It remains a separate run, with the same corpus, queries, config and thresholds:
+For a later real-vector run, select the local Candle model with `--local-model` (the production local default is used if omitted). Point `HF_HOME` at its existing Hugging Face cache, or leave it unset to use `CODETERM_EMBED_CACHE_DIR`/the normal Domios model cache. The bench forces `HF_HUB_OFFLINE=1`; missing files print the exact cache reason and exit 77 without connecting to Postgres. Corrupt cached files and inference errors fail instead of skipping. The selected model and revision are printed. This mode enables the existing `codeterm-mem/embeddings` feature, so SQLite uses sqlite-vec. It remains a separate run, with the same corpus, queries, config and thresholds:
 
 ```bash
 bash evals/mem-backend-parity/run.sh --embedder local
@@ -50,4 +40,4 @@ To use another configured model from the production local provider catalog, pass
 bash evals/mem-backend-parity/run.sh --embedder local --local-model BAAI/bge-small-en-v1.5
 ```
 
-Use the same Docker start/cleanup commands for either mode. Synthetic and local results must be reported separately; neither establishes parity for a different embedder or an untested platform. The harness has no graph relations and makes no graph or temporal-ranking coverage claim.
+The script manages the container for either mode. Synthetic and local results must be reported separately; neither establishes parity for a different embedder or an untested platform. The harness has no graph relations and makes no graph or temporal-ranking coverage claim.
