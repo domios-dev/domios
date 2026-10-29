@@ -11,57 +11,26 @@ pub fn launch_waits_for_first_turn_binding(
     has_startup_task_turn: bool,
     origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
 ) -> bool {
-    let resume_session_id = svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .and_then(|tab| tab.agent_session_id.clone());
-    launch_waits_for_first_turn_binding_with_resume_session(
-        svc,
-        agent_cmd,
-        has_startup_task_turn,
-        origin,
-        resume_session_id.as_deref(),
-    )
+    let _ = (tab_id, origin);
+    launch_waits_for_first_turn_input(svc, agent_cmd, has_startup_task_turn)
 }
 
-pub(super) fn launch_waits_for_first_turn_binding_with_resume_session(
+pub(super) fn launch_waits_for_first_turn_input(
     svc: &ServiceContext,
     agent_cmd: &str,
     has_startup_task_turn: bool,
-    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
-    resume_session_id: Option<&str>,
 ) -> bool {
-    let provider_starts_session_on_first_turn = svc
+    let lazy = svc
         .agent_registry
         .with_provider(agent_cmd, |provider| {
             provider.session_starts_on_first_user_turn()
         })
         .unwrap_or(false);
-    let restored_resume = restored_resume_has_session(origin, resume_session_id);
-    first_turn_binding_required(
-        provider_starts_session_on_first_turn,
-        has_startup_task_turn,
-        restored_resume,
-    )
+    first_turn_binding_required(lazy, has_startup_task_turn)
 }
 
-pub(super) fn restored_resume_has_session(
-    origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
-    resume_session_id: Option<&str>,
-) -> bool {
-    matches!(
-        origin,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot
-    ) && resume_session_id.is_some_and(|session_id| !session_id.trim().is_empty())
-}
-
-pub(super) fn first_turn_binding_required(
-    provider_starts_session_on_first_turn: bool,
-    has_startup_task_turn: bool,
-    restored_resume: bool,
-) -> bool {
-    provider_starts_session_on_first_turn && !restored_resume && !has_startup_task_turn
+pub(super) fn first_turn_binding_required(lazy: bool, has_startup_task_turn: bool) -> bool {
+    lazy && !has_startup_task_turn
 }
 
 pub(super) fn provider_ready_stage(
@@ -82,8 +51,14 @@ pub(super) fn finish_waiting_for_first_turn(
     if !matches!(settlement, LaunchSettlement::AwaitingFirstTurn) {
         return None;
     }
-    if let Some(finished) = super::resume_binding::finish_unbound_relaunch(launch, svc, origin) {
-        return Some(finished);
+    let input_ready = svc.mux.read().get_tab(&launch.tab_id).is_some_and(|tab| {
+        launch.attempt().as_ref().is_some_and(|attempt| {
+            crate::service::launch_readiness::attempt_owns_tab(tab, attempt)
+                && crate::service::boot_stage::first_turn_input_is_ready(tab)
+        })
+    });
+    if !input_ready {
+        return super::resume_binding::finish_unbound_relaunch(launch, svc, origin).or(Some(false));
     }
     let finished = LAUNCH_REGISTRY.lock().finish(launch);
     if let Some(attempt) = launch.attempt() {

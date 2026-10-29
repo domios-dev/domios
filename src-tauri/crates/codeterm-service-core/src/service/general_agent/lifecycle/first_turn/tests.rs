@@ -102,11 +102,10 @@ fn fixture(live_tui: bool, structural: bool, composer: bool) -> (ServiceFixture,
 }
 
 #[test]
-fn only_a_fresh_lazy_general_without_bootstrap_waits_for_user_input() {
-    assert!(awaiting_user_turn(true, false, false));
-    assert!(!awaiting_user_turn(false, false, false));
-    assert!(!awaiting_user_turn(true, true, false));
-    assert!(!awaiting_user_turn(true, false, true));
+fn fresh_and_resumed_lazy_general_without_bootstrap_wait_for_user_input() {
+    assert!(awaiting_user_turn(true, false));
+    assert!(!awaiting_user_turn(false, false));
+    assert!(!awaiting_user_turn(true, true));
 }
 
 #[test]
@@ -166,6 +165,42 @@ fn prepare_requires_declared_structural_composer_and_live_tui() {
         assert!(tab.agent_session_id.is_none());
         assert!(tab.pending_delivery.is_none());
     }
+}
+
+#[test]
+fn resumed_general_publishes_composer_readiness_without_a_turn_or_binding_deadline() {
+    let (fixture, attempt) = fixture(true, true, true);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&attempt.tab_id)
+        .unwrap()
+        .agent_session_id = Some("own-resume-session".into());
+    assert!(prepare(
+        &fixture.service,
+        &attempt,
+        "lazy-fixture",
+        true,
+        false
+    ));
+    fixture.service.record_provisional_launch(
+        &attempt,
+        BootStage::LaunchBindingUnconfirmed,
+        "binding deadline",
+    );
+    let tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&attempt.tab_id)
+        .unwrap()
+        .clone();
+    assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
+    assert!(crate::service::boot_stage::first_turn_input_is_ready(&tab));
+    assert_eq!(tab.agent_session_id.as_deref(), Some("own-resume-session"));
+    assert!(tab.pending_delivery.is_none());
+    assert!(!tab.launch_session_authenticated());
 }
 
 #[test]

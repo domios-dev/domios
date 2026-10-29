@@ -266,7 +266,7 @@ pub(crate) fn surviving_shell_exit_is_after_launch_ack(tab: &Tab) -> bool {
 
 fn launch_attempt_is_waiting_for_first_turn(tab: &Tab, attempt: &LaunchAttempt) -> bool {
     attempt_owns_tab(tab, attempt)
-        && tab.boot_stage == Some(BootStage::AgentReady)
+        && crate::service::boot_stage::first_turn_input_is_ready(tab)
         && tab.exit_suspected_at.is_none()
 }
 

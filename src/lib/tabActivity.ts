@@ -63,8 +63,8 @@ const startingStages = new Set<Tab["boot_stage"]>([
 
 export function lazyFirstTurnComposerIsLive(tab: TabActivityInput | null | undefined): boolean {
   const launch = tab?.provisional_launch;
-  return tab?.boot_stage === "launch_binding_unconfirmed"
-    && !tab.frozen && !tab.agent_booting && !tab.agent_session_id
+  return tab?.boot_stage === "provider_ready"
+    && !tab.frozen && !tab.agent_booting
     && launch?.awaiting_binding_ack === true
     && launch.first_turn_input_ready === true
     && Boolean(tab.pty_id)

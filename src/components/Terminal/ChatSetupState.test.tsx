@@ -84,7 +84,7 @@ async function main() {
 
   await test("live lazy composer ends startup overlay while binding is pending", () => {
     const composer = {
-      ...tab("launch_binding_unconfirmed"),
+      ...tab("provider_ready"),
       pty_id: "own-pty",
       session_binding_nonce: "own-nonce",
       provisional_launch: {

@@ -387,9 +387,13 @@ impl ServiceContext {
         }
         let session_present = !provider_changed && !session_was_stale && snap.session_id.is_some();
         let relaunch = match model_switch {
-            Some(launch) if session_present => launch
-                .command(self, &snap)
-                .map(|(command, task)| (command.with_stub(&snap.provider), task)),
+            Some(launch)
+                if session_present || (snap.session_id.is_none() && launch.is_sessionless()) =>
+            {
+                launch
+                    .command(self, &snap)
+                    .map(|(command, task)| (command.with_stub(&snap.provider), task))
+            }
             Some(_) => None,
             None => relaunch::build_relaunch(self, &snap, session_present)
                 .map(|relaunch| (relaunch.command, relaunch.task)),
@@ -476,6 +480,14 @@ impl ServiceContext {
         if mode == RestartMode::Fresh {
             self.end_held_user_sends_for_fresh_restart(&snap.tab_id)
                 .map_err(AgentRestartError::Internal)?;
+        }
+        if model_switch.is_some_and(|launch| {
+            launch.is_sessionless() && !launch.sessionless_is_current(self, &snap)
+        }) {
+            return Err(AgentRestartError::BadRequest(
+                "first-turn launch changed before model switch".into(),
+            )
+            .into());
         }
         crate::service::orchestrator::supersede_tab_launch(&snap.tab_id);
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
@@ -794,10 +806,33 @@ impl ServiceContext {
             .resolve_tab_id(tab_id)
             .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
         let liveness = crate::agent::live_state::observe_tab_liveness(self, &resolved);
+        let first_turn_pty = self
+            .mux
+            .read()
+            .get_tab(&resolved)
+            .and_then(|tab| tab.pty_id.clone());
+        if liveness == AgentLiveness::Unobserved
+            && self.lazy_first_turn_restart_ready(&resolved)
+            && first_turn_pty.is_some_and(|id| self.pty.lock().get_session(&id).is_some())
+        {
+            return Ok(());
+        }
         if liveness == AgentLiveness::Absent {
             self.reconcile_tab_restored_without_agent(&resolved);
         }
         require_observed_live_agent(liveness)
+    }
+
+    fn lazy_first_turn_restart_ready(&self, tab_id: &str) -> bool {
+        let tab = self.mux.read().get_tab(tab_id).cloned();
+        tab.is_some_and(|tab| {
+            crate::service::boot_stage::first_turn_input_is_ready(&tab)
+                && tab.agent_type.as_deref().is_some_and(|provider| {
+                    self.agent_registry
+                        .with_provider(provider, |p| p.session_starts_on_first_user_turn())
+                        == Some(true)
+                })
+        })
     }
 
     fn require_background_work_safe(

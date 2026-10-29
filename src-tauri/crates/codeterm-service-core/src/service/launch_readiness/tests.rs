@@ -878,7 +878,7 @@ fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
         tab.agent_session_id = Some("saved-session".into());
         tab.session_binding_nonce = Some("resume-nonce".into());
         tab.pty_id = Some(pty_id.into());
-        tab.boot_stage = Some(BootStage::AgentReady);
+        tab.boot_stage = Some(BootStage::ProviderReady);
     }
     let harness = crate::service::test_fixture::ServiceFixture::new(mux);
     {
@@ -899,6 +899,9 @@ fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
         pty_id: pty_id.into(),
         binding_nonce: "resume-nonce".into(),
     };
+    harness
+        .service
+        .record_first_turn_input_ready(&attempt, "opaque structural composer evidence");
     arm(attempt.clone());
 
     let settlement = harness
@@ -909,7 +912,7 @@ fn unbound_resume_with_live_pty_is_not_spawn_failed_at_deadline() {
     assert_eq!(settlement, LaunchSettlement::AwaitingFirstTurn);
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("restored tab stays present");
-    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
     assert_eq!(tab.boot_failure_reason, None);
     assert_eq!(tab.agent_session_id.as_deref(), Some("saved-session"));
     drop(mux);
