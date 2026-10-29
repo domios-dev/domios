@@ -70,7 +70,7 @@ export function AgentProviderPicker({
   const { matrix, emitWave } = useBusyWaves(working, Boolean(retry));
   // The mark breathes every beat; its ring of dots goes out on every second beat.
   const beat = useRef(0);
-  const emitEveryOtherBeat = () => { if (beat.current++ % 2 === 0) emitWave(); };
+  const emitEveryOtherBeat = (releasedAt: number) => { if (beat.current++ % 2 === 0) emitWave(releasedAt); };
 
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
