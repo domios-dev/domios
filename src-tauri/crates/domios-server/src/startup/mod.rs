@@ -3,6 +3,7 @@ pub(crate) mod background_init;
 mod conpty_host;
 pub(crate) mod early_api;
 mod listener_policy;
+mod mesh_announce;
 mod model_catalogue;
 mod plan_restore;
 mod restore_complete;
