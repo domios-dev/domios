@@ -2713,7 +2713,7 @@ button {
 }
 
 /* The scroll area meets the divider; its own bottom padding keeps the last row off the line. */
-.sidebar-recently-closed {
+.sidebar-neighbors-section {
   margin-top: 0;
 }
 

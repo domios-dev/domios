@@ -3,40 +3,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { RecentlyClosed } from "../Sidebar/RecentlyClosed";
 import { RestoredShell } from "../Terminal/RestoredShell";
 import { __setInvokeForTest } from "../../lib/bridge";
-import type { ClosedStructureView, Tab } from "../../lib/types";
+import type { Tab } from "../../lib/types";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { tabPanelNavigationStore } from "../Terminal/tabPanel/tabPanelNavigation";
-
-const record: ClosedStructureView = {
-  id: "close-record", kind: "team", label: "Editors", state: "closed", closed_at: 100,
-  undo_until: 700, member_count: 4, team_count: 1, shell_count: 1, agent_count: 3,
-  cron_count: 1, blueprint_count: 1,
-};
 
 function mount() {
   const host = document.createElement("div");
   document.body.append(host);
   return { host, root: createRoot(host) };
 }
-
-test("Recently Closed routes a closed record to one restore handler and hides it once restored", async () => {
-  const { host, root } = mount();
-  const calls: string[] = [];
-  const restore = async (id: string) => { calls.push(id); };
-  await act(async () => root.render(<RecentlyClosed views={[]} structures={[record]} showWorkspace={false} onReopen={() => {}} onReopenGroup={restore} />));
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="recently-closed"] button')!.click());
-  const restoreButton = host.querySelector<HTMLButtonElement>('button[aria-label="Restore Editors"]');
-  assert.ok(restoreButton);
-  await act(async () => restoreButton.click());
-  assert.deepEqual(calls, [record.id]);
-  await act(async () => root.render(<RecentlyClosed views={[]} structures={[{ ...record, state: "restored" }]} showWorkspace={false} onReopen={() => {}} onReopenGroup={restore} />));
-  assert.equal(host.querySelector('button[aria-label="Restore Editors"]'), null);
-  await act(async () => root.unmount());
-  host.remove();
-});
 
 test("restored utility shell stays stopped on mount and submits one explicit rerun", async () => {
   const { host, root } = mount();

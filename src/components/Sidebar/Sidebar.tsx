@@ -24,7 +24,6 @@ import { OrchestrationCreate, type OrchestrationCreateResult } from "./Orchestra
 import { SidebarStructuralSection } from "./SidebarStructuralSection";
 import { SidebarNeighborsSection } from "../Neighbors/SidebarNeighborsSection";
 import { useNeighborsSwitch } from "../Neighbors/neighborsSwitch";
-import { RecentlyClosed } from "./RecentlyClosed";
 import {
   keepPressFocusInPlace,
   SidebarDnd,
@@ -128,9 +127,6 @@ export const Sidebar = memo(function Sidebar({
     createTab,
     attachRemoteTab,
     closeTab,
-    reopenClosed,
-    reopenGroup,
-    restoreOrphaned,
     setActiveTab,
     renameTab,
     spawnAgentTab,
@@ -143,10 +139,6 @@ export const Sidebar = memo(function Sidebar({
   const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
   const visibleTabs = useMemo(() => firstRunSidebarTabs(firstRunActive, backendState.tabs), [firstRunActive, backendState.tabs]);
   const state = { ...selectedState, tabs: visibleTabs };
-  const reopenRecentlyClosed = useCallback((workspaceId: string, index: number, orphaned: boolean, tabId: string) => {
-    if (orphaned) restoreOrphaned(tabId);
-    else reopenClosed(workspaceId, index);
-  }, [restoreOrphaned, reopenClosed]);
   // Rows compare attention by identity, so a tab whose attention did not change keeps its previous entry.
   const attentionRef = useRef<ReturnType<typeof tabAttentionByTab>>({});
   const attention = useMemo(() => {
@@ -786,8 +778,6 @@ export const Sidebar = memo(function Sidebar({
                   onOpenJobs={onOpenWorkspaceAutomation}
                 />
               )}
-              {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
-                activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
@@ -826,21 +816,8 @@ export const Sidebar = memo(function Sidebar({
                 onAttach={(peer, tab) => attachRemoteTab?.(remotePickerWorkspaceId, peer, tab)}
               />
             )}
-            {!isCompact && (() => {
-              const views = state.recently_closed ?? [];
-              const hasOrphaned = views.some((v) => v.orphaned);
-              return (
-                <RecentlyClosed
-                  structures={state.closed_structures ?? []}
-                  views={views}
-                  showWorkspace={state.workspaces.length > 1 || hasOrphaned}
-                  onReopen={reopenRecentlyClosed}
-                  onReopenGroup={reopenGroup}
-                  touchMode={touchMode}
-                  uiFontScale={uiFontScale}
-                />
-              );
-            })()}
+            {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
+              activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
             <div
               role="navigation"
               aria-label="Sidebar views"
