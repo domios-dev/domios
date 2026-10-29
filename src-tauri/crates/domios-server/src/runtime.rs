@@ -62,6 +62,8 @@ pub fn run(
     acknowledge: impl FnOnce(&ServerReady, Option<&str>) -> io::Result<()>,
 ) -> io::Result<()> {
     let boot_started = std::time::Instant::now();
+    options.validate(cfg!(debug_assertions))?;
+    let development_owner = crate::launch_ownership::watch_owner(options.development_owner.as_ref())?;
     let job = if matches!(
         &options.instance,
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
@@ -214,6 +216,7 @@ pub fn run(
         }
     };
     log::debug!("[bootstrap] native listener binding completed");
+    let attached_once = native_server.as_ref().map(NativeServer::attached_once);
     let worker_cli =
         match crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256")) {
             Ok(worker_cli) => worker_cli,
@@ -323,6 +326,19 @@ pub fn run(
             tokio::pin!(control);
             let native = serve_native(native_server, native_events);
             tokio::pin!(native);
+            let orphaned = async {
+                if let Some(owner) = development_owner {
+                    owner.await.map_err(io::Error::other)??;
+                    let attached = attached_once.as_ref().is_some_and(|value| {
+                        value.load(std::sync::atomic::Ordering::Acquire)
+                    });
+                    if crate::launch_ownership::retire_unattached(true, attached) {
+                        return Ok::<(), io::Error>(());
+                    }
+                }
+                std::future::pending::<io::Result<()>>().await
+            };
+            tokio::pin!(orphaned);
             loop { tokio::select! {
                 result = &mut initializing, if running.is_none() => {
                     running = Some(result.map_err(io::Error::other).and_then(|result| result.map_err(io::Error::other)));
@@ -338,6 +354,7 @@ pub fn run(
                     std::future::pending::<()>().await;
                 } => return Ok(Some(QuitControl::Headless)),
                 result = shutdown_signal() => return result.map(|_| None),
+                result = &mut orphaned => return result.map(|_| None),
                 result = &mut native => return result.map(|_| None),
             } }
         })

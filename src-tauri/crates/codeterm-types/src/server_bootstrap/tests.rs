@@ -1,5 +1,33 @@
-use super::{InstanceSelector, LaunchOptions};
+use super::{InstanceSelector, LaunchOptions, ProcessProvenance};
 use std::{net::SocketAddr, path::PathBuf};
+
+#[test]
+fn development_launch_ownership_is_explicit_and_never_admitted_for_production() {
+    let mut options = LaunchOptions {
+        instance: InstanceSelector::Development {
+            instance: Some("fixture".into()),
+            port: 17996,
+        },
+        resources: PathBuf::from("resources"),
+        probe_sink: None,
+        probe_identity_alias: None,
+        development_owner: None,
+    };
+    assert!(serde_json::to_value(&options)
+        .unwrap()
+        .get("development_owner")
+        .is_none());
+    options.development_owner = Some(ProcessProvenance {
+        pid: 42,
+        created: "opaque".into(),
+        executable: PathBuf::from("client"),
+    });
+    assert!(options.validate(true).is_ok());
+    assert!(options.validate(false).is_err());
+    options.instance = InstanceSelector::Production;
+    assert!(options.validate(false).is_err());
+    assert!(options.validate(true).is_err());
+}
 
 fn isolated_options(data_dir: PathBuf, config_dir: PathBuf, bind: SocketAddr) -> LaunchOptions {
     LaunchOptions {
@@ -11,6 +39,7 @@ fn isolated_options(data_dir: PathBuf, config_dir: PathBuf, bind: SocketAddr) ->
         resources: PathBuf::from("resources"),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     }
 }
 
@@ -143,6 +172,7 @@ fn server_bootstrap_production_and_development_validation_stays_strict() {
         resources: resources.clone(),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     let development = LaunchOptions {
         instance: InstanceSelector::Development {
@@ -152,6 +182,7 @@ fn server_bootstrap_production_and_development_validation_stays_strict() {
         resources,
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
 
     assert!(production.validate(false).is_ok());

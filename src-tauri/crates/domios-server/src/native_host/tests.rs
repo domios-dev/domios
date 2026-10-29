@@ -191,6 +191,7 @@ fn native_update_executor_is_unavailable_without_an_active_enrollment() {
     > {
         active: Arc::new(RwLock::new(None)),
         active_generation: Arc::new(AtomicU64::new(0)),
+        attached_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         next_request_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         next_event_id: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         ready,
@@ -655,6 +656,7 @@ fn health_cdp_port_follows_authenticated_view_diagnostics_and_attachment_lifetim
     let endpoint = NativeHostEndpoint::<String, String> {
         active: Arc::new(RwLock::new(None)),
         active_generation: Arc::new(AtomicU64::new(9)),
+        attached_once: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         next_request_id: Arc::new(AtomicU64::new(1)),
         next_event_id: Arc::new(AtomicU64::new(1)),
         ready,

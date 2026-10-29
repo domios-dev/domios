@@ -343,9 +343,7 @@ initialize_build_identity() {
 }
 initialize_build_identity
 
-# --- Kill THIS dev instance only (never prod, never another worktree) ---
-# Scoped strictly to $CT_PORT / $CT_VITE_PORT / this instance's screen+pidfile.
-# No global pgrep on target/debug/domios-app — that would take down every worktree.
+# Exact instance images remain identifiable even when bootstrap attachment fails.
 kill_dev() {
   if [ "$CT_PORT" = "7685" ]; then
     echo "ERROR: refusing to kill prod Domios port 7685" >&2
@@ -359,61 +357,22 @@ kill_dev() {
     request_dev_clean_restart 2>/dev/null || true
     return
   fi
-  local session_prefix="codeterm-dev${CT_SUFFIX}-"
+  local root
+  if named_dev_isolated; then root="$(named_dev_target_dir)"; else root="$(tauri_debug_dir)"; fi
+  node scripts/dev-instance-processes.mjs "$root" "$CT_PORT" "$CT_INSTANCE" "$CT_DATA_DIR" || return
+  kill_web_watch
+  kill_dev_static_server
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
-    local dev_pids
-    dev_pids="$(lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null || true)"
-    if [ -n "$dev_pids" ]; then
-      request_dev_clean_restart 2>/dev/null || true
-      local graceful=1
-      while IFS= read -r dev_pid; do
-        wait_for_dev_exit "$dev_pid" || graceful=0
-      done <<< "$dev_pids"
-      if [ "$graceful" != "1" ]; then
-        echo "Clean shutdown deadline elapsed; force-killing dev instance on port $CT_PORT..."
-        echo "$dev_pids" | xargs kill -9 2>/dev/null || true
-      fi
-    fi
-    kill_web_watch 2>/dev/null || true
-    kill_dev_static_server 2>/dev/null || true
-    if command -v screen >/dev/null 2>&1; then
-      screen -ls 2>/dev/null | awk -v p="$session_prefix" 'index($1,p){print $1}' | while read -r session; do
-        screen -S "$session" -X quit 2>/dev/null || true
-      done
-    fi
-    local vite_pids
     if [ "${DEV_FRONT_EXTERNAL:-0}" != 1 ]; then
-      vite_pids="$(lsof -ti:"$CT_VITE_PORT" 2>/dev/null || true)"
-      [ -z "$vite_pids" ] || echo "$vite_pids" | xargs kill -9 2>/dev/null || true
-    fi
-    if [ -f "$CT_DATA_DIR/daemon.pid" ]; then
-      kill "$(cat "$CT_DATA_DIR/daemon.pid")" 2>/dev/null || true
-      rm -f "$CT_DATA_DIR/daemon.pid"
+      node scripts/dev-instance-processes.mjs --frontend "$(pwd -P)" "$CT_VITE_PORT" || return
     fi
   else
-    node scripts/dev-rebuild-stop.mjs "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$CT_INSTANCE" "$(dev_app_path)" || return
-    kill_web_watch 2>/dev/null || true
-    kill_dev_static_server 2>/dev/null || true
-    local vite_pid
-    # dev-back keeps the separately owned dev-front (Vite HMR) process alive.
-    if [ "${DEV_FRONT_EXTERNAL:-0}" != 1 ]; then
-      vite_pid=$(netstat -ano 2>/dev/null | grep ":$CT_VITE_PORT.*LISTEN" | awk '{print $5}' | head -1 || true)
-      if [ -n "$vite_pid" ] && [ "$vite_pid" != "0" ]; then
-        taskkill //PID "$vite_pid" //T //F 2>/dev/null || true
-      fi
-    fi
     windows_dev_leftover_cleanup
   fi
 }
 
 stop_dev_before_replacement() {
-  if [[ "$OSTYPE" == msys* ]] || [[ "$OSTYPE" == cygwin* ]]; then
-    node scripts/dev-rebuild-stop.mjs "$(dev_provenance_record)" "$CT_DATA_DIR" "$CT_PORT" "$CT_INSTANCE" "$(dev_app_path)" || return
-    kill_web_watch
-    kill_dev_static_server
-  else
-    kill_dev
-  fi
+  kill_dev
 }
 
 request_dev_clean_restart() {
@@ -765,6 +724,18 @@ named_dev_target_dir() {
 named_dev_isolated() {
   [ -n "$CT_INSTANCE" ]
 }
+
+case "$CMD" in
+  dev|dev-prebuilt)
+    if [ "${CODETERM_DEV_LAUNCH_CHILD:-0}" != 1 ]; then
+      launch_root="$CT_DATA_DIR"
+      mkdir -p "$launch_root"
+      launch_shell="$BASH"
+      if command -v cygpath >/dev/null 2>&1; then launch_shell="$(cygpath -w "$BASH")"; fi
+      exec node scripts/dev-launch-owner.mjs "$launch_root" "$launch_shell" ./build.sh "$@"
+    fi
+    ;;
+esac
 
 prepare_named_dev_target() {
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
@@ -2323,14 +2294,17 @@ kill_orphan_web_watchers() {
   if [[ "$OSTYPE" != darwin* ]] && [[ "$OSTYPE" != linux* ]]; then
     return
   fi
-  local root pid cwd
-  root="$(pwd)"
-  for pid in $(pgrep -f "vite build --watch" 2>/dev/null || true); do
+  local root pid cwd command
+  root="$(pwd -P)"
+  while read -r pid command; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    [[ "$command" == *" build "* && "$command" == *" --watch "* ]] || continue
+    [[ "$command" == *"--outDir $(dev_frontend_dir)"* ]] || continue
     cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
     if [ "$cwd" = "$root" ]; then
       kill_process_tree "$pid"
     fi
-  done
+  done < <(ps -eo pid=,args= 2>/dev/null | grep -F -- "$root/node_modules/vite/bin/vite.js" || true)
 }
 
 kill_orphan_dev_static_servers() {
@@ -2338,8 +2312,9 @@ kill_orphan_dev_static_servers() {
     return
   fi
   local root pid cwd
-  root="$(pwd)"
+  root="$(pwd -P)"
   for pid in $(pgrep -f "scripts/dev-static-server.mjs" 2>/dev/null || true); do
+    lsof -a -p "$pid" -iTCP:"$CT_VITE_PORT" -sTCP:LISTEN -t >/dev/null 2>&1 || continue
     cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p')
     if [ "$cwd" = "$root" ]; then
       kill_process_tree "$pid"
@@ -2356,10 +2331,7 @@ windows_dev_leftover_cleanup() {
   local root_win target_debug_win data_dir_win cleanup_script ps
   local -a cleanup_args
   root_win="$(pwd -W 2>/dev/null || pwd)"
-  target_debug_win="$(cat "$(dev_target_record)" 2>/dev/null || true)"
-  if [ -z "$target_debug_win" ]; then
-    target_debug_win="$(cd "$(tauri_debug_dir)" 2>/dev/null && pwd -W 2>/dev/null || echo "$(pwd -W 2>/dev/null || pwd)/$(tauri_debug_dir)")"
-  fi
+  target_debug_win="$(node -e 'const fs=require("node:fs"),p=require("node:path");const v=p.resolve(process.argv[1]);process.stdout.write(fs.existsSync(v)?fs.realpathSync.native(v):v)' "$(tauri_debug_dir)")"
   data_dir_win="$(cd "$CT_DATA_DIR" 2>/dev/null && pwd -W 2>/dev/null || cygpath -w "$CT_DATA_DIR" 2>/dev/null || echo "$CT_DATA_DIR")"
   cleanup_script="$root_win/scripts/windows-dev-cleanup.ps1"
   if command -v powershell.exe >/dev/null 2>&1; then
@@ -2413,7 +2385,7 @@ start_web_watch() {
       return
       ;;
     *)
-      CODETERM_FRONTEND_DEV=1 nohup node "$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
+      CODETERM_FRONTEND_DEV=1 nohup node "$(pwd -P)/$vite_entry" build --watch --emptyOutDir false --outDir "$(dev_frontend_dir)" </dev/null >> "$log" 2>&1 &
       ;;
   esac
   shell_pid=$!

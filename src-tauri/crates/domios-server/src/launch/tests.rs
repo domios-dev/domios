@@ -8,6 +8,7 @@ fn process_split_contract_probe_alias_requires_both_roots_and_owned_sink() {
     let data = root.path().join("fresh");
     let normal = ResolvedInstancePaths::resolve(&data, &data.join("config.toml")).unwrap();
     let mut options = LaunchOptions {
+        development_owner: None,
         instance: InstanceSelector::Development {
             instance: Some("split-oracle-fixture".into()),
             port: 18886,

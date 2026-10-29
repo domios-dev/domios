@@ -13,7 +13,7 @@ $processes = @(
   @{ ProcessId = 100; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" },
   @{ ProcessId = 110; ParentProcessId = 100; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--user-data-dir=$env:LOCALAPPDATA\com.domios.dev\EBWebView" },
   @{ ProcessId = 120; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1420" },
-  @{ ProcessId = 130; ParentProcessId = 100; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9223" },
+  @{ ProcessId = 130; ParentProcessId = 100; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9223 --user-data-dir=$env:LOCALAPPDATA\com.domios.dev\EBWebView" },
   @{ ProcessId = 200; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" },
   @{ ProcessId = 201; ParentProcessId = 200; Name = "child.exe"; ExecutablePath = "C:\fixture\child.exe"; CommandLine = "child-without-direct-ownership" },
   @{ ProcessId = 210; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--user-data-dir=$env:LOCALAPPDATA\com.domios.dev.provider.model.oracle\EBWebView" },
@@ -23,7 +23,7 @@ $processes = @(
   @{ ProcessId = 241; ParentProcessId = 240; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "vite watcher child" },
   @{ ProcessId = 250; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "node scripts/dev-static-server.mjs" },
   @{ ProcessId = 251; ParentProcessId = 250; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "static server child" },
-  @{ ProcessId = 230; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9363" },
+  @{ ProcessId = 230; ParentProcessId = 1; Name = "msedgewebview2.exe"; ExecutablePath = "C:\WebView2\msedgewebview2.exe"; CommandLine = "--remote-debugging-port=9363 --user-data-dir=$env:LOCALAPPDATA\com.domios.dev.provider.model.oracle\EBWebView" },
   @{ ProcessId = 300; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$defaultTargetDebug\codeterm.exe"; CommandLine = "$defaultTargetDebug\codeterm.exe --orphan-no-port" },
   @{ ProcessId = 310; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe --wrong-api-port" },
   @{ ProcessId = 320; ParentProcessId = 1; Name = "node.exe"; ExecutablePath = "C:\node\node.exe"; CommandLine = "$nodeModules\vite\bin\vite.js --port 1555" }
@@ -34,6 +34,8 @@ $processes = @(
   @{ ProcessId = 333; ParentProcessId = 9997; Name = "OpenConsole.exe"; ExecutablePath = "$namedDataDir\target\debug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$namedDataDir\target\debug\conpty\x64\OpenConsole.exe`" --headless" }
   @{ ProcessId = 334; ParentProcessId = 9996; Name = "OpenConsole.exe"; ExecutablePath = "C:\Program Files\CodeTerm\conpty\x64\OpenConsole.exe"; CommandLine = "`"C:\Program Files\CodeTerm\conpty\x64\OpenConsole.exe`" --headless" }
   @{ ProcessId = 340; ParentProcessId = 9995; Name = "OpenConsole.exe"; ExecutablePath = "$defaultTargetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$defaultTargetDebug\conpty\x64\OpenConsole.exe`" --headless" }
+  @{ ProcessId = 350; ParentProcessId = 1; Name = "fixture.exe"; ExecutablePath = "$defaultTargetDebug\deps\fixture.exe"; CommandLine = "$defaultTargetDebug\deps\fixture.exe" }
+  @{ ProcessId = 351; ParentProcessId = 1; Name = "build-script-build.exe"; ExecutablePath = "$defaultTargetDebug\build\fixture\build-script-build.exe"; CommandLine = "$defaultTargetDebug\build\fixture\build-script-build.exe" }
   @{ ProcessId = 500; ParentProcessId = 1; Name = "foreign-daemon.exe"; ExecutablePath = "C:\other\daemon.exe"; CommandLine = "foreign daemon" }
   @{ ProcessId = 550; ParentProcessId = 1; Name = "codeterm.exe"; ExecutablePath = "$targetDebug\codeterm.exe"; CommandLine = "$targetDebug\codeterm.exe" }
   @{ ProcessId = 335; ParentProcessId = 550; Name = "OpenConsole.exe"; ExecutablePath = "$targetDebug\conpty\x64\OpenConsole.exe"; CommandLine = "`"$targetDebug\conpty\x64\OpenConsole.exe`" --headless" }
@@ -144,12 +146,12 @@ try {
     PlanOnly = $true
   }
   $defaultPlan = & "$PSScriptRoot\windows-dev-cleanup.ps1" @defaultArgs | ConvertFrom-Json
-  $defaultExpected = @(100, 110, 120, 130, 300, 340)
+  $defaultExpected = @(110, 120, 130, 300, 340)
   $defaultActual = @($defaultPlan.selected_processes | ForEach-Object { [int]$_ } | Sort-Object)
   if (($defaultActual -join ",") -ne ($defaultExpected -join ",")) {
     throw "default cleanup selected [$($defaultActual -join ',')], expected [$($defaultExpected -join ',')]"
   }
-  foreach ($wrongOwnerPid in @(200, 201, 210, 220, 225, 230, 240, 241, 250, 251, 310, 320, 330, 331, 332, 333, 334)) {
+  foreach ($wrongOwnerPid in @(100, 200, 201, 210, 220, 225, 230, 240, 241, 250, 251, 310, 320, 330, 331, 332, 333, 334, 350, 351)) {
     if ($defaultActual -contains $wrongOwnerPid) {
       throw "default cleanup selected named/wrong-port pid $wrongOwnerPid"
     }

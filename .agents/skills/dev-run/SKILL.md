@@ -960,14 +960,16 @@ would change the seal beneath a running client; use the same scoped `dev`
 command for native/server edits. `dev-prebuilt --wait` reuses an unchanged signed
 pair with the same explicit instance/port settings.
 
-Detached named macOS cleanup has a follow-up limitation: scoped `build.sh kill`
-stops the server and watchers while the surviving native client may recover a
-new server. For an owned validation run, retain the native attachment receipt,
-exact executable and process creation identity; stop only that verified client
-first. Then use `node scripts/dev-server.mjs inspect <record> <data> <private-port>
-<owned-receipt>` and `node scripts/dev-server.mjs stop <record> <data>
-<private-port> <owned-receipt>` for required cleanup and pinned server exit.
-Finally use the same explicit instance/port with `./build.sh kill` to reap its
-watcher/static processes and verify all owned processes exited. Native-client
-shutdown automation needs a separate ownership-aware fix; never use global
-process-name kills or address prod, canonical DEV or another instance.
+Use the same explicit instance and private port with `./build.sh kill` for
+client/server cleanup. It first requests authenticated quit using the selected
+process incarnations, waits for their exit within a deadline, then stops surviving
+images in that instance's own target tree. Canonical DEV uses exact runtime image
+paths so Cargo test and build processes remain outside cleanup. Frontend cleanup
+stays scoped to the repo and selected port/output directory. Never use global
+process-name kills or address prod or another instance. Native execution must
+still prove process exit and session restoration on each platform.
+
+`dev` and `dev-prebuilt` hold `.dev-launch.lock` in the instance data directory
+with an OS file lock through their supervisor lifetime. A second launcher refuses;
+use scoped `kill` or let the first launcher exit before launching again. A
+leftover lock file is harmless; do not delete a lock file held by a live launcher.
