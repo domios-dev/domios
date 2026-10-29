@@ -202,6 +202,53 @@ impl RuntimeFixture {
 }
 
 #[test]
+fn sleeping_runtime_restart_resumes_its_thread_before_reporting_ready() {
+    let fixture = RuntimeFixture::new();
+    let prior = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .unwrap()
+        .clone();
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+        tab.frozen = true;
+        tab.restored_from_snapshot = true;
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::SpawnFailed);
+    }
+    let count = fixture.requests().len();
+    let outcome = fixture
+        .service
+        .agent_restart(&fixture.tab, false, 0)
+        .unwrap();
+    assert!(outcome.agent_ready);
+    assert_eq!(outcome.session_id, prior.agent_session_id);
+    assert_eq!(outcome.session_action(), "resumed");
+    let requests = fixture.requests();
+    assert_eq!(
+        requests[count..]
+            .iter()
+            .map(|frame| frame["method"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["initialize", "resumeThread", "readHistory"]
+    );
+    assert_eq!(requests[count + 1]["params"]["threadId"], "own-thread");
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&fixture.tab).unwrap();
+    assert!(!tab.frozen);
+    assert!(tab.pty_id.is_none());
+    assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+    assert_eq!(
+        tab.boot_stage,
+        Some(codeterm_types::pty::BootStage::AgentReady)
+    );
+    assert_ne!(tab.session_binding_nonce, prior.session_binding_nonce);
+    assert_eq!(tab.session_binding_nonce, tab.reported_session_binding_nonce);
+}
+
+#[test]
 fn runtime_resume_keeps_thread_rotates_nonce_and_never_replays_uncertain_input() {
     let fixture = RuntimeFixture::new();
     let prompt = fixture.prompt();
