@@ -202,7 +202,9 @@ describe("scoped plugin media documents", () => {
     const policy = new DOMParser().parseFromString(document.html, "text/html").querySelector('meta[http-equiv="Content-Security-Policy"]')!.getAttribute("content")!;
     expect(policy).toContain(`media-src ${origin}/api/plugins/example/media/${frame}/ blob:`);
     expect(policy).toContain("connect-src 'none'");
-    expect(policy).toContain("img-src blob: data:");
+    expect(policy).toContain(`img-src blob: data: ${origin}/api/plugins/example/media/${frame}/`);
+    const imageDirective=policy.split(";").map(part=>part.trim()).find(part=>part.startsWith("img-src "))!;
+    expect(imageDirective.split(/\s+/)).toEqual(["img-src","blob:","data:",`${origin}/api/plugins/example/media/${frame}/`]);
     expect(policy).not.toContain("media-src *");
     expect(document.html).not.toContain("owner-secret");
     const media = await document.media("job-output");
@@ -222,6 +224,12 @@ describe("scoped plugin media documents", () => {
     const document = await loadPluginDocument(fixture.client, path, new AbortController().signal);
     await expect(document.media("output")).rejects.toThrow("Invalid plugin media URL");
     document.dispose();
+  });
+  it("refuses scoped image delivery when either finite CSP directive is absent",async()=>{
+    for(const invalidPolicy of [scopedPolicy.replace("img-src blob: data:;", ""),policy]){
+      const fetch=vi.fn<typeof globalThis.fetch>().mockImplementation(async(input)=>String(input).endsWith("/view-frame/revoke")?new Response(null,{status:204}):new Response("<html></html>",{headers:{"Content-Security-Policy":invalidPolicy,"X-Domios-Plugin-View-Registration":registrationSnapshot(frame),"X-Domios-Plugin-View-Document":crypto.randomUUID().replaceAll("-",""),"X-Domios-Plugin-View-Frame":"d".repeat(64),"X-Domios-Plugin-Media-Frame":frame}}));
+      await expect(loadPluginDocument(createTransportClient({origin,token:"owner",fetch}),path,new AbortController().signal)).rejects.toThrow("security policy missing");
+    }
   });
   it("revokes the minted frame when materialization fails", async () => {
     const fixture = mediaFixture(undefined, '<script>untrusted()</script>');
