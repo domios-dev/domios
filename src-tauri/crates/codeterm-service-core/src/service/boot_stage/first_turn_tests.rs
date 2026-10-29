@@ -42,7 +42,11 @@ fn fresh_and_resume_restart_wait_accept_exact_composer_without_binding() {
         assert!(!tab.launch_session_authenticated());
         assert!(tab.pending_delivery.is_none());
         let mut written = tab.clone();
-        written.provisional_launch.as_mut().unwrap().first_turn_payload_written = true;
+        written
+            .provisional_launch
+            .as_mut()
+            .unwrap()
+            .first_turn_payload_written = true;
         assert!(first_turn_input_is_ready(&written));
         assert!(classify_tab_restart_readiness(&tab, Some("replacement-pty")).is_none());
         for change in 0..5 {

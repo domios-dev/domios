@@ -31,13 +31,10 @@ impl ServiceContext {
             tab.agent_session_id.is_none()
                 && tab.pty_id.as_deref() == Some(snap.pty_id.as_str())
                 && tab.agent_type.as_deref() == Some(snap.provider.as_str())
-                && tab
-                    .provisional_launch
-                    .as_ref()
-                    .is_some_and(|launch| {
-                        launch.first_turn_admitted_send_id.is_none()
-                            && !launch.first_turn_payload_written
-                    })
+                && tab.provisional_launch.as_ref().is_some_and(|launch| {
+                    launch.first_turn_admitted_send_id.is_none()
+                        && !launch.first_turn_payload_written
+                })
         })
     }
 
