@@ -8,9 +8,9 @@ use serde::{Deserialize, Serialize};
 use super::general_dir;
 
 #[derive(Debug, Serialize, Deserialize)]
-struct GeneralAgentSessionState {
-    provider: String,
-    session_id: String,
+pub(super) struct GeneralAgentSessionState {
+    pub(super) provider: String,
+    pub(super) session_id: String,
 }
 
 struct SessionCandidate {
@@ -24,9 +24,37 @@ pub(super) fn load_session_id(
     provider_name: &str,
     cwd: &str,
 ) -> Option<String> {
-    let text = std::fs::read_to_string(session_state_path()).ok()?;
+    load_session_record(registry, provider_name, cwd, &[]).map(|state| state.session_id)
+}
+
+pub(super) fn load_session_record(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_name: &str,
+    cwd: &str,
+    excluded: &[String],
+) -> Option<GeneralAgentSessionState> {
+    load_session_record_from(
+        registry,
+        provider_name,
+        cwd,
+        excluded,
+        &session_state_path(),
+    )
+}
+
+fn load_session_record_from(
+    registry: &crate::agent::registry::AgentRegistry,
+    provider_name: &str,
+    cwd: &str,
+    excluded: &[String],
+    path: &Path,
+) -> Option<GeneralAgentSessionState> {
+    let text = std::fs::read_to_string(path).ok()?;
     let state: GeneralAgentSessionState = serde_json::from_str(&text).ok()?;
-    if state.provider != provider_name || state.session_id.is_empty() {
+    if state.provider != provider_name
+        || state.session_id.is_empty()
+        || excluded.contains(&state.session_id)
+    {
         return None;
     }
     let valid = registry
@@ -36,7 +64,7 @@ pub(super) fn load_session_id(
             })
         })
         .unwrap_or(false);
-    valid.then_some(state.session_id)
+    valid.then_some(state)
 }
 
 fn can_resume_saved_session(runtime: bool, session_exists: impl FnOnce() -> Option<bool>) -> bool {
@@ -174,8 +202,12 @@ pub(super) fn session_id_is_owned(
     cwd: &str,
     session_id: &str,
     (bound_provider, bound_session): (Option<&str>, Option<&str>),
+    durable: Option<&GeneralAgentSessionState>,
 ) -> bool {
-    if bound_provider != Some(provider_name) || bound_session != Some(session_id) {
+    let bound = bound_provider == Some(provider_name) && bound_session == Some(session_id);
+    let saved = durable
+        .is_some_and(|state| state.provider == provider_name && state.session_id == session_id);
+    if !bound && !saved {
         return false;
     }
     registry
