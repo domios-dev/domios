@@ -176,6 +176,10 @@ export function PluginView({
       if (m.__ctOpenRun != null || m.__ctDecideOperation != null) {
         const reply = m.__ctOpenRun ?? m.__ctDecideOperation;
         if (!Number.isSafeInteger(reply)) return;
+        if (!hostRequest) {
+          channel.send({ __ctReply: reply, result: { ok: false, code: "unavailable", reason: "host" } });
+          return;
+        }
         if (approval.isOpen()) {channel.send({__ctReply:reply,result:{ok:false,code:"denied",reason:"busy"}});return;}
         const generation = intent.generation;
         const isCurrent = () => generationRef.current === generation && iframeRef.current?.contentWindow === win && activeRef.current;
