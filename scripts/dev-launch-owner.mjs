@@ -1,22 +1,27 @@
 import net from 'node:net';
 import { createHash, randomUUID } from 'node:crypto';
 import { fork, spawn } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { realpathSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { acquireLaunchFileLock } from './dev-launch-file-lock.mjs';
 
-export function launchLockPort(root) {
+export function launchLockSocket(root) {
   const physical = realpathSync.native(root);
   const identity = process.platform === 'win32' ? physical.toLowerCase() : physical;
-  return 30000 + createHash('sha256').update(identity).digest().readUInt32BE() % 30000;
+  const key = createHash('sha256').update(identity).digest('hex');
+  return process.platform === 'win32' ? `\\\\.\\pipe\\domios-dev-launch-${key}`
+    : path.join('/tmp', `domios-launch-${key.slice(0, 40)}.sock`);
 }
 
 export async function acquireLaunchOwner(root) {
+  const fileLock = await acquireLaunchFileLock(realpathSync.native(root));
   const token = randomUUID();
   const sockets = new Set();
   let finished = false;
   let resolveClosed;
   const closed = new Promise(resolve => { resolveClosed = resolve; });
+  let closing = false;
   const server = net.createServer(socket => {
     sockets.add(socket);
     let input = '';
@@ -38,15 +43,32 @@ export async function acquireLaunchOwner(root) {
     });
   });
   function closeIfFinished() {
-    if (finished && sockets.size === 0) server.close(resolveClosed);
+    if (finished && sockets.size === 0 && !closing) {
+      closing = true;
+      server.close(async () => {
+        await fileLock.release();
+        resolveClosed();
+      });
+    }
   }
-  const port = launchLockPort(root);
-  await new Promise((resolve, reject) => {
-    server.once('error', error => reject(Error(`DEV launch owner unavailable for ${root} (lock port ${port}): ${error.code}. Stop the current launcher with scoped build.sh kill or let it exit.`)));
-    server.listen({ host: '127.0.0.1', port, exclusive: true }, resolve);
+  let socket;
+  try {
+    socket = launchLockSocket(root);
+    if (process.platform !== 'win32') rmSync(socket, { force: true });
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(socket, resolve);
+    });
+  } catch (error) { await fileLock.release(); throw error; }
+  fileLock.child.once('close', () => {
+    if (!closing) {
+      for (const socket of sockets) socket.destroy();
+      finished = true;
+      closeIfFinished();
+    }
   });
   return {
-    environment: { CODETERM_DEV_LAUNCH_PORT: String(port), CODETERM_DEV_LAUNCH_TOKEN: token },
+    environment: { CODETERM_DEV_LAUNCH_SOCKET: socket, CODETERM_DEV_LAUNCH_TOKEN: token },
     finish: () => { finished = true; closeIfFinished(); return closed; },
   };
 }
@@ -54,7 +76,7 @@ export async function acquireLaunchOwner(root) {
 export async function retainLaunchOwner(environment = process.env) {
   if (!environment.CODETERM_DEV_LAUNCH_TOKEN) return null;
   return new Promise((resolve, reject) => {
-    const socket = net.connect({ host: '127.0.0.1', port: Number(environment.CODETERM_DEV_LAUNCH_PORT) });
+    const socket = net.connect(environment.CODETERM_DEV_LAUNCH_SOCKET);
     const deadline = setTimeout(() => socket.destroy(Error('DEV launch ownership handshake deadline')), 5000);
     let input = '';
     socket.once('connect', () => socket.write(`${environment.CODETERM_DEV_LAUNCH_TOKEN}\n`));

@@ -8,7 +8,7 @@ test('runtime paths use the physical checkout after the build drive is released'
   const inherited = {
     CODETERM_DEV_WORKSPACE_ROOT: 'X:/', CODETERM_WEB_DIST: 'X:/dist',
     CODETERM_CLI_PATH: '/instance/bin/codeterm', CODETERM_API_PORT: '7686',
-    CODETERM_DEV_LAUNCH_CHILD: '1', CODETERM_DEV_LAUNCH_PORT: '40000', CODETERM_DEV_LAUNCH_TOKEN: 'private',
+    CODETERM_DEV_LAUNCH_CHILD: '1', CODETERM_DEV_LAUNCH_SOCKET: '/private/lease.sock', CODETERM_DEV_LAUNCH_TOKEN: 'private',
   };
   const environment = devRuntimeEnvironment(inherited, physical);
   assert.equal(environment.CODETERM_DEV_WORKSPACE_ROOT, physical);
@@ -17,6 +17,6 @@ test('runtime paths use the physical checkout after the build drive is released'
   assert.equal(environment.CODETERM_API_PORT, '7686');
   assert.equal(inherited.CODETERM_WEB_DIST, 'X:/dist');
   assert.equal(environment.CODETERM_DEV_LAUNCH_CHILD, undefined);
-  assert.equal(environment.CODETERM_DEV_LAUNCH_PORT, undefined);
+  assert.equal(environment.CODETERM_DEV_LAUNCH_SOCKET, undefined);
   assert.equal(environment.CODETERM_DEV_LAUNCH_TOKEN, undefined);
 });

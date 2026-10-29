@@ -7,8 +7,9 @@ import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { acquireLaunchOwner, retainLaunchOwner } from '../dev-launch-owner.mjs';
+import { acquireLaunchFileLock } from '../dev-launch-file-lock.mjs';
 
-test('one launcher owns a tree until its supervisor lease closes; other instances remain independent', { timeout: 10000 }, async () => {
+test('one launcher owns a tree until its supervisor lease closes; other instances remain independent', { timeout: 30000 }, async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'domios-launch-owner-'));
   const foreign = mkdtempSync(path.join(tmpdir(), 'domios-foreign-owner-'));
   let owner, other, lease;
@@ -54,27 +55,19 @@ for (const harness of ['node', 'bash']) test(`launcher retains ownership through
   }
 });
 
-test('abrupt lock-owner death leaves no stale filesystem lock', { timeout: 10000 }, async () => {
+test('abrupt file-lock holder death releases the OS lock despite its surviving file', { timeout: 15000 }, async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'domios-launch-crash-'));
-  const script = fileURLToPath(new URL('../dev-launch-owner.mjs', import.meta.url));
-  const child = spawn(process.execPath, [script, '--serve-lock', root], {
-    stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true,
-  });
-  let lease, replacement;
+  const holder = await acquireLaunchFileLock(root);
+  let replacement;
   try {
-    const [environment] = await once(child, 'message');
-    assert.equal(environment.error, undefined);
-    lease = await retainLaunchOwner(environment);
-    child.send('leased');
-    const disconnected = new Promise(resolve => lease.once('close', resolve));
-    const exited = once(child, 'exit');
-    child.kill('SIGKILL');
-    await Promise.all([disconnected, exited]);
-    replacement = await acquireLaunchOwner(root);
+    await assert.rejects(acquireLaunchFileLock(root), /DEV launch owner unavailable/);
+    const exited = once(holder.child, 'close');
+    holder.child.kill('SIGKILL');
+    await exited;
+    replacement = await acquireLaunchFileLock(root);
   } finally {
-    lease?.destroy();
-    if (child.exitCode === null && child.signalCode === null) child.kill();
-    if (replacement) await replacement.finish();
+    await holder.release();
+    if (replacement) await replacement.release();
     rmSync(root, { recursive: true, force: true });
   }
 });

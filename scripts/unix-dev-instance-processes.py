@@ -3,6 +3,7 @@ import json
 import os
 import select
 import signal
+import shlex
 import subprocess
 import sys
 
@@ -80,8 +81,11 @@ def production_listeners():
 
 
 def stop_tree(request):
-    root = os.path.realpath(request['root']) + '/'
+    root = os.path.join(os.path.realpath(request['root']), '')
+    images = set(request.get('images') or [])
+    selected = lambda row: row['executable'].startswith(root) and (not images or row['executable'] in images)
     pinned = []
+    exited = set()
     try:
         for row in request['processes']:
             pid = row['pid']
@@ -105,37 +109,47 @@ def stop_tree(request):
                 current = observe(pid)
             except (ProcessLookupError, FileNotFoundError):
                 continue
-            if not same_process(current, row) or not current['executable'].startswith(root):
+            if not same_process(current, row) or not selected(current):
                 raise RuntimeError('DEV instance image or creation identity changed; refusing cleanup')
         ids = {row['pid'] for _, row in pinned}
         if any(row['pid'] in ids for row in production_listeners()):
             raise RuntimeError('DEV instance image owns production port 7685; refusing cleanup')
         for handle, row in pinned:
+            if row['pid'] in request.get('gracefulPids', []) and wait_exit(handle, 10000):
+                exited.add(row['pid'])
+        for handle, row in pinned:
+            if row['pid'] in exited:
+                continue
             if sys.platform == 'linux':
                 try:
                     signal.pidfd_send_signal(handle, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
             else:
+                if handle.control(None, 1, 0):
+                    exited.add(row['pid'])
+                    continue
                 try:
                     current = observe(row['pid'])
                 except (ProcessLookupError, FileNotFoundError):
                     continue
                 if not same_process(current, row):
+                    if handle.control(None, 1, 0):
+                        exited.add(row['pid'])
+                        continue
                     raise RuntimeError('DEV process creation identity changed')
+                if handle.control(None, 1, 0):
+                    exited.add(row['pid'])
+                    continue
                 try:
                     os.kill(row['pid'], signal.SIGKILL)
                 except ProcessLookupError:
                     pass
-        for handle, _ in pinned:
-            if sys.platform == 'linux':
-                events = select.poll()
-                events.register(handle, select.POLLIN)
-                if not events.poll(10000):
-                    raise RuntimeError('DEV pinned process exit deadline; refusing staging')
-            elif not handle.control(None, 1, 10):
+        for handle, row in pinned:
+            if row['pid'] not in exited and not wait_exit(handle, 10000):
                 raise RuntimeError('DEV pinned process exit deadline; refusing staging')
-        if any(row['executable'].startswith(root) for row in processes()):
+        if any(selected(row) and (not request.get('onlyPinned') or any(same_process(row, expected)
+               for expected in request['processes'])) for row in processes()):
             raise RuntimeError('DEV instance tree still has processes; refusing staging')
         return dict(stopped=[row for _, row in pinned])
     finally:
@@ -150,12 +164,53 @@ def same_process(current, expected):
     return all(current[key] == expected[key] for key in ('pid', 'created', 'executable'))
 
 
+def wait_exit(handle, milliseconds):
+    if sys.platform == 'linux':
+        events = select.poll()
+        events.register(handle, select.POLLIN)
+        return bool(events.poll(milliseconds))
+    return bool(handle.control(None, 1, milliseconds / 1000))
+
+
+def stop_frontend(request):
+    repo = os.path.realpath(request['repo'])
+    port = request['port']
+    result = subprocess.run(['lsof', '-nP', f'-tiTCP:{port}', '-sTCP:LISTEN'], capture_output=True, text=True)
+    if result.returncode not in (0, 1):
+        raise RuntimeError('DEV frontend listener identity unavailable')
+    rows = []
+    for pid in {int(value) for value in result.stdout.split()}:
+        try:
+            row = observe(pid)
+            if sys.platform == 'linux':
+                cwd = os.path.realpath(f'/proc/{pid}/cwd')
+                with open(f'/proc/{pid}/cmdline', 'rb') as source:
+                    args = [os.fsdecode(value) for value in source.read().split(b'\0') if value]
+            else:
+                cwd_result = subprocess.check_output(['lsof', '-a', '-p', str(pid), '-d', 'cwd', '-Fn'], text=True)
+                cwd = next(line[1:] for line in cwd_result.splitlines() if line.startswith('n'))
+                args = shlex.split(subprocess.check_output(['ps', '-p', str(pid), '-o', 'command='], text=True))
+            script = os.path.join(repo, 'node_modules/vite/bin/vite.js')
+            if os.path.realpath(cwd) != repo or not any(os.path.realpath(os.path.join(cwd, value)) == script for value in args[1:]):
+                continue
+            selected_port = any(value == f'--port={port}' or
+                                (value == '--port' and index + 1 < len(args) and args[index + 1] == str(port))
+                                for index, value in enumerate(args))
+            if selected_port:
+                rows.append(row)
+        except (OSError, ValueError, StopIteration):
+            continue
+    return stop_tree(dict(root='/', port=port, processes=rows, images=[row['executable'] for row in rows], onlyPinned=True))
+
+
 def main():
     request = json.load(sys.stdin)
     if sys.argv[1] == 'Inspect':
         result = dict(processes=processes(), listeners=production_listeners())
     elif sys.argv[1] == 'StopTree' and 0 < request['port'] < 65536 and request['port'] != 7685:
         result = stop_tree(request)
+    elif sys.argv[1] == 'StopFrontend' and 0 < request['port'] < 65536 and request['port'] != 7685:
+        result = stop_frontend(request)
     else:
         raise RuntimeError('Invalid DEV cleanup operation or production port')
     print(json.dumps(result))

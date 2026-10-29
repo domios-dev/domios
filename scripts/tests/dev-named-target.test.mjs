@@ -67,15 +67,52 @@ wait_for_dev_exit() { echo pinned-exit; }
 node() { echo verified-shutdown; [ "$1" = scripts/dev-instance-processes.mjs ]; [ "$REFUSED" = false ]; }
 kill_web_watch() { echo watcher-stop; }
 kill_dev_static_server() { :; }
-windows_dev_leftover_cleanup() { :; }
+windows_dev_leftover_cleanup() { echo leftover-stop; }
 REFUSED="$2"
 kill_dev
 `, '--', platform, String(refused)], { encoding: 'utf8' });
     const events = result.stdout.trim().split('\n');
     assert.equal(result.status, refused ? 1 : 0, result.stderr);
-    assert.deepEqual(events, refused ? ['verified-shutdown'] : ['verified-shutdown', 'watcher-stop']);
+    assert.deepEqual(events, refused ? ['verified-shutdown']
+      : ['verified-shutdown', 'watcher-stop', ...(platform === 'msys' ? ['leftover-stop'] : [])]);
   });
 }
+
+test('orphan watcher cleanup stops only this repo and this instance frontend output', () => {
+  const helper = source.match(/^kill_orphan_web_watchers\(\) \{[\s\S]*?^\}/m)[0];
+  const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helper}
+OSTYPE=linux
+dev_frontend_dir() { echo "$PWD/dist-own"; }
+ps() {
+  echo "17 node $PWD/node_modules/vite/bin/vite.js build --watch --outDir $PWD/dist-own"
+  echo "18 node /foreign/node_modules/vite/bin/vite.js build --watch --outDir /foreign/dist-own"
+  echo "19 node $PWD/node_modules/vite/bin/vite.js build --watch --outDir $PWD/dist-other"
+  echo "20 node /foreign/node_modules/vite/bin/vite.js build --watch --outDir $PWD/dist-own"
+}
+lsof() { if [ "$3" = 20 ]; then echo n/foreign; else echo "n$PWD"; fi; }
+kill_process_tree() { echo "stopped=$1"; }
+kill_orphan_web_watchers
+`], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), 'stopped=17');
+});
+
+for (const platform of ['linux', 'msys']) test(`scoped frontend cleanup follows the instance stop (${platform})`, () => {
+  const result = spawnSync(bash, ['-c', `set -euo pipefail
+${helpers}
+OSTYPE="$1" CT_PORT=17999 CT_VITE_PORT=14999 CT_INSTANCE=test CT_INSTANCE_KEY=test CT_DATA_DIR=/fixture
+DEV_FRONT_EXTERNAL=0
+node() { if [ "$2" = --frontend ]; then echo vite-stop; else echo instance-stop; fi; }
+kill_web_watch() { echo watcher-stop; }
+kill_dev_static_server() { echo static-stop; }
+windows_dev_leftover_cleanup() { echo windows-leftovers; }
+kill_dev
+`, '--', platform], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split('\n'), ['instance-stop', 'watcher-stop', 'static-stop',
+    platform === 'linux' ? 'vite-stop' : 'windows-leftovers']);
+});
 
 for (const instance of ['', 'first-proof', 'second-proof']) {
   test(`shutdown selects the exact instance tree; instance=${instance || 'default'}`, () => {

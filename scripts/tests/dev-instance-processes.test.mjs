@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { instanceTreePlan } from '../dev-instance-processes.mjs';
+import { instanceTreePlan, verifiedQuitProcesses, gracefulQuit } from '../dev-instance-processes.mjs';
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 for (const windows of [false, true]) {
   const prefix = windows ? 'C:/repo' : '/repo';
@@ -48,4 +51,52 @@ test('canonical DEV selection excludes named instance trees and installed produc
   ];
   assert.deepEqual(instanceTreePlan({ root: '/repo/src-tauri/target/debug', windows: false, port: 7686,
     processes, listeners: [{ port: 7685, pid: 3 }] }), [processes[0]]);
+});
+
+for (const windows of [true, false]) test(`canonical cleanup excludes concurrent Cargo images (${windows ? 'Windows' : 'Unix'})`, () => {
+  const root = `${windows ? 'C:' : ''}/repo/src-tauri/target/triple/debug`;
+  const suffix = windows ? '.exe' : '';
+  const processes = ['domios-dev-app', 'domios-server/domios-server', 'cli/codeterm',
+    'deps/domios_server-abc', 'build/dependency-abc/build-script-build', 'examples/demo',
+    'incremental/fixture', 'deps/domios-dev-app', 'other/domios-server'].map((name, index) => ({
+    pid: index + 1, created: String(index + 100), executable: `${root}/${name}${suffix}`,
+  }));
+  assert.deepEqual(instanceTreePlan({ root, windows, port: 7686, processes, listeners: [] }), processes.slice(0, 3));
+});
+
+test('graceful quit accepts only selected incarnations and the exact DEV listener/data identity', () => {
+  const server = { pid: 42, created: '123', executable: '/repo/target/debug/domios-server' };
+  const input = { port: 7686, data: '/data', processes: [server], listeners: [{ pid: 42, port: 7686 }], windows: false };
+  const quit = { ready: { process: server, api_address: '127.0.0.1:7686', identity: { data: '/data', config: '/data/config.toml' } } };
+  assert.deepEqual(verifiedQuitProcesses(quit, input), [42]);
+  assert.deepEqual(verifiedQuitProcesses({ ready: { ...quit.ready, process: { ...server, created: '999' } } }, input), []);
+  assert.deepEqual(verifiedQuitProcesses({ ready: { ...quit.ready, identity: { data: '/foreign' } } }, input), []);
+  assert.deepEqual(verifiedQuitProcesses(quit, { ...input, listeners: [{ pid: 99, port: 7686 }] }), []);
+  assert.deepEqual(verifiedQuitProcesses({ ...quit, client: { process: { ...server, pid: 99 } } }, input), []);
+});
+
+test('clean shutdown requests the authenticated quit snapshot before posting that exact snapshot', async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), 'domios-clean-quit-'));
+  try {
+    const data = realpathSync.native(directory);
+    mkdirSync(path.join(data, 'bin'));
+    writeFileSync(path.join(data, 'bin', `codeterm${process.platform === 'win32' ? '.exe' : ''}`), 'fixture');
+    const server = { pid: 42, created: '123', executable: path.join(data, 'server') };
+    const quit = { ready: { process: server, api_address: '127.0.0.1:17996', identity: { data, config: path.join(data, 'config.toml') } } };
+    const calls = [];
+    const ids = await gracefulQuit({ processes: [server], listeners: [{ pid: 42, port: 17996 }], data, port: 17996 }, {
+      run: () => { calls.push('token'); return { status: 0, stdout: 'opaque-fixture-token' }; },
+      request: async (url, options) => {
+        assert.equal(options.headers.Authorization, 'Bearer opaque-fixture-token');
+        if (url.endsWith('/snapshot')) { calls.push('snapshot'); return { ok: true, json: async () => quit }; }
+        calls.push('quit');
+        assert.equal(options.method, 'POST');
+        assert.deepEqual(JSON.parse(options.body), quit);
+        return { ok: true, json: async () => ({ outcome: 'completed', expected: quit,
+          shutdown_completion: { operation: 'shutdown', cleanup: 'completed' } }) };
+      },
+    });
+    assert.deepEqual(calls, ['token', 'snapshot', 'quit']);
+    assert.deepEqual(ids, [42]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });

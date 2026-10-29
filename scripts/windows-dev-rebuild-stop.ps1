@@ -44,6 +44,12 @@ if ($Operation -eq 'Inspect') { Snapshot | ConvertTo-Json -Depth 5 -Compress; ex
 if ([int]$request.port -eq 7685 -or [int]$request.port -lt 1) { throw 'Refusing production or invalid DEV port' }
 if ($Operation -eq 'StopTree') {
   $root = [IO.Path]::GetFullPath([string]$request.root).TrimEnd('\') + '\'
+  $allowed = @()
+  if ($request.images) { $allowed = @($request.images | ForEach-Object { [IO.Path]::GetFullPath([string]$_) }) }
+  function Selected-Image([string] $image) {
+    $image.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) -and
+      (-not $request.images -or $image -in $allowed)
+  }
   $pinned = @()
   try {
     foreach ($row in $request.processes) {
@@ -54,7 +60,7 @@ if ($Operation -eq 'StopTree') {
       $image = [DevRebuildProcess]::PhysicalImage($proc.Executable)
       if ($proc.Created -cne $row.created -or
           -not [string]::Equals($image, [string]$row.executable, [StringComparison]::OrdinalIgnoreCase) -or
-          -not $image.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+          -not (Selected-Image $image)) {
         throw 'DEV instance image or creation identity changed; refusing cleanup'
       }
     }
@@ -63,9 +69,12 @@ if ($Operation -eq 'StopTree') {
     if (@($snapshot.listeners | Where-Object { $_.port -eq 7685 -and $_.pid -in $ids }).Count) {
       throw 'DEV instance tree owns production port 7685; refusing cleanup'
     }
+    foreach ($proc in $pinned) {
+      if ($proc.Id -in $request.gracefulPids) { [void]$proc.WaitForExit(10000) }
+    }
     foreach ($proc in $pinned) { [DevRebuildProcess]::Stop($proc, 10000) }
     $after = Snapshot
-    if (@($after.processes | Where-Object { $_.executable.StartsWith($root, [StringComparison]::OrdinalIgnoreCase) }).Count) {
+    if (@($after.processes | Where-Object { Selected-Image $_.executable }).Count) {
       throw 'DEV instance tree still has processes; refusing staging'
     }
     @{ stopped = @($request.processes) } | ConvertTo-Json -Depth 5 -Compress
