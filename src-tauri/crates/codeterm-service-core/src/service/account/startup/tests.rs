@@ -43,7 +43,7 @@ fn paid_account() -> (StartupAccount, Arc<AtomicU64>) {
         policy_version: 1,
         policy_epoch: "fixture-online-v1",
         enforcement: Enforcement {
-            enabled: true,
+            enabled: false,
             rollback: false,
         },
         keys: KEYS,

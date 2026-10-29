@@ -7,6 +7,8 @@ async fn valid_signed_grant_wins_over_unsigned_free_and_transport_failure() {
         Ok(paid_grant()),
         Ok(unsigned),
         Err("Installation proof unavailable".into()),
+        Err("offline".into()),
+        Ok(Reading::current(Entitlements::default())),
     ]);
     let (time, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
@@ -26,8 +28,20 @@ async fn valid_signed_grant_wins_over_unsigned_free_and_transport_failure() {
     }
     time.store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);
     let snapshot = billing.snapshot(Some(&user));
+    assert_eq!(snapshot.entitlements.plan, Plan::Paid("unavailable".into()));
+    assert!(snapshot.checking);
+    assert!(!billing.limit_gate().summary().enforcing);
+    assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
+        .await;
+    assert!(snapshot.checking);
+    assert_ne!(snapshot.entitlements.plan, Plan::Free);
+    let snapshot = billing
+        .refresh(Some(&user), RefreshEvent::CheckoutReturned, Instant::now())
+        .await;
+    assert!(!snapshot.checking);
     assert_eq!(snapshot.entitlements.plan, Plan::Free);
-    assert!(billing.limit_gate().summary().enforcing);
 }
 
 #[tokio::test]

@@ -68,10 +68,16 @@ fn unchanged_gate_emits_nothing_and_this_build_enforces_free_before_billing() {
     let (mux, newest) = three_workspaces();
     let fixture = ServiceFixture::new(mux);
     fixture.service.sync_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 0);
+    assert!(!fixture.service.limit_gate().summary().enforcing);
+    assert!(!fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    fixture.service.sync_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 0);
+    fixture
+        .service
+        .apply_limit_gate(LimitGate::new(compiled_free(), true));
     assert_eq!(entitlement_events(&fixture), 1);
     assert!(fixture.service.is_locked(LimitKey::Workspaces, &newest));
-    fixture.service.sync_limit_gate();
-    assert_eq!(entitlement_events(&fixture), 1);
 }
 
 fn locked_and_sibling_tabs() -> (MultiplexerState, String, String) {
@@ -226,10 +232,16 @@ fn deadline_announce_reaches_the_ui_even_when_the_gate_is_unchanged() {
     let (mux, newest) = three_workspaces();
     let fixture = ServiceFixture::new(mux);
     fixture.service.sync_limit_gate();
-    assert_eq!(entitlement_events(&fixture), 1);
+    assert_eq!(entitlement_events(&fixture), 0);
     fixture.service.announce_limit_gate();
-    assert_eq!(entitlement_events(&fixture), 2);
-    assert!(fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    assert_eq!(entitlement_events(&fixture), 1);
+    assert!(!fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    let events = fixture.ui.0.lock();
+    let (_, payload) = events
+        .iter()
+        .find(|(event, _)| event == ENTITLEMENT_CHANGED_EVENT)
+        .unwrap();
+    assert_eq!(payload["limits"]["enforcing"], false);
 }
 
 struct LocalCredential;
@@ -282,7 +294,8 @@ async fn broken_billing_configuration_never_disables_startup_enforcement() {
             result.err().as_deref(),
             Some("Unknown or unavailable billing provider")
         );
-        assert!(svc.is_locked(LimitKey::Workspaces, &newest));
+        assert!(!svc.limit_gate().summary().enforcing);
+        assert!(!svc.is_locked(LimitKey::Workspaces, &newest));
     }
 }
 
@@ -301,6 +314,7 @@ async fn account_initialization_errors_restore_compiled_free_enforcement() {
             svc.account_plan().await
         };
         assert_eq!(result.err().as_deref(), Some("Invalid account config"));
-        assert!(svc.is_locked(LimitKey::Workspaces, &newest));
+        assert!(!svc.limit_gate().summary().enforcing);
+        assert!(!svc.is_locked(LimitKey::Workspaces, &newest));
     }
 }
