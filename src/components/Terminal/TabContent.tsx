@@ -71,7 +71,7 @@ export function TabContent({
   const lock = useTabLock(tab);
   const wake = useWakeOnOpen(tab, isVisible && !lock.locked && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
-  const { providers, loading } = useAgentProviders();
+  const { providers, loading, error: providersError } = useAgentProviders();
   const sessionId = tab?.agent_session_id || (tab?.backing?.kind === "chat_backend" ? tab.backing.session_id : null);
   const cached = useTranscriptWindow(transcriptWindowKey(tab?.id ?? "", sessionId ?? null)).transcript;
   const hasCachedTranscript = cached.authority?.sourceSessionId === sessionId
@@ -108,7 +108,7 @@ export function TabContent({
   if (isFirstRunGeneralTab(tab)) {
     return (
       <TabWrapper tabId={tab.id} isVisible={isVisible}>
-        <FirstRunGeneralPicker providers={providers} home={workspaceId ? { workspaceId, tabId: tab.id } : undefined} />
+        <FirstRunGeneralPicker providers={providers} providersLoading={loading} providersError={providersError} home={workspaceId ? { workspaceId, tabId: tab.id } : undefined} />
       </TabWrapper>
     );
   }
