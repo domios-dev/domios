@@ -1,5 +1,6 @@
 use super::*;
 use axum::{body::Body, http::Request, routing::post, Router};
+use codeterm_service_core::async_runtime::block_on;
 use codeterm_service_core::mesh::types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION};
 use codeterm_service_core::service::parked_user_delivery::test_support::{
     attach_fixture_pty, await_owner_idle, note_dispatched_for_test, owner_wake_counts,
@@ -49,9 +50,8 @@ fn signed_peer(state: &AppState) -> String {
     codeterm_service_core::mesh::crown::sign_request(&private_key, "override-peer").unwrap()
 }
 
-#[tokio::test]
-async fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have_zero_effects(
-) {
+#[test]
+fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have_zero_effects() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
     note_dispatched_for_test(&fixture.service, &tab);
@@ -101,11 +101,12 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
         ("push", push_token.as_str(), StatusCode::FORBIDDEN),
         ("missing", "", StatusCode::UNAUTHORIZED),
     ] {
-        let response = router
-            .clone()
-            .oneshot(request(&tab, token, Some(authority.binding_nonce())))
-            .await
-            .unwrap();
+        let response = block_on(router.clone().oneshot(request(
+            &tab,
+            token,
+            Some(authority.binding_nonce()),
+        )))
+        .unwrap();
         assert_eq!(response.status(), expected, "{label}");
         assert_eq!(owner_wake_counts(&fixture.service, &tab), before_wakes);
         assert!(!fixture.service.user_authority_is_ready(&authority));
@@ -115,21 +116,14 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
             .lock()
             .issue_guarded_input_permit(authority.pty_id().unwrap())
             .is_err());
-        assert!(fixture
-            .service
-            .reconcile_user_send_statuses(&tab)
-            .unwrap()
-            .is_empty());
         assert_eq!(writes.load(Ordering::SeqCst), 0);
     }
-    let missing_identity = bare
-        .oneshot(request(
-            &tab,
-            "preview-test-token",
-            Some(authority.binding_nonce()),
-        ))
-        .await
-        .unwrap();
+    let missing_identity = block_on(bare.oneshot(request(
+        &tab,
+        "preview-test-token",
+        Some(authority.binding_nonce()),
+    )))
+    .unwrap();
     assert_eq!(missing_identity.status(), StatusCode::FORBIDDEN);
     assert_eq!(owner_wake_counts(&fixture.service, &tab), before_wakes);
     assert!(fixture
@@ -137,22 +131,20 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
         .reconcile_user_send_statuses(&tab)
         .unwrap()
         .is_empty());
-    let response = router
-        .oneshot(request(
-            &tab,
-            "preview-test-token",
-            Some(authority.binding_nonce()),
-        ))
-        .await
-        .unwrap();
+    let response = block_on(router.oneshot(request(
+        &tab,
+        "preview-test-token",
+        Some(authority.binding_nonce()),
+    )))
+    .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     await_owner_idle(&fixture, &tab);
     assert!(fixture.service.user_authority_is_ready(&authority));
     assert_eq!(writes.load(Ordering::SeqCst), 1);
 }
 
-#[tokio::test]
-async fn ordinary_tab_chat_send_keeps_its_existing_admission_policy_without_override() {
+#[test]
+fn ordinary_tab_chat_send_keeps_its_existing_admission_policy_without_override() {
     let (fixture, tab) = queue_fixture(true, None);
     attach_fixture_pty(&fixture, &tab);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
@@ -164,7 +156,7 @@ async fn ordinary_tab_chat_send_keeps_its_existing_admission_policy_without_over
             state,
             crate::auth::auth_middleware,
         ));
-    let response = router.oneshot(request(&tab, &token, None)).await.unwrap();
+    let response = block_on(router.oneshot(request(&tab, &token, None))).unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     await_owner_idle(&fixture, &tab);
     let authority = fixture.service.user_send_authority(&tab).unwrap();

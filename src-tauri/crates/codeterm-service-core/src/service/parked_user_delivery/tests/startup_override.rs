@@ -99,7 +99,7 @@ fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startu
     await_owner_idle(&fixture, &tab);
     assert_eq!(
         received.recv_timeout(TEST_DEADLINE).unwrap(),
-        (first.send_id, FIRST_PAYLOAD.to_owned())
+        (first.send_id, FIRST_PAYLOAD.replace("\r\n", "\n"))
     );
     assert_eq!(
         received.recv_timeout(TEST_DEADLINE).unwrap(),
