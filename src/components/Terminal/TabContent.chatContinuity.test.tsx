@@ -245,6 +245,7 @@ async function main(): Promise<void> {
   const { createRequire } = await import("node:module");
   const require = createRequire(__filename);
   require.extensions[".css"] = () => {};
+  require.extensions[".png"] = (module) => { module.exports = "fixture-logo.png"; };
   const { TabContent } = await import("./TabContent");
   setAgentDescriptors([]);
   const { useAgentProviderCachePublisher } = await import("../../hooks/useAgentProviders");
