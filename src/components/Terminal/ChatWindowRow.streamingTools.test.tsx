@@ -201,15 +201,36 @@ it("keeps structured single-command diffs behind the retained explicit disclosur
   expect(host?.querySelector('[data-testid="chat-tool-call"]')).toBe(card);
 });
 
-it("keeps a group collapsed when its full input arrives with the first pending part", async () => {
-  const initial = part({ toolInput: { command }, toolSummary: command, toolDetail: command });
+it.each([command, "rg opaque_pattern opaque_file"])("keeps an explicitly running command collapsed with initially full input: %s", async (input) => {
+  const initial = part({ toolInput: { command: input }, toolSummary: input, toolDetail: input, toolStatus: "running" });
   const first = await renderPart(initial);
   const card = first.querySelector('[data-testid="chat-tool-call"]');
   expect(first.querySelector('[data-testid="chat-command-group"]')).toBeNull();
-  await renderPart({ ...initial, toolResult: "opaque_done", toolError: false });
+  await renderPart({ ...initial, toolResult: "opaque_done", toolError: false, toolStatus: "completed" });
   expect(host?.querySelector('[data-testid="chat-tool-call"]')).toBe(card);
   expect(host?.querySelector('button[aria-expanded="false"]')).not.toBeNull();
   expect(host?.querySelector('[data-testid="chat-command-group"]')).toBeNull();
+});
+
+it.each([
+  ["search", "rg opaque_pattern opaque_file"],
+  ["group", command],
+])("does not infer streaming from a missing result on a fully described historical %s call", async (kind, input) => {
+  const initial = part({ toolInput: { command: input }, toolSummary: input, toolDetail: input });
+  await renderPart(initial);
+  const expectHistoricalPresentation = () => {
+    if (kind === "search") {
+      expect(host?.textContent).toContain("Search");
+      expect(host?.textContent).toContain("opaque_pattern");
+      expect(host?.textContent).not.toContain("rg opaque_pattern");
+    } else {
+      expect(host?.querySelector('[data-testid="chat-command-group"]')).not.toBeNull();
+      expect(host?.querySelectorAll('[data-testid="chat-command-tree-line"]')).toHaveLength(2);
+    }
+  };
+  expectHistoricalPresentation();
+  await remountPart(initial);
+  expectHistoricalPresentation();
 });
 
 it.each([false, true])("keeps outbound message content primary when arguments start complete: %s", async (startsComplete) => {

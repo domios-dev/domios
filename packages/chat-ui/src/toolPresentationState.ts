@@ -18,6 +18,11 @@ export function retainStreamedCommandShell(event: ToolEvent): boolean {
   const key = toolPresentationKey(event.message, { kind: "tool", event });
   if (!retainedCommands.has(key)) {
     if (event.status !== "pending") return false;
+    const input = event.message.toolInput;
+    const running = event.message.toolStatus === "running" || input?.status === "inProgress";
+    const described = [input?.command, input?.cmd, event.detail]
+      .some((value) => typeof value === "string" && value.trim().length > 0);
+    if (described && !running) return false;
     const shape = toolCommandShape(event);
     if (shape.kind === "codeterm" && isSend(shape.invocation)) return false;
   }
