@@ -161,20 +161,26 @@ impl From<ApplicationEnvelope> for Reading {
     fn from(envelope: ApplicationEnvelope) -> Self {
         let access = Access::from(&envelope.application_access);
         let entitlements = match envelope.billing_inventory {
-            BillingInventory::RequiresInventory => None,
-            BillingInventory::Verified => Some(Entitlements {
-                plan: envelope
-                    .billing
-                    .as_ref()
-                    .map_or(Plan::Free, |b| b.plan.clone()),
-                status: Status::Active,
-                current_period_end: envelope
-                    .billing
-                    .as_ref()
-                    .and_then(|b| b.period_end)
-                    .unwrap_or(0),
-                cancel_at_period_end: false,
-            }),
+            BillingInventory::RequiresInventory if access.authority != Authority::Admin => None,
+            BillingInventory::Verified | BillingInventory::RequiresInventory => {
+                Some(Entitlements {
+                    plan: if access.authority == Authority::Admin {
+                        Plan::Admin
+                    } else {
+                        envelope
+                            .billing
+                            .as_ref()
+                            .map_or(Plan::Free, |b| b.plan.clone())
+                    },
+                    status: Status::Active,
+                    current_period_end: envelope
+                        .billing
+                        .as_ref()
+                        .and_then(|b| b.period_end)
+                        .unwrap_or(0),
+                    cancel_at_period_end: false,
+                })
+            }
         };
         Self {
             grant: envelope.grant,

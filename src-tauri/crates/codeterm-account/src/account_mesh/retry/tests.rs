@@ -65,6 +65,27 @@ fn rate_limit_uses_the_longer_server_or_exponential_backoff_deadline() {
 }
 
 #[test]
+fn enrollment_budget_arms_one_retry_and_parks_after_a_second_refusal() {
+    for seconds in [None, Some(61)] {
+        let mut retry = Retry::default();
+        let refusal = AccountMeshRefusal::EnrollmentBudget {
+            retry_after_seconds: seconds,
+        };
+        let delay = seconds.unwrap_or(900);
+        retry.settle(100, Err(refusal));
+        assert_eq!(retry.deadline, Some(100 + delay));
+        assert_eq!(retry.pending(99 + delay), Some(refusal));
+        assert_eq!(retry.pending(100 + delay), None);
+        retry.settle(100 + delay, Err(refusal));
+        assert_eq!(retry.deadline, None);
+        retry.resume();
+        assert_eq!(retry.pending(100 + delay + 86400), Some(refusal));
+        retry.settle(100 + delay, Ok(()));
+        assert_eq!(retry.pending(100 + delay), None);
+    }
+}
+
+#[test]
 fn permanent_refusals_back_off_to_hours_and_success_clears_the_history() {
     let mut retry = Retry::default();
     let mut now = 100;
@@ -94,4 +115,54 @@ fn permanent_backoff_resume_rearms_without_waiting_for_its_deadline() {
     assert_eq!(retry.deadline, None);
     retry.settle(101, Err(AccountMeshRefusal::Forbidden));
     assert_eq!(retry.deadline, Some(401));
+}
+
+#[test]
+fn budget_after_other_failures_keeps_its_single_deadline_through_resume() {
+    for previous in [
+        AccountMeshRefusal::Forbidden,
+        AccountMeshRefusal::Unavailable,
+    ] {
+        let mut retry = Retry::default();
+        for now in 0..6 {
+            retry.settle(now, Err(previous));
+        }
+        let budget = AccountMeshRefusal::EnrollmentBudget {
+            retry_after_seconds: Some(61),
+        };
+        retry.settle(100, Err(budget));
+        assert_eq!(retry.deadline, Some(161));
+        assert!(!retry.exhausted());
+        retry.resume();
+        assert_eq!(retry.deadline, Some(161));
+        assert_eq!(retry.pending(160), Some(budget));
+        retry.settle(161, Err(budget));
+        retry.keep_recovering(161);
+        retry.resume();
+        assert_eq!(retry.deadline, None);
+        assert_eq!(retry.pending(162), Some(budget));
+    }
+}
+
+#[test]
+fn manual_escape_from_other_backoffs_preserves_the_consumed_budget_retry() {
+    for refusal in [
+        AccountMeshRefusal::Forbidden,
+        AccountMeshRefusal::Unavailable,
+    ] {
+        let mut retry = Retry::default();
+        let budget = AccountMeshRefusal::EnrollmentBudget {
+            retry_after_seconds: None,
+        };
+        retry.settle(100, Err(budget));
+        for now in 1000..1006 {
+            retry.settle(now, Err(refusal));
+        }
+        retry.resume();
+        assert_eq!(retry.pending(1006), None);
+        assert_eq!(retry.deadline, None);
+        retry.settle(1006, Err(budget));
+        assert_eq!(retry.deadline, None);
+        assert_eq!(retry.pending(1007), Some(budget));
+    }
 }

@@ -174,7 +174,7 @@ fn service_metadata_writes_on_locked_items_refuse() {
 }
 
 #[test]
-fn forged_paid_hint_keeps_every_write_path_closed_while_checking() {
+fn unverified_account_keeps_workspaces_usable_without_paid_authority() {
     let data = tempfile::tempdir().unwrap();
     let state = data.path().join("state/account");
     std::fs::create_dir_all(&state).unwrap();
@@ -212,16 +212,13 @@ fn forged_paid_hint_keeps_every_write_path_closed_while_checking() {
         .set(std::sync::Arc::new(billing))
         .is_ok());
     svc.sync_limit_gate();
-    assert!(svc.limit_gate().summary().enforcing);
-    assert!(svc.is_locked(LimitKey::Workspaces, &newest));
-    assert!(svc.tab_write_lock(&tab).is_some());
-    assert!(svc.item_write_lock(LimitKey::Workspaces, &newest).is_some());
-    assert!(svc
-        .rename_workspace(&newest, "Forged")
-        .unwrap_err()
-        .starts_with(PLAN_LIMIT_LOCKED));
+    assert!(!svc.limit_gate().summary().enforcing);
+    assert!(!svc.is_locked(LimitKey::Workspaces, &newest));
+    assert!(svc.tab_write_lock(&tab).is_none());
+    assert!(svc.item_write_lock(LimitKey::Workspaces, &newest).is_none());
+    assert!(svc.rename_workspace(&newest, "Usable").is_ok());
     let over = svc.mux.read().list_workspaces().len();
-    assert!(svc.limit_gate().admit(LimitKey::Workspaces, over).is_err());
+    assert!(svc.limit_gate().admit(LimitKey::Workspaces, over).is_ok());
 }
 
 #[test]

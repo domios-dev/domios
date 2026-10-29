@@ -172,20 +172,24 @@ impl Billing {
             .verified
             .as_ref()
             .map(|grant| grant.verdict(self.now()));
-        snapshot.access = cache.uid.as_ref().map(|_| {
-            Access::from_effective(
-                &snapshot
-                    .grant
-                    .as_ref()
-                    .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective),
-            )
-        });
-        snapshot.entitlements.plan = snapshot
+        let current = snapshot
             .grant
             .as_ref()
-            .filter(|verdict| verdict.state.retains_grant())
-            .map_or(Plan::Free, |verdict| Plan::from(&verdict.label));
-        snapshot.checking = self.checking(cache);
+            .filter(|verdict| verdict.state.retains_grant());
+        snapshot.access = cache.uid.as_ref().map(|_| {
+            Access::from_effective(
+                &current.map_or_else(codeterm_entitlements::compiled_free, |verdict| {
+                    verdict.effective()
+                }),
+            )
+        });
+        if let Some(verdict) = current {
+            snapshot.entitlements.plan = Plan::from(&verdict.label);
+        } else if cache.uid.is_some() && !cache.observed {
+            snapshot.entitlements.plan = Plan::Paid("unavailable".into());
+        }
+        snapshot.checking = cache.uid.is_some() && current.is_none() && !cache.neighbors_free
+            || self.checking(cache);
         snapshot
     }
     fn checking(&self, cache: &Cache) -> bool {
@@ -302,8 +306,7 @@ impl Billing {
         }
         self.recompute(&cache)
     }
-    /// Limits bind through the verified verdict, or compiled free without one. Checking defers
-    /// only how locks are shown; the unsigned hint never relaxes enforcement.
+    /// Signed-in accounts acquire Free locks only after a server Free observation.
     pub fn limit_gate(&self) -> LimitGate {
         let cache = self.cache.lock();
         let enforcing = self
@@ -314,13 +317,25 @@ impl Billing {
             });
         let now = self.now();
         let verdict = cache.verified.as_ref().map(|grant| grant.verdict(now));
-        let valid_until = cache.verified.as_ref().map(|grant| {
-            let payload = grant.payload();
-            payload
-                .period_end
-                .unwrap_or(payload.expires_at)
-                .min(payload.expires_at)
-        });
+        let valid_until = cache
+            .verified
+            .as_ref()
+            .filter(|grant| {
+                grant.verdict(now).effective().authority == codeterm_entitlements::Authority::Free
+            })
+            .map(|grant| {
+                let payload = grant.payload();
+                payload
+                    .period_end
+                    .unwrap_or(payload.expires_at)
+                    .min(payload.expires_at)
+            });
+        let enforcing = enforcing
+            && (cache.uid.is_none()
+                || cache.neighbors_free
+                || verdict
+                    .as_ref()
+                    .is_some_and(|verdict| verdict.state.retains_grant()));
         drop(cache);
         let access = verdict
             .as_ref()
@@ -491,7 +506,7 @@ impl Billing {
         result: Result<Reading>,
     ) -> Snapshot {
         let mut cache = self.cache.lock();
-        let previous = cache.snapshot.entitlements.clone();
+        let previous = self.recompute(&cache).entitlements;
         let observed = cache.observed;
         let mut refreshed = false;
         if cache.generation == generation {
@@ -606,9 +621,6 @@ impl Billing {
         let snapshot = self.recompute(&cache);
         if refreshed && observed && previous != snapshot.entitlements {
             cache.reads[1].invalidate();
-        }
-        if refreshed {
-            cache.snapshot.entitlements.plan = snapshot.entitlements.plan.clone();
         }
         drop(cache);
         self.rearm.notify_one();

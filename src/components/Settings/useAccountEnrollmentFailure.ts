@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { type AccountMeshFailure, useAccountMeshClient } from "../MeshPanel/accountMeshClient";
+import { enrollmentRetryMessage } from "../MeshPanel/accountMachines";
+import { type AccountMeshFailure, type AccountMeshSnapshot, useAccountMeshClient } from "../MeshPanel/accountMeshClient";
 
-export function useAccountEnrollmentFailure(identity: string | null): AccountMeshFailure | null {
+function useEnrollmentSnapshot(identity: string | null): AccountMeshSnapshot | null {
   const client = useAccountMeshClient();
-  const [loaded, setLoaded] = useState<{ identity: string; failure: AccountMeshFailure | null } | null>(null);
+  const [loaded, setLoaded] = useState<{ identity: string; snapshot: AccountMeshSnapshot | null } | null>(null);
   useEffect(() => {
     if (!identity) return;
     let active = true;
@@ -13,15 +14,26 @@ export function useAccountEnrollmentFailure(identity: string | null): AccountMes
       try {
         const snapshot = await client.snapshot();
         if (active && current === generation) {
-          setLoaded({ identity, failure: snapshot.enrollment === "refused" ? snapshot.last_refusal : null });
+          setLoaded({ identity, snapshot });
         }
       } catch {
-        if (active && current === generation) setLoaded({ identity, failure: null });
+        if (active && current === generation) setLoaded({ identity, snapshot: null });
       }
     };
     const unsubscribe = client.subscribe(() => { void load(); });
     void load();
-    return () => { active = false; unsubscribe(); };
+    window.addEventListener("focus", load);
+    return () => { active = false; unsubscribe(); window.removeEventListener("focus", load); };
   }, [client, identity]);
-  return identity && loaded?.identity === identity ? loaded.failure : null;
+  return identity && loaded?.identity === identity ? loaded.snapshot : null;
+}
+
+export function useAccountEnrollmentFailure(identity: string | null): AccountMeshFailure | null {
+  const snapshot = useEnrollmentSnapshot(identity);
+  return snapshot?.enrollment === "refused" ? snapshot.last_refusal : null;
+}
+
+export function useEnrollmentNotice(identity: string | null): string | null {
+  const snapshot = useEnrollmentSnapshot(identity);
+  return snapshot ? enrollmentRetryMessage(snapshot, Date.now() / 1000) : null;
 }

@@ -508,6 +508,14 @@ impl AccountMesh {
             }
             if trigger == EnrollTrigger::Explicit {
                 inner.auth_parked = None;
+                if inner.retry.deadline.is_none()
+                    && matches!(
+                        inner.retry.refusal,
+                        Some(AccountMeshRefusal::EnrollmentBudget { .. })
+                    )
+                {
+                    inner.retry = Default::default();
+                }
             }
             if inner.auth_parked.is_some() {
                 return Err(AccountMeshRefusal::Unauthenticated);
@@ -603,6 +611,7 @@ impl AccountMesh {
                 && inner.auth_parked.is_none()
                 && retry_at.is_none()
                 && !inner.retry.exhausted()
+                && inner.retry.pending(self.now()).is_none()
                 && *result != Err(AccountMeshRefusal::ReauthRequired)
             {
                 inner

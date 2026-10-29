@@ -161,13 +161,12 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
                 .unwrap_or(RegistryRefusal::Unavailable);
         }
         429 => {
-            if body
+            if let Some(reason @ RegistryRefusal::EnrollmentBudget { .. }) = body
                 .as_ref()
                 .and_then(|body| body.pointer("/error/details"))
                 .map(RegistryRefusal::from_details)
-                == Some(RegistryRefusal::EnrollmentBudget)
             {
-                return RegistryRefusal::EnrollmentBudget;
+                return reason;
             }
             return RegistryRefusal::RateLimited {
                 retry_after_seconds: failure.retry_after_seconds().unwrap_or(0).max(1),

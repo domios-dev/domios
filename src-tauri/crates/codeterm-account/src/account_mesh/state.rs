@@ -97,7 +97,10 @@ pub enum AccountMeshRefusal {
     #[serde(rename = "challenge_invalid")]
     ChallengeInvalid,
     #[serde(rename = "enrollment_budget")]
-    EnrollmentBudget,
+    EnrollmentBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after_seconds: Option<u64>,
+    },
     #[serde(rename = "proof_invalid")]
     ProofInvalid,
     #[serde(rename = "rate-limited")]
@@ -139,7 +142,11 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
             RegistryRefusal::KeyConflict => Self::KeyConflict,
             RegistryRefusal::GenerationMismatch => Self::GenerationMismatch,
             RegistryRefusal::ChallengeInvalid => Self::ChallengeInvalid,
-            RegistryRefusal::EnrollmentBudget => Self::EnrollmentBudget,
+            RegistryRefusal::EnrollmentBudget {
+                retry_after_seconds,
+            } => Self::EnrollmentBudget {
+                retry_after_seconds,
+            },
             RegistryRefusal::ProofInvalid => Self::ProofInvalid,
             RegistryRefusal::RateLimited {
                 retry_after_seconds,

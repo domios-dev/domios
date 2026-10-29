@@ -111,9 +111,10 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
     <SettingsCard icon={<CreditCard size={16} />} title="Plan">
       <div className="flex flex-col items-start gap-3">
         <div className="flex w-full items-center gap-2">
-          <span className="text-xl font-semibold text-[var(--ct-fg)]">{tierName(billing.plan?.plan ?? "free")}</span>
+          <span className="text-xl font-semibold text-[var(--ct-fg)]">{tierName(billing.plan?.plan ?? (signedIn ? "unavailable" : "free"))}</span>
           {staff ? <SettingsPill tone="accent">team access</SettingsPill>
             : billing.plan && <SettingsPill tone={billing.plan.status === "active" ? "green" : "muted"}>{billing.plan.status}</SettingsPill>}
+          {billing.plan?.verifying && <SettingsPill tone="muted">Verifying</SettingsPill>}
           {signedIn && <Button size="sm" variant="ghost" className="ml-auto text-xs" disabled={billing.pending} aria-busy={billing.pending}
             onClick={() => void manageSubscription()}>{paidSubscription || refusedAsSubscribed
               ? billing.pending ? "Opening subscription…" : "Manage subscription" : "Upgrade"}</Button>}
@@ -122,7 +123,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
           {subscriptionPlan === null ? "Access ends" : billing.plan.cancelAtPeriodEnd ? "Ends" : "Renews"} {new Date(billing.plan.periodEnd * 1000).toLocaleDateString()}
         </p>}
         <AccountLimits limits={billing.plan?.limits ?? null} usage={usage} />
-        {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale ? null : billing.plan?.plan ?? null} />}
+        {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale || billing.plan?.verifying ? null : billing.plan?.plan ?? null} />}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
         {desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
         {signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}
@@ -142,7 +143,7 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
               signedInAs={signedIn ? model.identity.email ?? model.identity.display_name : null} />}
           </SettingsCardAnchor>
         </div>
-        {planChange && model.kind === "signed_in" && planChange.identity === model.identity.uid && <PlanChangeDialog selection={planChange} currentTier={billing.plan?.plan ?? "free"}
+        {planChange && model.kind === "signed_in" && planChange.identity === model.identity.uid && <PlanChangeDialog selection={planChange} currentTier={billing.plan?.plan ?? (signedIn ? "unavailable" : "free")}
           periodEnd={desktopBilling.subscription?.period_end ?? null} pending={desktopBilling.changing} error={desktopBilling.error}
           submitted={desktopBilling.submitted} onClose={() => setPlanChange(null)}
           onSubmit={() => { void desktopBilling.change(planChange.priceId).then(changed => { if (changed) setPlanChange(null); }); }} />}

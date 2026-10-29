@@ -42,23 +42,23 @@ fn cached_valid_verdict_starts_paid_without_checking() {
 }
 
 #[tokio::test]
-async fn invalid_cache_with_paid_hint_checks_then_locks_after_deadline_offline() {
+async fn invalid_cache_with_paid_hint_keeps_verifying_after_deadline_offline() {
     let store = stored(paid_grant().grant, true);
     let now = ISSUED + 86_400;
     let (billing, time) = billing_with(true, store, vec![Err("offline".into())], now);
     let user = session("fixture-user");
     let deadline = billing.prime(&user).expect("checking");
     assert_eq!(deadline, now + CHECKING_DEADLINE_SECS);
-    assert_free_and_enforcing(&billing);
+    assert_workspace_locks_deferred(&billing);
     let offline = billing
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
     assert!(offline.checking);
     assert_eq!(offline.access.unwrap().authority, Authority::Free);
     time.store(deadline, Ordering::SeqCst);
-    assert!(!billing.snapshot(Some(&user)).checking);
+    assert!(billing.snapshot(Some(&user)).checking);
     let gate = billing.limit_gate().summary();
-    assert!(gate.enforcing);
+    assert!(!gate.enforcing);
     assert_eq!(
         gate.workspaces,
         codeterm_entitlements::COMPILED_FREE_LIMITS.workspaces.max
@@ -80,10 +80,10 @@ fn tampered_cache_is_free_and_removed() {
     assert!(store.load().unwrap().is_none());
 }
 
-fn assert_free_and_enforcing(billing: &Billing) {
+fn assert_workspace_locks_deferred(billing: &Billing) {
     let gate = billing.limit_gate();
     let summary = gate.summary();
-    assert!(summary.enforcing);
+    assert!(!summary.enforcing);
     assert_eq!(
         summary.workspaces,
         codeterm_entitlements::COMPILED_FREE_LIMITS.workspaces.max
@@ -94,20 +94,20 @@ fn assert_free_and_enforcing(billing: &Billing) {
         .unwrap() as usize;
     assert!(gate
         .admit(codeterm_entitlements::LimitKey::Workspaces, over)
-        .is_err());
+        .is_ok());
 }
 
 #[test]
-fn forged_paid_hint_never_relaxes_enforcement_across_restarts() {
+fn missing_verdict_keeps_workspace_locks_deferred_across_restarts() {
     let store = stored(None, true);
     for restart in 0..3 {
         let (billing, time) = billing_with(true, store.clone(), vec![], ISSUED + 60);
         let user = session("fixture-user");
         let deadline = billing.prime(&user).expect("checking");
         assert!(billing.snapshot(Some(&user)).checking, "restart {restart}");
-        assert_free_and_enforcing(&billing);
+        assert_workspace_locks_deferred(&billing);
         time.store(deadline - 1, Ordering::SeqCst);
-        assert_free_and_enforcing(&billing);
+        assert_workspace_locks_deferred(&billing);
     }
 }
 

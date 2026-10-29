@@ -54,6 +54,7 @@ export interface MachineRowView {
 }
 
 export interface SelfRowView {
+  readOnly?: boolean;
   planLimited: boolean;
   name: string;
   installationId: string;
@@ -126,22 +127,27 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
       || !!snapshot.registry?.rows.some((row) => row.installation_id === snapshot.self?.installation_id && !row.active),
     reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
     self: selfRow(snapshot),
-    machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked).map((row) => machineLimit && row.status !== "revoked"
+    machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked && snapshot.last_refusal?.reason !== "enrollment_budget").map((row) => snapshot.last_refusal?.reason === "enrollment_budget"
+      ? { ...row, target: null, controls: NO_CONTROLS, canSignOut: false } : machineLimit && row.status !== "revoked"
       ? { ...row, controls: { ...row.controls, plans: true, add: null, revoke: row.target } } : row),
-    saved,
-    notes: [...notes, ...registryNotes(snapshot, listFailure)],
+    saved: snapshot.last_refusal?.reason === "enrollment_budget"
+      ? saved.map(row => ({ ...row, controls: NO_CONTROLS, canSignOut: false })) : saved,
+    notes: [...notes, ...registryNotes(snapshot, listFailure, now)],
   };
 }
 
-function registryNotes(snapshot: AccountMeshSnapshot, listFailure: AccountMeshFailure | null): string[] {
+function registryNotes(snapshot: AccountMeshSnapshot, listFailure: AccountMeshFailure | null, now: number): string[] {
   const notes: string[] = [];
+  if (snapshot.last_refusal?.reason === "enrollment_budget" && snapshot.registry) {
+    notes.push("Showing the last account list, read-only.");
+  }
   if (snapshot.enrollment === "refused" && snapshot.last_refusal && !snapshot.publication_failure) {
-    notes.push(`Account enrollment was refused. ${failureMessage(snapshot.last_refusal)}`);
+    notes.push(enrollmentRetryMessage(snapshot, now) ?? `Account enrollment was refused. ${failureMessage(snapshot.last_refusal)}`);
   }
   if (snapshot.publication_failure) {
     notes.push(`Mesh address publication was refused. ${failureMessage(snapshot.publication_failure)}`);
   }
-  if (snapshot.retry_at != null) {
+  if (snapshot.retry_at != null && snapshot.last_refusal?.reason !== "enrollment_budget") {
     notes.push(`Waiting to retry at ${new Date(snapshot.retry_at * 1000).toISOString()}.`);
   }
   const failure = listFailure ?? snapshot.registry_failure;
@@ -158,6 +164,7 @@ function selfRow(snapshot: AccountMeshSnapshot): SelfRowView | null {
   const row = snapshot.registry?.rows.find((candidate) => candidate.installation_id === self.installation_id);
   const displayName = row?.display_name ?? self.display_name;
   return {
+    ...(snapshot.last_refusal?.reason === "enrollment_budget" ? { readOnly: true } : {}),
     planLimited: snapshot.traffic === "plan_limit_locked",
     name: displayName ?? "This machine",
     installationId: self.installation_id,
@@ -284,7 +291,9 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "key_conflict": return "This installation is already registered with a different key. Use the instance that registered it.";
     case "generation_mismatch": return "This installation's key generation does not match the account registry. Refresh and try again.";
     case "challenge_invalid": return "The installation challenge was rejected. Try enrolling this machine again.";
-    case "enrollment_budget": return "The account's installation enrollment budget has been reached. Try again later.";
+    case "enrollment_budget": return failure.retry_after_seconds != null
+      ? `Account enrollment limit reached. Try again in ${Math.max(1, Math.ceil(failure.retry_after_seconds / 60))} min`
+      : "Account enrollment limit reached, retrying automatically";
     case "proof_invalid": return "This build cannot join this account's mesh (proof rejected)." + (devBuild ? " DEV builds use the QA target." : "");
     case "mesh.machines": return `Your plan allows ${failure.limit} machines.`;
     case "rate-limited": return `Too many requests. Try again in ${failure.retry_after_seconds} seconds.`;
@@ -307,4 +316,13 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "authority-unavailable":
     case "unavailable": return "The account service is unavailable. Try again later.";
   }
+}
+
+export function enrollmentRetryMessage(snapshot: AccountMeshSnapshot, now: number): string | null {
+  const refusal = snapshot.last_refusal;
+  if (snapshot.enrollment !== "refused" || refusal?.reason !== "enrollment_budget") return null;
+  if (snapshot.retry_at == null) return "Account enrollment limit reached. Try again later.";
+  if (refusal.retry_after_seconds == null) return failureMessage(refusal);
+  const remaining = snapshot.retry_at == null ? refusal.retry_after_seconds : Math.max(0, snapshot.retry_at - now);
+  return failureMessage({ ...refusal, retry_after_seconds: remaining });
 }

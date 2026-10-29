@@ -4,6 +4,7 @@ use super::state::AccountMeshRefusal;
 pub(super) struct Retry {
     failures: u32,
     permanent_failures: u32,
+    budget_retry_used: bool,
     pub deadline: Option<u64>,
     pub refusal: Option<AccountMeshRefusal>,
 }
@@ -20,19 +21,42 @@ impl Retry {
     }
 
     pub fn resume(&mut self) {
+        if matches!(
+            self.refusal,
+            Some(AccountMeshRefusal::EnrollmentBudget { .. })
+        ) {
+            return;
+        }
         if self.exhausted() || self.permanent_failures > 0 {
-            *self = Self::default();
+            let budget_retry_used = self.budget_retry_used;
+            *self = Self {
+                budget_retry_used,
+                ..Self::default()
+            };
         }
     }
 
     pub fn pending(&self, now: u64) -> Option<AccountMeshRefusal> {
         self.refusal.filter(|_| {
             (self.exhausted() && self.deadline.is_none())
+                || (self.budget_retry_used && self.deadline.is_none())
                 || self.deadline.is_some_and(|at| now < at)
         })
     }
 
     pub fn settle(&mut self, now: u64, result: Result<(), AccountMeshRefusal>) {
+        if let Err(AccountMeshRefusal::EnrollmentBudget {
+            retry_after_seconds,
+        }) = result
+        {
+            self.failures = 0;
+            self.permanent_failures = 0;
+            self.deadline = (!self.budget_retry_used)
+                .then(|| now.saturating_add(retry_after_seconds.unwrap_or(900)));
+            self.budget_retry_used = true;
+            self.refusal = result.err();
+            return;
+        }
         if matches!(
             result,
             Err(AccountMeshRefusal::Invalid
