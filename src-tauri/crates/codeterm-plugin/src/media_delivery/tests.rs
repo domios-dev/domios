@@ -7,7 +7,13 @@ impl ViewProvider for Provider {
     fn id(&self) -> &str {
         &self.0
     }
-    fn view_inputs(&self)->Option<ViewInputDescriptor>{Some(ViewInputDescriptor{accept:vec!["image/png".into()],max_bytes:128,max_files:4})}
+    fn view_inputs(&self) -> Option<ViewInputDescriptor> {
+        Some(ViewInputDescriptor {
+            accept: vec!["image/png".into()],
+            max_bytes: 128,
+            max_files: 4,
+        })
+    }
     fn media_delivery(&self) -> Option<MediaDeliveryDescriptor> {
         Some(MediaDeliveryDescriptor {
             types: vec![MediaType::Mp4, MediaType::Png],
@@ -505,12 +511,31 @@ fn same_arc_registry_generation_changes_revoke_old_frame_admissions_and_readers(
 }
 
 #[test]
-fn opening_a_registered_length_ignores_growth_and_refuses_truncation(){
-    let (directory,_store,_provider,_frame,_now,_registry)=fixture();
-    let source=source("clip.mp4");let descriptor=MediaDeliveryDescriptor{types:vec![MediaType::Mp4]};
-    let original=open_owned_at_root(directory.path(),&source,&descriptor,None).unwrap().size;
-    let path=directory.path().join("clip.mp4");
-    std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_len(original+1024).unwrap();
-    let opened=open_owned_at_root(directory.path(),&source,&descriptor,Some(original)).unwrap();assert_eq!(opened.size,original);drop(opened);
-    std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_len(original-1).unwrap();assert!(open_owned_at_root(directory.path(),&source,&descriptor,Some(original)).is_err());
+fn opening_a_registered_length_ignores_growth_and_refuses_truncation() {
+    let (directory, _store, _provider, _frame, _now, _registry) = fixture();
+    let source = source("clip.mp4");
+    let descriptor = MediaDeliveryDescriptor {
+        types: vec![MediaType::Mp4],
+    };
+    let original = open_owned_at_root(directory.path(), &source, &descriptor, None)
+        .unwrap()
+        .size;
+    let path = directory.path().join("clip.mp4");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(original + 1024)
+        .unwrap();
+    let opened =
+        open_owned_at_root(directory.path(), &source, &descriptor, Some(original)).unwrap();
+    assert_eq!(opened.size, original);
+    drop(opened);
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(original - 1)
+        .unwrap();
+    assert!(open_owned_at_root(directory.path(), &source, &descriptor, Some(original)).is_err());
 }

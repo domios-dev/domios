@@ -64,7 +64,14 @@ impl PluginManifest {
                 return Err("mediaDelivery requires a view and distinct passive MIME types".into());
             }
         }
-        if manifest.capabilities.binary_transfer.as_ref().is_some_and(|descriptor|!descriptor.valid()) {return Err("binaryTransfer limits exceed the host bounds".into());}
+        if manifest
+            .capabilities
+            .binary_transfer
+            .as_ref()
+            .is_some_and(|descriptor| !descriptor.valid())
+        {
+            return Err("binaryTransfer limits exceed the host bounds".into());
+        }
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
         manifest.capabilities.validate_view_host_actions()?;

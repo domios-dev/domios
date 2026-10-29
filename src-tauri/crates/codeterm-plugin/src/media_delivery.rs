@@ -14,10 +14,13 @@ use std::{
 mod format;
 mod input;
 mod run_lookup;
-pub use run_lookup::{RunMediaLookupContext,RunMediaLookupOrigin};
-pub(crate) use run_lookup::{run_media_lookup_active,with_run_media_lookup};
-pub use input::{ingest_frame_input,open_context_input,IngestSource,IngestLimits,IngestedInput,IngestRefusal,ViewInputDescriptor,OpenedInput};
 pub use format::{MediaDeliveryDescriptor, MediaFile, MediaType};
+pub use input::{
+    ingest_frame_input, open_context_input, IngestLimits, IngestRefusal, IngestSource,
+    IngestedInput, OpenedInput, ViewInputDescriptor,
+};
+pub(crate) use run_lookup::{run_media_lookup_active, with_run_media_lookup};
+pub use run_lookup::{RunMediaLookupContext, RunMediaLookupOrigin};
 
 pub const MAX_MEDIA_BYTES: u64 = 256 * 1024 * 1024;
 const FRAME_TTL: Duration = Duration::from_secs(1800);
@@ -350,17 +353,54 @@ pub fn register_media(
         Instant::now(),
     )
 }
-fn require_frame_context(store:&MediaStore,plugin:&str,frame:&str,context:&ViewCallContext)->Result<(),MediaRefusal>{
-    if &store.frame(plugin,frame,Instant::now())?.context!=context{return Err(MediaRefusal::Expired);}Ok(())
+fn require_frame_context(
+    store: &MediaStore,
+    plugin: &str,
+    frame: &str,
+    context: &ViewCallContext,
+) -> Result<(), MediaRefusal> {
+    if &store.frame(plugin, frame, Instant::now())?.context != context {
+        return Err(MediaRefusal::Expired);
+    }
+    Ok(())
 }
-fn frame_provider_for_context(plugin:&str,frame:&str,context:&ViewCallContext)->Result<Arc<dyn ViewProvider>,MediaRefusal>{
-    let store=STORE.lock();require_frame_context(&store,plugin,frame,context)?;store.frame(plugin,frame,Instant::now())?.provider.upgrade().ok_or(MediaRefusal::Expired)
+fn frame_provider_for_context(
+    plugin: &str,
+    frame: &str,
+    context: &ViewCallContext,
+) -> Result<Arc<dyn ViewProvider>, MediaRefusal> {
+    let store = STORE.lock();
+    require_frame_context(&store, plugin, frame, context)?;
+    store
+        .frame(plugin, frame, Instant::now())?
+        .provider
+        .upgrade()
+        .ok_or(MediaRefusal::Expired)
 }
-pub fn register_context_media(plugin:&str,frame:&str,context:&ViewCallContext,source:MediaFile)->Result<MediaHandle,MediaRefusal>{
-    let mut store=STORE.lock();require_frame_context(&store,plugin,frame,context)?;register_at_root(&mut store,plugin,frame,&codeterm_paths::data_dir().join(plugin),source,Instant::now())
+pub fn register_context_media(
+    plugin: &str,
+    frame: &str,
+    context: &ViewCallContext,
+    source: MediaFile,
+) -> Result<MediaHandle, MediaRefusal> {
+    let mut store = STORE.lock();
+    require_frame_context(&store, plugin, frame, context)?;
+    register_at_root(
+        &mut store,
+        plugin,
+        frame,
+        &codeterm_paths::data_dir().join(plugin),
+        source,
+        Instant::now(),
+    )
 }
-pub fn revoke_context_media(plugin:&str,frame:&str,context:&ViewCallContext,handle:&str){
-    let mut store=STORE.lock();if require_frame_context(&store,plugin,frame,context).is_ok(){if let Some(frame)=store.frames.get_mut(frame){frame.handles.remove(handle);}}
+pub fn revoke_context_media(plugin: &str, frame: &str, context: &ViewCallContext, handle: &str) {
+    let mut store = STORE.lock();
+    if require_frame_context(&store, plugin, frame, context).is_ok() {
+        if let Some(frame) = store.frames.get_mut(frame) {
+            frame.handles.remove(handle);
+        }
+    }
 }
 fn register_at_root(
     store: &mut MediaStore,
@@ -370,12 +410,22 @@ fn register_at_root(
     source: MediaFile,
     now: Instant,
 ) -> Result<MediaHandle, MediaRefusal> {
-    register_with_descriptor(store,plugin,frame,root,source,now,None)
+    register_with_descriptor(store, plugin, frame, root, source, now, None)
 }
-fn register_with_descriptor(store:&mut MediaStore,plugin:&str,frame:&str,root:&Path,source:MediaFile,now:Instant,allowed:Option<MediaDeliveryDescriptor>)->Result<MediaHandle,MediaRefusal> {
+fn register_with_descriptor(
+    store: &mut MediaStore,
+    plugin: &str,
+    frame: &str,
+    root: &Path,
+    source: MediaFile,
+    now: Instant,
+    allowed: Option<MediaDeliveryDescriptor>,
+) -> Result<MediaHandle, MediaRefusal> {
     let owner = store.frame(plugin, frame, now)?;
     let provider = owner.provider.upgrade().ok_or(MediaRefusal::Expired)?;
-    let descriptor = allowed.or_else(||provider.media_delivery()).ok_or(MediaRefusal::Unknown)?;
+    let descriptor = allowed
+        .or_else(|| provider.media_delivery())
+        .ok_or(MediaRefusal::Unknown)?;
     if !descriptor.valid()
         || !descriptor.types.contains(&source.content_type)
         || owner.handles.len() >= MAX_HANDLES
@@ -454,7 +504,12 @@ pub fn open_owned_media(
     if !valid_plugin_id(plugin) {
         return Err(MediaRefusal::Unknown);
     }
-    open_owned_at_root(&codeterm_paths::data_dir().join(plugin), source, descriptor, None)
+    open_owned_at_root(
+        &codeterm_paths::data_dir().join(plugin),
+        source,
+        descriptor,
+        None,
+    )
 }
 fn open_owned_at_root(
     root: &Path,
@@ -477,7 +532,9 @@ fn open_owned_at_root(
         return Err(MediaRefusal::Unknown);
     }
     let mut head = [0; 32];
-    let count = file.read(&mut head[..size.min(32) as usize]).map_err(|_| MediaRefusal::Unknown)?;
+    let count = file
+        .read(&mut head[..size.min(32) as usize])
+        .map_err(|_| MediaRefusal::Unknown)?;
     if !source.content_type.matches(&head[..count]) {
         return Err(MediaRefusal::Unknown);
     }
@@ -597,6 +654,9 @@ impl Playback {
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn safe_transfer_name(name:&str,kind:Option<MediaType>)->String {
-    match kind {Some(kind)=>format::safe_name(name,kind),None=>format::safe_extension_name(name,"bin")}
+pub(crate) fn safe_transfer_name(name: &str, kind: Option<MediaType>) -> String {
+    match kind {
+        Some(kind) => format::safe_name(name, kind),
+        None => format::safe_extension_name(name, "bin"),
+    }
 }

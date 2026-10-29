@@ -37,10 +37,10 @@ fn current_provider(
     Ok(provider)
 }
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields,rename_all="camelCase")]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Register {
     id: String,
-    view_frame:String,
+    view_frame: String,
 }
 pub async fn register(
     State(state): State<AppState>,
@@ -49,26 +49,47 @@ pub async fn register(
     Json(request): Json<Register>,
 ) -> Result<Response, Error> {
     owner(caller.as_ref())?;
-    if !media::valid_token(&frame) || !media::valid_token(&request.view_frame) || request.id.is_empty() || request.id.len() > 256 {
+    if !media::valid_token(&frame)
+        || !media::valid_token(&request.view_frame)
+        || request.id.is_empty()
+        || request.id.len() > 256
+    {
         return Err((StatusCode::BAD_REQUEST, "invalid media request"));
     }
     let provider = current_provider(&state, &plugin, &frame)?;
-    let (registered_provider,context)=media::view_frame(&plugin,&request.view_frame).map_err(denied)?;
-    if !std::sync::Arc::ptr_eq(&provider,&registered_provider)||media::frame_context(&plugin,&frame).map_err(denied)?!=context{return Err(denied(MediaRefusal::Expired));}
-    state.svc.validate_plugin_view_context(&context).map_err(|_|denied(MediaRefusal::Expired))?;
+    let (registered_provider, context) =
+        media::view_frame(&plugin, &request.view_frame).map_err(denied)?;
+    if !std::sync::Arc::ptr_eq(&provider, &registered_provider)
+        || media::frame_context(&plugin, &frame).map_err(denied)? != context
+    {
+        return Err(denied(MediaRefusal::Expired));
+    }
+    state
+        .svc
+        .validate_plugin_view_context(&context)
+        .map_err(|_| denied(MediaRefusal::Expired))?;
     let source = provider
-        .media_file(&request.id,&context)
+        .media_file(&request.id, &context)
         .await
         .map_err(|_| denied(MediaRefusal::Unknown))?;
     current_provider(&state, &plugin, &frame)?;
-    state.svc.validate_plugin_view_context(&context).map_err(|_|denied(MediaRefusal::Expired))?;
-    let target_plugin=plugin.clone();let target_frame=frame.clone();let target_context=context.clone();
-    let result =
-        tokio::task::spawn_blocking(move || media::register_context_media(&target_plugin,&target_frame,&target_context,source))
-            .await
-            .map_err(|_| denied(MediaRefusal::Unknown))?
-            .map_err(denied)?;
-    if state.svc.validate_plugin_view_context(&context).is_err(){media::revoke_context_media(&plugin,&frame,&context,&result.handle);return Err(denied(MediaRefusal::Expired));}
+    state
+        .svc
+        .validate_plugin_view_context(&context)
+        .map_err(|_| denied(MediaRefusal::Expired))?;
+    let target_plugin = plugin.clone();
+    let target_frame = frame.clone();
+    let target_context = context.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        media::register_context_media(&target_plugin, &target_frame, &target_context, source)
+    })
+    .await
+    .map_err(|_| denied(MediaRefusal::Unknown))?
+    .map_err(denied)?;
+    if state.svc.validate_plugin_view_context(&context).is_err() {
+        media::revoke_context_media(&plugin, &frame, &context, &result.handle);
+        return Err(denied(MediaRefusal::Expired));
+    }
     let mut response = Json(result).into_response();
     response
         .headers_mut()

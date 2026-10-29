@@ -24,7 +24,7 @@ const EXEC_JOB_RETENTION: Duration = Duration::from_secs(5 * 60);
 const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
 mod control;
 mod scoped;
-pub(super) use scoped::{start_scoped_json_job,abort_scoped_json_job,drop_scoped_json_jobs};
+pub(super) use scoped::{abort_scoped_json_job, drop_scoped_json_jobs, start_scoped_json_job};
 
 thread_local! {
     static HOST_EXEC_ENV: RefCell<Vec<HashMap<String, String>>> = const { RefCell::new(Vec::new()) };
@@ -669,7 +669,9 @@ pub(super) fn close(plugin_id: &str, job_id: &str) {
         }
     };
     if let Some(job) = removed {
-        if let Some(cancel)=job.cancel_hook {cancel();}
+        if let Some(cancel) = job.cancel_hook {
+            cancel();
+        }
         job.process.cancel();
         job.done_event.signal();
         for waiter in job.waiters {
@@ -753,9 +755,14 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
             }
         }
     };
-    let bound=deadline.map_or_else(||wait_bound(&plugin_id),|deadline|deadline.saturating_duration_since(Instant::now()));
+    let bound = deadline.map_or_else(
+        || wait_bound(&plugin_id),
+        |deadline| deadline.saturating_duration_since(Instant::now()),
+    );
     if !event.wait_for(bound) {
-        if let Some(result)=scoped::timeout_result(&plugin_id,job_id){return WaitResult::Completed(result);}
+        if let Some(result) = scoped::timeout_result(&plugin_id, job_id) {
+            return WaitResult::Completed(result);
+        }
         abandon(&plugin_id, job_id);
         return WaitResult::TimedOut;
     }
