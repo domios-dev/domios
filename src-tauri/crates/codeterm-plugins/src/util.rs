@@ -86,45 +86,20 @@ fn clone_git_channel_into(
     cache_path: &Path,
     tmp: &Path,
 ) -> Result<(), String> {
-    let tmp_string = tmp.to_string_lossy().to_string();
-    let mut clone_args = vec![
-        "clone".to_string(),
-        "-c".to_string(),
-        "core.longpaths=true".to_string(),
-        "--depth".to_string(),
-        "1".to_string(),
-        "--filter=blob:none".to_string(),
-    ];
-    if source.subdir.is_some() {
-        clone_args.push("--sparse".to_string());
-    }
-    clone_args.push(source.base.clone());
-    clone_args.push(tmp_string);
-    run_git(clone_args)?;
-    if let Some(git_ref) = &source.git_ref {
-        run_git_in(
-            tmp,
-            vec![
-                "fetch".to_string(),
-                "--depth".to_string(),
-                "1".to_string(),
-                "origin".to_string(),
-                git_ref.clone(),
-            ],
-        )?;
-        run_git_in(tmp, vec!["checkout".to_string(), "FETCH_HEAD".to_string()])?;
-    }
     if let Some(subdir) = &source.subdir {
         validate_relative_path(subdir)?;
-        run_git_in(
-            tmp,
-            vec![
-                "sparse-checkout".to_string(),
-                "set".to_string(),
-                "--cone".to_string(),
-                subdir.clone(),
-            ],
-        )?;
+    }
+    let epoch = crate::git_probe::epoch();
+    let mut commands =
+        crate::git_tool::clone_commands(source, tmp, crate::git_tool::supports_sparse()?)
+            .into_iter();
+    if let Some(clone) = commands.next() {
+        run_git_with(clone, None, epoch, git_command)?;
+    }
+    for command in commands {
+        run_git_with(command, Some(tmp), epoch, git_command)?;
+    }
+    if let Some(subdir) = &source.subdir {
         copy_dir_filtered(&tmp.join(subdir), cache_path)?;
     } else {
         fs::rename(tmp, cache_path).map_err(|e| format!("rename channel cache: {e}"))?;
@@ -168,16 +143,23 @@ pub(super) fn absolutize(path: &Path) -> Result<PathBuf, String> {
     fs::canonicalize(path).map_err(|e| format!("resolve {}: {e}", path.display()))
 }
 
+#[cfg(all(test, unix))]
 pub(super) fn run_git(args: Vec<String>) -> Result<(), String> {
-    let mut command = git_command();
-    command.args(&args);
-    run_registered_git(command)
+    run_git_with(args, None, crate::git_probe::epoch(), git_command)
 }
 
-pub(super) fn run_git_in(cwd: &Path, args: Vec<String>) -> Result<(), String> {
-    let mut command = git_command();
-    command.current_dir(cwd).args(&args);
-    run_registered_git(command)
+fn run_git_with(
+    args: Vec<String>,
+    cwd: Option<&Path>,
+    epoch: u64,
+    resolve: impl FnOnce() -> Result<Command, String>,
+) -> Result<(), String> {
+    let mut command = resolve()?;
+    command.args(args);
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
+    }
+    run_registered_git(command, epoch)
 }
 
 type LiveGitChild = std::sync::Arc<std::sync::Mutex<std::process::Child>>;
@@ -186,7 +168,7 @@ static LIVE_GIT_CHILDREN: std::sync::Mutex<Vec<LiveGitChild>> = std::sync::Mutex
 
 // A git child is tracked while it runs so process shutdown can stop it: a clone that
 // outlives the daemon keeps writing into a data directory nobody owns any more.
-fn run_registered_git(mut command: Command) -> Result<(), String> {
+fn run_registered_git(mut command: Command, epoch: u64) -> Result<(), String> {
     command
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped());
@@ -197,6 +179,9 @@ fn run_registered_git(mut command: Command) -> Result<(), String> {
     let mut live = LIVE_GIT_CHILDREN
         .lock()
         .map_err(|_| git_failure("git registry lock poisoned"))?;
+    if crate::git_probe::epoch() != epoch {
+        return Err("plugin channel git operation cancelled".into());
+    }
     let mut child = command
         .spawn()
         .map_err(|e| git_failure(&format!("failed to start git: {e}")))?;
@@ -222,9 +207,9 @@ fn run_registered_git(mut command: Command) -> Result<(), String> {
 
 /// Stops every plugin git child still running and returns how many were stopped.
 pub fn stop_live_git_children() -> usize {
-    let children = LIVE_GIT_CHILDREN
+    let (probes, children) = LIVE_GIT_CHILDREN
         .lock()
-        .map(|mut live| std::mem::take(&mut *live))
+        .map(|mut live| (crate::git_probe::stop(), std::mem::take(&mut *live)))
         .unwrap_or_default();
     let mut stopped = 0;
     for child in children {
@@ -236,7 +221,7 @@ pub fn stop_live_git_children() -> usize {
             stopped += 1;
         }
     }
-    stopped
+    stopped + probes
 }
 
 // Killing only git would leave its helpers holding stderr open, so the reader waits until they exit.
@@ -254,13 +239,8 @@ fn kill_git_tree(child: &mut std::process::Child) -> bool {
     child.kill().is_ok()
 }
 
-pub(super) fn git_command() -> Command {
-    #[cfg(test)]
-    let program = std::env::var("CODETERM_TEST_GIT_BIN").unwrap_or_else(|_| "git".to_string());
-    #[cfg(not(test))]
-    let program = "git";
-
-    let mut command = Command::new(program);
+pub(super) fn git_command() -> Result<Command, String> {
+    let mut command = Command::new(crate::git_tool::program()?);
     command
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
@@ -269,7 +249,7 @@ pub(super) fn git_command() -> Command {
         command.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
     }
     no_window(&mut command);
-    command
+    Ok(command)
 }
 
 pub(super) fn git_failure(stderr: &str) -> String {
@@ -278,7 +258,7 @@ pub(super) fn git_failure(stderr: &str) -> String {
 }
 
 #[cfg(windows)]
-fn no_window(command: &mut Command) {
+pub(crate) fn no_window(command: &mut Command) {
     use std::os::windows::process::CommandExt;
 
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -286,7 +266,7 @@ fn no_window(command: &mut Command) {
 }
 
 #[cfg(not(windows))]
-fn no_window(_command: &mut Command) {}
+pub(crate) fn no_window(_command: &mut Command) {}
 
 #[cfg(all(test, unix))]
 mod tests;
