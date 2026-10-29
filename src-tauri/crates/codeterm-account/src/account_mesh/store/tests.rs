@@ -3,6 +3,22 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+struct RollbackRecord {
+    owner: Option<String>,
+    signed_out: bool,
+    cleanup_pending: bool,
+    published: bool,
+    keys: std::collections::BTreeMap<String, super::super::state::KeyBinding>,
+    slots: std::collections::BTreeMap<String, u64>,
+    revoked_installations: std::collections::BTreeSet<String>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    revoked_generations: std::collections::BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    peer_keys: std::collections::BTreeMap<String, super::super::state::KeyBinding>,
+}
+
 #[tokio::test]
 async fn unreadable_mesh_file_is_preserved_and_cannot_be_overwritten() {
     let directory = std::env::temp_dir().join(format!(
@@ -47,21 +63,6 @@ async fn admission_cache_is_separate_and_mesh_json_remains_rollback_readable() {
     let bytes = fs::read(&path).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert!(value.get("admission_cache").is_none());
-    #[derive(serde::Deserialize, serde::Serialize)]
-    #[serde(deny_unknown_fields)]
-    struct RollbackRecord {
-        owner: Option<String>,
-        signed_out: bool,
-        cleanup_pending: bool,
-        published: bool,
-        keys: std::collections::BTreeMap<String, super::super::state::KeyBinding>,
-        slots: std::collections::BTreeMap<String, u64>,
-        revoked_installations: std::collections::BTreeSet<String>,
-        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-        revoked_generations: std::collections::BTreeMap<String, u64>,
-        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
-        peer_keys: std::collections::BTreeMap<String, super::super::state::KeyBinding>,
-    }
     let rollback: RollbackRecord = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(serde_json::to_value(rollback).unwrap(), value);
     let mut old: AccountMeshRecord = serde_json::from_slice(&bytes).unwrap();
@@ -144,4 +145,45 @@ async fn corrupt_peer_presence_requires_refresh_without_poisoning_the_main_store
     store.save(&loaded).await.unwrap();
     assert!(!store.load().await.unwrap().peer_presence_refresh);
     assert_eq!(fs::read(path).unwrap(), b"{}");
+}
+
+#[tokio::test]
+async fn parked_mesh_record_remains_rollback_readable_and_uses_a_sibling_gate() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = FileAccountMeshStore::new(directory.path().into());
+    let mut record = AccountMeshRecord {
+        owner: Some("parked-owner".into()),
+        ..Default::default()
+    };
+    record.reauth_required_accounts.insert("parked-owner".into());
+    store.save(&record).await.unwrap();
+    let path = directory.path().join("state/account/mesh.json");
+    let bytes = fs::read(&path).unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert!(value.get("reauth_required_accounts").is_none());
+    let rollback: RollbackRecord = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(serde_json::to_value(rollback).unwrap(), value);
+    assert_eq!(store.load().await.unwrap(), record);
+
+    let gate_path = path.with_file_name("mesh-reauth.json");
+    let persisted: std::collections::BTreeSet<String> =
+        serde_json::from_slice(&fs::read(&gate_path).unwrap()).unwrap();
+    assert_eq!(persisted, record.reauth_required_accounts);
+    fs::write(&gate_path, b"corrupt-reauth").unwrap();
+    assert!(store
+        .load()
+        .await
+        .unwrap()
+        .reauth_required_accounts
+        .is_empty());
+    fs::remove_file(&gate_path).unwrap();
+    assert!(store
+        .load()
+        .await
+        .unwrap()
+        .reauth_required_accounts
+        .is_empty());
+    record.reauth_required_accounts.clear();
+    store.save(&record).await.unwrap();
+    assert_eq!(store.load().await.unwrap(), record);
 }

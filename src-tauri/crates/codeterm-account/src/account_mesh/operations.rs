@@ -143,6 +143,9 @@ impl AccountMesh {
 
     /// Captures the session only if it still belongs to the signed-in account of `epoch`.
     pub(super) async fn signed(&self, epoch: Option<u64>) -> Outcome<Signed> {
+        if self.state().last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
+            return Err(AccountMeshRefusal::ReauthRequired);
+        }
         let trust = self
             .config
             .trust
@@ -240,10 +243,7 @@ impl AccountMesh {
             .prove(signed, ProofEndpoint::EnrollInstallation, &body, generation)
             .await?;
         let request = InstallationEnrollment { body, proof };
-        let enrolled = match self
-            .call(self.ports.registry.enroll_key(&signed.session, &request))
-            .await
-        {
+        let enrolled = match self.enroll_installation_key(signed, &request).await {
             Err(AccountMeshRefusal::Conflict) if known.is_none() => {
                 generation = 2;
                 let body = InstallationKeyBody {
@@ -256,8 +256,7 @@ impl AccountMesh {
                     .prove(signed, ProofEndpoint::EnrollInstallation, &body, generation)
                     .await?;
                 let request = InstallationEnrollment { body, proof };
-                self.call(self.ports.registry.enroll_key(&signed.session, &request))
-                    .await?
+                self.enroll_installation_key(signed, &request).await?
             }
             result => result?,
         };
@@ -330,7 +329,16 @@ impl AccountMesh {
         Ok(Some(slot_revision))
     }
 
-    pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
+    pub(super) async fn enroll_once(&self, epoch: u64, trigger: EnrollTrigger) -> Outcome<()> {
+        match self.enroll_attempt(epoch, trigger).await {
+            Err(AccountMeshRefusal::Forbidden | AccountMeshRefusal::GenerationMismatch) => {
+                Err(self.require_sign_in(epoch).await)
+            }
+            result => result,
+        }
+    }
+
+    async fn enroll_attempt(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
         let observed_registry = self.restore_admission(&signed).await;
         if !observed_registry && self.with(|inner| inner.record.peer_presence_refresh) {

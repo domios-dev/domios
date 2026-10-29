@@ -362,6 +362,8 @@ pub struct RegistryPresenceBinding {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
+    #[serde(default, skip_serializing)]
+    pub reauth_required_accounts: BTreeSet<String>,
     /// First account association; an account switch never rebinds saved pairs.
     pub owner: Option<String>,
     #[serde(default, skip_serializing)]

@@ -1,3 +1,4 @@
+import { REMOVED_COPY } from "./accountMachines";
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -343,7 +344,7 @@ export const MeshCanvas = memo(function MeshCanvas({
                 footer={p.isThisMachine ? <>
                   {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
                   {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
-                    <p role="status">This machine was removed from your mesh</p>
+                    <p role="status">{REMOVED_COPY}</p>
                     <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
                   </div>}
                   {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}

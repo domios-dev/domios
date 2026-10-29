@@ -7,7 +7,7 @@ import { BusySpinner, BusyState } from "../shared/BusyState";
 import { Loader } from "../shared/Loader";
 import { SettingsPill } from "../Settings/shared";
 import type { MachineRowView, MachineStatus, SelfRowView } from "./accountMachines";
-import { failureMessage } from "./accountMachines";
+import { failureMessage, REMOVED_COPY } from "./accountMachines";
 import { LockBadge } from "../billing/LockBadge";
 import { lockedDimClass } from "../billing/freeLimitModel";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
@@ -177,7 +177,7 @@ export function MachineManagement({ machines }: { machines: MachinesController }
           {rowList("Saved pairings", view.saved, null)}
         </>
       )}
-      {view.removed && <p role="status" className={UI_TEXT.metaMuted}>This machine was removed from your mesh</p>}
+      {view.removed && <p role="status" className={UI_TEXT.metaMuted}>{REMOVED_COPY}</p>}
       <Notes notes={view.notes} />
       {enrollmentRefused && !view.machineLimit && (
         <div className="flex gap-2">
