@@ -15,12 +15,35 @@ pub(crate) struct JobAdmission(pub Weak<ServiceContext>);
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 enum Request {
     Operations,
+    Binding {
+        request: Value,
+    },
     Admit,
-    Track { operation: String, job: String },
-    Status { operation: String },
-    Check { operation: String },
-    Cancel { operation: String },
-    Stop { operation: String },
+    Prepare {
+        operation: String,
+        request: Value,
+        quote: JobQuote,
+    },
+    Enter {
+        operation: String,
+        request: Value,
+    },
+    Track {
+        operation: String,
+        job: String,
+    },
+    Status {
+        operation: String,
+    },
+    Check {
+        operation: String,
+    },
+    Cancel {
+        operation: String,
+    },
+    Stop {
+        operation: String,
+    },
 }
 
 fn origin(
@@ -101,6 +124,9 @@ impl PluginJobAdmission for JobAdmission {
     fn invoke(&self, plugin_id: &str, request: &str) -> Result<Value, String> {
         let request: Request =
             serde_json::from_str(request).map_err(|_| "invalid closed plugin job request")?;
+        if let Request::Binding { request } = &request {
+            return Ok(json!({"binding":job_request_binding(request)?}));
+        }
         let service = self.0.upgrade().ok_or("plugin job service unavailable")?;
         let handle = service
             .host_extension::<Handle>()
@@ -125,21 +151,47 @@ impl PluginJobAdmission for JobAdmission {
             let receipt = ledger.admit_job_origin(scope, projection, now)?;
             let _ = origin(&service, plugin_id)?;
             return Ok(
-                json!({"operation":receipt.operation,"deadlineMs":receipt.deadline_ms,"authorization":"observation_only"}),
+                json!({"operation":receipt.operation,"deadlineMs":receipt.deadline_ms,"scope":receipt.scope,"origin":receipt.origin,"authorization":"observation_only"}),
             );
         }
         let operation = match &request {
-            Request::Track { operation, .. }
+            Request::Prepare { operation, .. }
+            | Request::Enter { operation, .. }
+            | Request::Track { operation, .. }
             | Request::Status { operation }
             | Request::Check { operation }
             | Request::Cancel { operation }
             | Request::Stop { operation } => operation,
-            Request::Admit | Request::Operations => unreachable!(),
+            Request::Admit | Request::Operations | Request::Binding { .. } => unreachable!(),
         };
         if operation.len() != 64 || !operation.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err("invalid plugin receipt".into());
         }
         let receipt = ledger.job_origin(plugin_id, operation)?;
+        if matches!(&request, Request::Prepare { .. } | Request::Enter { .. }) {
+            let (scope, projection) = origin(&service, plugin_id)?;
+            if receipt.scope != scope || receipt.origin != projection {
+                return Err("plugin receipt actor changed".into());
+            }
+            let spend = match &request {
+                Request::Prepare { request, quote, .. } => {
+                    let spend = ledger.prepare_job_spend(&receipt, request, quote.clone(), now)?;
+                    if spend.state == JobSpendState::WaitingForOwner {
+                        service.publish_daemon_question(
+                            format!("plugin-job:{}:{}", plugin_id, operation),
+                            format!("{}: paid operation approval", plugin_id),
+                            format!("Owner {} in workspace {}. Quote: {} {}. Basis: {}. Tariff: {}. Request binding: {}. Request: {}. Set daily allowance authorizes {} {} per UTC day for this plugin and owner scope; outstanding and uncertain entries retain their reservation. Host does not verify vendor pricing.", scope.owner, scope.workspace, quote.amount, quote.unit, quote.basis, quote.tariff_revision, quote.binding, request, spend.daily_allowance, quote.unit),
+                            vec!["Approve once".into(), "Set daily allowance".into(), "Decline".into()],
+                        )?;
+                    }
+                    spend
+                }
+                Request::Enter { request, .. } => ledger.enter_job_spend(&receipt, request, now)?,
+                _ => unreachable!(),
+            };
+            return serde_json::to_value(spend)
+                .map_err(|_| "job spend serialization failed".into());
+        }
         if let Request::Track { job, .. } = &request {
             let receipt = ledger.attach_existing_job(plugin_id, operation, job)?;
             let available = service
@@ -226,7 +278,7 @@ impl PluginJobAdmission for JobAdmission {
         }
         handle.notify();
         Ok(
-            json!({"operation":operation,"job":receipt.job,"monitor":ledger.job_monitor(operation)?.map(|monitor| monitor.public_view()).transpose()?}),
+            json!({"operation":operation,"job":receipt.job,"scope":receipt.scope,"origin":receipt.origin,"spend":ledger.job_spend(plugin_id, operation)?,"monitor":ledger.job_monitor(operation)?.map(|monitor| monitor.public_view()).transpose()?}),
         )
     }
 }

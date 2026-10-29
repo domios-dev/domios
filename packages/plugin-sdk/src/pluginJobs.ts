@@ -14,15 +14,20 @@ export interface PluginJobMonitor {
   nextCheckMs: number; state: BlueprintOperationState; checks: number; cancelRequested: boolean; cancelDispatched: boolean;
   stopped: "deadline" | "check_limit" | "owner_stopped" | "scope_removed" | "plugin_unavailable" | null;
 }
-export interface JobOriginReceipt {operation: string; deadlineMs: number; authorization: "observation_only";}
+export interface JobOriginReceipt {operation: string; deadlineMs: number; scope: PluginJobScope; origin: PluginJobOrigin; authorization: "observation_only";}
+export interface JobQuote {binding: string; amount: number; unit: string; basis: string; tariffRevision: string; issuedAt: number; validUntilMs: number;}
+export interface JobSpendReceipt {operation: string; scope: PluginJobScope; origin: PluginJobOrigin; quote: JobQuote; request: Record<string, unknown>; dailyAllowance: number; state: "waiting_for_owner" | "approved_once" | "approved_budget" | "denied" | "entered_unknown"; enteredAtMs: number | null;}
 export type JobTrackResult =
   | {operation: string; job: string; registered: true; monitor: PluginJobMonitor}
   | {operation: string; job: string; registered: false; state: "unknown"; reason: "deadline" | "plugin_unavailable" | "monitor_unavailable"};
-export interface JobStatus {operation: string; job: string | null; monitor: PluginJobMonitor | null;}
+export interface JobStatus {operation: string; job: string | null; scope: PluginJobScope; origin: PluginJobOrigin; spend: JobSpendReceipt | null; monitor: PluginJobMonitor | null;}
 export interface JobRefusal {error: "plugin_jobs_unavailable" | "plugin_job_request_refused";}
 export interface HostJobs {
   operations(): BlueprintOperationView[] | JobRefusal;
   admit(): JobOriginReceipt | JobRefusal;
+  requestBinding(request: Record<string, unknown>): {binding: string} | JobRefusal;
+  prepare(operation: string, request: Record<string, unknown>, quote: JobQuote): JobSpendReceipt | JobRefusal;
+  enter(operation: string, request: Record<string, unknown>): JobSpendReceipt | JobRefusal;
   track(operation: string, job: string): JobTrackResult | JobRefusal;
   status(operation: string): JobStatus | JobRefusal;
   check(operation: string): JobStatus | JobRefusal;

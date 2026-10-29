@@ -14,6 +14,7 @@ use std::{collections::BTreeMap, sync::Arc};
 struct Network {
     uploads: Mutex<Vec<Vec<u8>>>,
     headers: Mutex<Vec<reqwest::header::HeaderMap>>,
+    content_types: Mutex<Vec<Option<String>>>,
     replies: Mutex<std::collections::VecDeque<(u16, String, Vec<u8>)>>,
 }
 fn bytes() -> Vec<u8> {
@@ -29,9 +30,13 @@ impl transfer::TestNetwork for Network {
         mut body: transfer::TestUpload,
     ) -> transfer::Result<transfer::TestResponse> {
         let mut bytes = Vec::new();
+        if body.content_type.as_deref() == Some("application/json") {
+            assert!(body.length <= MAX_METADATA_BYTES);
+        }
         while let Some(chunk) = body.stream.next().await {
             bytes.extend_from_slice(&chunk?);
         }
+        self.content_types.lock().push(body.content_type);
         self.uploads.lock().push(bytes);
         self.headers.lock().push(headers);
         let (status, mime, expected) = self
@@ -312,4 +317,68 @@ fn in_place_vm_reload_revokes_old_selected_grants_and_rotates_only_its_active_ep
         )
         .is_err());
     assert!(network.uploads.lock().is_empty());
+}
+
+#[test]
+fn native_and_js_json_uploads_preserve_body_and_host_content_type() {
+    let root = tempfile::tempdir().unwrap();
+    let mut permissions = PermissionsConfig::default();
+    permissions.network.allow = vec!["api.example".into()];
+    permissions.secrets = true;
+    let plugin = format!("json-parity-{}", uuid::Uuid::new_v4().simple());
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(vec![], vec![])
+            .with_identity_and_perms(&plugin, &permissions)
+            .with_binary_transfer(
+                Some(BinaryTransferDescriptor {
+                    credential_origins: BTreeMap::from([(
+                        "secret:key".into(),
+                        vec!["https://api.example".into()],
+                    )]),
+                    ..Default::default()
+                }),
+                root.path(),
+                &permissions,
+            ),
+    );
+    let network = Arc::new(Network::default());
+    let host: Arc<dyn crate::PluginHostCtx> =
+        Arc::new(crate::js_runtime::host_compute::tests::AnalyticsHost {
+            secrets: BTreeMap::from([(
+                (plugin.clone(), "key".into()),
+                "opaque-host-secret".into(),
+            )]),
+            ..Default::default()
+        });
+    let vm = PluginVm::from_source_sandboxed(&plugin, "module.exports.default={run(r){return host.transfer.async(r,function(out){return out;});}}".into(), None, sandbox.clone()).unwrap();
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let session = host_transfer::fixture_session(&sandbox, root.path().into(), network.clone());
+    let request: TransferRequest = serde_json::from_value(serde_json::json!({"url":"https://api.example/generate","method":"POST","headers":{"Content-Type":"text/plain"},"credential":{"kind":"secret","name":"key","header":"xi-api-key"},"body":{"kind":"json","value":{"prompt":"opaque","revision":2}},"response":{"kind":"file","statuses":[200],"fileName":"output.bin","contentType":"application/octet-stream","maxBytes":1024*1024}})).unwrap();
+    let native = transfer::execute(session, request.clone(), TransferAbort::default()).unwrap();
+    let js: serde_json::Value =
+        call_json(&vm, "run", &[serde_json::to_value(&request).unwrap()]).unwrap();
+    assert_eq!(js["file"]["sha256"], native.file().unwrap().sha256);
+    assert_eq!(
+        *network.uploads.lock(),
+        vec![br#"{"prompt":"opaque","revision":2}"#.to_vec(); 2]
+    );
+    assert_eq!(
+        *network.content_types.lock(),
+        vec![Some("application/json".into()); 2]
+    );
+    assert!(network
+        .headers
+        .lock()
+        .iter()
+        .all(|headers| headers["xi-api-key"] == "opaque-host-secret"
+            && !headers.contains_key("content-type")));
+    assert!(!js.to_string().contains("opaque-host-secret"));
+    let mut oversized = request;
+    oversized.body = Some(InputBody::Json {
+        value: serde_json::json!({"prompt":"x".repeat(128*1024)}),
+    });
+    let denied: serde_json::Value =
+        call_json(&vm, "run", &[serde_json::to_value(oversized).unwrap()]).unwrap();
+    assert!(denied.get("error").is_some());
+    assert_eq!(network.uploads.lock().len(), 2);
 }

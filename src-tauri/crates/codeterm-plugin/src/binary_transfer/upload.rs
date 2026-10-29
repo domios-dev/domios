@@ -225,6 +225,15 @@ pub fn build(
     };
     match body {
         None => {}
+        Some(InputBody::Json { value }) => {
+            let bytes = serde_json::to_vec(&value).map_err(|_| TransferRefusal::InvalidRequest)?;
+            if bytes.len() as u64 > MAX_METADATA_BYTES {
+                return Err(TransferRefusal::TooLarge);
+            }
+            let size = bytes.len() as u64;
+            content_type = Some("application/json".into());
+            append(Segment::Bytes(std::io::Cursor::new(bytes)), size)?;
+        }
         Some(InputBody::File { file }) => {
             let source = input(&session, file, origin, || {
                 if abort.is_aborted() {

@@ -181,6 +181,33 @@ pub(crate) fn publish(service: &ServiceContext, handle: &Handle) -> Result<(), S
 
 impl DaemonQuestionHandler for OwnerQuestions {
     fn answer(&self, request: &str, label: &str) -> Option<Result<Value, String>> {
+        if let Some(identity) = request.strip_prefix("plugin-job:") {
+            return Some((|| {
+                let (plugin_id, operation) =
+                    identity.split_once(':').ok_or("invalid job decision")?;
+                let service = self.0.upgrade().ok_or("job service unavailable")?;
+                let ledger = plugin::ledger(&service)?;
+                let receipt = ledger.job_origin(plugin_id, operation)?;
+                {
+                    let mux = service.mux.read();
+                    let owner = mux
+                        .get_tab(&receipt.scope.owner)
+                        .ok_or("job owner unavailable")?;
+                    if owner.team_id != receipt.scope.team
+                        || mux.find_workspace_for_tab(&owner.id).as_deref()
+                            != Some(receipt.scope.workspace.as_str())
+                    {
+                        return Err("job owner scope changed".into());
+                    }
+                }
+                let handle = service
+                    .host_extension::<Handle>()
+                    .ok_or("job service unavailable")?;
+                let now = handle.store.lock().clock.now_ms();
+                serde_json::to_value(ledger.decide_job_spend(plugin_id, operation, label, now)?)
+                    .map_err(|_| "job spend serialization failed".into())
+            })());
+        }
         let operation = request
             .strip_prefix("blueprint-plugin:")?
             .split_once(':')?
