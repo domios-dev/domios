@@ -13,6 +13,8 @@ use crate::provider::AgentProvider;
 
 use super::{load_one, PluginManifest};
 
+#[cfg(test)]
+mod blueprint_step_tests;
 mod fs_events;
 mod install;
 mod registration;
@@ -106,6 +108,32 @@ impl CapabilityRegistries {
                     caps.graph_nodes.converters.clone(),
                 )),
             );
+        }
+        if !caps.graph_nodes.steps.is_empty() {
+            let exports = super::has_method(vm, "blueprintSubmit")
+                && (!caps
+                    .graph_nodes
+                    .steps
+                    .iter()
+                    .any(|s| s.effects.potentially_paid)
+                    || super::has_method(vm, "blueprintEstimate"))
+                && (!caps.graph_nodes.steps.iter().any(|s| s.lifecycle.reconcile)
+                    || super::has_method(vm, "blueprintReconcile"))
+                && (!caps.graph_nodes.steps.iter().any(|s| s.lifecycle.cancel)
+                    || super::has_method(vm, "blueprintCancel"));
+            if exports {
+                if let Err(error) = self.graph_nodes.register_steps(
+                    id,
+                    &caps.graph_nodes.steps,
+                    Arc::new(super::JsBlueprintStep::new(vm.clone())),
+                ) {
+                    log::error!("[plugin] step registration refused: {error}");
+                }
+            } else {
+                log::error!(
+                    "[plugin] step registration refused: declared lifecycle export missing"
+                );
+            }
         }
         if !caps.graph_nodes.event_sources.is_empty() && vm.graph_events_allowed() {
             if let Err(error) = self.event_source.register(

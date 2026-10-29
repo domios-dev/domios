@@ -6,6 +6,7 @@ pub mod agent_runtime;
 pub mod agent_task;
 pub mod agent_verbs;
 pub mod audit;
+pub mod blueprint_step;
 pub mod bubble;
 pub mod bundle_access;
 pub mod bundle_hash;

@@ -48,6 +48,7 @@ export type {
   ReceiverTargetRefusal,
 } from "./host";
 export * from "./capabilities";
+export * from "./blueprintSteps";
 export type { ProviderCompatibilityManifest, ProviderCompatibilityReason } from "./providerCompatibility";
 export type { ChatMsg } from "./gen/ChatMsg";
 export { recordedTextDiff, recordedPatchDiff, type RecordedFileDiff } from "./fileDiffs";
