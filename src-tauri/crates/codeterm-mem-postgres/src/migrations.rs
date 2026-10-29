@@ -40,6 +40,11 @@ const STEPS: &[&str] = &[
 pub(crate) fn run(client: &mut Client, schema: &str) -> StoreResult<()> {
     let mut tx = client.transaction().map_err(db_error)?;
     tx.query_one(
+        "SELECT pg_advisory_xact_lock(hashtextextended('domios_mem:bootstrap', 0))",
+        &[],
+    )
+    .map_err(db_error)?;
+    tx.query_one(
         "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
         &[&schema],
     )

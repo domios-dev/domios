@@ -3,6 +3,7 @@ use codeterm_mem::backend::{contract, MemStore, SqliteMemStore, StoreTable, Writ
 use codeterm_mem::store::MemAuthor;
 
 mod blueprint;
+mod bootstrap;
 mod engines;
 mod maintenance;
 mod recall;
