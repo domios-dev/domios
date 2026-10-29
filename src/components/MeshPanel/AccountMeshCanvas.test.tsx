@@ -462,8 +462,9 @@ describe("Mesh canvas wiring", () => {
     const group = host.querySelector('[role="group"][aria-label="Rejoin your mesh"]');
     expect(group).not.toBeNull();
     expect(group!.querySelector('[role="status"]')?.textContent).toBe("This machine was removed from your mesh. Sign in again to rejoin.");
-    expect(button("Sign in and rejoin")).not.toBeNull();
-    await click(button("Sign in and rejoin"));
+    const rejoin = group!.querySelector<HTMLButtonElement>("button");
+    expect(rejoin?.textContent).toBe("Sign in and rejoin");
+    await click(rejoin);
     expect(presence.signIns).toBe(1);
     expect(client.enrollCalls).toBe(0);
     expect(selected).toBe(0);
