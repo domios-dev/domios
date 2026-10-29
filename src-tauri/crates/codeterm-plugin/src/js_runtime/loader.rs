@@ -234,7 +234,11 @@ fn compute_sandbox(
 
     // onto every path, including unrestricted/dev.
     base.with_identity_and_perms(&manifest.id, &perms)
-        .with_binary_transfer(manifest.capabilities.binary_transfer.clone(), bundle_dir, &manifest.permissions)
+        .with_binary_transfer(
+            manifest.capabilities.binary_transfer.clone(),
+            bundle_dir,
+            &manifest.permissions,
+        )
         .with_receiver_status_query(manifest.capabilities.receiver_status_query.clone())
         .with_project_roots(
             roots,

@@ -47,17 +47,27 @@ pub trait ViewProvider: Send + Sync {
         &[]
     }
 
-    fn view_inputs(&self)->Option<crate::media_delivery::ViewInputDescriptor>{None}
+    fn view_inputs(&self) -> Option<crate::media_delivery::ViewInputDescriptor> {
+        None
+    }
 
     fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> {
         None
     }
 
-    async fn media_file(&self, _id: &str, _context: &crate::view_host::ViewCallContext) -> Result<crate::media_delivery::MediaFile, ViewError> {
+    async fn media_file(
+        &self,
+        _id: &str,
+        _context: &crate::view_host::ViewCallContext,
+    ) -> Result<crate::media_delivery::MediaFile, ViewError> {
         Err(ViewError::Call("media delivery not supported".into()))
     }
 
-    async fn run_media_file(&self,_id:&str,_context:&crate::media_delivery::RunMediaLookupContext)->Result<crate::media_delivery::MediaFile,ViewError>{
+    async fn run_media_file(
+        &self,
+        _id: &str,
+        _context: &crate::media_delivery::RunMediaLookupContext,
+    ) -> Result<crate::media_delivery::MediaFile, ViewError> {
         Err(ViewError::Call("durable media lookup not supported".into()))
     }
 

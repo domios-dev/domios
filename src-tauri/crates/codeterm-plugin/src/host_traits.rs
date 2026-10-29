@@ -83,7 +83,14 @@ pub trait PluginHostCtx: Send + Sync {
         Ok(std::collections::HashMap::new())
     }
 
-    fn bind_view_transfer_input(&self,_plugin:&str,_context:&crate::view_host::ViewCallContext,_handle:&str,_destination:&str,_control:&crate::binary_transfer::InputPreparation)->crate::binary_transfer::Result<crate::binary_transfer::TransferInputGrant> {
+    fn bind_view_transfer_input(
+        &self,
+        _plugin: &str,
+        _context: &crate::view_host::ViewCallContext,
+        _handle: &str,
+        _destination: &str,
+        _control: &crate::binary_transfer::InputPreparation,
+    ) -> crate::binary_transfer::Result<crate::binary_transfer::TransferInputGrant> {
         Err(crate::binary_transfer::TransferRefusal::NotAllowed)
     }
 

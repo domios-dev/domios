@@ -380,7 +380,9 @@ struct Inner {
 }
 
 impl PluginVm {
-    pub(super) fn activate_binary_transfers(&self) {super::host_transfer::activate(&self.sandbox);}
+    pub(super) fn activate_binary_transfers(&self) {
+        super::host_transfer::activate(&self.sandbox);
+    }
 
     /// Load a plugin bundle (`plugin.js`) into a fresh QuickJS context.
     ///

@@ -56,7 +56,9 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
 
 pub fn open_directory(path: &Path) -> Result<File, &'static str> {
     let file = open(path)?;
-    if !file.metadata().is_ok_and(|value| value.is_dir()) { return Err("contract_violation"); }
+    if !file.metadata().is_ok_and(|value| value.is_dir()) {
+        return Err("contract_violation");
+    }
     Ok(file)
 }
 

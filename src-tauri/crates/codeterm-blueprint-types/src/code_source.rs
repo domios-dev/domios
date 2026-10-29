@@ -67,16 +67,24 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
 
 #[cfg(unix)]
 pub fn open_directory(directory: &Path) -> Result<File, &'static str> {
-    let name = CString::new(directory.as_os_str().as_encoded_bytes()).map_err(|_| "contract_violation")?;
-    let fd = unsafe { libc::open(name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
-    if fd < 0 { return Err("contract_violation"); }
+    let name =
+        CString::new(directory.as_os_str().as_encoded_bytes()).map_err(|_| "contract_violation")?;
+    let fd = unsafe {
+        libc::open(
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err("contract_violation");
+    }
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{open_file, open_directory};
+pub use windows::{open_directory, open_file};
 
 #[cfg(test)]
 mod tests;

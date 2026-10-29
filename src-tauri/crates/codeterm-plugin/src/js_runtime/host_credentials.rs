@@ -38,7 +38,9 @@ fn read_document(cred: &CredentialConfig) -> Option<Value> {
     let file = std::fs::File::open(path).ok()?;
     let mut text = String::new();
     file.take(1024 * 1024 + 1).read_to_string(&mut text).ok()?;
-    if text.len() > 1024 * 1024 { return None; }
+    if text.len() > 1024 * 1024 {
+        return None;
+    }
     serde_json::from_str::<Value>(&text).ok()
 }
 
