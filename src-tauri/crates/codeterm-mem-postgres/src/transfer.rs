@@ -346,18 +346,32 @@ impl PostgresMemStore {
         &self,
         visitor: &mut dyn FnMut(&dyn codeterm_mem::backend::ExportSnapshot) -> StoreResult<()>,
     ) -> StoreResult<()> {
-        self.fence.check()?;
+        if self.fence.exclusive {
+            return self.snapshot_on(&mut self.fence.client.lock(), visitor);
+        }
         let mut conn = self
             .pool
             .get()
             .map_err(|_| "Postgres memory pool unavailable")?;
-        let tx = conn
+        self.snapshot_on(&mut conn, visitor)
+    }
+
+    fn snapshot_on(
+        &self,
+        conn: &mut postgres::Client,
+        visitor: &mut dyn FnMut(&dyn codeterm_mem::backend::ExportSnapshot) -> StoreResult<()>,
+    ) -> StoreResult<()> {
+        let mut tx = conn
             .build_transaction()
             .isolation_level(postgres::IsolationLevel::RepeatableRead)
             .read_only(true)
             .start()
             .map_err(db_error)?;
+        self.fence.admit(&mut tx)?;
         visitor(&Snapshot(std::cell::RefCell::new(tx)))?;
-        self.fence.check()
+        if !self.fence.exclusive {
+            self.fence.check()?;
+        }
+        Ok(())
     }
 }

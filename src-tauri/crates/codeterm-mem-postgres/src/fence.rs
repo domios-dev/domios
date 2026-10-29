@@ -7,6 +7,21 @@ pub(crate) struct SchemaFence {
     pub(crate) client: Mutex<Client>,
     pub(crate) key: String,
     pub(crate) exclusive: bool,
+    config: Config,
+}
+
+pub(crate) struct SessionLease {
+    pub(crate) client: Client,
+    key: String,
+}
+
+impl Drop for SessionLease {
+    fn drop(&mut self) {
+        let _ = self.client.query_one(
+            "SELECT pg_advisory_unlock_shared(hashtextextended($1, 0))",
+            &[&self.key],
+        );
+    }
 }
 
 impl Drop for SchemaFence {
@@ -46,7 +61,46 @@ impl SchemaFence {
             client: Mutex::new(client),
             key,
             exclusive,
+            config: config.clone(),
         }))
+    }
+
+    pub(crate) fn admit(&self, tx: &mut postgres::Transaction<'_>) -> StoreResult<()> {
+        if self.exclusive {
+            return Ok(());
+        }
+        let acquired: bool = tx
+            .query_one(
+                "SELECT pg_try_advisory_xact_lock_shared(hashtextextended($1, 0))",
+                &[&self.key],
+            )
+            .map_err(crate::db_error)?
+            .get(0);
+        if !acquired {
+            return Err("postgres_memory_schema_busy".into());
+        }
+        self.check()
+    }
+
+    pub(crate) fn shared_session(&self) -> StoreResult<SessionLease> {
+        // A dedicated client keeps session lease ownership independent of pool recycling.
+        let mut client = self.config.connect(NoTls).map_err(crate::db_error)?;
+        let acquired: bool = client
+            .query_one(
+                "SELECT pg_try_advisory_lock_shared(hashtextextended($1, 0))",
+                &[&self.key],
+            )
+            .map_err(crate::db_error)?
+            .get(0);
+        if !acquired {
+            return Err("postgres_memory_schema_busy".into());
+        }
+        let session = SessionLease {
+            client,
+            key: self.key.clone(),
+        };
+        self.check()?;
+        Ok(session)
     }
 
     pub(crate) fn check(&self) -> StoreResult<()> {

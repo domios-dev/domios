@@ -64,7 +64,12 @@ impl EngineStore for PostgresMemStore {
         provider: codeterm_mem::embedder::provider::SharedProvider,
     ) {
         let _gate = self.gate.lock();
-        active.replace_silent(provider);
+        if self
+            .transaction_locked(true, |_| Ok::<_, String>(()))
+            .is_ok()
+        {
+            active.replace_silent(provider);
+        }
     }
     fn reembed_item_targets(&self) -> Result<Vec<(String, String)>, String> {
         self.transaction(|tx| targets::items(tx, false))
@@ -297,31 +302,6 @@ impl PostgresMemStore {
                 .try_lock()
                 .ok_or("memory is busy; embedder switch cannot complete now")?
         };
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|_| "Postgres memory pool unavailable")?;
-        let mut tx = conn.transaction().map_err(db_error)?;
-        let locked = if wait {
-            tx.query_one(
-                "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(),0))",
-                &[],
-            )
-            .map_err(db_error)?;
-            true
-        } else {
-            tx.query_one(
-                "SELECT pg_try_advisory_xact_lock(hashtextextended(current_schema(),0))",
-                &[],
-            )
-            .map_err(db_error)?
-            .get::<_, bool>(0)
-        };
-        if !locked {
-            return Err("memory is busy; embedder switch cannot complete now".into());
-        }
-        let value = f(&mut tx)?;
-        tx.commit().map_err(db_error)?;
-        Ok(value)
+        self.transaction_locked(wait, f)
     }
 }

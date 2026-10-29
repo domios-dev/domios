@@ -156,15 +156,7 @@ impl PostgresMemStore {
         report.blob_cleanup_complete = report.errors.is_empty();
         if vacuum {
             report.wal_checkpoint = "managed_by_postgres".into();
-            let _gate = self.gate.lock();
-            let result = (|| {
-                let mut conn = self
-                    .pool
-                    .get()
-                    .map_err(|_| "Postgres memory pool unavailable")?;
-                conn.batch_execute("VACUUM (ANALYZE) mem_fts, mem_item_history, mem_blobs")
-                    .map_err(db_error)
-            })();
+            let result = self.vacuum_precompact();
             match result {
                 Ok(()) => {
                     report.vacuum = "completed".into();
@@ -178,6 +170,13 @@ impl PostgresMemStore {
             }
         }
         Ok(report)
+    }
+
+    pub(crate) fn vacuum_precompact(&self) -> Result<(), String> {
+        self.nontransactional_write(|conn| {
+            conn.batch_execute("VACUUM (ANALYZE) mem_fts, mem_item_history, mem_blobs")
+                .map_err(db_error)
+        })
     }
 }
 enum Outcome {

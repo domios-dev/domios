@@ -8,6 +8,11 @@ use codeterm_mem::{
 };
 use std::{sync::Arc, time::Duration};
 
+fn sync_status(tx: &mut postgres::Transaction<'_>) -> StoreResult<serde_json::Value> {
+    let row=tx.query_one("SELECT count(*) FILTER (WHERE source_path IS NOT NULL),count(*) FILTER (WHERE source_path IS NOT NULL AND tags_json LIKE '%source-missing%') FROM mem_items", &[]).map_err(db_error)?;
+    Ok(serde_json::json!({"tracked_files":row.get::<_,i64>(0),"stale_files":row.get::<_,i64>(1)}))
+}
+
 impl PostgresMemStore {
     pub(crate) fn deletion_targets_in(
         &self,
@@ -53,11 +58,12 @@ impl PostgresMemStore {
 
     pub(crate) fn sync_status_in(&self, timeout: Duration) -> Option<serde_json::Value> {
         let _gate = self.gate.try_lock_for(timeout)?;
+        if self.fence.exclusive {
+            let mut conn = self.fence.client.try_lock_for(timeout)?;
+            return self.transaction_on(&mut conn, false, sync_status).ok();
+        }
         let mut conn = self.pool.get_timeout(timeout).ok()?;
-        let row=conn.query_one("SELECT count(*) FILTER (WHERE source_path IS NOT NULL),count(*) FILTER (WHERE source_path IS NOT NULL AND tags_json LIKE '%source-missing%') FROM mem_items", &[]).ok()?;
-        Some(
-            serde_json::json!({"tracked_files":row.get::<_,i64>(0),"stale_files":row.get::<_,i64>(1)}),
-        )
+        self.transaction_on(&mut conn, false, sync_status).ok()
     }
 
     pub(crate) fn cas_refresh_in(

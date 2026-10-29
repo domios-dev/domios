@@ -6,6 +6,7 @@ mod blueprint;
 mod bootstrap;
 mod consistency;
 mod engines;
+mod fence;
 mod maintenance;
 mod recall;
 mod transfer;
