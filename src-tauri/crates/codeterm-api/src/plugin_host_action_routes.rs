@@ -113,7 +113,11 @@ pub struct DownloadRequest {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct DialogInput {
     plugin_id: String,
-    /// What the app's native open dialog returned; never a frame value.
+    /// What the app's native open dialog returned; never a frame value. Trust assumption, stated
+    /// plainly: the daemon cannot prove a path came from a dialog. It accepts one only because this
+    /// route is local-owner-only (agents, peers and services are refused before the handler) and
+    /// the app builds it solely from `dialogs.open`; the frame can set neither the route, the
+    /// plugin, the lease nor the path. Any local-owner caller could ingest a file it can read.
     path: String,
     file_name: String,
 }
@@ -203,51 +207,86 @@ pub async fn host_input(
     else {
         return Ok(invalid("request"));
     };
-    // The body streams into ingestion, which enforces the declared size, type and deadline.
+    // The body streams into ingestion, which enforces the declared size and type. The wait for each
+    // chunk is bounded here, by the absolute ingestion deadline and by the asking document staying
+    // live, so a stalled upload never pins the blocking thread, the partial file or the frame.
     let stream = body
         .into_data_stream()
         .map(|chunk| chunk.map_err(std::io::Error::other));
-    let reader = body_reader(stream);
+    let live = {
+        let (plugin_id, lease) = (plugin_id.clone(), stamp.lease.clone());
+        move || {
+            lease.as_deref().is_some_and(|lease| {
+                codeterm_plugin::media_delivery::view_frame(&plugin_id, lease).is_ok()
+            })
+        }
+    };
+    let reader = BodyReader::new(
+        stream,
+        tokio::runtime::Handle::current(),
+        tokio::time::Instant::now() + INGEST_DEADLINE,
+        LIVENESS_SLICE,
+        live,
+    );
     // A type the browser could not name is no hint at all: ingestion then sniffs the content.
     let hint = if content_type == "application/octet-stream" { String::new() } else { content_type };
     tokio::task::spawn_blocking(move || {
-        view_host_input(&svc, &plugin_id, stamp.borrow(), PickedSource::Body(reader), &name, &hint)
+        view_host_input(&svc, &plugin_id, stamp.borrow(), PickedSource::Body(Box::new(reader)), &name, &hint)
     })
     .await
     .map(Json)
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-/// A blocking reader over the request body for ingestion on a blocking thread.
-fn body_reader(
-    stream: impl futures_core::Stream<Item = Result<axum::body::Bytes, std::io::Error>> + Send + Unpin + 'static,
-) -> Box<dyn std::io::Read + Send> {
-    struct BodyReader<S> {
-        stream: S,
-        handle: tokio::runtime::Handle,
-        pending: axum::body::Bytes,
+/// The whole web upload must finish within this, matching media delivery's ingestion deadline.
+const INGEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
+/// How long one wait for the next chunk may last before the reader rechecks that the asking
+/// document is still live; a retired or reminted lease ends the upload within this.
+const LIVENESS_SLICE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// A blocking reader over the request body for ingestion on a blocking thread. Every wait for the
+/// next chunk is bounded by the absolute `deadline` and by `live()`; an error here makes ingestion
+/// drop its partial file. Dropping the reader drops the body, which ends the upload.
+struct BodyReader<S, L> {
+    stream: S,
+    handle: tokio::runtime::Handle,
+    pending: axum::body::Bytes,
+    deadline: tokio::time::Instant,
+    slice: std::time::Duration,
+    live: L,
+}
+
+impl<S, L> BodyReader<S, L> {
+    fn new(stream: S, handle: tokio::runtime::Handle, deadline: tokio::time::Instant, slice: std::time::Duration, live: L) -> Self {
+        Self { stream, handle, pending: axum::body::Bytes::new(), deadline, slice, live }
     }
-    impl<S> std::io::Read for BodyReader<S>
-    where
-        S: futures_core::Stream<Item = Result<axum::body::Bytes, std::io::Error>> + Send + Unpin,
-    {
-        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-            while self.pending.is_empty() {
-                match self.handle.block_on(self.stream.next()) {
-                    Some(chunk) => self.pending = chunk?,
-                    None => return Ok(0),
-                }
+}
+
+impl<S, L> std::io::Read for BodyReader<S, L>
+where
+    S: futures_core::Stream<Item = Result<axum::body::Bytes, std::io::Error>> + Send + Unpin,
+    L: Fn() -> bool,
+{
+    fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+        while self.pending.is_empty() {
+            if !(self.live)() {
+                return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "plugin view retired"));
             }
-            let count = out.len().min(self.pending.len());
-            out[..count].copy_from_slice(&self.pending.split_to(count));
-            Ok(count)
+            let now = tokio::time::Instant::now();
+            if now >= self.deadline {
+                return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "upload deadline"));
+            }
+            let wake = self.deadline.min(now + self.slice);
+            match self.handle.block_on(tokio::time::timeout_at(wake, self.stream.next())) {
+                Ok(Some(chunk)) => self.pending = chunk?,
+                Ok(None) => return Ok(0),
+                Err(_) => continue,
+            }
         }
+        let count = out.len().min(self.pending.len());
+        out[..count].copy_from_slice(&self.pending.split_to(count));
+        Ok(count)
     }
-    Box::new(BodyReader {
-        stream,
-        handle: tokio::runtime::Handle::current(),
-        pending: axum::body::Bytes::new(),
-    })
 }
 
 /// A display name safe for `Content-Disposition`: no separators, controls or quotes, never empty.
@@ -414,6 +453,55 @@ mod tests {
                 "{label}"
             );
         }
+    }
+
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap()
+    }
+
+    type Chunk = Result<axum::body::Bytes, std::io::Error>;
+
+    #[test]
+    fn upload_reader_passes_chunks_through_and_ends_with_the_body() {
+        use std::io::Read;
+        let runtime = runtime();
+        let stream = futures_util::stream::iter(vec![
+            Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"png")),
+            Ok(axum::body::Bytes::from_static(b"-bytes")),
+        ]);
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), deadline, super::LIVENESS_SLICE, || true);
+        let mut body = Vec::new();
+        reader.read_to_end(&mut body).unwrap();
+        assert_eq!(body, b"png-bytes");
+    }
+
+    #[test]
+    fn upload_reader_never_waits_past_the_ingestion_deadline() {
+        use std::io::Read;
+        let runtime = runtime();
+        // A body that never sends another chunk, with the absolute deadline already reached.
+        let stream = futures_util::stream::pending::<Chunk>();
+        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), tokio::time::Instant::now(), super::LIVENESS_SLICE, || true);
+        let error = reader.read(&mut [0; 8]).expect_err("stalled upload");
+        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn upload_reader_stops_waiting_once_the_document_is_retired() {
+        use std::io::Read;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let runtime = runtime();
+        let stream = futures_util::stream::pending::<Chunk>();
+        let checks = std::sync::Arc::new(AtomicUsize::new(0));
+        let seen = checks.clone();
+        // Live for the first two checks, retired from the third; a zero slice makes each wait end at once.
+        let live = move || seen.fetch_add(1, Ordering::SeqCst) < 2;
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), deadline, std::time::Duration::ZERO, live);
+        let error = reader.read(&mut [0; 8]).expect_err("retired document");
+        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(checks.load(Ordering::SeqCst), 3);
     }
 
     #[test]

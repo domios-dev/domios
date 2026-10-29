@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::{open_download, perform, HostActionRequest, MediaRef};
+use super::{open_download, perform, settle_ingest, HostActionRequest, MediaRef};
 use codeterm_service_core::plugin::js_runtime::ViewHostAction;
 use codeterm_service_core::plugin_media::{MediaRefusal, OpenedMedia, PluginMediaResolver};
 use codeterm_service_core::view_host::{ViewError, ViewProvider, ViewRegistry};
@@ -180,6 +180,56 @@ impl ViewProvider for PickingView {
         _context: &codeterm_plugin::view_host::ViewCallContext,
     ) -> Result<Value, ViewError> {
         Ok(Value::Null)
+    }
+}
+
+fn ingested(handle: &str) -> codeterm_plugin::media_delivery::IngestedInput {
+    codeterm_plugin::media_delivery::IngestedInput {
+        handle: handle.into(),
+        file_name: "fox.png".into(),
+        content_type: "image/png".into(),
+        size: 3,
+        sha256: "0".repeat(64),
+    }
+}
+
+#[test]
+fn ingest_offers_the_handle_only_while_the_document_is_still_current() {
+    let discarded = std::cell::RefCell::new(Vec::<String>::new());
+    assert_eq!(
+        settle_ingest(Ok(ingested(HANDLE)), || true, |handle| discarded.borrow_mut().push(handle.into())),
+        json!({ "ok": true, "input": { "handle": HANDLE, "fileName": "fox.png", "contentType": "image/png", "size": 3 } })
+    );
+    assert!(discarded.borrow().is_empty());
+}
+
+#[test]
+fn ingest_discards_exactly_its_own_input_when_the_scope_moved_during_the_copy() {
+    // The document's owner/workspace scope changed while the body was being copied.
+    let scope_moved = std::cell::Cell::new(true);
+    let other_document_handle = EXPIRED;
+    let discarded = std::cell::RefCell::new(Vec::<String>::new());
+    let answer = settle_ingest(
+        Ok(ingested(HANDLE)),
+        || !scope_moved.get(),
+        |handle| discarded.borrow_mut().push(handle.into()),
+    );
+    assert_eq!(answer, refusal("denied", "stale"));
+    assert_eq!(*discarded.borrow(), vec![HANDLE.to_string()]);
+    assert!(!discarded.borrow().iter().any(|handle| handle == other_document_handle));
+}
+
+#[test]
+fn ingest_refusals_keep_their_typed_reasons_and_discard_nothing() {
+    use codeterm_plugin::media_delivery::IngestRefusal;
+    for (refusal_kind, expected) in [
+        (IngestRefusal::UnknownFrame, refusal("denied", "stale")),
+        (IngestRefusal::TooLarge, refusal("invalid", "too_large")),
+        (IngestRefusal::TypeNotAccepted, refusal("invalid", "type")),
+        (IngestRefusal::Deadline, refusal("unavailable", "deadline")),
+    ] {
+        let answer = settle_ingest(Err(refusal_kind), || panic!("not reached"), |_| panic!("nothing to discard"));
+        assert_eq!(answer, expected);
     }
 }
 
