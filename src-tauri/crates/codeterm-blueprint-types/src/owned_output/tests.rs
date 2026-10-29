@@ -80,3 +80,53 @@ fn child_output_refuses_a_symlink_without_touching_its_target() {
     assert!(OwnedOutput::create_child(&root.0, "inputs", "input.bin").is_err());
     assert_eq!(std::fs::read_dir(&outside.0).unwrap().count(), 1);
 }
+
+#[cfg(windows)]
+#[test]
+fn publication_allows_directory_writers_while_pinning_root_and_child_locations() {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
+        FILE_SHARE_WRITE,
+    };
+    for child in [false, true] {
+        let root = Temp::new();
+        let mut output = if child {
+            OwnedOutput::create_child(&root.0, "inputs", "output.bin")
+        } else {
+            OwnedOutput::create(&root.0, "output.bin")
+        }
+        .unwrap();
+        let directory = if child {
+            root.0.join("inputs")
+        } else {
+            root.0.clone()
+        };
+        let directory_writer = std::fs::OpenOptions::new()
+            .access_mode(FILE_ADD_FILE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+            .open(&directory)
+            .unwrap();
+        assert!(std::fs::rename(&root.0, root.0.with_extension("moved")).is_err());
+        if child {
+            assert!(std::fs::rename(&directory, root.0.join("moved-inputs")).is_err());
+        }
+        output.write_all(&[0, 255, 128, 1]).unwrap();
+        let path = output.publish().unwrap_or_else(|error| {
+            panic!(
+                "publication failed: {error:?}; raw Windows error: {:?}",
+                error.raw_os_error()
+            )
+        });
+        output.retain();
+        assert_eq!(std::fs::read(&path).unwrap(), [0, 255, 128, 1]);
+        let mut collision = OwnedOutput::create(&directory, "output.bin").unwrap();
+        collision.write_all(b"replacement").unwrap();
+        assert!(collision.publish().is_err());
+        drop(collision);
+        assert_eq!(std::fs::read(&path).unwrap(), [0, 255, 128, 1]);
+        assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 1);
+        drop(directory_writer);
+    }
+}

@@ -23,8 +23,7 @@ impl OwnedOutput {
         {
             return Err(io::ErrorKind::InvalidInput.into());
         }
-        let root = crate::code_source::open_directory(directory)
-            .map_err(|_| io::Error::from(io::ErrorKind::PermissionDenied))?;
+        let root = open_output_directory(directory)?;
         let temporary = format!(".transfer-{}.partial", uuid::Uuid::new_v4().simple());
         let file = create_file(&root, directory, &temporary)?;
         Ok(Self {
@@ -49,8 +48,7 @@ impl OwnedOutput {
         {
             return Err(io::ErrorKind::InvalidInput.into());
         }
-        let ancestor = crate::code_source::open_directory(directory)
-            .map_err(|_| io::Error::from(io::ErrorKind::PermissionDenied))?;
+        let ancestor = open_output_directory(directory)?;
         let path = directory.join(child);
         let root = open_child(&ancestor, directory, child)?;
         let temporary = format!(".transfer-{}.partial", uuid::Uuid::new_v4().simple());
@@ -102,6 +100,29 @@ impl Drop for OwnedOutput {
     }
 }
 #[cfg(unix)]
+fn open_output_directory(path: &Path) -> io::Result<File> {
+    crate::code_source::open_directory(path)
+        .map_err(|_| io::ErrorKind::PermissionDenied.into())
+}
+#[cfg(windows)]
+fn open_output_directory(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    let file = std::fs::OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_dir() || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+        return Err(io::ErrorKind::PermissionDenied.into());
+    }
+    Ok(file)
+}
+#[cfg(unix)]
 fn open_child(parent: &File, _: &Path, name: &str) -> io::Result<File> {
     use std::os::fd::{AsRawFd, FromRawFd};
     let name =
@@ -132,7 +153,7 @@ fn open_child(_: &File, path: &Path, name: &str) -> io::Result<File> {
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
     }
-    crate::code_source::open_directory(&path).map_err(|_| io::ErrorKind::PermissionDenied.into())
+    open_output_directory(&path)
 }
 #[cfg(unix)]
 fn create_file(root: &File, _: &Path, name: &str) -> io::Result<File> {
