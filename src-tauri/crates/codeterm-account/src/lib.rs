@@ -159,6 +159,8 @@ impl Default for Config {
         adapters::default_config()
     }
 }
+#[cfg(test)]
+mod build_guard;
 pub mod legacy_credentials;
 #[cfg(test)]
 mod tests;

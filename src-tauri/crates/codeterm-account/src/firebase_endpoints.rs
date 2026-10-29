@@ -152,6 +152,7 @@ pub(crate) fn qa_vendor() -> Option<crate::build_config::Vendor> {
         let endpoints = qa.endpoints();
         crate::build_config::Vendor {
             api_key: Some(qa.api_key),
+            auth_domain: Some("domios-signin-qa.firebaseapp.com"),
             app_id: Some(qa.app_id),
             project_id: Some(qa.project),
             signin_url: Some(endpoints.signin),

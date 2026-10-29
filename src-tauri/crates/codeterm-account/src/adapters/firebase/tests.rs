@@ -295,6 +295,7 @@ fn build_config_availability_and_overrides() {
     );
     let configured = config_from_build(Vendor {
         api_key: Some("test-key"),
+        auth_domain: Some("fixture.firebaseapp.com"),
         project_id: Some("test-project"),
         app_id: Some("test-app"),
         redeem_url: Some("https://example.test/redeem"),

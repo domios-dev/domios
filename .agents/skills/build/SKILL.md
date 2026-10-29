@@ -1354,10 +1354,14 @@ do not restore a hard gate merely to preserve an obsolete assertion.
 
 ## Build-time vendor configuration
 
-Inject these environment variables before the app build; CI reads GitHub secrets
-with the same names. Empty or missing secrets do not fail compilation.
+Inject these environment variables before the app, CLI or server build. Firebase
+web config uses the existing same-name GitHub repository secrets. Release
+compilation refuses a missing or blank key, project ID or app ID. Auth domain is
+optional and defaults to `<project_id>.firebaseapp.com`; the account build script
+fingerprints all four effective fields as a compiler input.
 
 - DOMIOS_FIREBASE_API_KEY
+- DOMIOS_FIREBASE_AUTH_DOMAIN
 - DOMIOS_FIREBASE_PROJECT_ID
 - DOMIOS_FIREBASE_APP_ID
 - DOMIOS_ACCOUNT_REDEEM_URL
@@ -1365,10 +1369,13 @@ with the same names. Empty or missing secrets do not fail compilation.
 - DOMIOS_AMPLITUDE_API_KEY_TEST
 - DOMIOS_AMPLITUDE_API_KEY_PROD
 
-`install-local` resolves all four Firebase account entries together, preferring
-the Domios secret store and falling back to a complete existing build
-environment. The optional billing functions URL independently prefers the secret store, then
-the existing environment. It scopes all five values to the packaged app build;
+`build`, `install-local` and release packaging resolve key, project and app
+as one tuple, preferring the Domios secret store and falling back to a complete
+existing build environment. Redeem overrides come from the selected source and
+are optional for release; debug compilation still requires an explicit redeem
+endpoint to select cloud authentication. The optional billing functions URL prefers the secret store, then
+the existing environment. The auth domain also comes from its same-name local
+store entry or environment variable. These values are scoped to the packaged build;
 a missing billing URL never fails the build. Billing logs only present or absent,
 without printing the URL. Complete account values print
 `Firebase config: cloud-auth enabled`; missing or partial values print
@@ -1379,6 +1386,7 @@ values once with stdin:
 
 ```text
 domios mem secret save --name DOMIOS_FIREBASE_API_KEY
+domios mem secret save --name DOMIOS_FIREBASE_AUTH_DOMAIN
 domios mem secret save --name DOMIOS_FIREBASE_PROJECT_ID
 domios mem secret save --name DOMIOS_FIREBASE_APP_ID
 domios mem secret save --name DOMIOS_ACCOUNT_REDEEM_URL
@@ -1404,14 +1412,25 @@ the compiled defaults; Amplitude uses a public ingestion key embedded at build t
 `domios.amplitude.prod.api_key` overrides it for local builds
 (`domios.amplitude.test.api_key` for test projects). Availability is cached
 once per process, so changing the override requires restarting the daemon.
-Without Firebase values account uses local; without a billing endpoint billing
+Debug builds without Firebase values use local; without a billing endpoint billing
 returns free locally and reports subscription actions unavailable. Missing
 Amplitude credentials leave queued events undelivered with unavailable status.
 Changing build-time values requires rebuilding; never commit vendor credentials.
 Firebase Functions, admin and hosted sign-in source live in the private
 [Firebase repository](https://github.com/rollacode/codeterm-firebase), with the
 former cloud contents at its root. Follow its config generation, package checks
-and deployment procedures there. The private
+and deployment procedures there. Before hosting deployment, Turner generates the
+ignored `hosting/signin/config.json` from the same Firebase web configuration:
+`firebaseConfig.apiKey`, `authDomain`, `projectId`, and `appId` map to the respective
+`DOMIOS_FIREBASE_*` names. Preserve the page's separate App Check settings. Keep
+`config.example.json` values as obvious `COPY_*` placeholders. Run
+`node scripts/write-signin-config.mjs` in codeterm-firebase before deployment;
+its protected deploy workflow injects the corresponding GitHub configuration and
+runs the writer. QA uses `scripts/deploy-qa.mjs` with the same writer. Obtain the
+unchanged values from Firebase Console → Project settings → the existing Web app,
+or the existing local secret store; never print the API key or rotate it for this
+build configuration step. CI passes its environment directly and never resolves
+machine-local secret-store overrides. The private
 [website repository](https://github.com/rollacode/codeterm-web) owns the marketing
 site build and deployment, with the former web app at its root. Repository
 creation does not establish production readiness or authorize publishing.
