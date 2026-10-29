@@ -87,9 +87,13 @@ async fn account_mesh_rejoin_registry_reconciles_persisted_revocation_without_ke
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
+    harness
+        .mesh
+        .revoke(row(PEER, 0, None).target())
+        .await
+        .unwrap();
     {
         let mut record = harness.store.record.lock().unwrap();
-        record.revoked_installations.insert(PEER.into());
         record.peer_keys.clear();
     }
     harness.restart().await;
@@ -188,6 +192,7 @@ async fn removed() -> Harness {
         .await
         .unwrap();
     harness.registry.revoke_self(UID);
+    harness.clock.set(START + 3600);
     harness.restart().await;
     harness.sign_in(UID).await;
     auth_time(&harness, START);
@@ -247,7 +252,7 @@ async fn account_mesh_rejoin_failed_rotation_does_not_loop_in_a_sign_in_epoch() 
         harness.mesh.refresh(EnrollTrigger::Explicit).await,
         Err(AccountMeshRefusal::Unavailable)
     );
-    harness.clock.set(START + 60);
+    harness.clock.set(harness.clock.now() + 60);
     for trigger in [
         EnrollTrigger::Explicit,
         EnrollTrigger::Network,
@@ -293,7 +298,7 @@ async fn account_mesh_rejoin_retries_sync_without_another_rotation() {
         Err(AccountMeshRefusal::Offline)
     );
     harness.registry.script.lock().unwrap().publication = None;
-    harness.clock.set(START + 30);
+    harness.clock.set(harness.clock.now() + 30);
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("enroll"), 1);
