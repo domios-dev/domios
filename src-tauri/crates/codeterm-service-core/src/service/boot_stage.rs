@@ -576,13 +576,16 @@ impl ServiceContext {
         attempt: &crate::service::launch_readiness::LaunchAttempt,
         reason: &str,
     ) {
-        self.record_provisional_launch_with_binding_wait(
+        let recorded = self.record_provisional_launch_with_binding_wait(
             attempt,
             BootStage::ProviderReady,
             reason,
             true,
             true,
         );
+        if recorded {
+            self.wake_parked_user_send(&attempt.tab_id);
+        }
     }
 
     fn record_provisional_launch_with_binding_wait(
@@ -592,7 +595,7 @@ impl ServiceContext {
         reason: &str,
         awaiting_binding_ack: bool,
         first_turn_input_ready: bool,
-    ) {
+    ) -> bool {
         debug_assert!(
             stage.is_provisional() || (stage == BootStage::ProviderReady && first_turn_input_ready)
         );
@@ -626,7 +629,7 @@ impl ServiceContext {
                 stage.as_str(),
                 attempt.pty_id,
             );
-            return;
+            return false;
         }
         self.finish_boot_stage_transition(&attempt.tab_id, stage, Some(reason));
         self.retire_provisional_launch(
@@ -636,6 +639,7 @@ impl ServiceContext {
                 binding_nonce: attempt.binding_nonce.clone(),
             },
         );
+        true
     }
 
     /// Retire a provisional launch on authoritative late readiness from the

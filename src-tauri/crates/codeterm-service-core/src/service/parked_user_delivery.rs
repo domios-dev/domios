@@ -210,11 +210,20 @@ impl super::ServiceContext {
         if !self.user_authority_pty_generation_is_current(authority) {
             return false;
         }
+        let lazy_session = self
+            .agent_registry
+            .with_provider(&authority.provider_id, |provider| {
+                provider.session_starts_on_first_user_turn()
+            })
+            .unwrap_or(false);
         if !self
             .mux
             .read()
             .get_tab(&authority.tab_id)
-            .is_some_and(|tab| self.user_authority_matches_launch(tab, authority))
+            .is_some_and(|tab| {
+                self.user_authority_matches_launch(tab, authority)
+                    && (!lazy_session || tab.launch_session_authenticated())
+            })
         {
             return false;
         }
@@ -242,12 +251,20 @@ impl super::ServiceContext {
         {
             return false;
         }
+        self.claim_lazy_first_turn_input(authority, &record.send_id)
+    }
+
+    pub(crate) fn claim_lazy_first_turn_input(
+        &self,
+        authority: &UserSendAuthority,
+        send_id: &str,
+    ) -> bool {
         let mut mux = self.mux.write();
         let Some(tab) = mux.get_tab_mut(&authority.tab_id) else {
             return false;
         };
         if !self.user_authority_matches_launch(tab, authority)
-            || tab.boot_stage != Some(codeterm_types::pty::BootStage::ProviderReady)
+            || !crate::service::boot_stage::first_turn_input_is_ready(tab)
             || !lazy_first_turn_session_matches(tab, authority)
         {
             return false;
@@ -262,9 +279,9 @@ impl super::ServiceContext {
             return false;
         };
         match launch.first_turn_admitted_send_id.as_deref() {
-            Some(admitted) => admitted == record.send_id,
+            Some(admitted) => admitted == send_id,
             None => {
-                launch.first_turn_admitted_send_id = Some(record.send_id.clone());
+                launch.first_turn_admitted_send_id = Some(send_id.to_string());
                 true
             }
         }
