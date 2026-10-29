@@ -824,6 +824,7 @@ function AppInner() {
             />
             <SidebarDrawer phone={phoneViewport} shown={sidebarShown}>
               <Sidebar
+                firstRunActive={locked}
                 onCollapse={closeSidebar}
                 onCollapsedChange={setSidebarRailCollapsed}
                 expandRequest={sidebarExpandRequest}
