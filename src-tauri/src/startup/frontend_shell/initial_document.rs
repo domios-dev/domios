@@ -1,5 +1,38 @@
 use super::*;
 
+pub(crate) const SCHEME: &str = "domios-startup";
+
+pub(super) fn url(http_protocol: bool) -> Result<Url, url::ParseError> {
+    Url::parse(if http_protocol {
+        "http://domios-startup.localhost/starting"
+    } else {
+        "domios-startup://localhost/starting"
+    })
+}
+
+pub(crate) fn window_config(
+    config: &tauri::utils::config::Config,
+) -> Result<tauri::utils::config::WindowConfig, Box<dyn std::error::Error>> {
+    let mut window = config
+        .app
+        .windows
+        .first()
+        .cloned()
+        .ok_or("Main window configuration is missing")?;
+    window.url = WebviewUrl::CustomProtocol(starting_url()?);
+    Ok(window)
+}
+
+pub(crate) fn protocol_response() -> tauri::http::Response<Vec<u8>> {
+    let mut response =
+        tauri::http::Response::new(brand_fallback_page(BrandFallback::Starting).into_bytes());
+    response.headers_mut().insert(
+        tauri::http::header::CONTENT_TYPE,
+        tauri::http::HeaderValue::from_static("text/html; charset=utf-8"),
+    );
+    response
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Phase {
     #[default]

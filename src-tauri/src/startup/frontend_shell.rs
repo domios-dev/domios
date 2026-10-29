@@ -1,7 +1,7 @@
 use codeterm_client_shell::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
-mod initial_document;
+pub(crate) mod initial_document;
 mod main_thread;
 mod readiness;
 mod reconnect;
@@ -158,7 +158,7 @@ fn unavailable_url() -> Result<Url, url::ParseError> {
 }
 
 pub(super) fn starting_url() -> Result<Url, url::ParseError> {
-    brand_page_url(BrandFallback::Starting)
+    initial_document::url(cfg!(any(windows, target_os = "android")))
 }
 
 const START_FAILURE_DETAIL_CHARS: usize = 600;
@@ -334,15 +334,7 @@ pub fn create_window(
     *supervisor.view_bootstrap.lock() = bootstrap.clone();
     let unavailable = unavailable_url()?;
     let fallback = fallback_url()?;
-    let mut window_config = app
-        .config()
-        .app
-        .windows
-        .first()
-        .cloned()
-        .ok_or("Main window configuration is missing")?;
-    // Starting is not the retrying recovery page: a failed first attempt must still switch to it.
-    window_config.url = WebviewUrl::CustomProtocol(starting_url()?);
+    let mut window_config = initial_document::window_config(app.config())?;
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     // Revealed on the first painted interface (or the recovery page), so startup never shows an empty frame.
     window_config.visible = false;
@@ -651,6 +643,7 @@ fn observe_navigation(
     let root_render = supervisor.root_render.clone();
     let api_origin = current_api_origin(app);
     if url.scheme() == "data"
+        || starting_url().is_ok_and(|starting| same_navigation_document(&url, &starting))
         || !navigation_allowed(
             &url,
             allowed_origin,

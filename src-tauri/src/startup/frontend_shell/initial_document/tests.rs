@@ -2,6 +2,50 @@ use super::*;
 use std::future::{poll_fn, Future};
 use std::task::Poll;
 
+#[test]
+fn starting_document_url_is_absolute_and_stable_in_packaged_and_development_modes() {
+    let dev = Url::parse("http://127.0.0.1:1479/").unwrap();
+    for dev_url in [None, Some(dev)] {
+        let mut config = tauri::utils::config::Config::default();
+        config.build.dev_url = dev_url;
+        config.app.windows.push(Default::default());
+        let window = window_config(&config).unwrap();
+        assert_eq!(
+            window.url,
+            WebviewUrl::CustomProtocol(starting_url().unwrap())
+        );
+        for http_protocol in [false, true] {
+            let starting = url(http_protocol).unwrap();
+            assert!(!starting.cannot_be_a_base());
+            assert_eq!(Url::parse(starting.as_str()).unwrap(), starting);
+            assert_eq!(starting.path(), "/starting");
+            assert_eq!(starting.query(), None);
+            assert_eq!(starting.fragment(), None);
+            assert_eq!(
+                starting.as_str(),
+                if http_protocol {
+                    "http://domios-startup.localhost/starting"
+                } else {
+                    "domios-startup://localhost/starting"
+                }
+            );
+        }
+    }
+}
+#[test]
+fn starting_protocol_serves_the_branded_document_as_html() {
+    let response = protocol_response();
+    assert_eq!(response.status(), tauri::http::StatusCode::OK);
+    assert_eq!(
+        response.headers()[tauri::http::header::CONTENT_TYPE],
+        "text/html; charset=utf-8"
+    );
+    assert_eq!(
+        response.body(),
+        brand_fallback_page(BrandFallback::Starting).as_bytes()
+    );
+}
+
 #[tokio::test]
 async fn missing_first_document_acknowledgement_becomes_failure_never_ready() {
     let initial = InitialDocument::default();

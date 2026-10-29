@@ -1,5 +1,22 @@
 use super::*;
 
+fn recovery_document(
+    current_url: Result<Url, String>,
+    unavailable: &Url,
+    host_recovery: bool,
+    current: (u64, u64),
+    expected: (u64, u64),
+    attached: bool,
+) -> Result<bool, String> {
+    if current.0 == 0 || current != expected || !attached {
+        return Err("Unavailable frontend generation was replaced".into());
+    }
+    if host_recovery {
+        return Ok(true);
+    }
+    current_url.map(|url| same_navigation_document(&url, unavailable))
+}
+
 async fn reinitialize_client(app: codeterm_client_shell::app_runtime::AppHandle) {
     match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
         Ok(initialized) => {
@@ -123,7 +140,6 @@ pub(crate) async fn recover_for_attachment(
         return Ok(());
     };
     let unavailable = unavailable_url().map_err(|error| error.to_string())?;
-    let current_url = window.url().map_err(|error| error.to_string())?;
     let can_reuse_window = {
         let supervisor = app.state::<ShellSupervisor>();
         let api = app.state::<ServerApiAttachmentSlot>().current();
@@ -151,14 +167,6 @@ pub(crate) async fn recover_for_attachment(
         navigate_frontend(&app, &window, url)?;
         return Ok(());
     }
-    if !ON_RECOVERY_SURFACE.load(Ordering::Acquire)
-        && !same_navigation_document(&current_url, &unavailable)
-    {
-        start(app);
-        return Ok(());
-    }
-
-    crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
     let (old_view, old_navigation, before, mut windows) = {
         let supervisor = app.state::<ShellSupervisor>();
         let before = *supervisor.windows.borrow();
@@ -169,18 +177,37 @@ pub(crate) async fn recover_for_attachment(
             supervisor.windows.subscribe(),
         )
     };
+    if !recovery_document(
+        window.url().map_err(|error| error.to_string()),
+        &unavailable,
+        initial_failed || ON_RECOVERY_SURFACE.load(Ordering::Acquire),
+        (old_view, old_navigation),
+        (old_view, old_navigation),
+        ensure_server_attachment(&app, expected).is_ok(),
+    )? {
+        start(app);
+        return Ok(());
+    }
+
+    crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
     if old_view == 0 || (!before.available && !initial_failed) {
         return Err("Unavailable frontend generation is no longer active".into());
     }
     let close_window = window.clone();
+    let expected_attachment = expected.clone();
     run_on_main_thread(app.clone(), move |handle| {
         let state = handle.state::<ShellSupervisor>();
-        let live_url = close_window.url().map_err(|error| error.to_string())?;
-        if (!ON_RECOVERY_SURFACE.load(Ordering::Acquire)
-            && !same_navigation_document(&live_url, &unavailable))
-            || state.active_view_generation.load(Ordering::Acquire) != old_view
-            || state.navigation.load(Ordering::Acquire) != old_navigation
-        {
+        if !recovery_document(
+            close_window.url().map_err(|error| error.to_string()),
+            &unavailable,
+            state.initial_document.failed(old_view) || ON_RECOVERY_SURFACE.load(Ordering::Acquire),
+            (
+                state.active_view_generation.load(Ordering::Acquire),
+                state.navigation.load(Ordering::Acquire),
+            ),
+            (old_view, old_navigation),
+            ensure_server_attachment(&handle, &expected_attachment).is_ok(),
+        )? {
             return Err("Unavailable frontend generation was replaced".into());
         }
         close_window.destroy().map_err(|error| error.to_string())
@@ -216,3 +243,6 @@ pub(crate) async fn recover_for_attachment(
     start(app);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
