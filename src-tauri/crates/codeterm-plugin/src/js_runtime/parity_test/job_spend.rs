@@ -1,9 +1,13 @@
 use crate::js_runtime::{call_json, host_compute::tests::AnalyticsHost, PluginVm};
 use crate::{blueprint_step::*, host_traits::PluginHostCtx, plugin_jobs::PluginJobAdmission};
 use serde_json::{json, Value};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 struct Admission {
     ledger: OperationLedger,
+    now: AtomicU64,
     origin: JobOriginReceipt,
 }
 impl PluginJobAdmission for Admission {
@@ -15,16 +19,17 @@ impl PluginJobAdmission for Admission {
         }
         let operation = call["operation"].as_str().unwrap();
         assert_eq!(operation, self.origin.operation);
+        let now = self.now.load(Ordering::SeqCst);
         let result = match call["action"].as_str().unwrap() {
             "prepare" => self.ledger.prepare_job_spend(
                 &self.origin,
                 &call["request"],
                 serde_json::from_value(call["quote"].clone()).unwrap(),
-                100,
+                now,
             ),
             "enter" => self
                 .ledger
-                .enter_job_spend(&self.origin, &call["request"], 100),
+                .enter_job_spend(&self.origin, &call["request"], now),
             _ => panic!("unexpected action"),
         }?;
         Ok(serde_json::to_value(result).unwrap())
@@ -67,6 +72,7 @@ fn native_and_js_job_spend_share_exact_request_scope_quote_and_one_shot_entry() 
     let admission = Arc::new(Admission {
         ledger,
         origin: origin.clone(),
+        now: AtomicU64::new(100),
     });
     let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost {
         jobs: Some(admission.clone()),
@@ -86,6 +92,18 @@ fn native_and_js_job_spend_share_exact_request_scope_quote_and_one_shot_entry() 
     )
     .unwrap();
     assert_eq!(js, json!(native));
+    admission.now.store(1000, Ordering::SeqCst);
+    let expired: Value =
+        call_json(&vm, "enter", &[json!(origin.operation), request.clone()]).unwrap();
+    assert_eq!(expired, json!(native.clone().at(1000)));
+    let expired_prepare: Value = call_json(
+        &vm,
+        "prepare",
+        &[json!(origin.operation), request.clone(), json!(quote)],
+    )
+    .unwrap();
+    assert_eq!(expired_prepare["state"], "expired_readmit_needed");
+    admission.now.store(100, Ordering::SeqCst);
     let denied: Value =
         call_json(&vm, "enter", &[json!(origin.operation), request.clone()]).unwrap();
     assert_eq!(denied["error"], "plugin_job_request_refused");

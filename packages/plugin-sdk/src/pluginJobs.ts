@@ -16,7 +16,7 @@ export interface PluginJobMonitor {
 }
 export interface JobOriginReceipt {operation: string; deadlineMs: number; scope: PluginJobScope; origin: PluginJobOrigin; authorization: "observation_only";}
 export interface JobQuote {binding: string; amount: number; unit: string; basis: string; tariffRevision: string; issuedAt: number; validUntilMs: number;}
-export interface JobSpendReceipt {operation: string; scope: PluginJobScope; origin: PluginJobOrigin; quote: JobQuote; request: Record<string, unknown>; dailyAllowance: number; state: "waiting_for_owner" | "approved_once" | "approved_budget" | "denied" | "entered_unknown"; enteredAtMs: number | null;}
+export interface JobSpendReceipt {operation: string; scope: PluginJobScope; origin: PluginJobOrigin; quote: JobQuote; request: Record<string, unknown>; dailyAllowance: number; state: "waiting_for_owner" | "approved_once" | "approved_budget" | "denied" | "entered_unknown" | "expired_readmit_needed"; enteredAtMs: number | null;}
 export type JobTrackResult =
   | {operation: string; job: string; registered: true; monitor: PluginJobMonitor}
   | {operation: string; job: string; registered: false; state: "unknown"; reason: "deadline" | "plugin_unavailable" | "monitor_unavailable"};

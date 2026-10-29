@@ -308,7 +308,12 @@ Without a sufficient allowance the host asks its local owner to approve once,
 set a daily allowance of ten quoted calls (explicit amount/unit in the question),
 or decline. Allowances are isolated by plugin, workspace, Team, owner and unit;
 entry atomically checks the remaining allowance. Outstanding and uncertain
-reservations count in full across day boundaries. This bridge exposes no
+reservations count in full within their entry UTC day; the standing allowance
+renews on the next UTC day. Setting an allowance also approves the current call
+once, even if the day is exhausted. A budget approval that loses a race for
+remaining funds returns `waiting_for_owner` and raises the owner question again.
+An unentered expired quote projects `expired_readmit_needed`; create a new
+admission and fresh quote. Owner answers after expiry report re-admit needed. This bridge exposes no
 plugin-reported settlement/refund API; releasing them requires future
 host-verified vendor receipt reconciliation. No unit conversion or vendor
 pricing is invented. An approval is not an assertion that the quoted tariff is

@@ -61,7 +61,13 @@ fn exact_job_quote_requires_owner_and_entry_is_durable_and_never_replayed() {
         *actor = "foreign".into();
     }
     assert!(ledger.enter_job_spend(&foreign, &request, 100).is_err());
-    assert!(ledger.enter_job_spend(&origin, &request, 1000).is_err());
+    assert_eq!(
+        ledger
+            .enter_job_spend(&origin, &request, 1000)
+            .unwrap()
+            .state,
+        JobSpendState::ExpiredReadmitNeeded
+    );
     let entered = ledger.enter_job_spend(&origin, &request, 101).unwrap();
     assert_eq!(entered.state, JobSpendState::EnteredUnknown);
     drop(ledger);
@@ -101,7 +107,13 @@ fn allowance_auto_approves_same_unit_and_retains_unknown_reservations() {
         );
         ledger.enter_job_spend(&next, &request, 100).unwrap();
     }
-    assert!(ledger.enter_job_spend(&initial, &request, 100).is_err());
+    assert_eq!(
+        ledger
+            .enter_job_spend(&initial, &request, 100)
+            .unwrap()
+            .state,
+        JobSpendState::EnteredUnknown
+    );
     let next = origin(&ledger);
     assert_eq!(
         ledger
@@ -163,7 +175,11 @@ fn concurrent_entries_cannot_oversubscribe_one_host_allowance() {
         .map(|origin| {
             let ledger = OperationLedger::open(&path).unwrap();
             let request = request.clone();
-            std::thread::spawn(move || ledger.enter_job_spend(&origin, &request, 100).is_ok())
+            std::thread::spawn(move || {
+                ledger
+                    .enter_job_spend(&origin, &request, 100)
+                    .is_ok_and(|receipt| receipt.state == JobSpendState::EnteredUnknown)
+            })
         })
         .collect();
     assert_eq!(
@@ -173,5 +189,153 @@ fn concurrent_entries_cannot_oversubscribe_one_host_allowance() {
             .filter(|entered| *entered)
             .count(),
         10
+    );
+}
+
+#[test]
+fn daily_allowance_renews_and_owner_can_authorize_after_exhaustion() {
+    let root = tempfile::tempdir().unwrap();
+    let ledger = OperationLedger::open(&root.path().join("ledger.sqlite")).unwrap();
+    let request = json!({"revision":1});
+    let first = origin(&ledger);
+    ledger
+        .prepare_job_spend(&first, &request, quote(&request), 100)
+        .unwrap();
+    ledger
+        .decide_job_spend("fixture", &first.operation, "Set daily allowance", 100)
+        .unwrap();
+    ledger.enter_job_spend(&first, &request, 100).unwrap();
+    for _ in 0..9 {
+        let next = origin(&ledger);
+        assert_eq!(
+            ledger
+                .prepare_job_spend(&next, &request, quote(&request), 100)
+                .unwrap()
+                .state,
+            JobSpendState::ApprovedBudget
+        );
+        assert_eq!(
+            ledger.enter_job_spend(&next, &request, 100).unwrap().state,
+            JobSpendState::EnteredUnknown
+        );
+    }
+    let eleventh = origin(&ledger);
+    assert_eq!(
+        ledger
+            .prepare_job_spend(&eleventh, &request, quote(&request), 100)
+            .unwrap()
+            .state,
+        JobSpendState::WaitingForOwner
+    );
+    ledger
+        .decide_job_spend("fixture", &eleventh.operation, "Set daily allowance", 100)
+        .unwrap();
+    assert_eq!(
+        ledger
+            .enter_job_spend(&eleventh, &request, 100)
+            .unwrap()
+            .state,
+        JobSpendState::EnteredUnknown
+    );
+    assert!(ledger.enter_job_spend(&eleventh, &request, 100).is_err());
+    let tomorrow = 86_400_100;
+    let next = origin(&ledger);
+    let price = JobQuote {
+        issued_at: tomorrow,
+        valid_until_ms: tomorrow + 1000,
+        ..quote(&request)
+    };
+    assert_eq!(
+        ledger
+            .prepare_job_spend(&next, &request, price, tomorrow)
+            .unwrap()
+            .state,
+        JobSpendState::ApprovedBudget
+    );
+    assert_eq!(
+        ledger
+            .enter_job_spend(&next, &request, tomorrow)
+            .unwrap()
+            .state,
+        JobSpendState::EnteredUnknown
+    );
+    let period: u64 = ledger
+        .inner
+        .db
+        .lock()
+        .query_row("SELECT period FROM plugin_job_budgets", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(period, 1);
+}
+#[test]
+fn budget_race_returns_to_owner_wait_and_expiry_requires_readmission() {
+    let root = tempfile::tempdir().unwrap();
+    let ledger = OperationLedger::open(&root.path().join("ledger.sqlite")).unwrap();
+    let request = json!({"revision":1});
+    let first = origin(&ledger);
+    ledger
+        .prepare_job_spend(&first, &request, quote(&request), 100)
+        .unwrap();
+    ledger
+        .decide_job_spend("fixture", &first.operation, "Set daily allowance", 100)
+        .unwrap();
+    let racing = origin(&ledger);
+    ledger
+        .prepare_job_spend(&racing, &request, quote(&request), 100)
+        .unwrap();
+    for _ in 0..10 {
+        let next = origin(&ledger);
+        ledger
+            .prepare_job_spend(&next, &request, quote(&request), 100)
+            .unwrap();
+        ledger.enter_job_spend(&next, &request, 100).unwrap();
+    }
+    assert_eq!(
+        ledger
+            .enter_job_spend(&racing, &request, 100)
+            .unwrap()
+            .state,
+        JobSpendState::WaitingForOwner
+    );
+    ledger
+        .decide_job_spend("fixture", &racing.operation, "Approve once", 100)
+        .unwrap();
+    assert_eq!(
+        ledger
+            .enter_job_spend(&racing, &request, 100)
+            .unwrap()
+            .state,
+        JobSpendState::EnteredUnknown
+    );
+    assert_eq!(
+        ledger
+            .prepare_job_spend(&first, &request, quote(&request), 1000)
+            .unwrap()
+            .state,
+        JobSpendState::ExpiredReadmitNeeded
+    );
+    assert_eq!(
+        ledger
+            .enter_job_spend(&first, &request, 1000)
+            .unwrap()
+            .state,
+        JobSpendState::ExpiredReadmitNeeded
+    );
+    assert_eq!(
+        ledger
+            .decide_job_spend("fixture", &first.operation, "Approve once", 1000)
+            .unwrap_err(),
+        "quote expired; re-admit needed"
+    );
+    assert_eq!(
+        ledger
+            .job_spend("fixture", &first.operation)
+            .unwrap()
+            .unwrap()
+            .at(1000)
+            .state,
+        JobSpendState::ExpiredReadmitNeeded
     );
 }

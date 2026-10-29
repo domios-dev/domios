@@ -50,6 +50,7 @@ pub enum JobSpendState {
     ApprovedBudget,
     Denied,
     EnteredUnknown,
+    ExpiredReadmitNeeded,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -62,6 +63,21 @@ pub struct JobSpendReceipt {
     pub state: JobSpendState,
     pub daily_allowance: u64,
     pub entered_at_ms: Option<u64>,
+}
+impl JobSpendReceipt {
+    pub fn at(mut self, now: u64) -> Self {
+        if self.quote.valid_until_ms <= now
+            && matches!(
+                self.state,
+                JobSpendState::WaitingForOwner
+                    | JobSpendState::ApprovedOnce
+                    | JobSpendState::ApprovedBudget
+            )
+        {
+            self.state = JobSpendState::ExpiredReadmitNeeded;
+        }
+        self
+    }
 }
 fn error(_: rusqlite::Error) -> String {
     "job spend persistence failed".into()
@@ -90,11 +106,22 @@ fn write(db: &rusqlite::Connection, receipt: &JobSpendReceipt) -> Result<(), Str
     db.execute("INSERT OR REPLACE INTO plugin_job_spend(operation,plugin,scope,unit,reserved,record) VALUES(?1,?2,?3,?4,?5,?6)",params![receipt.operation,receipt.scope.plugin,scope_key(&receipt.scope)?,receipt.quote.unit,if receipt.state == JobSpendState::EnteredUnknown { receipt.quote.amount } else { 0 },serde_json::to_string(receipt).map_err(|_| "invalid job spend receipt")?]).map_err(error)?;
     Ok(())
 }
-fn remaining(db: &rusqlite::Connection, scope: &PluginJobScope, unit: &str) -> Result<u64, String> {
+fn remaining(
+    db: &rusqlite::Connection,
+    scope: &PluginJobScope,
+    unit: &str,
+    now: u64,
+) -> Result<u64, String> {
+    let day = now / 86_400_000;
+    db.execute(
+        "UPDATE plugin_job_budgets SET period=?3 WHERE scope=?1 AND unit=?2 AND period<?3",
+        params![scope_key(scope)?, unit, day],
+    )
+    .map_err(error)?;
     let budget: u64 = db
         .query_row(
-            "SELECT amount FROM plugin_job_budgets WHERE scope=?1 AND unit=?2",
-            params![scope_key(scope)?, unit],
+            "SELECT amount FROM plugin_job_budgets WHERE scope=?1 AND unit=?2 AND period=?3",
+            params![scope_key(scope)?, unit, day],
             |r| r.get(0),
         )
         .optional()
@@ -102,8 +129,8 @@ fn remaining(db: &rusqlite::Connection, scope: &PluginJobScope, unit: &str) -> R
         .unwrap_or(0);
     let reserved: u64 = db
         .query_row(
-            "SELECT COALESCE(SUM(reserved),0) FROM plugin_job_spend WHERE scope=?1 AND unit=?2",
-            params![scope_key(scope)?, unit],
+            "SELECT COALESCE(SUM(reserved),0) FROM plugin_job_spend WHERE scope=?1 AND unit=?2 AND json_extract(record,'$.enteredAtMs')>=?3 AND json_extract(record,'$.enteredAtMs')<?4",
+            params![scope_key(scope)?, unit, day * 86_400_000, day.saturating_add(1).saturating_mul(86_400_000)],
             |r| r.get(0),
         )
         .map_err(error)?;
@@ -124,10 +151,24 @@ impl OperationLedger {
         quote: JobQuote,
         now: u64,
     ) -> Result<JobSpendReceipt, String> {
+        if quote.valid_until_ms <= now {
+            if let Some(existing) = self.job_spend(&origin.scope.plugin, &origin.operation)? {
+                if existing.quote == quote
+                    && existing.scope == origin.scope
+                    && existing.origin == origin.origin
+                    && quote.binding == job_request_binding(request)?
+                {
+                    return Ok(existing.at(now));
+                }
+            }
+        }
         if origin.deadline_ms <= now
             || !quote.valid(now)
             || quote.binding != job_request_binding(request)?
         {
+            if quote.valid_until_ms <= now {
+                return Err("quote expired; re-admit needed".into());
+            }
             return Err("fresh exact request quote required".into());
         }
         let mut db = self.inner.db.lock();
@@ -138,7 +179,7 @@ impl OperationLedger {
             }
             return Ok(existing);
         }
-        let state = if remaining(&tx, &origin.scope, &quote.unit)? >= quote.amount {
+        let state = if remaining(&tx, &origin.scope, &quote.unit, now)? >= quote.amount {
             JobSpendState::ApprovedBudget
         } else {
             JobSpendState::WaitingForOwner
@@ -167,6 +208,9 @@ impl OperationLedger {
         let mut db = self.inner.db.lock();
         let tx = db.transaction().map_err(error)?;
         let mut receipt = read(&tx, plugin, operation)?.ok_or("job quote unavailable")?;
+        if receipt.quote.valid_until_ms <= now {
+            return Err("quote expired; re-admit needed".into());
+        }
         if receipt.state != JobSpendState::WaitingForOwner || !receipt.quote.valid(now) {
             return Err("job quote no longer awaiting approval".into());
         }
@@ -174,7 +218,7 @@ impl OperationLedger {
             "Approve once" => JobSpendState::ApprovedOnce,
             "Set daily allowance" => {
                 tx.execute("INSERT OR REPLACE INTO plugin_job_budgets(scope,unit,amount,period) VALUES(?1,?2,?3,?4)",params![scope_key(&receipt.scope)?,receipt.quote.unit,receipt.daily_allowance,now / 86_400_000]).map_err(error)?;
-                JobSpendState::ApprovedBudget
+                JobSpendState::ApprovedOnce
             }
             "Decline" => JobSpendState::Denied,
             _ => return Err("invalid job spend decision".into()),
@@ -196,17 +240,30 @@ impl OperationLedger {
         if receipt.scope != origin.scope
             || receipt.origin != origin.origin
             || origin.deadline_ms <= now
-            || !receipt.quote.valid(now)
             || receipt.quote.binding != job_request_binding(request)?
         {
             return Err("job spend scope or quote changed".into());
         }
+        let projected = receipt.clone().at(now);
+        if projected.state == JobSpendState::ExpiredReadmitNeeded {
+            return Ok(projected);
+        }
+        if !receipt.quote.valid(now) {
+            return Err("fresh exact request quote required".into());
+        }
         match receipt.state {
             JobSpendState::ApprovedOnce => (),
             JobSpendState::ApprovedBudget
-                if remaining(&tx, &receipt.scope, &receipt.quote.unit)? >= receipt.quote.amount =>
+                if remaining(&tx, &receipt.scope, &receipt.quote.unit, now)?
+                    >= receipt.quote.amount =>
             {
                 ()
+            }
+            JobSpendState::ApprovedBudget => {
+                receipt.state = JobSpendState::WaitingForOwner;
+                write(&tx, &receipt)?;
+                tx.commit().map_err(error)?;
+                return Ok(receipt);
             }
             _ => return Err("job spend not authorized or already entered".into()),
         }

@@ -175,20 +175,19 @@ impl PluginJobAdmission for JobAdmission {
             }
             let spend = match &request {
                 Request::Prepare { request, quote, .. } => {
-                    let spend = ledger.prepare_job_spend(&receipt, request, quote.clone(), now)?;
-                    if spend.state == JobSpendState::WaitingForOwner {
-                        service.publish_daemon_question(
-                            format!("plugin-job:{}:{}", plugin_id, operation),
-                            format!("{}: paid operation approval", plugin_id),
-                            format!("Owner {} in workspace {}. Quote: {} {}. Basis: {}. Tariff: {}. Request binding: {}. Request: {}. Set daily allowance authorizes {} {} per UTC day for this plugin and owner scope; outstanding and uncertain entries retain their reservation. Host does not verify vendor pricing.", scope.owner, scope.workspace, quote.amount, quote.unit, quote.basis, quote.tariff_revision, quote.binding, request, spend.daily_allowance, quote.unit),
-                            vec!["Approve once".into(), "Set daily allowance".into(), "Decline".into()],
-                        )?;
-                    }
-                    spend
+                    ledger.prepare_job_spend(&receipt, request, quote.clone(), now)?
                 }
                 Request::Enter { request, .. } => ledger.enter_job_spend(&receipt, request, now)?,
                 _ => unreachable!(),
             };
+            if spend.state == JobSpendState::WaitingForOwner {
+                service.publish_daemon_question(
+                    format!("plugin-job:{}:{}", plugin_id, operation),
+                    format!("{}: paid operation approval", plugin_id),
+                    format!("Owner {} in workspace {}. Quote: {} {}. Basis: {}. Tariff: {}. Request binding: {}. Request: {}. Set daily allowance approves this call and sets {} {} per UTC day for this plugin and owner scope. Uncertain entries count in their entry day. Quote expires at {} ms UTC; after expiry re-admit needed. Host does not verify vendor pricing.", scope.owner, scope.workspace, spend.quote.amount, spend.quote.unit, spend.quote.basis, spend.quote.tariff_revision, spend.quote.binding, spend.request, spend.daily_allowance, spend.quote.unit, spend.quote.valid_until_ms),
+                    vec!["Approve once".into(), "Set daily allowance".into(), "Decline".into()],
+                )?;
+            }
             return serde_json::to_value(spend)
                 .map_err(|_| "job spend serialization failed".into());
         }
@@ -278,7 +277,7 @@ impl PluginJobAdmission for JobAdmission {
         }
         handle.notify();
         Ok(
-            json!({"operation":operation,"job":receipt.job,"scope":receipt.scope,"origin":receipt.origin,"spend":ledger.job_spend(plugin_id, operation)?,"monitor":ledger.job_monitor(operation)?.map(|monitor| monitor.public_view()).transpose()?}),
+            json!({"operation":operation,"job":receipt.job,"scope":receipt.scope,"origin":receipt.origin,"spend":ledger.job_spend(plugin_id, operation)?.map(|spend| spend.at(now)),"monitor":ledger.job_monitor(operation)?.map(|monitor| monitor.public_view()).transpose()?}),
         )
     }
 }
