@@ -116,3 +116,51 @@ async fn narrow_host_ports_are_also_local_owner_only_before_body_or_callback() {
     )
     .is_err());
 }
+
+#[tokio::test]
+async fn private_view_disposal_uses_a_fixed_owner_only_bounded_body_route() {
+    use axum::{body::Body, http::Request, Extension, Router};
+    use tower::ServiceExt;
+    let path = "/api/plugins/view-frame/revoke";
+    let router: Router = Router::new().route(
+        path,
+        crate::plugin_host_action_routes::owner_post(crate::plugin_media_routes::revoke_view)
+            .layer(axum::extract::DefaultBodyLimit::max(1024)),
+    );
+    let body = serde_json::json!({"pluginId":"studio", "viewFrame":"a".repeat(64)}).to_string();
+    let response = router
+        .clone()
+        .oneshot(
+            Request::post(path)
+                .header("content-type", "application/json")
+                .body(Body::from(body.clone()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let owner = router.layer(Extension(crate::auth::CallerIdentity::Local));
+    for (body, expected) in [
+        (body, StatusCode::NO_CONTENT),
+        (
+            serde_json::json!({"pluginId":"studio","viewFrame":"a".repeat(64),"owner":"forged"})
+                .to_string(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        ("x".repeat(1025), StatusCode::PAYLOAD_TOO_LARGE),
+    ] {
+        let response = owner
+            .clone()
+            .oneshot(
+                Request::post(path)
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    assert!(!path.contains(&"a".repeat(64)));
+    assert!(!include_str!("../../routes.rs").contains("/api/plugins/{id}/view-frame/{frame}"));
+}

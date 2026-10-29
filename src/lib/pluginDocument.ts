@@ -1,3 +1,4 @@
+import { PluginViewChannel } from "./pluginViewChannel";
 import { PLUGIN_UI_MONITOR } from "./pluginUiMonitor";
 import { parse } from "es-module-lexer/js";
 import type { TransportClient } from "./transportClient";
@@ -14,6 +15,7 @@ export interface PluginMediaHandle {
 
 export interface PluginDocument {
   html: string;
+  channel: PluginViewChannel;
   frameToken: string | null;
   dispose(): void;
   invoke(method: string, args: unknown): Promise<unknown>;
@@ -135,15 +137,19 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
   if (!policy) throw new Error("Plugin document security policy missing");
   const viewLease = response.headers.get("X-Domios-Plugin-View-Frame");
   if (!viewLease || !/^[a-f0-9]{64}$/.test(viewLease)) throw new Error("Plugin view registration missing");
+  const documentId = response.headers.get("X-Domios-Plugin-View-Document");
+  if (!documentId || !/^[a-f0-9]{32}$/.test(documentId)) throw new Error("Plugin document identity missing");
   const frame = response.headers.get("X-Domios-Plugin-Media-Frame");
   const plugin = new URL(path, client.origin()).pathname.match(/^\/api\/plugins\/([a-z0-9_-]{1,128})\/ui\//)?.[1];
   if (frame !== null && (!/^[a-f0-9]{64}$/.test(frame) || !plugin)) throw new Error("Invalid plugin media frame");
   const base = frame && plugin ? `/api/plugins/${plugin}` : null;
+  const channel = new PluginViewChannel(documentId);
   let disposed = false;
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    if (plugin) void client.request!(`/api/plugins/${plugin}/view-frame/${viewLease}`, { method: "DELETE", keepalive: true }, true).catch(() => undefined);
+    channel.dispose();
+    if (plugin) void client.request!("/api/plugins/view-frame/revoke", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pluginId: plugin, viewFrame: viewLease }), keepalive: true }, true).catch(() => undefined);
   };
   try {
     const mediaPolicy = base
@@ -155,7 +161,7 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
       return { bytes: new Uint8Array(await asset.arrayBuffer()), mime: asset.headers.get("Content-Type")?.split(";")[0].trim() ?? "" };
     });
     signal.throwIfAborted();
-    return { html, frameToken: frame, dispose, async invoke(method, args) {
+    return { html, channel, frameToken: frame, dispose, async invoke(method, args) {
       if (disposed || signal.aborted || !plugin) throw new Error("Plugin view unavailable");
       const result = await client.localJson<unknown>("POST", "/api/plugins/view-call", {pluginId:plugin,viewFrame:viewLease,method,args}, {signal});
       if (disposed || signal.aborted) throw new Error("Plugin view unavailable");

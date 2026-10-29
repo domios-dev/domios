@@ -31,7 +31,7 @@ function fixture(assetStatus = 200) {
   const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
     const pathname = new URL(String(input)).pathname;
     if (pathname.endsWith("index.html")) return new Response('<html><head><style nonce="fixture">body{background:url(./icon.svg)}</style></head><body><img src="./icon.svg"><script nonce="fixture" src="./app.js"></script></body></html>', {
-      headers: { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Frame": "d".repeat(64) },
+      headers: { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64) },
     });
     if (pathname.endsWith("app.js")) return new Response("window.test=1", { status: assetStatus, headers: { "Content-Type": "text/javascript" } });
     return new Response("<svg></svg>", { headers: { "Content-Type": "image/svg+xml" } });
@@ -118,7 +118,7 @@ describe("authenticated plugin document", () => {
       const filename = new URL(String(input)).pathname.split("/").pop()!;
       return new Response(filename === "index.html" ? raw : readFileSync(resolve(directory, filename), "utf8"), {
         headers: filename === "index.html"
-          ? { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Frame": "d".repeat(64) }
+          ? { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64) }
           : { "Content-Type": "text/javascript" },
       });
     });
@@ -184,9 +184,9 @@ describe("scoped plugin media documents", () => {
   const scopedPolicy = policy + "; media-src 'none'";
   function mediaFixture(mediaUrl = `/api/plugins/example/media/${frame}/${handle}`, html = "<html><head></head><body><video></video></body></html>") {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
-      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (String(_input).endsWith("/view-frame/revoke")) return new Response(null, { status: 204 });
       if (init?.method === "POST") return Response.json({ handle, url: mediaUrl, content_type: "video/mp4", file_name: "clip.mp4", expires_in_seconds: 600 });
-      return new Response(html, { headers: { "Content-Security-Policy": scopedPolicy, "X-Domios-Plugin-View-Frame": "d".repeat(64), "X-Domios-Plugin-Media-Frame": frame } });
+      return new Response(html, { headers: { "Content-Security-Policy": scopedPolicy, "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64), "X-Domios-Plugin-Media-Frame": frame } });
     });
     return { fetch, client: createTransportClient({ origin, token: "owner-secret", fetch }) };
   }
@@ -208,7 +208,7 @@ describe("scoped plugin media documents", () => {
     expect(new Headers(init!.headers).get("authorization")).toBe("Bearer owner-secret");
     document.dispose();
     document.dispose();
-    expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+    expect(fixture.fetch.mock.calls.filter(([url]) => String(url).endsWith("/view-frame/revoke"))).toHaveLength(1);
     await expect(document.media("job-output")).rejects.toThrow("unavailable");
   });
   it.each(["https://foreign.example/clip.mp4", `/api/plugins/other/media/${frame}/${handle}`, `/api/plugins/example/media/${"c".repeat(64)}/${handle}`])("rejects a returned URL outside this exact frame: %s", async (url) => {
@@ -220,10 +220,10 @@ describe("scoped plugin media documents", () => {
   it("revokes the minted frame when materialization fails", async () => {
     const fixture = mediaFixture(undefined, '<script>untrusted()</script>');
     await expect(loadPluginDocument(fixture.client, path, new AbortController().signal)).rejects.toThrow("nonce");
-    expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+    expect(fixture.fetch.mock.calls.filter(([url]) => String(url).endsWith("/view-frame/revoke"))).toHaveLength(1);
   });
   it("does not offer registration when the document has no media capability", async () => {
-    const fixture = createTransportClient({ origin, token: "secret", fetch: vi.fn(async () => new Response("<html></html>", { headers: { "Content-Security-Policy": policy, "X-Domios-Plugin-View-Frame": "d".repeat(64) } })) });
+    const fixture = createTransportClient({ origin, token: "secret", fetch: vi.fn(async () => new Response("<html></html>", { headers: { "Content-Security-Policy": policy, "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64) } })) });
     const document = await loadPluginDocument(fixture, path, new AbortController().signal);
     expect(document.frameToken).toBeNull();
     await expect(document.media("output")).rejects.toThrow("unavailable");
@@ -235,9 +235,9 @@ describe("host-private plugin view invocation", () => {
   it("binds backend calls to the originating loader lease without exposing it in HTML", async () => {
     const lease = "d".repeat(64);
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input,init) => {
+      if (String(_input).endsWith("/view-frame/revoke")) return new Response(null,{status:204});
       if (init?.method === "POST") return Response.json({accepted:true});
-      if (init?.method === "DELETE") return new Response(null,{status:204});
-      return new Response("<html><head></head><body></body></html>",{headers:{"Content-Security-Policy":policy,"X-Domios-Plugin-View-Frame":lease}});
+      return new Response("<html><head></head><body></body></html>",{headers:{"Content-Security-Policy":policy,"X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame":lease}});
     });
     const client = createTransportClient({origin,token:"owner-secret",fetch});
     const document = await loadPluginDocument(client,path,new AbortController().signal);
@@ -248,6 +248,10 @@ describe("host-private plugin view invocation", () => {
     expect(new URL(String(url)).pathname).toBe("/api/plugins/view-call");
     expect(JSON.parse(String(init!.body))).toEqual({pluginId:"example",viewFrame:lease,method:"read",args:forged});
     document.dispose();
+    const disposal = fetch.mock.calls.find(([url]) => String(url).endsWith("/view-frame/revoke"))!;
+    expect(String(disposal[0])).not.toContain(lease);
+    expect(JSON.parse(String(disposal[1]!.body))).toEqual({pluginId:"example",viewFrame:lease});
+    expect(fetch.mock.calls.every(([url]) => !String(url).includes(lease))).toBe(true);
     const calls=fetch.mock.calls.length;
     await expect(document.invoke("submit",{})).rejects.toThrow("unavailable");
     expect(fetch.mock.calls).toHaveLength(calls);

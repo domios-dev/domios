@@ -138,6 +138,7 @@ impl MediaStore {
 
 /// Called only by the authenticated host document loader.
 pub struct FrameRegistration {
+    pub document: String,
     pub media_frame: String,
     pub view_lease: String,
 }
@@ -173,7 +174,8 @@ pub fn create_frame(
     }
     let frame = token();
     let view_lease = token();
-    context.frame = Some(uuid::Uuid::new_v4().simple().to_string());
+    let document = uuid::Uuid::new_v4().simple().to_string();
+    context.frame = Some(document.clone());
     store.frames.insert(
         frame.clone(),
         Frame {
@@ -187,6 +189,7 @@ pub fn create_frame(
         },
     );
     Ok(FrameRegistration {
+        document,
         media_frame: frame,
         view_lease,
     })

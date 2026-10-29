@@ -63,3 +63,20 @@ The existing recording hint callback is selectRecordingDevices, exposed only by
 its fixed host suggestion port, not a caller-selected export. UI supplies expected
 remote provider/session claims; the host compares them to current backing before
 any callback, so an old UI cannot submit into a replacement session.
+
+The private lease is never part of a URL, iframe HTML or public context. Disposal
+posts a bounded strict JSON body to a fixed Local-only route, so URI diagnostics
+cannot record it. The response also carries a distinct public document UUID.
+Before exposing srcdoc, the loader registers that UUID with a host channel broker.
+The trusted first bootstrap transfers one MessagePort; its paired endpoint stays
+in a closure, with a captured native postMessage function. Plugin requests, host
+gestures, media lookup, replies, support and invalidations all use this port.
+Window messages accept only that initial port transfer, never a call or reply.
+Every iframe load suspends dispatch and results until the original port proves
+a fresh challenge. Navigation before the first load cannot inherit the endpoint,
+even with the same WindowProxy; a second hello refuses and requires explicit reopen.
+Initial reads may run after the first proof without waiting for load, avoiding
+module-await deadlock. Proof queues are bounded (32 packets, 256 KiB); gesture
+intent and generation are captured at receipt before any queue or await. No timer
+or automatic document replay is used. A closed frame cannot revoke a durable job
+receipt already committed by the plugin; only stale presentation is suppressed.

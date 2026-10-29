@@ -1,12 +1,6 @@
+import type { FrameIntent } from "../../lib/pluginViewChannel";
 import { invokeViewWithConsent } from "../../lib/pluginConsent";
-/**
- * Host for a plugin's iframe UI (the `view` capability). Renders the plugin's
- * `ui/index.html` in a sandboxed iframe (origin-null, CSP-locked) and relays the
- * `ct.invoke` postMessage bridge to the permission-gated `plugin_view_call`.
- *
- * The iframe holds no capability: its only channel is postMessage to us, and we
- * forward each call to the host (which stamps the plugin id + checks permissions).
- */
+/** Hosts a plugin document over its private, document-bound message port. */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen, type UnlistenFn } from "../../lib/bridge";
 import { type DaemonApiConfig } from "../../lib/webApi";
@@ -78,6 +72,7 @@ export function PluginView({
   surface?: PluginViewSurface;
 }) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const channelRef = useRef<ReturnType<typeof usePluginDocument>["channel"]>(undefined);
   const activeRef = useRef(active);
   activeRef.current = active;
   const [runtime, setRuntime] = useState<{ path: string; state: PluginUiHostState } | null>(null);
@@ -134,7 +129,7 @@ export function PluginView({
     let unlisten: UnlistenFn | undefined;
     listen<unknown>("surface-state-invalidated", (event) => {
       if (alive && surfaceInvalidationMatches(event.payload, pluginId, surface)) {
-        iframeRef.current?.contentWindow?.postMessage({ __ctSurfaceStateChanged: true }, "*");
+        channelRef.current?.send({ __ctSurfaceStateChanged: true });
       }
     }).then((release) => {
       if (alive) unlisten = release;
@@ -145,7 +140,8 @@ export function PluginView({
 
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
   const documentPath = `${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`;
-  const { html, invoke: invokeView, media, dispose: disposeDocument, frameToken, error: documentError } = usePluginDocument(documentPath);
+  const { channel, html, invoke: invokeView, media, dispose: disposeDocument, frameToken, error: documentError } = usePluginDocument(documentPath);
+  channelRef.current = channel;
   useEffect(() => invalidateHostActions, [documentPath, frameToken, invalidateHostActions]);
   const callDocument = useMemo(() => ({ live: true, epoch: 0 }), [documentPath, invokeView]);
   const currentCallDocument = useRef(callDocument);
@@ -158,20 +154,12 @@ export function PluginView({
   const state = pluginUiDocumentState(html, documentError, runtime?.path === documentPath ? runtime.state : { status: "loading" });
 
   const onMessage = useCallback(
-    async (e: MessageEvent) => {
+    async (m: Record<string, unknown>, intent: FrameIntent) => {
       const win = iframeRef.current?.contentWindow;
-      if (!win || e.source !== win) return; // only our iframe
-      const m = e.data || {};
+      if (!win || !channel) return;
       const event = pluginUiRuntimeEvent(m.__ctUiState);
       if (event) {
         setRuntime((current) => ({ path: documentPath, state: pluginUiHostTransition(current?.path === documentPath ? current.state : { status: "loading" }, event) }));
-        return;
-      }
-      if (m.__ctReady) {
-        win.postMessage({ __ctTheme: themeCss() }, "*");
-        win.postMessage({ __ctActive: activeRef.current }, "*");
-        win.postMessage({ __ctHostSupport: viewHostSupport(viewHostDeps()) }, "*");
-        if (surface) win.postMessage({ __ctSurfaceStateChanged: true }, "*");
         return;
       }
       if (m.__ctClose) {
@@ -179,14 +167,8 @@ export function PluginView({
         return;
       }
       if (m.__ctHost != null) {
-        // Observed by the app before any await, never taken from the frame.
-        const intent = {
-          shown: activeRef.current,
-          frameFocused: iframeRef.current !== null && document.activeElement === iframeRef.current,
-          activated: globalThis.navigator?.userActivation?.isActive === true,
-        };
         // The request belongs to this document generation; hide, reload, navigation and disposal end it for good.
-        const generation = generationRef.current;
+        const generation = intent.generation;
         const isCurrent = () => generationRef.current === generation && iframeRef.current?.contentWindow === win && activeRef.current;
         const deps = viewHostDeps();
         const writeText = deps.writeText;
@@ -198,16 +180,16 @@ export function PluginView({
           },
         };
         const result = await performViewHostAction(pluginId, frameToken ?? null, m, intent, announced || deps, isCurrent, hostGate.current);
-        if (isCurrent()) win.postMessage({ __ctReply: m.__ctHost, result }, "*");
+        if (isCurrent()) channel.send({ __ctReply: m.__ctHost, result });
         return;
       }
       if (m.__ctMedia != null) {
         try {
           if (!media || !Number.isSafeInteger(m.__ctMedia) || typeof m.id !== "string") throw new Error("Plugin media unavailable");
           const result = await media(m.id);
-          if (iframeRef.current?.contentWindow === win) win.postMessage({ __ctReply: m.__ctMedia, result }, "*");
+          if (iframeRef.current?.contentWindow === win) channel.send({ __ctReply: m.__ctMedia, result });
         } catch {
-          if (iframeRef.current?.contentWindow === win) win.postMessage({ __ctReply: m.__ctMedia, error: "Plugin media unavailable" }, "*");
+          if (iframeRef.current?.contentWindow === win) channel.send({ __ctReply: m.__ctMedia, error: "Plugin media unavailable" });
         }
         return;
       }
@@ -221,33 +203,52 @@ export function PluginView({
             cwd && m.args && typeof m.args === "object" && (m.args as { cwd?: unknown }).cwd == null
               ? { ...m.args, cwd }
               : m.args;
-          if (!isCurrent() || !invokeView || typeof m.method !== "string") return;
-          const result = await invokeViewWithConsent(pluginId, () => invokeView(m.method, args), isCurrent);
+          const method = m.method;
+          if (!isCurrent() || !invokeView || typeof method !== "string") return;
+          const result = await invokeViewWithConsent(pluginId, () => invokeView(method, args), isCurrent);
           if (!isCurrent()) return;
           // In-panel actions invalidate their bubble immediately.
           const usedCwd = (args as { cwd?: unknown } | undefined)?.cwd;
           if (typeof usedCwd === "string") invalidatePluginBubble(pluginId, usedCwd);
-          win.postMessage({ __ctReply: m.__ctInvoke, result }, "*");
+          channel.send({ __ctReply: m.__ctInvoke, result });
         } catch (err) {
           if (!isCurrent()) return;
-          win.postMessage({ __ctReply: m.__ctInvoke, error: String(err) }, "*");
+          channel.send({ __ctReply: m.__ctInvoke, error: String(err) });
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath, surface, media, frameToken, invokeView, callDocument, announceCopy],
+    [pluginId, cwd, onClose, documentPath, surface, media, frameToken, invokeView, callDocument, announceCopy, channel],
   );
 
-  useEffect(() => {
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [onMessage]);
+  const captureIntent = useCallback((): FrameIntent => ({
+    shown: activeRef.current,
+    frameFocused: iframeRef.current !== null && document.activeElement === iframeRef.current,
+    activated: globalThis.navigator?.userActivation?.isActive === true,
+    generation: generationRef.current,
+  }), []);
+  const bindFrame = useCallback((frame: HTMLIFrameElement | null) => {
+    iframeRef.current = frame;
+    if (frame?.contentWindow) channel?.bind(frame.contentWindow, captureIntent);
+  }, [channel, captureIntent]);
+  useEffect(() => channel?.subscribe(onMessage, () => {
+    channel.send({ __ctTheme: themeCss() });
+    channel.send({ __ctActive: activeRef.current });
+    channel.send({ __ctHostSupport: viewHostSupport(viewHostDeps()) });
+    if (surface) channel.send({ __ctSurfaceStateChanged: true });
+  }, () => {
+    callDocument.live = false;
+    callDocument.epoch += 1;
+    invalidateHostActions();
+    disposeDocument?.();
+    setRuntime({ path: documentPath, state: { status: "error", reason: "Plugin document changed. Reopen the view to continue." } });
+  }), [channel, onMessage, surface, callDocument, invalidateHostActions, disposeDocument, documentPath]);
 
   useEffect(() => {
     if (!kpiNotices) return;
     let alive = true;
     let unlisten: UnlistenFn | undefined;
     listen(KPI_RECORDED_EVENT, () => {
-      if (activeRef.current) iframeRef.current?.contentWindow?.postMessage({ [KPI_CHANGE_NOTICE]: true }, "*");
+      if (activeRef.current) channelRef.current?.send({ [KPI_CHANGE_NOTICE]: true });
     })
       .then((fn) => {
         if (alive) unlisten = fn;
@@ -261,9 +262,9 @@ export function PluginView({
   }, [kpiNotices]);
 
   useEffect(() => {
-    iframeRef.current?.contentWindow?.postMessage({ __ctActive: active }, "*");
+    channel?.send({ __ctActive: active });
     if (active && focusOnActive && !embedded && state.status === "ready") iframeRef.current?.focus();
-  }, [active, focusOnActive, embedded, state.status]);
+  }, [active, focusOnActive, embedded, state.status, channel]);
 
   // Universal escape (host-side focus); in-iframe Esc/close routes via __ctClose.
   useEffect(() => {
@@ -275,24 +276,17 @@ export function PluginView({
     return () => window.removeEventListener("keydown", onKey);
   }, [active, embedded, onClose]);
 
-  const loadedDocument = useRef<string | null>(null);
   const frame = (
     <PluginUiHost pluginId={pluginId} state={state} onRetry={() => setReloadNonce((n) => n + 1)}>
       {html !== undefined && html.trim() && <iframe
         key={documentPath}
-        ref={iframeRef}
+        ref={bindFrame}
         data-testid="extensions-plugin-iframe"
         data-plugin-id={pluginId}
         srcDoc={html}
         onLoad={() => {
           invalidateHostActions();
-          if (loadedDocument.current === documentPath) {
-            callDocument.live = false;
-            callDocument.epoch += 1;
-            disposeDocument?.();
-            setReloadNonce((nonce) => nonce + 1);
-          }
-          loadedDocument.current = documentPath;
+          channel?.observeLoad();
         }}
         title={`${pluginId} view`}
         sandbox="allow-scripts"

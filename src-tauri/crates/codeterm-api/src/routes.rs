@@ -74,6 +74,7 @@ pub fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) ->
             axum::http::header::CONTENT_SECURITY_POLICY,
             axum::http::HeaderName::from_static("x-domios-plugin-media-frame"),
             axum::http::HeaderName::from_static("x-domios-plugin-view-frame"),
+            axum::http::HeaderName::from_static("x-domios-plugin-view-document"),
             axum::http::header::ETAG,
         ])
 }
@@ -864,8 +865,9 @@ pub(super) fn create_router_with_preview_admission(
                 .layer(axum::extract::DefaultBodyLimit::max(4096)),
         )
         .route(
-            "/api/plugins/{id}/view-frame/{frame}",
-            axum::routing::delete(crate::plugin_media_routes::revoke_view),
+            "/api/plugins/view-frame/revoke",
+            crate::plugin_host_action_routes::owner_post(crate::plugin_media_routes::revoke_view)
+                .layer(axum::extract::DefaultBodyLimit::max(1024)),
         )
         .route(
             "/api/plugins/{id}/media-frame/{frame}",

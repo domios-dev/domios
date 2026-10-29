@@ -54,7 +54,7 @@ The page reads `ct.surface` for presentation only. `ct.invoke(method,args)` call
 are null for unowned panels, which cannot register owned jobs. Resolve callback
 results against this context's owner/scope, never `args.owner`, query words or echoed context.
 The host verifies the live tuple, owner, provider and document lease before/after callbacks.
-Close, reload, provider replacement and owner changes refuse stale calls; no private lease reaches the iframe.
+Close, reload, provider replacement and owner changes refuse stale calls; the private port survives only its original document; no private lease reaches iframe HTML or URLs.
 This grants no run/budget authority. A stopped document cannot erase a previously committed job receipt.
 Host UI remote-task controls use a separate Local-only live-tab/provider/session port (`remote_task` origin); recording suggestions use a declared/granted selection-only port (`recording_setup`).
 Those host contexts have `frame:null`; generic view calls always require their private document lease.
@@ -236,4 +236,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

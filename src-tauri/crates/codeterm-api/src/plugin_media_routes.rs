@@ -77,12 +77,22 @@ pub async fn revoke(
     Ok(StatusCode::NO_CONTENT)
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct RevokeView {
+    plugin_id: String,
+    view_frame: String,
+}
+
 pub async fn revoke_view(
     caller: Option<Extension<CallerIdentity>>,
-    Path((plugin, lease)): Path<(String, String)>,
+    Json(request): Json<RevokeView>,
 ) -> Result<StatusCode, Error> {
     owner(caller.as_ref())?;
-    media::revoke_view_frame(&plugin, &lease);
+    if !media::valid_plugin_id(&request.plugin_id) || !media::valid_token(&request.view_frame) {
+        return Err((StatusCode::BAD_REQUEST, "invalid view disposal"));
+    }
+    media::revoke_view_frame(&request.plugin_id, &request.view_frame);
     Ok(StatusCode::NO_CONTENT)
 }
 

@@ -1,3 +1,5 @@
+import { PluginViewChannel } from "../../lib/pluginViewChannel";
+import { TestViewPort } from "../../lib/pluginViewChannel.testSupport";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
@@ -12,7 +14,8 @@ import type { PluginSnapshot } from "./types";
 import { invoke } from "../../lib/bridge";
 
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn(), listen: vi.fn(async () => () => {}) }));
-vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ html: "<html></html>", error: null,
+let consentChannel: PluginViewChannel | undefined;
+vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ channel: consentChannel, html: "<html></html>", error: null,
   invoke: (method: string, args: unknown) => invoke("plugin_view_call", {pluginId:"fixture",method,args}),
 }) }));
 vi.mock("../../lib/daemonBootstrap", () => ({ baseDaemonTransport: () => ({
@@ -35,6 +38,8 @@ afterEach(async () => {
   await act(async () => { while (getPluginConsent()) decidePluginConsent(false); root?.unmount(); });
   host?.remove();
   root = undefined;
+  consentChannel?.dispose();
+  consentChannel = undefined;
   __resetPluginSnapshotStoreForTest();
   vi.resetAllMocks();
 });
@@ -130,17 +135,18 @@ it("iframe consent preserves the host-stamped plugin, call ID and reply channel"
     if (++attempts === 1) throw new Error("local_recording_grant_required");
     return { enabled: true };
   });
+  consentChannel = new PluginViewChannel("c".repeat(32));
   await mount(<><PluginConsentDialog /><PluginView pluginId="fixture" api={undefined} embedded /></>);
   const iframe = host.querySelector("iframe")!;
-  const reply = vi.fn();
-  const ownWindow = { postMessage: reply };
-  Object.defineProperty(iframe, "contentWindow", { configurable: true, value: ownWindow });
-  await act(async () => window.dispatchEvent(new MessageEvent("message", {
-    source: ownWindow as unknown as Window, data: { __ctInvoke: 7, pluginId: "foreign", method: "enable", args: { enabled: true } },
-  })));
+  const port = new TestViewPort();
+  const reply = vi.spyOn(port, "postMessage");
+  consentChannel!.accept(iframe.contentWindow, port.port);
+  await act(async () => port.prove());
+  reply.mockClear();
+  await act(async () => port.receive({ __ctInvoke: 7, pluginId: "foreign", method: "enable", args: { enabled: true } }));
   expect(reply).not.toHaveBeenCalled();
   await act(async () => button("Allow").click());
-  expect(reply).toHaveBeenCalledExactlyOnceWith({ __ctReply: 7, result: { enabled: true } }, "*");
+  expect(reply).toHaveBeenCalledExactlyOnceWith({ __ctReply: 7, result: { enabled: true } });
   const calls = vi.mocked(invoke).mock.calls.filter(([command]) => command === "plugin_view_call");
   expect(calls.map(([, args]) => args?.pluginId)).toEqual(["fixture", "fixture"]);
 });

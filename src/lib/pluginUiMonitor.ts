@@ -1,7 +1,8 @@
 export const PLUGIN_UI_MONITOR = `
 (function(){
-var failed=false,last='';
-function send(status,reason){var key=status+':'+(reason||'');if(key===last)return;last=key;parent.postMessage({__ctUiState:{status:status,reason:reason}},'*');}
+var failed=false,last='',pending;
+window.addEventListener('ct-bridge-ready',function(){if(pending&&window.ct&&ct.__reportUiState){ct.__reportUiState(pending);pending=undefined;}});
+function send(status,reason){var key=status+':'+(reason||'');if(key===last)return;last=key;var state={status:status,reason:reason};if(window.ct&&ct.__reportUiState)ct.__reportUiState(state);else pending=state;}
 function fail(reason){failed=true;send('error',reason);}
 window.addEventListener('error',function(e){fail(e.message||'Plugin UI script failed to load.');});
 window.addEventListener('unhandledrejection',function(e){fail(String(e.reason||'Plugin UI request failed.'));});
