@@ -17,6 +17,8 @@ pub mod legacy;
 pub mod local;
 pub mod mock;
 pub mod redact;
+mod readiness;
+mod registry;
 pub mod secret_file;
 
 pub use capability::{
@@ -24,6 +26,7 @@ pub use capability::{
     AUTO_UNLOCK_CREDENTIAL_KEY,
 };
 pub use factory::{factory as get_factory, list as list_factories, SecretBackendFactory};
+pub use registry::SecretRegistry;
 pub use legacy::{purge_legacy_master_password_file, LegacyPurge};
 
 use std::fmt;
@@ -355,11 +358,6 @@ pub trait SecretStore: Send + Sync {
 /// the active store atomically when the user changes backend in Settings. It is
 /// an `Arc<dyn SecretStore>` so calls can retain the selected store during a swap.
 pub type SecretStoreState = std::sync::Arc<RwLock<std::sync::Arc<dyn SecretStore>>>;
-
-/// Runtime registry of plugin-contributed secret backends, keyed by id. A
-/// plugin (e.g. Bitwarden) registers a ready instance here on activate;
-/// `build_active_store` prefers it over the built-in factory.
-pub type SecretRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn SecretStore>;
 
 /// Build the active backend from a full config snapshot. Registered plugins
 /// resolve through the registry on each call; built-ins use the factory.

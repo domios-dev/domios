@@ -94,6 +94,7 @@ pub(crate) fn close_requested(window: &Window) -> bool {
         .lock()
         .close();
     if close {
+        super::frontend_shell::cancel_recovery(window.app_handle());
         super::frontend_shell::window_destroying(window.app_handle());
         log::debug!("[desktop] main frontend closing; daemon retained");
     }

@@ -49,7 +49,11 @@ pub(super) fn disconnected(slot: &NativeHostClientSlot, client: &Arc<NativeHostC
         return;
     };
     if api.clear_if_current(&client.ready) {
-        crate::startup::frontend_shell::server_disconnected(client.app.clone());
+        crate::startup::frontend_shell::server_disconnected(
+            client.app.clone(),
+            client.ready.clone(),
+            client.server_process.clone(),
+        );
     }
 }
 
