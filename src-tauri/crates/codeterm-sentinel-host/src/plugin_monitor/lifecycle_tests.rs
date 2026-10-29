@@ -231,7 +231,13 @@ fn plugin_monitor_stop_during_reconcile_cancels_exact_job_once_after_restart_wit
     *fixture.adapter.gate.lock() = Some((entered, resume));
     fixture.clock.set_ms(2000);
     let claim = ledger.claim_job_check(2000).unwrap().unwrap();
-    let service = fixture.service.service.weak_self().upgrade().unwrap();
+    let service = fixture
+        .service
+        .service
+        .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+        .clone()
+        .upgrade()
+        .unwrap();
     let handle = fixture.handle.clone();
     let worker = std::thread::spawn(move || run_check(&service, &handle, claim));
     let parked = observed.recv_timeout(Duration::from_secs(2));

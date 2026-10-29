@@ -23,7 +23,7 @@ impl codeterm_decision::physical::RequestObserver for CheckObserver {
             return Err(codeterm_decision::DecisionError::Deadline);
         }
         self.remaining
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
                 remaining.checked_sub(1)
             })
             .map(|_| ())
@@ -327,7 +327,9 @@ fn check(service: &ServiceContext, handle: &Handle, claim: MonitorClaim) -> Resu
     let _physical = codeterm_decision::physical::RequestScope::enter(Arc::new(CheckObserver {
         deadline,
         remaining: AtomicUsize::new(8),
-        service: service.weak_self(),
+        service: service
+            .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+            .clone(),
         scope: registration.scope.clone(),
     }));
     let state = if matches!(registration.origin, PluginJobOrigin::Blueprint { .. }) {

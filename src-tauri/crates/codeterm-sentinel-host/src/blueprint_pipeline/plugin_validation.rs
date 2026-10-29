@@ -46,7 +46,10 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
                         .is_none_or(|backend| !backend.agent_task_media().contains(&modality))
                 }) {
                     errors.push(ValidationError::new(
-                        format!("steps[{index}].agent"),
+                        ValidationPath::Step {
+                            index,
+                            field: StepField::Parameters("agent".into()),
+                        },
                         "agent backend does not accept the bound media modality",
                     ));
                 }
@@ -61,9 +64,15 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
         else {
             continue;
         };
-        let field = format!("steps[{index}].plugin");
+        let field = ValidationPath::Step {
+            index,
+            field: StepField::Common("plugin".into()),
+        };
         let Some(registered) = registry.step(node_type) else {
-            errors.push(ValidationError::new(field, "plugin_step_unavailable"));
+            errors.push(ValidationError::new(
+                field.clone(),
+                "plugin_step_unavailable",
+            ));
             continue;
         };
         let descriptor = &registered.descriptor;
@@ -74,16 +83,19 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
             .any(|port| port.kind == PortKind::File)
         {
             errors.push(ValidationError::new(
-                &field,
+                field.clone(),
                 "plugin file media delivery is unavailable",
             ));
         }
         if descriptor.revision != config.revision {
-            errors.push(ValidationError::new(&field, "plugin_step_revision_changed"));
+            errors.push(ValidationError::new(
+                field.clone(),
+                "plugin_step_revision_changed",
+            ));
         }
         if descriptor.params.validate_instance(params).is_err() {
             errors.push(ValidationError::new(
-                &field,
+                field.clone(),
                 "plugin_step_parameters_violate_schema",
             ));
         }
@@ -92,7 +104,7 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
             .any(|outcome| !descriptor.outcomes.contains(outcome))
         {
             errors.push(ValidationError::new(
-                &field,
+                field.clone(),
                 "plugin_step_outcome_not_declared",
             ));
         }
@@ -101,7 +113,7 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
             .is_some_and(|ceiling| ceiling != config.spending.run_ceiling)
         {
             errors.push(ValidationError::new(
-                &field,
+                field.clone(),
                 "run ceilings for the same unit must agree",
             ));
         }
@@ -112,7 +124,10 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
         if let Some(bindings) = bindings.filter(|bindings| !bindings.is_empty()) {
             for (port, binding) in bindings {
                 let Some(wanted) = descriptor.inputs.get(port) else {
-                    errors.push(ValidationError::new(&field, "undeclared plugin input port"));
+                    errors.push(ValidationError::new(
+                        field.clone(),
+                        "undeclared plugin input port",
+                    ));
                     continue;
                 };
                 let checked = (|| {
@@ -153,7 +168,7 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
                 })();
                 if checked.is_none() {
                     errors.push(ValidationError::new(
-                        &field,
+                        field.clone(),
                         "plugin port binding is unavailable or incompatible",
                     ));
                 }
@@ -164,7 +179,7 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
                 .any(|(name, port)| port.min_items > 0 && !bindings.contains_key(name))
             {
                 errors.push(ValidationError::new(
-                    &field,
+                    field.clone(),
                     "required plugin input port is unbound",
                 ));
             }
@@ -176,7 +191,7 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
                     .is_some_and(|execution| execution.input_binding.is_some()))
         {
             errors.push(ValidationError::new(
-                &field,
+                field.clone(),
                 "multiple plugin inputs require named bindings",
             ));
         }
