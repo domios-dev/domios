@@ -82,6 +82,32 @@ test('divergent dev, server-default and core-default test features refuse anothe
   assert.throws(() => assertServerFeatureConfiguration(manifest(['opaque', 'custom-protocol']), manifest(['opaque'])), /diverged/);
 });
 
+test('server dependency features stay on the server while shared core features remain aligned', () => {
+  const server = '[features]\ndefault=["opaque", "driver"]\nopaque=["codeterm-service-core/opaque"]\ndriver=["dep:opaque-driver"]\n';
+  const core = '[features]\ndefault=["opaque"]\n';
+  assert.deepEqual(devBuildConfiguration(server).features, ['opaque', 'driver']);
+  assert.deepEqual(assertServerFeatureConfiguration(server, core), ['opaque']);
+  assert.throws(() => assertServerFeatureConfiguration(server, core.replace('["opaque"]', '["opaque", "driver"]')), /diverged/);
+  assert.throws(() => assertServerFeatureConfiguration(server.replace('dep:opaque-driver', 'codeterm-service-core/driver'), core), /diverged/);
+
+  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
+  const configure = source.match(/^configure_product_cargo\(\) \{[\s\S]*?^\}/m)[0];
+  const result = spawnSync(bash, ['-c', `set -eu
+${configure}
+CT_DEV_CARGO_FEATURES=opaque
+CT_SERVER_CARGO_FEATURES=opaque,driver
+configure_product_cargo --workspace
+printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+configure_product_cargo -p codeterm
+printf '%s\\n' "\${CT_PRODUCT_CARGO_ARGS[*]}"
+`], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
+    '--no-default-features --features domios-server/opaque --features domios-server/driver --features codeterm-service-core/opaque --features codeterm-mem/opaque',
+    '--no-default-features',
+  ]);
+});
+
 test('dev launch and the regular library check share profile and flags, and the client carries no server features', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
   const fn = source.match(/^configure_dev_cargo\(\) \{[\s\S]*?^\}/m)[0];

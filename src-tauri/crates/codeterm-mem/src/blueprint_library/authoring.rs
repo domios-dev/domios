@@ -143,16 +143,12 @@ impl MemManager {
         team: &str,
         identity: &EmbedderIdentity,
     ) -> Result<Vec<Candidate>, String> {
-        let conn = self.conn.lock();
-        let mut candidates = Vec::new();
-        for entry in super::load_entries_scoped(&conn, &self.blobs_dir, area, true, Some(team))? {
-            candidates.push(Candidate {
-                row: index::read_row(&conn, &entry.id)?,
-                vectors: index::read_vectors(&conn, &entry.id, identity)?,
-                entry,
-            });
-        }
-        Ok(candidates)
+        self.store.blueprint_candidates(
+            &Self::blueprint_write_context(),
+            area,
+            Some(team),
+            Some(identity),
+        )
     }
 
     fn catalog_candidates(

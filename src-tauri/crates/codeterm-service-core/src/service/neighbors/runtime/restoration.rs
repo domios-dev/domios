@@ -75,7 +75,7 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
             let keys = if status.receiving_here() {
                 (InstallationKeys {
-                    store: &OsKeyStore,
+                    store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
                     registry: registry.as_ref(),
                     scope: scope.clone(),
                     uid: &transport.uid,

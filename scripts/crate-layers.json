@@ -27,6 +27,7 @@
     "codeterm-host-runtime",
     "codeterm-pty",
     "codeterm-storage",
-    "codeterm-mem"
+    "codeterm-mem",
+    "codeterm-mem-postgres"
   ]
 }
