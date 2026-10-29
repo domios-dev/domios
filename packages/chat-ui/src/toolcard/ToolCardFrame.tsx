@@ -10,6 +10,7 @@ import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 import { rawToolPayload } from "./toolParsing";
 
 interface ToolCardFrameProps {
+  minHeight?: number;
   testId?: string;
   event: ToolEvent;
   expanded: boolean;
@@ -63,7 +64,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
@@ -82,7 +83,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       data-testid={testId}
       data-tool-status={event.status}
       className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
-      style={{ "--ct-card-tone": error ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
+      style={{ minHeight, "--ct-card-tone": error ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
       <div className="flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs">
         <button

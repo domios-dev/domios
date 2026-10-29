@@ -1,4 +1,5 @@
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
+import type { ReactNode } from "react";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { ToolCardFrame } from "./ToolCardFrame";
 import { toolKindVisual } from "./toolKindVisual";
@@ -8,9 +9,9 @@ function resultTail(result: string | undefined): string | undefined {
   return lines[lines.length - 1];
 }
 
-export function CommandCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
+export function CommandCard({ event, expanded, onToggle, children }: { event: ToolEvent; expanded: boolean; onToggle: () => void; children?: ReactNode }) {
   const tail = resultTail(event.result);
-  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={event.title || toolKindVisual[event.kind].label} summary={event.description || toolCommandLabel(event)} disclosureLabel="full command" tail={tail && <span data-testid="toolcard-result-tail" className="max-w-[34%] truncate font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>→ {tail}</span>}>
-    {event.status === "pending" ? <div data-testid="toolcard-spinner" style={{ color: "var(--ct-muted-fg)" }}>Running…</div> : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>}
+  return <ToolCardFrame event={event} minHeight={36} expanded={expanded} onToggle={onToggle} title={event.title || toolKindVisual[event.kind].label} summary={event.description || toolCommandLabel(event)} disclosureLabel="full command" tail={tail && <span data-testid="toolcard-result-tail" className="max-w-[34%] truncate font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>→ {tail}</span>}>
+    {children ?? (event.status === "pending" ? <div data-testid="toolcard-spinner" style={{ color: "var(--ct-muted-fg)" }}>Running…</div> : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>)}
   </ToolCardFrame>;
 }
