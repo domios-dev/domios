@@ -152,10 +152,20 @@ pub struct LaunchOptions {
     pub probe_sink: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe_identity_alias: Option<ServerIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub development_owner: Option<ProcessProvenance>,
 }
 
 impl LaunchOptions {
     pub fn validate(&self, development_artifact: bool) -> std::io::Result<()> {
+        if self.development_owner.is_some()
+            && (!development_artifact
+                || !matches!(&self.instance, InstanceSelector::Development { .. }))
+        {
+            return Err(std::io::Error::other(
+                "Launch ownership requires a development artifact",
+            ));
+        }
         if self.probe_identity_alias.is_some()
             && (!matches!(&self.instance, InstanceSelector::Development { instance: Some(instance), .. } if instance.starts_with("split-oracle-"))
                 || self.probe_sink.is_none())

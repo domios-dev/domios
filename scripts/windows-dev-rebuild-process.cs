@@ -32,6 +32,22 @@ public sealed class DevRebuildProcess : IDevRebuildProcess, IDisposable
     static extern SafeFileHandle CreateFile(string path, uint access, uint share, IntPtr security, uint disposition, uint flags, IntPtr template);
     [DllImport("kernel32.dll", SetLastError = true)]
     static extern bool GetFileInformationByHandle(SafeFileHandle file, out FileInformation information);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    static extern uint GetFinalPathNameByHandle(SafeFileHandle file, StringBuilder path, uint length, uint flags);
+
+    public static string PhysicalImage(string path)
+    {
+        using (var file = CreateFile(path, 0, 7, IntPtr.Zero, 3, 0, IntPtr.Zero))
+        {
+            if (file.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(), "Open DEV image");
+            var result = new StringBuilder(32768);
+            uint count = GetFinalPathNameByHandle(file, result, (uint)result.Capacity, 0);
+            if (count == 0 || count >= result.Capacity)
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Resolve DEV image");
+            string physical = result.ToString();
+            return physical.StartsWith(@"\\?\") ? physical.Substring(4) : physical;
+        }
+    }
 
     public static string FileIdentity(string path)
     {

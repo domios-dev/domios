@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
+import { retainLaunchOwner } from "./dev-launch-owner.mjs";
 import { waitForReady } from "./server-readiness.mjs";
 import {
   accessSync,
@@ -62,6 +63,9 @@ const inputPathspecs = [
   "scripts/dev-reload-inputs.cjs",
   "scripts/dev-server.mjs",
   "scripts/dev-rebuild-stop.mjs",
+  "scripts/dev-instance-processes.mjs",
+  "scripts/unix-dev-instance-processes.py",
+  "scripts/dev-launch-owner.mjs",
   "scripts/windows-dev-rebuild-stop.ps1",
   "scripts/windows-dev-rebuild-process.cs",
   "scripts/dev-server-bootstrap.ps1",
@@ -507,6 +511,7 @@ async function supervisePrebuilt(options) {
   let startupFailed = false;
   let readinessPhase=0;
   const locator = options.has("--record") ? nativeLocatorSink(options) : () => {};
+  const launchLease = await retainLaunchOwner();
   try {
     const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
       locator(chunk);
@@ -539,17 +544,20 @@ async function supervisePrebuilt(options) {
   } catch (error) {
     if (process.connected) process.send({ type: "failed", error: error.message });
     process.exitCode = 1;
-  } finally { disconnectSupervisor(); }
+  } finally { disconnectSupervisor(); launchLease?.end(); }
 
 }
 
 async function runPrebuilt(options) {
-  const locator=nativeLocatorSink(options);
-  const { code, signal } = await runDevApp({
-    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
-    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
-  });
-  process.exitCode = code ?? (signal ? 1 : 0);
+  const launchLease = await retainLaunchOwner();
+  try {
+    const locator=nativeLocatorSink(options);
+    const { code, signal } = await runDevApp({
+      app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
+      cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
+    });
+    process.exitCode = code ?? (signal ? 1 : 0);
+  } finally { launchLease?.end(); }
 }
 
 async function launchPrebuilt(options) {

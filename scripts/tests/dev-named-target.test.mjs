@@ -56,7 +56,7 @@ for (const [platform, refused] of [['linux', false], ['darwin', false], ['msys',
   test(`daemon shutdown precedes watcher cleanup; platform=${platform}, refused=${refused}`, () => {
     const result = spawnSync(bash, ['-c', `set -euo pipefail
 ${helpers}
-OSTYPE="$1" CT_PORT=17999 CT_VITE_PORT=1529 CT_SUFFIX=-test CT_INSTANCE=test
+OSTYPE="$1" CT_PORT=17999 CT_VITE_PORT=1529 CT_SUFFIX=-test CT_INSTANCE=test CT_INSTANCE_KEY=test
 CT_DATA_DIR=/absent-kill-order-fixture DEV_FRONT_EXTERNAL=1
 dev_provenance_record() { echo record; }
 dev_app_path() { echo app; }
@@ -64,7 +64,7 @@ lsof() { echo 12345; }
 screen() { :; }
 request_dev_clean_restart() { echo shutdown-request; }
 wait_for_dev_exit() { echo pinned-exit; }
-node() { echo verified-shutdown; [ "$2" = record ]; [ "$REFUSED" = false ]; }
+node() { echo verified-shutdown; [ "$1" = scripts/dev-instance-processes.mjs ]; [ "$REFUSED" = false ]; }
 kill_web_watch() { echo watcher-stop; }
 kill_dev_static_server() { :; }
 windows_dev_leftover_cleanup() { :; }
@@ -72,18 +72,13 @@ REFUSED="$2"
 kill_dev
 `, '--', platform, String(refused)], { encoding: 'utf8' });
     const events = result.stdout.trim().split('\n');
-    if (platform === 'msys') {
-      assert.equal(result.status, refused ? 1 : 0, result.stderr);
-      assert.deepEqual(events, refused ? ['verified-shutdown'] : ['verified-shutdown', 'watcher-stop']);
-    } else {
-      assert.equal(result.status, 0, result.stderr);
-      assert.deepEqual(events, ['shutdown-request', 'pinned-exit', 'watcher-stop']);
-    }
+    assert.equal(result.status, refused ? 1 : 0, result.stderr);
+    assert.deepEqual(events, refused ? ['verified-shutdown'] : ['verified-shutdown', 'watcher-stop']);
   });
 }
 
 for (const instance of ['', 'first-proof', 'second-proof']) {
-  test(`shutdown selects the launched artifact before checking its identity; instance=${instance || 'default'}`, () => {
+  test(`shutdown selects the exact instance tree; instance=${instance || 'default'}`, () => {
     const result = spawnSync(bash, ['-c', `set -euo pipefail
 ${helpers}
 OSTYPE=msys
@@ -91,7 +86,7 @@ CT_INSTANCE="$1" CT_INSTANCE_KEY="$1" CT_PORT=17999 CT_SUFFIX=
 CT_DATA_DIR="$PWD/data"
 CARGO_BUILD_TARGET=
 if [ -n "$CT_INSTANCE" ]; then CARGO_TARGET_DIR=foreign-target; else unset CARGO_TARGET_DIR; fi
-node() { [ "$1" = scripts/dev-rebuild-stop.mjs ]; printf 'app=%s\\n' "$6"; }
+node() { [ "$1" = scripts/dev-instance-processes.mjs ]; printf 'tree=%s\\n' "$2"; }
 kill_web_watch() { :; }
 kill_dev_static_server() { :; }
 windows_dev_leftover_cleanup() { :; }
@@ -100,12 +95,12 @@ ${kill}
 esac
 `, '--', instance], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
-    const app = result.stdout.split('\n').find(line => line.startsWith('app=')).slice(4);
+    const app = result.stdout.split('\n').find(line => line.startsWith('tree=')).slice(5);
     if (instance) {
-      assert.ok(app.endsWith(`/src-tauri/target/dev-instances/${instance}/debug/domios-dev-app.exe`), app);
+      assert.ok(app.endsWith(`/src-tauri/target/dev-instances/${instance}`), app);
       assert.ok(!app.includes('foreign-target'), app);
     } else {
-      assert.equal(app, 'src-tauri/target/debug/domios-dev-app.exe');
+      assert.equal(app, 'src-tauri/target/debug');
     }
   });
 }

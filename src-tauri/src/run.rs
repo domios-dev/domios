@@ -500,6 +500,7 @@ fn load_client_components(
         resources: resources.clone(),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     options.validate(cfg!(debug_assertions))?;
     Ok((manifest, resources, options))
@@ -555,6 +556,7 @@ fn select_client_instance(
         resources: PathBuf::new(),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     }
     .validate(true)?;
     Ok(instance)

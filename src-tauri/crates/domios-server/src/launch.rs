@@ -96,6 +96,7 @@ pub fn human_start_options(
         resources,
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     options.validate(development_artifact)?;
     Ok(HumanStart {
@@ -157,6 +158,7 @@ fn isolated_verification_options(
         resources: common_resources(executable)?,
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     options.validate(development_artifact)?;
     Ok(HumanStart {
