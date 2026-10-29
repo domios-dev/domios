@@ -58,7 +58,10 @@ async fn enrollment_refusals_reach_last_refusal_without_recovering_the_key() {
         );
         let view = serde_json::to_value(harness.state().view()).unwrap();
         assert_eq!(view["enrollment"], "refused");
-        assert_eq!(view["last_refusal"], serde_json::to_value(expected).unwrap());
+        assert_eq!(
+            view["last_refusal"],
+            serde_json::to_value(expected).unwrap()
+        );
         assert_eq!(harness.calls("enroll_key"), 1);
         assert_eq!(harness.calls("recover_key"), 0);
     }

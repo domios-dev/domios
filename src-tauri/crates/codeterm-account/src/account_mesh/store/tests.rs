@@ -155,7 +155,9 @@ async fn parked_mesh_record_remains_rollback_readable_and_uses_a_sibling_gate() 
         owner: Some("parked-owner".into()),
         ..Default::default()
     };
-    record.reauth_required_accounts.insert("parked-owner".into());
+    record
+        .reauth_required_accounts
+        .insert("parked-owner".into());
     store.save(&record).await.unwrap();
     let path = directory.path().join("state/account/mesh.json");
     let bytes = fs::read(&path).unwrap();

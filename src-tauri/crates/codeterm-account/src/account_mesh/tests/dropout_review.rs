@@ -60,7 +60,9 @@ async fn account_mesh_stuck_typed_forbidden_backs_off_for_hours_without_repeated
             Err(AccountMeshRefusal::ReauthRequired)
         );
         assert_eq!(
-            harness.mesh.lease_due(&Err(AccountMeshRefusal::ReauthRequired)),
+            harness
+                .mesh
+                .lease_due(&Err(AccountMeshRefusal::ReauthRequired)),
             None
         );
         assert_eq!(count(&harness.log, "registry:"), calls);

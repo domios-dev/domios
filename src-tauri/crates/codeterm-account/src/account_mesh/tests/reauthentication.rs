@@ -166,7 +166,9 @@ async fn account_mesh_generation_mismatch_parks_without_replaying_stale_enrollme
     );
     assert_eq!(harness.state().retry_at, None);
     assert_eq!(
-        harness.mesh.lease_due(&Err(AccountMeshRefusal::ReauthRequired)),
+        harness
+            .mesh
+            .lease_due(&Err(AccountMeshRefusal::ReauthRequired)),
         None
     );
     let calls = harness.log.lock().unwrap().clone();
@@ -200,7 +202,11 @@ async fn account_mesh_generation_mismatch_parks_without_replaying_stale_enrollme
     assert_eq!(harness.calls("challenge"), 0);
     harness.registry.script.lock().unwrap().enrollment = None;
     harness.mesh.enrollment_signed_in();
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
 }
 
@@ -208,7 +214,11 @@ async fn account_mesh_generation_mismatch_parks_without_replaying_stale_enrollme
 async fn account_mesh_unresolved_own_forbidden_parks_after_reconciliation() {
     let harness = Harness::new().await;
     harness.sign_in(UID).await;
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     let keys = harness.store.record.lock().unwrap().keys.clone();
     harness.clock.set(START + 3600);
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Forbidden);
@@ -243,7 +253,11 @@ async fn account_mesh_unresolved_own_forbidden_parks_after_reconciliation() {
     assert_eq!(*harness.log.lock().unwrap(), calls);
     harness.registry.script.lock().unwrap().membership = None;
     harness.mesh.enrollment_signed_in();
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
 }
 
@@ -251,7 +265,11 @@ async fn account_mesh_unresolved_own_forbidden_parks_after_reconciliation() {
 async fn account_mesh_removed_slot_with_stale_recovery_generation_parks() {
     let harness = Harness::new().await;
     harness.sign_in(UID).await;
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     harness.registry.revoke_self(UID);
     harness.clock.set(START + 3600);
     harness.registry.script.lock().unwrap().enrollment = Some(RegistryRefusal::GenerationMismatch);
