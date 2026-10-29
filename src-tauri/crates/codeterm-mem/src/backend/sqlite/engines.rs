@@ -208,13 +208,12 @@ impl EngineStore for SqliteMemStore {
         self.publish_shadow_in(target, active, stamp, claim)
     }
     fn checkpoint(&self) -> Result<(i64, i64, i64), String> {
-        self.conn
-            .lock()
-            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .map_err(|e| format!("wal_checkpoint(TRUNCATE) failed: {e}"))
+        super::checkpoint::checkpoint(
+            || self.conn.try_lock(),
+            || log::warn!("[mem] checkpoint skipped: memory busy"),
+        )
     }
+
     fn purge_precompact(
         &self,
         ctx: &WriteContext,

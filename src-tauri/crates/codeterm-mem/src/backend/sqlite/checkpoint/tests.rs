@@ -1,5 +1,6 @@
 use super::*;
-use std::sync::mpsc;
+use crate::backend::{sqlite::SqliteMemStore, EngineStore};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 #[test]
@@ -20,12 +21,13 @@ fn busy_acquisition_skips_checkpoint_with_one_warning() {
 
 #[test]
 fn shutdown_checkpoint_returns_while_connection_holder_keeps_lock() {
-    let mem = MemManager::open_in_memory().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let mem = Arc::new(SqliteMemStore::open_in_memory(directory.path()).unwrap());
     let held = mem.conn.lock();
     let worker_mem = mem.clone();
     let (reply, response) = mpsc::sync_channel(1);
     let worker = std::thread::spawn(move || {
-        let _ = reply.send(worker_mem.checkpoint_and_close());
+        let _ = reply.send(worker_mem.checkpoint());
     });
 
     let result = response
@@ -39,7 +41,8 @@ fn shutdown_checkpoint_returns_while_connection_holder_keeps_lock() {
 
 #[test]
 fn available_connection_returns_checkpoint_row_without_warning() {
-    let mem = MemManager::open_in_memory().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let mem = Arc::new(SqliteMemStore::open_in_memory(directory.path()).unwrap());
     let expected = mem
         .conn
         .lock()
@@ -57,4 +60,5 @@ fn available_connection_returns_checkpoint_row_without_warning() {
     )
     .unwrap();
     assert_eq!(actual, expected);
+    assert_eq!(mem.checkpoint().unwrap(), expected);
 }

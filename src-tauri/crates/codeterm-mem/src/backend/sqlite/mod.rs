@@ -4,6 +4,7 @@ use rusqlite::Connection;
 use std::{path::PathBuf, sync::Arc};
 pub(crate) mod blueprint;
 mod construction;
+mod checkpoint;
 pub use construction::ReadOnlyOpenError;
 mod deletion;
 pub mod engines;
