@@ -2,7 +2,7 @@ pub mod adapters;
 mod cache;
 mod envelope;
 mod grant_store;
-pub use grant_store::{FileGrantStore, Floors, GrantStore};
+pub use grant_store::{startup_grant, FileGrantStore, Floors, GrantStore};
 mod model;
 use async_trait::async_trait;
 pub use cache::{Billing, DeadlineTick, RefreshEvent, Snapshot, CHECKING_DEADLINE_SECS};

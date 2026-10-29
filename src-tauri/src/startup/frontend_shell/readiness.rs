@@ -105,7 +105,7 @@ impl StartupEvents {
                         serde_json::from_str(&self.data).map_err(|error| error.to_string())?;
                     match snapshot["state"].as_str() {
                         Some("ready") => true,
-                        Some("starting") => false,
+                        Some("starting") => snapshot["desktop_ready"].as_bool() == Some(true),
                         Some("failed") => return Err("Server initialization failed".into()),
                         _ => return Err("Server startup event has no valid state".into()),
                     }

@@ -3,6 +3,21 @@ use axum::body::{to_bytes, Body};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn complete_service(api: &EarlyApi) {
+    for subsystem in [
+        "desk",
+        "account",
+        "billing",
+        "plans",
+        "plugins",
+        "providers",
+        "crons",
+        "memory",
+        "mesh",
+        "neighbors",
+        "docs_vectors",
+    ] {
+        api.complete_subsystem(subsystem);
+    }
     for phase in [
         "listener",
         "states",
@@ -48,6 +63,71 @@ async fn early_bind_health_answers_while_subsystems_are_starting() {
     for phase in ["integrity", "providers", "plans", "background"] {
         assert_eq!(body["startup"]["phases"][phase], "starting");
     }
+}
+
+#[tokio::test]
+async fn desktop_reads_and_navigation_are_available_before_optional_services() {
+    let api = EarlyApi::new(None);
+    for phase in ["listener", "integrity", "states"] {
+        api.complete(phase);
+    }
+    let navigations = Arc::new(AtomicUsize::new(0));
+    let observed = navigations.clone();
+    api.publish_desktop(
+        Router::new()
+            .route(
+                "/api/mux/state",
+                axum::routing::get(|| async {
+                    Json(serde_json::json!({"generation": 1, "tabs": ["opaque"]}))
+                }),
+            )
+            .route(
+                "/api/workspaces/opaque/focus",
+                axum::routing::post(move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    async { StatusCode::OK }
+                }),
+            ),
+    )
+    .unwrap();
+    let listener = api.router();
+    assert_eq!(
+        listener
+            .clone()
+            .oneshot(request(Method::GET, "/api/mux/state"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        listener
+            .clone()
+            .oneshot(request(Method::POST, "/api/workspaces/opaque/focus"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(navigations.load(Ordering::SeqCst), 1);
+    let snapshot = json(
+        listener
+            .clone()
+            .oneshot(request(Method::GET, "/api/startup"))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(snapshot["desktop_ready"], true);
+    assert_eq!(snapshot["routes_ready"], false);
+    let response = listener
+        .oneshot(request(Method::GET, "/api/plans"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let pending = json(response).await;
+    assert_eq!(pending["error"]["code"], "starting");
+    assert_eq!(pending["error"]["subsystem"], "plans");
 }
 
 #[tokio::test]

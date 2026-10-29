@@ -1,5 +1,6 @@
 import { uid } from "./uid";
 import { withRestRequestSignal } from "./restTimeoutPolicy";
+import { createStartupLoading, startingSubsystem } from "./startupLoading";
 
 export const streamClientId = uid();
 
@@ -159,6 +160,8 @@ export function parseSseFrame(frame: string): SseMessage | null {
 }
 
 export function createTransportClient(options: TransportOptions): TransportClient {
+  let client: TransportClient;
+  const startup = createStartupLoading((...args) => client.subscribe(...args));
   const url = new URL(options.origin);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
     || url.pathname !== "/" || url.search || url.hash) throw new Error("Explicit daemon HTTP origin required");
@@ -188,7 +191,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
       throw error;
     }
   };
-  const tracked = async (path: string, init: RequestInit = {}, local = false) => {
+  const perform = async (path: string, init: RequestInit = {}, local = false) => {
     resolvePath(path);
     let response: Response;
     if (local || !options.relayPeerId) response = await localFetch(path, { ...init, signal: init.signal });
@@ -210,12 +213,23 @@ export function createTransportClient(options: TransportOptions): TransportClien
     return response;
   };
 
+  const tracked = async (path: string, init: RequestInit = {}, local = false) => {
+    const response = await perform(path, init, local);
+    if ((init.method ?? "GET").toUpperCase() !== "GET" || response.status !== 503) return response;
+    const value: unknown = await response.clone().json().catch(() => null);
+    const area = startingSubsystem(response, value);
+    if (!area) return response;
+    await response.body?.cancel();
+    await startup.wait(area, init.signal ?? undefined);
+    return perform(path, init, local);
+  };
+
   const json = async <T>(method: string, path: string, body: unknown, init: RequestInit = {}, local = false) => {
     const response = await tracked(path, { ...init, method, body: body === undefined ? undefined : JSON.stringify(body) }, local);
     const text = await response.text();
     return decodeTransportResponse<T>(response.status, path, text, response.headers.get("content-type"), !local);
   };
-  return {
+  client = {
     request: tracked,
     origin: () => origin,
     currentToken: () => typeof options.token === "function" ? options.token() : options.token,
@@ -302,4 +316,5 @@ export function createTransportClient(options: TransportOptions): TransportClien
       return () => { cleaned = true; controller.abort(); };
     },
   };
+  return client;
 }

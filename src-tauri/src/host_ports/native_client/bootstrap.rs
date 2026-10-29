@@ -35,6 +35,7 @@ use tokio::{
 pub(crate) enum ClientStartupStage {
     StartingWindow,
     RootRender,
+    DeskInteractive,
     ResourceRoot,
     Inventory,
     Install,
