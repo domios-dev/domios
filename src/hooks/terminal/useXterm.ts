@@ -117,6 +117,7 @@ export function useXterm({
       term.unicode.activeVersion = "11";
 
       term.open(containerRef.current);
+      term.textarea?.setAttribute("writingsuggestions", "false");
       if (DEV_BUILD) {
         (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal = term;
       }
