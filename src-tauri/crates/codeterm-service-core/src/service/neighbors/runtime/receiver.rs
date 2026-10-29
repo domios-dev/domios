@@ -123,7 +123,7 @@ impl ServiceContext {
         {
             return Ok(());
         }
-        let mut attempt = 0;
+        let mut attempt: usize = 0;
         let listener = loop {
             let connection = tokio::select! {
                 biased;
@@ -135,20 +135,15 @@ impl ServiceContext {
                 Err(error) => {
                     self.neighbor_cell().receiver.lock().take();
                     self.neighbor_watch_failure("control", error);
-                    if !codeterm_neighbors::supervisor::retryable(error) || attempt == 3 {
-                        let failure = codeterm_neighbors::supervisor::retryable(error).then_some(
-                            Error::ListenProtocol {
-                                kind: "listen_retries_exhausted",
-                            },
-                        );
+                    if !codeterm_neighbors::supervisor::retryable(error) {
                         self.neighbor_watch_state(
                             "control",
                             codeterm_neighbors::supervisor::ListenerState::Stopped,
-                            failure,
+                            None,
                         );
                         return Err(error.to_string());
                     }
-                    attempt += 1;
+                    attempt = attempt.saturating_add(1);
                     tokio::select! {
                         biased;
                         _ = &mut cancelled => return Err(Error::Disabled.to_string()),

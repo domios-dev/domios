@@ -59,6 +59,7 @@ struct Cache {
     checkout_pending: bool,
     checkout_event_pending: bool,
     observed: bool,
+    neighbors_free: bool,
     verified: Option<VerifiedGrant>,
     loaded: bool,
     checking_until: Option<u64>,
@@ -239,6 +240,7 @@ impl Billing {
             cache.checkout_pending = false;
             cache.checkout_event_pending = false;
             cache.observed = false;
+            cache.neighbors_free = false;
             self.rearm.notify_one();
         }
     }
@@ -272,6 +274,16 @@ impl Billing {
             .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
         LimitGate::new(access, enforcing).with_deadline(valid_until, self.clock.clone())
     }
+    pub fn neighbors_locked(&self, uid: &str) -> bool {
+        let cache = self.cache.lock();
+        cache.uid.as_deref() == Some(uid)
+            && cache.observed
+            && cache.neighbors_free
+            && !cache.snapshot.stale
+            && !self.checking(&cache)
+            && self.recompute(&cache).access.is_some_and(|access| access.authority == Authority::Free)
+    }
+
     pub fn entitlement_allows(
         &self,
         session: Option<&codeterm_account::Session>,
@@ -557,6 +569,7 @@ impl Billing {
                 }) => {
                     refreshed = true;
                     cache.observed = true;
+                    cache.neighbors_free = entitlements.plan == Plan::Free && access.authority == Authority::Free;
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,
