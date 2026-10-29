@@ -67,16 +67,15 @@ async fn root_frontend_resolves_and_legacy_web_is_gone_before_service_readiness(
     let mut config = codeterm_service_core::config::schema::AppConfig::default();
     config.api.token = Some("fixture-owner".into());
     let events = Arc::new(codeterm_events::EventBroadcaster::new());
-    let router = desktop_routes(
-        Desktop {
-            desk: StartupDesk::new(Arc::new(TimedRwLock::new("mux", mux)), events.clone()),
-            config: Arc::new(Mutex::new(config)),
-            events,
-            storage_error: None,
-            account: None,
-        },
-        Some(dist.path().to_path_buf()),
-    );
+    let desktop = Desktop {
+        desk: StartupDesk::new(Arc::new(TimedRwLock::new("mux", mux)), events.clone()),
+        config: Arc::new(Mutex::new(config)),
+        events,
+        storage_error: None,
+        account: None,
+    };
+    let router = desktop_routes(desktop.clone(), Some(dist.path().to_path_buf()));
+    let without_dist = desktop_routes(desktop, None);
     for (path, expected) in [
         ("/", "<script src='./assets/app.js'></script>"),
         ("/assets/app.js", "window.fixture=true;"),
@@ -93,14 +92,24 @@ async fn root_frontend_resolves_and_legacy_web_is_gone_before_service_readiness(
         );
     }
 
-    for path in ["/web", "/web/", "/web/assets/app.js"] {
-        let response = router
-            .clone()
-            .oneshot(axum::http::Request::builder().uri(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
+    for router in [router.clone(), without_dist] {
+        for method in ["GET", "HEAD"] {
+            for path in ["/web", "/web/", "/web/assets/app.js"] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        axum::http::Request::builder()
+                            .method(method)
+                            .uri(path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::NOT_FOUND);
+                assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
+            }
+        }
     }
     let response = router
         .oneshot(

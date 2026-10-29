@@ -157,7 +157,9 @@ async fn root_frontend_resolves_and_legacy_web_is_gone_in_full_router() {
     let fixture = ServiceFixture::new(mux);
     let mut state = fixture::app_state(&fixture);
     state.web_dist = Some(dist.path().to_path_buf());
-    let router = crate::routes::create_router(state);
+    let router = crate::routes::create_router(state.clone());
+    state.web_dist = None;
+    let without_dist = crate::routes::create_router(state);
     for (path, expected) in [
         ("/", "<script src='./assets/app.js'></script>"),
         ("/assets/app.js", "window.fixture=true;"),
@@ -173,13 +175,23 @@ async fn root_frontend_resolves_and_legacy_web_is_gone_in_full_router() {
             expected.as_bytes()
         );
     }
-    for path in ["/web", "/web/", "/web/assets/app.js"] {
-        let response = router
-            .clone()
-            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
+    for router in [router, without_dist] {
+        for method in ["GET", "HEAD"] {
+            for path in ["/web", "/web/", "/web/assets/app.js"] {
+                let response = router
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(path)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::NOT_FOUND);
+                assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
+            }
+        }
     }
 }
