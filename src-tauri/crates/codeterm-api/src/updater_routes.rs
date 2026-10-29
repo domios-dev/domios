@@ -8,7 +8,6 @@ use serde::Deserialize;
 use crate::routes::{check_auth, AppState};
 use codeterm_update::apply::{ApplyOptions, ApplyResult};
 use codeterm_update::single_flight;
-use codeterm_update::InstallMethod;
 use codeterm_update::UpdatePhase;
 
 #[derive(Deserialize)]
@@ -178,36 +177,6 @@ async fn install_update_inner(
     if q.method.as_deref() == Some("auto") {
         validate_initiating_tab(caller_tab_id.as_deref(), q.continue_tab.as_deref())
             .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
-    }
-    let install_method = state.update_state.lock().install_method.clone();
-    if q.method.as_deref() == Some("auto") && install_method == InstallMethod::Deb {
-        if q.after_update.is_some() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "after_update_requires_native_install",
-            ));
-        }
-        let _lease = single_flight::global()
-            .try_acquire()
-            .ok_or((StatusCode::CONFLICT, single_flight::ALREADY_IN_FLIGHT))?;
-        let staged = codeterm_update::debian::stage(q.manifest_url.as_deref())
-            .await
-            .map_err(|error| {
-                log::error!("[updater] Debian staging failed: {error}");
-                state.update_state.lock().set_error(error);
-                (
-                    StatusCode::BAD_GATEWAY,
-                    "Debian package verification or staging failed",
-                )
-            })?;
-        let mut update = state.update_state.lock();
-        update.clear_error();
-        update.set_phase(UpdatePhase::Idle);
-        return Ok(Json(
-            staged
-                .map(|package| package.response())
-                .unwrap_or_else(|| serde_json::json!({"status": "up_to_date"})),
-        ));
     }
     let application_host = if q.method.as_deref() == Some("auto") {
         Some(

@@ -18,9 +18,25 @@ pub(crate) async fn check_and_apply(
 ) -> Result<ApplyResult, String> {
     begin_apply(&update_state);
     if opts.install_method == InstallMethod::Deb {
-        return Err(
-            "Debian updates require verified package staging and manual installation".into(),
-        );
+        #[cfg(target_os = "linux")]
+        {
+            use tauri::Manager;
+            let Some(package) =
+                codeterm_update::debian::stage(opts.manifest_url.as_deref()).await?
+            else {
+                return Ok(ApplyResult::NoUpdate);
+            };
+            let target = server_stop.debian_quit_target()?;
+            let resources = app.path().resource_dir().map_err(|e| e.to_string())?;
+            server_stop
+                .prepare_detached_update(&package.version)
+                .await?;
+            codeterm_update::debian::handoff::launch(package, target, resources).await?;
+            update_state.lock().set_phase(UpdatePhase::Applying);
+            return Ok(ApplyResult::Restarting);
+        }
+        #[cfg(not(target_os = "linux"))]
+        return Err("Debian installation requires Linux".into());
     }
 
     check_and_apply_plugin(app, opts, update_state, server_stop).await

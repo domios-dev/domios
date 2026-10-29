@@ -2,8 +2,6 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::path::Path;
 
-use sha2::{Digest, Sha256};
-
 pub use codeterm_paths::instance_identity::ResolvedInstancePaths;
 
 pub struct PathOwnership {
@@ -17,12 +15,9 @@ impl PathOwnership {
         registry: &Path,
     ) -> io::Result<PathOwnership> {
         create_registry(registry)?;
-        let mut keys = vec![lock_key(identity.data())?, lock_key(identity.config())?];
-        keys.sort_unstable();
-        keys.dedup();
         let mut locks = Vec::new();
-        for key in keys {
-            let lock = open_lock(&registry.join(format!("{key}.lock")))?;
+        for path in identity.ownership_lock_paths(registry)? {
+            let lock = open_lock(&path)?;
             match lock.try_lock() {
                 Ok(()) => locks.push(lock),
                 Err(std::fs::TryLockError::WouldBlock) => {
@@ -43,18 +38,6 @@ impl PathOwnership {
     pub fn identity(&self) -> &ResolvedInstancePaths {
         &self.identity
     }
-}
-
-fn lock_key(path: &Path) -> io::Result<String> {
-    let path = path
-        .to_str()
-        .ok_or_else(|| io::Error::other("Instance path is not Unicode"))?;
-    #[cfg(windows)]
-    let path = crate::paths::strip_verbatim_prefix(path).to_lowercase();
-    let mut hash = Sha256::new();
-    hash.update(b"domios-path-owner-v1\0");
-    hash.update(path.as_bytes());
-    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn create_registry(root: &Path) -> io::Result<()> {
