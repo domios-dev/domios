@@ -170,7 +170,7 @@ fn registration_rejects_paths_nonfiles_active_mime_and_oversized_files() {
     assert!(serde_json::from_str::<MediaType>("\"text/html\"").is_err());
 }
 #[test]
-fn passive_images_and_safe_display_names_are_supported_without_playback() {
+fn malformed_image_headers_keep_gesture_handles_without_preview() {
     let (dir, mut store, provider, frame, now, _registry) = fixture();
     std::fs::write(dir.path().join("image.png"), b"\x89PNG\r\n\x1a\nrest").unwrap();
     let registered = register_at_root(
@@ -513,4 +513,27 @@ fn opening_a_registered_length_ignores_growth_and_refuses_truncation(){
     std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_len(original+1024).unwrap();
     let opened=open_owned_at_root(directory.path(),&source,&descriptor,Some(original)).unwrap();assert_eq!(opened.size,original);drop(opened);
     std::fs::OpenOptions::new().write(true).open(&path).unwrap().set_len(original-1).unwrap();assert!(open_owned_at_root(directory.path(),&source,&descriptor,Some(original)).is_err());
+}
+
+#[test]
+fn bounded_image_preview_is_exact_frame_scoped_and_revoked_after_remint(){
+    let (dir,store,provider,frame,now,registry)=fixture();STORE.lock().frames.extend(store.frames);
+    let bytes=base64::Engine::decode(&base64::engine::general_purpose::STANDARD,"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jXoQAAAAASUVORK5CYII=").unwrap();std::fs::write(dir.path().join("preview.png"),&bytes).unwrap();
+    let image=||MediaFile{path:"preview.png".into(),content_type:MediaType::Png,file_name:Some("Preview.png".into())};
+    let registered=register_at_root(&mut STORE.lock(),provider.id(),&frame,dir.path(),image(),now).unwrap();assert_eq!(registered.url,Some(format!("/api/plugins/{}/media/{frame}/{}",provider.id(),registered.handle)));
+    assert!(playback("foreign",&frame,&registered.handle).is_err());assert!(playback(provider.id(),&token(),&registered.handle).is_err());
+    let reader=playback(provider.id(),&frame,&registered.handle).unwrap();assert_eq!(reader.content_type,"image/png");assert_eq!(reader.read(0,bytes.len()).unwrap(),bytes);
+    STORE.lock().frames.get_mut(&frame).unwrap().handles.get_mut(&registered.handle).unwrap().expires=Instant::now();assert!(reader.read(0,8).is_err());assert!(playback(provider.id(),&frame,&registered.handle).is_err());
+    revoke_frame(provider.id(),&frame);let fresh=reregister_frame(&provider,&registry,ViewCallContext::panel(provider.id()),&frame).unwrap();assert!(reader.read(0,8).is_err());assert!(playback(provider.id(),&frame,&registered.handle).is_err());
+    let new=register_at_root(&mut STORE.lock(),provider.id(),&frame,dir.path(),image(),Instant::now()).unwrap();assert!(new.url.is_some());assert!(playback(provider.id(),&frame,&new.handle).is_ok());context_is_live(&fresh.context).unwrap();revoke_frame(provider.id(),&frame);
+}
+#[cfg(unix)]
+#[test]
+fn image_preview_rechecks_mutated_dimensions_before_admission(){
+    use std::os::unix::fs::FileExt;
+    let (dir,store,provider,frame,now,_registry)=fixture();STORE.lock().frames.extend(store.frames);
+    let mut bytes=vec![137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82];bytes.extend_from_slice(&32u32.to_be_bytes());bytes.extend_from_slice(&32u32.to_be_bytes());bytes.extend_from_slice(&[8,6,0,0,0,0,0,0,0]);std::fs::write(dir.path().join("preview.png"),&bytes).unwrap();
+    let registered=register_at_root(&mut STORE.lock(),provider.id(),&frame,dir.path(),MediaFile{path:"preview.png".into(),content_type:MediaType::Png,file_name:None},now).unwrap();assert!(registered.url.is_some());
+    let admitted=playback(provider.id(),&frame,&registered.handle).unwrap();
+    let writer=std::fs::OpenOptions::new().write(true).open(dir.path().join("preview.png")).unwrap();writer.write_at(&u32::MAX.to_be_bytes(),16).unwrap();assert!(playback(provider.id(),&frame,&registered.handle).is_err());assert_eq!(admitted.read(16,4).unwrap(),32u32.to_be_bytes());revoke_frame(provider.id(),&frame);
 }

@@ -278,3 +278,19 @@ async fn late_old_media_request_cannot_adopt_or_revoke_a_reminted_document(){
     let request=Request::builder().method("POST").uri(format!("/api/plugins/{plugin}/media-register/{}",old.media_frame)).header("content-type","application/json").body(Body::from(serde_json::json!({"id":"output","viewFrame":old.view_lease}).to_string())).unwrap();
     let response=tokio::time::timeout(std::time::Duration::from_secs(2),router.oneshot(request)).await.unwrap().unwrap();assert_eq!(response.status(),StatusCode::NOT_FOUND);assert!(contexts.lock().is_empty());media::view_frame(&plugin,&fresh.view_lease).unwrap();media::revoke_plugin(&plugin);
 }
+
+#[derive(Clone)]
+struct ImageReader(Reader);
+impl MediaReader for ImageReader{
+    fn size(&self)->u64{self.0.size()}
+    fn content_type(&self)->String{"image/png".into()}
+    fn read(&self,offset:u64,length:usize)->std::io::Result<Vec<u8>>{self.0.read(offset,length)}
+}
+#[tokio::test]
+async fn image_delivery_uses_passive_mime_no_store_and_nosniff_with_bounded_reads(){
+    let source=ImageReader(Reader{bytes:std::sync::Arc::new(vec![137,80,78,71,13,10,26,10]),reads:Default::default()});
+    for method in [Method::GET,Method::HEAD]{
+        let response=playback_response(source.clone(),method.clone(),HeaderMap::new()).unwrap();assert_eq!(response.status(),StatusCode::OK);assert_eq!(response.headers()[header::CONTENT_TYPE],"image/png");assert_eq!(response.headers()[header::CACHE_CONTROL],"no-store");assert_eq!(response.headers()[header::X_CONTENT_TYPE_OPTIONS],"nosniff");assert_eq!(response.headers()[header::CONTENT_LENGTH],"8");
+        let bytes=axum::body::to_bytes(response.into_body(),8).await.unwrap();if method==Method::GET{assert_eq!(bytes.as_ref(),source.0.bytes.as_slice());}else{assert!(bytes.is_empty());}
+    }
+}

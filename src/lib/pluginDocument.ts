@@ -188,10 +188,11 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
     void retire().catch(() => undefined);
   };
   try {
-    const mediaPolicy = base
-      ? policy.replace(/(?:^|;\s*)media-src 'none'(?=;|$)/, (directive) => directive.replace("'none'", `${new URL(`${base}/media/${frame}/`, client.origin()).href} blob:`))
+    const mediaPrefix=base?new URL(`${base}/media/${frame}/`,client.origin()).href:null;
+    const mediaPolicy = mediaPrefix
+      ? policy.replace(/(?:^|;\s*)media-src 'none'(?=;|$)/, directive => directive.replace("'none'", `${mediaPrefix} blob:`)).replace(/(?:^|;\s*)img-src blob: data:(?=;|$)/,directive=>`${directive} ${mediaPrefix}`)
       : policy;
-    if (base && mediaPolicy === policy) throw new Error("Plugin media security policy missing");
+    if (base && (!mediaPolicy.includes(`media-src ${mediaPrefix} blob:`)||!mediaPolicy.includes(`img-src blob: data: ${mediaPrefix}`))) throw new Error("Plugin media security policy missing");
     const html = await materializePluginDocument(await response.text(), mediaPolicy, path, client.origin(), async (assetPath) => {
       const asset = await request(assetPath);
       return { bytes: new Uint8Array(await asset.arrayBuffer()), mime: asset.headers.get("Content-Type")?.split(";")[0].trim() ?? "" };

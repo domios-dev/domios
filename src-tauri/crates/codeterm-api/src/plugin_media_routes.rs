@@ -245,7 +245,7 @@ pub async fn playback(
         return Err(denied(MediaRefusal::Unknown));
     }
     current_provider(&state, &plugin, &frame)?;
-    let source = media::playback(&plugin, &frame, &handle).map_err(denied)?;
+    let source=tokio::task::spawn_blocking(move ||media::playback(&plugin,&frame,&handle)).await.map_err(|_|denied(MediaRefusal::Unknown))?.map_err(denied)?;
     playback_response(source, method, headers)
 }
 
