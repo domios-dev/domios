@@ -50,6 +50,7 @@ pub async fn chat_send_text(
     let target = tab_id.clone();
     let client_token = body.client_token.clone();
     let replay_only = body.replay_only;
+    let startup_override_nonce = body.startup_override_nonce.clone();
     let (run_stages, reservation) = tokio::task::spawn_blocking(move || {
         let state = owner;
         let tab_id = target;
@@ -74,6 +75,12 @@ pub async fn chat_send_text(
             false,
             has_agent_identity,
         );
+        if let Some(nonce) = startup_override_nonce.filter(|_| !replay_only) {
+            state
+                .svc
+                .override_user_startup(&tab_id, &nonce)
+                .map_err(|detail| chat_admission_rejection(&tab_id, detail))?;
+        }
         let reservation = if state.svc.tab_chat_backing(&tab_id).is_none() {
             Some(
                 state
@@ -342,6 +349,8 @@ pub struct SendTextBody {
     pub(crate) client_token: Option<String>,
     #[serde(default, alias = "replayOnly")]
     pub(crate) replay_only: bool,
+    #[serde(default)]
+    pub(crate) startup_override_nonce: Option<String>,
 }
 
 #[derive(Deserialize)]

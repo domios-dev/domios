@@ -173,6 +173,12 @@ describe("tab command HTTP contract", () => {
     ]);
   });
 
+  it("preserves explicit startup consent on the human chat route", async () => {
+    const { transport, calls } = fixture();
+    await transport.chat_send_text({ tabId: "tab", text: "opaque", clientToken: "once", startupOverrideNonce: "own-launch" });
+    expect(calls[0]).toMatchObject({ body: { text: "opaque", client_token: "once", startup_override_nonce: "own-launch" } });
+  });
+
   it("preserves byte and item cursor units on history backfill", async () => {
     const { transport, calls } = fixture();
     await transport.chat_backfill({ tabId:"tab", beforeOffset:4096, offsetKind:"bytes" });

@@ -83,6 +83,7 @@ export async function sendTrackedChatMessage(
   tabId: string,
   messageId: string,
   message: string,
+  startupOverrideNonce?: string | null,
 ): Promise<ChatSendStatus> {
   const key = admissionKey(tabId, messageId);
   activeAdmissions.add(key);
@@ -91,6 +92,7 @@ export async function sendTrackedChatMessage(
       tabId,
       text: message,
       clientToken: messageId,
+      ...(startupOverrideNonce ? { startupOverrideNonce } : {}),
     });
     observeDeliveryStatus(status);
     return status;

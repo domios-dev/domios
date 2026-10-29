@@ -527,6 +527,7 @@ mod merged_turns;
 mod owner_jev;
 #[path = "tests/readiness.rs"]
 mod readiness;
+mod startup_override;
 mod recording_contract;
 #[path = "tests/restart_liveness.rs"]
 mod restart_liveness;

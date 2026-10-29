@@ -15,6 +15,8 @@ pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
 pub(crate) use command::prepare_agent_command_for_service;
 mod generation_registry;
+#[path = "launch/credentials.rs"]
+mod credentials;
 use generation_registry::LaunchRegistry;
 #[path = "launch/backend_reader.rs"]
 mod backend_reader;
@@ -642,14 +644,27 @@ pub fn launch_agent_in_background_with_env(
         }
         drop(pty_claim);
         crate::startup::boot_timing::mark(&tab_id, Some(&pty_id), "launch_identity_done");
-        let mut wrapped_launch_cmd = command_with_binding_nonce(
+        let mut wrapped_launch_cmd = match credentials::wrap_command(
+            &svc,
+            &tab_id,
             &launch_cmd,
             launch
                 .binding_nonce
                 .as_deref()
                 .expect("launch binding nonce"),
             &launch.pty_id,
-        );
+            direct,
+        ) {
+            Ok(command) => command,
+            Err(error) => {
+                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                set_booting(&launch, false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(error));
+                }
+                return;
+            }
+        };
 
         let shell_ready_from_exit =
             exited_provider_recovery_has_shell_ready_evidence(origin, reused_live_pty, || {
@@ -778,14 +793,27 @@ pub fn launch_agent_in_background_with_env(
                             launch.attempt().expect("replacement launch binding nonce"),
                         ));
                         drop(replacement_claim);
-                        wrapped_launch_cmd = command_with_binding_nonce(
+                        wrapped_launch_cmd = match credentials::wrap_command(
+                            &svc,
+                            &tab_id,
                             &launch_cmd,
                             launch
                                 .binding_nonce
                                 .as_deref()
                                 .expect("replacement launch binding nonce"),
                             &launch.pty_id,
-                        );
+                            false,
+                        ) {
+                            Ok(command) => command,
+                            Err(error) => {
+                                launch.fail(&svc, LaunchFailure::StartupSupervision(error.clone()));
+                                set_booting(&launch, false);
+                                if let Some(tx) = ready_tx {
+                                    let _ = tx.send(Err(error));
+                                }
+                                return;
+                            }
+                        };
                         if !launch.emit(&svc, BootStage::PtySpawned)
                             || !launch.emit(&svc, BootStage::ReaderReady)
                             || !crate::service::pty_io::await_bare_shell_prompt(
