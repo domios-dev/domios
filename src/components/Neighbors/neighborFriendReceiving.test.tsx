@@ -166,7 +166,8 @@ it("keeps the single-friend receiving action inside concierge setup", async () =
   const runtimeClient = receiving(elsewhere);
   await render("paid", { runtimeClient });
   await act(async () => button("Ada, connected").click());
-  await act(async () => button("Change agent").click());
+  expect(hasButton("Change agent")).toBe(false);
+  await act(async () => button("Set up concierge").click());
   const dialog = document.querySelector('form[role="dialog"]');
   const receive = Array.from(dialog?.querySelectorAll("button") ?? []).find(node => node.textContent === "Confirm receiving");
   expect(receive).toBeDefined();
