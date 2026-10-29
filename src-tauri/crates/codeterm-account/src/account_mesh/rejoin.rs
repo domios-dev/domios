@@ -96,9 +96,7 @@ impl AccountMesh {
             )
             .await?;
         let request = InstallationEnrollment { body, proof };
-        let enrolled = self
-            .call(self.ports.registry.enroll_key(&signed.session, &request))
-            .await?;
+        let enrolled = self.enroll_installation_key(signed, &request).await?;
         if enrolled.key_id != key.key_id() || enrolled.generation != next_generation {
             return Err(AccountMeshRefusal::Invalid);
         }

@@ -147,3 +147,127 @@ async fn account_mesh_post_sign_in_list_and_automatic_refresh_enroll_the_key_onc
         .keys
         .contains_key(&account_id(UID)));
 }
+
+#[tokio::test]
+async fn account_mesh_generation_mismatch_parks_without_replaying_stale_enrollment() {
+    let mut harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    let signed = harness.mesh.signed(None).await.unwrap();
+    harness.registry.script.lock().unwrap().enrollment = Some(RegistryRefusal::GenerationMismatch);
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(harness.calls("enroll_key"), 1);
+    assert_eq!(harness.calls("list"), 0);
+    assert_eq!(
+        harness.state().last_refusal,
+        Some(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(harness.state().retry_at, None);
+    assert_eq!(
+        harness.mesh.lease_due(&Err(AccountMeshRefusal::ReauthRequired)),
+        None
+    );
+    let calls = harness.log.lock().unwrap().clone();
+    for trigger in [
+        EnrollTrigger::Lease,
+        EnrollTrigger::Network,
+        EnrollTrigger::Explicit,
+    ] {
+        harness.clock.set(START + 86400);
+        assert_eq!(
+            harness.mesh.refresh(trigger).await,
+            Err(AccountMeshRefusal::ReauthRequired)
+        );
+        assert_eq!(
+            harness.mesh.list().await,
+            Err(AccountMeshRefusal::ReauthRequired)
+        );
+        assert_eq!(
+            harness.mesh.generation(&signed).await,
+            Err(AccountMeshRefusal::ReauthRequired)
+        );
+    }
+    assert_eq!(*harness.log.lock().unwrap(), calls);
+    harness.restart().await;
+    harness.sign_in(UID).await;
+    harness.log.lock().unwrap().clear();
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(harness.calls("challenge"), 0);
+    harness.registry.script.lock().unwrap().enrollment = None;
+    harness.mesh.enrollment_signed_in();
+    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+}
+
+#[tokio::test]
+async fn account_mesh_unresolved_own_forbidden_parks_after_reconciliation() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    let keys = harness.store.record.lock().unwrap().keys.clone();
+    harness.clock.set(START + 3600);
+    harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Forbidden);
+    harness.log.lock().unwrap().clear();
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Lease).await,
+        Err(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(harness.calls("list"), 1);
+    assert_eq!(harness.calls("renew"), 2);
+    assert!(harness.state().membership.is_none());
+    assert_eq!(harness.state().retry_at, None);
+    assert_eq!(harness.store.record.lock().unwrap().keys, keys);
+    assert!(harness.transport.revoked.lock().unwrap().is_empty());
+    let calls = harness.log.lock().unwrap().clone();
+    for trigger in [
+        EnrollTrigger::Automatic,
+        EnrollTrigger::Lease,
+        EnrollTrigger::Network,
+        EnrollTrigger::Explicit,
+    ] {
+        harness.clock.set(START + 86400);
+        assert_eq!(
+            harness.mesh.refresh(trigger).await,
+            Err(AccountMeshRefusal::ReauthRequired)
+        );
+        assert_eq!(
+            harness.mesh.list().await,
+            Err(AccountMeshRefusal::ReauthRequired)
+        );
+    }
+    assert_eq!(*harness.log.lock().unwrap(), calls);
+    harness.registry.script.lock().unwrap().membership = None;
+    harness.mesh.enrollment_signed_in();
+    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+}
+
+#[tokio::test]
+async fn account_mesh_removed_slot_with_stale_recovery_generation_parks() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness.registry.revoke_self(UID);
+    harness.clock.set(START + 3600);
+    harness.registry.script.lock().unwrap().enrollment = Some(RegistryRefusal::GenerationMismatch);
+    harness.log.lock().unwrap().clear();
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Lease).await,
+        Err(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.state().retry_at, None);
+    let calls = harness.log.lock().unwrap().clone();
+    harness.clock.set(START + 86400);
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Network).await,
+        Err(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(*harness.log.lock().unwrap(), calls);
+    assert!(harness.transport.revoked.lock().unwrap().is_empty());
+}

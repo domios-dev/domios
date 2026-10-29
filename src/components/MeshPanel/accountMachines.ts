@@ -5,6 +5,7 @@ import type { AccountMachineRow, AccountMeshFailure, AccountMeshSnapshot, LocalP
 
 export const SIGNED_OUT_COPY = "Signed out — sign in to use the mesh";
 export const SIGN_IN_COPY = "Mesh connects your machines through your Domios account.";
+export const REMOVED_COPY = "This machine was removed from your mesh. Sign in again to rejoin.";
 export const REAUTH_REQUIRED_COPY = "Sign in again to add this machine to your mesh";
 
 export type AccountPresence = "pending" | "signed_out" | "signed_in";
@@ -123,8 +124,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, linking,
   return {
     kind: "account",
     machineLimit,
-    removed: snapshot.last_refusal?.reason === "revoked" || snapshot.last_refusal?.reason === "forbidden"
-      || !!snapshot.registry?.rows.some((row) => row.installation_id === snapshot.self?.installation_id && !row.active),
+    removed: !!snapshot.registry?.rows.some((row) => row.installation_id === snapshot.self?.installation_id && !row.active),
     reauthRequired: snapshot.last_refusal?.reason === "reauth_required",
     self: selfRow(snapshot),
     machines: registryRows(snapshot, pairs, linking, now, !blocked && !locked && snapshot.last_refusal?.reason !== "enrollment_budget").map((row) => snapshot.last_refusal?.reason === "enrollment_budget"

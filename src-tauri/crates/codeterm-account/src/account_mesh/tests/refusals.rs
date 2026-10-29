@@ -144,7 +144,7 @@ async fn account_mesh_other_refusals_never_raise_the_plans_notice() {
             AccountMeshRefusal::Unauthenticated,
         ),
         (RegistryRefusal::AppCheck, AccountMeshRefusal::AppCheck),
-        (RegistryRefusal::Forbidden, AccountMeshRefusal::Forbidden),
+        (RegistryRefusal::Forbidden, AccountMeshRefusal::ReauthRequired),
         (
             RegistryRefusal::RateLimited {
                 retry_after_seconds: 300,

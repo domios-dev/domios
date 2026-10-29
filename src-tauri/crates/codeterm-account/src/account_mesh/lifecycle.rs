@@ -383,6 +383,7 @@ impl AccountMesh {
                     .get_or_insert_with(|| account.clone())
                     .clone();
                 let store_unreadable = inner.store_unreadable;
+                let reauth_required = inner.record.reauth_required_accounts.contains(&account);
                 inner.update(&self.watch, |state| {
                     state.account_epoch += 1;
                     state.presence = Presence::SignedIn {
@@ -390,13 +391,16 @@ impl AccountMesh {
                     };
                     state.owner = Some(owner);
                     state.membership = None;
-                    state.enrollment = if store_unreadable {
+                    state.enrollment = if store_unreadable || reauth_required {
                         Enrollment::Refused
                     } else {
                         Enrollment::Idle
                     };
-                    state.last_refusal =
-                        store_unreadable.then_some(AccountMeshRefusal::Unavailable);
+                    state.last_refusal = if reauth_required {
+                        Some(AccountMeshRefusal::ReauthRequired)
+                    } else {
+                        store_unreadable.then_some(AccountMeshRefusal::Unavailable)
+                    };
                     state.limit_notice = None;
                     state.self_installation = None;
                     state.registry = None;
@@ -517,6 +521,9 @@ impl AccountMesh {
 
     pub fn enrollment_signed_in(&self) {
         self.with(|inner| {
+            if let Some(account) = inner.state.signed_in_account().map(str::to_owned) {
+                inner.record.reauth_required_accounts.remove(&account);
+            }
             inner.auth_parked = None;
             inner.rotation_attempt = None;
             inner.retry.resume();
