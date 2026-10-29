@@ -160,6 +160,10 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Bridge { .. } => socket_rest(),
         Commands::Mesh { .. } => socket_rest(),
         Commands::Mem {
+            action: MemAction::Backup { .. },
+        } => pre_socket_unsupported("memory backups are local-only; run on the owning machine"),
+        Commands::Mem { action: MemAction::Backend { .. } } => pre_socket_unsupported("memory backend migration is local-only; run on the owning machine"),
+        Commands::Mem {
             action: MemAction::Embedder { action: crate::MemEmbedderAction::Key { .. } },
         } => pre_socket_unsupported("embedder keys are local-only; run on the owning machine"),
         Commands::Mem { action } => Transport {

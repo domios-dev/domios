@@ -73,6 +73,11 @@ pub async fn update_status(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if let Some(port) = codeterm_update::headless::backend().cloned() {
+        if let Ok(Some(status)) = tokio::task::spawn_blocking(move || port.status()).await {
+            return Ok(Json(status));
+        }
+    }
     let mut status = state.update_state.lock().runtime_status();
     match tokio::task::spawn_blocking(|| {
         codeterm_update::native_handoff::read_optional(&codeterm_service_core::paths::data_dir())
@@ -129,6 +134,22 @@ pub async fn install_update(
     query: Query<InstallUpdateQuery>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+
+    if let Some(port) = codeterm_update::headless::backend() {
+        if let Err(error) = check_auth(&state.0, &headers) {
+            return error.into_response();
+        }
+        if query.manifest_url.is_some() || query.after_update.is_some() {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "code": "headless_update_options_refused",
+                "message": "The systemd helper selects its signed feed independently; manifest overrides and desktop continuation are unavailable."
+            }))).into_response();
+        }
+        return match port.install().await {
+            Ok(value) => Json(value).into_response(),
+            Err(error) => (StatusCode::CONFLICT, Json(serde_json::json!(error))).into_response(),
+        };
+    }
 
     match install_update_inner(state, headers, query).await {
         Ok(value) => {

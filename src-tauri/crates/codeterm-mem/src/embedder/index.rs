@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use super::provider::EmbedderIdentity;
 use super::StampedVector;
 
-const STAMP_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mem_embedder (
+pub(crate) const STAMP_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mem_embedder (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
@@ -155,6 +155,7 @@ pub fn nearest(
     query: &StampedVector,
     k: usize,
 ) -> Result<Vec<(String, f64)>, String> {
+    backend::register(conn)?;
     check(conn, &query.identity)?;
     let rows = backend::knn(conn, &encode(&query.vector), k * 3)?;
     let mut best: std::collections::HashMap<String, f64> = std::collections::HashMap::new();

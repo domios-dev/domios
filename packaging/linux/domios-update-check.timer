@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly Domios headless update check
+
+[Timer]
+OnCalendar=Mon *-*-* 08:00:00 UTC
+Persistent=true
+Unit=domios-update-check.service
+
+[Install]
+WantedBy=timers.target

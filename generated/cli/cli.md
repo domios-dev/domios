@@ -54,7 +54,10 @@ Sign in, inspect identity or sign out on this machine
 
 #### `domios account login`
 
-Sign in using the system browser and wait for completion
+Sign in and wait for completion
+
+- `--code-from-pad` — Complete the pending browserless sign-in using a whole callback URL from this tab's pad
+- `--no-browser` — Print the authorization URL and accept the whole redirected callback URL
 
 #### `domios account logout`
 
@@ -1072,6 +1075,33 @@ Move every item to another area, preserving scope and audit history
 - `<from>`
 - `--into`
 
+#### `domios mem backend`
+
+Select and migrate memory storage backends
+
+#### `domios mem backend migrate`
+
+Copy every memory table while the daemon is stopped; preserve the source
+
+- `--into-nonempty` — Authorize importing into a target that already contains data
+- `--to`
+
+#### `domios mem backup`
+
+Create an online SQLite archive or restore a stopped instance
+
+#### `domios mem backup create`
+
+Copy knowledge.db, memory blobs and storage into a timestamped archive
+
+- `--out`
+
+#### `domios mem backup restore`
+
+Replace memory and storage from an archive; requires a stopped daemon
+
+- `--from`
+
 #### `domios mem calibration`
 
 Memory calibration: review or trigger the dreamer's importance/archive sweep
@@ -1446,6 +1476,17 @@ Merge a near-duplicate into a keeper, reversibly: the lesser is archived (never 
 - `--conflict` — The two disagree: keeper supersedes lesser instead of merged_into
 - `--keeper` — Item that survives
 - `--lesser` — Item that is archived and linked to the keeper
+
+#### `domios mem neighbor-save`
+
+Save a fact or note through this friendship's live memory write grant
+
+- `--area`
+- `--from-pad` — Body from your AgentPad; use - for UTF-8 stdin
+- `--kind`
+- `--summary`
+- `--tag` — Repeat for each tag
+- `--title`
 
 #### `domios mem pin`
 

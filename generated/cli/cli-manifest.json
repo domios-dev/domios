@@ -33,9 +33,30 @@
       "subcommands": [
         {
           "name": "login",
-          "about": "Sign in using the system browser and wait for completion",
+          "about": "Sign in and wait for completion",
           "aliases": [],
-          "args": [],
+          "args": [
+            {
+              "name": "code-from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "CODE_FROM_PAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Complete the pending browserless sign-in using a whole callback URL from this tab's pad",
+              "aliases": []
+            },
+            {
+              "name": "no-browser",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_BROWSER",
+              "possible_values": [],
+              "default": null,
+              "help": "Print the authorization URL and accept the whole redirected callback URL",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         },
         {
@@ -4610,6 +4631,89 @@
           ]
         },
         {
+          "name": "backend",
+          "about": "Select and migrate memory storage backends",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "migrate",
+              "about": "Copy every memory table while the daemon is stopped; preserve the source",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "into-nonempty",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "INTO_NONEMPTY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Authorize importing into a target that already contains data",
+                  "aliases": []
+                },
+                {
+                  "name": "to",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TO",
+                  "possible_values": [
+                    "postgres",
+                    "sqlite"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "backup",
+          "about": "Create an online SQLite archive or restore a stopped instance",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "create",
+              "about": "Copy knowledge.db, memory blobs and storage into a timestamped archive",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "out",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "OUT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "restore",
+              "about": "Replace memory and storage from an archive; requires a stopped daemon",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "from",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FROM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "calibration",
           "about": "Memory calibration: review or trigger the dreamer's importance/archive sweep",
           "aliases": [],
@@ -6247,6 +6351,77 @@
               "possible_values": [],
               "default": null,
               "help": "Item that is archived and linked to the keeper",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "neighbor-save",
+          "about": "Save a fact or note through this friendship's live memory write grant",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": false,
+              "required": true,
+              "value_name": "AREA",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "FROM_PAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Body from your AgentPad; use - for UTF-8 stdin",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "required": true,
+              "value_name": "KIND",
+              "possible_values": [
+                "fact",
+                "note"
+              ],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "required": false,
+              "value_name": "SUMMARY",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAGS",
+              "possible_values": [],
+              "default": null,
+              "help": "Repeat for each tag",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "required": true,
+              "value_name": "TITLE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],

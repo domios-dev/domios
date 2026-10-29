@@ -1,0 +1,13 @@
+[Unit]
+Description=Check the signed Domios headless feed
+Requisite=domios-server.service
+After=domios-server.service
+
+[Service]
+Type=oneshot
+User=domios-server
+Group=domios-server
+Environment=HOME=/var/lib/domios-server
+Environment=PATH=/opt/domios/cli:/usr/bin:/bin
+ExecStart=/opt/domios/cli/codeterm --json update check --force
+NoNewPrivileges=yes

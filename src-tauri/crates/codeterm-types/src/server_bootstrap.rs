@@ -8,6 +8,14 @@ use std::{
 pub const BOOTSTRAP_PROTOCOL: u32 = 2;
 pub const API_VERSION: u32 = 3;
 pub const SERVER_COMPONENT_SCHEMA: u32 = 2;
+pub const CLI_RESOURCE_HINT_FILE: &str = "cli-resources.json";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CliResourceHint {
+    pub resources: PathBuf,
+    pub cli_sha256: String,
+}
 pub const BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE: i32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

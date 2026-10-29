@@ -72,7 +72,7 @@ fn seed_basic_graph(conn: &Connection) {
 async fn recluster_prompt_includes_existing_anchors() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn().lock();
+        let c = mem.fixture_conn().lock();
         seed_basic_graph(&c);
     }
     let dir = tempfile::tempdir().unwrap();
@@ -80,7 +80,7 @@ async fn recluster_prompt_includes_existing_anchors() {
         captured: std::sync::Mutex::new(String::new()),
     };
 
-    run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &cap)
+    run_recluster_phase_with_lock(mem.fixture_conn(), "haiku", dir.path(), &cap)
         .await
         .unwrap();
     let prompt = cap.captured.lock().unwrap().clone();
@@ -99,7 +99,7 @@ async fn recluster_prompt_includes_existing_anchors() {
 async fn recluster_validates_anchor_exists() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn().lock();
+        let c = mem.fixture_conn().lock();
         seed_basic_graph(&c);
     }
     let dir = tempfile::tempdir().unwrap();
@@ -115,7 +115,7 @@ async fn recluster_validates_anchor_exists() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+    let report = run_recluster_phase_with_lock(mem.fixture_conn(), "haiku", dir.path(), &stub)
         .await
         .unwrap();
     assert_eq!(
@@ -129,7 +129,7 @@ async fn recluster_validates_anchor_exists() {
 async fn recluster_validates_source_exists() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn().lock();
+        let c = mem.fixture_conn().lock();
         seed_basic_graph(&c);
     }
     let dir = tempfile::tempdir().unwrap();
@@ -145,7 +145,7 @@ async fn recluster_validates_source_exists() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+    let report = run_recluster_phase_with_lock(mem.fixture_conn(), "haiku", dir.path(), &stub)
         .await
         .unwrap();
     assert_eq!(
@@ -159,7 +159,7 @@ async fn recluster_validates_source_exists() {
 async fn recluster_validates_topic_id_slug() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn().lock();
+        let c = mem.fixture_conn().lock();
         seed_basic_graph(&c);
     }
     let dir = tempfile::tempdir().unwrap();
@@ -175,7 +175,7 @@ async fn recluster_validates_topic_id_slug() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+    let report = run_recluster_phase_with_lock(mem.fixture_conn(), "haiku", dir.path(), &stub)
         .await
         .unwrap();
     assert_eq!(report.clusters_proposed, 0, "invalid slug must be skipped");
@@ -186,7 +186,7 @@ async fn recluster_validates_topic_id_slug() {
 async fn recluster_skips_self_referential_sources() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn().lock();
+        let c = mem.fixture_conn().lock();
         seed_basic_graph(&c);
     }
     let dir = tempfile::tempdir().unwrap();
@@ -202,7 +202,7 @@ async fn recluster_skips_self_referential_sources() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+    let report = run_recluster_phase_with_lock(mem.fixture_conn(), "haiku", dir.path(), &stub)
         .await
         .unwrap();
     assert_eq!(
@@ -216,7 +216,7 @@ async fn recluster_skips_self_referential_sources() {
 async fn recluster_writes_plan_file_to_disk() {
     let mem = MemManager::open_in_memory().unwrap();
     {
-        let c = mem.conn().lock();
+        let c = mem.fixture_conn().lock();
         seed_basic_graph(&c);
     }
     let id = mem
@@ -248,7 +248,7 @@ async fn recluster_writes_plan_file_to_disk() {
     .to_string();
     let stub = StubCaller { response: resp };
 
-    let report = run_recluster_phase_with_lock(mem.conn(), "haiku", dir.path(), &stub)
+    let report = run_recluster_phase_with_lock(mem.fixture_conn(), "haiku", dir.path(), &stub)
         .await
         .unwrap();
     assert_eq!(report.clusters_proposed, 1, "valid cluster must land");
