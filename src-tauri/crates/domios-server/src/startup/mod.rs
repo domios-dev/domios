@@ -8,7 +8,7 @@ mod model_catalogue;
 mod plan_restore;
 mod restore_complete;
 mod restored_backends;
-mod servers;
+pub(crate) mod servers;
 mod state_incidents;
 mod states;
 pub(crate) use background::start_background_tasks;

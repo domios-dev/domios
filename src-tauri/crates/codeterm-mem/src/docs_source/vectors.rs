@@ -135,6 +135,9 @@ fn build(
 }
 
 fn log_unavailable(reason: &str) {
+    if ready_vectors().is_none() {
+        super::vector_readiness().send_replace(super::VectorReadiness::Failed);
+    }
     log::warn!(
         "[docs.vectors] unavailable reason={}",
         reason.replace('\n', " ").replace('\r', " ")
@@ -176,6 +179,7 @@ pub(crate) fn publish(prepared: PreparedDocs, active: &Arc<ActiveEmbedder>) {
 
 fn publish_vectors(embedder: Arc<ActiveEmbedder>, vectors: DocVectors) {
     *vector_store().write() = Some((embedder, Arc::new(vectors)));
+    super::vector_readiness().send_replace(super::VectorReadiness::Ready);
 }
 
 fn load_or_build<F>(

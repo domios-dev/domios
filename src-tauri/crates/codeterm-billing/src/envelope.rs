@@ -190,7 +190,7 @@ impl From<ApplicationEnvelope> for Reading {
     }
 }
 impl Access {
-    pub(crate) fn from_effective(access: &codeterm_entitlements::EffectiveAccess) -> Self {
+    pub fn from_effective(access: &codeterm_entitlements::EffectiveAccess) -> Self {
         Self {
             authority: match access.authority {
                 codeterm_entitlements::Authority::Admin => Authority::Admin,

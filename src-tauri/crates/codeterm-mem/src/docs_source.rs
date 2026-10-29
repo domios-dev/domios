@@ -6,6 +6,22 @@ mod vectors;
 pub(crate) use vectors::embed_section;
 pub(crate) mod work;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VectorReadiness {
+    Starting,
+    Ready,
+    Failed,
+}
+
+fn vector_readiness() -> &'static tokio::sync::watch::Sender<VectorReadiness> {
+    static STATE: OnceLock<tokio::sync::watch::Sender<VectorReadiness>> = OnceLock::new();
+    STATE.get_or_init(|| tokio::sync::watch::channel(VectorReadiness::Starting).0)
+}
+
+pub fn subscribe_vector_readiness() -> tokio::sync::watch::Receiver<VectorReadiness> {
+    vector_readiness().subscribe()
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct DocSection {
     doc_name: &'static str,

@@ -3,6 +3,12 @@ use std::cell::Cell;
 use std::future::poll_fn;
 use std::task::Poll;
 
+#[test]
+fn desktop_readiness_does_not_wait_for_background_restore() {
+    let mut events = StartupEvents::default();
+    assert!(events.push(b"event: startup-state\ndata: {\"state\":\"starting\",\"desktop_ready\":true,\"routes_ready\":false}\n\n").unwrap());
+}
+
 struct FixtureBody(tokio::sync::mpsc::Receiver<Vec<u8>>);
 
 impl StartupBody for FixtureBody {

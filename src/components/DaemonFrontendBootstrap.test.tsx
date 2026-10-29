@@ -7,12 +7,12 @@ const fixture = vi.hoisted(() => ({ listener: undefined as ((client: TransportCl
 vi.mock("../lib/daemonBootstrap", () => ({ FRONTEND_BOOT_KEY: "codeterm.frontend.boot", baseDaemonTransport: vi.fn(), onDaemonTransport: (listener: (client: TransportClient) => void) => { fixture.listener = listener; return fixture.stop; } }));
 vi.mock("../lib/frontendUpdate/browser", () => ({ initializeBrowserFrontendUpdates: fixture.initialize }));
 vi.mock("../lib/resizeOwner", () => ({ getResizeClientId: () => "client:stable-client" }));
-vi.mock("../lib/serverReadiness", () => ({ waitForServerReady: fixture.wait }));
+vi.mock("../lib/serverReadiness", () => ({ waitForDesktopReady: fixture.wait }));
 import { DaemonFrontendBootstrap } from "./DaemonFrontendBootstrap";
 
 beforeEach(() => { fixture.initialize.mockReset(); fixture.wait.mockReset().mockResolvedValue(undefined); fixture.stop.mockClear(); fixture.listener = undefined; sessionStorage.clear(); });
 
-it("hydrates before rendering App and reinitializes with replacement base credentials", async () => {
+it("renders the desk while optional update initialization is stalled and replaces credentials", async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   sessionStorage.clear();
   let finish!: (value: { dispose: () => void }) => void;
@@ -25,7 +25,7 @@ it("hydrates before rendering App and reinitializes with replacement base creden
   try {
     await act(async () => root.render(<DaemonFrontendBootstrap><button>App ready</button></DaemonFrontendBootstrap>));
     await act(async () => { fixture.listener!(first); });
-    expect(host.querySelector("button")).toBeNull();
+    expect(host.querySelector("button")).not.toBeNull();
     expect(fixture.initialize).toHaveBeenCalledWith(first, expect.objectContaining({ clientId: "client-stable-client" }));
     await act(async () => finish({ dispose }));
     expect(host.querySelector("button")).not.toBeNull();
@@ -33,7 +33,7 @@ it("hydrates before rendering App and reinitializes with replacement base creden
     sessionStorage.setItem("codeterm.frontend.boot", JSON.stringify(boot));
     await act(async () => { fixture.listener!(second); });
     expect(dispose).toHaveBeenCalledOnce();
-    expect(host.querySelector("button")).toBeNull();
+    expect(host.querySelector("button")).not.toBeNull();
     expect(fixture.initialize).toHaveBeenLastCalledWith(second, expect.objectContaining({ clientId: "reload-client", boot }));
     await act(async () => finish({ dispose: vi.fn() }));
   } finally { await act(async () => root.unmount()); }

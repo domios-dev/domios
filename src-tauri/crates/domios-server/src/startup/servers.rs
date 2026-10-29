@@ -185,6 +185,7 @@ pub(crate) fn start_servers(
     resources: Option<std::path::PathBuf>,
     quit_port: Option<codeterm_api::app_quit_routes::AppQuitPortHandle>,
     startup_api: &super::early_api::EarlyApi,
+    bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
 ) -> Result<Option<Arc<codeterm_frontend_bundle::FrontendBundles>>, String> {
     codeterm_commands::update::bind_status_emitter(service_state.ui.clone());
     super::state_incidents::install_notifier(service_state);
@@ -226,6 +227,7 @@ pub(crate) fn start_servers(
         }
     }
 
+    let phase = super::StartupStep::debug("crons");
     // e2e suite can time-travel; release builds never do.
     let test_clock: Option<Arc<cron::clock::MockClock>> =
         if cfg!(debug_assertions) && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1") {
@@ -351,6 +353,7 @@ pub(crate) fn start_servers(
         );
     }
 
+    drop(phase);
     let secrets = service_state.secrets.clone();
     codeterm_service_core::async_runtime::spawn(async move {
         let init_started = std::time::Instant::now();
@@ -385,8 +388,6 @@ pub(crate) fn start_servers(
 
     let bundles = {
         let api_config = states.config.lock().api.clone();
-        let bundles =
-            codeterm_service_core::startup::frontend_bundles_open(&states.event_broadcaster);
         if let Some(bundles) = &bundles {
             codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
         }
@@ -517,7 +518,9 @@ pub(crate) fn start_servers(
 
 /// Locate the built React bundle for the browser mirror.
 /// Dev callers name mutable bundles explicitly; installed builds use only packaged assets.
-fn resolve_web_dist(resource_dir: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+pub(crate) fn resolve_web_dist(
+    resource_dir: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
     let is_dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
     let explicit = std::env::var("CODETERM_WEB_DIST")
         .ok()

@@ -11,6 +11,10 @@ use std::{sync::Arc, time::Instant};
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
+pub fn pending_limit_gate() -> LimitGate {
+    LimitGate::new(codeterm_entitlements::compiled_free(), false)
+}
+
 impl ServiceContext {
     pub async fn billing_plan_operation(
         &self,
@@ -40,7 +44,7 @@ impl ServiceContext {
         }
         result
     }
-    /// Capture before taking the mux lock. Before billing starts it is the compiled free baseline.
+    /// Capture before taking the mux lock.
     pub fn limit_gate(&self) -> LimitGate {
         #[cfg(any(test, feature = "test-support"))]
         if let Some(gate) = self.try_ext::<super::test_fixture::FixtureLimitGate>() {
@@ -48,12 +52,21 @@ impl ServiceContext {
         }
         self.ext::<BillingCell>().0.get().map_or_else(
             || {
-                LimitGate::new(
-                    codeterm_entitlements::compiled_free(),
-                    codeterm_entitlements::enforcing(),
-                )
+                self.try_ext::<super::account::startup::StartupAccount>()
+                    .filter(|account| account.is_valid())
+                    .map_or_else(pending_limit_gate, |account| account.gate())
             },
-            |billing| billing.limit_gate(),
+            |billing| {
+                if billing.binding_generation() == 0 {
+                    if let Some(account) = self
+                        .try_ext::<super::account::startup::StartupAccount>()
+                        .filter(|account| account.is_valid())
+                    {
+                        return account.gate();
+                    }
+                }
+                billing.limit_gate()
+            },
         )
     }
 
@@ -110,12 +123,12 @@ impl ServiceContext {
                         log::debug!("Grant prime task failed: {error}");
                     }
                 }
-                self.apply_limit_gate(billing.limit_gate());
+                self.apply_limit_gate(self.limit_gate());
                 self.spawn_entitlement_deadlines(billing.clone());
                 Ok::<_, String>(billing)
             })
             .await?;
-        self.apply_limit_gate(billing.limit_gate());
+        self.apply_limit_gate(self.limit_gate());
         Ok(billing.clone())
     }
     /// Idle daemons still refresh at `refresh_after` and lock at lease or period end; CLI,
@@ -166,6 +179,12 @@ impl ServiceContext {
             .map(|billing| billing.binding_generation());
         let session = self.account().await?.session().await;
         if session.is_none() {
+            if let Some(snapshot) = self
+                .try_ext::<super::account::startup::StartupAccount>()
+                .and_then(|account| account.snapshot())
+            {
+                return Ok(snapshot);
+            }
             if let (Some(billing), Some(binding)) = (self.ext::<BillingCell>().0.get(), binding) {
                 snapshot_off_runtime(billing.clone(), None, Some(binding)).await?;
             }

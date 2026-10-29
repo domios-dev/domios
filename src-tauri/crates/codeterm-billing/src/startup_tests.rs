@@ -3,6 +3,35 @@ use std::sync::atomic::Ordering;
 
 const ISSUED: u64 = 1_700_000_000;
 
+#[test]
+fn startup_grant_validates_signature_identity_installation_and_floor() {
+    let store = stored(paid_grant().grant, false);
+    let authority = codeterm_entitlements::PinnedAuthority::new(activation("fixture-online-v1"));
+    let read = |uid, installation| {
+        crate::grant_store::startup_grant_with(
+            store.as_ref(),
+            &authority,
+            uid,
+            installation,
+            ISSUED + 60,
+        )
+    };
+    let grant = read("fixture-user", "fixture-installation").unwrap();
+    assert_eq!(
+        grant.verdict(ISSUED + 60).effective().authority,
+        codeterm_entitlements::Authority::Billing
+    );
+    assert!(read("foreign-user", "fixture-installation").is_none());
+    assert!(read("fixture-user", "foreign-installation").is_none());
+    let mut raw = paid_grant().grant.unwrap();
+    raw["key_id"] = "tampered".into();
+    store.save(&raw).unwrap();
+    assert!(read("fixture-user", "fixture-installation").is_none());
+    store.save(&paid_grant().grant.unwrap()).unwrap();
+    store.save_floors(&Floors::default()).unwrap();
+    assert!(read("fixture-user", "fixture-installation").is_none());
+}
+
 fn billing_with(
     enforced: bool,
     store: Arc<MemoryGrants>,

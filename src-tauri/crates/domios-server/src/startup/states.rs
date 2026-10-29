@@ -509,9 +509,14 @@ pub(crate) fn init_states(
             ws.cwd_missing = missing;
         }
     }
+    mux_state_inner.set_limit_gate(codeterm_service_core::service::billing::pending_limit_gate());
     let mux_state: MuxState = Arc::new(TimedRwLock::new("mux", mux_state_inner));
 
     AppStates {
+        startup_desk: codeterm_service_core::startup::desk::StartupDesk::new(
+            mux_state.clone(),
+            event_broadcaster.clone(),
+        ),
         storage,
         boot_resync,
         config: config_state,

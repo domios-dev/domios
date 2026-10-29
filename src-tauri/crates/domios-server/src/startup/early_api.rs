@@ -26,11 +26,15 @@ enum PhaseState {
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Readiness {
     state: PhaseState,
+    desktop_ready: bool,
+    routes_ready: bool,
+    subsystems: BTreeMap<&'static str, PhaseState>,
     phases: BTreeMap<&'static str, PhaseState>,
 }
 
 struct Gate {
     router: Option<Router>,
+    desktop: Option<Router>,
     readiness: Readiness,
 }
 
@@ -128,6 +132,24 @@ impl EarlyApi {
     fn new(token: Option<String>) -> Self {
         let readiness = Readiness {
             state: PhaseState::Starting,
+            desktop_ready: false,
+            routes_ready: false,
+            subsystems: [
+                "desk",
+                "account",
+                "billing",
+                "plans",
+                "plugins",
+                "providers",
+                "crons",
+                "memory",
+                "mesh",
+                "neighbors",
+                "docs_vectors",
+            ]
+            .into_iter()
+            .map(|name| (name, PhaseState::Starting))
+            .collect(),
             phases: [
                 "listener",
                 "integrity",
@@ -146,6 +168,7 @@ impl EarlyApi {
         Self {
             gate: Arc::new(Mutex::new(Gate {
                 router: None,
+                desktop: None,
                 readiness,
             })),
             changes,
@@ -179,9 +202,42 @@ impl EarlyApi {
         self.publish(&gate.readiness, phase);
     }
 
+    pub fn complete_subsystem(&self, name: &'static str) {
+        self.set_subsystem(name, PhaseState::Ready);
+    }
+
+    pub fn fail_subsystem(&self, name: &'static str) {
+        self.set_subsystem(name, PhaseState::Failed);
+    }
+
+    fn set_subsystem(&self, name: &'static str, state: PhaseState) {
+        let mut gate = self.gate.lock();
+        gate.readiness.subsystems.insert(name, state);
+        self.publish(&gate.readiness, name);
+    }
+
+    pub fn publish_desktop(&self, router: Router) -> Result<(), String> {
+        let mut gate = self.gate.lock();
+        if gate.readiness.state != PhaseState::Starting
+            || ["listener", "integrity", "states"]
+                .iter()
+                .any(|phase| gate.readiness.phases.get(phase) != Some(&PhaseState::Ready))
+        {
+            return Err("Desktop readiness prerequisites are incomplete".into());
+        }
+        gate.desktop = Some(router);
+        gate.readiness.desktop_ready = true;
+        gate.readiness.subsystems.insert("desk", PhaseState::Ready);
+        self.publish(&gate.readiness, "desktop");
+        Ok(())
+    }
+
     pub fn fail(&self, phase: &'static str) {
         let mut gate = self.gate.lock();
         gate.router = None;
+        gate.desktop = None;
+        gate.readiness.desktop_ready = false;
+        gate.readiness.routes_ready = false;
         gate.readiness.state = PhaseState::Failed;
         gate.readiness.phases.insert(phase, PhaseState::Failed);
         self.publish(&gate.readiness, phase);
@@ -216,6 +272,9 @@ impl EarlyApi {
             return Err("Service readiness prerequisites are incomplete".into());
         }
         gate.router = Some(router);
+        gate.desktop = None;
+        gate.readiness.desktop_ready = true;
+        gate.readiness.routes_ready = true;
         gate.readiness.state = PhaseState::Ready;
         self.publish(&gate.readiness, "ready");
         Ok(())
@@ -254,7 +313,8 @@ async fn startup_events(State(state): State<StartupEventState>, request: Request
     Sse::new(async_stream::stream! {
         loop {
             let readiness = changes.borrow_and_update().clone();
-            let terminal = readiness.state != PhaseState::Starting;
+            let terminal = readiness.state == PhaseState::Failed
+                || (readiness.state == PhaseState::Ready && readiness.subsystems.values().all(|state| *state != PhaseState::Starting));
             let event = Event::default().event("startup-state").json_data(readiness);
             match event {
                 Ok(event) => yield Ok::<_, Infallible>(event),
@@ -281,8 +341,20 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
     let authenticated = authenticated(&request, api.token.as_deref());
     let (router, readiness) = {
         let gate = api.gate.lock();
-        (gate.router.clone(), gate.readiness.clone())
+        let router = gate.router.clone().or_else(|| {
+            codeterm_api::startup_routes::serves(path)
+                .then(|| gate.desktop.clone())
+                .flatten()
+        });
+        (router, gate.readiness.clone())
     };
+    if read && path == "/api/startup" {
+        return if authenticated {
+            Json(readiness).into_response()
+        } else {
+            StatusCode::FORBIDDEN.into_response()
+        };
+    }
     if let Some(router) = router {
         return router
             .oneshot(request)
@@ -308,9 +380,33 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
         })).into_response();
     }
     (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-        "ok": false, "error": {"code": if readiness.state == PhaseState::Failed { "startup_failed" } else { "starting" }},
+        "ok": false, "error": {"code": if readiness.state == PhaseState::Failed { "startup_failed" } else { "starting" }, "subsystem": subsystem(path)},
         "startup": readiness,
     }))).into_response()
+}
+
+fn subsystem(path: &str) -> &'static str {
+    if path.starts_with("/api/account/plan") || path.starts_with("/api/account/entitlements") {
+        "billing"
+    } else if path.starts_with("/api/account/mesh") || path.starts_with("/api/mesh") {
+        "mesh"
+    } else if path.starts_with("/api/account/neighbors") || path.starts_with("/api/neighbors") {
+        "neighbors"
+    } else if path.starts_with("/api/account/") {
+        "account"
+    } else if path.starts_with("/api/plans") || path.starts_with("/api/teams") {
+        "plans"
+    } else if path.starts_with("/api/mem") {
+        "memory"
+    } else if path.starts_with("/api/plugins") || path.starts_with("/api/extensions") {
+        "plugins"
+    } else if path.starts_with("/api/agents") || path.starts_with("/api/providers") {
+        "providers"
+    } else if path.starts_with("/api/crons") || path.starts_with("/api/automation") {
+        "crons"
+    } else {
+        "service"
+    }
 }
 
 #[cfg(test)]

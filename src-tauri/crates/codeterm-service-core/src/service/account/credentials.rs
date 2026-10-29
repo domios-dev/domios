@@ -6,7 +6,7 @@ use codeterm_account::{
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 const MESH_INSTALLATION_KEY: &str = "domios-account-mesh-installation-key";
-fn credential_name(provider: &str) -> String {
+pub(super) fn credential_name(provider: &str) -> String {
     format!("domios-account-{provider}-refresh")
 }
 

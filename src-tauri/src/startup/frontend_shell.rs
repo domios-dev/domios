@@ -719,6 +719,9 @@ fn observe_navigation(
                             crate::host_ports::native_client::ClientStartupStage::RootRender,
                         );
                         reveal_main(&handle);
+                        crate::host_ports::native_client::startup_reached(
+                            crate::host_ports::native_client::ClientStartupStage::DeskInteractive,
+                        );
                         cancel_recovery(&handle);
                     }
                     Ok(())
