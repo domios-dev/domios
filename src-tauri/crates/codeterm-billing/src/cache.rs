@@ -228,7 +228,9 @@ impl Billing {
     fn bind(&self, cache: &mut Cache, session: Option<&codeterm_account::Session>) -> bool {
         if session.is_some_and(|session| {
             session.login_generation < cache.login_floor
-                || cache.retired_login.is_some_and(|retired| session.login_generation <= retired)
+                || cache
+                    .retired_login
+                    .is_some_and(|retired| session.login_generation <= retired)
         }) {
             return false;
         }
@@ -288,7 +290,9 @@ impl Billing {
         if cache.generation != expected_generation {
             return self.recompute(&cache);
         }
-        if !self.bind(&mut cache, session) { return Snapshot::default(); }
+        if !self.bind(&mut cache, session) {
+            return Snapshot::default();
+        }
         self.recompute(&cache)
     }
     pub fn snapshot(&self, session: Option<&codeterm_account::Session>) -> Snapshot {
@@ -354,7 +358,9 @@ impl Billing {
     ) -> Snapshot {
         let error_revision = {
             let cache = self.cache.lock();
-            if cache.generation != generation { return Snapshot::default(); }
+            if cache.generation != generation {
+                return Snapshot::default();
+            }
             cache.error_revision
         };
         let mut result = match session {
@@ -643,7 +649,9 @@ impl Billing {
         {
             cache.checkout_pending = false;
             RefreshEvent::CheckoutReturned
-        } else { event }
+        } else {
+            event
+        }
     }
 
     pub fn checkout_browser_opened(&self, session: &codeterm_account::Session, plan: Plan) {
@@ -668,8 +676,8 @@ impl Billing {
 }
 
 mod deadlines;
-mod refresh;
 mod reads;
+mod refresh;
 pub use deadlines::DeadlineTick;
 
 #[cfg(test)]

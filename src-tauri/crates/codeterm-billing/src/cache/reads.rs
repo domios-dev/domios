@@ -49,22 +49,26 @@ impl Billing {
                 .map_err(|_| "Billing cache unavailable".to_string())??;
                 let result = self.provider.plan_operation(session, operation).await;
                 // An uncertain mutation may already have reached the billing server.
-                self.refresh_bound(Some(session), RefreshEvent::PlanChanged, Some(generation)).await;
-                return if self.read_session_matches(session) { result } else {
+                self.refresh_bound(Some(session), RefreshEvent::PlanChanged, Some(generation))
+                    .await;
+                return if self.read_session_matches(session) {
+                    result
+                } else {
                     Err("Account changed while managing billing".into())
                 };
             }
         };
         let worker = self.clone();
         let owned_session = session.clone();
-        let mut flight = tokio::task::spawn_blocking(move || {
-            worker.admit_read(owned_session, index, force)
-        })
-        .await
-        .map_err(|_| "Billing cache unavailable".to_string())??;
+        let mut flight =
+            tokio::task::spawn_blocking(move || worker.admit_read(owned_session, index, force))
+                .await
+                .map_err(|_| "Billing cache unavailable".to_string())??;
         loop {
             if let Some(result) = flight.borrow().clone() {
-                return if self.read_session_matches(session) { result } else {
+                return if self.read_session_matches(session) {
+                    result
+                } else {
                     Err("Account changed while reading billing".into())
                 };
             }
@@ -106,7 +110,9 @@ impl Billing {
             return Ok(flight.clone());
         }
         if let Some(value) = &read.value {
-            let recent = read.attempted_at.is_some_and(|at| now < at.saturating_add(60));
+            let recent = read
+                .attempted_at
+                .is_some_and(|at| now < at.saturating_add(60));
             if cooling || recent || (!force && value.is_ok()) {
                 let (_, receiver) = watch::channel(Some(value.clone()));
                 return Ok(receiver);
@@ -124,7 +130,9 @@ impl Billing {
                 let (revision, error_revision) = {
                     let mut cache = worker.cache.lock();
                     if cache.generation != generation {
-                        let _ = sender.send_replace(Some(Err("Account changed while reading billing".into())));
+                        let _ = sender.send_replace(Some(Err(
+                            "Account changed while reading billing".into(),
+                        )));
                         break;
                     }
                     cache.reads[index].attempted_at = Some(worker.now());
@@ -138,7 +146,8 @@ impl Billing {
                 let result = worker.provider.plan_operation(&session, operation).await;
                 let mut cache = worker.cache.lock();
                 if cache.generation != generation {
-                    let _ = sender.send_replace(Some(Err("Account changed while reading billing".into())));
+                    let _ = sender
+                        .send_replace(Some(Err("Account changed while reading billing".into())));
                     break;
                 }
                 if result.is_err() {
@@ -156,7 +165,9 @@ impl Billing {
                     }
                     read.flight = None;
                     read.deferred_until = worker.now().saturating_add(60);
-                    let failure = result.and_then(|_| Err("Billing changed during the read. Refresh shortly.".into()));
+                    let failure = result.and_then(|_| {
+                        Err("Billing changed during the read. Refresh shortly.".into())
+                    });
                     let _ = sender.send_replace(Some(failure));
                     break;
                 }

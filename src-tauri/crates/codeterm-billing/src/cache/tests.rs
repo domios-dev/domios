@@ -48,8 +48,12 @@ impl BillingProvider for Provider {
         operation: PlanOperation,
     ) -> Result<serde_json::Value> {
         match operation {
-            PlanOperation::Catalog {} => { self.catalog.fetch_add(1, Ordering::SeqCst); }
-            PlanOperation::Subscription {} => { self.subscription.fetch_add(1, Ordering::SeqCst); }
+            PlanOperation::Catalog {} => {
+                self.catalog.fetch_add(1, Ordering::SeqCst);
+            }
+            PlanOperation::Subscription {} => {
+                self.subscription.fetch_add(1, Ordering::SeqCst);
+            }
             PlanOperation::Change { .. } => {
                 let gate = self.mutation_gate.lock().clone();
                 if let Some(gate) = gate {
@@ -80,7 +84,12 @@ impl BillingProvider for Provider {
     }
 }
 
-fn fixture() -> (Billing, Arc<Provider>, Arc<AtomicU64>, codeterm_account::Session) {
+fn fixture() -> (
+    Billing,
+    Arc<Provider>,
+    Arc<AtomicU64>,
+    codeterm_account::Session,
+) {
     let provider = Provider::new();
     let time = Arc::new(AtomicU64::new(100));
     let clock = time.clone();
@@ -136,17 +145,28 @@ async fn error_cooldown_is_shared_by_clones_reads_and_refresh_events() {
     let (billing, provider, time, session) = fixture();
     *provider.failure.lock() = true;
     provider.release.add_permits(1);
-    billing.refresh(Some(&session), RefreshEvent::SignIn, Instant::now()).await;
+    billing
+        .refresh(Some(&session), RefreshEvent::SignIn, Instant::now())
+        .await;
     let other = billing.clone();
-    for event in [RefreshEvent::SignIn, RefreshEvent::Deadline, RefreshEvent::Explicit] {
+    for event in [
+        RefreshEvent::SignIn,
+        RefreshEvent::Deadline,
+        RefreshEvent::Explicit,
+    ] {
         other.refresh(Some(&session), event, Instant::now()).await;
     }
-    assert!(other.plan_operation(&session, PlanOperation::Catalog {}).await.is_err());
+    assert!(other
+        .plan_operation(&session, PlanOperation::Catalog {})
+        .await
+        .is_err());
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 1);
     assert_eq!(provider.catalog.load(Ordering::SeqCst), 0);
     time.store(160, Ordering::SeqCst);
     provider.release.add_permits(1);
-    other.refresh(Some(&session), RefreshEvent::Explicit, Instant::now()).await;
+    other
+        .refresh(Some(&session), RefreshEvent::Explicit, Instant::now())
+        .await;
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 2);
 }
 
@@ -157,21 +177,41 @@ async fn catalog_and_subscription_are_session_cached_with_bounded_explicit_refre
         billing.plan_operation(&session, operation).await.unwrap();
     }
     time.store(4000, Ordering::SeqCst);
-    billing.refresh(Some(&session), RefreshEvent::Focus, Instant::now()).await;
-    billing.plan_operation(&session, PlanOperation::Catalog {}).await.unwrap();
-    billing.plan_operation(&session, PlanOperation::Subscription {}).await.unwrap();
+    billing
+        .refresh(Some(&session), RefreshEvent::Focus, Instant::now())
+        .await;
+    billing
+        .plan_operation(&session, PlanOperation::Catalog {})
+        .await
+        .unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .unwrap();
     assert_eq!(provider.catalog.load(Ordering::SeqCst), 1);
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 1);
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 0);
     for _ in 0..2 {
-        billing.plan_operation(&session, PlanOperation::RefreshCatalog {}).await.unwrap();
-        billing.plan_operation(&session, PlanOperation::RefreshSubscription {}).await.unwrap();
+        billing
+            .plan_operation(&session, PlanOperation::RefreshCatalog {})
+            .await
+            .unwrap();
+        billing
+            .plan_operation(&session, PlanOperation::RefreshSubscription {})
+            .await
+            .unwrap();
     }
     assert_eq!(provider.catalog.load(Ordering::SeqCst), 2);
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 2);
     session.login_generation += 1;
-    billing.plan_operation(&session, PlanOperation::Catalog {}).await.unwrap();
-    billing.plan_operation(&session, PlanOperation::Subscription {}).await.unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Catalog {})
+        .await
+        .unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .unwrap();
     assert_eq!(provider.catalog.load(Ordering::SeqCst), 3);
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 3);
 }
@@ -179,11 +219,27 @@ async fn catalog_and_subscription_are_session_cached_with_bounded_explicit_refre
 #[tokio::test]
 async fn plan_change_invalidates_subscription_and_refreshes_entitlements_immediately() {
     let (billing, provider, _, session) = fixture();
-    billing.plan_operation(&session, PlanOperation::Subscription {}).await.unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .unwrap();
     provider.release.add_permits(2);
-    billing.refresh(Some(&session), RefreshEvent::SignIn, Instant::now()).await;
-    billing.plan_operation(&session, PlanOperation::Change { price_id: "fixture-price".into() }).await.unwrap();
-    billing.plan_operation(&session, PlanOperation::Subscription {}).await.unwrap();
+    billing
+        .refresh(Some(&session), RefreshEvent::SignIn, Instant::now())
+        .await;
+    billing
+        .plan_operation(
+            &session,
+            PlanOperation::Change {
+                price_id: "fixture-price".into(),
+            },
+        )
+        .await
+        .unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .unwrap();
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 2);
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 2);
 }
@@ -193,7 +249,12 @@ async fn late_plan_change_cannot_restore_a_signed_out_session() {
     let (billing, provider, _, session) = fixture();
     let gate = Arc::new(Semaphore::new(0));
     *provider.mutation_gate.lock() = Some(gate.clone());
-    let change = billing.plan_operation(&session, PlanOperation::Change { price_id: "fixture-price".into() });
+    let change = billing.plan_operation(
+        &session,
+        PlanOperation::Change {
+            price_id: "fixture-price".into(),
+        },
+    );
     let logout = async {
         provider.started.notified().await;
         billing.snapshot(None);
@@ -210,17 +271,37 @@ async fn delayed_old_admissions_cannot_restore_retired_or_newer_login_generation
     let (billing, provider, _, old_session) = fixture();
     billing.snapshot(Some(&old_session));
     billing.snapshot(None);
-    billing.refresh(Some(&old_session), RefreshEvent::SignIn, Instant::now()).await;
-    assert!(billing.plan_operation(&old_session, PlanOperation::Catalog {}).await.is_err());
+    billing
+        .refresh(Some(&old_session), RefreshEvent::SignIn, Instant::now())
+        .await;
+    assert!(billing
+        .plan_operation(&old_session, PlanOperation::Catalog {})
+        .await
+        .is_err());
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 0);
     assert_eq!(provider.catalog.load(Ordering::SeqCst), 0);
     let mut current = old_session.clone();
     current.login_generation += 1;
-    billing.plan_operation(&current, PlanOperation::Catalog {}).await.unwrap();
+    billing
+        .plan_operation(&current, PlanOperation::Catalog {})
+        .await
+        .unwrap();
     assert_eq!(billing.snapshot(Some(&old_session)), Snapshot::default());
-    billing.refresh(Some(&old_session), RefreshEvent::PlanChanged, Instant::now()).await;
-    assert!(billing.plan_operation(&old_session, PlanOperation::Subscription {}).await.is_err());
-    billing.plan_operation(&current, PlanOperation::Catalog {}).await.unwrap();
+    billing
+        .refresh(
+            Some(&old_session),
+            RefreshEvent::PlanChanged,
+            Instant::now(),
+        )
+        .await;
+    assert!(billing
+        .plan_operation(&old_session, PlanOperation::Subscription {})
+        .await
+        .is_err());
+    billing
+        .plan_operation(&current, PlanOperation::Catalog {})
+        .await
+        .unwrap();
     assert_eq!(provider.catalog.load(Ordering::SeqCst), 1);
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 0);
 }
@@ -241,7 +322,9 @@ async fn second_refresh_defers_further_invalidations_and_finishes_waiters() {
     assert!(billing.cache.lock().refresh_queued);
     time.store(160, Ordering::SeqCst);
     provider.release.add_permits(1);
-    billing.refresh(Some(&session), RefreshEvent::Explicit, Instant::now()).await;
+    billing
+        .refresh(Some(&session), RefreshEvent::Explicit, Instant::now())
+        .await;
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 3);
     assert!(!billing.cache.lock().refresh_queued);
 }
@@ -265,7 +348,9 @@ async fn browser_return_seam_refreshes_once_and_rejects_stale_accounts() {
     provider.release.add_permits(1);
     let returned = billing.browser_return_event(&session, RefreshEvent::Focus);
     assert!(returned == RefreshEvent::CheckoutReturned);
-    billing.refresh(Some(&session), returned, Instant::now()).await;
+    billing
+        .refresh(Some(&session), returned, Instant::now())
+        .await;
     let focus = billing.browser_return_event(&session, RefreshEvent::Focus);
     assert!(focus == RefreshEvent::Focus);
     billing.refresh(Some(&session), focus, Instant::now()).await;
@@ -273,9 +358,18 @@ async fn browser_return_seam_refreshes_once_and_rejects_stale_accounts() {
     billing.browser_opened(&session);
     provider.release.add_permits(1);
     let returned = billing.browser_return_event(&session, RefreshEvent::Focus);
-    billing.refresh(Some(&session), returned, Instant::now()).await;
+    billing
+        .refresh(Some(&session), returned, Instant::now())
+        .await;
     assert_eq!(provider.entitlements.load(Ordering::SeqCst), 2);
-    assert_eq!(events.lock().iter().filter(|event| matches!(event, ProductEvent::CheckoutReturned)).count(), 1);
+    assert_eq!(
+        events
+            .lock()
+            .iter()
+            .filter(|event| matches!(event, ProductEvent::CheckoutReturned))
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -292,9 +386,14 @@ async fn successful_forced_recovery_reopens_subscription_reads() {
     assert!(read.borrow().as_ref().unwrap().is_err());
     *provider.failure.lock() = false;
     provider.release.add_permits(1);
-    billing.refresh(Some(&session), RefreshEvent::PlanChanged, Instant::now()).await;
+    billing
+        .refresh(Some(&session), RefreshEvent::PlanChanged, Instant::now())
+        .await;
     gate.add_permits(1);
-    billing.plan_operation(&session, PlanOperation::Subscription {}).await.unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .unwrap();
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 2);
 }
 
@@ -314,7 +413,10 @@ async fn concurrent_reads_share_one_flight_and_replace_an_invalidated_reply_once
     second.changed().await.unwrap();
     assert!(first.borrow().as_ref().unwrap().is_err());
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 2);
-    assert!(billing.plan_operation(&session, PlanOperation::Subscription {}).await.is_err());
+    assert!(billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .is_err());
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 2);
 }
 
@@ -331,12 +433,18 @@ async fn invalidated_read_error_obeys_shared_cooldown_without_replay() {
     gate.add_permits(1);
     flight.changed().await.unwrap();
     assert!(flight.borrow().as_ref().unwrap().is_err());
-    assert!(billing.plan_operation(&session, PlanOperation::Subscription {}).await.is_err());
+    assert!(billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .is_err());
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 1);
     time.store(160, Ordering::SeqCst);
     *provider.failure.lock() = false;
     gate.add_permits(1);
-    billing.plan_operation(&session, PlanOperation::Subscription {}).await.unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .unwrap();
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 2);
 }
 
@@ -346,11 +454,17 @@ async fn successful_refresh_does_not_clear_a_newer_concurrent_failure() {
     let mut flight = billing.admit_test_refresh(&session, RefreshEvent::SignIn);
     provider.started.notified().await;
     *provider.failure.lock() = true;
-    assert!(billing.plan_operation(&session, PlanOperation::Catalog {}).await.is_err());
+    assert!(billing
+        .plan_operation(&session, PlanOperation::Catalog {})
+        .await
+        .is_err());
     *provider.failure.lock() = false;
     provider.release.add_permits(1);
     flight.changed().await.unwrap();
-    assert!(billing.plan_operation(&session, PlanOperation::Subscription {}).await.is_err());
+    assert!(billing
+        .plan_operation(&session, PlanOperation::Subscription {})
+        .await
+        .is_err());
     assert_eq!(provider.subscription.load(Ordering::SeqCst), 0);
 }
 
@@ -362,7 +476,13 @@ async fn delayed_none_snapshot_cannot_retire_a_newly_bound_login() {
     session.login_generation += 1;
     billing.snapshot(Some(&session));
     billing.snapshot_if_current(None, before_signin);
-    billing.plan_operation(&session, PlanOperation::Catalog {}).await.unwrap();
+    billing
+        .plan_operation(&session, PlanOperation::Catalog {})
+        .await
+        .unwrap();
     assert_eq!(provider.catalog.load(Ordering::SeqCst), 1);
-    assert_eq!(billing.cache.lock().login_generation, Some(session.login_generation));
+    assert_eq!(
+        billing.cache.lock().login_generation,
+        Some(session.login_generation)
+    );
 }

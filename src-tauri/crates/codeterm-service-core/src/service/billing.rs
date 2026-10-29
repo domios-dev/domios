@@ -166,7 +166,11 @@ impl ServiceContext {
         Ok(())
     }
     async fn account_plan_inner(&self) -> Result<Snapshot, String> {
-        let binding = self.ext::<BillingCell>().0.get().map(|billing| billing.binding_generation());
+        let binding = self
+            .ext::<BillingCell>()
+            .0
+            .get()
+            .map(|billing| billing.binding_generation());
         let session = self.account().await?.session().await;
         if session.is_none() {
             if let (Some(billing), Some(binding)) = (self.ext::<BillingCell>().0.get(), binding) {
@@ -189,7 +193,11 @@ impl ServiceContext {
         result
     }
     async fn refresh_billing_inner(&self, event: RefreshEvent) -> Result<Snapshot, String> {
-        let binding = self.ext::<BillingCell>().0.get().map(|billing| billing.binding_generation());
+        let binding = self
+            .ext::<BillingCell>()
+            .0
+            .get()
+            .map(|billing| billing.binding_generation());
         let account = self.account().await?;
         let session = account.session().await;
         if session.is_none() {
@@ -199,7 +207,9 @@ impl ServiceContext {
             return Ok(Snapshot::default());
         }
         let billing = self.billing().await?;
-        let event = session.as_ref().map_or(event, |session| billing.browser_return_event(session, event));
+        let event = session.as_ref().map_or(event, |session| {
+            billing.browser_return_event(session, event)
+        });
         billing
             .refresh(session.as_ref(), event, Instant::now())
             .await;
@@ -252,7 +262,10 @@ impl ServiceContext {
             Some(key) => billing.checkout_browser_opened(&session, key.plan()),
             None => billing.browser_opened(&session),
         }
-        self.ui.emit("billing-browser-opened", serde_json::json!({"uid": session.identity.uid}));
+        self.ui.emit(
+            "billing-browser-opened",
+            serde_json::json!({"uid": session.identity.uid}),
+        );
         Ok(())
     }
 }
@@ -266,8 +279,8 @@ async fn snapshot_off_runtime(
         Some(generation) => billing.snapshot_if_current(session.as_ref(), generation),
         None => billing.snapshot(session.as_ref()),
     })
-        .await
-        .map_err(|error| error.to_string())
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Every live tab counts toward `agent.tabs`, whatever its role or purpose.

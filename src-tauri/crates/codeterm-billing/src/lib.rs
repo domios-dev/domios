@@ -39,7 +39,9 @@ impl PlanOperation {
     pub fn callable(self) -> (&'static str, serde_json::Value) {
         match self {
             Self::Catalog {} | Self::RefreshCatalog {} => ("getAppCatalog", serde_json::json!({})),
-            Self::Subscription {} | Self::RefreshSubscription {} => ("getSubscriptionPlan", serde_json::json!({})),
+            Self::Subscription {} | Self::RefreshSubscription {} => {
+                ("getSubscriptionPlan", serde_json::json!({}))
+            }
             Self::Change { price_id } => (
                 "changeSubscriptionPlan",
                 serde_json::json!({"price_id":price_id}),

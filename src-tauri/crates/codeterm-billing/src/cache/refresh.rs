@@ -72,13 +72,18 @@ impl Billing {
         if session.is_none() || event == RefreshEvent::Focus {
             return Admission::Cached(self.recompute(&cache));
         }
-        let forced = matches!(event, RefreshEvent::CheckoutReturned | RefreshEvent::PlanChanged)
-            || (event == RefreshEvent::Explicit && cache.checkout_pending);
+        let forced = matches!(
+            event,
+            RefreshEvent::CheckoutReturned | RefreshEvent::PlanChanged
+        ) || (event == RefreshEvent::Explicit && cache.checkout_pending);
         if forced {
             cache.reads[1].invalidate();
         }
         let returned = cache.checkout_event_pending
-            && matches!(event, RefreshEvent::CheckoutReturned | RefreshEvent::Explicit);
+            && matches!(
+                event,
+                RefreshEvent::CheckoutReturned | RefreshEvent::Explicit
+            );
         if forced {
             cache.checkout_pending = false;
             cache.checkout_event_pending = false;
@@ -96,12 +101,15 @@ impl Billing {
         let now = self.now();
         if !forced
             && (now < cache.retry_after
-                || cache.refresh_attempted_at.is_some_and(|at| now < at.saturating_add(60))
+                || cache
+                    .refresh_attempted_at
+                    .is_some_and(|at| now < at.saturating_add(60))
                 || (event == RefreshEvent::SignIn
                     && !cache.refresh_queued
-                    && cache.verified.as_ref().is_some_and(|grant| {
-                        grant.verdict(now).state == TimeState::Fresh
-                    })))
+                    && cache
+                        .verified
+                        .as_ref()
+                        .is_some_and(|grant| grant.verdict(now).state == TimeState::Fresh)))
         {
             return Admission::Cached(self.recompute(&cache));
         }
