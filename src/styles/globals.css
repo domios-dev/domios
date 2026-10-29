@@ -515,8 +515,7 @@ button {
 .agent-provider-card[data-selected="yes"] {
   --ct-liquid-base-transform: translate3d(0, -3px, 0);
   border-color: var(--ct-accent);
-  /* Lighter than a plain selection so the card's own dot field reads through it. */
-  background: color-mix(in srgb, var(--ct-accent) 10%, var(--ct-surface));
+  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-surface));
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--ct-accent) 75%, transparent),
     0 10px 28px color-mix(in srgb, var(--ct-accent) 22%, transparent);
@@ -629,13 +628,6 @@ button {
   font-size: clamp(1.5rem, 1.15rem + 1.4vw, 2rem);
   line-height: 1.15;
   letter-spacing: -0.02em;
-}
-
-/* A dot stage lifts its children over the field; the card's corner marks stay pinned. */
-.agent-provider-card > .agent-provider-card-badge,
-.agent-provider-card > .agent-provider-card-selection {
-  position: absolute;
-  z-index: 2;
 }
 
 .agent-provider-card-badge {
