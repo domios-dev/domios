@@ -232,7 +232,7 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
 ## Memory storage backend
 
-`memory.backend` selects `"sqlite"` (default) or `"postgres"`. For build requirements, secret-store credentials and migration before switching an existing store, see `domios docs MEMORY`.
+`memory.backend` selects `"sqlite"` (default) or `"postgres"`. For build requirements, secret-store credentials and migration before switching an existing store, see the memory help referenced above.
 
 **Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
-<!-- revision: 129 -->
+<!-- revision: 130 -->
