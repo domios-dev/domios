@@ -335,6 +335,10 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/network", get(network_routes::network_info))
         .route(
+            "/api/network/web-token",
+            get(network_routes::web_link_token),
+        )
+        .route(
             "/api/network/serve/status",
             get(network_routes::serve_status_handler),
         )

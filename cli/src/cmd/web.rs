@@ -29,18 +29,13 @@ fn link(
     port_flag: Option<u16>,
     query: bool,
 ) {
-    let (base, _auth) = crate::read_api_config();
+    let (base, auth) = crate::read_api_config();
     if let Some(peer) = peer_flag {
         link_peer(json_mode, &base, &peer, query);
         return;
     }
-    // are nonce-protected against replay, i.e. dead on first reuse).
-    let Some(token) = config_api_token().filter(|t| !t.is_empty()) else {
-        crate::cmd::print::fail(
-            1,
-            "no instance API credential in the local secret store; start Domios first.",
-        );
-    };
+    let token = local_web_token(&base)
+        .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
 
     let explicit_port = port_flag.is_some();
     let port = port_flag.unwrap_or_else(|| {
@@ -50,7 +45,7 @@ fn link(
             .unwrap_or(7685)
     });
 
-    let status = fetch_local_network_status(&base, &token);
+    let status = fetch_local_network_status(&base, auth.as_deref().unwrap_or_default());
     let link = build_local_web_link(
         status.as_ref(),
         host_flag.as_deref(),
@@ -260,6 +255,19 @@ fn link_peer(json_mode: bool, base: &str, peer_name: &str, query: bool) {
     } else {
         println!("{}", url);
     }
+}
+
+fn local_web_token(base: &str) -> Result<String, crate::local_api::LocalApiError> {
+    #[derive(serde::Deserialize)]
+    struct WebToken {
+        token: String,
+    }
+    crate::build_local_api()?
+        .get(format!("{base}/api/network/web-token"))
+        .send()?
+        .error_for_status()?
+        .json::<WebToken>()
+        .map(|response| response.token)
 }
 
 fn config_api_token() -> Option<String> {
