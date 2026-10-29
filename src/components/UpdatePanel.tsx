@@ -79,7 +79,12 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
                     {canApply && <Button variant="accent" size="compact" disabled={update.busy || update.checking} aria-label={`Update ${item.name}`} onClick={() => void update.applyItem(item.id)}>Update</Button>}
                   </div>
                   {row.state === "active" && <progress aria-label={`${item.name} update progress`} max={100} value={item.group === "App" ? update.appProgress ?? undefined : undefined} className="ct-progress col-span-2" />}
-                  {(row.channelError || row.sourceWarning) && <div role="status" className="col-span-2 text-[11px] text-[var(--ct-muted-fg)]">{updateSourceMessage(row.channelError ?? row.sourceWarning!)}{row.sourceWarning ? ". Cached update remains available." : ""}</div>}
+                  {((row.channelError && !row.channel) || row.sourceWarning) && <div className="col-span-2"><InlineErrorNotice description={{
+                    title: row.sourceWarning ? "Cached update remains available" : `${item.name} updates unavailable`,
+                    cause: updateSourceMessage(row.channelError ?? row.sourceWarning!),
+                    raw: row.channelError ?? row.sourceWarning!,
+                    actions: [],
+                  }} /></div>}
                 </div>;
               })}
             </div>
