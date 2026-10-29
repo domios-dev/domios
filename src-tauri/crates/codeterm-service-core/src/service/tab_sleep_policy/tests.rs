@@ -62,7 +62,10 @@ fn active_turn_overrides_idle_hook_even_without_output() {
     facts.active_turn = true;
     facts.live_pty = true;
     facts.last_pty_output_ms = Some(0);
-    assert_eq!(decision(&facts), SleepDecision::Stay(StayReason::ActiveTurn));
+    assert_eq!(
+        decision(&facts),
+        SleepDecision::Stay(StayReason::ActiveTurn)
+    );
 }
 
 #[test]
@@ -71,11 +74,17 @@ fn truly_idle_pty_may_sleep_only_with_old_output_evidence() {
     facts.live_pty = true;
     for output in [None, Some(NOW), Some(NOW + 1)] {
         facts.last_pty_output_ms = output;
-        assert_eq!(decision(&facts), SleepDecision::Stay(StayReason::PtyActivity));
+        assert_eq!(
+            decision(&facts),
+            SleepDecision::Stay(StayReason::PtyActivity)
+        );
     }
     let threshold = SleepPolicy::default().idle_minutes * 60_000;
     facts.last_pty_output_ms = Some(NOW - threshold);
-    assert_eq!(decision(&facts), SleepDecision::Stay(StayReason::PtyActivity));
+    assert_eq!(
+        decision(&facts),
+        SleepDecision::Stay(StayReason::PtyActivity)
+    );
     facts.last_pty_output_ms = Some(NOW - threshold - 1);
     assert_eq!(decision(&facts), SleepDecision::Sleep);
 }
