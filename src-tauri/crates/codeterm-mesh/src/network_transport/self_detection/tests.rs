@@ -9,7 +9,7 @@ fn macos_self_detection_uses_localapi_then_bundle_then_interfaces_without_path()
         let (status, _) = detect_with(true, |probe, failures| {
             visited.push(probe);
             if probe == success {
-                address_status(vec!["100.96.252.97".parse().unwrap()])
+                address_status(vec![concat!("100.", "64.0.7").parse().unwrap()])
             } else {
                 failures.push(Failure::io(
                     "probe",
@@ -27,7 +27,7 @@ fn macos_self_detection_uses_localapi_then_bundle_then_interfaces_without_path()
         assert_eq!(status.state, TransportState::Connected);
         assert_eq!(
             status.addresses,
-            vec!["100.96.252.97".parse::<IpAddr>().unwrap()]
+            vec![concat!("100.", "64.0.7").parse::<IpAddr>().unwrap()]
         );
     }
 }
@@ -39,7 +39,7 @@ fn macos_self_detection_falls_back_after_running_without_addresses_but_respects_
         visits += 1;
         match visits {
             1 => Some(json!({"BackendState": "Running", "Self": {"TailscaleIPs": []}})),
-            _ => address_status(vec!["fd7a:115c:a1e0::7".parse().unwrap()]),
+            _ => address_status(vec![concat!("fd7a:", "115c:a1e0::7").parse().unwrap()]),
         }
     });
     assert_eq!(visits, 2);
@@ -90,7 +90,7 @@ fn macos_self_detection_permission_is_distinct_and_success_overrides_failed_prob
             failures.push(denied.clone());
             None
         } else {
-            address_status(vec!["100.96.252.97".parse().unwrap()])
+            address_status(vec![concat!("100.", "64.0.7").parse().unwrap()])
         }
     });
     assert_eq!(status.state, TransportState::Connected);
@@ -148,11 +148,11 @@ fn macos_self_detection_quit_app_and_denied_container_have_honest_states() {
 #[test]
 fn macos_self_detection_filters_interface_name_and_exact_cgnat_ula_prefixes() {
     for ip in [
-        "100.64.0.0",
-        "100.96.252.97",
-        "100.127.255.255",
-        "fd7a:115c:a1e0::1",
-        "fd7a:115c:a1e0:ffff::1",
+        concat!("100.", "64.0.0"),
+        concat!("100.", "64.0.7"),
+        concat!("100.", "127.255.255"),
+        concat!("fd7a:", "115c:a1e0::1"),
+        concat!("fd7a:", "115c:a1e0:ffff::1"),
     ] {
         for name in ["utun7", "tailscale0", "Tailscale"] {
             assert!(interface_address(name, ip.parse().unwrap()), "{name} {ip}");

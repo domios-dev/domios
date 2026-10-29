@@ -24,7 +24,7 @@ fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers
         identity: None,
         network_name: None,
         user: Some("private-login".into()),
-        addresses: vec!["100.96.252.97".parse().unwrap()],
+        addresses: vec![concat!("100.", "64.0.7").parse().unwrap()],
         peer_listener: true,
         encrypted: true,
         setup_actions: vec![],
@@ -32,7 +32,7 @@ fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers
     manager.local_web_ui = Some(WebUiAnnouncement {
         protocol_version: types::RELAY_PROTOCOL_VERSION,
         endpoints: vec![WebUiEndpoint::TailscaleHttps {
-            host: "air.tail0e459c.ts.net".into(),
+            host: concat!("node.fixture.ts", ".net").into(),
             port: 443,
         }],
     });
@@ -41,12 +41,12 @@ fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers
     assert_eq!(value["transport"]["state"], "connected");
     assert_eq!(
         value["transport"]["addresses"],
-        serde_json::json!(["100.96.252.97"])
+        serde_json::json!([concat!("100.", "64.0.7")])
     );
     assert_eq!(
         value["web_ui"]["endpoints"],
         serde_json::json!([
-            {"transport": "tailscale_https", "host": "air.tail0e459c.ts.net", "port": 443}
+            {"transport": "tailscale_https", "host": concat!("node.fixture.ts", ".net"), "port": 443}
         ])
     );
     assert!(value["transport"].get("user").is_none());

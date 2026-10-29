@@ -3,7 +3,7 @@ use super::Readiness;
 fn readiness(listener: bool, gate: bool) -> Readiness {
     Readiness {
         listeners: listener
-            .then(|| "100.64.0.1:7685".parse().unwrap())
+            .then(|| "192.0.2.1:7685".parse().unwrap())
             .into_iter()
             .collect(),
         peers: (listener && gate)
