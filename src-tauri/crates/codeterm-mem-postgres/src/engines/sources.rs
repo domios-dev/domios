@@ -33,5 +33,5 @@ pub(super) fn extraction(
     tx: &mut Transaction<'_>,
     limit: usize,
 ) -> Result<Vec<PendingExtraction>, String> {
-    tx.query("SELECT m.id,m.kind,m.title,coalesce(m.body_inline,'') FROM mem_items m WHERE m.kind IN ('conversation','note','daily','learning','fact') AND m.tags_json NOT LIKE '%auto-extracted%' AND NOT EXISTS(SELECT 1 FROM relations r WHERE r.from_id=m.id OR r.to_id=m.id) ORDER BY m.created_at DESC LIMIT $1", &[&(limit as i64)]).map_err(db_error)?.into_iter().map(|r|Ok((r.get(0),r.get(2),r.get(3),codeterm_mem::MemKind::from_str(&r.get::<_,String>(1)).ok_or("invalid extraction kind")?))).collect()
+    tx.query("SELECT m.id,m.kind,m.title,coalesce(m.body_inline,'') FROM mem_items m WHERE m.kind IN ('conversation','note','daily','learning','fact') AND m.tags_json NOT LIKE '%auto-extracted%' AND NOT EXISTS(SELECT 1 FROM relations r WHERE r.from_id=m.id OR r.to_id=m.id) ORDER BY m.created_at DESC LIMIT $1", &[&crate::pg_limit(limit)]).map_err(db_error)?.into_iter().map(|r|Ok((r.get(0),r.get(2),r.get(3),codeterm_mem::MemKind::from_str(&r.get::<_,String>(1)).ok_or("invalid extraction kind")?))).collect()
 }

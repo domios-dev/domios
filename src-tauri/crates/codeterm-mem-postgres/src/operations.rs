@@ -157,7 +157,7 @@ impl PostgresMemStore {
     pub(crate) fn diary_in(&self, offset: usize, limit: usize) -> StoreResult<serde_json::Value> {
         self.transaction(|tx| {
             let total:i64=tx.query_one("SELECT count(*) FROM mem_items WHERE kind='daily' AND area='_dreams'", &[]).map_err(db_error)?.get(0);
-            let items=queries::items_in(tx,"SELECT id FROM mem_items WHERE kind='daily' AND area='_dreams' ORDER BY created_at DESC,id DESC LIMIT $1 OFFSET $2", &[&(limit as i64),&(offset as i64)])?;
+            let items=queries::items_in(tx,"SELECT id FROM mem_items WHERE kind='daily' AND area='_dreams' ORDER BY created_at DESC,id DESC LIMIT $1 OFFSET $2", &[&crate::pg_limit(limit),&crate::pg_limit(offset)])?;
             let next=(offset+items.len()<total as usize).then_some(offset+items.len());
             Ok(serde_json::json!({"items":items,"total":total,"next_offset":next}))
         })
@@ -189,7 +189,7 @@ impl PostgresMemStore {
         }
         self.transaction(|tx| {
             let matched = queries::matched_entities_in(tx, &terms)?;
-            Ok(queries::items_in(tx,"WITH links(item_id,entity_id) AS (SELECT from_id,to_id FROM relations WHERE to_id=ANY($1) AND valid_to IS NULL UNION SELECT to_id,from_id FROM relations WHERE from_id=ANY($1) AND valid_to IS NULL) SELECT m.id FROM links JOIN mem_items m ON m.id=links.item_id WHERE m.kind!='archived' AND ($2::text IS NULL OR m.kind=$2) AND ($3::text IS NULL OR m.scope=$3) AND ($4::text IS NULL OR m.area=$4) GROUP BY m.id ORDER BY count(DISTINCT entity_id) DESC,m.importance DESC,m.updated_at DESC,m.id LIMIT $5", &[&matched,&query.kind,&query.scope,&query.area,&(limit as i64)])?.into_iter().map(|item|SearchHit {item,score:0.0}).collect())
+            Ok(queries::items_in(tx,"WITH links(item_id,entity_id) AS (SELECT from_id,to_id FROM relations WHERE to_id=ANY($1) AND valid_to IS NULL UNION SELECT to_id,from_id FROM relations WHERE from_id=ANY($1) AND valid_to IS NULL) SELECT m.id FROM links JOIN mem_items m ON m.id=links.item_id WHERE m.kind!='archived' AND ($2::text IS NULL OR m.kind=$2) AND ($3::text IS NULL OR m.scope=$3) AND ($4::text IS NULL OR m.area=$4) GROUP BY m.id ORDER BY count(DISTINCT entity_id) DESC,m.importance DESC,m.updated_at DESC,m.id LIMIT $5", &[&matched,&query.kind,&query.scope,&query.area,&crate::pg_limit(limit)])?.into_iter().map(|item|SearchHit {item,score:0.0}).collect())
         })
     }
 }

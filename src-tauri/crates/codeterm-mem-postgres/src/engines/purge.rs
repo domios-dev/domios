@@ -132,7 +132,7 @@ impl PostgresMemStore {
                     let prefix=format!("{id}_chunk_");
                     report.vectors_removed=tx.execute("DELETE FROM mem_vectors WHERE mem_id=$1 OR (left(mem_id,length($2))=$2 AND substring(mem_id FROM length($2)+1) ~ '^[0-9]+$')", &[&id,&prefix]).map_err(db_error)? as usize;
                 }
-                tx.execute("INSERT INTO mem_precompact_purges(item_id,history_rows,history_body_bytes,purged_at) VALUES ($1,$2,$3,$4)", &[&id,&(items.rows as i64),&(items.bytes as i64),&crate::items::now()]).map_err(db_error)?;
+                tx.execute("INSERT INTO mem_precompact_purges(item_id,history_rows,history_body_bytes,purged_at) VALUES ($1,$2,$3,$4)", &[&id,&crate::pg_limit(items.rows),&(items.bytes as i64),&crate::items::now()]).map_err(db_error)?;
                 for (name,size) in &items.blobs { tx.execute("INSERT INTO mem_precompact_purge_blobs(item_id,path,body_bytes) VALUES ($1,$2,$3)", &[&id,&name,&(*size as i64)]).map_err(db_error)?; }
             }
             Ok((items,report))

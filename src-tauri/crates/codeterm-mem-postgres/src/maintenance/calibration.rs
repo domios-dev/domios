@@ -128,7 +128,7 @@ pub(super) fn log(
         let count:i64=tx.query_one("SELECT count(*) FROM mem_item_history WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at>=$1", &[&since]).map_err(db_error)?.get(0);
         return Ok(json!({"count":count}));
     }
-    let rows=tx.query("SELECT item_id,changed_at,changed_by,change_type,old_importance,new_importance,old_kind,new_kind,reason FROM mem_item_history WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at>=$1 ORDER BY changed_at DESC LIMIT $2", &[&since,&(limit as i64)]).map_err(db_error)?;
+    let rows=tx.query("SELECT item_id,changed_at,changed_by,change_type,old_importance,new_importance,old_kind,new_kind,reason FROM mem_item_history WHERE changed_by LIKE 'dreamer-calibration%' AND changed_at>=$1 ORDER BY changed_at DESC LIMIT $2", &[&since,&crate::pg_limit(limit)]).map_err(db_error)?;
     let entries:Vec<_>=rows.into_iter().map(|r|json!({"item_id":r.get::<_,String>(0),"changed_at":r.get::<_,String>(1),"changed_by":r.get::<_,String>(2),"change_type":r.get::<_,String>(3),"old_importance":r.get::<_,Option<f64>>(4),"new_importance":r.get::<_,Option<f64>>(5),"old_kind":r.get::<_,Option<String>>(6),"new_kind":r.get::<_,Option<String>>(7),"reason":r.get::<_,Option<String>>(8)})).collect();
     Ok(json!({"entries":entries}))
 }

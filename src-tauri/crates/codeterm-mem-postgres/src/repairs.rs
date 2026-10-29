@@ -253,12 +253,12 @@ pub(crate) fn duplicate_entities(
     let mut out = Vec::new();
     match strategy {
         EntitySimilarityStrategy::ExactName => {
-            for row in tx.query("SELECT entity_type,lower(trim(properties_json::jsonb->>'name')),array_agg(id ORDER BY id) FROM entities WHERE properties_json::jsonb->>'name' IS NOT NULL GROUP BY entity_type,lower(trim(properties_json::jsonb->>'name')) HAVING count(*)>1 ORDER BY count(*) DESC LIMIT $1", &[&(limit as i64)]).map_err(db_error)? {
+            for row in tx.query("SELECT entity_type,lower(trim(properties_json::jsonb->>'name')),array_agg(id ORDER BY id) FROM entities WHERE properties_json::jsonb->>'name' IS NOT NULL GROUP BY entity_type,lower(trim(properties_json::jsonb->>'name')) HAVING count(*)>1 ORDER BY count(*) DESC LIMIT $1", &[&crate::pg_limit(limit)]).map_err(db_error)? {
                 out.push(DuplicateEntityGroup {entity_type:row.get(0),canonical_hint:row.get(1),member_ids:row.get(2),reason:"exact_name".into()});
             }
         }
         EntitySimilarityStrategy::AliasChain => {
-            for row in tx.query("SELECT canonical_id,array_agg(alias_id ORDER BY alias_id) FROM entity_aliases GROUP BY canonical_id ORDER BY count(*) DESC LIMIT $1", &[&(limit as i64)]).map_err(db_error)? {
+            for row in tx.query("SELECT canonical_id,array_agg(alias_id ORDER BY alias_id) FROM entity_aliases GROUP BY canonical_id ORDER BY count(*) DESC LIMIT $1", &[&crate::pg_limit(limit)]).map_err(db_error)? {
                 let id:String=row.get(0); let mut members:Vec<String>=row.get(1); members.push(id.clone());
                 out.push(DuplicateEntityGroup {canonical_hint:id,member_ids:members,entity_type:"Unknown".into(),reason:"alias_chain".into()});
             }
@@ -266,7 +266,7 @@ pub(crate) fn duplicate_entities(
         EntitySimilarityStrategy::Vector {threshold,entity_type} => {
             if !(0.0..=1.0).contains(&threshold) {return Err("threshold must be in [0,1]".into());}
             if vectors::stamp_in(tx)?.is_none() {return Ok(out);}
-            for row in tx.query("SELECT a.id,b.id,a.entity_type,va.embedding <-> vb.embedding FROM entities a JOIN entities b ON a.id<b.id AND a.entity_type=b.entity_type JOIN mem_vectors va ON va.mem_id=a.id JOIN mem_vectors vb ON vb.mem_id=b.id WHERE ($1::text IS NULL OR a.entity_type=$1) AND va.embedding <-> vb.embedding <= $2 ORDER BY 4,a.id,b.id LIMIT $3", &[&entity_type,&(2.0*(1.0-threshold)).sqrt(),&(limit as i64)]).map_err(db_error)? {
+            for row in tx.query("SELECT a.id,b.id,a.entity_type,va.embedding <-> vb.embedding FROM entities a JOIN entities b ON a.id<b.id AND a.entity_type=b.entity_type JOIN mem_vectors va ON va.mem_id=a.id JOIN mem_vectors vb ON vb.mem_id=b.id WHERE ($1::text IS NULL OR a.entity_type=$1) AND va.embedding <-> vb.embedding <= $2 ORDER BY 4,a.id,b.id LIMIT $3", &[&entity_type,&(2.0*(1.0-threshold)).sqrt(),&crate::pg_limit(limit)]).map_err(db_error)? {
                 let first:String=row.get(0); let second:String=row.get(1); let distance:f64=row.get(3);
                 out.push(DuplicateEntityGroup {canonical_hint:first.clone(),member_ids:vec![first,second],entity_type:row.get(2),reason:format!("vector_similarity:{:.4}",1.0-distance*distance/2.0)});
             }

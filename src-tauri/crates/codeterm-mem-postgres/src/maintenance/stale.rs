@@ -44,7 +44,7 @@ pub(super) fn run(
         remaining
     };
     let sql=format!("SELECT m.id,m.kind,m.importance,m.created_at,greatest(m.updated_at,coalesce(m.accessed_at,'')),(SELECT count(*) FROM relations r WHERE (r.from_id=m.id OR r.to_id=m.id) AND r.valid_to IS NULL) FROM mem_items m WHERE {PREDICATE} ORDER BY m.created_at::timestamptz,m.id LIMIT $2");
-    let selected:Vec<_>=tx.query(&sql,&[&cutoff_text,&(limit as i64)]).map_err(db_error)?.into_iter().map(|r| {
+    let selected:Vec<_>=tx.query(&sql,&[&cutoff_text,&crate::pg_limit(limit)]).map_err(db_error)?.into_iter().map(|r| {
         let created_at:String=r.get(3);let last_touch:String=r.get(4);let active_neighbours:i64=r.get(5);
         let reason=format!("stale: created {created_at}, last direct touch {last_touch}, no relation change and no touched neighbour (of {active_neighbours}) since {cutoff_text}");
         StaleSelection {id:r.get(0),kind:r.get(1),importance:r.get(2),created_at,last_touch,active_neighbours,reason}

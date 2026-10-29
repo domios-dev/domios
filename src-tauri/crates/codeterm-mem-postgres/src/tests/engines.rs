@@ -41,6 +41,26 @@ fn pending_contract() {
 
 #[test]
 #[ignore = "requires disposable pgvector and DOMIOS_TEST_POSTGRES_URL"]
+fn pending_extraction_accepts_unbounded_limit() {
+    let fixture = Fixture::new();
+    let store = open(&fixture.url, fixture.options.clone()).unwrap();
+    let ctx = WriteContext::system("extraction-limit");
+    let mut expected = Vec::new();
+    for title in ["unbounded first", "unbounded second"] {
+        let item = contract::item(title);
+        let id = store.save(&ctx, &item, false).unwrap().id;
+        expected.push((id, item.title, item.body, item.kind));
+    }
+    assert!(store.pending_extraction(0).unwrap().is_empty());
+    assert_eq!(store.pending_extraction(1).unwrap().len(), 1);
+    let mut pending = store.pending_extraction(usize::MAX).unwrap();
+    expected.sort_by(|a, b| a.0.cmp(&b.0));
+    pending.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(pending, expected);
+}
+
+#[test]
+#[ignore = "requires disposable pgvector and DOMIOS_TEST_POSTGRES_URL"]
 fn production_open_uses_migrated_schema() {
     let fixture = Fixture::new();
     let store = open(&fixture.url, fixture.options.clone()).unwrap();

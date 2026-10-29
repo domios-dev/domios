@@ -124,7 +124,10 @@ pub(crate) fn export_in(
         );
         let offset_bind = i64::try_from(offset).map_err(|_| "export offset overflow")?;
         for row in tx
-            .query(&sql, &[&((limit + 1) as i64), &offset_bind])
+            .query(
+                &sql,
+                &[&crate::pg_limit(limit.saturating_add(1)), &offset_bind],
+            )
             .map_err(db_error)?
         {
             let values = row_values(&row)?;
