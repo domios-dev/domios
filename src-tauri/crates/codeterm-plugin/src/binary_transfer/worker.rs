@@ -68,13 +68,13 @@ pub(super) fn execute_at(
     let status = Arc::new(AtomicU16::new(0));
     let result = (|| {
         ACTIVE
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < 32).then_some(count + 1)
             })
             .map_err(|_| TransferRefusal::Unavailable)?;
         if session
             .active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < 8).then_some(count + 1)
             })
             .is_err()

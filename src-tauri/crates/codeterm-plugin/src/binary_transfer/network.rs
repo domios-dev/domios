@@ -93,7 +93,7 @@ impl reqwest::dns::Resolve for PublicDns {
         let name = name.as_str().to_owned();
         Box::pin(async move {
             DNS_WORKERS
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                     (count < 8).then_some(count + 1)
                 })
                 .map_err(|_| std::io::Error::from(std::io::ErrorKind::WouldBlock))?;

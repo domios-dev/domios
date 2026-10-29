@@ -172,13 +172,13 @@ impl TransferSession {
         control: &InputPreparation,
     ) -> Result<TransferInputGrant> {
         INPUT_PREPARATIONS
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < 32).then_some(count + 1)
             })
             .map_err(|_| TransferRefusal::Unavailable)?;
         if self
             .active
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < 8).then_some(count + 1)
             })
             .is_err()

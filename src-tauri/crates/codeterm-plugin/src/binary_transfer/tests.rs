@@ -1,6 +1,6 @@
 use super::{model::*, network::*, policy::*, upload::*, worker::*};
 use async_trait::async_trait;
-use futures_util::{stream, StreamExt, TryStreamExt};
+use futures_util::{stream, StreamExt};
 use parking_lot::Mutex;
 use reqwest::{header::HeaderMap, Url};
 use std::{
