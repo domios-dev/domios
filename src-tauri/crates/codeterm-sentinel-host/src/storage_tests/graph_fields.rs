@@ -130,9 +130,9 @@ fn columns(conn: &rusqlite::Connection, table: &str) -> BTreeSet<String> {
 }
 
 #[test]
-fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place() {
+fn sentinel_schema_current_root_has_exact_graph_columns() {
     let root = temp_root();
-    Storage::create_at_schema_version(root.path(), 4).expect("schema before Sentinel graph v4");
+    close(open(root.path()));
     rusqlite::Connection::open(Storage::database_path(root.path()))
         .and_then(|conn| {
             conn.execute(
@@ -213,7 +213,7 @@ fn sentinel_schema_v4_migration_refuses_a_previous_schema_root_holding_stages() 
     assert!(
         matches!(
             refused,
-            StorageError::MigrationRefused {
+            StorageError::Incompatible {
                 schema_version: 4,
                 ..
             }

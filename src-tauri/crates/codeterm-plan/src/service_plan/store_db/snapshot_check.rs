@@ -21,7 +21,7 @@ fn whole_document_parse(path: &std::path::Path) -> (BTreeMap<String, serde_json:
     for row in rows {
         let (id, document) = row.unwrap();
         match parse_plan_document(&document) {
-            Ok((plan, _)) => {
+            Ok(plan) => {
                 plans.insert(id, serde_json::to_value(plan).unwrap());
             }
             Err(_) => quarantined += 1,

@@ -1,7 +1,17 @@
 use codeterm_client_shell::app_runtime::WebviewWindow;
 #[cfg(debug_assertions)]
 mod assets;
+mod initial_document;
+mod main_thread;
 mod readiness;
+mod reconnect;
+mod recovery;
+mod surfaces;
+use main_thread::run_on_main_thread;
+pub(crate) use reconnect::cancel as cancel_recovery;
+pub(crate) use recovery::{recover_for_attachment, retry};
+use surfaces::show_unavailable;
+pub(crate) use surfaces::{reveal_main, show_start_failure};
 
 pub fn application_context(
     context: tauri::Context<codeterm_client_shell::app_runtime::Runtime>,
@@ -87,6 +97,8 @@ struct ShellSupervisor {
     windows: tokio::sync::watch::Sender<WindowEpoch>,
     capability_origins: parking_lot::Mutex<HashSet<String>>,
     view_bootstrap: parking_lot::Mutex<Option<ShellBootstrap>>,
+    initial_document: initial_document::InitialDocument,
+    reconnect: reconnect::RecoveryOwner,
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -145,7 +157,7 @@ fn unavailable_url() -> Result<Url, url::ParseError> {
     brand_page_url(BrandFallback::Reconnecting)
 }
 
-fn starting_url() -> Result<Url, url::ParseError> {
+pub(super) fn starting_url() -> Result<Url, url::ParseError> {
     brand_page_url(BrandFallback::Starting)
 }
 
@@ -242,6 +254,8 @@ pub fn initialize(
         windows: tokio::sync::watch::channel(WindowEpoch::default()).0,
         capability_origins: Default::default(),
         view_bootstrap: Default::default(),
+        initial_document: Default::default(),
+        reconnect: Default::default(),
     });
     Ok(())
 }
@@ -276,12 +290,11 @@ pub fn window_destroying(app: &codeterm_client_shell::app_runtime::AppHandle) {
     }
     let supervisor = app.state::<ShellSupervisor>();
     let _ = next_generation(&supervisor.navigation);
-    supervisor
-        .active_view_generation
-        .store(0, Ordering::Release);
+    let active_view = supervisor.active_view_generation.swap(0, Ordering::AcqRel);
+    supervisor.initial_document.retire();
     supervisor.root_render.retire();
     supervisor.windows.send_if_modified(|epoch| {
-        if !epoch.available {
+        if !epoch.available && active_view == 0 {
             return false;
         }
         epoch.generation += 1;
@@ -381,6 +394,7 @@ pub fn create_window(
     supervisor
         .active_view_generation
         .store(view_generation, Ordering::Release);
+    supervisor.initial_document.begin(view_generation);
     match builder
         .on_new_window(move |url, _features| {
             let api_origin = current_api_origin(&new_window_app);
@@ -388,6 +402,9 @@ pub fn create_window(
             tauri::webview::NewWindowResponse::Deny
         })
         .on_page_load(move |window, payload| {
+            if !active_view_matches(window.app_handle(), view_generation) {
+                return;
+            }
             log::debug!(
                 "[frontend-shell] page load {:?}: {}",
                 payload.event(),
@@ -402,8 +419,16 @@ pub fn create_window(
                     &page_unavailable,
                     &page_fallback,
                 );
-            } else if cfg!(debug_assertions) {
-                let _ = window.eval("window.__CODETERM_SHELL_DIAGNOSTIC__?.('page-finished')");
+            } else {
+                if starting_document_finished(payload.event(), payload.url())
+                    && window.app_handle().state::<ShellSupervisor>()
+                        .initial_document.acknowledge(view_generation)
+                {
+                    window_created(window.app_handle());
+                }
+                if cfg!(debug_assertions) {
+                    let _ = window.eval("window.__CODETERM_SHELL_DIAGNOSTIC__?.('page-finished')");
+                }
             }
         })
         .on_navigation(move |url| {
@@ -430,7 +455,10 @@ pub fn create_window(
         })
         .build()
     {
-        Ok(window) => Ok(window),
+        Ok(window) => {
+            initial_document::supervise(app.clone(), view_generation);
+            Ok(window)
+        }
         Err(error) => {
             let _ = supervisor.active_view_generation.compare_exchange(
                 view_generation,
@@ -439,9 +467,15 @@ pub fn create_window(
                 Ordering::Acquire,
             );
             supervisor.root_render.retire();
+            supervisor.initial_document.retire();
             Err(error.into())
         }
     }
+}
+
+fn starting_document_finished(event: tauri::webview::PageLoadEvent, url: &Url) -> bool {
+    event == tauri::webview::PageLoadEvent::Finished
+        && starting_url().is_ok_and(|starting| same_navigation_document(url, &starting))
 }
 
 fn same_navigation_document(url: &Url, expected: &Url) -> bool {
@@ -485,82 +519,28 @@ static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
 /// The start-failure page is a recovery surface the retrying page must still replace.
 static ON_START_FAILURE: AtomicBool = AtomicBool::new(false);
 
-/// Startup keeps the window hidden until something worth seeing is painted; this bounds that wait.
-const REVEAL_DEADLINE: Duration = Duration::from_secs(4);
-
-pub(crate) fn reveal_main(app: &codeterm_client_shell::app_runtime::AppHandle) {
-    let Some(window) = app.get_webview_window("main") else {
-        return;
-    };
-    if window.is_visible().unwrap_or(true) {
-        return;
-    }
-    let shown = window
-        .show()
-        .and_then(|()| window.unminimize())
-        .and_then(|()| window.set_focus());
-    if let Err(error) = shown {
-        log::debug!("[frontend-shell] window reveal failed: {error}");
-    }
-}
-
-pub(crate) fn reveal_after_deadline(app: codeterm_client_shell::app_runtime::AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(REVEAL_DEADLINE).await;
-        reveal_main(&app);
-    });
-}
-
-fn show_unavailable(window: &WebviewWindow) {
-    reveal_main(window.app_handle());
-    // Re-navigating would restart the page (and its retry ring) on every failed attempt.
-    let on_recovery_surface = ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel);
-    if !ON_START_FAILURE.swap(false, Ordering::AcqRel) && on_recovery_surface {
-        return;
-    }
-    match unavailable_url()
-        .map_err(|error| error.to_string())
-        .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
-    {
-        Ok(()) => {
-            log::debug!("[frontend-shell] native recovery surface selected");
-        }
-        Err(error) => {
-            ON_RECOVERY_SURFACE.store(false, Ordering::Release);
-            log::error!("[frontend-shell] recovery surface failed: {error}");
-        }
-    }
-}
-
-/// A fragment-only change keeps the document, so a repeated refusal just updates its reason.
-pub(crate) fn show_start_failure(window: &WebviewWindow, reason: &str) {
-    reveal_main(window.app_handle());
-    ON_RECOVERY_SURFACE.store(true, Ordering::Release);
-    ON_START_FAILURE.store(true, Ordering::Release);
-    match start_failure_url(Some(reason))
-        .map_err(|error| error.to_string())
-        .and_then(|url| window.navigate(url).map_err(|error| error.to_string()))
-    {
-        Ok(()) => log::debug!("[frontend-shell] start failure surface selected"),
-        Err(error) => {
-            ON_START_FAILURE.store(false, Ordering::Release);
-            ON_RECOVERY_SURFACE.store(false, Ordering::Release);
-            log::error!("[frontend-shell] start failure surface failed: {error}");
-        }
-    }
-}
-
-pub(crate) fn server_disconnected(app: codeterm_client_shell::app_runtime::AppHandle) {
+pub(crate) fn server_disconnected(
+    app: codeterm_client_shell::app_runtime::AppHandle,
+    ready: codeterm_types::server_bootstrap::ServerReady,
+    process: Arc<codeterm_process_identity::PinnedProcess>,
+) {
     if let Some(window) = app.get_webview_window("main") {
         show_unavailable(&window);
     }
+    if !crate::crash::exit::is_client_exit_pending() {
+        reconnect::start(app, ready, process);
+    }
 }
 
-const SHELL_ACTION_SCHEME: &str = "domios-shell";
+pub(super) const SHELL_ACTION_SCHEME: &str = "domios-shell";
 
 /// The recovery page has no IPC, so its titlebar and Retry button navigate to `domios-shell://<action>`.
-fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHandle, url: &Url) {
-    let Some(window) = app.get_webview_window("main") else {
+pub(super) fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHandle, url: &Url) {
+    let Some(window) = app
+        .get_webview_window("main")
+        .filter(|window| window.is_visible().unwrap_or(false))
+        .or_else(|| app.get_webview_window("starting"))
+    else {
         return;
     };
     let outcome = match url.host_str().unwrap_or_default() {
@@ -576,6 +556,8 @@ fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHandle, url: &U
             retry(app);
             Ok(())
         }
+        "quit" => crate::run::request_client_quit_exact(app, None)
+            .map_err(|error| format!("{error:?}")),
         other => Err(format!("unknown shell action {other}")),
     };
     if let Err(error) = outcome {
@@ -600,6 +582,16 @@ pub(crate) fn active_view_matches(
         .is_some_and(|supervisor| {
             supervisor.active_view_generation.load(Ordering::Acquire) == generation
         })
+}
+
+fn active_root_matches(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    generation: ClientViewGeneration,
+) -> bool {
+    app.try_state::<ShellSupervisor>().is_some_and(|supervisor| {
+        supervisor.active_view_generation.load(Ordering::Acquire) == generation.view
+            && supervisor.navigation.load(Ordering::Acquire) == generation.navigation
+    })
 }
 
 fn prepare_root_navigation(
@@ -646,6 +638,9 @@ fn observe_navigation(
     fallback: &Url,
 ) {
     let app = window.app_handle();
+    if !active_view_matches(app, view_generation) {
+        return;
+    }
     let supervisor = app.state::<ShellSupervisor>();
     let navigation = supervisor.navigation.clone();
     let root_render = supervisor.root_render.clone();
@@ -717,8 +712,25 @@ fn observe_navigation(
     tauri::async_runtime::spawn(async move {
         match root_render.wait_until(generation, deadline).await {
             ClientRootRenderWait::Ready => {
-                log::debug!("[frontend-shell] root render acknowledged: view={view_generation}, navigation={current_navigation}");
-                reveal_main(&app);
+                let reveal = run_on_main_thread(app.clone(), move |handle| {
+                    if active_root_matches(&handle, generation)
+                        && same_server_attachment(&handle, &server_identity, &server_epoch)
+                    {
+                        log::debug!("[frontend-shell] root render acknowledged: view={view_generation}, navigation={current_navigation}");
+                        crate::host_ports::native_client::startup_reached(
+                            crate::host_ports::native_client::ClientStartupStage::RootRender,
+                        );
+                        reveal_main(&handle);
+                        cancel_recovery(&handle);
+                    }
+                    Ok(())
+                }).await;
+                if let Err(error) = reveal {
+                    log::error!("[frontend-shell] root reveal failed: {error}");
+                    if let Some(window) = app.get_webview_window("starting") {
+                        show_start_failure(&window, &error);
+                    }
+                }
                 return;
             }
             ClientRootRenderWait::Replaced => {
@@ -795,7 +807,9 @@ async fn frontend_url(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| error.to_string())?;
-    readiness::wait(&client, origin).await?;
+    readiness::wait(&client, origin)
+        .await
+        .map_err(|error| error.to_string())?;
     let available = tokio::time::timeout(Duration::from_secs(10), async {
         let response = client.get(target.clone()).send().await?;
         let success = response.status().is_success();
@@ -876,184 +890,6 @@ pub fn start(app: codeterm_client_shell::app_runtime::AppHandle) {
     });
 }
 
-async fn reinitialize_client(app: codeterm_client_shell::app_runtime::AppHandle) {
-    match crate::host_ports::native_client::retry_initialize_client(app.clone()).await {
-        Ok(initialized) => {
-            #[cfg(debug_assertions)]
-            if initialized.native == crate::host_ports::native_client::NativeClientStatus::Attached
-            {
-                eprintln!(
-                    "DOMIOS_DEV_ATTACHMENT {}",
-                    serde_json::json!({ "protocol": initialized.ready.protocol,
-                            "client_pid": std::process::id(), "server_pid": initialized.ready.process.pid,
-                            "epoch": initialized.ready.epoch,
-                            "api_address": initialized.ready.api_address.to_string() })
-                );
-            }
-            if let Err(error) = recover_for_attachment(app.clone(), &initialized.ready).await {
-                log::error!("[frontend-shell] attachment recovery failed: {error}");
-                if let Some(window) = app.get_webview_window("main") {
-                    show_unavailable(&window);
-                }
-            }
-        }
-        Err(error) => {
-            log::error!("[frontend-shell] client retry refused: {error}");
-            if let Some(window) = app.get_webview_window("main") {
-                if error.stated_refusal() {
-                    show_start_failure(&window, error.message());
-                } else {
-                    show_unavailable(&window);
-                }
-            }
-        }
-    }
-}
-
-pub fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        let Some(attachment) = app
-            .try_state::<ServerApiAttachmentSlot>()
-            .and_then(|slot| slot.current())
-        else {
-            reinitialize_client(app).await;
-            return;
-        };
-        let Some(window) = app.get_webview_window("main") else {
-            return;
-        };
-        let identity = attachment.identity().clone();
-        let server_epoch = attachment.epoch().to_owned();
-        let origin = attachment.api_origin();
-        drop(attachment);
-        let target = frontend_url(&app, &origin).await;
-        if !same_server_attachment(&app, &identity, &server_epoch) {
-            return;
-        }
-        match target {
-            Ok(url) => {
-                if let Err(error) = navigate_frontend(&app, &window, url) {
-                    log::error!("[frontend-shell] native frontend retry failed: {error}");
-                    show_unavailable(&window);
-                }
-            }
-            Err(error) => {
-                // A dead server keeps its stale attachment; attach to or launch a live one.
-                log::debug!(
-                    "[frontend-shell] attached interface unreachable ({error}); reinitializing"
-                );
-                reinitialize_client(app).await;
-            }
-        }
-    });
-}
-
-pub(crate) async fn recover_for_attachment(
-    app: codeterm_client_shell::app_runtime::AppHandle,
-    expected: &codeterm_types::server_bootstrap::ServerReady,
-) -> Result<(), String> {
-    ensure_server_attachment(&app, expected)?;
-    let Some(window) = app.get_webview_window("main") else {
-        crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
-        run_on_main_thread(app.clone(), |handle| {
-            crate::startup::desktop_lifecycle::show_or_create(&handle)
-                .map_err(|error| error.to_string())
-        })
-        .await?;
-        ensure_server_attachment(&app, expected)?;
-        start(app);
-        return Ok(());
-    };
-    let unavailable = unavailable_url().map_err(|error| error.to_string())?;
-    let current_url = window.url().map_err(|error| error.to_string())?;
-    let can_reuse_window = {
-        let supervisor = app.state::<ShellSupervisor>();
-        let api = app.state::<ServerApiAttachmentSlot>().current();
-        let reusable = supervisor
-            .view_bootstrap
-            .lock()
-            .as_ref()
-            .is_some_and(|bootstrap| {
-                api.is_some_and(|api| {
-                    bootstrap.origin == api.api_origin() && bootstrap.token == api.token()
-                })
-            });
-        reusable
-    };
-    if can_reuse_window {
-        ensure_server_attachment(&app, expected)?;
-        let url = frontend_url(&app, &loopback_origin(expected.api_address)?).await?;
-        ensure_server_attachment(&app, expected)?;
-        navigate_frontend(&app, &window, url)?;
-        return Ok(());
-    }
-    if !ON_RECOVERY_SURFACE.load(Ordering::Acquire)
-        && !same_navigation_document(&current_url, &unavailable)
-    {
-        start(app);
-        return Ok(());
-    }
-
-    crate::deep_links::register_deep_links(&app).map_err(|error| error.to_string())?;
-    let (old_view, old_navigation, before, mut windows) = {
-        let supervisor = app.state::<ShellSupervisor>();
-        let before = *supervisor.windows.borrow();
-        (
-            supervisor.active_view_generation.load(Ordering::Acquire),
-            supervisor.navigation.load(Ordering::Acquire),
-            before,
-            supervisor.windows.subscribe(),
-        )
-    };
-    if old_view == 0 || !before.available {
-        return Err("Unavailable frontend generation is no longer active".into());
-    }
-    let close_window = window.clone();
-    run_on_main_thread(app.clone(), move |handle| {
-        let state = handle.state::<ShellSupervisor>();
-        let live_url = close_window.url().map_err(|error| error.to_string())?;
-        if (!ON_RECOVERY_SURFACE.load(Ordering::Acquire)
-            && !same_navigation_document(&live_url, &unavailable))
-            || state.active_view_generation.load(Ordering::Acquire) != old_view
-            || state.navigation.load(Ordering::Acquire) != old_navigation
-        {
-            return Err("Unavailable frontend generation was replaced".into());
-        }
-        close_window.destroy().map_err(|error| error.to_string())
-    })
-    .await?;
-
-    tokio::time::timeout(Duration::from_secs(10), async {
-        loop {
-            let epoch = *windows.borrow_and_update();
-            if epoch.generation > before.generation && !epoch.available {
-                return Ok::<(), String>(());
-            }
-            windows.changed().await.map_err(|error| error.to_string())?;
-        }
-    })
-    .await
-    .map_err(|_| "Unavailable frontend destruction deadline elapsed".to_string())??;
-    ensure_server_attachment(&app, expected)?;
-
-    run_on_main_thread(app.clone(), |handle| {
-        crate::startup::desktop_lifecycle::show_or_create(&handle)
-            .map_err(|error| error.to_string())
-    })
-    .await?;
-    ensure_server_attachment(&app, expected)?;
-    let new_view = app
-        .state::<ShellSupervisor>()
-        .active_view_generation
-        .load(Ordering::Acquire);
-    if new_view <= old_view {
-        return Err("Recovered frontend did not advance its view generation".into());
-    }
-    start(app);
-    Ok(())
-}
-
 fn ensure_server_attachment(
     app: &codeterm_client_shell::app_runtime::AppHandle,
     expected: &codeterm_types::server_bootstrap::ServerReady,
@@ -1066,60 +902,6 @@ fn ensure_server_attachment(
         Ok(())
     } else {
         Err("Authenticated server attachment changed during frontend recovery".into())
-    }
-}
-
-async fn run_on_main_thread<T: Send + 'static>(
-    app: codeterm_client_shell::app_runtime::AppHandle,
-    action: impl FnOnce(codeterm_client_shell::app_runtime::AppHandle) -> Result<T, String>
-        + Send
-        + 'static,
-) -> Result<T, String> {
-    const QUEUED: u8 = 0;
-    const RUNNING: u8 = 1;
-    const CANCELLED: u8 = 2;
-    const COMPLETED: u8 = 3;
-
-    let (sender, mut receiver) = tokio::sync::oneshot::channel();
-    let action_app = app.clone();
-    let phase = Arc::new(AtomicU8::new(QUEUED));
-    let scheduled_phase = phase.clone();
-    app.run_on_main_thread(move || {
-        if scheduled_phase
-            .compare_exchange(QUEUED, RUNNING, Ordering::AcqRel, Ordering::Acquire)
-            .is_err()
-        {
-            return;
-        }
-        let result = action(action_app);
-        scheduled_phase.store(COMPLETED, Ordering::Release);
-        let _ = sender.send(result);
-    })
-    .map_err(|error| error.to_string())?;
-    match tokio::time::timeout(Duration::from_secs(10), &mut receiver).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => {
-            if phase
-                .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                Err("Main-thread frontend action was cancelled before execution".into())
-            } else {
-                Err("Main-thread frontend action outcome is uncertain after execution began".into())
-            }
-        }
-        Err(_) => {
-            if phase
-                .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                return Err("Main-thread frontend action deadline elapsed before execution".into());
-            }
-            match receiver.try_recv() {
-                Ok(result) => result,
-                Err(_) => Err("Main-thread frontend action acknowledgement is uncertain".into()),
-            }
-        }
     }
 }
 

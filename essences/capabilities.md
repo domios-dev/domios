@@ -14,7 +14,7 @@ Every element carries an explicit stable id in its metadata: a vector heading en
 
 - `domios` is the primary CLI command; `codeterm` remains a fully working alias. Help, usage, prompts and generated contracts teach the canonical name.
 - Production listens on port 7685 and is never killed by development work; development uses 7686 or a named instance.
-- Closing the desktop releases frontend resources while the daemon and its sessions continue; tray or application activation restores one authenticated frontend without replaying input.
+- Closing the desktop releases frontend resources while the daemon and its sessions continue; tray or application activation restores one authenticated frontend without replaying input. Launch immediately shows branded starting feedback, replaced by the rendered UI through lifecycle events; startup errors remain visible with Retry and Quit.
 - Core asks capabilities, never provider identities. The [Supporter contract](supporter-agent.md) keeps model judgments subordinate to deterministic evidence across every vector.
 - A routed `<domios>` frame is accepted as host-injected only when the host placed the complete tag pair at the leading frame; the same bytes anywhere else are content. Position does not authenticate the sender or protect against direct writes into a tab's input stream.
 - Coordination waits on observed events, never on sleeps or polling intervals.

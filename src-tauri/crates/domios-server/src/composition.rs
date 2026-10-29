@@ -38,30 +38,6 @@ pub(crate) fn compose_observed(
     keepawake::resume_from_disk(&states.keepawake, &ui);
 
     agent::model_catalog::ensure_readme_installed();
-    match codeterm_service_core::secrets::purge_legacy_master_password_file() {
-    codeterm_service_core::secrets::LegacyPurge::Absent => {}
-    codeterm_service_core::secrets::LegacyPurge::SecurelyErased => {
-        log::info!("[secrets] securely erased the retired master-password drop")
-    }
-    codeterm_service_core::secrets::LegacyPurge::RemovedWithoutOverwrite => log::warn!(
-        "[secrets] removed the retired master-password drop WITHOUT overwriting it; the old secret may still be recoverable from disk — rotate it"
-    ),
-    codeterm_service_core::secrets::LegacyPurge::RemovalFailed { overwritten } => log::warn!(
-        "[secrets] the retired master-password drop is still on disk (overwritten={overwritten}); it may still be recoverable — remove and rotate it"
-    ),
-    codeterm_service_core::secrets::LegacyPurge::InspectionFailed => log::warn!(
-        "[secrets] could not inspect the retired master-password drop; assume it is present and recoverable until checked"
-    ),
-}
-    {
-        let mut cfg = states.config.lock();
-        if codeterm_service_core::secrets::migrate_native_bitwarden_to_plugin(&mut cfg) {
-            let snapshot = cfg.clone();
-            drop(cfg);
-            let _ = codeterm_service_core::config::save_config_pub(&snapshot);
-        }
-    }
-
     let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
     let secret_registry = Arc::new(codeterm_service_core::secrets::SecretRegistry::new());
     let transcribe_registry =

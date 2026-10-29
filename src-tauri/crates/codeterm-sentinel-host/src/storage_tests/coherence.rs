@@ -185,9 +185,9 @@ fn storage_sentinel_rows_written_stay_bounded_by_the_changed_stage() {
 }
 
 #[test]
-fn storage_sentinel_schema_upgrades_v1_in_place_with_exact_relationships() {
+fn storage_sentinel_current_schema_has_exact_relationships() {
     let root = temp_root();
-    Storage::create_at_schema_version(root.path(), 1).expect("foundation schema root");
+    close(open(root.path()));
     rusqlite::Connection::open(Storage::database_path(root.path()))
         .and_then(|conn| {
             conn.execute(

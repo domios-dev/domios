@@ -1,8 +1,6 @@
 //! Sentinel scenarios: stable identity, immutable definition versions behind a mutable head,
 //! mutable stage runtime, accepted transitions and independent handler claims/results.
 
-use crate::error::{sqlite_error, StorageError};
-use rusqlite::Connection;
 
 // Every relationship is an immediate NO ACTION foreign key; deletions are explicit and ordered.
 // Target identities are historical references, never keys into live tabs, crons or Teams.
@@ -162,8 +160,6 @@ CREATE TABLE sentinel_command_cleanup (
 ) STRICT;
 "#;
 
-/// Rebuilds the Sentinel tables for graph stages; `refuse_stored_stages` runs first, so the
-/// rebuild never discards a stored stage.
 pub(super) const GRAPH_SCHEMA: &str = r#"
 DROP TABLE sentinel_command_cleanup;
 DROP TABLE sentinel_command_results;
@@ -363,78 +359,6 @@ CREATE TABLE sentinel_command_cleanup (
 ) STRICT;
 "#;
 
-/// Rebuilds `sentinel_definitions` with the generic `source_kind`/`source_spec` pair and
-/// backfills existing probe/observe rows. It runs only for definitions created before that
-/// pair existed (`definitions_carry_source_pair`), so no later source lane rebuilds the table.
-pub(super) const SOURCE_SCHEMA: &str = r#"
-PRAGMA defer_foreign_keys=ON;
-CREATE TABLE sentinel_definitions_source_hold AS
-    SELECT sentinel_id, version, provenance, name,
-        CASE WHEN length(probe) > 0 THEN 'probe' ELSE 'observe' END AS source_kind,
-        CAST(NULL AS TEXT) AS source_spec,
-        probe, observe_kind, observe_ref, question, interval_ms, until_bucket,
-        escalation_timeout_ms, max_transitions, max_actions, replaced_version,
-        author_tab_id, cause_transition_id, authored_at, created_revision
-    FROM sentinel_definitions WHERE 0;
-INSERT INTO sentinel_definitions_source_hold
-    (sentinel_id, version, provenance, name, source_kind, source_spec, probe,
-     observe_kind, observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms,
-     max_transitions, max_actions, replaced_version, author_tab_id, cause_transition_id,
-     authored_at, created_revision)
-    SELECT sentinel_id, version, provenance, name,
-        CASE WHEN length(probe) > 0 THEN 'probe' ELSE 'observe' END,
-        NULL,
-        probe, observe_kind, observe_ref, question, interval_ms, until_bucket,
-        escalation_timeout_ms, max_transitions, max_actions, replaced_version,
-        author_tab_id, cause_transition_id, authored_at, created_revision
-    FROM sentinel_definitions;
-DROP TABLE sentinel_definitions;
-CREATE TABLE sentinel_definitions (
-    sentinel_id TEXT NOT NULL REFERENCES sentinels(id),
-    version INTEGER NOT NULL CHECK (version > 0),
-    provenance TEXT NOT NULL CHECK (provenance IN ('authored', 'imported')),
-    name TEXT,
-    source_kind TEXT NOT NULL CHECK (source_kind IN ('probe', 'observe', 'input', 'event')),
-    source_spec TEXT,
-    probe TEXT NOT NULL,
-    observe_kind TEXT CHECK (observe_kind IN ('tab', 'cron_run')),
-    observe_ref TEXT CHECK (observe_ref IS NULL OR length(observe_ref) > 0),
-    question TEXT NOT NULL,
-    interval_ms INTEGER NOT NULL CHECK (interval_ms > 0),
-    until_bucket TEXT,
-    escalation_timeout_ms INTEGER
-        CHECK (escalation_timeout_ms IS NULL OR escalation_timeout_ms > 0),
-    max_transitions INTEGER NOT NULL CHECK (max_transitions BETWEEN 1 AND 65535),
-    max_actions INTEGER NOT NULL CHECK (max_actions BETWEEN 1 AND 65535),
-    replaced_version INTEGER,
-    author_tab_id TEXT CHECK (author_tab_id IS NULL OR length(author_tab_id) > 0),
-    cause_transition_id TEXT
-        CHECK (cause_transition_id IS NULL OR length(cause_transition_id) > 0),
-    authored_at INTEGER CHECK (authored_at IS NULL OR authored_at >= 0),
-    created_revision INTEGER NOT NULL CHECK (created_revision > 0),
-    PRIMARY KEY (sentinel_id, version),
-    CHECK ((source_kind = 'probe') = (length(probe) > 0)),
-    CHECK ((source_kind = 'observe') = (observe_kind IS NOT NULL)),
-    CHECK ((source_kind IN ('input', 'event')) = (source_spec IS NOT NULL)),
-    CHECK ((observe_kind IS NULL) = (observe_ref IS NULL)),
-    CHECK (replaced_version IS NULL OR (replaced_version > 0 AND replaced_version < version)),
-    CHECK ((replaced_version IS NULL) = (author_tab_id IS NULL)
-        AND (replaced_version IS NULL) = (authored_at IS NULL)),
-    CHECK (cause_transition_id IS NULL OR replaced_version IS NOT NULL)
-) STRICT;
-INSERT INTO sentinel_definitions
-    (sentinel_id, version, provenance, name, source_kind, source_spec, probe,
-     observe_kind, observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms,
-     max_transitions, max_actions, replaced_version, author_tab_id, cause_transition_id,
-     authored_at, created_revision)
-    SELECT sentinel_id, version, provenance, name, source_kind, source_spec, probe,
-     observe_kind, observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms,
-     max_transitions, max_actions, replaced_version, author_tab_id, cause_transition_id,
-     authored_at, created_revision
-    FROM sentinel_definitions_source_hold;
-DROP TABLE sentinel_definitions_source_hold;
-"#;
-
 pub(super) const PIPELINE_SCHEMA: &str = r#"
 ALTER TABLE sentinel_definitions ADD COLUMN pipeline_spec TEXT;
 CREATE TABLE blueprint_step_journal (
@@ -455,38 +379,6 @@ CREATE INDEX blueprint_step_journal_newest
     ON blueprint_step_journal(sentinel_id, entry_id DESC);
 "#;
 
-/// Whether `sentinel_definitions` already carries the source pair, so `SOURCE_SCHEMA` is a no-op.
-pub(super) fn definitions_carry_source_pair(conn: &Connection) -> Result<bool, StorageError> {
-    let columns: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('sentinel_definitions') \
-             WHERE name = 'source_kind'",
-            [],
-            |row| row.get(0),
-        )
-        .map_err(|e| sqlite_error("inspect sentinel definitions", e))?;
-    Ok(columns > 0)
-}
-
-/// The graph rebuild drops the Sentinel tables, so it runs only while they hold no stage.
-pub(super) fn refuse_stored_stages(conn: &Connection) -> Result<(), StorageError> {
-    let stored: bool = conn
-        .query_row("SELECT EXISTS (SELECT 1 FROM sentinels)", [], |row| {
-            row.get(0)
-        })
-        .map_err(|e| sqlite_error("check stored sentinels", e))?;
-    if !stored {
-        return Ok(());
-    }
-    let schema_version = conn
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(|e| sqlite_error("read schema version", e))?;
-    Err(StorageError::MigrationRefused {
-        schema_version,
-        reason: "stored Sentinel stages would be discarded by the Sentinel graph rebuild",
-    })
-}
-
 #[cfg(any(test, feature = "test-support"))]
 mod support {
     use crate::assets::{self, Layout};
@@ -496,8 +388,7 @@ mod support {
     use std::path::Path;
 
     impl Storage {
-        /// Creates a root whose database stops at an earlier schema version, so contract
-        /// tests can prove the registered migrations upgrade it in place.
+        /// Creates a previous-schema fixture to prove startup refuses it without alteration.
         pub fn create_at_schema_version(root: &Path, version: i32) -> Result<(), StorageError> {
             let migrations = super::super::MIGRATIONS;
             let count = usize::try_from(version)

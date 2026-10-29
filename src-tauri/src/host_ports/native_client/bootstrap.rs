@@ -33,6 +33,8 @@ use tokio::{
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ClientStartupStage {
+    StartingWindow,
+    RootRender,
     ResourceRoot,
     Inventory,
     Install,
@@ -113,7 +115,6 @@ fn record_trail(
 pub(crate) fn startup_started(stage: ClientStartupStage) {
     record_startup(stage, "started", None, None, false);
 }
-/// The stage completed; the interface is on screen once `Frontend` is reached.
 pub(crate) fn startup_reached(stage: ClientStartupStage) {
     record_startup(stage, "reached", None, None, false);
 }
@@ -250,6 +251,7 @@ impl HelperFailure {
 pub(crate) struct ClientStartupFailure {
     message: String,
     stated_refusal: bool,
+    retryable: bool,
 }
 
 impl ClientStartupFailure {
@@ -264,6 +266,12 @@ impl ClientStartupFailure {
                     ..
                 }
             ),
+            retryable: matches!(
+                error,
+                HelperFailure::Exit {
+                    code: Some(3), request_forwarded: true, ..
+                }
+            ),
         }
     }
 
@@ -274,6 +282,32 @@ impl ClientStartupFailure {
     pub(crate) fn stated_refusal(&self) -> bool {
         self.stated_refusal
     }
+
+    pub(crate) fn retryable(&self) -> bool {
+        self.retryable
+    }
+
+    pub(super) fn native_connection(error: io::Error) -> Self {
+        let retryable = matches!(
+            error.kind(),
+            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                | io::ErrorKind::ConnectionReset | io::ErrorKind::TimedOut
+        );
+        Self {
+            message: error.to_string(),
+            stated_refusal: false,
+            retryable,
+        }
+    }
+
+    fn attach(error: &HelperFailure) -> Self {
+        Self {
+            message: error.to_string(),
+            stated_refusal: false,
+            retryable: error.allows_initial_server_launch()
+                || matches!(error, HelperFailure::Deadline { .. }),
+        }
+    }
 }
 
 impl From<String> for ClientStartupFailure {
@@ -281,6 +315,7 @@ impl From<String> for ClientStartupFailure {
         Self {
             message,
             stated_refusal: false,
+            retryable: false,
         }
     }
 }
@@ -577,7 +612,7 @@ pub(super) async fn attach_or_launch(
         }
         Err(error) => {
             helper_diagnostic(ClientStartupStage::Attach, &error);
-            Err(error.to_string().into())
+            Err(ClientStartupFailure::attach(&error))
         }
     }
 }
@@ -994,28 +1029,4 @@ impl super::NativeHostClient {
 }
 
 #[cfg(test)]
-mod framing_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn newline_observation_never_replaces_exact_eof_validation() {
-        let (mut writer, stream) = tokio::io::duplex(64);
-        let (observed, newline) = tokio::sync::oneshot::channel();
-        let read = tokio::spawn(async move {
-            let mut reader = tokio::io::BufReader::new(stream);
-            read_single_bounded_line_observed(&mut reader, 32, || {
-                let _ = observed.send(());
-            })
-            .await
-        });
-        writer.write_all(b"opaque\n").await.unwrap();
-        newline.await.unwrap();
-        assert!(!read.is_finished());
-        writer.write_all(b"trailing").await.unwrap();
-        writer.shutdown().await.unwrap();
-        assert_eq!(
-            read.await.unwrap().unwrap_err().kind(),
-            io::ErrorKind::InvalidData
-        );
-    }
-}
+mod framing_tests;

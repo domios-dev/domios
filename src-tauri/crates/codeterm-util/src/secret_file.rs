@@ -78,7 +78,6 @@ impl SecretFile {
             };
         }
         let path = dir.join(".secrets");
-        migrate_legacy_file_backend(dir, service, &path);
         Self {
             backend: Backend::File {
                 path,
@@ -288,36 +287,6 @@ fn write_locked_file_entry(
 
 fn storage_account(service: &str, account: &str) -> String {
     format!("{}:{}", sanitize_service(service), account)
-}
-
-fn migrate_legacy_file_backend(data_root: &Path, service: &str, new_path: &Path) {
-    let old_path = data_root
-        .join("keychain")
-        .join(format!("{}.json", sanitize_service(service)));
-    if !old_path.exists() {
-        return;
-    }
-    let raw = match std::fs::read_to_string(&old_path) {
-        Ok(s) if !s.trim().is_empty() => s,
-        _ => return,
-    };
-    let map: std::collections::HashMap<String, String> = match serde_json::from_str(&raw) {
-        Ok(map) => map,
-        Err(e) => {
-            log::warn!(
-                "[secrets/keychain] failed to parse legacy {}: {}",
-                old_path.display(),
-                e
-            );
-            return;
-        }
-    };
-    for (account, value) in map {
-        let namespaced = storage_account(service, &account);
-        if read_file_entry(new_path, &namespaced).is_err() {
-            let _ = write_file_entry(new_path, &namespaced, Some(&value));
-        }
-    }
 }
 
 /// Make a service name safe to use as a key namespace — strip path separators

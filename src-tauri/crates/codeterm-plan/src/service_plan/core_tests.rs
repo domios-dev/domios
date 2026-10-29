@@ -289,7 +289,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
 }
 
 #[test]
-fn scan_project_loads_plan_written_directly_to_disk() {
+fn scan_project_does_not_import_a_plan_written_directly_to_disk() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let project = paths::project_root(dir.path());
@@ -300,7 +300,6 @@ fn scan_project_loads_plan_written_directly_to_disk() {
     );
     plan.created_at = 1000;
     plan.updated_at = 2000;
-    let plan_id = plan.id.clone();
     let path = plan_path(dir.path(), &plan);
     std::fs::write(&path, serde_yaml::to_string(&plan).unwrap()).unwrap();
 
@@ -312,9 +311,7 @@ fn scan_project_loads_plan_written_directly_to_disk() {
         .filter(|p| p.project_path == loaded_project.display().to_string())
         .collect();
 
-    assert_eq!(plans.len(), 1);
-    assert_eq!(plans[0].id, plan_id);
-    assert_eq!(plans[0].title, "Persisted");
+    assert!(plans.is_empty());
 }
 
 #[test]

@@ -77,44 +77,23 @@ fn plan_round_trips_from_one_wal_database() {
 }
 
 #[test]
-fn legacy_yaml_is_imported_once_and_never_overwrites_the_database() {
+fn startup_scan_never_imports_retired_yaml_or_changes_its_bytes() {
     let directory = tempfile::tempdir().unwrap();
     crate::service_plan::paths::mark_test_project_root(directory.path());
-    let mut legacy_plan = Plan::new(
-        "Imported title".into(),
+    let legacy = Plan::new(
+        "Old plan".into(),
         directory.path().display().to_string(),
         OrchestratorRef::from_tab("orch"),
     );
-    legacy_plan.updated_at = 10;
-    let legacy_dir = crate::service_plan::paths::plan_dir(
-        directory.path(),
-        &legacy_plan.status,
-        &legacy_plan.id,
-    )
-    .unwrap();
-    crate::service_plan::store_v2::write_plan(&legacy_dir, &legacy_plan).unwrap();
-
+    let legacy_dir =
+        crate::service_plan::paths::plan_dir(directory.path(), &legacy.status, &legacy.id).unwrap();
+    crate::service_plan::store_v2::write_plan(&legacy_dir, &legacy).unwrap();
+    let source = legacy_dir.join("plan.yaml");
+    let bytes = std::fs::read(&source).unwrap();
     let store = PlanStore::new_for_test(directory.path());
     store.scan_project(directory.path()).unwrap();
-    assert_eq!(store.get(&legacy_plan.id).unwrap().title, "Imported title");
-    let database_path = store.database_path_for_test();
-    drop(store);
-
-    legacy_plan.title = "Stale YAML must not win".into();
-    legacy_plan.updated_at = 99;
-    crate::service_plan::store_v2::write_plan(&legacy_dir, &legacy_plan).unwrap();
-
-    let reopened = PlanStore::open(database_path).unwrap();
-    let operations_before_rescan = reopened.operation_count_for_test(None);
-    reopened.scan_project(directory.path()).unwrap();
-    assert_eq!(
-        reopened.get(&legacy_plan.id).unwrap().title,
-        "Imported title"
-    );
-    assert_eq!(
-        reopened.operation_count_for_test(None),
-        operations_before_rescan
-    );
+    assert!(store.get(&legacy.id).is_none());
+    assert_eq!(std::fs::read(source).unwrap(), bytes);
 }
 
 #[test]
@@ -152,7 +131,7 @@ fn deleting_a_plan_removes_the_document_and_search_row_atomically() {
 }
 
 #[test]
-fn plan_store_open_isolates_malformed_records_and_normalizes_pane_era_fields() {
+fn plan_store_open_isolates_malformed_and_pane_era_records_without_rewriting() {
     let directory = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(directory.path());
 
@@ -220,15 +199,7 @@ fn plan_store_open_isolates_malformed_records_and_normalizes_pane_era_fields() {
     let reopened = PlanStore::open(database_path.clone()).unwrap();
     assert_eq!(reopened.get(&valid.id).unwrap().title, "Current plan");
     assert!(reopened.get("pl_malformed").is_none());
-    let normalized = reopened.get(&legacy.id).unwrap();
-    assert!(matches!(
-        normalized.planner,
-        Some(PlannerRef::Tab { ref tab_id, .. }) if tab_id == "planner-tab"
-    ));
-    let attempt = &normalized.tasks[0].execution_attempts[0];
-    assert_eq!(attempt.executor_tab_id, "worker-tab");
-    assert_eq!(attempt.parent_tab_id.as_deref(), Some("parent-tab"));
-    assert_eq!(attempt.orchestrator_tab_id.as_deref(), Some("orch-tab"));
+    assert!(reopened.get(&legacy.id).is_none());
 
     let persisted = Connection::open(database_path).unwrap();
     let legacy_source: String = persisted
@@ -250,7 +221,7 @@ fn plan_store_open_isolates_malformed_records_and_normalizes_pane_era_fields() {
 }
 
 #[test]
-fn legacy_planner_tag_value_migrates_without_quarantine() {
+fn startup_refuses_retired_planner_tags_and_round_trips_current_tags() {
     let raw = serde_json::json!({
         "id": "pl_legacy_tag",
         "title": "Legacy tag",
@@ -263,17 +234,7 @@ fn legacy_planner_tag_value_migrates_without_quarantine() {
     })
     .to_string();
 
-    let (plan, _) =
-        parse_plan_document(&raw).expect("a legacy-tag document must load, not quarantine");
-    assert!(matches!(
-        plan.planner,
-        Some(PlannerRef::Tab { ref tab_id, .. }) if tab_id == "tab_x"
-    ));
-
-    // Idempotent: re-parsing the already-migrated document yields the same value.
-    let migrated_json = serde_json::to_string(&plan).unwrap();
-    let (reparsed, _) = parse_plan_document(&migrated_json).unwrap();
-    assert_eq!(reparsed.planner, plan.planner);
+    assert!(parse_plan_document(&raw).is_err());
 
     // A document that never carried the legacy tag round-trips unchanged.
     let mut current = Plan::new(
@@ -287,9 +248,8 @@ fn legacy_planner_tag_value_migrates_without_quarantine() {
         title: None,
     });
     let current_json = serde_json::to_string(&current).unwrap();
-    let (reparsed_current, normalized) = parse_plan_document(&current_json).unwrap();
+    let reparsed_current = parse_plan_document(&current_json).unwrap();
     assert_eq!(reparsed_current.planner, current.planner);
-    assert_eq!(normalized, 0);
 }
 
 #[test]

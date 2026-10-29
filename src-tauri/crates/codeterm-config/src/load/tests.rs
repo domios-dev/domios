@@ -470,3 +470,15 @@ fn failed_migration_config_write_keeps_runtime_authority_and_holds_writes() {
         .iter()
         .any(|incident| incident.error.contains("injected write failure")));
 }
+
+#[test]
+fn startup_does_not_rewrite_retired_config_or_override_explicit_kpi_opt_out() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let original = "[agent]\nresume_skip_permissions = true\n[kpi]\nenabled = false\n";
+    std::fs::write(&path, &original).unwrap();
+    let config = load_config_cached_at(&path, root.path(), &Mutex::new(None)).unwrap();
+    assert_eq!(config.agent.full_access, None);
+    assert!(!config.kpi.enabled);
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+}
