@@ -152,3 +152,106 @@ it("does not loop if the route still refuses after readiness", async () => {
   await expect(client.json("POST", "/api/tabs/opaque/wake")).rejects.toThrow("HTTP 503");
   expect(attempts).toBe(2);
 });
+
+it("never reissues a streamed mutation even with non-execution proof", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({
+    error: { code: "starting", subsystem: "service", request_executed: false },
+  }, { status: 503 }));
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const body = new ReadableStream<Uint8Array>({ start(controller) { controller.close(); } });
+  const response = await client.request!("/api/tabs/opaque/chat-send", { method: "POST", body });
+  expect(response.status).toBe(503);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch.mock.calls[0][1]?.body).toBe(body);
+});
+
+it("never reissues a mutation cancelled while waiting for startup readiness", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({
+    error: { code: "starting", subsystem: "service", request_executed: false },
+  }, { status: 503 }));
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const subscribed = deferred();
+  let publish!: Parameters<TransportClient["subscribe"]>[1];
+  const close = vi.fn();
+  client.subscribe = vi.fn<TransportClient["subscribe"]>((_path, callback) => {
+    publish = callback;
+    subscribed.resolve();
+    return close;
+  });
+  const controller = new AbortController();
+  const pending = client.json("POST", "/api/tabs/opaque/chat-send", { opaque: true }, { signal: controller.signal });
+  const rejected = expect(pending).rejects.toThrow("fixture cancellation");
+  await subscribed.promise;
+  controller.abort(new Error("fixture cancellation"));
+  await rejected;
+  await publish("startup-state", { state: "ready" });
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(close).toHaveBeenCalledOnce();
+});
+
+it("serializes held and newly arriving chat sends to one tab in their original order", async () => {
+  const subscribed = deferred();
+  const ready = deferred();
+  const firstAccepted = deferred();
+  const finishFirst = deferred();
+  const requests: string[] = [];
+  const executions: string[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+    if (String(input).endsWith("/api/startup/events")) {
+      subscribed.resolve();
+      await ready.promise;
+      return new Response('event: startup-state\ndata: {"state":"ready"}\n\n', {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+    const { text } = JSON.parse(String(init?.body)) as { text: string };
+    requests.push(text);
+    if (requests.length === 1) return Response.json({
+      error: { code: "starting", subsystem: "service", request_executed: false },
+    }, { status: 503 });
+    executions.push(text);
+    if (text === "first") {
+      firstAccepted.resolve();
+      await finishFirst.promise;
+    }
+    return Response.json({ accepted: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const first = client.json("POST", "/api/tabs/opaque/chat-send", { text: "first" });
+  const second = client.localJson("POST", "/api/tabs/opaque/chat-send", { text: "second" });
+  await subscribed.promise;
+  expect(requests).toEqual(["first"]);
+  ready.resolve();
+  await firstAccepted.promise;
+  const third = client.json("POST", "/api/tabs/opaque/chat-send", { text: "third" });
+  expect(executions).toEqual(["first"]);
+  finishFirst.resolve();
+  await Promise.all([first, second, third]);
+  expect(requests).toEqual(["first", "first", "second", "third"]);
+  expect(executions).toEqual(["first", "second", "third"]);
+});
+
+it("cancels a queued mutation without letting later requests overtake the queue head", async () => {
+  const started = deferred();
+  const finishFirst = deferred();
+  const requests: string[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+    const { text } = JSON.parse(String(init?.body)) as { text: string };
+    requests.push(text);
+    if (text === "first") { started.resolve(); await finishFirst.promise; }
+    return Response.json({ accepted: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const first = client.json("POST", "/api/tabs/opaque/chat-send", { text: "first" });
+  await started.promise;
+  const controller = new AbortController();
+  const second = client.json("POST", "/api/tabs/opaque/chat-send", { text: "second" }, { signal: controller.signal });
+  const rejected = expect(second).rejects.toThrow("fixture queued cancellation");
+  const third = client.json("POST", "/api/tabs/opaque/chat-send", { text: "third" });
+  controller.abort(new Error("fixture queued cancellation"));
+  await rejected;
+  expect(requests).toEqual(["first"]);
+  finishFirst.resolve();
+  await Promise.all([first, third]);
+  expect(requests).toEqual(["first", "third"]);
+});

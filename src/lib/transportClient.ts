@@ -213,7 +213,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     return response;
   };
 
-  const tracked = async (path: string, init: RequestInit = {}, local = false) => {
+  const afterStartup = async (path: string, init: RequestInit = {}, local = false) => {
     const response = await perform(path, init, local);
     if (response.status !== 503) return response;
     if (typeof ReadableStream !== "undefined" && init.body instanceof ReadableStream) return response;
@@ -225,6 +225,31 @@ export function createTransportClient(options: TransportOptions): TransportClien
     await response.body?.cancel();
     await startup.wait(area, init.signal ?? undefined);
     return perform(path, init, local);
+  };
+
+  const mutations = new Map<string, Promise<void>>();
+  const tracked = (path: string, init: RequestInit = {}, local = false): Promise<Response> => {
+    if (["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase())) return afterStartup(path, init, local);
+    const target = path.match(/^\/api\/(?:tabs|pty|workspaces)\/[^/?]+/)?.[0] ?? path;
+    const destination = local || !options.relayPeerId ? "local" : `peer:${options.relayPeerId}`;
+    const key = `${destination}:${target}`;
+    const previous = mutations.get(key) ?? Promise.resolve();
+    const result = previous.then(() => {
+      if (init.signal?.aborted) throw init.signal.reason ?? new DOMException("Request cancelled", "AbortError");
+      return afterStartup(path, init, local);
+    });
+    const settled = result.then(() => {}, () => {});
+    mutations.set(key, settled);
+    void settled.then(() => { if (mutations.get(key) === settled) mutations.delete(key); });
+    if (!init.signal) return result;
+    const signal = init.signal;
+    return new Promise<Response>((resolve, reject) => {
+      const abort = () => reject(signal.reason ?? new DOMException("Request cancelled", "AbortError"));
+      const release = () => signal.removeEventListener("abort", abort);
+      signal.addEventListener("abort", abort, { once: true });
+      result.then(value => { release(); resolve(value); }, error => { release(); reject(error); });
+      if (signal.aborted) { release(); abort(); }
+    });
   };
 
   const json = async <T>(method: string, path: string, body: unknown, init: RequestInit = {}, local = false) => {
