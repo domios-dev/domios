@@ -819,7 +819,11 @@ fn general_agent_permission_bypass(
     )
 }
 
-fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {
+fn clear_stale_general_binding(
+    svc: &crate::service::ServiceContext,
+    mux: &crate::MuxState,
+    tab_id: &str,
+) {
     let provider = svc.configuration().general_agent.agent_provider;
     let same_provider = mux
         .read()

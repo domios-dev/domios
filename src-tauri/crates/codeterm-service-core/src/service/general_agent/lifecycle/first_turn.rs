@@ -6,7 +6,7 @@ pub(super) fn awaiting_user_turn(lazy: bool, resuming: bool, first_turn_planned:
     lazy && !resuming && !first_turn_planned
 }
 
-pub(super) fn prepare(svc: &ServiceContext, tab: &str, pty: &str, provider: &str) -> bool {
+pub(super) fn prepare(svc: &crate::ServiceState, tab: &str, pty: &str, provider: &str) -> bool {
     let Some(attempt) = LaunchAttempt::current(&svc.mux, tab, pty) else {
         return true;
     };
