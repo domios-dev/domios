@@ -1,6 +1,7 @@
 //! Account Mesh admission: installation possession key, server proofs, membership trust and
 //! the sign-in / sign-out lifecycle that gates every Mesh edge of this installation.
 
+mod admission;
 pub mod callable;
 mod key;
 mod lifecycle;

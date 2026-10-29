@@ -66,6 +66,11 @@ impl SessionSource for AccountSessions {
         let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
         account.current_session().await.map_err(session_refusal)
     }
+
+    async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal> {
+        let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
+        account.fresh_session().await.map_err(session_refusal)
+    }
 }
 
 #[derive(Default)]

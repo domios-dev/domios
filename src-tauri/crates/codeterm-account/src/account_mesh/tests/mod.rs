@@ -1,3 +1,4 @@
+mod admission_reuse;
 mod callable;
 mod enrollment_refusals;
 mod entitlements;

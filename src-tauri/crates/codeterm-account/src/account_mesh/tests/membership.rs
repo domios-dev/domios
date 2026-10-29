@@ -52,7 +52,7 @@ fn with(mut payload: Value, field: &str, value: Value) -> Value {
 fn account_mesh_membership_accepts_only_its_exact_window() {
     let verified = verify(&valid_payload(), START).unwrap();
     assert_eq!(verified.account_id, account_id(UID));
-    assert_eq!(verified.refresh_after(), START + 1800);
+    assert_eq!(verified.refresh_after(), START + 3480);
     assert!(verify(&valid_payload(), START + 3599).is_ok());
     assert_eq!(
         verify(&valid_payload(), START + 3600),
