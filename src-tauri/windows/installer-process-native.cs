@@ -1,6 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.ComTypes;
+using FILETIME = System.Runtime.InteropServices.ComTypes.FILETIME;
 using System.Text;
 
 public sealed class DomiosInstallHolder {

@@ -7,6 +7,12 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.17.3]
+
+### Fixed
+
+- Windows installer failed to run (exit 2) on Windows PowerShell 5.1; fixed.
+
 ## [1.17.2]
 
 This update improves startup and session restoration, terminal input, mesh recovery, and update handling.
