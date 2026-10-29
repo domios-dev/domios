@@ -172,7 +172,7 @@ test("starting composer preserves its draft before five seconds and explicitly o
   const timer = vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args) => {
     if (delay === 5_000 && typeof callback === "function") {
       due.push(() => callback(...args));
-      return 0;
+      return 0 as unknown as ReturnType<typeof window.setTimeout>;
     }
     return schedule(callback, delay, ...args);
   });
@@ -193,7 +193,7 @@ test("starting composer preserves its draft before five seconds and explicitly o
     await flush();
     assert((h.sendCalls.length as number) === 1, "one explicit Enter creates one admission");
     assert(h.sendCalls[0].startupOverrideNonce === "own-launch", "send authorizes only the observed launch");
-    assert(h.el.value === "", "accepted draft clears immediately");
+    assert((h.el.value as string) === "", "accepted draft clears immediately");
   } finally {
     await teardown(h);
     timer.mockRestore();
