@@ -140,6 +140,10 @@ fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
         mesh::AdmissionRefusal::Revoked
     );
     assert_eq!(
+        membership_refusal(MembershipRefusal::Duration),
+        mesh::AdmissionRefusal::handshake("membership-duration")
+    );
+    assert_eq!(
         membership_refusal(MembershipRefusal::Signature),
         mesh::AdmissionRefusal::handshake("membership-signature")
     );

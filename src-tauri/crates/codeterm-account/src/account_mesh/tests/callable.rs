@@ -166,6 +166,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
                         schema_version: 1,
                         installation_id: "caller".into(),
                         request_id: "a".repeat(64),
+                        requested_membership_seconds: None,
                         operation: MeshOperation::SessionRevoke {
                             target: SessionTarget {
                                 installation_id: "target".into()
@@ -231,6 +232,7 @@ async fn account_mesh_callable_sends_the_packet_envelope_and_reads_the_result() 
         schema_version: 1,
         installation_id: "desk-7f3a".into(),
         request_id: format!("{}1", "0".repeat(63)),
+        requested_membership_seconds: None,
         operation: MeshOperation::Publish {
             expected_metadata_revision: 0,
             endpoint: MeshEndpoint::parse("100.64.0.7", 7685).unwrap().wire(),

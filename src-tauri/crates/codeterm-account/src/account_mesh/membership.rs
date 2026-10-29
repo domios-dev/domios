@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 pub const MEMBERSHIP_ISSUER: &str = "domios-mesh-membership";
-pub const MAX_MEMBERSHIP_SECONDS: u64 = 3600;
-pub const RENEW_AFTER_SECONDS: u64 = MAX_MEMBERSHIP_SECONDS - 120;
+pub const MAX_MEMBERSHIP_SECONDS: u64 = 86400;
+pub const RENEW_AFTER_SECONDS: u64 = 3600 - 120;
 /// Not-before leeway for a desktop clock behind the issuer; expiry is never extended. It stays
 /// within one link-permit lifetime and far inside the renewal window.
 pub const NOT_BEFORE_SKEW_SECONDS: u64 = 120;
@@ -71,8 +71,8 @@ impl VerifiedMembership {
         self.issued_at <= now.saturating_add(NOT_BEFORE_SKEW_SECONDS) && now < self.expires_at
     }
     pub fn refresh_after(&self) -> u64 {
-        let margin = (MAX_MEMBERSHIP_SECONDS - RENEW_AFTER_SECONDS)
-            .min(self.expires_at.saturating_sub(self.issued_at) / 2);
+        let margin =
+            (3600 - RENEW_AFTER_SECONDS).min(self.expires_at.saturating_sub(self.issued_at) / 2);
         self.expires_at.saturating_sub(margin)
     }
 }
@@ -105,6 +105,7 @@ pub enum MembershipRefusal {
     Key,
     Slot,
     Window,
+    Duration,
     NotYetValid,
     Expired,
 }
@@ -249,6 +250,9 @@ pub fn verify_membership(
             .is_some_and(|slot| slot != payload.slot_revision)
     {
         return Err(R::Slot);
+    }
+    if payload.expires_at.saturating_sub(payload.issued_at) > MAX_MEMBERSHIP_SECONDS {
+        return Err(R::Duration);
     }
     window(
         payload.issued_at,

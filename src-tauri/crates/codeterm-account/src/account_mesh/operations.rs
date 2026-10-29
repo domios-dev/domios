@@ -326,6 +326,7 @@ impl AccountMesh {
 
     pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
+        self.restore_admission(&signed);
         let now = self.now();
         let current = self.with(|inner| {
             inner
@@ -341,6 +342,11 @@ impl AccountMesh {
                 .await?;
             return self.reconcile_publication(&signed).await;
         }
+        let previous_revision = self
+            .state()
+            .registry
+            .as_ref()
+            .map(|registry| registry.registry_revision);
         let removed = self.own_removed();
         let result = if removed {
             self.rejoin(&mut signed).await?
@@ -406,6 +412,13 @@ impl AccountMesh {
             self.now(),
         )
         .map_err(|_| AccountMeshRefusal::Invalid)?;
+        let reuse_registry = result.operation == MembershipOperation::Renew
+            && previous_revision.is_some_and(|revision| {
+                result.registry_revision == revision
+                    || revision.checked_add(1) == Some(result.registry_revision)
+            });
+        let expires_at = verified.expires_at;
+        let slot_revision = verified.slot_revision;
         let token = membership_token(&result.membership);
         let committed = self.with(|inner| {
             if !inner.is_current(epoch) {
@@ -439,6 +452,23 @@ impl AccountMesh {
                 }) {
                     state.registry = None;
                 }
+                if reuse_registry {
+                    if let Some(registry) = state.registry.as_mut() {
+                        registry.registry_revision = result.registry_revision;
+                        if let Some(cursor) = registry.cursor.as_mut() {
+                            cursor.registry_revision = result.registry_revision;
+                        }
+                        if let Some(own) = registry
+                            .rows
+                            .iter_mut()
+                            .find(|row| row.installation_id == installation)
+                        {
+                            own.slot_revision = slot_revision;
+                            own.membership_expires_at = Some(expires_at);
+                            own.publication = PublicationState::Complete;
+                        }
+                    }
+                }
                 state.membership = Some(SignedMembership { token, verified });
             });
             true
@@ -447,7 +477,14 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         self.persist().await;
-        self.sync_registry(&signed).await
+        let unchanged = reuse_registry && self.with(|inner| !inner.sync_pending);
+        if unchanged {
+            self.set_registry_presence(&signed, RegistryPresence::Present)
+                .await?;
+            self.reconcile_publication(&signed).await
+        } else {
+            self.sync_registry(&signed).await
+        }
     }
 
     pub(super) fn remember_metadata(
@@ -515,6 +552,10 @@ impl AccountMesh {
                 self.with(|inner| {
                     if inner.is_current(signed.epoch) {
                         inner.published_until = result.endpoint.expires_at;
+                        inner.publication_refresh_after = super::sync::publication_refresh_after(
+                            self.now(),
+                            result.endpoint.expires_at,
+                        );
                     }
                 });
                 (true, result.metadata_revision)
@@ -537,7 +578,7 @@ impl AccountMesh {
                 && match &ready {
                     Some(_) => {
                         inner.state.publication == Publication::Published
-                            && inner.published_until > self.now()
+                            && inner.publication_refresh_after > self.now()
                     }
                     None => !inner.record.published,
                 }
@@ -608,9 +649,7 @@ impl AccountMesh {
             true
         });
         if changed {
-            if cleanup_confirmed {
-                self.persist().await;
-            }
+            self.persist().await;
             self.push().await;
         }
         failure.map_or(Ok(()), Err)
@@ -1012,7 +1051,18 @@ impl AccountMesh {
                 ..MembershipExpectation::default()
             },
             now,
-        )?;
+        )
+        .inspect_err(|refusal| {
+            if *refusal == MembershipRefusal::Duration {
+                static REPORTED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    log::warn!(
+                        "[account-mesh] signed peer membership exceeds supported duration cap"
+                    );
+                }
+            }
+        })?;
         let accepted = self.with(|inner| {
             !inner
                 .record

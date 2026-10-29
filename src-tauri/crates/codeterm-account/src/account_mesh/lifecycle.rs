@@ -117,6 +117,7 @@ pub(super) struct Inner {
     pub(super) registry_flight: Option<super::registry_read::RegistryFlight>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
+    pub(super) publication_refresh_after: u64,
     pub(super) sync_pending: bool,
     pub(super) refreshed_credentials: Option<super::admission::CredentialStamp>,
     pub(super) auth_parked: Option<super::admission::CredentialStamp>,
@@ -164,6 +165,7 @@ impl Inner {
         self.resolved.clear();
         self.published_endpoint = None;
         self.published_until = 0;
+        self.publication_refresh_after = 0;
         self.sync_pending = false;
     }
 }
@@ -212,6 +214,7 @@ impl AccountMesh {
                 resolved: HashMap::new(),
                 published_endpoint: None,
                 published_until: 0,
+                publication_refresh_after: 0,
                 sync_pending: false,
                 auth_parked: None,
                 refreshed_credentials: None,
@@ -249,7 +252,10 @@ impl AccountMesh {
 
     pub(super) async fn persist(&self) {
         let _guard = self.persist_lock.lock().await;
-        let record = self.with(|inner| (!inner.store_unreadable).then(|| inner.record.clone()));
+        let record = self.with(|inner| {
+            inner.cache_admission();
+            (!inner.store_unreadable).then(|| inner.record.clone())
+        });
         let Some(record) = record else {
             return;
         };
@@ -326,6 +332,9 @@ impl AccountMesh {
                     return false;
                 }
                 inner.begin_epoch();
+                if inner.record.signed_out {
+                    inner.record.admission_cache = None;
+                }
                 inner.record.signed_out = false;
                 let owner = inner
                     .record
@@ -375,6 +384,7 @@ impl AccountMesh {
 
     fn block(inner: &mut Inner, watch: &watch::Sender<Arc<LifecycleState>>) {
         inner.begin_epoch();
+        inner.record.admission_cache = None;
         inner.record.signed_out = true;
         inner.record.cleanup_pending = inner.record.published;
         let cleanup = if inner.record.published {
@@ -682,7 +692,11 @@ impl AccountMesh {
             let delay = match result {
                 Ok(()) => {
                     let membership = inner.state.membership.as_ref()?;
-                    membership.verified.refresh_after().saturating_sub(now)
+                    let mut due = membership.verified.refresh_after();
+                    if inner.published_endpoint.is_some() {
+                        due = due.min(inner.publication_refresh_after);
+                    }
+                    due.saturating_sub(now)
                 }
                 Err(_) => inner.retry.deadline?.saturating_sub(now),
             };

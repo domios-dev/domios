@@ -69,8 +69,8 @@ fn account_mesh_membership_accepts_only_its_exact_window() {
     );
     assert!(!verified.is_current(START - NOT_BEFORE_SKEW_SECONDS - 1));
     assert!(!verified.is_current(START + 3600));
-    let long = with(valid_payload(), "expires_at", json!(START + 3601));
-    assert_eq!(verify(&long, START), Err(MembershipRefusal::Window));
+    let long = with(valid_payload(), "expires_at", json!(START + 86401));
+    assert_eq!(verify(&long, START), Err(MembershipRefusal::Duration));
 }
 
 #[test]
@@ -316,6 +316,7 @@ fn account_mesh_wire_matches_the_server_packet() {
         schema_version: 1,
         installation_id: "desk-7f3a".into(),
         request_id: request_id.into(),
+        requested_membership_seconds: None,
         operation,
     };
     let id = |n: u8| format!("{}{n}", "0".repeat(63));
