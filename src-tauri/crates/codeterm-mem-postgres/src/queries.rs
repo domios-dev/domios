@@ -134,6 +134,7 @@ pub(crate) fn graph_dump_in(tx: &mut Transaction<'_>) -> StoreResult<GraphDump> 
         &[],
     )? {
         nodes.push(GraphNode {
+            author: Some(item.author),
             has_vector: vector_ids.contains(&item.id),
             has_body: !item.body.is_empty(),
             id: item.id,
@@ -162,6 +163,7 @@ pub(crate) fn graph_dump_in(tx: &mut Transaction<'_>) -> StoreResult<GraphDump> 
         let props: serde_json::Value = serde_json::from_str(&row.get::<_, String>(2))
             .map_err(|_| "invalid entity properties")?;
         nodes.push(GraphNode {
+            author: None,
             title: props["label"].as_str().unwrap_or(&id).to_owned(),
             id,
             kind: row.get::<_, String>(1).to_lowercase(),
