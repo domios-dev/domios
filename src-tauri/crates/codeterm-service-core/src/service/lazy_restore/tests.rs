@@ -21,20 +21,25 @@ fn focus_wakes_failed_sleeping_chat_on_its_own_session() {
     let service = fixture.service.clone();
     let target = id.clone();
     let (completed, completion) = std::sync::mpsc::channel();
-    let _port = test_boundary::Boundary::install(&id, std::sync::Arc::new(move || {
-        let mut mux = service.mux.write();
-        let tab = mux.get_tab_mut(&target).unwrap();
-        assert!(!tab.frozen);
-        assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
-        assert_eq!(tab.session_binding_nonce.as_deref(), Some("own-nonce"));
-        tab.reported_session_binding_nonce = Some("own-nonce".into());
-        tab.restored_from_snapshot = false;
-        super::super::boot_stage::apply_boot_stage(tab, BootStage::AgentReady, None);
-        completed.send(()).unwrap();
-        Ok(())
-    }));
+    let _port = test_boundary::Boundary::install(
+        &id,
+        std::sync::Arc::new(move || {
+            let mut mux = service.mux.write();
+            let tab = mux.get_tab_mut(&target).unwrap();
+            assert!(!tab.frozen);
+            assert_eq!(tab.agent_session_id.as_deref(), Some("own-thread"));
+            assert_eq!(tab.session_binding_nonce.as_deref(), Some("own-nonce"));
+            tab.reported_session_binding_nonce = Some("own-nonce".into());
+            tab.restored_from_snapshot = false;
+            super::super::boot_stage::apply_boot_stage(tab, BootStage::AgentReady, None);
+            completed.send(()).unwrap();
+            Ok(())
+        }),
+    );
     fixture.service.focus_tab(&id).unwrap();
-    completion.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+    completion
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .unwrap();
     let mux = fixture.service.mux.read();
     let tab = mux.get_tab(&id).unwrap();
     assert_eq!(mux.get_focused_tab_id(), Some(id.as_str()));
@@ -44,9 +49,13 @@ fn focus_wakes_failed_sleeping_chat_on_its_own_session() {
 
 #[test]
 fn restart_thaws_before_runtime_ensure_without_opening_a_second_backend() {
-    for backing in [TabBacking::Pty, TabBacking::ChatBackend {
-        plugin_id: "fixture".into(), session_id: "own-session".into(),
-    }] {
+    for backing in [
+        TabBacking::Pty,
+        TabBacking::ChatBackend {
+            plugin_id: "fixture".into(),
+            session_id: "own-session".into(),
+        },
+    ] {
         let (mut mux, id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&id).unwrap();
         tab.protected = false;
@@ -55,9 +64,10 @@ fn restart_thaws_before_runtime_ensure_without_opening_a_second_backend() {
         tab.agent_session_id = Some("own-session".into());
         tab.session_binding_nonce = Some("own-nonce".into());
         let fixture = ServiceFixture::new(mux);
-        let _port = test_boundary::Boundary::install(&id, std::sync::Arc::new(|| {
-            panic!("restart must own materialization")
-        }));
+        let _port = test_boundary::Boundary::install(
+            &id,
+            std::sync::Arc::new(|| panic!("restart must own materialization")),
+        );
         assert!(fixture.service.mux.read().get_tab(&id).unwrap().frozen);
         fixture.service.thaw_tab_for_restart(&id).unwrap();
         let mux = fixture.service.mux.read();
@@ -76,14 +86,22 @@ fn addressed_sleeping_chat_wakes_before_opening_its_backend() {
     tab.protected = false;
     tab.frozen = true;
     tab.backing = TabBacking::ChatBackend {
-        plugin_id: "fixture".into(), session_id: "own-session".into(),
+        plugin_id: "fixture".into(),
+        session_id: "own-session".into(),
     };
     let fixture = ServiceFixture::new(mux);
-    let _port = test_boundary::Boundary::install(&id, std::sync::Arc::new(|| {
-        Err("injected wake reached before input".into())
-    }));
+    let _port = test_boundary::Boundary::install(
+        &id,
+        std::sync::Arc::new(|| Err("injected wake reached before input".into())),
+    );
     assert_eq!(
-        Messenger::deliver(&fixture.service, &id, MessageEnvelope::codeterm_reminder("fixture"), "opaque-body").unwrap_err(),
+        Messenger::deliver(
+            &fixture.service,
+            &id,
+            MessageEnvelope::codeterm_reminder("fixture"),
+            "opaque-body"
+        )
+        .unwrap_err(),
         "injected wake reached before input"
     );
 }

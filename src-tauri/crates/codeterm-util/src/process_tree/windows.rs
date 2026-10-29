@@ -105,7 +105,9 @@ impl OwnedProcessTree {
     pub fn capture(root: (u32, u64), images: &[PathBuf]) -> io::Result<Self> {
         let table = process_table()?;
         if !is_owned_descendant(root, root, images, &table) {
-            return Err(io::Error::other("Owned server identity is no longer provable"));
+            return Err(io::Error::other(
+                "Owned server identity is no longer provable",
+            ));
         }
         let mut handles = Vec::new();
         for (&pid, process) in &table {

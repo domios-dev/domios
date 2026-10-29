@@ -1,7 +1,8 @@
 use super::*;
 
 #[test]
-fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_previous_daemon_token() {
+fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_previous_daemon_token(
+) {
     use crate::multiplexer::{state::MultiplexerState, types::TabBacking};
     use crate::service::test_fixture::ServiceFixture;
 
@@ -21,24 +22,63 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
     let restored = ServiceFixture::new(MultiplexerState::from_session_snapshot(
         &previous.service.mux.read().to_session_snapshot(),
     ));
-    let nonce = restored.service.mux.read().get_tab(&id).unwrap().session_binding_nonce.clone().unwrap();
+    let nonce = restored
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .session_binding_nonce
+        .clone()
+        .unwrap();
     let env = compose(&restored.service, &id, "fixture-runtime", &nonce);
     let current_token = &env["CODETERM_API_TOKEN"];
     assert_ne!(current_token, old_token);
-    assert!(restored.service.authenticate_local_credential(old_token).is_err());
-    let caller = restored.service.authenticate_local_credential(current_token).unwrap().unwrap();
+    assert!(restored
+        .service
+        .authenticate_local_credential(old_token)
+        .is_err());
+    let caller = restored
+        .service
+        .authenticate_local_credential(current_token)
+        .unwrap()
+        .unwrap();
     assert_eq!(caller.tab_id, id);
     assert_eq!(caller.binding_nonce, nonce);
     assert_eq!(env["CODETERM_TAB_ID"], id);
     assert_eq!(env["CODETERM_SESSION_BINDING_NONCE"], nonce);
-    assert_eq!(compose(&restored.service, &id, "fixture-runtime", &nonce)["CODETERM_API_TOKEN"], *current_token);
+    assert_eq!(
+        compose(&restored.service, &id, "fixture-runtime", &nonce)["CODETERM_API_TOKEN"],
+        *current_token
+    );
 
     let next_nonce = restored.service.rotate_session_binding_nonce(&id);
     let next_env = compose(&restored.service, &id, "fixture-runtime", &next_nonce);
-    assert!(restored.service.authenticate_local_credential(current_token).is_err());
+    assert!(restored
+        .service
+        .authenticate_local_credential(current_token)
+        .is_err());
     assert_ne!(next_env["CODETERM_API_TOKEN"], *current_token);
-    assert_eq!(restored.service.authenticate_local_credential(&next_env["CODETERM_API_TOKEN"]).unwrap().unwrap().binding_nonce, next_nonce);
-    assert_eq!(restored.service.mux.read().get_tab(&id).unwrap().agent_session_id.as_deref(), Some("own-thread"));
+    assert_eq!(
+        restored
+            .service
+            .authenticate_local_credential(&next_env["CODETERM_API_TOKEN"])
+            .unwrap()
+            .unwrap()
+            .binding_nonce,
+        next_nonce
+    );
+    assert_eq!(
+        restored
+            .service
+            .mux
+            .read()
+            .get_tab(&id)
+            .unwrap()
+            .agent_session_id
+            .as_deref(),
+        Some("own-thread")
+    );
 }
 
 #[test]

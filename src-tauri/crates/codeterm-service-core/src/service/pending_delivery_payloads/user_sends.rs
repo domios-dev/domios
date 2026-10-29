@@ -258,11 +258,17 @@ impl UserSendStore {
     }
 
     pub(crate) fn mark_launch_dispatched(&self, authority: &UserSendAuthority) -> bool {
-        self.tab(&authority.tab_id).ready_launch.lock().mark_dispatched(authority)
+        self.tab(&authority.tab_id)
+            .ready_launch
+            .lock()
+            .mark_dispatched(authority)
     }
 
     pub(crate) fn launch_was_dispatched(&self, authority: &UserSendAuthority) -> bool {
-        self.tab(&authority.tab_id).ready_launch.lock().was_dispatched(authority)
+        self.tab(&authority.tab_id)
+            .ready_launch
+            .lock()
+            .was_dispatched(authority)
     }
 
     pub(crate) fn ready_launch_is_latched(&self, authority: &UserSendAuthority) -> bool {

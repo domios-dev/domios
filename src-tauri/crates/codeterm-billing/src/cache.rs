@@ -281,7 +281,10 @@ impl Billing {
             && cache.neighbors_free
             && !cache.snapshot.stale
             && !self.checking(&cache)
-            && self.recompute(&cache).access.is_some_and(|access| access.authority == Authority::Free)
+            && self
+                .recompute(&cache)
+                .access
+                .is_some_and(|access| access.authority == Authority::Free)
     }
 
     pub fn entitlement_allows(
@@ -569,7 +572,8 @@ impl Billing {
                 }) => {
                     refreshed = true;
                     cache.observed = true;
-                    cache.neighbors_free = entitlements.plan == Plan::Free && access.authority == Authority::Free;
+                    cache.neighbors_free =
+                        entitlements.plan == Plan::Free && access.authority == Authority::Free;
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,

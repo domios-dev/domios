@@ -1,7 +1,7 @@
 mod admission_recovery;
 mod admission_reuse;
-mod credential_rearm;
 mod callable;
+mod credential_rearm;
 mod enrollment_refusals;
 mod entitlements;
 mod lifecycle;

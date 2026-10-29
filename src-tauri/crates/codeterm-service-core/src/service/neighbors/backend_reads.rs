@@ -1,7 +1,11 @@
 use crate::service::ServiceContext;
 use codeterm_neighbors::{supervisor::reconnect_delay, Error, Result};
 use serde_json::Value;
-use std::{future::Future, sync::atomic::{AtomicU64, Ordering}, time::Instant};
+use std::{
+    future::Future,
+    sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
+};
 
 #[derive(Default)]
 struct State {
@@ -29,19 +33,26 @@ impl ReadGate {
         jitter: impl Fn() -> u64,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
-        if locked { return Err(Error::Locked); }
+        if locked {
+            return Err(Error::Locked);
+        }
         let revision = self.revision.load(Ordering::Acquire);
         let rearmed = self.rearmed.load(Ordering::Acquire);
         let mut state = self.state.lock().await;
         if state.key.as_ref() != Some(&key) {
-            *state = State { key: Some(key), ..State::default() };
+            *state = State {
+                key: Some(key),
+                ..State::default()
+            };
         } else if let Some(result) = &state.result {
             if self.session_cached || self.revision.load(Ordering::Acquire) != revision {
                 return result.clone();
             }
             if let Err(error) = result {
                 let permanent = !codeterm_neighbors::supervisor::retryable(*error);
-                if permanent && rearmed == state.rearmed || !permanent && state.retry_at.is_some_and(|at| now() < at) {
+                if permanent && rearmed == state.rearmed
+                    || !permanent && state.retry_at.is_some_and(|at| now() < at)
+                {
                     return Err(*error);
                 }
             }
@@ -49,7 +60,10 @@ impl ReadGate {
         state.rearmed = rearmed;
         let result = load.await;
         match result {
-            Ok(_) => { state.failures = 0; state.retry_at = None; }
+            Ok(_) => {
+                state.failures = 0;
+                state.retry_at = None;
+            }
             Err(_) => {
                 state.failures = state.failures.saturating_add(1);
                 state.retry_at = Some(now() + reconnect_delay(state.failures, jitter()));
@@ -76,17 +90,29 @@ struct Reads {
 impl Default for Reads {
     fn default() -> Self {
         Self {
-            locked: Default::default(), list: Default::default(), receiver: Default::default(), keys: Default::default(),
-            claims: ReadGate { session_cached: true, ..Default::default() },
+            locked: Default::default(),
+            list: Default::default(),
+            receiver: Default::default(),
+            keys: Default::default(),
+            claims: ReadGate {
+                session_cached: true,
+                ..Default::default()
+            },
         }
     }
 }
 
 impl ServiceContext {
     pub(super) async fn neighbor_access_locked(&self) -> bool {
-        let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() else { return false; };
-        let Some(account) = self.ext::<crate::service::account::AccountCell>().0.get() else { return false; };
-        let Some(session) = account.session().await else { return false; };
+        let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() else {
+            return false;
+        };
+        let Some(account) = self.ext::<crate::service::account::AccountCell>().0.get() else {
+            return false;
+        };
+        let Some(session) = account.session().await else {
+            return false;
+        };
         billing.neighbors_locked(&session.identity.uid)
     }
 
@@ -96,15 +122,26 @@ impl ServiceContext {
             let locked = service.neighbor_access_locked().await;
             {
                 let mut previous = service.extensions.get_or_init(Reads::default).locked.lock();
-                if !changed && *previous == Some(locked) { return; }
+                if !changed && *previous == Some(locked) {
+                    return;
+                }
                 *previous = Some(locked);
             }
             if locked {
                 service.stop_neighbor_updates();
                 service.pause_neighbor_reception();
-                if let Some(account) = service.ext::<crate::service::account::AccountCell>().0.get() {
+                if let Some(account) = service
+                    .ext::<crate::service::account::AccountCell>()
+                    .0
+                    .get()
+                {
                     if let Some(session) = account.session().await {
-                        if service.ext::<crate::service::billing::BillingCell>().0.get().is_some_and(|billing| billing.neighbors_locked(&session.identity.uid)) {
+                        if service
+                            .ext::<crate::service::billing::BillingCell>()
+                            .0
+                            .get()
+                            .is_some_and(|billing| billing.neighbors_locked(&session.identity.uid))
+                        {
                             service.ui.emit("neighbors-changed", serde_json::json!({"uid":session.identity.uid,"list":locked_list()}));
                         }
                     }
@@ -129,9 +166,22 @@ impl ServiceContext {
             "friendsReceiverStatus" => &reads.receiver,
             "friendsOwnKeys" => &reads.keys,
             "claimReferralTrial" => &reads.claims,
-            _ => return if locked { Err(Error::Locked) } else { load.await },
+            _ => {
+                return if locked {
+                    Err(Error::Locked)
+                } else {
+                    load.await
+                }
+            }
         };
-        gate.read((uid.to_owned(), generation), locked, Instant::now, rand::random, load).await
+        gate.read(
+            (uid.to_owned(), generation),
+            locked,
+            Instant::now,
+            rand::random,
+            load,
+        )
+        .await
     }
 
     pub(crate) fn rearm_neighbor_reads(&self) {

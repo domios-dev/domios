@@ -7,7 +7,11 @@ use std::time::Duration;
 async fn expired() -> Harness {
     let harness = Harness::new().await;
     harness.sign_in("owner").await;
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     harness.registry.entered.notified().await;
     harness.clock.set(START + 3600);
     harness.log.lock().unwrap().clear();
@@ -20,8 +24,10 @@ async fn account_mesh_401_refresh_outage_preserves_retry_then_recovers() {
     harness.registry.script.lock().unwrap().membership_once =
         Some(RegistryRefusal::Unauthenticated);
     *harness.sessions.2.lock().unwrap() = Some(AccountMeshRefusal::Offline);
-    assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await,
-        Err(AccountMeshRefusal::Offline));
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Lease).await,
+        Err(AccountMeshRefusal::Offline)
+    );
     assert_eq!(harness.sessions.1.load(Ordering::SeqCst), 1);
     assert_eq!(harness.calls("renew"), 1);
     assert_eq!(harness.state().retry_at, Some(START + 3630));
@@ -35,7 +41,12 @@ async fn account_mesh_401_refresh_outage_preserves_retry_then_recovers() {
 async fn account_mesh_401_retry_preserves_transient_deadlines() {
     for (refusal, delay) in [
         (RegistryRefusal::Unavailable, 30),
-        (RegistryRefusal::RateLimited { retry_after_seconds: 240 }, 240),
+        (
+            RegistryRefusal::RateLimited {
+                retry_after_seconds: 240,
+            },
+            240,
+        ),
     ] {
         let harness = expired().await;
         {
@@ -43,8 +54,10 @@ async fn account_mesh_401_retry_preserves_transient_deadlines() {
             script.challenge_once = Some(RegistryRefusal::Unauthenticated);
             script.membership = Some(refusal);
         }
-        assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await,
-            Err(AccountMeshRefusal::from(refusal)));
+        assert_eq!(
+            harness.mesh.refresh(EnrollTrigger::Lease).await,
+            Err(AccountMeshRefusal::from(refusal))
+        );
         assert_eq!(harness.state().retry_at, Some(START + 3600 + delay));
         assert_eq!(harness.calls("renew"), 1);
         assert_eq!(harness.sessions.1.load(Ordering::SeqCst), 1);
@@ -57,8 +70,12 @@ async fn account_mesh_401_retry_preserves_transient_deadlines() {
 
 #[tokio::test]
 async fn account_mesh_401_retry_preserves_typed_refusals_and_epoch() {
-    for refusal in [RegistryRefusal::Revoked, RegistryRefusal::Forbidden,
-        RegistryRefusal::Conflict, RegistryRefusal::Invalid] {
+    for refusal in [
+        RegistryRefusal::Revoked,
+        RegistryRefusal::Forbidden,
+        RegistryRefusal::Conflict,
+        RegistryRefusal::Invalid,
+    ] {
         let harness = expired().await;
         let signed = harness.mesh.signed(None).await.unwrap();
         {
@@ -66,9 +83,18 @@ async fn account_mesh_401_retry_preserves_typed_refusals_and_epoch() {
             script.challenge_once = Some(RegistryRefusal::Unauthenticated);
             script.membership = Some(refusal);
         }
-        assert_eq!(harness.mesh.admission(&signed,
-            MeshOperation::Renew { expected_slot_revision: 1 }).await,
-            Err(AccountMeshRefusal::from(refusal)));
+        assert_eq!(
+            harness
+                .mesh
+                .admission(
+                    &signed,
+                    MeshOperation::Renew {
+                        expected_slot_revision: 1
+                    }
+                )
+                .await,
+            Err(AccountMeshRefusal::from(refusal))
+        );
         assert_eq!(harness.state().account_epoch, signed.epoch);
         assert!(harness.mesh.with(|inner| inner.auth_parked.is_none()));
         assert_eq!(harness.sessions.1.load(Ordering::SeqCst), 1);
@@ -109,20 +135,36 @@ async fn account_mesh_short_successful_leases_never_renew_immediately() {
         harness.sign_in("owner").await;
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
         harness.registry.entered.notified().await;
-        assert!(tokio::time::timeout(Duration::ZERO,
-            harness.registry.entered.notified()).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::ZERO, harness.registry.entered.notified())
+                .await
+                .is_err()
+        );
         assert_eq!(harness.calls("enroll"), 1);
         assert_eq!(harness.calls("renew"), 0);
-        let due = harness.state().membership.as_ref().unwrap().verified.refresh_after();
+        let due = harness
+            .state()
+            .membership
+            .as_ref()
+            .unwrap()
+            .verified
+            .refresh_after();
         assert!(due > START);
         harness.clock.set(due);
-        tokio::time::timeout(Duration::from_secs(3600),
-            harness.registry.entered.notified()).await.unwrap();
+        tokio::time::timeout(
+            Duration::from_secs(3600),
+            harness.registry.entered.notified(),
+        )
+        .await
+        .unwrap();
         let mesh = harness.mesh.clone();
         mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
         assert_eq!(harness.calls("renew"), 1);
-        assert!(tokio::time::timeout(Duration::ZERO,
-            harness.registry.entered.notified()).await.is_err());
+        assert!(
+            tokio::time::timeout(Duration::ZERO, harness.registry.entered.notified())
+                .await
+                .is_err()
+        );
         harness.mesh.sign_out_local().await.unwrap();
     }
 }
@@ -148,7 +190,9 @@ async fn account_mesh_refresh_during_rejected_retry_cannot_lose_credential_rearm
     };
     let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
         tokio::join!(biased; refresh, rotate)
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     assert_eq!(result, Err(AccountMeshRefusal::Unavailable));
     assert!(harness.mesh.with(|inner| inner.auth_parked.is_none()));
     assert_eq!(harness.state().retry_at, Some(START + 3630));

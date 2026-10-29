@@ -328,9 +328,10 @@ impl AccountMesh {
         let mut signed = self.signed(Some(epoch)).await?;
         let now = self.now();
         let current = self.with(|inner| {
-            inner.state.current_membership(now).is_some_and(|membership| {
-                now < membership.verified.refresh_after()
-            })
+            inner
+                .state
+                .current_membership(now)
+                .is_some_and(|membership| now < membership.verified.refresh_after())
         });
         if current && !self.own_removed() {
             if self.with(|inner| inner.sync_pending) {

@@ -190,12 +190,17 @@ impl TabCredentials {
     fn revoke_token(&self, token: &str) {
         let mut retired = Vec::new();
         self.0.lock().retain(|tab, credential| {
-            let keep = !super::tokens::constant_time_eq(credential.token.as_bytes(), token.as_bytes());
-            if !keep { retired.push(tab.clone()); }
+            let keep =
+                !super::tokens::constant_time_eq(credential.token.as_bytes(), token.as_bytes());
+            if !keep {
+                retired.push(tab.clone());
+            }
             keep
         });
         let mut handoffs = self.1.lock();
-        for tab in retired { handoffs.remove(&tab); }
+        for tab in retired {
+            handoffs.remove(&tab);
+        }
     }
 
     fn revoke(&self, tab_id: &str) {
@@ -219,7 +224,9 @@ impl super::ServiceContext {
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
                 entry.insert(CredentialHandoff {
-                    nonce: nonce.into(), pty_id: pty_id.into(), _file: file,
+                    nonce: nonce.into(),
+                    pty_id: pty_id.into(),
+                    _file: file,
                 });
                 Ok(())
             }
@@ -232,7 +239,10 @@ impl super::ServiceContext {
 
     pub(crate) fn finish_launch_credential_file(&self, tab_id: &str, pty_id: &str, nonce: &str) {
         let mut handoffs = self.tab_credentials.1.lock();
-        if handoffs.get(tab_id).is_some_and(|handoff| handoff.nonce == nonce && handoff.pty_id == pty_id) {
+        if handoffs
+            .get(tab_id)
+            .is_some_and(|handoff| handoff.nonce == nonce && handoff.pty_id == pty_id)
+        {
             handoffs.remove(tab_id);
         }
     }

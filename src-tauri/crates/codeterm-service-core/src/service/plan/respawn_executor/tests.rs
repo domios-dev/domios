@@ -57,7 +57,13 @@ fn restored_fixture() -> (ServiceFixture, TaskRespawnDraft) {
     let (fixture, mut draft) = fixture();
     draft.source_attempt.provider = Some("source-provider".into());
     let tab_id = &draft.source_attempt.executor_tab_id;
-    fixture.service.mux.write().get_tab_mut(tab_id).unwrap().agent_type = Some("source-provider".into());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(tab_id)
+        .unwrap()
+        .agent_type = Some("source-provider".into());
     let nonce = fixture.service.rotate_session_binding_nonce(tab_id);
     let mut mux = fixture.service.mux.write();
     let tab = mux.get_tab_mut(tab_id).unwrap();
@@ -72,28 +78,55 @@ fn respawn_retires_same_attempt_after_proven_restore_nonce_rotation() {
     let (fixture, draft) = restored_fixture();
     let source = &draft.source_attempt;
     let terminations = Cell::new(0);
-    fixture.service.retire_respawn_executor_with(&draft, |tabs| {
-        assert_eq!(tabs.len(), 1);
-        let tab = &tabs[0];
-        assert_eq!(tab.id, source.executor_tab_id);
-        assert_eq!(tab.agent_session_id.as_deref(), Some("source-session"));
-        assert_ne!(tab.session_binding_nonce, source.session_binding_nonce);
-        assert_eq!(tab.task_binding.as_ref().unwrap().attempt_id.as_deref(), Some("source"));
-        terminations.set(terminations.get() + 1);
-        Ok(())
-    }).unwrap();
+    fixture
+        .service
+        .retire_respawn_executor_with(&draft, |tabs| {
+            assert_eq!(tabs.len(), 1);
+            let tab = &tabs[0];
+            assert_eq!(tab.id, source.executor_tab_id);
+            assert_eq!(tab.agent_session_id.as_deref(), Some("source-session"));
+            assert_ne!(tab.session_binding_nonce, source.session_binding_nonce);
+            assert_eq!(
+                tab.task_binding.as_ref().unwrap().attempt_id.as_deref(),
+                Some("source")
+            );
+            terminations.set(terminations.get() + 1);
+            Ok(())
+        })
+        .unwrap();
     assert_eq!(terminations.get(), 1);
-    assert!(fixture.service.mux.read().get_tab(&source.executor_tab_id).is_none());
-    fixture.service.retire_respawn_executor_with(&draft, |_| panic!("termination replayed")).unwrap();
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&source.executor_tab_id)
+        .is_none());
+    fixture
+        .service
+        .retire_respawn_executor_with(&draft, |_| panic!("termination replayed"))
+        .unwrap();
 }
 
 #[test]
 fn restored_respawn_refuses_foreign_task_attempt_session_provider_and_unproven_rotation() {
-    for field in ["plan", "task", "attempt", "session", "provider", "reported_nonce", "lineage", "lineage_session", "source_session", "source_provider"] {
+    for field in [
+        "plan",
+        "task",
+        "attempt",
+        "session",
+        "provider",
+        "reported_nonce",
+        "lineage",
+        "lineage_session",
+        "source_session",
+        "source_provider",
+    ] {
         let (fixture, mut draft) = restored_fixture();
         {
             let mut mux = fixture.service.mux.write();
-            let tab = mux.get_tab_mut(&draft.source_attempt.executor_tab_id).unwrap();
+            let tab = mux
+                .get_tab_mut(&draft.source_attempt.executor_tab_id)
+                .unwrap();
             match field {
                 "plan" => tab.task_binding.as_mut().unwrap().plan_id = Some("foreign".into()),
                 "task" => tab.task_binding.as_mut().unwrap().task_id = Some("foreign".into()),
@@ -102,14 +135,29 @@ fn restored_respawn_refuses_foreign_task_attempt_session_provider_and_unproven_r
                 "provider" => tab.agent_type = Some("foreign".into()),
                 "reported_nonce" => tab.reported_session_binding_nonce = None,
                 "lineage" => tab.prior_session_binding_nonces.clear(),
-                "lineage_session" => tab.prior_session_binding_nonces[0].session_id = Some("foreign".into()),
+                "lineage_session" => {
+                    tab.prior_session_binding_nonces[0].session_id = Some("foreign".into())
+                }
                 "source_session" => draft.source_attempt.session_id = None,
                 "source_provider" => draft.source_attempt.provider = None,
                 _ => unreachable!(),
             }
         }
-        assert!(fixture.service.retire_respawn_executor_with(&draft, |_| panic!("foreign executor terminated: {field}")).is_err(), "{field}");
-        assert!(fixture.service.mux.read().get_tab(&draft.source_attempt.executor_tab_id).is_some());
+        assert!(
+            fixture
+                .service
+                .retire_respawn_executor_with(&draft, |_| panic!(
+                    "foreign executor terminated: {field}"
+                ))
+                .is_err(),
+            "{field}"
+        );
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&draft.source_attempt.executor_tab_id)
+            .is_some());
     }
 }
 

@@ -117,9 +117,19 @@ async fn document_retries_exhaust_visibly_and_terminal_auth_never_reconnects() {
 
 #[test]
 fn backoff_has_bounded_exponential_jitter_and_only_transport_errors_retry() {
-    for (attempt, ceiling) in [(1, 500), (2, 1000), (3, 2000), (10, 256000), (11, 300000), (usize::MAX, 300000)] {
+    for (attempt, ceiling) in [
+        (1, 500),
+        (2, 1000),
+        (3, 2000),
+        (10, 256000),
+        (11, 300000),
+        (usize::MAX, 300000),
+    ] {
         assert_eq!(reconnect_delay(attempt, 0).as_millis(), 0);
-        assert_eq!(reconnect_delay(attempt, ceiling).as_millis(), u128::from(ceiling));
+        assert_eq!(
+            reconnect_delay(attempt, ceiling).as_millis(),
+            u128::from(ceiling)
+        );
         assert!(reconnect_delay(attempt, u64::MAX).as_millis() <= u128::from(ceiling));
     }
     assert!(retryable(Error::Transport));
@@ -145,13 +155,20 @@ fn backoff_has_bounded_exponential_jitter_and_only_transport_errors_retry() {
 struct Clock(Mutex<Vec<std::time::Duration>>);
 #[async_trait]
 impl RetryClock for Clock {
-    fn jitter(&self) -> u64 { 300_000 }
-    async fn wait(&self, delay: std::time::Duration) { self.0.lock().unwrap().push(delay); }
+    fn jitter(&self) -> u64 {
+        300_000
+    }
+    async fn wait(&self, delay: std::time::Duration) {
+        self.0.lock().unwrap().push(delay);
+    }
 }
 
 #[tokio::test]
 async fn retry_clock_receives_one_bounded_deadline_without_sleeping() {
     let clock = Clock(Mutex::new(vec![]));
     reconnect_backoff_with(&clock, usize::MAX).await;
-    assert_eq!(*clock.0.lock().unwrap(), vec![std::time::Duration::from_secs(300)]);
+    assert_eq!(
+        *clock.0.lock().unwrap(),
+        vec![std::time::Duration::from_secs(300)]
+    );
 }

@@ -721,9 +721,9 @@ async fn account_mesh_clock_behind_the_issuer_still_enrolls_without_a_longer_lea
 
 async fn next_renewal(harness: &Harness) -> Duration {
     let state = harness.state();
-    let due = state.retry_at.unwrap_or_else(|| {
-        state.membership.as_ref().unwrap().verified.refresh_after()
-    });
+    let due = state
+        .retry_at
+        .unwrap_or_else(|| state.membership.as_ref().unwrap().verified.refresh_after());
     harness.clock.set(due);
     let started = tokio::time::Instant::now();
     tokio::time::timeout(

@@ -304,11 +304,7 @@ fn frontend_shell_contract_canonicalizes_frontend_and_loopback_api_origins() {
             None,
             Some("HTTP://LOCALHOST:7685/"),
         ),
-        (
-            "http://[::1]:7685/",
-            None,
-            Some("http://[::1]:7685/"),
-        ),
+        ("http://[::1]:7685/", None, Some("http://[::1]:7685/")),
         ("http://127.0.0.1/", None, Some("http://127.0.0.1:80/")),
         (
             "http://127.0.0.1:1420/",
@@ -345,7 +341,13 @@ fn frontend_shell_contract_keeps_genuine_external_links_and_rejects_credentials(
         "http://localhost.example:7685/",
     ] {
         let target = Url::parse(raw).unwrap();
-        assert!(!navigation_allowed(&target, None, api, &unavailable, &fallback));
+        assert!(!navigation_allowed(
+            &target,
+            None,
+            api,
+            &unavailable,
+            &fallback
+        ));
         assert_eq!(external_link(&target, None, api), Some(target));
     }
     for raw in [
@@ -353,7 +355,13 @@ fn frontend_shell_contract_keeps_genuine_external_links_and_rejects_credentials(
         "http://user:pass@127.0.0.1:7685/",
     ] {
         let target = Url::parse(raw).unwrap();
-        assert!(!navigation_allowed(&target, None, api, &unavailable, &fallback));
+        assert!(!navigation_allowed(
+            &target,
+            None,
+            api,
+            &unavailable,
+            &fallback
+        ));
         assert_eq!(external_link(&target, None, api), None);
     }
 }

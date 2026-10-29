@@ -14,8 +14,8 @@ pub(crate) fn skip_local_worker_role(
 pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
 pub(crate) use command::prepare_agent_command_for_service;
-mod generation_registry;
 mod credentials;
+mod generation_registry;
 use generation_registry::LaunchRegistry;
 #[path = "launch/backend_reader.rs"]
 mod backend_reader;
@@ -836,9 +836,7 @@ pub fn launch_agent_in_background_with_env(
                             return;
                         }
                         dispatched_authority = svc.user_send_authority(&tab_id).ok();
-                        match launch.write_if_current(|| {
-                            wrapped_launch_cmd.send(&svc, &pty_id)
-                        }) {
+                        match launch.write_if_current(|| wrapped_launch_cmd.send(&svc, &pty_id)) {
                             Some(result) => result,
                             None => return,
                         }

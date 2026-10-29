@@ -138,7 +138,9 @@ impl ServiceContext {
         generation: u64,
         recover_keys: bool,
     ) -> Result<(), String> {
-        if self.neighbor_access_locked().await { return Err(Error::Locked.to_string()); }
+        if self.neighbor_access_locked().await {
+            return Err(Error::Locked.to_string());
+        }
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;

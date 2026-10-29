@@ -245,7 +245,10 @@ fn sleeping_runtime_restart_resumes_its_thread_before_reporting_ready() {
         Some(codeterm_types::pty::BootStage::AgentReady)
     );
     assert_ne!(tab.session_binding_nonce, prior.session_binding_nonce);
-    assert_eq!(tab.session_binding_nonce, tab.reported_session_binding_nonce);
+    assert_eq!(
+        tab.session_binding_nonce,
+        tab.reported_session_binding_nonce
+    );
 }
 
 #[test]

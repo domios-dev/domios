@@ -1,6 +1,6 @@
+use crate::service::tab_credentials::CredentialFile;
 use crate::service::ServiceContext;
 use std::path::Path;
-use crate::service::tab_credentials::CredentialFile;
 
 pub(super) struct CredentialCommand {
     command: String,
@@ -11,8 +11,12 @@ pub(super) struct CredentialCommand {
 
 impl CredentialCommand {
     pub(super) fn send(&mut self, service: &ServiceContext, pty_id: &str) -> Result<(), String> {
-        let generation = service.pty.lock().get_session(pty_id)
-            .ok_or("credential launch PTY is absent before write")?.generation;
+        let generation = service
+            .pty
+            .lock()
+            .get_session(pty_id)
+            .ok_or("credential launch PTY is absent before write")?
+            .generation;
         let payload = crate::service::pty_io::build_launch_dispatch(&self.command)
             .map_err(|error| error.to_string())?;
         let pty = service.pty.lock();
@@ -40,10 +44,18 @@ pub(super) fn wrap_command(
     direct: bool,
 ) -> Result<CredentialCommand, String> {
     let command = super::command_with_binding_nonce(command, nonce, attempt);
-    let file = if direct { None } else { Some(credential_file(service, tab_id, nonce)?) };
+    let file = if direct {
+        None
+    } else {
+        Some(credential_file(service, tab_id, nonce)?)
+    };
     Ok(CredentialCommand {
-        command: file.as_ref().map_or(command.clone(), |file| with_credential_file(&command, file.path(), cfg!(windows))),
-        file, tab_id: tab_id.into(), nonce: nonce.into(),
+        command: file.as_ref().map_or(command.clone(), |file| {
+            with_credential_file(&command, file.path(), cfg!(windows))
+        }),
+        file,
+        tab_id: tab_id.into(),
+        nonce: nonce.into(),
     })
 }
 
@@ -55,10 +67,10 @@ fn credential_file(
     let credential = service
         .mint_tab_credential(tab_id, nonce)
         .ok_or("launch changed before credential handoff")?;
-    let path = service.ensure_agent_pad(tab_id)?.path().join(format!(
-        ".launch-credential-{}.txt",
-        uuid::Uuid::new_v4()
-    ));
+    let path = service
+        .ensure_agent_pad(tab_id)?
+        .path()
+        .join(format!(".launch-credential-{}.txt", uuid::Uuid::new_v4()));
     codeterm_util::private_file::write_atomic(&path, credential.as_bytes())
         .map_err(|error| format!("launch credential handoff failed: {error}"))?;
     Ok(CredentialFile(path))

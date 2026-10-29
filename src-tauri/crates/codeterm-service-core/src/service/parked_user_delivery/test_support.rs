@@ -14,8 +14,14 @@ pub fn note_dispatched_for_test(service: &ServiceContext, tab: &str) {
 
 pub fn owner_wake_counts(service: &ServiceContext, tab: &str) -> (u64, u64) {
     let owner = service.pending_delivery_payloads.user_sends.tab(tab);
-    (owner.wake_generation.load(std::sync::atomic::Ordering::Acquire),
-     owner.dispatch_generation.load(std::sync::atomic::Ordering::Acquire))
+    (
+        owner
+            .wake_generation
+            .load(std::sync::atomic::Ordering::Acquire),
+        owner
+            .dispatch_generation
+            .load(std::sync::atomic::Ordering::Acquire),
+    )
 }
 
 pub(crate) fn pre_ready_fixture() -> (ServiceFixture, String) {

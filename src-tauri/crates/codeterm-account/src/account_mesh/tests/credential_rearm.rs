@@ -1,8 +1,10 @@
 use super::support::*;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
-use crate::{Account, Browser, CredentialStore, Identity, IdentityObserver, IdentityProvider,
-    LoginFlow, LoginStart, Redemption, Secret, Session, Tokens};
+use crate::{
+    Account, Browser, CredentialStore, Identity, IdentityObserver, IdentityProvider, LoginFlow,
+    LoginStart, Redemption, Secret, Session, Tokens,
+};
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -12,20 +14,34 @@ use std::time::Duration;
 struct Provider(AtomicU64);
 #[async_trait]
 impl IdentityProvider for Provider {
-    fn id(&self) -> &str { "credential-rearm" }
-    fn needs_browser_callback(&self) -> bool { false }
+    fn id(&self) -> &str {
+        "credential-rearm"
+    }
+    fn needs_browser_callback(&self) -> bool {
+        false
+    }
     async fn start_login(&self, _: &LoginFlow) -> crate::Result<LoginStart> {
-        Ok(LoginStart::Immediate(self.refresh(&Secret::new("fixture")).await?))
+        Ok(LoginStart::Immediate(
+            self.refresh(&Secret::new("fixture")).await?,
+        ))
     }
     async fn redeem(&self, _: Redemption) -> crate::Result<Tokens> {
         Err(crate::Error::Provider)
     }
     async fn refresh(&self, _: &Secret) -> crate::Result<Tokens> {
         let mut session = session("owner");
-        session.id_token = Secret::new(format!("credential-{}", self.0.fetch_add(1, Ordering::SeqCst)));
-        Ok(Tokens { session, refresh_token: Secret::new("fixture") })
+        session.id_token = Secret::new(format!(
+            "credential-{}",
+            self.0.fetch_add(1, Ordering::SeqCst)
+        ));
+        Ok(Tokens {
+            session,
+            refresh_token: Secret::new("fixture"),
+        })
     }
-    async fn revoke(&self, _: &Secret) -> crate::Result<()> { Ok(()) }
+    async fn revoke(&self, _: &Secret) -> crate::Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Default)]
@@ -81,22 +97,36 @@ async fn account_mesh_real_same_generation_refresh_rearms_but_revocation_stays_t
     let harness = Harness::new().await;
     let (renewed_sender, mut automatic) = tokio::sync::watch::channel(None);
     let observer = Arc::new(Observer {
-        mesh: harness.mesh.clone(), sessions: harness.sessions.clone(),
+        mesh: harness.mesh.clone(),
+        sessions: harness.sessions.clone(),
         rearmed: AtomicU64::new(0),
         renewed: renewed_sender,
     });
     let provider = Arc::new(Provider::default());
-    let account = Arc::new(Account::new(provider.clone(), Arc::new(Store::default()),
-        Duration::from_secs(1)).with_identity_observer(Arc::new(
-            crate::account_mesh::IdentityObservers(vec![observer.clone()]))));
+    let account = Arc::new(
+        Account::new(
+            provider.clone(),
+            Arc::new(Store::default()),
+            Duration::from_secs(1),
+        )
+        .with_identity_observer(Arc::new(crate::account_mesh::IdentityObservers(vec![
+            observer.clone(),
+        ]))),
+    );
     account.login(Arc::new(NoBrowser)).await.unwrap();
     let original = account.session().await.unwrap();
     *harness.sessions.0.lock().unwrap() = Some(original.clone());
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     harness.clock.set(START + 3600);
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unauthenticated);
-    assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await,
-        Err(AccountMeshRefusal::Unauthenticated));
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Lease).await,
+        Err(AccountMeshRefusal::Unauthenticated)
+    );
     assert_eq!(observer.rearmed.load(Ordering::SeqCst), 0);
     let failed = harness.sessions.0.lock().unwrap().clone().unwrap();
     let mut foreign = failed.clone();
@@ -110,15 +140,19 @@ async fn account_mesh_real_same_generation_refresh_rearms_but_revocation_stays_t
     let renewed = account.fresh_session().await.unwrap().unwrap();
     assert_eq!(renewed.login_generation, original.login_generation);
     assert_eq!(observer.rearmed.load(Ordering::SeqCst), 1);
-    let outcome = tokio::time::timeout(Duration::from_secs(1),
-        automatic.wait_for(Option::is_some)).await.unwrap().unwrap();
+    let outcome = tokio::time::timeout(Duration::from_secs(1), automatic.wait_for(Option::is_some))
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(*outcome, Some(Ok(())));
     drop(outcome);
     assert!(account.session_revoked(&renewed).await.unwrap());
     let calls = provider.0.load(Ordering::SeqCst);
     assert!(account.fresh_session().await.unwrap().is_none());
     assert_eq!(provider.0.load(Ordering::SeqCst), calls);
-    assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await,
-        Err(AccountMeshRefusal::SignedOut));
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::SignedOut)
+    );
     assert!(!harness.mesh.credentials_refreshed(&renewed));
 }

@@ -18,17 +18,41 @@ fn restored_shell_gets_current_credential_after_server_restart_and_nonce_rotatio
     drop(previous);
     let mux = MultiplexerState::from_session_snapshot(&snapshot);
     assert!(mux.get_tab(&tab_id).unwrap().restored_from_snapshot);
-    assert_eq!(mux.get_tab(&tab_id).unwrap().agent_session_id.as_deref(), Some("saved-session"));
+    assert_eq!(
+        mux.get_tab(&tab_id).unwrap().agent_session_id.as_deref(),
+        Some("saved-session")
+    );
     let restarted = ServiceFixture::new(mux);
-    assert!(restarted.service.identify_tab_credential(&old_token).is_none());
+    assert!(restarted
+        .service
+        .identify_tab_credential(&old_token)
+        .is_none());
     let shell_env = restarted.service.frontend_pty_env(Some(&tab_id));
-    let nonce = restarted.service.reserve_agent_launch_binding_nonce(&tab_id, Some("saved-session"));
-    assert!(restarted.service.identify_tab_credential(&shell_env["CODETERM_API_TOKEN"]).is_none());
-    let wrapped = wrap_command(&restarted.service, &tab_id, "opaque-provider", &nonce, "attempt", false).unwrap();
+    let nonce = restarted
+        .service
+        .reserve_agent_launch_binding_nonce(&tab_id, Some("saved-session"));
+    assert!(restarted
+        .service
+        .identify_tab_credential(&shell_env["CODETERM_API_TOKEN"])
+        .is_none());
+    let wrapped = wrap_command(
+        &restarted.service,
+        &tab_id,
+        "opaque-provider",
+        &nonce,
+        "attempt",
+        false,
+    )
+    .unwrap();
     let path = std::fs::read_dir(restarted.service.ensure_agent_pad(&tab_id).unwrap().path())
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .find(|path| path.file_name().unwrap().to_string_lossy().starts_with(".launch-credential-"))
+        .find(|path| {
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(".launch-credential-")
+        })
         .unwrap();
     let current = std::fs::read_to_string(&path).unwrap();
     assert!(!wrapped.command.contains(&current));
@@ -50,7 +74,15 @@ fn fixture_command() -> (ServiceFixture, String, String, CredentialCommand) {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let nonce = fixture.service.ensure_session_binding_nonce(&tab);
-    let command = wrap_command(&fixture.service, &tab, "opaque-provider", &nonce, "attempt", false).unwrap();
+    let command = wrap_command(
+        &fixture.service,
+        &tab,
+        "opaque-provider",
+        &nonce,
+        "attempt",
+        false,
+    )
+    .unwrap();
     (fixture, tab, nonce, command)
 }
 
@@ -62,16 +94,39 @@ fn no_write_abort_and_replacement_remove_only_the_owned_file() {
     assert!(command.send(&fixture.service, "absent-pty").is_err());
     drop(command);
     assert!(!path.exists());
-    let mut command = wrap_command(&fixture.service, &tab, "opaque-provider", &nonce, "attempt", false).unwrap();
+    let mut command = wrap_command(
+        &fixture.service,
+        &tab,
+        "opaque-provider",
+        &nonce,
+        "attempt",
+        false,
+    )
+    .unwrap();
     let path = command.file.as_ref().unwrap().path().to_path_buf();
     command.transfer(&fixture.service, "old-pty").unwrap();
     drop(command);
-    assert!(path.exists(), "possible writes retain the file while the launch can consume it");
-    fixture.service.finish_launch_credential_file(&tab, "other-pty", &nonce);
+    assert!(
+        path.exists(),
+        "possible writes retain the file while the launch can consume it"
+    );
+    fixture
+        .service
+        .finish_launch_credential_file(&tab, "other-pty", &nonce);
     assert!(path.exists());
-    let nonce = fixture.service.reserve_agent_launch_binding_nonce(&tab, None);
+    let nonce = fixture
+        .service
+        .reserve_agent_launch_binding_nonce(&tab, None);
     assert!(!path.exists(), "replacement revokes the old handoff");
-    let replacement = wrap_command(&fixture.service, &tab, "opaque-provider", &nonce, "replacement", false).unwrap();
+    let replacement = wrap_command(
+        &fixture.service,
+        &tab,
+        "opaque-provider",
+        &nonce,
+        "replacement",
+        false,
+    )
+    .unwrap();
     let replacement_path = replacement.file.as_ref().unwrap().path().to_path_buf();
     assert!(replacement_path.exists());
     assert!(!path.exists());
@@ -88,7 +143,9 @@ fn uncertain_handoff_is_retired_by_exact_binding_or_pty_death() {
         drop(command);
         assert!(path.exists());
         match retirement {
-            "binding" => fixture.service.finish_launch_credential_file(&tab, "own-pty", &nonce),
+            "binding" => fixture
+                .service
+                .finish_launch_credential_file(&tab, "own-pty", &nonce),
             "pty-death" => fixture.service.void_launch_session_proof(&tab),
             _ => unreachable!(),
         }
@@ -102,7 +159,10 @@ fn service_shutdown_removes_uncertain_file_before_its_independent_directory_is_d
     let path = root.path().join("credential.txt");
     let (fixture, tab, nonce, _command) = fixture_command();
     codeterm_util::private_file::write_atomic(&path, b"opaque-token").unwrap();
-    fixture.service.retain_launch_credential_file(&tab, &nonce, "own-pty", CredentialFile(path.clone())).unwrap();
+    fixture
+        .service
+        .retain_launch_credential_file(&tab, &nonce, "own-pty", CredentialFile(path.clone()))
+        .unwrap();
     assert!(path.exists());
     drop(fixture);
     assert!(root.path().exists());
@@ -118,12 +178,24 @@ fn execute_handoff(command: &str, expected: &str, probe: &Path) -> std::process:
     };
     #[cfg(windows)]
     let mut shell = {
-        let mut shell = std::process::Command::new(codeterm_util::windows_powershell::preferred_shell().expect("PowerShell installed"));
-        shell.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", &format!("Set-PSDebug -Trace 2; {command}")]);
+        let mut shell = std::process::Command::new(
+            codeterm_util::windows_powershell::preferred_shell().expect("PowerShell installed"),
+        );
+        shell.args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            &format!("Set-PSDebug -Trace 2; {command}"),
+        ]);
         shell
     };
-    shell.env_remove("CODETERM_API_TOKEN").env("EXPECTED_TOKEN", expected)
-        .env("PROBE_OUTPUT", probe).output().unwrap()
+    shell
+        .env_remove("CODETERM_API_TOKEN")
+        .env("EXPECTED_TOKEN", expected)
+        .env("PROBE_OUTPUT", probe)
+        .output()
+        .unwrap()
 }
 
 #[test]

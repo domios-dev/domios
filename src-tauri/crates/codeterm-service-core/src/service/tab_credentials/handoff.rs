@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 pub(crate) struct CredentialFile(pub(crate) PathBuf);
 
 impl CredentialFile {
-    pub(crate) fn path(&self) -> &Path { &self.0 }
+    pub(crate) fn path(&self) -> &Path {
+        &self.0
+    }
 }
 
 impl Drop for CredentialFile {

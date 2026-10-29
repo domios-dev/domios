@@ -8,7 +8,11 @@ use tokio::sync::Notify;
 async fn admitted() -> Harness {
     let harness = Harness::new().await;
     harness.sign_in("owner").await;
-    harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
     harness.registry.entered.notified().await;
     harness.log.lock().unwrap().clear();
     harness
@@ -18,8 +22,12 @@ async fn admitted() -> Harness {
 async fn account_mesh_admission_reuse_within_validity_makes_zero_calls() {
     let harness = admitted().await;
     harness.clock.set(START + 3479);
-    for trigger in [EnrollTrigger::Automatic, EnrollTrigger::Lease,
-        EnrollTrigger::Explicit, EnrollTrigger::Network] {
+    for trigger in [
+        EnrollTrigger::Automatic,
+        EnrollTrigger::Lease,
+        EnrollTrigger::Explicit,
+        EnrollTrigger::Network,
+    ] {
         assert_eq!(harness.mesh.refresh(trigger).await, Ok(()));
     }
     assert_eq!(count(&harness.log, "registry:"), 0);
@@ -40,8 +48,16 @@ async fn account_mesh_admission_reuse_expiry_runs_one_handshake() {
         assert_eq!(harness.calls("renew"), 1);
         assert_eq!(harness.calls("sync"), 1);
         assert_eq!(harness.calls("challenge"), 2);
-        assert_eq!(harness.state().membership.as_ref().unwrap().verified.expires_at,
-            START + elapsed + 3600);
+        assert_eq!(
+            harness
+                .state()
+                .membership
+                .as_ref()
+                .unwrap()
+                .verified
+                .expires_at,
+            START + elapsed + 3600
+        );
     }
 }
 
@@ -58,16 +74,30 @@ async fn account_mesh_admission_reuse_401_refreshes_once_retries_once_then_parks
                 script.membership = Some(RegistryRefusal::Unauthenticated);
             }
         }
-        assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await,
-            Err(AccountMeshRefusal::Unauthenticated));
+        assert_eq!(
+            harness.mesh.refresh(EnrollTrigger::Lease).await,
+            Err(AccountMeshRefusal::Unauthenticated)
+        );
         assert_eq!(harness.sessions.1.load(Ordering::SeqCst), 1);
         assert_eq!(harness.calls("challenge"), 2);
-        assert_eq!(harness.calls("renew"), if challenge_failure { 0 } else { 2 });
-        for trigger in [EnrollTrigger::Automatic, EnrollTrigger::Network, EnrollTrigger::Lease] {
-            assert_eq!(harness.mesh.refresh(trigger).await,
-                Err(AccountMeshRefusal::Unauthenticated));
+        assert_eq!(
+            harness.calls("renew"),
+            if challenge_failure { 0 } else { 2 }
+        );
+        for trigger in [
+            EnrollTrigger::Automatic,
+            EnrollTrigger::Network,
+            EnrollTrigger::Lease,
+        ] {
+            assert_eq!(
+                harness.mesh.refresh(trigger).await,
+                Err(AccountMeshRefusal::Unauthenticated)
+            );
         }
-        assert_eq!(harness.mesh.list().await, Err(AccountMeshRefusal::Unauthenticated));
+        assert_eq!(
+            harness.mesh.list().await,
+            Err(AccountMeshRefusal::Unauthenticated)
+        );
         assert_eq!(harness.calls("challenge"), 2);
         assert_eq!(harness.sessions.1.load(Ordering::SeqCst), 1);
         assert_eq!(harness.state().retry_at, None);
@@ -83,7 +113,10 @@ async fn account_mesh_admission_reuse_401_refreshes_once_retries_once_then_parks
             EnrollTrigger::Automatic
         };
         assert_eq!(harness.mesh.refresh(resume).await, Ok(()));
-        assert_eq!(harness.calls("renew"), if challenge_failure { 1 } else { 3 });
+        assert_eq!(
+            harness.calls("renew"),
+            if challenge_failure { 1 } else { 3 }
+        );
     }
 }
 
@@ -96,7 +129,11 @@ async fn account_mesh_admission_reuse_401_success_uses_refreshed_session() {
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
     assert_eq!(harness.sessions.1.load(Ordering::SeqCst), 1);
     assert_eq!(harness.calls("renew"), 2);
-    assert!(harness.log.lock().unwrap().iter()
+    assert!(harness
+        .log
+        .lock()
+        .unwrap()
+        .iter()
         .any(|entry| entry == "registry:renew:refreshed-token"));
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
     assert_eq!(harness.calls("renew"), 2);
@@ -112,13 +149,16 @@ async fn account_mesh_admission_reuse_concurrent_callers_share_one_handshake() {
     let joined = async {
         harness.registry.entered.notified().await;
         let explicit = harness.mesh.refresh(EnrollTrigger::Explicit);
-        let release = async { gate.notify_one(); };
+        let release = async {
+            gate.notify_one();
+        };
         tokio::join!(biased; explicit, release).0
     };
-    let (owner, joined) = tokio::time::timeout(
-        std::time::Duration::from_secs(1),
-        async { tokio::join!(biased; owner, joined) },
-    ).await.unwrap();
+    let (owner, joined) = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        tokio::join!(biased; owner, joined)
+    })
+    .await
+    .unwrap();
     assert_eq!(owner, Ok(()));
     assert_eq!(joined, Ok(()));
     assert_eq!(harness.calls("renew"), 1);

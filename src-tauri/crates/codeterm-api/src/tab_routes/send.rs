@@ -224,9 +224,9 @@ async fn run_programmatic_delivery<T: Send + 'static>(
 #[cfg(test)]
 mod lock_tests;
 #[cfg(test)]
-mod startup_override_tests;
-#[cfg(test)]
 mod mesh_rpc_delivery_tests;
+#[cfg(test)]
+mod startup_override_tests;
 
 /// Error surface for `/send`. Delivery failures serialize the structured
 /// taxonomy so the mesh relay can forward `code` + `bytes_written` verbatim
