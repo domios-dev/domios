@@ -6,7 +6,7 @@ pub async fn fetch() -> Result<VerifiedManifest, Error> {
     let platform = super::platform()?;
     let latest = tokio::time::timeout(
         Duration::from_secs(60),
-        crate::checker::latest_release_tag(),
+        crate::checker::resolve_release(&crate::InstallMethod::Unknown, crate::Channel::Stable),
     )
     .await
     .map_err(|_| {
