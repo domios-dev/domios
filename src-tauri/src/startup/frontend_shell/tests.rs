@@ -297,19 +297,19 @@ fn frontend_shell_contract_canonicalizes_frontend_and_loopback_api_origins() {
         (
             "http://127.0.0.1:7685/",
             None,
-            Some("HTTP://LOCALHOST:7685/bundled/index.html"),
+            Some("HTTP://127.0.0.1:7685/bundled/index.html"),
         ),
         (
             "http://localhost:7685/",
             None,
-            Some("http://127.0.0.1:7685/"),
+            Some("HTTP://LOCALHOST:7685/"),
         ),
         (
             "http://[::1]:7685/",
             None,
-            Some("http://127.0.0.1:7685/"),
+            Some("http://[::1]:7685/"),
         ),
-        ("http://localhost/", None, Some("http://127.0.0.1:80/")),
+        ("http://127.0.0.1/", None, Some("http://127.0.0.1:80/")),
         (
             "http://127.0.0.1:1420/",
             Some("HTTP://127.0.0.1:1420/index.html"),
@@ -337,6 +337,10 @@ fn frontend_shell_contract_keeps_genuine_external_links_and_rejects_credentials(
         "https://example.com/path?query=fixture#fragment",
         "mailto:owner@example.com",
         "http://127.0.0.1:4180/",
+        "http://127.0.0.2:7685/",
+        "http://127.23.45.67:7685/",
+        "http://localhost:7685/",
+        "http://[::1]:7685/",
         "https://localhost:7685/",
         "http://localhost.example:7685/",
     ] {

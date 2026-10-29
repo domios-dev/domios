@@ -51,27 +51,6 @@ fn same_origin(url: &Url, origin: Option<&str>) -> bool {
         .is_some_and(|origin| url.origin() == origin.origin())
 }
 
-fn local_api_origin(url: &Url, api_origin: Option<&str>) -> bool {
-    fn loopback(url: &Url) -> bool {
-        match url.host() {
-            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
-            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
-            Some(url::Host::Domain(host)) => host == "localhost",
-            None => false,
-        }
-    }
-
-    api_origin
-        .and_then(|origin| Url::parse(origin).ok())
-        .is_some_and(|origin| {
-            matches!(url.scheme(), "http" | "https")
-                && url.scheme() == origin.scheme()
-                && url.port_or_known_default() == origin.port_or_known_default()
-                && loopback(url)
-                && loopback(&origin)
-        })
-}
-
 fn current_api_origin(app: &codeterm_client_shell::app_runtime::AppHandle) -> Option<String> {
     app.try_state::<ServerApiAttachmentSlot>()
         .and_then(|slot| slot.current())
@@ -91,7 +70,7 @@ fn external_link(url: &Url, origin: Option<&str>, api_origin: Option<&str>) -> O
         || url.password().is_some()
         || url.host_str() == Some("tauri.localhost")
         || same_origin(url, origin)
-        || local_api_origin(url, api_origin)
+        || same_origin(url, api_origin)
     {
         return None;
     }
@@ -210,7 +189,7 @@ fn navigation_allowed(
         || starting_url().is_ok_and(|starting| same_navigation_document(url, &starting))
         || start_failure_url(None).is_ok_and(|failed| same_navigation_document(url, &failed))
         || same_navigation_document(url, fallback)
-        || ((same_origin(url, origin) || local_api_origin(url, api_origin))
+        || ((same_origin(url, origin) || same_origin(url, api_origin))
             && url.username().is_empty()
             && url.password().is_none())
 }
