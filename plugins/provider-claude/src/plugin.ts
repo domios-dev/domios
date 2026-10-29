@@ -496,10 +496,10 @@ const plugin: PluginModule = {
     return subAgentUsageSources(sessionFilePath, sessionId);
   },
 
-  // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
+  // Write bridge rule to `~/.claude/rules/domios.md` via host APIs.
   installBridgeRule(payload: string): unknown {
     const m = manifest();
-    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
+    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/domios.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: false, error: "could not expand " + rulePath };
     const ok = host.writeFile(expanded, payload);
@@ -512,7 +512,7 @@ const plugin: PluginModule = {
 
   uninstallBridgeRule(): unknown {
     const m = manifest();
-    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/codeterm.md";
+    const rulePath = (m && m.rule && m.rule.path) || "~/.claude/rules/domios.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: true }; // nothing to do
     if (!host.fileExists(expanded)) return { ok: true };

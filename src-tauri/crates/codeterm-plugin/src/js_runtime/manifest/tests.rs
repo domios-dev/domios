@@ -239,7 +239,7 @@ fn parse_full_manifest() {
                 "settingsPath": "~/.claude/settings.json"
             },
             "rule": {
-                "path": "~/.claude/rules/codeterm.md"
+                "path": "~/.claude/rules/domios.md"
             },
             "models": [
                 { "id": "sonnet", "displayName": "Claude Sonnet 4.6", "description": "Best for everyday tasks." }

@@ -1,6 +1,6 @@
 {
   "id": "claude",
-  "version": "1.14.23",
+  "version": "1.14.24",
   "minCodeterm": "1.15.3",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
@@ -79,7 +79,7 @@
     }
   },
   "rule": {
-    "path": "~/.claude/rules/codeterm.md"
+    "path": "~/.claude/rules/domios.md"
   },
   "integration": {
     "kind": "claude_settings_json",
