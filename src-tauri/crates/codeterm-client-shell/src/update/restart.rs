@@ -27,14 +27,29 @@ pub(crate) fn restart(app: &AppHandle) -> Result<(), String> {
 }
 
 pub(crate) fn schedule_cleanup(app: &AppHandle) -> Result<std::sync::mpsc::Receiver<()>, String> {
-    let (sender, receiver) = std::sync::mpsc::channel();
     let handle = app.clone();
-    app.run_on_main_thread(move || {
-        #[cfg(target_os = "macos")]
-        release_single_instance(&handle);
-        handle.cleanup_before_exit();
+    schedule_cleanup_with(
+        |cleanup| {
+            app.run_on_main_thread(cleanup)
+                .map_err(|error| error.to_string())
+        },
+        move || {
+            #[cfg(target_os = "macos")]
+            release_single_instance(&handle);
+            handle.cleanup_before_exit();
+        },
+    )
+}
+
+fn schedule_cleanup_with(
+    dispatch: impl FnOnce(Box<dyn FnOnce() + Send>) -> Result<(), String>,
+    cleanup: impl FnOnce() + Send + 'static,
+) -> Result<std::sync::mpsc::Receiver<()>, String> {
+    let (sender, receiver) = std::sync::mpsc::channel();
+    dispatch(Box::new(move || {
+        cleanup();
         let _ = sender.send(());
-    })
+    }))
     .map_err(|error| format!("failed to schedule application cleanup: {error}"))?;
     Ok(receiver)
 }
