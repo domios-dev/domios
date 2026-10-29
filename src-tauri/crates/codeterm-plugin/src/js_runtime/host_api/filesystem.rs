@@ -62,6 +62,10 @@ impl PluginSandbox {
     }
 
     pub(in crate::js_runtime) fn can_write(&self, path: &str) -> bool {
+        if !codeterm_decision::physical::effects_allowed() {
+            self.record_denial();
+            return false;
+        }
         let target = codeterm_util::project_roots::canonical_target(Path::new(path));
         let denied = target.as_ref().is_some_and(|target| {
             self.denied_writes.iter().any(|denied| {
@@ -84,6 +88,9 @@ impl PluginSandbox {
     }
 
     pub(in crate::js_runtime) fn project_write_allowed(&self, root: &str) -> bool {
+        if !codeterm_decision::physical::effects_allowed() {
+            return false;
+        }
         codeterm_util::project_roots::canonical_root(root)
             .ok()
             .is_some_and(|root| self.project_write_roots.contains(&root))

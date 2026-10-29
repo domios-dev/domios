@@ -8,6 +8,9 @@ use super::DecisionError;
 
 pub trait RequestObserver: Send + Sync {
     fn before_request(&self) -> Result<(), DecisionError>;
+    fn effects_allowed(&self) -> bool {
+        true
+    }
     fn deadline(&self) -> Option<Instant> {
         None
     }
@@ -22,12 +25,44 @@ pub struct RequestScope {
     thread: PhantomData<Rc<()>>,
 }
 
+struct ObservationOnly(Instant);
+impl RequestObserver for ObservationOnly {
+    fn before_request(&self) -> Result<(), DecisionError> {
+        Err(DecisionError::Unsupported)
+    }
+    fn effects_allowed(&self) -> bool {
+        false
+    }
+    fn deadline(&self) -> Option<Instant> {
+        Some(self.0)
+    }
+}
+
 impl RequestScope {
     pub fn enter(observer: Arc<dyn RequestObserver>) -> Self {
+        let observer = match current().filter(|outer| !outer.effects_allowed()) {
+            Some(outer) => {
+                let bound = [outer.deadline(), observer.deadline()]
+                    .into_iter()
+                    .flatten()
+                    .min();
+                bound
+                    .map(|deadline| Arc::new(ObservationOnly(deadline)) as Arc<dyn RequestObserver>)
+                    .unwrap_or(outer)
+            }
+            None => observer,
+        };
         Self {
             previous: OBSERVER.with(|slot| slot.replace(Some(observer))),
             thread: PhantomData,
         }
+    }
+
+    pub fn observation_only(deadline: Instant) -> Self {
+        let deadline = current()
+            .and_then(|observer| observer.deadline())
+            .map_or(deadline, |outer| outer.min(deadline));
+        Self::enter(Arc::new(ObservationOnly(deadline)))
     }
 }
 
@@ -48,3 +83,10 @@ pub fn deadline() -> Option<Instant> {
 pub fn before_request() -> Result<(), DecisionError> {
     current().map_or(Ok(()), |observer| observer.before_request())
 }
+
+pub fn effects_allowed() -> bool {
+    current().is_none_or(|observer| observer.effects_allowed())
+}
+
+#[cfg(test)]
+mod tests;
