@@ -55,6 +55,7 @@ struct Frame {
     view_lease: String,
     context: ViewCallContext,
     provider: Weak<dyn ViewProvider>,
+    provider_registration: String,
     registry: Weak<ViewRegistry>,
     expires: Instant,
     handles: HashMap<String, Entry>,
@@ -107,12 +108,13 @@ impl MediaStore {
             return Err(MediaRefusal::Foreign);
         }
         let provider = value.provider.upgrade().ok_or(MediaRefusal::Expired)?;
-        let current = value
-            .registry
-            .upgrade()
-            .and_then(|registry| registry.get(plugin))
-            .ok_or(MediaRefusal::Expired)?;
-        if value.expires <= now || !Arc::ptr_eq(&provider, &current) {
+        let registry = value.registry.upgrade().ok_or(MediaRefusal::Expired)?;
+        let current = registry.get(plugin).ok_or(MediaRefusal::Expired)?;
+        if value.expires <= now
+            || !Arc::ptr_eq(&provider, &current)
+            || registry.registration_id(plugin).as_deref()
+                != Some(value.provider_registration.as_str())
+        {
             return Err(MediaRefusal::Expired);
         }
         Ok(value)
@@ -171,6 +173,9 @@ fn create_frame_at_key(
     mut context: ViewCallContext,
     frame: String,
 ) -> Result<FrameRegistration, MediaRefusal> {
+    let provider_registration = registry
+        .registration_id(provider.id())
+        .ok_or(MediaRefusal::Unknown)?;
     if !registry
         .get(provider.id())
         .is_some_and(|current| Arc::ptr_eq(&current, provider))
@@ -206,6 +211,7 @@ fn create_frame_at_key(
             view_lease: view_lease.clone(),
             context: context.clone(),
             provider: Arc::downgrade(provider),
+            provider_registration,
             registry: Arc::downgrade(registry),
             expires: Instant::now() + FRAME_TTL,
             handles: HashMap::new(),
