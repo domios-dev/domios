@@ -31,6 +31,15 @@ function railsFor(view: ChatBodyView, messages: Array<{ at: number | null }>) {
 }
 
 describe("chat body authority", () => {
+  it("an empty first-turn-ready composer does not wait for a nonexistent transcript", () => {
+    const input = { firstTurnReady: true, snapshotReady: false, hasTranscript: false,
+      chatLoading: false, unavailable: null, bootView: { kind: "none" as const } };
+    expect(chatBodyView(input).kind).toBe("none");
+    expect(chatBodyView({ ...input, hasTranscript: true }).kind).toBe("starting");
+    expect(chatBodyView({ ...input, firstTurnReady: false }).kind).toBe("starting");
+    expect(chatBodyView({ ...input, attachmentError: "opaque-refusal" }).kind).toBe("attach_failed");
+    expect(chatBodyView({ ...input, locked: true }).kind).toBe("locked");
+  });
   it("reports attachment refusal instead of a loading overlay", () => {
     expect(chatBodyView({ snapshotReady: false, hasTranscript: false, chatLoading: false,
       attachmentError: "request_busy", unavailable: null, bootView: { kind: "none" } }))

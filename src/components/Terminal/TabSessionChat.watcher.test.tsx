@@ -197,6 +197,52 @@ async function renderTabSessionChat(
 
 const testWindow = setupDom();
 
+test("fresh ordinary and General lazy PTY chats are usable before their first session exists", async () => {
+  for (const protectedTab of [false, true]) {
+    const tabId = protectedTab ? "lazy-general" : "lazy-ordinary";
+    const state = muxStateFor({ [tabId]: tabBase(tabId, {
+      agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
+      protected: protectedTab, agent_booting: false, frozen: false,
+      pty_id: "own-pty", session_binding_nonce: "own-nonce", boot_stage: "launch_binding_unconfirmed",
+      provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
+        awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
+    }) });
+    const { host, root, commands, emitChat } = await renderTabSessionChat(tabId, state,
+      () => ({ text: "", offset: 0, pending: true, messages: [] }));
+    const chat = host.querySelector('[data-testid="tab-session-chat"]');
+    assert(chat, "chat region is mounted");
+    assert(chat.getAttribute("data-snapshot-ready") === "false", "readiness never fabricates transcript authority");
+    assert(chat.getAttribute("aria-busy") === "false", "idle first-turn input is not announced as connecting");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "ready composer removes Starting");
+    assert(host.querySelector('[data-testid="chat-composer"]'), "composer is available before the first turn");
+    await act(async () => emitChat({ tab_id: tabId, source_session_id: "foreign-session",
+      session_binding_nonce: "own-nonce", messages: [{ id: "foreign", type: "assistant", content: "foreign-session-row", timestamp: "1" }] }));
+    await act(async () => emitChat({ tab_id: tabId, source_session_id: null,
+      session_binding_nonce: "own-nonce", messages: [{ id: "unbound", type: "assistant", content: "unbound-transcript-row", timestamp: "2" }] }));
+    assert(!host.textContent?.includes("foreign-session-row"), "foreign history is never adopted");
+    assert(!host.textContent?.includes("unbound-transcript-row"), "unbound transcript rows remain unauthoritative");
+    assert(!commands.includes("restart_agent_tab") && !commands.includes("chat_send"), "readiness performs no restart or synthetic turn");
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("lazy PTY chat with stale composer authority still waits for its own launch", async () => {
+  const tabId = "stale-lazy-composer";
+  const state = muxStateFor({ [tabId]: tabBase(tabId, {
+    agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
+    agent_booting: false, pty_id: "current-pty", session_binding_nonce: "current-nonce",
+    boot_stage: "launch_binding_unconfirmed",
+    provisional_launch: { pty_id: "old-pty", binding_nonce: "old-nonce", reason: "opaque",
+      awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
+  }) });
+  const { host, root } = await renderTabSessionChat(tabId, state,
+    () => ({ text: "", offset: 0, pending: true, messages: [] }));
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "foreign readiness cannot remove the setup overlay");
+  await act(async () => root.unmount());
+  host.remove();
+});
+
 test("store Tab action doubles preserve invocation contracts", async () => {
   const activations: Array<[string, string]> = [];
   const moves: Array<[string, string, string]> = [];
