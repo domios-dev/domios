@@ -18,7 +18,7 @@ SOURCE_NAMES = {SOURCE_REPOSITORY, *SOURCE_ALIASES}
 # A declaration may sit inside a prose line: commit messages are immutable, so a
 # well-formed marker must resolve instead of failing every range that contains it.
 PUBLIC_REFERENCE = re.compile(
-    r"(?:^|(?<=[\s(]))Public-Issue: rollacode/codeterm-releases#([1-9][0-9]*)(?![0-9A-Za-z_])"
+    r"(?:^|(?<=[\s(]))(?:Public-Issue|Repository-Issue): rollacode/codeterm-releases#([1-9][0-9]*)(?![0-9A-Za-z_])"
 )
 REPOSITORY_REFERENCE = re.compile(
     r"(?:^|(?<=[\s(]))Repository-Issue: (?:" + "|".join(re.escape(name) for name in sorted(SOURCE_NAMES)) + r")#([1-9][0-9]*)(?![0-9A-Za-z_])"

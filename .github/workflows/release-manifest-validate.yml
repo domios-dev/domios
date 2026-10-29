@@ -364,7 +364,7 @@ jobs:
             | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Close shipped public issues
-        if: inputs.mirror
+        if: inputs.mirror && vars.RELEASE_CLOSE_PUBLIC_ISSUES != 'false'
         env:
           TAG: ${{ steps.release.outputs.tag }}
           VER: ${{ steps.release.outputs.version }}
