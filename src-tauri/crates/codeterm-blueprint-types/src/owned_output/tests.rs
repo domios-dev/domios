@@ -86,8 +86,8 @@ fn child_output_refuses_a_symlink_without_touching_its_target() {
 fn publication_allows_directory_writers_while_pinning_root_and_child_locations() {
     use std::os::windows::fs::OpenOptionsExt;
     use windows_sys::Win32::Storage::FileSystem::{
-        FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_READ,
-        FILE_SHARE_WRITE,
+        FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE,
     };
     for child in [false, true] {
         let root = Temp::new();
@@ -104,7 +104,7 @@ fn publication_allows_directory_writers_while_pinning_root_and_child_locations()
         };
         let directory_writer = std::fs::OpenOptions::new()
             .access_mode(FILE_ADD_FILE)
-            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
             .open(&directory)
             .unwrap();

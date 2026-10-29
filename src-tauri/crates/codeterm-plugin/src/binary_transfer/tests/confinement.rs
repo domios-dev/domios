@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(unix)]
+use futures_util::TryStreamExt;
 #[test]
 fn absolute_and_parent_upload_paths_refuse_even_if_the_generic_read_authority_would_allow_them() {
     let (directory, session, _, network) = fixture(vec![]);

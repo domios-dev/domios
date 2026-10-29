@@ -101,8 +101,7 @@ impl Drop for OwnedOutput {
 }
 #[cfg(unix)]
 fn open_output_directory(path: &Path) -> io::Result<File> {
-    crate::code_source::open_directory(path)
-        .map_err(|_| io::ErrorKind::PermissionDenied.into())
+    crate::code_source::open_directory(path).map_err(|_| io::ErrorKind::PermissionDenied.into())
 }
 #[cfg(windows)]
 fn open_output_directory(path: &Path) -> io::Result<File> {

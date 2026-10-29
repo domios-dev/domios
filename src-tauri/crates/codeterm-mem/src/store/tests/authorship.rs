@@ -43,14 +43,20 @@ fn overwrite_history_keeps_prior_author_and_full_blob_body_in_both_directions() 
 }
 
 #[test]
-fn unscoped_writes_are_explicit_system_and_scope_restores_after_panic() {
+fn unscoped_writes_are_explicit_system_and_nested_scopes_restore() {
     let (conn, blobs) = fresh();
     let id = insert(&conn, &item("unscoped"), &blobs).unwrap();
     assert_eq!(
         get(&conn, &id, &blobs).unwrap().unwrap().author,
         MemAuthor::system("unscoped")
     );
-    let _ = std::panic::catch_unwind(|| with_author(MemAuthor::owner(None), || panic!("scope")));
+    with_author(MemAuthor::owner(None), || {
+        assert_eq!(current_author(), MemAuthor::owner(None));
+        with_author(MemAuthor::system("nested"), || {
+            assert_eq!(current_author(), MemAuthor::system("nested"));
+        });
+        assert_eq!(current_author(), MemAuthor::owner(None));
+    });
     assert_eq!(current_author(), MemAuthor::system("unscoped"));
 }
 
