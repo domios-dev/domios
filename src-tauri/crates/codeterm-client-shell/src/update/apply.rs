@@ -169,8 +169,8 @@ async fn check_and_apply_plugin(
             .map_err(|e| format!("viability probe task failed: {e}"))??;
             super::install_holders::preflight(server_identity).await
         },
-        || async {
-            stop_pair_server(server_stop.as_ref(), &server_stopped).await?;
+        |holders| async {
+            stop_pair_server(server_stop.as_ref(), &server_stopped, holders).await?;
             Ok(Vec::new())
         },
         move |verified_bytes| async move {
@@ -209,6 +209,7 @@ fn server_stop_owes_relaunch(result: &Result<(), ServerStopError>) -> bool {
 async fn stop_pair_server(
     stop: &dyn ServerStop,
     stopped: &std::sync::atomic::AtomicBool,
+    holders: super::install_holders::PreparedHolders,
 ) -> Result<(), String> {
     log::info!("[updater] stopping the attached server before installing the pair");
     let result = stop.stop_server().await;
@@ -221,6 +222,7 @@ async fn stop_pair_server(
             e.reason
         )
     })?;
+    holders.confirm_exited().await?;
     super::install_holders::release_before_installer().await
 }
 
