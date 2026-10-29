@@ -25,6 +25,7 @@ import { invoke, listen } from "../../lib/bridge";
 import { defaultConfig, useConfigLoader } from "../../hooks/useConfig";
 import { firstRunLocked } from "../../lib/firstRunGate";
 import { FirstRunControls } from "./FirstRunControls";
+import { invalidateAgentProviders, useAgentProviders } from "../../hooks/useAgentProviders";
 
 const events = new Map<string, (event: { payload: unknown }) => void>();
 it("models installation, sign-in, startup, readiness and failure recovery", () => {
@@ -161,6 +162,49 @@ function provider(id: string, transport: ProviderDescriptor["transport"], displa
     supports_lazy_skills: false,
     has_hooks: false,
   };
+}
+
+for (const outcome of ["loaded", "failed"] as const) {
+  it(`replaces the busy provider placeholder with ${outcome === "loaded" ? "provider choices" : "the catalogue error"}`, async () => {
+    invalidateAgentProviders();
+    let resolve!: (providers: ProviderDescriptor[]) => void;
+    let reject!: (error: Error) => void;
+    const catalogue = new Promise<ProviderDescriptor[]>((accept, fail) => { resolve = accept; reject = fail; });
+    vi.mocked(invoke).mockImplementation(async command => command === "list_agent_providers" ? catalogue : undefined);
+    function Welcome() {
+      const { providers, loading, error } = useAgentProviders();
+      return <FirstRunGeneralPicker providers={providers} providersLoading={loading} providersError={error} />;
+    }
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<Welcome />));
+      const group = host.querySelector('[role="group"][aria-label="Agent providers"]')!;
+      const confirm = host.querySelector<HTMLButtonElement>('[data-testid="agent-picker-confirm"]')!;
+      expect(group.getAttribute("aria-busy")).toBe("true");
+      expect(group.querySelector("button")).toBeNull();
+      expect(confirm.disabled).toBe(true);
+      await act(async () => {
+        if (outcome === "loaded") resolve([provider("fixture", "pty", "Fixture agent")]);
+        else reject(new Error("opaque catalogue failure"));
+      });
+      expect(host.querySelector('[role="group"][aria-label="Agent providers"]')).toBe(group);
+      expect(group.hasAttribute("aria-busy")).toBe(false);
+      if (outcome === "loaded") {
+        expect(group.querySelector("button[aria-pressed]")?.textContent).toContain("Fixture agent");
+        expect(confirm.disabled).toBe(false);
+      } else {
+        expect(group.querySelector("button")).toBeNull();
+        expect(host.querySelector('[role="alert"]')?.textContent).toContain("opaque catalogue failure");
+        expect(confirm.disabled).toBe(true);
+      }
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+      invalidateAgentProviders();
+    }
+  });
 }
 
 it("lays the Welcome out from the visible providers only, on one centred axis, for one to three providers", async () => {
@@ -318,6 +362,8 @@ it("shows only the passive analytics line on first run and links Settings to Gen
     await act(async () => root.render(<FirstRunGeneralPicker providers={[]} />));
     const link = [...host.querySelectorAll("a")].find(element => element.textContent === "Settings")!;
     expect(link.parentElement?.textContent).toBe("Product analytics is on. Turn off in Settings.");
+    const confirm = host.querySelector<HTMLButtonElement>('[data-testid="agent-picker-confirm"]')!;
+    expect(confirm.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(host.querySelector('[role="dialog"], [role="alert"], [role="banner"], [data-notification-id]')).toBeNull();
     await act(async () => link.click());
     expect(open).toHaveBeenCalledOnce();
