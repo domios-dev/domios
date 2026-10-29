@@ -47,7 +47,8 @@ export interface LocalPairFact {
 }
 
 export type AccountMeshFailure =
-  | { reason: "key_conflict" | "generation_mismatch" | "challenge_invalid" | "enrollment_budget" | "proof_invalid" }
+  | { reason: "enrollment_budget"; retry_after_seconds?: number | null }
+  | { reason: "key_conflict" | "generation_mismatch" | "challenge_invalid" | "proof_invalid" }
   | { reason: "invalid" | "unauthenticated" | "app-check" | "forbidden" | "conflict" | "authority-unavailable" | "unavailable" }
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }

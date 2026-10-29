@@ -7,6 +7,16 @@ pub(super) fn authorize(
     target: &str,
     scope: TabMutationScope<'_>,
 ) -> Result<(), (StatusCode, String)> {
+    authorize_with_caller(state, headers, target, scope).map(|_| ())
+}
+
+pub(super) fn authorize_with_caller(
+    state: &AppState,
+    headers: &HeaderMap,
+    target: &str,
+    scope: TabMutationScope<'_>,
+) -> Result<Option<codeterm_service_core::service::tab_credentials::TabCaller>, (StatusCode, String)>
+{
     let caller = crate::auth::tab_caller(state, headers)?;
     state
         .svc
@@ -17,5 +27,6 @@ pub(super) fn authorize(
             target,
             scope,
         )
-        .map_err(|error| (StatusCode::FORBIDDEN, error))
+        .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+    Ok(caller)
 }

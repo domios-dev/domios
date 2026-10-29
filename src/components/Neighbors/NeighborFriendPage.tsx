@@ -133,6 +133,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {paused && <span className="neighbor-pause-glyph" aria-hidden="true"><Pause size={12} /></span>}</span>
         <div className="min-w-0 flex-1">
           <h2 id={titleId} className="neighbor-friend__name">{name}</h2>
+          {friend.email && <p className="neighbor-note">{friend.email}</p>}
           <p className="neighbor-status"><span className="neighbor-dot" data-tone={enabled && !locked ? "ok" : "muted"} aria-hidden="true" />
             <span>{status}<span className="neighbor-note">, since {new Date(friend.since * 1000).toLocaleDateString()}</span></span></p>
           {receiver && <p className="neighbor-note">{receivingLine(receiver)}</p>}
@@ -216,7 +217,11 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
       </div>
     </section>
     {changing && <ChangeConciergeDialog friendship={friendship} name={name} currentProvider={gateway?.agent_type ?? null}
-      machineAccess={permission?.machine_access ?? null} client={conciergeClient} onClose={() => setChanging(false)} />}
+      machineAccess={permission?.machine_access ?? null} client={conciergeClient}
+      receiveControl={enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere
+        receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
+        onReceive={revision => runtimeClient.receiveFriend(friendship, revision)} />}
+      onClose={() => setChanging(false)} />}
   </div>;
 }
 

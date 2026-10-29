@@ -21,6 +21,7 @@ fn set_auth_time(harness: &Harness, auth_time: u64) {
 fn account_mesh_reauth_required_preserves_the_callable_reason() {
     let failure = CallableFailure::Status {
         status: 400,
+        retry_after_seconds: None,
         body: Some(json!({"error": {"details": {"reason": "reauth_required"}}})),
     };
     assert_eq!(refusal(&failure), RegistryRefusal::ReauthRequired);

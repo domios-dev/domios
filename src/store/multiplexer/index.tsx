@@ -58,7 +58,8 @@ import { createRefreshCoalescer } from "./refreshCoalescer";
 import { isMuxStatusDelta, statusDeltaAction, type MuxStatusDelta } from "./statusDelta";
 import { mountNotificationHistory } from "./notificationHistory";
 import { onResync } from "../../lib/resync";
-import { EVENT_STREAM_READY } from "../../lib/eventStreamReady";
+import { EVENT_STREAM_READY, eventStreamVersion } from "../../lib/eventStreamReady";
+import { mountSnapshotReadiness } from "./snapshotReadiness";
 import { createPeerRebindGate } from "./peerRebindGate";
 import type { Tab } from "../../lib/types";
 import { remoteControllerSignature, remoteTabsFromOrdinaryProjection, refreshAttachedRemoteAgentStates, shouldRefreshRemoteTabs } from "./remoteTabProjection";
@@ -506,6 +507,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }).then((unlisten) => unlisteners.push(unlisten));
 
     let muxUnlisten: (() => void) | null = null;
+    let stopSnapshotReadiness: (() => void) | undefined;
     let muxListenGeneration = 0;
     const eventStats = window as unknown as {
       __ctEvents?: { received: number; lastAt: number; reconnects: number; breakMuxStream?: () => void };
@@ -536,10 +538,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
         void refreshFromBackend(s?.generation);
       }
     };
-    // The authoritative read follows the bind: a refused read waits for the next
-    // state event, and one emitted before the bind would never reach this page.
+    // Local listener registration precedes server stream attachment; its ready acknowledgement closes that gap.
     const renewMuxListener = () => {
       const generation = ++muxListenGeneration;
+      stopSnapshotReadiness?.();
       muxUnlisten?.();
       muxUnlisten = null;
       void listen<MultiplexerState | MuxStatusDelta>("mux-state-changed", applyMuxEvent)
@@ -550,7 +552,14 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
           }
           muxUnlisten = unlisten;
           (eventStats.__ctEvents ??= { received: 0, lastAt: 0, reconnects: 0 }).reconnects++;
-          void refreshFromBackend();
+          stopSnapshotReadiness = mountSnapshotReadiness({
+            readyVersion: eventStreamVersion,
+            subscribeReady: (refresh) => {
+              window.addEventListener(EVENT_STREAM_READY, refresh);
+              return () => window.removeEventListener(EVENT_STREAM_READY, refresh);
+            },
+            refresh: () => { void refreshFromBackend(); },
+          });
         })
         .catch((error) => {
           console.warn("Failed to renew mux event listener:", error);
@@ -564,6 +573,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
     }
     unlisteners.push(() => {
       muxListenGeneration++;
+      stopSnapshotReadiness?.();
       muxUnlisten?.();
       delete eventStats.__ctEvents?.breakMuxStream;
     });

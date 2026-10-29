@@ -1,6 +1,58 @@
 use super::*;
 use crate::types::{PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, WebUiEndpoint};
 
+#[test]
+fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers() {
+    use crate::network_transport::{TransportState, TransportStatus};
+    let mut manager = MeshManager::in_memory(
+        types::MeshIdentity {
+            instance_id: "local".into(),
+            private_key: None,
+            public_key: None,
+        },
+        "Local".into(),
+        7685,
+    );
+    assert!(manager.account.signed_in_account().is_none());
+    let empty = serde_json::to_value(manager.status()).unwrap();
+    assert_eq!(empty["paired_count"], 0);
+    assert_eq!(empty.get("transport"), Some(&serde_json::Value::Null));
+    assert_eq!(empty.get("web_ui"), Some(&serde_json::Value::Null));
+    manager.set_network_transport(TransportStatus {
+        display_name: "Tailscale".into(),
+        state: TransportState::Connected,
+        identity: None,
+        network_name: None,
+        user: Some("private-login".into()),
+        addresses: vec![concat!("100.", "64.0.7").parse().unwrap()],
+        peer_listener: true,
+        encrypted: true,
+        setup_actions: vec![],
+    });
+    manager.local_web_ui = Some(WebUiAnnouncement {
+        protocol_version: types::RELAY_PROTOCOL_VERSION,
+        endpoints: vec![WebUiEndpoint::TailscaleHttps {
+            host: concat!("node.fixture.ts", ".net").into(),
+            port: 443,
+        }],
+    });
+    let value = serde_json::to_value(manager.status()).unwrap();
+    assert_eq!(value["paired_count"], 0);
+    assert_eq!(value["transport"]["state"], "connected");
+    assert_eq!(
+        value["transport"]["addresses"],
+        serde_json::json!([concat!("100.", "64.0.7")])
+    );
+    assert_eq!(
+        value["web_ui"]["endpoints"],
+        serde_json::json!([
+            {"transport": "tailscale_https", "host": concat!("node.fixture.ts", ".net"), "port": 443}
+        ])
+    );
+    assert!(value["transport"].get("user").is_none());
+    assert!(manager.account.signed_in_account().is_none());
+}
+
 fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
     let mut m = MeshManager::new("test-host".into(), 7685);
     m.disk_persist = false;
@@ -39,6 +91,7 @@ fn unpair_returns_a_persistence_failure() {
 fn apply_announce_replaces_address_list_wholesale() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
+        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.99.99.99")],
@@ -64,6 +117,7 @@ fn apply_announce_replaces_address_list_wholesale() {
 fn apply_announce_stores_and_clears_web_ui() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let with_https = PeerAnnounce {
+        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],
@@ -83,6 +137,7 @@ fn apply_announce_stores_and_clears_web_ui() {
     assert_eq!(m.paired_peers["peer-A"].web_ui, with_https.web_ui);
 
     let without = PeerAnnounce {
+        registry: None,
         web_ui: None,
         relay_protocol_version: types::RELAY_PROTOCOL_VERSION,
         ..with_https
@@ -96,6 +151,7 @@ fn apply_announce_stores_and_clears_web_ui() {
 fn apply_announce_rejects_spoofed_sender() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.99.99.99")],
@@ -116,6 +172,7 @@ fn apply_announce_rejects_spoofed_sender() {
 fn apply_announce_empty_list_is_noop() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5"]);
     let ann = PeerAnnounce {
+        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![],
@@ -133,6 +190,7 @@ fn apply_announce_empty_list_is_noop() {
 fn apply_announce_same_addrs_returns_no_change() {
     let mut m = make_mesh_with_peer("peer-A", vec!["100.64.0.5"]);
     let ann = PeerAnnounce {
+        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],
@@ -147,6 +205,7 @@ fn apply_announce_same_addrs_returns_no_change() {
 
 fn announce_with_protocol(relay_protocol_version: u16) -> PeerAnnounce {
     PeerAnnounce {
+        registry: None,
         instance_id: "peer-A".into(),
         instance_name: "TestPeer".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.5")],

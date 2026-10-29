@@ -12,6 +12,8 @@
 
 When Tailscale is connected and the API is enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic without withdrawing the web listener. Signed-in machines publish their health-proven endpoint to the account.
 
+Health-proven HTTP access remains available without Tailscale Serve HTTPS. The card prefers verified HTTPS, then tailnet HTTP, then LAN HTTP. Loopback offers **Open on this machine** without a phone QR or Copy action. The card labels the selected route; HTTPS-dependent browser features still require HTTPS. After Tailscale or Serve setup, run `domios mesh refresh --json`: it re-detects the transport, reconciles Serve, verifies web endpoints, publishes them and resyncs the card. Read back `transport.state` and `web_ui.endpoints` in that response or in `domios mesh status --json` (the latest cached local state, available even while signed out), then verify the card offers Open, Copy and QR for the proven endpoint before reporting setup complete. Access denial appears as **Permission needed**, separately from a stopped or missing Tailscale installation.
+
 Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
 
 Both machines must be signed in to the same account, enrolled, online to the account registry and directly reachable (for example over the same Tailnet). Pick the machine from the account's machine list, or run:
@@ -181,4 +183,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 | POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 69 -->
+<!-- revision: 71 -->

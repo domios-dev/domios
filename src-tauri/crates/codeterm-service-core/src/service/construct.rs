@@ -36,6 +36,7 @@ pub fn build_service_context(
     surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
     cap_registries: &crate::plugin::js_runtime::CapabilityRegistries,
 ) -> Arc<ServiceContext> {
+    let phase = crate::startup::StartupStep::debug("service: registries");
     let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::with_manager(
         crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
         mem.clone(),
@@ -51,9 +52,13 @@ pub fn build_service_context(
     crate::service::plan::search_index::init_search_port(Arc::new(
         crate::service::plan::search_port_impl::MemSearchPort,
     ));
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: plan store");
     let plan_store = Arc::new(crate::service::plan::PlanStore::new());
     let plan_turn_counter = Arc::new(crate::service::plan::reminders::TurnCounter::new());
     plan_store.bind_turn_counter(plan_turn_counter.clone());
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: pending delivery stores");
     let payload_snapshot = states.mux.read().snapshot();
     let live_pending_delivery_keys =
         crate::service::pending_delivery_payloads::live_payload_keys(&payload_snapshot);
@@ -86,6 +91,8 @@ pub fn build_service_context(
         log::error!("[user-send] startup payload retention failed: {error}");
     }
 
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: worker and delayed stores");
     let user_last_activity = crate::user_last_activity::UserLastActivity::new();
     states.mesh.lock().build_hash = codeterm_build_info::hash().to_string();
     states.mesh.lock().last_activity = Arc::new(crate::mesh::UserLastActivityProvider(
@@ -117,13 +124,19 @@ pub fn build_service_context(
             ui.emit("kpi-recorded", serde_json::json!({ "plan_ids": plan_ids }));
         });
     }
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: secret state");
     let secrets = crate::secrets::new_state(&startup_config.integrations.secrets, &secret_registry);
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: services and usage stores");
     let services_store =
         crate::service::store::ServicesStore::open(&crate::paths::data_dir().join("services.db"))
             .expect("services.db init");
     let usage_store =
         crate::usage::UsageStore::open(&crate::paths::data_dir()).expect("usage.db init");
 
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: extensions");
     let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
     extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
     extensions.insert_service_slots();
@@ -251,15 +264,18 @@ pub fn build_service_context(
     extensions.insert(crate::service::PublishedTabStatuses(Arc::new(
         Default::default(),
     )));
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: published desk snapshot");
     let initial_mux = super::status_reconciliation::snapshot_with_reconciled_status(
         &states.mux,
         &states.agent_tracker,
         &agent_registry,
     );
-    extensions.insert(Arc::new(
-        super::PublishedMuxState::new(initial_mux.generation, &initial_mux)
-            .expect("initial mux snapshot serialization"),
-    ));
+    let published_mux = states.startup_desk.publisher();
+    published_mux
+        .publish_startup(initial_mux.generation, &initial_mux)
+        .expect("initial mux snapshot serialization");
+    extensions.insert(published_mux);
     extensions.insert(
         crate::service::output_stream_activity::OutputStreamActivityTx(
             crate::service::output_stream_activity::channel(),
@@ -288,6 +304,8 @@ pub fn build_service_context(
     extensions.insert(crate::service::WorkerIdentityAllocator(Arc::new(
         parking_lot::Mutex::new(crate::service::WorkerPersonaReservations::default()),
     )));
+    drop(phase);
+    let phase = crate::startup::StartupStep::debug("service: context assembly");
     let service = ServiceContext {
         tab_credentials: Default::default(),
         lifecycle_journal: crate::session::lifecycle::TabLifecycleJournal::shared_arc(),
@@ -342,6 +360,8 @@ pub fn build_service_context(
     };
     assert!(service.set_ext(states.storage.clone()).is_ok());
     assert!(service.set_ext(states.session.clone()).is_ok());
+    drop(phase);
+    let _phase = crate::startup::StartupStep::debug("service: remote recovery");
     service.restore_remote_worker_transfers();
     service.restore_remote_team_closures();
     let service = Arc::new(service);

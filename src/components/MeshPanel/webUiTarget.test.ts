@@ -2,7 +2,7 @@
 
 import type { AppConfig } from "../../lib/types";
 import type { ServeReconcileSnapshot, ServeStatus } from "../../lib/webAccess";
-import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
+import { buildWebUiTarget, canShareWebUiRoute, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
 
 let passed = 0;
 let failed = 0;
@@ -88,7 +88,14 @@ assert("route summary names HTTPS and Tailscale", webRouteLabel("tailscale_https
 assert("route summary distinguishes local network", webRouteLabel("lan"), "Local network");
 
 
-assert("bound listener wins over a cached Serve URL", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }, serve()).link, "http://100.64.1.2:7698/#token=secret&relay=self");
+assert("proven HTTPS wins over a bound tailnet listener", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }, serve()).link, "https://rollacode-bot.example-tailnet.ts.net/#token=secret");
+for (const listener of ["192.168.1.2:7685", "127.0.0.1:7685"]) {
+  assert("proven HTTPS wins over LAN and loopback", buildWebUiTarget(config, { web_listener: listener }, serve()).link, "https://rollacode-bot.example-tailnet.ts.net/#token=secret");
+  assert("route classification follows proven HTTPS", classifyWebUiRoute(config, { web_listener: listener }, serve()).kind, "tailscale_https");
+}
+assert("loopback is never a phone link", canShareWebUiRoute("loopback", true), false);
+assert("proven LAN can be shared", canShareWebUiRoute("lan", true), true);
+assert("unproven tailnet cannot be shared", canShareWebUiRoute("tailscale_ip", false), false);
 assert("detected IP alone is not a ready listener", webUiListenerReady(network), false);
 const macsysNetwork: NetworkInfo = {
   api_port: 7685,
@@ -104,6 +111,11 @@ assert("macsys address without proven listener keeps Open and QR unavailable", w
 assert("macsys listener supplies the authenticated web target", buildWebUiTarget(config, macsysNetwork).link, "http://100.64.0.0:7685/#token=secret&relay=self");
 assert("bound signed-out listener is ready without Serve", webUiListenerReady({ ...network, web_listener: "100.64.1.2:7698" }), true);
 assert("unhealthy Serve is not ready", webUiListenerReady(network), false);
+assert("HTTPS proof alone enables Open", webUiListenerReady(null, serve()), true);
+assert("HTTP and HTTPS proofs enable Open", webUiListenerReady(macsysNetwork, serve()), true);
+assert("neither endpoint enables no Open", webUiListenerReady(null, null), false);
+assert("permission needed cannot hide proven HTTP", webUiListenerReady({ ...macsysNetwork, transport: { ...macsysNetwork.transport!, state: "permission_needed" } }), true);
+assert("unhealthy HTTPS alone enables no Open", webUiListenerReady(null, serve({ snapshot: { ...readySnapshot(), state: "unhealthy", health: { ...readySnapshot().health, ok: false } } })), false);
 assert("ready listener supplies its actual port", buildWebUiTarget(config, { ...network, web_listener: "100.64.1.2:7698" }).link, "http://100.64.1.2:7698/#token=secret&relay=self");
 assert("ready IPv6 listener supports token access", buildWebUiTarget(config, { web_listener: "[fd7a:115c:a1e0::1]:7698" }).link, "http://[fd7a:115c:a1e0::1]:7698/#token=secret&relay=self");
 console.log("buildWebUiTarget:");

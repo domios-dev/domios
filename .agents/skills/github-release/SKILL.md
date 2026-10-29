@@ -477,6 +477,10 @@ Served bytes are not the whole proof: on a host still running the previous versi
 sessions restored. A published defect ships as the next patch version through this same train;
 never move a tag or re-upload changed bytes under a published version.
 
+Sign macOS updater archives with `tauri signer sign --app-version "$VER"`, like Linux and Windows.
+Manifest verification authenticates every trusted comment and requires exactly one matching `version:`
+binding, including entries outside a selected artifact check; an unsigned or stale comment refuses release.
+
 `sync-release-notes.mjs` maintains one substantive notes body across both repositories. Historical
 backfill mutates published notes and needs explicit authorization.
 

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import type { RuntimeServiceTierSelection } from "../../../packages/plugin-sdk/src/agentRuntime";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { isProviderSelectable } from "../../lib/providerAvailability";
@@ -22,10 +22,11 @@ export function conciergeProviders(providers: readonly ProviderDescriptor[], acc
 
 /** Picks the harness, model, effort and speed that answer this Neighbor, with the same agent row as New session; the
  *  friendship keeps its concierge binding. */
-export function ChangeConciergeDialog({ friendship, name, currentProvider, machineAccess = null, client, onClose }: {
+export function ChangeConciergeDialog({ friendship, name, currentProvider, machineAccess = null, client, receiveControl, onClose }: {
   friendship: string; name: string; currentProvider: string | null;
   /** The friend's machine access, which the provider must be able to serve. */
   machineAccess?: MachineAccess | null;
+  receiveControl?: ReactNode;
   client: NeighborConciergeClient; onClose: () => void;
 }) {
   const title = useId();
@@ -69,6 +70,7 @@ export function ChangeConciergeDialog({ friendship, name, currentProvider, machi
     {tiers.length > 0 && <ServiceTierPicker declared={tiers} available={undefined} selection={tier} busy={busy} onChange={setTier} />}
     {providers.length === 0 && <p role="status" className="text-xs text-[var(--ct-muted-fg)]">No installed agent can be a concierge with this friend's machine access.</p>}
     {advisory && <p className="text-xs text-[var(--ct-muted-fg)]">On this machine its file access is a guideline the agent is asked to keep, not a sandbox.</p>}
+    {receiveControl}
     {error && <InlineErrorNotice error={error} operation="changing the concierge" role="alert" />}
     <div className="flex justify-end gap-2">
       <Button size="sm" disabled={busy} onClick={onClose}>Cancel</Button>

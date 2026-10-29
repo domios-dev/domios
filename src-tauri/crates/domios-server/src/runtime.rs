@@ -5,6 +5,7 @@ use crate::{
     },
     launch::LaunchOptions,
 };
+use codeterm_paths::instance_identity::ownership_registry;
 use codeterm_service_core::{
     ports::host::{NoShell, ProcessPaths, ProcessShell, UiEvents},
     PathOwnership, ResolvedInstancePaths,
@@ -40,13 +41,6 @@ impl UiEvents for ServerEvents {
             endpoint.emit_to(target, event, payload);
         }
     }
-}
-
-pub fn ownership_registry() -> io::Result<std::path::PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| io::Error::other("Home directory unavailable"))?;
-    let root = home.join(".codeterm-instance-lifetimes");
-    std::fs::create_dir_all(&root)?;
-    Ok(root.join("path-owners"))
 }
 
 fn ownership_registry_for(
@@ -492,9 +486,16 @@ async fn shutdown_signal() -> io::Result<()> {
 fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     use codeterm_service_core::{crash, service::session_persist, startup};
     crash::shutdown::mark_shutting_down_for(crash::shutdown::ShutdownReason::Signal);
+    let spawn_gate = running.states.pty.lock().spawn_gate();
+    spawn_gate.quiesce();
     let surfaces =
         codeterm_service_core::service::surface::begin_surface_shutdown(&running.service);
     let mut errors = Vec::new();
+    if let Err(error) =
+        spawn_gate.wait_for_idle(std::time::Instant::now() + std::time::Duration::from_secs(6))
+    {
+        errors.push(error);
+    }
     match session_persist::write_session_snapshot(&running.service, &running.service.mux) {
         Ok(codeterm_service_core::session::store::SaveOutcome::Saved) => {}
         Ok(outcome) => errors.push(format!("Shutdown snapshot refused: {outcome:?}")),
@@ -503,7 +504,17 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     if let Err(error) = session_persist::stop_worker(&running.service) {
         errors.push(error);
     }
+    #[cfg(windows)]
+    let owned_tree = codeterm_util::process_tree::OwnedProcessTree::capture_current_server()
+        .map_err(|error| io::Error::other(format!("Owned process tree capture failed: {error}")));
     let reapers = running.states.pty.lock().begin_shutdown();
+    #[cfg(windows)]
+    if let Err(error) = owned_tree.and_then(|tree| {
+        tree.terminate_remaining(std::time::Duration::from_secs(6))
+            .map_err(|error| io::Error::other(format!("Owned process tree exit failed: {error}")))
+    }) {
+        errors.push(error.to_string());
+    }
     match reapers {
         Ok(reapers) => {
             for reaper in reapers {

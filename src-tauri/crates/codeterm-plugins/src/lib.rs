@@ -27,6 +27,8 @@ mod archive_channel;
 mod channel;
 mod channel_failure;
 mod config;
+mod git_probe;
+mod git_tool;
 mod install;
 mod install_swap;
 mod lifecycle;

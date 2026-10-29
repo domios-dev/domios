@@ -9,10 +9,10 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
   localFetch: (url: string, init?: RequestInit) => network.request(url, init),
 }));
-const bridge = vi.hoisted(() => ({ handlers: new Map<string, () => void>() }));
+const bridge = vi.hoisted(() => ({ handlers: new Map<string, (event?: { payload: { uid: string } }) => void>() }));
 vi.mock("../../lib/bridge", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/bridge")>(),
-  listen: async (event: string, handler: () => void) => {
+  listen: async (event: string, handler: (event?: { payload: { uid: string } }) => void) => {
     bridge.handlers.set(event, handler);
     return () => bridge.handlers.delete(event);
   },
@@ -130,4 +130,20 @@ it("shares focus refreshes across consumers and uses the focus endpoint once a m
   await act(async () => window.dispatchEvent(new Event("focus")));
   expect(network.request).toHaveBeenCalledTimes(2);
   expect(network.request).toHaveBeenLastCalledWith("/api/account/plan/refresh?focus=true", { method: "POST" });
+});
+
+it("checks a known browser return once immediately even inside the shared UI cache window", async () => {
+  const value = plan("billing", "pro", "active");
+  await mount(value, async () => response(value));
+  await act(async () => mounted!.root.render(<><Harness /><Harness /></>));
+  expect(network.request).toHaveBeenCalledTimes(1);
+  await act(async () => bridge.handlers.get("billing-browser-opened")?.({ payload: { uid: "stale-account" } }));
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(network.request).toHaveBeenCalledTimes(1);
+  await act(async () => bridge.handlers.get("billing-browser-opened")?.({ payload: { uid: `user-${identity}` } }));
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(network.request).toHaveBeenCalledTimes(2);
+  expect(network.request).toHaveBeenLastCalledWith("/api/account/plan/refresh?focus=true", { method: "POST" });
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(network.request).toHaveBeenCalledTimes(2);
 });

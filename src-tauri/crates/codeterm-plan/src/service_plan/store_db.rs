@@ -15,7 +15,7 @@ impl PlanDatabase {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(io_error)?;
         }
-        let mut connection = Connection::open(&path).map_err(db_error)?;
+        let connection = Connection::open(&path).map_err(db_error)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
@@ -62,11 +62,6 @@ impl PlanDatabase {
                 CREATE INDEX IF NOT EXISTS plan_operations_state_id
                     ON plan_operations(state, id);
 
-                CREATE TABLE IF NOT EXISTS legacy_imports (
-                    root TEXT PRIMARY KEY,
-                    imported_at INTEGER NOT NULL
-                );
-
                 CREATE VIRTUAL TABLE IF NOT EXISTS plan_fts USING fts5(
                     plan_id UNINDEXED,
                     title,
@@ -78,11 +73,6 @@ impl PlanDatabase {
         connection
             .execute_batch(store_sync::TASK_SCHEMA)
             .map_err(db_error)?;
-        let _ = connection.execute(
-            "ALTER TABLE plans ADD COLUMN title TEXT NOT NULL DEFAULT ''",
-            [],
-        );
-        super::store_migrate::split_whole_documents(&mut connection).map_err(db_error)?;
         connection
             .execute(
                 "UPDATE plan_operations SET state = 'failed', finished_at = submitted_at, error = 'daemon restarted before commit' WHERE state IN ('queued', 'running')",
@@ -132,33 +122,6 @@ impl PlanDatabase {
         let value =
             store_sync::load_plan_value(&connection, id, &document).map_err(PlanError::Io)?;
         serde_json::from_value(value).map(Some).map_err(json_error)
-    }
-
-    pub(super) fn legacy_imported(&self, root: &str) -> Result<bool, PlanError> {
-        let connection = self.connection.lock();
-        let count: i64 = connection
-            .query_row(
-                "SELECT COUNT(*) FROM legacy_imports WHERE root = ?1",
-                [root],
-                |row| row.get(0),
-            )
-            .map_err(db_error)?;
-        Ok(count > 0)
-    }
-
-    pub(super) fn mark_legacy_imported(
-        &self,
-        root: &str,
-        imported_at: u64,
-    ) -> Result<(), PlanError> {
-        let connection = self.connection.lock();
-        connection
-            .execute(
-                "INSERT OR IGNORE INTO legacy_imports(root, imported_at) VALUES (?1, ?2)",
-                params![root, imported_at],
-            )
-            .map_err(db_error)?;
-        Ok(())
     }
 
     pub(super) fn delete_spec(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
@@ -411,16 +374,7 @@ fn load_plan_documents(connection: &Connection) -> Result<Vec<Plan>, PlanError> 
     for (record_id, document) in documents {
         let joined = store_sync::load_plan_value(connection, &record_id, &document);
         match joined.and_then(parse_plan_value) {
-            Ok((plan, normalized_fields)) => {
-                if normalized_fields > 0 {
-                    log::warn!(
-                        "[plan.store] normalized {} pane-era fields in plan record {}; source left unchanged",
-                        normalized_fields,
-                        record_id
-                    );
-                }
-                plans.push(plan);
-            }
+            Ok(plan) => plans.push(plan),
             Err(error) => log::error!(
                 "[plan.store] quarantined plan record {} during startup: {}; source left unchanged",
                 record_id,
@@ -432,17 +386,12 @@ fn load_plan_documents(connection: &Connection) -> Result<Vec<Plan>, PlanError> 
 }
 
 #[cfg(test)]
-fn parse_plan_document(document: &str) -> Result<(Plan, usize), String> {
+fn parse_plan_document(document: &str) -> Result<Plan, String> {
     parse_plan_value(serde_json::from_str(document).map_err(|error| error.to_string())?)
 }
 
-pub(super) fn parse_plan_value(mut value: serde_json::Value) -> Result<(Plan, usize), String> {
-    let normalized_fields = codeterm_types::startup_records::normalize_pane_id_fields(&mut value)?;
-    // Key renaming and tag-value migration stay separate because the key normalizer cannot change `planner.kind` values.
-    codeterm_types::plan::types::migrate_legacy_planner_tag(&mut value);
-    serde_json::from_value(value)
-        .map(|plan| (plan, normalized_fields))
-        .map_err(|error| error.to_string())
+pub(super) fn parse_plan_value(value: serde_json::Value) -> Result<Plan, String> {
+    serde_json::from_value(value).map_err(|error| error.to_string())
 }
 
 fn load_documents<T: serde::de::DeserializeOwned>(

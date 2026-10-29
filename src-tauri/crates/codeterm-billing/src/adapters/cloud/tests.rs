@@ -21,7 +21,7 @@ impl InstallationProofSource for FixtureProof {
 }
 
 #[test]
-fn entitlements_attach_proof_and_refuse_unsigned_remote_requests() {
+fn entitlements_attach_proof_and_allow_unsigned_fallback() {
     let proof = codeterm_account::account_mesh::wire::InstallationProof {
         schema_version: 1,
         key_id: "1".repeat(64),
@@ -30,14 +30,13 @@ fn entitlements_attach_proof_and_refuse_unsigned_remote_requests() {
         nonce: "nonce".into(),
         signature: "s".repeat(86),
     };
-    let data = entitlements_request(&id(), Some(proof.clone()), false).unwrap();
+    let data = entitlements_request(&id(), Some(proof.clone())).unwrap();
     assert_eq!(
         data,
         serde_json::json!({"installation_id":"fixture-installation", "installation_proof":proof})
     );
-    assert!(entitlements_request(&id(), None, false).is_err());
     assert_eq!(
-        entitlements_request(&id(), None, true).unwrap(),
+        entitlements_request(&id(), None).unwrap(),
         serde_json::json!({"installation_id":"fixture-installation"})
     );
     assert!(!Cloud::fixture("https://fixture.test/", id()).local_entitlements(&local_session()));
@@ -344,4 +343,66 @@ async fn session_revoked_from_entitlements_checkout_portal_and_sponsor_notifies_
             "/createCheckoutSession"
         ]
     );
+}
+
+struct MissingProof;
+#[async_trait]
+impl InstallationProofSource for MissingProof {
+    async fn proof(
+        &self,
+        _: &Session,
+        _: &codeterm_account::InstallationId,
+    ) -> Result<codeterm_account::account_mesh::wire::InstallationProof> {
+        Err("enrollment_budget".into())
+    }
+}
+
+struct EntitlementTransport {
+    requests: std::sync::Mutex<Vec<serde_json::Value>>,
+    refuse_signed: bool,
+}
+#[async_trait]
+impl CloudTransport for EntitlementTransport {
+    async fn execute(&self, request: reqwest::Request) -> Result<(bool, serde_json::Value)> {
+        let data: serde_json::Value =
+            serde_json::from_slice(request.body().unwrap().as_bytes().unwrap()).unwrap();
+        let signed = data["data"].get("installation_proof").is_some();
+        self.requests.lock().unwrap().push(data);
+        if signed && self.refuse_signed {
+            return Err("Billing request refused".into());
+        }
+        let mut envelope: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../fixtures/unsigned_schema2_response.json"
+        ))
+        .unwrap();
+        envelope.as_object_mut().unwrap().remove("grant");
+        Ok((true, serde_json::json!({"result":envelope})))
+    }
+}
+
+#[tokio::test]
+async fn refused_enrollment_or_signed_fetch_uses_bare_installation_entitlement_envelope() {
+    for signed in [false, true] {
+        let source: std::sync::Arc<dyn InstallationProofSource> = if signed {
+            std::sync::Arc::new(FixtureProof)
+        } else {
+            std::sync::Arc::new(MissingProof)
+        };
+        let transport = std::sync::Arc::new(EntitlementTransport {
+            requests: Default::default(),
+            refuse_signed: signed,
+        });
+        let mut cloud =
+            Cloud::fixture("https://fixture.test/", id()).with_installation_proofs(source);
+        cloud.transport = transport.clone();
+        let reading = cloud.entitlements(&local_session()).await.unwrap();
+        assert_eq!(reading.entitlements.unwrap().plan, Plan::Pro);
+        assert!(reading.grant.is_none());
+        let requests = transport.requests.lock().unwrap();
+        assert_eq!(requests.len(), if signed { 2 } else { 1 });
+        assert_eq!(
+            requests.last().unwrap(),
+            &serde_json::json!({"data":{"installation_id":id()}})
+        );
+    }
 }

@@ -98,6 +98,7 @@ pub(super) async fn publish(session: &listener::Session) -> codeterm_neighbors::
 struct PendingWatch<'a> {
     session: &'a listener::Session,
     progress: AtomicU64,
+    health: parking_lot::Mutex<codeterm_neighbors::supervisor::StreamHealth>,
 }
 #[async_trait::async_trait]
 impl ReceptionEvents for PendingWatch<'_> {
@@ -105,7 +106,13 @@ impl ReceptionEvents for PendingWatch<'_> {
         self.session.failure(error);
     }
     fn state(&self, state: ListenerState) {
-        if state == ListenerState::Receiving {
+        use codeterm_neighbors::supervisor::RetryClock;
+        if state == ListenerState::Receiving
+            && self
+                .health
+                .lock()
+                .observe(codeterm_neighbors::supervisor::RuntimeClock.now(), true)
+        {
             self.progress.fetch_add(1, Ordering::AcqRel);
         }
         self.session.state(state);
@@ -123,6 +130,7 @@ impl codeterm_neighbors::supervisor::DocumentSession for PendingWatch<'_> {
         self.session.stopped().await;
     }
     async fn listen(&self) -> codeterm_neighbors::Result<()> {
+        *self.health.lock() = Default::default();
         let result = observe(self.session, self).await;
         self.session
             .service
@@ -138,6 +146,7 @@ pub(super) async fn run(session: &listener::Session) {
     let watch = PendingWatch {
         session,
         progress: AtomicU64::new(0),
+        health: Default::default(),
     };
     let _ = codeterm_neighbors::supervisor::supervise_documents(&watch).await;
 }
@@ -214,7 +223,7 @@ async fn observe_count(
                 session.current()?;
                 match result? {
                     Some(InboxEvent::Ready) => if recount.changed() { count = Some(Box::pin(session.transport.pending_count(&session.friendship))); },
-                    Some(InboxEvent::Messages(_)) => return Err(Error::Gateway),
+                    Some(InboxEvent::Messages(_) | InboxEvent::Snapshot(_)) => return Err(Error::Gateway),
                     None => return Err(Error::Transport),
                 }
             }

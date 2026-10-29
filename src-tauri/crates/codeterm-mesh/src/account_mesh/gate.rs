@@ -13,6 +13,7 @@ pub enum BlockReason {
     LocalMembershipExpired,
     PeerMembershipMissing,
     PeerMembershipExpired,
+    PeerUnavailable,
     /// The account server refused this machine a slot under the plan's machine limit.
     PlanLimitLocked,
 }
@@ -86,6 +87,9 @@ pub fn decide(
             }
             if state.revoked_installations.contains(installation_id) {
                 return Blocked(Revoked);
+            }
+            if state.unavailable_installations.contains(installation_id) {
+                return Blocked(PeerUnavailable);
             }
             if state.current_membership(now).is_none() {
                 return Blocked(if state.plan_limit_locked {

@@ -27,6 +27,7 @@ interface DurableDraft {
 }
 
 interface DurableSend {
+  localAttempt?: DeliverySend["localAttempt"];
   id: string;
   content: BodyRef;
   sentAtMs: number;
@@ -107,6 +108,7 @@ export function encodeChatSend(tabId: string, send: DeliverySend, revision = 0, 
     ...(!matchedRowInStatus && send.matchedRow !== undefined ? { matchedRow: send.matchedRow } : {}),
     ...(matchedRowInStatus ? { matchedRowInStatus: true } : {}),
     ...(send.echoBoundary !== undefined ? { echoBoundary: send.echoBoundary } : {}),
+    ...(send.localAttempt !== undefined ? { localAttempt: send.localAttempt } : {}),
     ...(send.droppedUploads !== undefined ? { droppedUploads: send.droppedUploads } : {}),
     ...(send.dismissed !== undefined ? { dismissed: send.dismissed } : {}),
     ...(status !== undefined ? { status } : {}),
@@ -276,6 +278,7 @@ export function decodeChatSend(record: ChatSendDurableRecord): DeliverySend | nu
       ...(value.echo !== undefined ? { echo: { content: readRequiredBody(record, value.echo.body), timestampMs: value.echo.timestampMs } } : {}),
       ...(matchedRow !== undefined ? { matchedRow } : {}),
       ...(value.echoBoundary !== undefined ? { echoBoundary: value.echoBoundary } : {}),
+      ...(value.localAttempt !== undefined ? { localAttempt: value.localAttempt } : {}),
       ...(value.droppedUploads !== undefined ? { droppedUploads: value.droppedUploads } : {}),
       ...(value.dismissed !== undefined ? { dismissed: value.dismissed } : {}),
       ...(status !== undefined ? { status } : {}),
@@ -326,7 +329,7 @@ export function mergeChatSendRecord(
     if (previous && !sameValue(current[key], previous[key])) return;
     (merged as DeliverySend)[key] = next[key] as DeliverySend[K];
   };
-  for (const key of ["content", "sentAtMs", "echoBoundary", "droppedUploads", "requestFailed", "requestUncertain", "requestHadResponse", "admissionSettled", "draft"] as const) patch(key);
+  for (const key of ["content", "sentAtMs", "echoBoundary", "localAttempt", "droppedUploads", "requestFailed", "requestUncertain", "requestHadResponse", "admissionSettled", "draft"] as const) patch(key);
   if (!retry) patch("correlationId");
   if (!retry) patch("matchedRow");
   if (current.echo == null && next.echo != null && deliveryState(current) !== "failed"

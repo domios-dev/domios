@@ -33,3 +33,7 @@ for (const rejected of [null, undefined, "", "http://lh3.googleusercontent.com/a
 }
 assert.equal(accountInitials("Domios User"), "DU");
 assert.equal(accountInitials("domios.user@example.test"), "DU");
+
+const provisional = accountTrayModel({kind:"signed_in",identity}, {authority:"free",fullAccess:false,plan:"pro",status:"active",stale:false,verifying:true,periodEnd:null,cancelAtPeriodEnd:false,limits:null});
+assert.match(provisional.plan ?? "", /Pro.*verifying/);
+assert.equal(provisional.badge?.verifying, true);

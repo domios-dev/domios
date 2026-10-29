@@ -108,6 +108,7 @@ pub struct AdoptOfferReply {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdoptCommit {
     pub adoption_id: String,
+    pub permit: String,
     pub installation_signature: String,
     pub mesh_signature: String,
 }

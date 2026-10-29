@@ -21,7 +21,7 @@ test("sidebar ignores equal snapshots, generation and elapsed agent time", () =>
   assert.ok(sidebarStateEqual(selectSidebarState(before), selectSidebarState(after)));
 });
 
-test("sidebar preserves visible tab, workspace, attention and close updates", () => {
+test("sidebar preserves visible tab, workspace, attention updates", () => {
   const mutations: Array<(state: ExtendedState) => void> = [
     (state) => { state.tabs.one.title = "Renamed"; },
     (state) => { state.tabs.one.agent_session_model = "new-model"; },
@@ -31,7 +31,6 @@ test("sidebar preserves visible tab, workspace, attention and close updates", ()
     (state) => { state.workspaces[0].name = "Renamed workspace"; },
     (state) => { state.activeTabIds.ws = "two"; },
     (state) => { state.notifications = [{ id: "attention" }] as ExtendedState["notifications"]; },
-    (state) => { state.recently_closed = [{ tab_id: "closed" }] as unknown as ExtendedState["recently_closed"]; },
   ];
   for (const mutate of mutations) {
     const before = fixture();
@@ -41,3 +40,11 @@ test("sidebar preserves visible tab, workspace, attention and close updates", ()
   }
 });
 
+
+test("sidebar ignores close-history snapshots after the drawer is removed", () => {
+  const before = fixture();
+  const after = structuredClone(before);
+  after.recently_closed = [{ tab_id: "closed" }] as unknown as ExtendedState["recently_closed"];
+  after.closed_structures = [{ id: "closed-team" }] as unknown as ExtendedState["closed_structures"];
+  assert.ok(sidebarStateEqual(selectSidebarState(before), selectSidebarState(after)));
+});

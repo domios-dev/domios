@@ -88,7 +88,7 @@ General Agent only: deny this Neighbor's requests
 
 #### `domios account neighbors enroll`
 
-Receive all friends here (account takeover); use a friend's UI to move only that friend
+Receive all friends here (account takeover); use receive-here to move only one friend
 
 - `--confirm-takeover`
 - `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
@@ -131,6 +131,14 @@ List active own key IDs
 Read a Neighbor's local permission policy
 
 - `<friendship_id>`
+
+#### `domios account neighbors receive-here`
+
+General Agent: receive one named friend's messages here; confirm an existing receiver move with the owner
+
+- `--expected-receiver-revision`
+- `<friendship_id>`
+- `--takeover-confirmed` — Pass only after the owner explicitly agrees to move receiving from the named machine
 
 #### `domios account neighbors revoke`
 
@@ -345,7 +353,7 @@ Restart a live agent, or resume an exited provider's verified session in its she
 
 #### `domios agent set-orchestrator`
 
-Mark a tab as orchestrator (top-level, can spawn workers)
+Promote your own live roleless, team-less agent to Orchestrator (can spawn workers)
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
@@ -4265,7 +4273,7 @@ Web mirror helpers (share links, etc.)
 
 #### `domios web link`
 
-Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)
+Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead). Local owner or authenticated General Agent only; never share through notifications or memory
 
 - `--host` — Host override (default: Tailscale Serve HTTPS > Tailscale IP > LAN IP > 127.0.0.1)
 - `--peer` — Build a link for a paired mesh PEER (by instance name) instead of this machine: resolves the peer's host (prefers its HTTPS tailscale-serve FQDN) and mints the peer's web token. Overrides --host/--port

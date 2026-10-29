@@ -16,6 +16,8 @@ use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod session_start;
+
 #[test]
 fn disabled_session_resume_skips_snapshot_and_discovered_session_candidates() {
     use super::{general_agent_session_plan, GeneralAgentSessionPlan};

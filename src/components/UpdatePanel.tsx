@@ -1,7 +1,7 @@
 import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { Download, RotateCw } from "lucide-react";
 import { useUpdatePanel } from "../hooks/useUpdatePanel";
-import { groupUpdates, summarizeUpdatePanel, type UpdateRow } from "../lib/updatePanelModel";
+import { groupUpdates, summarizeUpdatePanel, updateSourceMessage, type UpdateRow } from "../lib/updatePanelModel";
 import { ComponentStatus } from "./shared/ComponentStatus";
 import { UpdateChannelNotice } from "./shared/UpdateChannelNotice";
 import { SettingsCard } from "./Settings/shared";
@@ -79,6 +79,12 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
                     {canApply && <Button variant="accent" size="compact" disabled={update.busy || update.checking} aria-label={`Update ${item.name}`} onClick={() => void update.applyItem(item.id)}>Update</Button>}
                   </div>
                   {row.state === "active" && <progress aria-label={`${item.name} update progress`} max={100} value={item.group === "App" ? update.appProgress ?? undefined : undefined} className="ct-progress col-span-2" />}
+                  {((row.channelError && !row.channel) || row.sourceWarning) && <div className="col-span-2"><InlineErrorNotice description={{
+                    title: row.sourceWarning ? "Cached update remains available" : `${item.name} updates unavailable`,
+                    cause: updateSourceMessage(row.channelError ?? row.sourceWarning!),
+                    raw: row.channelError ?? row.sourceWarning!,
+                    actions: [],
+                  }} /></div>}
                 </div>;
               })}
             </div>

@@ -248,7 +248,7 @@ function SelfRow({ self, onRename, onPlans }: {
             <SettingsPill tone="amber">Over limit</SettingsPill>
           </>}
         </div>
-        {!editing && (
+        {!editing && !self.readOnly && (
           <button
             type="button"
             ref={button}
@@ -263,7 +263,7 @@ function SelfRow({ self, onRename, onPlans }: {
         <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>
         <button type="button" aria-label="See plans for this machine" onClick={onPlans} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>See plans</button>
       </div>}
-      {editing && (
+      {editing && !self.readOnly && (
         <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <input
             ref={input}

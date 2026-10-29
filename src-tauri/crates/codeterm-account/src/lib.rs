@@ -140,6 +140,7 @@ pub trait CredentialStore: Send + Sync {
 #[async_trait]
 pub trait IdentityObserver: Send + Sync {
     async fn changed(&self, identity: Option<&Identity>);
+    async fn session_refreshed(&self, _session: &Session) {}
 }
 #[async_trait]
 pub trait Browser: Send + Sync {

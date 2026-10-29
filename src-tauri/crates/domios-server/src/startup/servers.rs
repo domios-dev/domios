@@ -184,6 +184,8 @@ pub(crate) fn start_servers(
     frontend_dev_url: Option<url::Url>,
     resources: Option<std::path::PathBuf>,
     quit_port: Option<codeterm_api::app_quit_routes::AppQuitPortHandle>,
+    startup_api: &super::early_api::EarlyApi,
+    bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
 ) -> Result<Option<Arc<codeterm_frontend_bundle::FrontendBundles>>, String> {
     codeterm_commands::update::bind_status_emitter(service_state.ui.clone());
     super::state_incidents::install_notifier(service_state);
@@ -225,6 +227,7 @@ pub(crate) fn start_servers(
         }
     }
 
+    let phase = super::StartupStep::debug("crons");
     // e2e suite can time-travel; release builds never do.
     let test_clock: Option<Arc<cron::clock::MockClock>> =
         if cfg!(debug_assertions) && std::env::var("CODETERM_TEST_CLOCK").as_deref() == Ok("1") {
@@ -283,12 +286,6 @@ pub(crate) fn start_servers(
             Ok(true) => log::info!("[mem] auto-installed dreaming cron"),
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
-        }
-        // burning tokens to wrap a single bash command.
-        if mem::dreaming::remove_legacy_librarian_cron(
-            &mut codeterm_service_core::mem_host::CronSchedulerPort(&mut cs),
-        ) {
-            log::info!("[mem] removed legacy librarian cron (replaced by direct loop)");
         }
     }
 
@@ -356,12 +353,15 @@ pub(crate) fn start_servers(
         );
     }
 
-    codeterm_service_core::async_runtime::block_on(async {
+    drop(phase);
+    let secrets = service_state.secrets.clone();
+    codeterm_service_core::async_runtime::spawn(async move {
         let init_started = std::time::Instant::now();
-        if let Err(error) = service_state.secrets.read().await.init().await {
+        let store = secrets.read().await.clone();
+        if let Err(error) = store.init().await {
             log::warn!("[secrets] init failed: {error}");
         } else {
-            log::info!(
+            log::debug!(
                 "[secrets] init done in {}ms",
                 init_started.elapsed().as_millis()
             );
@@ -388,8 +388,6 @@ pub(crate) fn start_servers(
 
     let bundles = {
         let api_config = states.config.lock().api.clone();
-        let bundles =
-            codeterm_service_core::startup::frontend_bundles_open(&states.event_broadcaster);
         if let Some(bundles) = &bundles {
             codeterm_service_core::startup::frontend_bundles_check(bundles.clone());
         }
@@ -416,6 +414,7 @@ pub(crate) fn start_servers(
             Some(port) => codeterm_api::app_quit_routes::with_port(router, port),
             None => router,
         };
+        let router = startup_api.with_startup_events(router);
         assert!(service_state
             .set_ext(codeterm_service_core::ports::rest::LocalApiRouter(
                 router.clone(),
@@ -444,28 +443,11 @@ pub(crate) fn start_servers(
             };
         if api_config.enabled && listener_allowed {
             let weak_mesh = Arc::downgrade(&states.mesh);
-            let mesh_config = states.config.clone();
             states.rest_api.listeners.configure(
                 remote_bind.expect("validated remote bind"),
                 Arc::new(move |ready| {
                     if let Some(mesh) = weak_mesh.upgrade() {
-                        let changed = {
-                            let mut state = mesh.lock();
-                            state.set_ready_listeners(ready)
-                        };
-                        if changed && mesh_config.lock().mesh.enabled {
-                            codeterm_service_core::async_runtime::spawn(async move {
-                                let report =
-                                    codeterm_service_core::mesh::broadcast_announce(&mesh, None)
-                                        .await;
-                                if !report.errors.is_empty() {
-                                    log::warn!(
-                                        "[mesh] listener-set announcement failed: {:?}",
-                                        report.errors
-                                    );
-                                }
-                            });
-                        }
+                        mesh.lock().set_ready_listeners(ready);
                     }
                 }),
             );
@@ -536,7 +518,9 @@ pub(crate) fn start_servers(
 
 /// Locate the built React bundle for the browser mirror.
 /// Dev callers name mutable bundles explicitly; installed builds use only packaged assets.
-fn resolve_web_dist(resource_dir: Option<std::path::PathBuf>) -> Option<std::path::PathBuf> {
+pub(crate) fn resolve_web_dist(
+    resource_dir: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
     let is_dev = std::env::var("CODETERM_DEV").as_deref() == Ok("1");
     let explicit = std::env::var("CODETERM_WEB_DIST")
         .ok()

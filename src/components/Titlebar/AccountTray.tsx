@@ -1,5 +1,6 @@
 import { createNoticePublisher } from "../../lib/notices";
 import { useState } from "react";
+import { useEnrollmentNotice } from "../Settings/useAccountEnrollmentFailure";
 import { UserRound } from "lucide-react";
 import { BusyState } from "../shared/BusyState";
 import { ACCOUNT_ENTRY_OPTIONS, SIGN_IN_PROVIDER_OPTIONS, type SignInOption } from "../Settings/accountSignInOptions";
@@ -34,6 +35,7 @@ function AccountHeader({ identity, email, avatarUrl, initial, badge, summary }: 
     <div className="ct-account-plan">
       {badge ? <>
         <span className="ct-plan-badge" data-tier={badge.tier}>{badge.admin ? `Admin · ${badge.name}` : badge.name}</span>
+        {badge.verifying && <span role="status">Verifying</span>}
       </> : <span className="ct-plan-status" data-tone="inactive">Plan unavailable</span>}
     </div>
   </div>;
@@ -47,6 +49,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
   }));
   const billing = useAccountPlan(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const [open, setOpen] = useState(false);
+  const enrollmentNotice = useEnrollmentNotice(account.model.kind === "signed_in" ? account.model.identity.uid : null);
   const desktopBilling = useDesktopBilling(account.model.kind === "signed_in" ? account.model.identity.uid : null, open);
   const hasPaidSubscription = !!desktopBilling.subscription?.paid_subscription;
   const model = accountTrayModel(account.model, billing.plan);
@@ -79,6 +82,7 @@ export function AccountTray({ onOpenPlans, locked = false }: { onOpenPlans: () =
     { separator: true, key: "account-methods" },
     ...SIGN_IN_PROVIDER_OPTIONS.map(signInEntry),
   ];
+  if (model.kind === "signed_in" && enrollmentNotice) items.unshift({ label: enrollmentNotice, disabled: true });
   if (account.model.kind === "signed_in" && account.model.sessionOnly) {
     items.unshift({label: "Signed in for this session only", description: "Secure storage is unavailable. Sign in again after restarting Domios.", disabled: true});
   }

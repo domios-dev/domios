@@ -105,7 +105,7 @@ test("same-attempt lazy composer event releases Starting until the binding event
   const composing = reducer(state, {
     type: "UPDATE_BOOT_STAGE",
     tabId: "lazy",
-    stage: "launch_binding_unconfirmed",
+    stage: "provider_ready",
     provisional_launch: provisional,
     launchGeneration: { epoch: 4, operation_id: "lazy-attempt", pty_id: "own-pty", binding_nonce: "own-nonce" },
   });

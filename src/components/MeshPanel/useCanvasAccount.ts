@@ -37,12 +37,12 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   const self = view.kind === "account" ? view.self : null;
   return useMemo(() => ({
     moreMachines: !!snapshot?.registry?.cursor,
-    canvas, busy, signingIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
+    canvas, busy, signingIn, now, actions, selfName: self?.displayName ?? undefined, onRenameSelf: self && !self.readOnly ? renameSelf : undefined, removed: view.kind === "account" && view.removed, onRejoin: () => { void signIn(); }, reauthRequired: view.kind === "account" && view.reauthRequired,
     limitMachines: view.kind === "account" && view.machineLimit ? machines : undefined,
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
     onRetryEnrollment: account.presence === "signed_in" && snapshot?.enrollment === "refused" && snapshot.retry_at == null
-      && ["unavailable", "offline", "authority-unavailable", "rate-limited"].includes(snapshot.last_refusal?.reason ?? "")
+      && ["unavailable", "offline", "authority-unavailable", "rate-limited", "enrollment_budget"].includes(snapshot.last_refusal?.reason ?? "")
       ? () => { void retryEnrollment(); } : undefined,
   }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines, account.presence, retryEnrollment]);
 }

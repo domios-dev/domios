@@ -35,10 +35,10 @@ async fn account_mesh_rejoin_registry_advances_peer_key_without_downgrade() {
         .unwrap();
     harness.mesh.list().await.unwrap();
     assert!(harness.state().revoked_installations.contains(PEER));
-    harness.registry.script.lock().unwrap().peer_key = Some((new_key.key_id(), 2));
     harness.registry.script.lock().unwrap().peer_active = Some(false);
     harness.mesh.list().await.unwrap();
     assert!(harness.state().revoked_installations.contains(PEER));
+    harness.registry.script.lock().unwrap().peer_key = Some((new_key.key_id(), 2));
     harness.registry.script.lock().unwrap().peer_active = Some(true);
     harness.mesh.list().await.unwrap();
     assert!(!harness.state().revoked_installations.contains(PEER));

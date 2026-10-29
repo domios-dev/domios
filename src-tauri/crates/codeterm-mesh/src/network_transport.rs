@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 
+#[cfg(any(target_os = "macos", test))]
+mod self_detection;
 mod tailscale;
 #[cfg(test)]
 mod tests;
@@ -16,6 +18,7 @@ pub struct NetworkIdentity {
 pub enum TransportState {
     NotInstalled,
     NotRunning,
+    PermissionNeeded,
     SignedOut,
     Starting,
     Connected,

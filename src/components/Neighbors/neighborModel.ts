@@ -1,6 +1,7 @@
 export interface Neighbor {
   uid: string;
   displayName: string | null;
+  email?: string | null;
   photoURL: string | null;
   friendship_id: string;
   inbound_per_hour: number;
@@ -34,6 +35,7 @@ export const listedPaused = (friend: { my_paused?: boolean; paused?: boolean }):
 export interface NeighborRequest {
   uid: string;
   displayName: string | null;
+  email?: string | null;
   photoURL: string | null;
   request_id: string;
   created_at: number;
@@ -62,13 +64,18 @@ export type NeighborCommand =
   | { operation: "remove"; friendship_id: string }
   | { operation: "set_limit"; friendship_id: string; per_hour: number };
 
-export const neighborName = (value: Pick<Neighbor, "displayName" | "uid">): string => value.displayName || value.uid;
+export const neighborName = (value: Pick<Neighbor, "displayName" | "email" | "uid">): string => value.displayName?.trim() || value.email?.trim() || value.uid;
+
+export const neighborIdentity = (value: Pick<Neighbor, "displayName" | "email" | "uid">): string => {
+  const name = neighborName(value);
+  return value.email && value.email !== name ? name + " (" + value.email + ")" : name;
+};
 
 const record = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 256;
 const nullableText = (value: unknown): boolean => value === null || typeof value === "string";
 const count = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
-const profile = (value: unknown): value is Record<string, unknown> => record(value) && text(value.uid) && nullableText(value.displayName) && nullableText(value.photoURL);
+const profile = (value: unknown): value is Record<string, unknown> => record(value) && text(value.uid) && nullableText(value.displayName) && nullableText(value.photoURL) && (value.email === undefined || nullableText(value.email));
 
 export function parseNeighbors(value: unknown): NeighborList {
   if (!record(value) || value.schema_version !== 1 || !["paid", "locked"].includes(String(value.access))

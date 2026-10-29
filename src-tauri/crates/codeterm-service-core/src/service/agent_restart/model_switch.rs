@@ -13,6 +13,8 @@ use crate::agent::provider::ModelSwitchMode;
 use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
+mod first_turn;
+pub(in crate::service::agent_restart) use first_turn::SessionlessTeardownError;
 mod live_command;
 mod next_turn;
 pub(super) mod staging;
@@ -213,6 +215,7 @@ pub(super) struct ModelSwitchLaunch {
     params: SpawnAgentParams,
     launch: RestorableLaunchParameters,
     task: Option<String>,
+    sessionless_attempt: Option<crate::service::launch_readiness::LaunchAttempt>,
 }
 
 impl ModelSwitchLaunch {
@@ -227,20 +230,23 @@ impl ModelSwitchLaunch {
                 "the session's working directory is unavailable for model verification".to_string(),
             )
         })?;
-        let transcript_boundary = svc
-            .agent_registry
-            .with_provider(&snap.provider, |provider| {
-                provider.session_model_transcript_boundary(cwd, session_id)
-            })
-            .flatten()
-            .unwrap_or_default();
+        let transcript_boundary = if session_id.is_empty() {
+            Default::default()
+        } else {
+            svc.agent_registry
+                .with_provider(&snap.provider, |provider| {
+                    provider.session_model_transcript_boundary(cwd, session_id)
+                })
+                .flatten()
+                .unwrap_or_default()
+        };
         let registry = &svc.agent_registry;
         let resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &svc.configuration(),
             registry,
             &snap.provider,
             Some(requested.to_string()),
-            Some(session_id),
+            (!session_id.is_empty()).then_some(session_id),
         );
         let model = resolution.model.clone().ok_or_else(|| {
             ModelSwitchError::NotSwitchable(format!(
@@ -304,7 +310,7 @@ impl ModelSwitchLaunch {
             model: Some(model),
             reasoning_effort,
             system_prompt,
-            resume_session_id: Some(session_id.to_string()),
+            resume_session_id: (!session_id.is_empty()).then(|| session_id.to_string()),
             role: snap.role.clone(),
             role_profile: snap.role_profile.clone(),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,
@@ -317,6 +323,15 @@ impl ModelSwitchLaunch {
             params,
             launch,
             task,
+            sessionless_attempt: if session_id.is_empty() {
+                crate::service::launch_readiness::LaunchAttempt::current(
+                    &svc.mux,
+                    &snap.tab_id,
+                    &snap.pty_id,
+                )
+            } else {
+                None
+            },
         })
     }
 
@@ -350,12 +365,13 @@ impl ModelSwitchLaunch {
     pub fn commit(&self, svc: &ServiceContext, tab_id: &str) {
         if let Some(tab) = svc.mux.write().get_tab_mut(tab_id) {
             tab.model_fallback = None;
-            tab.pending_model_switch_observation =
-                Some(crate::multiplexer::types::PendingModelSwitchObservation {
+            tab.pending_model_switch_observation = (!self.session_id.is_empty()).then(|| {
+                crate::multiplexer::types::PendingModelSwitchObservation {
                     session_id: self.session_id.clone(),
                     launched_model: self.launched_model().to_string(),
                     transcript_boundary: self.transcript_boundary.clone(),
-                });
+                }
+            });
         }
         crate::service::restored_launch::persist_restored_launch_identity(
             &svc.mux,
@@ -544,7 +560,12 @@ impl ServiceContext {
         if let Some(request) = staged {
             request.require_mechanism(declared_mode)?;
         }
-        let session_id = self.verified_resumable_session(&snap)?;
+        let first_turn = self.sessionless_model_switch_ready(&snap);
+        let session_id = if first_turn {
+            String::new()
+        } else {
+            self.verified_resumable_session(&snap)?
+        };
         let effort = requested_effort.map(str::to_owned).or_else(|| {
             let saved = self
                 .mux
@@ -576,6 +597,21 @@ impl ServiceContext {
                     .or_else(|| tab.agent_provider_resolved_model.clone())
             })
         };
+        if first_turn {
+            if let Some(request) = staged {
+                request.require_snapshot(&snap)?;
+                request.require_current(self)?;
+            } else {
+                self.cancel_staged_model_switch(&snap.tab_id);
+            }
+            return self.switch_model_before_first_turn(
+                snap,
+                requested,
+                effort,
+                previous_model,
+                force,
+            );
+        }
         let during_turn = declared_mode == ModelSwitchMode::LiveCommand
             && self
                 .agent_registry

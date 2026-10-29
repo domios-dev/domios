@@ -58,6 +58,7 @@ pub struct AccountMeshState {
     pub membership: Option<SignedMembership>,
     /// Installations this machine already knows the server revoked.
     pub revoked_installations: BTreeSet<String>,
+    pub unavailable_installations: BTreeSet<String>,
     /// Signed in, enforced, and refused a slot by the machine limit; a dormant gate never sets it.
     pub plan_limit_locked: bool,
 }

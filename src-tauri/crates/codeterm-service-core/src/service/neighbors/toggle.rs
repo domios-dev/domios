@@ -3,7 +3,7 @@ use codeterm_neighbors::{Error, Result};
 use serde_json::json;
 
 impl ServiceContext {
-    pub(super) fn require_neighbors_enabled(&self) -> Result<()> {
+    pub(in crate::service) fn require_neighbors_enabled(&self) -> Result<()> {
         if self
             .ext::<crate::config::ConfigState>()
             .lock()
@@ -44,6 +44,7 @@ impl ServiceContext {
     }
 
     pub fn neighbors_config_changed(&self) {
+        self.retire_callable_waiters();
         let enabled = self
             .ext::<crate::config::ConfigState>()
             .lock()

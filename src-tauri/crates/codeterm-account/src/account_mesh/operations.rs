@@ -92,6 +92,9 @@ impl AccountMesh {
         &self,
         call: impl Future<Output = RegistryResult<T>>,
     ) -> Outcome<T> {
+        if self.ports.registry.handles_call_deadline() {
+            return call.await.map_err(AccountMeshRefusal::from);
+        }
         tokio::time::timeout(self.config.call_deadline, call)
             .await
             .map_err(|_| AccountMeshRefusal::Offline)?
@@ -281,31 +284,6 @@ impl AccountMesh {
         Ok(enrolled.generation)
     }
 
-    /// Every registry operation goes through the one proof-bound admission callable.
-    pub(super) async fn admission(
-        &self,
-        signed: &Signed,
-        operation: MeshOperation,
-    ) -> Outcome<MeshResult> {
-        let generation = self.generation(signed).await?;
-        let request = MeshAdmissionBody {
-            schema_version: MESH_SCHEMA_VERSION,
-            installation_id: self.installation(),
-            request_id: request_id(),
-            operation,
-        };
-        self.with(|inner| inner.last_request = Some(request.request_id.clone()));
-        let installation_proof = self
-            .prove(signed, ProofEndpoint::MeshAdmission, &request, generation)
-            .await?;
-        let envelope = SignedEnvelope {
-            request,
-            installation_proof,
-        };
-        self.call(self.ports.registry.admission(&signed.session, &envelope))
-            .await
-    }
-
     fn own_slot(&self, account: &str) -> Option<u64> {
         self.with(|inner| inner.record.slots.get(account).copied())
     }
@@ -316,15 +294,18 @@ impl AccountMesh {
             .rows
             .iter()
             .find(|row| row.installation_id == self.installation())
-            .filter(|row| {
-                row.active
-                    && row.key_id == signed.key.key_id()
-                    && row.key_generation > 0
-                    && row.slot_revision > 0
-            })
         else {
             return Ok(None);
         };
+        if !row.active {
+            return Ok(None);
+        }
+        if row.key_id != signed.key.key_id() {
+            return Err(AccountMeshRefusal::KeyConflict);
+        }
+        if row.key_generation == 0 || row.slot_revision == 0 {
+            return Err(AccountMeshRefusal::Invalid);
+        }
         let key_id = row.key_id.clone();
         let generation = row.key_generation;
         let slot_revision = row.slot_revision;
@@ -349,14 +330,20 @@ impl AccountMesh {
         Ok(Some(slot_revision))
     }
 
-    pub(super) async fn enroll_once(&self, epoch: u64, trigger: EnrollTrigger) -> Outcome<()> {
+    pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
+        let observed_registry = self.restore_admission(&signed).await;
+        if !observed_registry && self.with(|inner| inner.record.peer_presence_refresh) {
+            let _ = self.read_registry(&signed).await;
+        }
         let now = self.now();
-        let current = self.with(|inner| inner.state.current_membership(now).is_some());
-        if current
-            && !self.own_removed()
-            && (trigger == EnrollTrigger::Network || self.state().publication_failure.is_some())
-        {
+        let current = self.with(|inner| {
+            inner
+                .state
+                .current_membership(now)
+                .is_some_and(|membership| now < membership.verified.refresh_after())
+        });
+        if current && !self.own_removed() {
             if self.with(|inner| inner.sync_pending) {
                 return self.sync_registry(&signed).await;
             }
@@ -364,6 +351,11 @@ impl AccountMesh {
                 .await?;
             return self.reconcile_publication(&signed).await;
         }
+        let previous_revision = self
+            .state()
+            .registry
+            .as_ref()
+            .map(|registry| registry.registry_revision);
         let removed = self.own_removed();
         let result = if removed {
             self.rejoin(&mut signed).await?
@@ -378,32 +370,34 @@ impl AccountMesh {
             };
             match self.admission(&signed, operation).await {
                 Ok(result) => result,
-                Err(AccountMeshRefusal::Forbidden | AccountMeshRefusal::Revoked) => {
-                    self.rejoin(&mut signed).await?
+                Err(AccountMeshRefusal::Revoked) => self.rejoin(&mut signed).await?,
+                Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden) => {
+                    match self.reconcile_slot(&signed).await {
+                        Ok(Some(slot_revision)) => {
+                            self.admission(
+                                &signed,
+                                MeshOperation::Renew {
+                                    expected_slot_revision: slot_revision,
+                                },
+                            )
+                            .await?
+                        }
+                        Ok(None) if self.own_removed() => self.rejoin(&mut signed).await?,
+                        Err(AccountMeshRefusal::KeyConflict | AccountMeshRefusal::Forbidden) => {
+                            self.rejoin(&mut signed).await?
+                        }
+                        Ok(None) => {
+                            self.admission(
+                                &signed,
+                                MeshOperation::Enroll {
+                                    expected_slot_revision: 0,
+                                },
+                            )
+                            .await?
+                        }
+                        Err(refusal) => return Err(refusal),
+                    }
                 }
-                Err(AccountMeshRefusal::Conflict) => match self.reconcile_slot(&signed).await {
-                    Ok(Some(slot_revision)) => {
-                        self.admission(
-                            &signed,
-                            MeshOperation::Renew {
-                                expected_slot_revision: slot_revision,
-                            },
-                        )
-                        .await?
-                    }
-                    Ok(None) if self.own_removed() => self.rejoin(&mut signed).await?,
-                    Err(AccountMeshRefusal::Forbidden) => self.rejoin(&mut signed).await?,
-                    Ok(None) => {
-                        self.admission(
-                            &signed,
-                            MeshOperation::Enroll {
-                                expected_slot_revision: 0,
-                            },
-                        )
-                        .await?
-                    }
-                    Err(refusal) => return Err(refusal),
-                },
                 Err(refusal) => return Err(refusal),
             }
         };
@@ -429,6 +423,13 @@ impl AccountMesh {
             self.now(),
         )
         .map_err(|_| AccountMeshRefusal::Invalid)?;
+        let reuse_registry = result.operation == MembershipOperation::Renew
+            && previous_revision.is_some_and(|revision| {
+                result.registry_revision == revision
+                    || revision.checked_add(1) == Some(result.registry_revision)
+            });
+        let expires_at = verified.expires_at;
+        let slot_revision = verified.slot_revision;
         let token = membership_token(&result.membership);
         let committed = self.with(|inner| {
             if !inner.is_current(epoch) {
@@ -462,6 +463,23 @@ impl AccountMesh {
                 }) {
                     state.registry = None;
                 }
+                if reuse_registry {
+                    if let Some(registry) = state.registry.as_mut() {
+                        registry.registry_revision = result.registry_revision;
+                        if let Some(cursor) = registry.cursor.as_mut() {
+                            cursor.registry_revision = result.registry_revision;
+                        }
+                        if let Some(own) = registry
+                            .rows
+                            .iter_mut()
+                            .find(|row| row.installation_id == installation)
+                        {
+                            own.slot_revision = slot_revision;
+                            own.membership_expires_at = Some(expires_at);
+                            own.publication = PublicationState::Complete;
+                        }
+                    }
+                }
                 state.membership = Some(SignedMembership { token, verified });
             });
             true
@@ -470,7 +488,14 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         self.persist().await;
-        self.sync_registry(&signed).await
+        let unchanged = reuse_registry && self.with(|inner| !inner.sync_pending);
+        if unchanged {
+            self.set_registry_presence(&signed, RegistryPresence::Present)
+                .await?;
+            self.reconcile_publication(&signed).await
+        } else {
+            self.sync_registry(&signed).await
+        }
     }
 
     pub(super) fn remember_metadata(
@@ -538,6 +563,10 @@ impl AccountMesh {
                 self.with(|inner| {
                     if inner.is_current(signed.epoch) {
                         inner.published_until = result.endpoint.expires_at;
+                        inner.publication_refresh_after = super::sync::publication_refresh_after(
+                            self.now(),
+                            result.endpoint.expires_at,
+                        );
                     }
                 });
                 (true, result.metadata_revision)
@@ -560,7 +589,7 @@ impl AccountMesh {
                 && match &ready {
                     Some(_) => {
                         inner.state.publication == Publication::Published
-                            && inner.published_until > self.now()
+                            && inner.publication_refresh_after > self.now()
                     }
                     None => !inner.record.published,
                 }
@@ -631,9 +660,7 @@ impl AccountMesh {
             true
         });
         if changed {
-            if cleanup_confirmed {
-                self.persist().await;
-            }
+            self.persist().await;
             self.push().await;
         }
         failure.map_or(Ok(()), Err)
@@ -710,10 +737,32 @@ impl AccountMesh {
         };
         let keys_changed = self.with(|inner| {
             if inner.is_current(signed.epoch) || signed.epoch == 0 {
-                let changed = inner.observe_registry_keys(&observation.rows);
+                let recovered_presence =
+                    inner.record.peer_presence_refresh && observation.cursor.is_none();
+                if recovered_presence {
+                    inner.record.peer_presence_refresh = false;
+                }
+                let changed = recovered_presence
+                    | inner.observe_registry_keys(&observation.rows, &installation);
                 let revoked = inner.record.revoked_installations.clone();
+                let own_invalid = inner.state.membership.as_ref().is_some_and(|membership| {
+                    let own = &membership.verified;
+                    revoked.contains(&own.installation_id)
+                        || inner
+                            .record
+                            .peer_keys
+                            .get(&own.installation_id)
+                            .is_some_and(|known| {
+                                known.generation > own.key_generation
+                                    || (known.generation == own.key_generation
+                                        && known.key_id != own.key_id)
+                            })
+                });
                 inner.update(&self.watch, |state| {
                     state.revoked_installations = revoked;
+                    if own_invalid {
+                        state.membership = None;
+                    }
                     state.registry = Some(observation.clone());
                     state.registry_failure = None;
                 });
@@ -721,9 +770,9 @@ impl AccountMesh {
             }
             false
         });
+        self.push().await;
         if keys_changed {
             self.persist().await;
-            self.push().await;
         }
         Ok(observation)
     }
@@ -801,6 +850,11 @@ impl AccountMesh {
         if !self.with(|inner| inner.is_current(signed.epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
         }
+        let _ = self.read_registry(&signed).await;
+        self.ports
+            .transport
+            .installation_revoked(&result.target_installation_id)
+            .await;
         Ok(result)
     }
 
@@ -888,6 +942,7 @@ impl AccountMesh {
         });
         self.persist().await;
         self.push().await;
+        let _ = self.read_registry(&signed).await;
         self.ports
             .transport
             .installation_revoked(&revoked.target_installation_id)
@@ -1035,7 +1090,18 @@ impl AccountMesh {
                 ..MembershipExpectation::default()
             },
             now,
-        )?;
+        )
+        .inspect_err(|refusal| {
+            if *refusal == MembershipRefusal::Duration {
+                static REPORTED: std::sync::atomic::AtomicBool =
+                    std::sync::atomic::AtomicBool::new(false);
+                if !REPORTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    log::warn!(
+                        "[account-mesh] signed peer membership exceeds supported duration cap"
+                    );
+                }
+            }
+        })?;
         let accepted = self.with(|inner| {
             !inner
                 .record

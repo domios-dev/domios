@@ -3,6 +3,35 @@ use std::sync::atomic::Ordering;
 
 const ISSUED: u64 = 1_700_000_000;
 
+#[test]
+fn startup_grant_validates_signature_identity_installation_and_floor() {
+    let store = stored(paid_grant().grant, false);
+    let authority = codeterm_entitlements::PinnedAuthority::new(activation("fixture-online-v1"));
+    let read = |uid, installation| {
+        crate::grant_store::startup_grant_with(
+            store.as_ref(),
+            &authority,
+            uid,
+            installation,
+            ISSUED + 60,
+        )
+    };
+    let grant = read("fixture-user", "fixture-installation").unwrap();
+    assert_eq!(
+        grant.verdict(ISSUED + 60).effective().authority,
+        codeterm_entitlements::Authority::Billing
+    );
+    assert!(read("foreign-user", "fixture-installation").is_none());
+    assert!(read("fixture-user", "foreign-installation").is_none());
+    let mut raw = paid_grant().grant.unwrap();
+    raw["key_id"] = "tampered".into();
+    store.save(&raw).unwrap();
+    assert!(read("fixture-user", "fixture-installation").is_none());
+    store.save(&paid_grant().grant.unwrap()).unwrap();
+    store.save_floors(&Floors::default()).unwrap();
+    assert!(read("fixture-user", "fixture-installation").is_none());
+}
+
 fn billing_with(
     enforced: bool,
     store: Arc<MemoryGrants>,
@@ -42,23 +71,23 @@ fn cached_valid_verdict_starts_paid_without_checking() {
 }
 
 #[tokio::test]
-async fn invalid_cache_with_paid_hint_checks_then_locks_after_deadline_offline() {
+async fn invalid_cache_with_paid_hint_keeps_verifying_after_deadline_offline() {
     let store = stored(paid_grant().grant, true);
     let now = ISSUED + 86_400;
     let (billing, time) = billing_with(true, store, vec![Err("offline".into())], now);
     let user = session("fixture-user");
     let deadline = billing.prime(&user).expect("checking");
     assert_eq!(deadline, now + CHECKING_DEADLINE_SECS);
-    assert_free_and_enforcing(&billing);
+    assert_workspace_locks_deferred(&billing);
     let offline = billing
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
     assert!(offline.checking);
     assert_eq!(offline.access.unwrap().authority, Authority::Free);
     time.store(deadline, Ordering::SeqCst);
-    assert!(!billing.snapshot(Some(&user)).checking);
+    assert!(billing.snapshot(Some(&user)).checking);
     let gate = billing.limit_gate().summary();
-    assert!(gate.enforcing);
+    assert!(!gate.enforcing);
     assert_eq!(
         gate.workspaces,
         codeterm_entitlements::COMPILED_FREE_LIMITS.workspaces.max
@@ -80,10 +109,10 @@ fn tampered_cache_is_free_and_removed() {
     assert!(store.load().unwrap().is_none());
 }
 
-fn assert_free_and_enforcing(billing: &Billing) {
+fn assert_workspace_locks_deferred(billing: &Billing) {
     let gate = billing.limit_gate();
     let summary = gate.summary();
-    assert!(summary.enforcing);
+    assert!(!summary.enforcing);
     assert_eq!(
         summary.workspaces,
         codeterm_entitlements::COMPILED_FREE_LIMITS.workspaces.max
@@ -94,20 +123,20 @@ fn assert_free_and_enforcing(billing: &Billing) {
         .unwrap() as usize;
     assert!(gate
         .admit(codeterm_entitlements::LimitKey::Workspaces, over)
-        .is_err());
+        .is_ok());
 }
 
 #[test]
-fn forged_paid_hint_never_relaxes_enforcement_across_restarts() {
+fn missing_verdict_keeps_workspace_locks_deferred_across_restarts() {
     let store = stored(None, true);
     for restart in 0..3 {
         let (billing, time) = billing_with(true, store.clone(), vec![], ISSUED + 60);
         let user = session("fixture-user");
         let deadline = billing.prime(&user).expect("checking");
         assert!(billing.snapshot(Some(&user)).checking, "restart {restart}");
-        assert_free_and_enforcing(&billing);
+        assert_workspace_locks_deferred(&billing);
         time.store(deadline - 1, Ordering::SeqCst);
-        assert_free_and_enforcing(&billing);
+        assert_workspace_locks_deferred(&billing);
     }
 }
 

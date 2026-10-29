@@ -254,7 +254,7 @@ async fn clock_two_minutes_behind_refresh_keeps_paid_access() {
 }
 
 #[tokio::test]
-async fn explicit_and_checkout_refresh_bypass_focus_throttle() {
+async fn explicit_refresh_is_bounded_checkout_bypasses() {
     let provider = GrantReplies::new(vec![Ok(paid_grant()), Ok(paid_grant()), Ok(paid_grant())]);
     let (_, clock) = clock(ISSUED + 60);
     let billing = Billing::new(provider.clone()).with_test_grants(
@@ -275,9 +275,9 @@ async fn explicit_and_checkout_refresh_bypass_focus_throttle() {
     billing
         .refresh(Some(&user), RefreshEvent::Explicit, instant)
         .await;
-    assert_eq!(provider.count(), 2);
+    assert_eq!(provider.count(), 1);
     billing
         .refresh(Some(&user), RefreshEvent::CheckoutReturned, instant)
         .await;
-    assert_eq!(provider.count(), 3);
+    assert_eq!(provider.count(), 2);
 }

@@ -22,6 +22,7 @@ test('successful production builds preserve unchanged assets between rebuilds', 
   const run = async (_command, args) => {
     if (args[0].endsWith('tsc')) return 0;
     assert.equal(args[1], 'build');
+    assert.equal(args.includes('--emptyOutDir'), true);
     assert.equal(args.includes('--mode'), false);
     const directory = args[args.indexOf('--outDir') + 1];
     fs.writeFileSync(path.join(directory, 'index.html'), 'working frontend');

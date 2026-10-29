@@ -50,6 +50,7 @@ impl MeshManager {
         let addresses = self.local_announce_addresses();
         let online = self.local_http_healthy && !addresses.is_empty();
         types::PeerAnnounce {
+            registry: self.registry_revision.clone(),
             instance_id: self.ident.identity.instance_id.clone(),
             instance_name: self.ident.instance_name.clone(),
             addresses: if online { addresses } else { Vec::new() },

@@ -58,6 +58,7 @@ export function useChatWindowView({
   windowKey,
   transcript,
   attachedAuthority = null,
+  localAttempt,
   anchorKey,
   followTailRef,
   loadOlderPage,
@@ -68,6 +69,7 @@ export function useChatWindowView({
   windowKey: string;
   transcript: TranscriptState;
   attachedAuthority?: TranscriptAuthority | null;
+  localAttempt?: DeliverySend["localAttempt"];
   anchorKey: string | null;
   followTailRef: MutableRefObject<boolean>;
   loadOlderPage: (beforeOffset: number, maxBytes: number) => Promise<OlderChatPage | null>;
@@ -288,7 +290,7 @@ export function useChatWindowView({
     const sentAtMs = Date.now();
     const id = `opt-${sentAtMs}-${Math.floor(Math.random() * 1e6)}`;
     // The bubble's own id doubles as its send-correlation token.
-    addChatSend(tabId, { id, content, sentAtMs, correlationId: id,
+    addChatSend(tabId, { id, content, sentAtMs, correlationId: id, localAttempt,
       echoBoundary: captureSendEchoBoundary(transcript.authority ?? attachedAuthority, committedRows) });
     return id;
   }, [tabId]);

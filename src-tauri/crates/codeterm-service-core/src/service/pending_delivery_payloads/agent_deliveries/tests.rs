@@ -1,6 +1,43 @@
 use super::{AgentDeliveryRecovery, AgentDeliveryStore};
 
 #[test]
+fn discovery_skips_receipt_only_directories_and_keeps_pending_deliveries() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = AgentDeliveryStore::open(dir.path());
+    for ordinal in 0..672 {
+        let tab = store.tab(&format!("retired-{ordinal}"));
+        std::fs::create_dir_all(tab.dir.join("receipts/pending")).unwrap();
+    }
+    store.enqueue("pending-tab", "payload", None).unwrap();
+
+    let tabs = store
+        .discover_tab_ids(|_, error| panic!("unexpected discovery error: {error}"))
+        .unwrap();
+    assert_eq!(tabs, vec!["pending-tab"]);
+    assert!(store.has_pending("pending-tab").unwrap());
+}
+
+#[test]
+fn discovery_continues_past_corrupt_indexes() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = AgentDeliveryStore::open(dir.path());
+    for ordinal in 0..10 {
+        let tab = store.tab(&format!("corrupt-{ordinal}"));
+        std::fs::create_dir_all(&tab.dir).unwrap();
+        std::fs::write(tab.dir.join("index.json"), b"invalid json").unwrap();
+    }
+    store.enqueue("pending-tab", "payload", None).unwrap();
+
+    let mut reports = Vec::new();
+    let tabs = store
+        .discover_tab_ids(|count, error| reports.push((count, error.to_owned())))
+        .unwrap();
+    assert_eq!(tabs, vec!["pending-tab"]);
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].0, 10);
+}
+
+#[test]
 fn restart_retires_claim_to_receipt_without_replaying_payload() {
     let dir = tempfile::tempdir().unwrap();
     let original = AgentDeliveryStore::open(dir.path());

@@ -251,6 +251,17 @@ pub fn make_orchestrator(svc: &ServiceContext, tab_id: &str) -> Result<(), Strin
     Ok(())
 }
 
+pub fn make_orchestrator_as_tab(
+    svc: &ServiceContext,
+    tab_id: &str,
+    caller: &codeterm_service_core::service::tab_credentials::TabCaller,
+) -> Result<(), String> {
+    caller.validate_claim(Some(tab_id))?;
+    svc.promote_standalone_agent(caller)?;
+    maybe_deliver_orchestrator_promotion_onboarding(svc, tab_id, false);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

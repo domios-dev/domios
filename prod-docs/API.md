@@ -17,7 +17,7 @@ POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprin
 Base: `http://<host>:7685/api`.
 
 ### Authentication
-Host credential: owner-only `<data_dir>/.secrets`, key `domios.instance:api_token`, never config/tab environment; held by owner Web UI/host services. Each tab's `CODETERM_API_TOKEN` launch credential revokes on close, launch/session replacement or daemon restart; tab IDs/nonces/sender must match. Host UI may select tab context under role/session checks. `domios system api-token`/token links are host-only; export refuses `--mesh`. Loopback control requires auth; public health/pairing grants none.
+Host credential: owner-only `.secrets` (`domios.instance:api_token`), not injected into tab env. Tab credentials revoke on close/relaunch/session replacement/restart; identity must match. `system api-token` stays host-only. `domios web link` and GET `/api/network/web-token` allow host/owner or authenticated local General only. Other agents, Neighbor-derived tabs, peers, service pushes and missing auth refuse. Links print only to caller; no logs, telemetry, notifications or shared memory. Export refuses `--mesh`. Loopback needs auth; public health/pairing grants none.
 
 Default configuration:
 ```toml
@@ -49,7 +49,7 @@ POST `/api/ci/webhook`: `API-EVENTS`.
 
 #### Startup readiness
 
-Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
+Health `status: "ok"` proves liveness. `GET /api/startup` and `/api/startup/events` (`startup-state`) expose desktop readiness and per-subsystem states. The desktop becomes usable when `desktop_ready` is true; session backends and optional areas continue restoring. Full service readiness is `startup.state: "ready"`. Pending area requests return HTTP 503 with `error.code: "starting"` and `error.subsystem`; clients keep that area loading until its readiness event. Mutations are never queued or replayed. Only loopback health/startup observations bypass auth. CLI: `API-CLI`.
 
 #### Account machines
 
@@ -199,4 +199,4 @@ Live authenticated Plan owners may recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 239 -->
+<!-- revision: 241 -->

@@ -1,5 +1,6 @@
 import type { BootStage, Tab } from "./types";
 import { runtimeResponseDeadlinePending } from "./agentRuntimeState";
+import { lazyFirstTurnComposerIsLive } from "./tabActivity";
 
 export interface WakeRequestView {
   requested: boolean;
@@ -51,7 +52,7 @@ export function restoreStageView(tab: Partial<Tab>, wake?: Partial<WakeRequestVi
   const deadlinePending = runtimeResponseDeadlinePending(runtime, tab.boot_failure_reason);
   const activeStage = Boolean(stage && (backendStages.has(stage) || sessionStages.has(stage) || connectingStages.has(stage)));
   const ready = !tab.frozen && stage !== "spawn_failed" && runtime?.state !== "degraded" && runtime?.state !== "loginPending" && !deadlinePending
-    && (stage === "agent_ready" || (!agent && (stage === "shell_ready" || stage === "pty_reattached"))
+    && (stage === "agent_ready" || lazyFirstTurnComposerIsLive(tab) || (!agent && (stage === "shell_ready" || stage === "pty_reattached"))
       || (!activeStage && !tab.agent_booting && runtime?.state === "loaded"));
   let phase: RestoreStageView["phase"] = "restoring";
   let detail: string | null = null;

@@ -111,19 +111,24 @@ pub(super) struct Inner {
     pub(super) key: Option<Arc<InstallationKey>>,
     pub(super) rotation_attempt: Option<u64>,
     pub(super) last_request: Option<String>,
+    pub(super) pending_renew: Option<super::wire::MeshAdmissionBody>,
     pub(super) metadata_revision: Option<u64>,
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
+    pub(super) registry_hints: super::registry_hint::RegistryHints,
     pub(super) registry_flight: Option<super::registry_read::RegistryFlight>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
+    pub(super) publication_refresh_after: u64,
     pub(super) sync_pending: bool,
+    pub(super) refreshed_credentials: Option<super::admission::CredentialStamp>,
+    pub(super) auth_parked: Option<super::admission::CredentialStamp>,
     pub(super) resolved: HashMap<String, MeshTarget>,
     flight: Option<Flight>,
     awaiting_logout: bool,
     notice_epoch: Option<u64>,
-    lease: u64,
-    retry: super::retry::Retry,
+    pub(super) lease: u64,
+    pub(super) retry: super::retry::Retry,
     store_unreadable: bool,
 }
 
@@ -135,6 +140,32 @@ impl Inner {
     ) {
         let mut next = (*self.state).clone();
         change(&mut next);
+        next.unavailable_installations = self
+            .record
+            .peer_presence
+            .iter()
+            .filter(|(installation, presence)| {
+                presence.presence == RegistryPresence::SignedOut
+                    && !self.record.revoked_installations.contains(*installation)
+            })
+            .map(|(installation, _)| installation.clone())
+            .collect();
+        if next.registry != self.state.registry {
+            match next.registry.as_ref() {
+                Some(registry) => {
+                    if let Some(security) = registry.security_view() {
+                        if next
+                            .registry_security
+                            .as_ref()
+                            .is_none_or(|known| security.revision >= known.revision)
+                        {
+                            next.registry_security = Some(security);
+                        }
+                    }
+                }
+                None => next.registry_security = None,
+            }
+        }
         self.state = Arc::new(next);
         watch.send_replace(self.state.clone());
     }
@@ -152,6 +183,9 @@ impl Inner {
 
     fn begin_epoch(&mut self) {
         self.cancel_flight();
+        self.auth_parked = None;
+        self.pending_renew = None;
+        self.refreshed_credentials = None;
         self.notice_epoch = None;
         self.registry_flight = None;
         self.retry = Default::default();
@@ -160,6 +194,7 @@ impl Inner {
         self.resolved.clear();
         self.published_endpoint = None;
         self.published_until = 0;
+        self.publication_refresh_after = 0;
         self.sync_pending = false;
     }
 }
@@ -173,6 +208,7 @@ pub struct AccountMesh {
     persist_lock: tokio::sync::Mutex<()>,
     push_lock: tokio::sync::Mutex<()>,
     pub(super) key_lock: tokio::sync::Mutex<()>,
+    pub(super) admission_lock: tokio::sync::Mutex<()>,
 }
 
 fn merge(current: Option<EnrollTrigger>, next: EnrollTrigger) -> EnrollTrigger {
@@ -200,14 +236,19 @@ impl AccountMesh {
                 key: None,
                 rotation_attempt: None,
                 last_request: None,
+                pending_renew: None,
                 metadata_revision: None,
                 registry_presence: None,
                 registry_notices: Default::default(),
+                registry_hints: Default::default(),
                 registry_flight: None,
                 resolved: HashMap::new(),
                 published_endpoint: None,
                 published_until: 0,
+                publication_refresh_after: 0,
                 sync_pending: false,
+                auth_parked: None,
+                refreshed_credentials: None,
                 flight: None,
                 awaiting_logout: false,
                 notice_epoch: None,
@@ -219,6 +260,7 @@ impl AccountMesh {
             persist_lock: tokio::sync::Mutex::new(()),
             push_lock: tokio::sync::Mutex::new(()),
             key_lock: tokio::sync::Mutex::new(()),
+            admission_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -241,7 +283,10 @@ impl AccountMesh {
 
     pub(super) async fn persist(&self) {
         let _guard = self.persist_lock.lock().await;
-        let record = self.with(|inner| (!inner.store_unreadable).then(|| inner.record.clone()));
+        let record = self.with(|inner| {
+            inner.cache_admission();
+            (!inner.store_unreadable).then(|| inner.record.clone())
+        });
         let Some(record) = record else {
             return;
         };
@@ -278,10 +323,20 @@ impl AccountMesh {
         self.with(|inner| {
             let unreadable = loaded.is_err();
             inner.store_unreadable = unreadable;
-            let record = loaded.unwrap_or_else(|_| AccountMeshRecord {
+            let mut record = loaded.unwrap_or_else(|_| AccountMeshRecord {
                 signed_out: true,
                 ..AccountMeshRecord::default()
             });
+            let own = self.installation();
+            record.peer_presence.remove(&own);
+            if !record.revoked_generations.contains_key(&own) {
+                record.revoked_installations.remove(&own);
+            }
+            for installation in record.peer_presence.keys() {
+                if !record.revoked_generations.contains_key(installation) {
+                    record.revoked_installations.remove(installation);
+                }
+            }
             inner.record = record.clone();
             inner.update(&self.watch, |state| {
                 state.presence = if record.signed_out {
@@ -318,6 +373,9 @@ impl AccountMesh {
                     return false;
                 }
                 inner.begin_epoch();
+                if inner.record.signed_out {
+                    inner.record.admission_cache = None;
+                }
                 inner.record.signed_out = false;
                 let owner = inner
                     .record
@@ -367,6 +425,7 @@ impl AccountMesh {
 
     fn block(inner: &mut Inner, watch: &watch::Sender<Arc<LifecycleState>>) {
         inner.begin_epoch();
+        inner.record.admission_cache = None;
         inner.record.signed_out = true;
         inner.record.cleanup_pending = inner.record.published;
         let cleanup = if inner.record.published {
@@ -458,7 +517,9 @@ impl AccountMesh {
 
     pub fn enrollment_signed_in(&self) {
         self.with(|inner| {
+            inner.auth_parked = None;
             inner.rotation_attempt = None;
+            inner.retry.resume();
             if inner.state.last_refusal != Some(AccountMeshRefusal::ReauthRequired) {
                 return;
             }
@@ -482,6 +543,20 @@ impl AccountMesh {
             };
             if inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
                 return Err(AccountMeshRefusal::ReauthRequired);
+            }
+            if trigger == EnrollTrigger::Explicit {
+                inner.auth_parked = None;
+                if inner.retry.deadline.is_none()
+                    && matches!(
+                        inner.retry.refusal,
+                        Some(AccountMeshRefusal::EnrollmentBudget { .. })
+                    )
+                {
+                    inner.retry = Default::default();
+                }
+            }
+            if inner.auth_parked.is_some() {
+                return Err(AccountMeshRefusal::Unauthenticated);
             }
             let epoch = inner.state.account_epoch;
             if matches!(trigger, EnrollTrigger::Explicit | EnrollTrigger::Network) {
@@ -566,10 +641,15 @@ impl AccountMesh {
                 return None;
             }
             inner.retry.settle(self.now(), *result);
+            if inner.state.membership.is_some() {
+                inner.retry.keep_recovering(self.now());
+            }
             let retry_at = inner.retry.deadline;
             let rerun = if owned
+                && inner.auth_parked.is_none()
                 && retry_at.is_none()
                 && !inner.retry.exhausted()
+                && inner.retry.pending(self.now()).is_none()
                 && *result != Err(AccountMeshRefusal::ReauthRequired)
             {
                 inner
@@ -650,46 +730,5 @@ impl AccountMesh {
             self.push().await;
         }
         cleared
-    }
-
-    /// One live lease timer: renew at the server's refresh point, or after a transient renewal
-    /// failure with bounded backoff. A newer timer or epoch retires it; it never proves readiness.
-    fn schedule_lease(self: &Arc<Self>, epoch: u64, result: &Settled) {
-        if !self.config.schedule_leases {
-            return;
-        }
-        let now = self.now();
-        let Some((lease, delay)) = self.with(|inner| {
-            if !inner.is_current(epoch) {
-                return None;
-            }
-            let delay = match result {
-                Ok(()) => {
-                    let membership = inner.state.membership.as_ref()?;
-                    membership.verified.refresh_after().saturating_sub(now)
-                }
-                Err(_) => inner.retry.deadline?.saturating_sub(now),
-            };
-            inner.lease += 1;
-            Some((inner.lease, delay))
-        }) else {
-            return;
-        };
-        let mesh = Arc::downgrade(self);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(delay)).await;
-            let Some(mesh) = mesh.upgrade() else {
-                return;
-            };
-            if mesh.with(|inner| {
-                if inner.lease != lease || !inner.is_current(epoch) {
-                    return false;
-                }
-                inner.retry.deadline = None;
-                true
-            }) {
-                let _ = mesh.refresh(EnrollTrigger::Lease).await;
-            }
-        });
     }
 }

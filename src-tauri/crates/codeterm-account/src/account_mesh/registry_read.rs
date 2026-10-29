@@ -31,6 +31,18 @@ impl Drop for Owner<'_> {
 impl AccountMesh {
     pub async fn list(&self) -> Outcome {
         let signed = self.signed(None).await?;
+        if let Some(cached) = self.with(|inner| {
+            (inner.is_current(signed.epoch)
+                && inner.state.enrollment == super::state::Enrollment::Refused
+                && matches!(
+                    inner.state.last_refusal,
+                    Some(AccountMeshRefusal::EnrollmentBudget { .. })
+                ))
+            .then(|| inner.state.registry.clone())
+            .flatten()
+        }) {
+            return Ok(cached);
+        }
         let (sender, mut outcome) = self.with(|inner| {
             if let Some(flight) = inner
                 .registry_flight

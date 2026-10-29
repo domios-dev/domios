@@ -18,6 +18,7 @@ it("confirms only the named friend and target before calling its bound action", 
   const root = createRoot(host); unmount = () => act(() => root.unmount());
   const receive = vi.fn(async () => {});
   await act(async () => root.render(<NeighborReceiveHere receiver={receiver} friendName="Ada" targetMachine="New desk" onReceive={receive} />));
+  expect(document.body.textContent).toContain("Messages from Ada are received on Old desk. Receive them here?");
   await act(async () => button("Receive this friend here").click());
   expect(receive).not.toHaveBeenCalled();
   expect(document.body.textContent).toContain("Receive Ada's messages on New desk");

@@ -93,3 +93,47 @@ fn exact_completion_matches_build_epoch_and_process_creation_before_exit_can_con
         })
     ));
 }
+
+#[test]
+fn serialized_completion_preserves_native_client_identity_and_rejects_replacement() {
+    use codeterm_types::{app_quit::QuitClient, native_host::NativeHostConnection};
+    let mut expected = snapshot();
+    expected.client = Some(QuitClient {
+        connection: NativeHostConnection {
+            instance_id: expected.ready.instance_id.clone(),
+            identity: expected.ready.identity.clone(),
+            server_epoch: expected.ready.epoch.clone(),
+            generation: 7,
+        },
+        process: codeterm_types::server_bootstrap::ProcessProvenance {
+            pid: 43,
+            created: "native-created".into(),
+            executable: expected.ready.resources.join("native-client"),
+        },
+    });
+    let bytes = serde_json::to_vec(&QuitApiReply::Completed {
+        expected: Box::new(expected.clone()),
+        shutdown_completion: QuitCompletion::default(),
+    })
+    .unwrap();
+    let reply = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        validate_completion(&expected, reply).unwrap(),
+        QuitCompletion::default()
+    );
+    for field in ["generation", "created", "pid"] {
+        let mut replacement = expected.clone();
+        let client = replacement.client.as_mut().unwrap();
+        match field {
+            "generation" => client.connection.generation += 1,
+            "created" => client.process.created = "replacement".into(),
+            _ => client.process.pid += 1,
+        }
+        assert!(matches!(
+            validate_completion(&replacement, serde_json::from_slice(&bytes).unwrap()),
+            Err(QuitOutput::Uncertain {
+                reason: QuitUncertainty::InvalidCompletion
+            })
+        ));
+    }
+}

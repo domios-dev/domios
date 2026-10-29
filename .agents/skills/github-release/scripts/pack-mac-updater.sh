@@ -50,6 +50,6 @@ rm -rf "$TESTDIR"
 # domios-latest.json. The .sig file itself is NOT uploaded to the release.
 : "${TAURI_SIGNING_PRIVATE_KEY_PATH:?Prepare the job updater key first}"
 # The signer reads key content from TAURI_SIGNING_PRIVATE_KEY and refuses it beside the path; the bundler needs it as a path.
-env -u TAURI_SIGNING_PRIVATE_KEY pnpm exec tauri signer sign "$OUT" >/dev/null
+env -u TAURI_SIGNING_PRIVATE_KEY pnpm exec tauri signer sign --app-version "$VER" "$OUT" >/dev/null
 
 cat "$OUT.sig" | tr -d '\n'

@@ -75,3 +75,28 @@ fn private_push_failure_cannot_echo_transport_values() {
         "Private notification delivery failed"
     );
 }
+
+#[test]
+fn neighbor_external_notice_contains_no_local_profile_or_preview() {
+    let envelope = PushEnvelope {
+        content: crate::notification::push::PushContent {
+            level: NotifyLevel::Verbose,
+            title: "Anya (anya@example.test) asked: private message".into(),
+            body: Some("private body".into()),
+            provenance: crate::notification::store::NotificationProvenance {
+                tab_title: Some("Anya concierge".into()),
+                ..Default::default()
+            },
+        },
+        choices: vec![],
+        record: "opaque".into(),
+    };
+    let safe = neighbor_notice_push(envelope);
+    assert_eq!(safe.content.title, "Neighbor activity");
+    assert_eq!(
+        safe.content.body.as_deref(),
+        Some("Open Neighbors on your machine to view it.")
+    );
+    assert!(safe.content.provenance.tab_title.is_none());
+    assert!(safe.choices.is_empty());
+}

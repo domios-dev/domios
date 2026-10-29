@@ -1,4 +1,5 @@
 pub mod deep_links;
+pub mod startup;
 #[cfg(test)]
 mod tests;
 
@@ -8,6 +9,7 @@ use std::{sync::Arc, time::Duration};
 
 pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
+pub(crate) mod callable_admission;
 mod credentials;
 mod login_paste;
 pub(crate) mod logout;
@@ -29,16 +31,54 @@ impl codeterm_account::session_revocation::SessionRevocationObserver for Account
 }
 
 struct AnalyticsIdentity(codeterm_analytics::Worker);
-struct AccountIdentity(std::sync::Weak<super::ServiceContext>);
+struct AccountIdentity(std::sync::Weak<super::ServiceContext>, String);
 
 #[async_trait]
 impl codeterm_account::IdentityObserver for AccountIdentity {
+    async fn session_refreshed(&self, session: &codeterm_account::Session) {
+        if let Some(service) = self.0.upgrade() {
+            service.account_mesh_credentials_refreshed(session);
+        }
+    }
+
     async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
         if let Some(service) = self.0.upgrade() {
             *service
                 .ext::<crate::mem_ops::author::OwnerMemoryAuthor>()
                 .0
                 .write() = identity.map(|i| i.uid.clone());
+            if let Some(cached) = service.try_ext::<startup::StartupAccount>() {
+                if identity.is_none_or(|identity| identity.uid != cached.identity.uid) {
+                    cached.invalidate();
+                }
+            }
+            if let Ok(root) = service.account_data_root() {
+                let backend = self.1.clone();
+                let persistent = service
+                    .account_credentials()
+                    .await
+                    .is_ok_and(|credentials| {
+                        !codeterm_account::CredentialStore::session_only(
+                            credentials.as_ref(),
+                            &backend,
+                        )
+                    });
+                let identity = identity.filter(|_| persistent).cloned();
+                if !persistent {
+                    if let Some(cached) = service.try_ext::<startup::StartupAccount>() {
+                        cached.invalidate();
+                    }
+                }
+                match tokio::task::spawn_blocking(move || {
+                    startup::remember(&root, &backend, identity)
+                })
+                .await
+                {
+                    Ok(Ok(())) => {}
+                    _ => log::debug!("Local account identity snapshot unavailable"),
+                }
+            }
+            service.retire_callable_waiters();
             service.neighbor_identity_changed();
             if identity.is_some() {
                 service.restore_neighbor_updates_once();
@@ -107,7 +147,10 @@ impl super::ServiceContext {
                     codeterm_account::adapters::configured(&config, self.installation_id().await?)
                         .map_err(|e| e.to_string())?;
                 let mut observers: Vec<Arc<dyn codeterm_account::IdentityObserver>> =
-                    vec![Arc::new(AccountIdentity(self.weak_self()))];
+                    vec![Arc::new(AccountIdentity(
+                        self.weak_self(),
+                        provider.id().to_owned(),
+                    ))];
                 if let Ok(worker) = self.analytics_worker().await {
                     observers.push(Arc::new(AnalyticsIdentity(worker.clone())));
                 }
@@ -115,7 +158,6 @@ impl super::ServiceContext {
                 if let Ok(mesh) = self.account_mesh().await {
                     observers.insert(0, mesh.mesh.clone());
                 }
-                #[cfg(not(any(test, feature = "test-support")))]
                 let credential_provider = provider.id().to_owned();
                 let credentials = self.account_credentials().await?;
                 let account = Arc::new(
@@ -139,7 +181,18 @@ impl super::ServiceContext {
                     ))
                     .with_session_admission(Arc::new(logout::SignInAdmission(self.weak_self()))),
                 );
-                let _ = account.refresh().await;
+                if account.refresh().await == Err(Error::Credentials) {
+                    if let Some(cached) = self.try_ext::<startup::StartupAccount>() {
+                        cached.invalidate();
+                    }
+                    if let Ok(root) = self.account_data_root() {
+                        let backend = credential_provider.clone();
+                        let _ = tokio::task::spawn_blocking(move || {
+                            startup::remember(&root, &backend, None)
+                        })
+                        .await;
+                    }
+                }
                 #[cfg(not(any(test, feature = "test-support")))]
                 credentials.start_migration(
                     self.secrets.clone(),

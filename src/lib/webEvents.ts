@@ -265,8 +265,13 @@ async function runStream(): Promise<void> {
         if (!firstFrame && frame.event_type === "overflow") signalEventStreamReady();
       }, {
         signal: abort.signal, raw: true,
+        onStarting() {
+          if (abort.signal.aborted || generation !== streamGeneration) return;
+          if (receiveDeadline) { clearTimeout(receiveDeadline); receiveDeadline = null; }
+        },
         onReady() {
           if (abort.signal.aborted || generation !== streamGeneration) return;
+          armReceiveDeadline(abort);
           signalEventStreamReady();
           if (reconnecting) window.dispatchEvent(new Event(WEB_EVENTS_READY_EVENT));
         },

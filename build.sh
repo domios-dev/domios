@@ -3858,9 +3858,9 @@ LOCK_STORM_PY
       else
         PREBUILT_STATUS=$?
       fi
-      if [ "$PREBUILT_STATUS" -eq 3 ] && [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ]; then
+      if [ "$PREBUILT_STATUS" -eq 3 ]; then
         trap - EXIT INT TERM
-        echo "WARNING: DEV window is still attaching; server and window retained. Inspect $PREBUILT_LOG before recovery." >&2
+        echo "WARNING: DEV startup failed or is still attaching; server and window retained for Retry/Quit. Inspect $PREBUILT_LOG before recovery." >&2
         exit 3
       fi
       [ "$PREBUILT_STATUS" -eq 0 ] || exit "$PREBUILT_STATUS"

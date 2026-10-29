@@ -97,7 +97,7 @@ fn api_listener_value(
     })
 }
 
-fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
+pub(crate) fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
     if let Some(api) = config
         .get_mut("api")
         .and_then(serde_json::Value::as_object_mut)

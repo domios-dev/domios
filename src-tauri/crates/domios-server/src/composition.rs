@@ -27,9 +27,24 @@ pub(crate) fn compose_observed(
     codeterm_service_core::raise_fd_limit();
     pty::shell_integration::ensure_scripts();
 
+    let phase = startup::StartupStep::debug("desk restore");
     let states = startup::init_states(prepared.config, prepared.control);
+    drop(phase);
     api.complete("states");
+    let local_account = service::account::startup::load(&codeterm_service_core::paths::data_dir());
+    if let Some(account) = &local_account {
+        states.mux.write().set_limit_gate(account.gate());
+        api.complete_subsystem("account");
+    }
+    let bundles = codeterm_service_core::startup::frontend_bundles_open(&states.event_broadcaster);
+    api.publish_desktop(codeterm_api::startup_routes::router(
+        &states,
+        startup::servers::resolve_web_dist(resource_dir.clone()),
+        bundles.clone(),
+        local_account.clone(),
+    ))?;
     let ui = ui_factory(states.event_broadcaster.clone());
+    let phase = startup::StartupStep::debug("skills and plugins");
     codeterm_service_core::service::seed_bundled_skills();
     codeterm_service_core::service::mirror_skills_to_providers();
 
@@ -38,30 +53,6 @@ pub(crate) fn compose_observed(
     keepawake::resume_from_disk(&states.keepawake, &ui);
 
     agent::model_catalog::ensure_readme_installed();
-    match codeterm_service_core::secrets::purge_legacy_master_password_file() {
-    codeterm_service_core::secrets::LegacyPurge::Absent => {}
-    codeterm_service_core::secrets::LegacyPurge::SecurelyErased => {
-        log::info!("[secrets] securely erased the retired master-password drop")
-    }
-    codeterm_service_core::secrets::LegacyPurge::RemovedWithoutOverwrite => log::warn!(
-        "[secrets] removed the retired master-password drop WITHOUT overwriting it; the old secret may still be recoverable from disk — rotate it"
-    ),
-    codeterm_service_core::secrets::LegacyPurge::RemovalFailed { overwritten } => log::warn!(
-        "[secrets] the retired master-password drop is still on disk (overwritten={overwritten}); it may still be recoverable — remove and rotate it"
-    ),
-    codeterm_service_core::secrets::LegacyPurge::InspectionFailed => log::warn!(
-        "[secrets] could not inspect the retired master-password drop; assume it is present and recoverable until checked"
-    ),
-}
-    {
-        let mut cfg = states.config.lock();
-        if codeterm_service_core::secrets::migrate_native_bitwarden_to_plugin(&mut cfg) {
-            let snapshot = cfg.clone();
-            drop(cfg);
-            let _ = codeterm_service_core::config::save_config_pub(&snapshot);
-        }
-    }
-
     let agent_registry = Arc::new(agent::registry::AgentRegistry::new());
     let secret_registry = Arc::new(codeterm_service_core::secrets::SecretRegistry::new());
     let transcribe_registry =
@@ -321,18 +312,42 @@ pub(crate) fn compose_observed(
 
     agent::model_catalog::refresh_example_files();
 
+    drop(phase);
+    let phase = startup::StartupStep::debug("provider catalogs");
     startup::refresh_providers(&agent_registry);
+    drop(phase);
     api.complete("providers");
+    api.complete_subsystem("plugins");
+    api.complete_subsystem("providers");
 
     let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
     let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
 
+    let phase = startup::StartupStep::debug("memory initialization");
     let startup_step = startup::StartupStep::logged("memory initialization");
     let config = states.config.lock().clone();
     let data_dir = codeterm_service_core::paths::data_dir();
     let store = crate::mem_backend::open_configured(&data_dir, &config, &secret_registry)
         .map_err(|error| error.to_string())?;
     let mem = mem::MemManager::open_store(store, &data_dir)?;
+    {
+        let mut readiness = mem::docs_source::subscribe_vector_readiness();
+        let api = api.clone();
+        codeterm_service_core::async_runtime::spawn(async move {
+            loop {
+                match *readiness.borrow_and_update() {
+                    mem::docs_source::VectorReadiness::Ready => {
+                        api.complete_subsystem("docs_vectors")
+                    }
+                    mem::docs_source::VectorReadiness::Failed => api.fail_subsystem("docs_vectors"),
+                    mem::docs_source::VectorReadiness::Starting => {}
+                }
+                if readiness.changed().await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
     match mem.seed_bundled_if_needed() {
         Ok(outcome) if outcome.written() > 0 || !outcome.skipped.is_empty() => {
             log::info!(
@@ -353,8 +368,11 @@ pub(crate) fn compose_observed(
 
     codeterm_service_core::service::general_agent::sync_identity_to_mem(&mem);
     mem.reindex_missing();
+    api.complete_subsystem("memory");
     drop(startup_step);
 
+    drop(phase);
+    let phase = startup::StartupStep::debug("service context construction");
     let startup_step = startup::StartupStep::logged("service state construction");
     let svc_ctx = codeterm_service_core::service::build_service_context(
         &states,
@@ -385,6 +403,11 @@ pub(crate) fn compose_observed(
         surface_registry,
         &cap_registries,
     );
+    drop(phase);
+    let phase = startup::StartupStep::debug("service wiring");
+    if let Some(account) = local_account {
+        assert!(svc_ctx.set_ext(account).is_ok());
+    }
     codeterm_service_core::service::supporter::runtime_with_notifications(&svc_ctx);
     let service_state: ServiceState = svc_ctx;
     // Account observers may wake bound concierges; establish lazy state before any can run.
@@ -456,8 +479,30 @@ pub(crate) fn compose_observed(
         }
         let _ = chatbackend_registry.start_discovery();
     }
-    let _ = codeterm_service_core::async_runtime::block_on(service_state.billing());
+    drop(phase);
+    let phase = startup::StartupStep::debug("account and billing");
+    match codeterm_service_core::async_runtime::block_on(service_state.billing()) {
+        Ok(_) => {
+            api.complete_subsystem("account");
+            api.complete_subsystem("billing");
+        }
+        Err(_) => {
+            api.fail_subsystem("billing");
+            if service_state
+                .ext::<service::account::AccountCell>()
+                .0
+                .get()
+                .is_some()
+            {
+                api.complete_subsystem("account");
+            } else {
+                api.fail_subsystem("account");
+            }
+        }
+    }
     service_state.sync_limit_gate();
+    drop(phase);
+    let _phase = startup::StartupStep::debug("post-account restore and platform");
     codeterm_service_core::service::agent_runtime::restore_all(&service_state);
 
     {
@@ -487,6 +532,7 @@ pub(crate) fn compose_observed(
         plan_started.elapsed().as_millis()
     );
     api.complete("plans");
+    api.complete_subsystem("plans");
 
     startup::background_init::initialize(&service_state);
 
@@ -502,7 +548,12 @@ pub(crate) fn compose_observed(
         frontend_dev_url,
         resource_dir,
         quit_port,
+        &api,
+        bundles,
     )?;
+    api.complete_subsystem("crons");
+    api.complete_subsystem("mesh");
+    api.complete_subsystem("neighbors");
     service_state.schedule_restored_agent_delivery_reconciliation();
     codeterm_service_core::service::provider_hooks::ensure_integrations_for_all(
         &service_state.agent_registry,

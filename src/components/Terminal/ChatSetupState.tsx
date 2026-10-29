@@ -10,6 +10,8 @@ import type { ChatUnavailableReason } from "./chatSessionAuthority";
 import type { LockedView } from "../billing/freeLimitModel";
 import { LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
+import { useRestartTab } from "./useRestartTab";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 
 export { chatSetupView } from "./chatSetupModel";
 
@@ -43,6 +45,7 @@ export function ChatSetupState({
   onRetry,
   lock,
 }: ChatSetupStateProps) {
+  const recovery = useRestartTab(tab?.id);
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
     if (event.key !== "Escape") return;
     event.preventDefault();
@@ -69,6 +72,10 @@ export function ChatSetupState({
     <DeferredPresence present={visible && view.kind === "starting"} className="chat-launch-overlay">
     <div className="h-full" data-testid="chat-setup-state" onKeyDown={handleKeyDown}>
       <RestoreStatePanel view={view.kind === "starting" ? transcriptLoadingStageView(tab ?? {}) : restoreStageView(tab ?? {})} />
+      {tab?.boot_stage === "launch_binding_unconfirmed" && !tab.agent_booting && <div className="absolute inset-x-0 bottom-8 flex flex-col items-center gap-3">
+        <button type="button" disabled={recovery.restarting} onClick={() => void recovery.restart()}>{recovery.restarting ? "Restarting…" : "Restart agent"}</button>
+        {recovery.error && <InlineErrorNotice error={recovery.error} operation="restarting this agent" />}
+      </div>}
     </div>
     </DeferredPresence>
   );

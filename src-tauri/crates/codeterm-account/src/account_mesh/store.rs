@@ -16,11 +16,23 @@ impl FileAccountMeshStore {
 }
 
 fn read(path: &PathBuf) -> io::Result<AccountMeshRecord> {
-    match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(AccountMeshRecord::default()),
-        Err(error) => Err(error),
+    let mut record: AccountMeshRecord = match fs::read(path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other)?,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => AccountMeshRecord::default(),
+        Err(error) => return Err(error),
+    };
+    record.admission_cache = fs::read(path.with_file_name("mesh-admission.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    match fs::read(path.with_file_name("mesh-peer-presence.json")) {
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(presence) => record.peer_presence = presence,
+            Err(_) => record.peer_presence_refresh = record.owner.is_some(),
+        },
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(_) => record.peer_presence_refresh = record.owner.is_some(),
     }
+    Ok(record)
 }
 
 fn write(path: &PathBuf, record: &AccountMeshRecord) -> io::Result<()> {
@@ -28,10 +40,34 @@ fn write(path: &PathBuf, record: &AccountMeshRecord) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    if !record.peer_presence_refresh {
+        let presence_path = path.with_file_name("mesh-peer-presence.json");
+        let temporary_presence = presence_path.with_extension("json.tmp");
+        fs::write(
+            &temporary_presence,
+            serde_json::to_vec(&record.peer_presence).map_err(io::Error::other)?,
+        )?;
+        fs::rename(&temporary_presence, &presence_path)?;
+    }
     let bytes = serde_json::to_vec(record).map_err(io::Error::other)?;
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, bytes)?;
-    fs::rename(&temporary, path)
+    fs::rename(&temporary, path)?;
+    let cache_path = path.with_file_name("mesh-admission.json");
+    match &record.admission_cache {
+        Some(cache) => {
+            let temporary = cache_path.with_extension("json.tmp");
+            fs::write(
+                &temporary,
+                serde_json::to_vec(cache).map_err(io::Error::other)?,
+            )?;
+            fs::rename(temporary, cache_path)
+        }
+        None => match fs::remove_file(cache_path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        },
+    }
 }
 
 #[async_trait]

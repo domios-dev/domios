@@ -11,6 +11,10 @@ use std::{sync::Arc, time::Instant};
 
 pub struct BillingCell(pub Arc<tokio::sync::OnceCell<Arc<Billing>>>);
 
+pub fn pending_limit_gate() -> LimitGate {
+    LimitGate::new(codeterm_entitlements::compiled_free(), false)
+}
+
 impl ServiceContext {
     pub async fn billing_plan_operation(
         &self,
@@ -26,19 +30,21 @@ impl ServiceContext {
             .billing()
             .await?
             .plan_operation(&session, operation)
-            .await?;
+            .await;
+        self.sync_limit_gate();
+        self.unlock_account_mesh_after_plan_change();
         if account
             .session()
             .await
             .as_ref()
-            .map(|current| &current.identity.uid)
-            != Some(&session.identity.uid)
+            .map(|current| (&current.identity.uid, current.login_generation))
+            != Some((&session.identity.uid, session.login_generation))
         {
             return Err("Account changed while managing your plan".into());
         }
-        Ok(result)
+        result
     }
-    /// Capture before taking the mux lock. Before billing starts it is the compiled free baseline.
+    /// Capture before taking the mux lock.
     pub fn limit_gate(&self) -> LimitGate {
         #[cfg(any(test, feature = "test-support"))]
         if let Some(gate) = self.try_ext::<super::test_fixture::FixtureLimitGate>() {
@@ -46,12 +52,21 @@ impl ServiceContext {
         }
         self.ext::<BillingCell>().0.get().map_or_else(
             || {
-                LimitGate::new(
-                    codeterm_entitlements::compiled_free(),
-                    codeterm_entitlements::enforcing(),
-                )
+                self.try_ext::<super::account::startup::StartupAccount>()
+                    .filter(|account| account.is_valid())
+                    .map_or_else(pending_limit_gate, |account| account.gate())
             },
-            |billing| billing.limit_gate(),
+            |billing| {
+                if billing.binding_generation() == 0 {
+                    if let Some(account) = self
+                        .try_ext::<super::account::startup::StartupAccount>()
+                        .filter(|account| account.is_valid())
+                    {
+                        return account.gate();
+                    }
+                }
+                billing.limit_gate()
+            },
         )
     }
 
@@ -108,12 +123,12 @@ impl ServiceContext {
                         log::debug!("Grant prime task failed: {error}");
                     }
                 }
-                self.apply_limit_gate(billing.limit_gate());
+                self.apply_limit_gate(self.limit_gate());
                 self.spawn_entitlement_deadlines(billing.clone());
                 Ok::<_, String>(billing)
             })
             .await?;
-        self.apply_limit_gate(billing.limit_gate());
+        self.apply_limit_gate(self.limit_gate());
         Ok(billing.clone())
     }
     /// Idle daemons still refresh at `refresh_after` and lock at lease or period end; CLI,
@@ -140,14 +155,7 @@ impl ServiceContext {
     }
     pub async fn account_plan(&self) -> Result<Snapshot, String> {
         let result = self.account_plan_inner().await;
-        if result.is_err() {
-            self.apply_limit_gate(LimitGate::new(
-                codeterm_entitlements::compiled_free(),
-                codeterm_entitlements::enforcing(),
-            ));
-        } else {
-            self.sync_limit_gate();
-        }
+        self.sync_limit_gate();
         result
     }
     pub(super) async fn clear_account_plan(&self) -> Result<(), String> {
@@ -164,43 +172,56 @@ impl ServiceContext {
         Ok(())
     }
     async fn account_plan_inner(&self) -> Result<Snapshot, String> {
+        let binding = self
+            .ext::<BillingCell>()
+            .0
+            .get()
+            .map(|billing| billing.binding_generation());
         let session = self.account().await?.session().await;
         if session.is_none() {
-            if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
-                snapshot_off_runtime(billing.clone(), None).await?;
+            if let Some(snapshot) = self
+                .try_ext::<super::account::startup::StartupAccount>()
+                .and_then(|account| account.snapshot())
+            {
+                return Ok(snapshot);
+            }
+            if let (Some(billing), Some(binding)) = (self.ext::<BillingCell>().0.get(), binding) {
+                snapshot_off_runtime(billing.clone(), None, Some(binding)).await?;
             }
             return Ok(Snapshot::default());
         }
-        snapshot_off_runtime(self.billing().await?, session).await
+        snapshot_off_runtime(self.billing().await?, session, None).await
     }
     pub async fn refresh_billing(&self, event: RefreshEvent) -> Result<Snapshot, String> {
         let result = self.refresh_billing_inner(event).await;
-        if result.is_err() {
-            self.apply_limit_gate(LimitGate::new(
-                codeterm_entitlements::compiled_free(),
-                codeterm_entitlements::enforcing(),
-            ));
-        } else {
-            self.sync_limit_gate();
-        }
+        self.sync_limit_gate();
         result
     }
     async fn refresh_billing_inner(&self, event: RefreshEvent) -> Result<Snapshot, String> {
+        let binding = self
+            .ext::<BillingCell>()
+            .0
+            .get()
+            .map(|billing| billing.binding_generation());
         let account = self.account().await?;
         let session = account.session().await;
         if session.is_none() {
-            if let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() {
-                snapshot_off_runtime(billing.clone(), None).await?;
+            if let (Some(billing), Some(binding)) = (self.ext::<BillingCell>().0.get(), binding) {
+                snapshot_off_runtime(billing.clone(), None, Some(binding)).await?;
             }
             return Ok(Snapshot::default());
         }
         let billing = self.billing().await?;
+        let event = session.as_ref().map_or(event, |session| {
+            billing.browser_return_event(session, event)
+        });
         billing
             .refresh(session.as_ref(), event, Instant::now())
             .await;
         self.unlock_account_mesh_after_plan_change();
+        let binding = billing.binding_generation();
         let current = account.session().await;
-        snapshot_off_runtime(billing, current).await
+        snapshot_off_runtime(billing, current, Some(binding)).await
     }
     /// `theme` applies to checkout only; the portal is Paddle's own page.
     pub async fn billing_open(
@@ -233,8 +254,8 @@ impl ServiceContext {
             .session()
             .await
             .as_ref()
-            .map(|s| &s.identity.uid)
-            != Some(&session.identity.uid)
+            .map(|s| (&s.identity.uid, s.login_generation))
+            != Some((&session.identity.uid, session.login_generation))
         {
             return Err("Account changed while opening billing".into());
         }
@@ -246,6 +267,10 @@ impl ServiceContext {
             Some(key) => billing.checkout_browser_opened(&session, key.plan()),
             None => billing.browser_opened(&session),
         }
+        self.ui.emit(
+            "billing-browser-opened",
+            serde_json::json!({"uid": session.identity.uid}),
+        );
         Ok(())
     }
 }
@@ -253,10 +278,14 @@ impl ServiceContext {
 async fn snapshot_off_runtime(
     billing: Arc<Billing>,
     session: Option<codeterm_account::Session>,
+    expected_generation: Option<u64>,
 ) -> Result<Snapshot, String> {
-    tokio::task::spawn_blocking(move || billing.snapshot(session.as_ref()))
-        .await
-        .map_err(|error| error.to_string())
+    tokio::task::spawn_blocking(move || match expected_generation {
+        Some(generation) => billing.snapshot_if_current(session.as_ref(), generation),
+        None => billing.snapshot(session.as_ref()),
+    })
+    .await
+    .map_err(|error| error.to_string())
 }
 
 /// Every live tab counts toward `agent.tabs`, whatever its role or purpose.

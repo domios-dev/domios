@@ -164,6 +164,7 @@ function AppInner() {
   const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
   const state = firstRunSelection(locked, backendState);
+  const interfaceReady = !configLoading && (initialRouteReady(state.generation) || state.storageUnavailable);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
   const { providers: firstRunProviders } = useAgentProviders();
@@ -284,7 +285,9 @@ function AppInner() {
   const larkReadyRef = useRef(larkCapture.ready);
   larkReadyRef.current = larkCapture.ready;
   useEffect(() => {
+    if (!interfaceReady) return;
     if (IS_WEB || !("__TAURI_INTERNALS__" in window)) return;
+    releaseBootCover();
     const injectedView = (window as Window & {
       __CODETERM_CLIENT_VIEW_GENERATION__?: {
         viewGeneration: number;
@@ -339,8 +342,8 @@ function AppInner() {
       frontendBootDiagnostic("ready-failed");
       console.warn("Unable to report frontend readiness", error);
     });
-  }, []);
-  const routeRestored = useFrontendApp({
+  }, [interfaceReady]);
+  useFrontendApp({
     pageSnapshot: IS_WEB ? { workspaces: state.workspaces, tabs: state.tabs, active_workspace_id: state.active_workspace_id } : undefined,
     generation: state.generation,
     workspaceId: state.active_workspace_id,
@@ -350,7 +353,6 @@ function AppInner() {
     selectWorkspace: setActiveWorkspace,
     selectTab: setActiveTab,
   });
-  const interfaceReady = routeRestored || state.storageUnavailable;
   useEffect(() => {
     if (!interfaceReady) return;
     // Release after the restored interface has painted, so the cover hands over to a complete frame.
@@ -848,7 +850,7 @@ function AppInner() {
           {locked ? (configLoading ? <Loader label="Loading settings" deferred={false} />
             : firstRunSettings ? <SettingsPanel config={config} onUpdateConfig={updateConfig} initialSection="general" onClose={() => setFirstRunSettings(false)} />
             : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
-              ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !routeRestored && !state.storageUnavailable ? (
+              ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !interfaceReady ? (
             <DeferredPresence present className="absolute inset-0">
               <Loader label="Restoring workspace" deferred={false} />
             </DeferredPresence>

@@ -274,6 +274,33 @@ fn container_update_error(marked: bool) -> Option<crate::cmd::print::CliError> {
     })
 }
 
+fn check_item_line(item: &serde_json::Value, errors: &serde_json::Value) -> String {
+    let id = item["id"].as_str().unwrap_or("?");
+    let source = if item["kind"] == "plugin" {
+        item["channel"].as_str().unwrap_or(id)
+    } else {
+        id
+    };
+    if let Some(error) = errors[source]
+        .as_str()
+        .or_else(|| errors["discovery"].as_str())
+    {
+        let cached = if item["reason"] == "cached_manifest" {
+            " (cached update usable)"
+        } else {
+            ""
+        };
+        return format!("{id}: check failed: {error}{cached}");
+    }
+    format!(
+        "{}: {} → {} ({})",
+        id,
+        item["installed"].as_str().unwrap_or("unknown"),
+        item["latest"].as_str().unwrap_or("unknown"),
+        item["state"].as_str().unwrap_or("unknown")
+    )
+}
+
 pub fn handle_update(
     json: bool,
     action: Option<UpdateAction>,
@@ -329,13 +356,7 @@ pub fn handle_update(
                         );
                     } else {
                         for item in body["items"].as_array().into_iter().flatten() {
-                            println!(
-                                "{}: {} → {} ({})",
-                                item["id"].as_str().unwrap_or("?"),
-                                item["installed"].as_str().unwrap_or("unknown"),
-                                item["latest"].as_str().unwrap_or("unknown"),
-                                item["state"].as_str().unwrap_or("unknown")
-                            );
+                            println!("{}", check_item_line(item, &body["errors"]));
                         }
                         for (source, error) in body["errors"].as_object().into_iter().flatten() {
                             println!(

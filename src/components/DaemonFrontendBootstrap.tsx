@@ -9,7 +9,7 @@ import { baseDaemonTransport, FRONTEND_BOOT_KEY, onDaemonTransport } from "../li
 import { initializeBrowserFrontendUpdates } from "../lib/frontendUpdate/browser";
 import type { BootContext } from "../lib/frontendUpdate/client";
 import { getResizeClientId } from "../lib/resizeOwner";
-import { waitForServerReady, type StartupPhase } from "../lib/serverReadiness";
+import { waitForDesktopReady, type StartupPhase } from "../lib/serverReadiness";
 
 export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -30,14 +30,20 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
       setReady(false);
       setStartupFailed(false);
       setStartupPhase(null);
+      const desktop = waitForDesktopReady(client, controller.signal, phase => {
+        if (current === generation) setStartupPhase(phase);
+      });
+      void desktop.then(() => {
+        if (current === generation) setReady(true);
+      }, () => {
+        if (current === generation) setStartupFailed(true);
+      });
       initializing = initializing.then(async () => {
         if (current !== generation) return;
         dispose?.();
         dispose = undefined;
         try {
-          await waitForServerReady(client, controller.signal, phase => {
-            if (current === generation) setStartupPhase(phase);
-          });
+          await desktop;
         } catch (failure) {
           if (current === generation) {
             frontendBootDiagnostic("frontend-initialize-failed", frontendUpdateDiagnostic(failure));
@@ -46,6 +52,7 @@ export function DaemonFrontendBootstrap({ children }: { children: ReactNode }) {
           return;
         }
         if (current !== generation) return;
+        setReady(true);
         let failed = false;
         const disableUpdates = (failure: unknown) => {
           frontendBootDiagnostic("frontend-initialize-failed", frontendUpdateDiagnostic(failure));

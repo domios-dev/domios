@@ -10,7 +10,8 @@ pub mod native_host;
 mod native_inventory;
 pub mod native_update;
 mod runtime;
-pub use runtime::{ownership_registry, run};
+pub use codeterm_paths::instance_identity::ownership_registry;
+pub use runtime::run;
 mod resources;
 mod worker_observer;
 

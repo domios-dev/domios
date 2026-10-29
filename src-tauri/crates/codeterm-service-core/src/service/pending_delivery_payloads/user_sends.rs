@@ -46,6 +46,16 @@ pub struct UserSendAuthority {
     pub(crate) prelaunch: bool,
 }
 
+impl UserSendAuthority {
+    pub fn pty_id(&self) -> Option<&str> {
+        self.pty_id.as_deref()
+    }
+
+    pub fn binding_nonce(&self) -> &str {
+        &self.binding_nonce
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UserSendState {
@@ -255,6 +265,20 @@ impl UserSendStore {
             .ready_launch
             .lock()
             .mark_ready(authority)
+    }
+
+    pub(crate) fn mark_launch_dispatched(&self, authority: &UserSendAuthority) -> bool {
+        self.tab(&authority.tab_id)
+            .ready_launch
+            .lock()
+            .mark_dispatched(authority)
+    }
+
+    pub(crate) fn launch_was_dispatched(&self, authority: &UserSendAuthority) -> bool {
+        self.tab(&authority.tab_id)
+            .ready_launch
+            .lock()
+            .was_dispatched(authority)
     }
 
     pub(crate) fn ready_launch_is_latched(&self, authority: &UserSendAuthority) -> bool {

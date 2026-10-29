@@ -216,7 +216,7 @@ fn removing_a_task_or_attempt_removes_its_rows_and_reorders_survivors() {
 }
 
 #[test]
-fn an_oversized_whole_document_migrates_once_on_open() {
+fn opening_a_database_never_rewrites_whole_documents() {
     let (_directory, path, database) = database();
     drop(database);
     let tasks = (0..18)
@@ -226,10 +226,11 @@ fn an_oversized_whole_document_migrates_once_on_open() {
     insert_whole_document(&path, &legacy);
     assert!(plan_row(&path, &legacy.id).len() > 17 * 1024 * 1024);
 
+    let original = plan_row(&path, &legacy.id);
     let migrated = PlanDatabase::open(path.clone()).unwrap();
     let after_first = (plan_row(&path, &legacy.id), row_counts(&path));
-    assert!(!after_first.0.contains("\"tasks\""));
-    assert_eq!(after_first.1, [18, 72, 36]);
+    assert_eq!(after_first.0, original);
+    assert_eq!(after_first.1, [0, 0, 0]);
     assert_eq!(migrated.load_snapshots().unwrap().0, vec![legacy.clone()]);
     drop(migrated);
 

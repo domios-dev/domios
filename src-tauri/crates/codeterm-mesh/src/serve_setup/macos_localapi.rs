@@ -8,7 +8,7 @@ use base64::Engine;
 #[cfg(target_os = "macos")]
 pub(super) fn macos_localapi(path: &str) -> Option<serde_json::Value> {
     let home = dirs::home_dir()?;
-    let out = codeterm_util::process_util::disclaimed_capture(
+    let out = codeterm_util::process_util::bounded_capture(
         "/bin/sh",
         &[
             "-c",
@@ -21,7 +21,22 @@ pub(super) fn macos_localapi(path: &str) -> Option<serde_json::Value> {
             home.to_str()?,
             path,
         ],
-    )?;
+        std::time::Duration::from_secs(12),
+    );
+    let out = match out {
+        Ok(out) => out,
+        Err(error) => {
+            static LAST: std::sync::OnceLock<parking_lot::Mutex<String>> =
+                std::sync::OnceLock::new();
+            let message = format!("{path}: {error}");
+            let mut previous = LAST.get_or_init(Default::default).lock();
+            if *previous != message {
+                log::debug!("[mesh/tailscale/localapi] {message}");
+                *previous = message;
+            }
+            return None;
+        }
+    };
     decode_probe_output(&out)
 }
 

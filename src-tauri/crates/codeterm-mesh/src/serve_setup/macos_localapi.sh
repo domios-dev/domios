@@ -3,7 +3,7 @@ path=$2
 valid_endpoint "$path" || exit 1
 
 fetch() {
-    response=$(/usr/bin/curl --disable --config - --include --raw --silent --fail \
+    response=$(/usr/bin/curl --disable --config - --include --raw --silent --show-error --fail \
         --max-time 3 --max-filesize 1048576 --noproxy '*' && printf '.') || return 1
     printf '%s' "${response%?}" | /usr/bin/base64
 }

@@ -11,6 +11,7 @@ import {
 } from "react";
 import { DEV_BUILD } from "../lib/devBuild";
 import { classifyUpdateFailure } from "../lib/updateStatusModel";
+import { updatePresentation, updateStatusForPhase } from "../lib/updatePresentation";
 import { listen } from "../lib/bridge";
 import { useConfig } from "./useConfig";
 import { checkForUpdate, getUpdateStatus, installAppUpdate, requestUpdateChannel } from "./updateTransport";
@@ -215,23 +216,6 @@ function progressForRuntime(next: RuntimeStatus, previous: number): number {
   }
 }
 
-function phaseToStatus(phase: UpdatePhase, installing: boolean): UpdateStatus | null {
-  switch (phase) {
-    case "checking":
-      return installing ? "checking" : null;
-    case "downloading":
-      return "downloading";
-    case "applying":
-      return "applying";
-    case "success":
-      return "restarting";
-    case "error":
-      return "error";
-    case "idle":
-      return null;
-  }
-}
-
 export function UpdateProvider({ children }: { children: ReactNode }) {
   const { config } = useConfig();
   const api = config.api;
@@ -336,6 +320,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const nextInstalling = installingRef.current || shouldAdopt;
 
       if (shouldAdopt) {
+        if (!installingRef.current) setToastOpen(true);
         installingRef.current = true;
       }
 
@@ -377,7 +362,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         setError(message);
         setStatus("error");
         setInstalling(false);
-        setToastOpen(userInstallRef.current);
+        setToastOpen(userInstallRef.current || opts?.adopt === true);
         userInstallRef.current = false;
         return;
       }
@@ -385,7 +370,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       setError(null);
       setProgress((prev) => progressForRuntime(next, prev));
 
-      const runtimeStatus = phaseToStatus(next.phase, nextInstalling);
+      const runtimeStatus = updateStatusForPhase(next.phase, nextInstalling);
       if (runtimeStatus) {
         setStatus(runtimeStatus);
         return;
@@ -422,7 +407,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     activeInstallPhaseRef.current = false;
     installCallReturnedRef.current = false;
     setInstalling(true);
-    setToastOpen(false);
+    setToastOpen(true);
     setStatus("checking");
     setPhase("checking");
     setProgress((prev) => Math.max(prev, 8));
@@ -490,9 +475,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     };
   }, [handleInfo]);
 
-  // A user-started install owns the window from download through restart.
-  const blocking = status === "applying" || status === "restarting"
-    || (installing && (status === "checking" || status === "downloading"));
+  const blocking = updatePresentation(status, installing, info?.latest_version ?? null).blocking;
 
   const value = useMemo<UpdateContextValue>(
     () => ({

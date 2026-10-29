@@ -18,7 +18,7 @@ export async function buildFrontend({ root = process.cwd(), platform = process.p
     exit = await run(process.execPath, [path.join(root, 'node_modules/typescript/bin/tsc'), '--incremental', '--tsBuildInfoFile', path.join(cache, 'codeterm-types.tsbuildinfo')], log);
     if (!exit) {
       staging = fs.mkdtempSync(path.join(cache, 'codeterm-frontend-'));
-      exit = await run(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', staging], log);
+      exit = await run(process.execPath, [path.join(root, 'node_modules/vite/bin/vite.js'), 'build', '--emptyOutDir', '--outDir', staging], log);
     }
   } catch (error) {
     console.error(error);

@@ -114,8 +114,7 @@ fn has_startup_task_turn_reflects_the_actual_launch_command() {
         assert!(!plan.first_turn_will_be_delivered);
         assert!(first_turn_binding_required(
             true,
-            plan.first_turn_will_be_delivered,
-            false
+            plan.first_turn_will_be_delivered
         ));
     }
 
@@ -139,7 +138,6 @@ fn has_startup_task_turn_reflects_the_actual_launch_command() {
     assert!(!first_turn_binding_required(
         true,
         baked.first_turn_will_be_delivered,
-        false,
     ));
 }
 
@@ -234,8 +232,8 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
 
     let mux = harness.service.mux.read();
     let tab = mux.get_tab(&tab_id).expect("taskless tab remains present");
-    assert_eq!(tab.boot_stage, Some(BootStage::LaunchBindingUnconfirmed));
-    assert!(tab.boot_failure_reason.is_some());
+    assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
+    assert!(tab.boot_failure_reason.is_none());
     assert!(tab.provisional_launch.is_some());
     assert!(tab.agent_session_id.is_none());
     assert!(!tab.launch_session_authenticated());
@@ -245,7 +243,7 @@ fn taskless_lazy_session_spawn_becomes_input_ready_from_provider_evidence() {
 }
 
 #[test]
-fn owner_prompt_cleared_on_lazy_session_launch_stays_unconfirmed_without_first_turn() {
+fn owner_prompt_cleared_on_lazy_session_launch_accepts_first_turn_without_binding() {
     use crate::agent::provider::ProviderReadinessStrategy;
     use crate::agent::test_provider::MockProvider;
     use crate::service::launch_readiness::{
@@ -323,8 +321,8 @@ fn owner_prompt_cleared_on_lazy_session_launch_stays_unconfirmed_without_first_t
     let tab = mux
         .get_tab(&tab_id)
         .expect("lazy launch tab remains present");
-    assert_eq!(tab.boot_stage, Some(BootStage::LaunchBindingUnconfirmed));
-    assert!(tab.boot_failure_reason.is_some());
+    assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
+    assert!(tab.boot_failure_reason.is_none());
     assert!(tab.provisional_launch.is_some());
     assert!(tab.agent_session_id.is_none());
     assert!(!tab.launch_session_authenticated());
@@ -432,8 +430,8 @@ fn lazy_session_first_turn_is_delivered_once_and_binds() {
         )
     };
 
-    assert!(!first_turn_binding_required(true, true, true));
-    assert!(!first_turn_binding_required(false, true, true));
+    assert!(!first_turn_binding_required(true, true));
+    assert!(!first_turn_binding_required(false, true));
     assert!(deliver_first_turn());
     assert_eq!(payload_writes.get(), 1);
     assert!(launch.await_provider_ack(std::time::Duration::ZERO));

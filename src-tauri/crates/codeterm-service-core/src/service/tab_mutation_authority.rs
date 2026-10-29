@@ -11,6 +11,7 @@ pub struct TabMutationScope<'a> {
     pub parent_tab_id: Option<&'a str>,
     pub plan_id: Option<&'a str>,
     pub creates_team: bool,
+    pub self_promotion: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -35,6 +36,35 @@ fn tab_mutation_allowed(facts: AuthorityFacts<'_>) -> bool {
         && facts.destination_allowed
 }
 
+pub fn authorize_self_promotion(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    caller: &TabCaller,
+    target_id: &str,
+) -> Result<(), String> {
+    let allowed = caller.tab_id == target_id
+        && !caller.binding_nonce.is_empty()
+        && mux.get_tab(target_id).is_some_and(|tab| {
+            tab.role.is_none()
+                && tab.role_profile.is_none()
+                && tab.team_id.is_none()
+                && tab.parent_tab_id.is_none()
+                && tab.neighbor_authority.is_none()
+                && tab.ownership.is_none()
+                && tab.report_target_mesh_peer.is_none()
+                && !tab.protected
+                && tab.agent_type.is_some()
+                && tab.agent_session_id.is_some()
+                && tab.exit_suspected_at.is_none()
+                && tab.session_binding_nonce.as_deref() == Some(caller.binding_nonce.as_str())
+                && tab.reported_session_binding_nonce == tab.session_binding_nonce
+        });
+    if allowed {
+        Ok(())
+    } else {
+        Err("Self-promotion requires the same live roleless, team-less local agent session".into())
+    }
+}
+
 impl ServiceContext {
     pub fn authorize_tab_mutation(
         &self,
@@ -47,6 +77,14 @@ impl ServiceContext {
         };
         let mux = self.mux.read();
         let caller_tab = mux.get_tab(&caller.tab_id);
+        if scope.self_promotion
+            && scope.creates_team
+            && scope.parent_tab_id.is_none()
+            && scope.plan_id.is_none()
+            && authorize_self_promotion(&mux, caller, target_id).is_ok()
+        {
+            return Ok(());
+        }
         let caller_team = caller_tab.and_then(|tab| tab.team_id.as_deref());
         let parent_allowed = scope.parent_tab_id.is_none_or(|id| {
             mux.get_tab(id)

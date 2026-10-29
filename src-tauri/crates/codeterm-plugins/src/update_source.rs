@@ -30,11 +30,16 @@ impl UpdateDiscoverySource for OfficialUpdateSource {
             .query(&[("codeterm_cache_bust", uuid::Uuid::new_v4().to_string())])
             .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
             .send()
-            .and_then(|r| r.error_for_status())
             .map_err(|e| {
                 log::warn!("update discovery fetch failed: {e}");
                 super::channel_failure::http_failure_cause(&e)
             })?;
+        if let Some(error) = rate_limit_error(response.status().as_u16(), response.headers()) {
+            return Err(error);
+        }
+        let response = response
+            .error_for_status()
+            .map_err(|e| super::channel_failure::http_failure_cause(&e))?;
         let mut bytes = Vec::new();
         response
             .take(limit as u64 + 1)
@@ -58,6 +63,23 @@ impl UpdateDiscoverySource for OfficialUpdateSource {
         };
         result.map_err(|cause| super::channel_failure::channel_unavailable(&cause, url))
     }
+}
+
+fn rate_limit_error(status: u16, headers: &reqwest::header::HeaderMap) -> Option<String> {
+    if !matches!(status, 403 | 429) || headers.get("x-ratelimit-remaining")?.to_str().ok()? != "0" {
+        return None;
+    }
+    let reset = headers
+        .get("x-ratelimit-reset")?
+        .to_str()
+        .ok()?
+        .parse::<i64>()
+        .ok()?;
+    let reset = chrono::DateTime::from_timestamp(reset, 0)?;
+    Some(format!(
+        "GitHub rate limit, retry at {}",
+        reset.with_timezone(&chrono::Local).format("%H:%M")
+    ))
 }
 
 #[cfg(debug_assertions)]
@@ -134,43 +156,4 @@ fn discovery_url_allowed(value: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn discovery_refuses_untrusted_schemes_and_credentials() {
-        assert!(!discovery_url_allowed("file:///tmp/latest.json"));
-        assert!(!discovery_url_allowed("http://example.com/latest.json"));
-        assert!(!discovery_url_allowed(
-            "https://user:secret@example.com/latest.json"
-        ));
-        assert!(discovery_url_allowed("https://example.com/latest.json"));
-    }
-    #[cfg(debug_assertions)]
-    #[test]
-    fn fixture_source_fetches_manifests_without_network_and_enforces_limits() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("latest.json"), b"fixture").unwrap();
-        let fixture = FixtureUpdateSource {
-            root: dir.path().into(),
-        };
-        let source: &dyn UpdateDiscoverySource = &fixture;
-        assert_eq!(
-            source
-                .fetch("https://example.invalid/latest.json?cache=1", 7)
-                .unwrap(),
-            b"fixture"
-        );
-        assert!(source
-            .fetch("https://example.invalid/latest.json", 6)
-            .is_err());
-        assert!(source
-            .fetch("https://example.invalid/missing.json", 16)
-            .is_err());
-    }
-    #[cfg(not(debug_assertions))]
-    #[test]
-    fn release_never_selects_fixtures_or_loopback() {
-        assert_eq!(fixture_root(), None);
-        assert!(!discovery_url_allowed("http://127.0.0.1/latest.json"));
-    }
-}
+mod tests;

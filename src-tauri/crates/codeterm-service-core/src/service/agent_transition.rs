@@ -203,7 +203,43 @@ impl ServiceContext {
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
     ) -> Result<Vec<String>, String> {
+        self.transition_agent_with_precondition(request, failure, |_| Ok(()))
+    }
+
+    pub fn promote_standalone_agent(
+        &self,
+        caller: &super::tab_credentials::TabCaller,
+    ) -> Result<Vec<String>, String> {
+        let gate = self.limit_gate();
+        self.transition_agent_with_precondition(
+            AgentTransitionRequest {
+                tab_id: caller.tab_id.clone(),
+                destination: AgentPlacement::orchestrator(Some(true)),
+                plan_binding: None,
+                require_verified_session: true,
+                planner_replacement: None,
+                plan_rebind: None,
+            },
+            TransitionFailurePoint::None,
+            |mux| {
+                super::tab_mutation_authority::authorize_self_promotion(
+                    mux,
+                    caller,
+                    &caller.tab_id,
+                )?;
+                super::billing::admit_new_team(&gate)(mux.team_count())
+            },
+        )
+    }
+
+    fn transition_agent_with_precondition(
+        &self,
+        request: AgentTransitionRequest,
+        failure: TransitionFailurePoint,
+        precondition: impl FnOnce(&MultiplexerState) -> Result<(), String>,
+    ) -> Result<Vec<String>, String> {
         let mut mux = self.mux.write();
+        precondition(&mux)?;
         self.remote_teams
             .ensure_tab_lifecycle_available(&request.tab_id)?;
         let bindings_before = role_team_bindings(&mux);

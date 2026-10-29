@@ -49,8 +49,9 @@ fn request(token: &str, command: &Value) -> axum::extract::Request {
         .unwrap()
 }
 
-fn commands() -> [Value; 7] {
+fn commands() -> [Value; 8] {
     [
+        json!({"operation":"set_friend_receiver","friendship_id":"a".repeat(64),"receiver_operation":"set","expected_receiver_revision":0,"takeover_confirmed":false}),
         json!({"operation":"set_permission","friendship_id":"a".repeat(64),
             "permission":{"allowed":true,"scope":"opaque scope","allow_tab_requests":false}}),
         json!({"operation":"bind","friendship_id":"a".repeat(64),"gateway_tab":"target"}),
@@ -287,4 +288,27 @@ async fn neighbor_actor_cannot_be_replaced_by_headers_or_retired_session() {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+}
+
+#[tokio::test]
+async fn peers_cannot_select_a_friend_receiver() {
+    let (_fixture, state, _, _, _, _) = fixture();
+    let command = serde_json::from_value(json!({
+        "operation":"set_friend_receiver", "friendship_id":"a".repeat(64),
+        "receiver_operation":"set", "expected_receiver_revision":0, "takeover_confirmed":true
+    }))
+    .unwrap();
+    let response = neighbor_runtime(
+        State(state),
+        Some(Extension(CallerIdentity::Peer {
+            instance_id: "peer".into(),
+            access_level: codeterm_service_core::mesh::types::AccessLevel::Full,
+            relay_protocol_version: 0,
+        })),
+        axum::http::HeaderMap::new(),
+        Json(command),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

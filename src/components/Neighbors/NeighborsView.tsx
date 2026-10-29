@@ -247,7 +247,7 @@ function NodeButton({ node, index, selected, paused, canInvite, onSelect }: {
     </div>;
   }
   return <button type="button" data-neighbor-node data-node-id={node.id} className="neighbor-node" style={style} data-status={node.status}
-    aria-pressed={selected} aria-label={`${node.name}, ${paused ? "disabled" : STATUS_LABEL[node.status]}`} onClick={onSelect} data-paused={paused || undefined}>
+    title={node.email && node.email !== node.name ? node.name + " (" + node.email + ")" : node.name} aria-pressed={selected} aria-label={`${node.name}, ${paused ? "disabled" : STATUS_LABEL[node.status]}`} onClick={onSelect} data-paused={paused || undefined}>
     <span className="neighbor-node__disc"><AccountAvatar url={node.photoURL} initial={accountInitials(node.name)} label="" size="node" />
       {paused && <span className="neighbor-pause-glyph" aria-hidden="true"><Pause size={12} /></span>}</span>
     <span className="neighbor-node__name">{node.name}</span>

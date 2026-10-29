@@ -464,8 +464,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         AgentAction::SetOrchestrator { tab } => {
             let tab_id = resolve_tab(client, tab);
             match local_http
-                .post(format!("{}/api/tabs/{}/role", base, tab_id))
-                .json(&serde_json::json!({"role": "Orchestrator"}))
+                .post(format!("{}/api/tabs/{}/make-orchestrator", base, tab_id))
+                .json(&serde_json::json!({}))
                 .send()
             {
                 Ok(resp) => print_local_agent_mutation_response(resp),

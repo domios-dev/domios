@@ -334,7 +334,7 @@ it("requests one wake when a sleeping tab becomes visible without awaiting mater
     await render(true);
     expect(calls).toEqual([tab.id]);
     expect(host.textContent).toContain("persisted-fixture-content");
-    expect([...host.querySelectorAll('[role="status"]')].some(status => status.textContent === "Waking…")).toBe(true);
+    expect([...host.querySelectorAll('[role="status"]')].some(status => status.getAttribute("aria-label") === "Restoring…")).toBe(true);
     expect(host.querySelector('[role="progressbar"][aria-label="Restore progress"]')).toBeNull();
     const composer = host.querySelector("textarea");
     expect(composer).not.toBeNull();

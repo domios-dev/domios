@@ -2,13 +2,45 @@ import { useEffect, useRef, useState } from "react";
 import { billingOperation, parseDesktopCatalog, parseSubscription, type SubscriptionReadback } from "./desktopBilling";
 import type { PlanCatalog } from "./planCatalog";
 import { SharedRead } from "../../lib/sharedRead";
+import { listen } from "../../lib/bridge";
 
-const catalogRead = new SharedRead<PlanCatalog>();
-const subscriptions = new Map<string, SharedRead<SubscriptionReadback>>();
-function subscriptionRead(identity: string) {
-  let read = subscriptions.get(identity);
-  if (!read) { read = new SharedRead<SubscriptionReadback>(); subscriptions.set(identity, read); }
+interface BillingReads {
+  catalog: SharedRead<PlanCatalog>;
+  subscription: SharedRead<SubscriptionReadback>;
+  users: number;
+  epoch: number;
+  stop?: () => void;
+}
+const reads = new Map<string, BillingReads>();
+function billingReads(identity: string) {
+  let read = reads.get(identity);
+  if (!read) {
+    read = { catalog: new SharedRead<PlanCatalog>(Date.now, 0), subscription: new SharedRead<SubscriptionReadback>(Date.now, 0), users: 0, epoch: 0 };
+    reads.set(identity, read);
+  }
   return read;
+}
+
+function watchBillingChanges(read: BillingReads) {
+  read.users++;
+  if (read.users === 1) {
+    const epoch = ++read.epoch;
+    void listen("entitlement-changed", () => {
+      if (read.users > 0 && read.epoch === epoch) {
+        void read.subscription.read(() => billingOperation("subscription").then(parseSubscription), true).catch(() => undefined);
+      }
+    }).then(stop => {
+      if (read.users > 0 && read.epoch === epoch) read.stop = stop;
+      else stop();
+    }).catch(() => undefined);
+  }
+  return () => {
+    if (--read.users === 0) {
+      read.epoch++;
+      read.stop?.();
+      read.stop = undefined;
+    }
+  };
 }
 
 interface LoadedBilling {
@@ -37,12 +69,14 @@ export function useDesktopBilling(identity: string | null, enabled = true) {
   useEffect(() => {
     const epoch = ++generation.current;
     const controller = new AbortController();
-    if (!identity) subscriptions.clear();
+    if (!identity) reads.clear();
     if (!identity || !enabled) {
       setLoaded({ identity, catalog: null, subscription: null, error: null, settled: true });
       return () => controller.abort();
     }
-    const read = subscriptionRead(identity);
+    const resource = billingReads(identity);
+    const { catalog: catalogRead, subscription: read } = resource;
+    const unwatch = watchBillingChanges(resource);
     const unsubscribe = read.subscribe(subscription => {
       if (!controller.signal.aborted && generation.current === epoch) setLoaded(previous => ({ ...previous, identity, subscription }));
     });
@@ -50,8 +84,8 @@ export function useDesktopBilling(identity: string | null, enabled = true) {
     async function load(force = false) {
       const request = ++latest;
       const [catalog, subscription] = await Promise.allSettled([
-        catalogRead.read(() => billingOperation("catalog").then(parseDesktopCatalog), force),
-        read.read(() => billingOperation("subscription").then(parseSubscription), force),
+        catalogRead.read(() => billingOperation(force ? "refresh_catalog" : "catalog").then(parseDesktopCatalog), force),
+        read.read(() => billingOperation(force ? "refresh_subscription" : "subscription").then(parseSubscription), force),
       ]);
       if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
       if (subscription.status === "fulfilled" && targetTier.current === subscription.value.current_tier && !subscription.value.pending_change) {
@@ -69,9 +103,7 @@ export function useDesktopBilling(identity: string | null, enabled = true) {
     const force = revision !== lastRevision.current;
     lastRevision.current = revision;
     void load(force);
-    const onFocus = () => { void load(); };
-    window.addEventListener("focus", onFocus);
-    return () => { unsubscribe(); controller.abort(); generation.current++; window.removeEventListener("focus", onFocus); };
+    return () => { unsubscribe(); unwatch(); controller.abort(); generation.current++; };
   }, [identity, revision, enabled]);
 
   async function change(priceId: string): Promise<boolean> {
@@ -86,7 +118,7 @@ export function useDesktopBilling(identity: string | null, enabled = true) {
       const value = response as { status?: unknown; target_plan?: unknown } | null;
       if (!value || !["scheduled", "awaiting_webhook"].includes(String(value.status))) throw new Error("Unconfirmed plan change");
       targetTier.current = typeof value.target_plan === "string" ? value.target_plan : null;
-      const subscription = await subscriptionRead(identity).read(() => billingOperation("subscription").then(parseSubscription), true);
+      const subscription = await billingReads(identity).subscription.read(() => billingOperation("subscription").then(parseSubscription), true);
       if (currentIdentity.current !== identity) return false;
       changeNotice.current = value.status === "awaiting_webhook" ? "Your upgrade is awaiting payment confirmation." : null;
       setLoaded(previous => ({ ...previous, subscription, error: changeNotice.current }));

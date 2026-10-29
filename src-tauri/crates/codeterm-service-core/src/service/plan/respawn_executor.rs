@@ -104,14 +104,39 @@ fn validate_source(tab: &Tab, draft: &TaskRespawnDraft) -> Result<(), String> {
             .session_id
             .as_ref()
             .is_some_and(|session| tab.agent_session_id.as_ref() != Some(session))
-        || source.session_binding_nonce.as_ref().is_some_and(|nonce| {
-            tab.session_binding_nonce.as_ref() != Some(nonce)
-                || tab.reported_session_binding_nonce.as_ref() != Some(nonce)
-        })
+        || !source_nonce_matches(tab, source)
     {
         return Err("respawn source executor identity changed".into());
     }
     Ok(())
+}
+
+fn source_nonce_matches(tab: &Tab, source: &crate::plan::TaskExecutionAttempt) -> bool {
+    let Some(old_nonce) = source.session_binding_nonce.as_deref() else {
+        return true;
+    };
+    let Some(current_nonce) = tab.session_binding_nonce.as_deref() else {
+        return false;
+    };
+    if tab.reported_session_binding_nonce.as_deref() != Some(current_nonce) {
+        return false;
+    }
+    if current_nonce == old_nonce {
+        return true;
+    }
+    let Some(session) = source.session_id.as_deref() else {
+        return false;
+    };
+    source.provider.is_some()
+        && source.provider == tab.agent_type
+        && tab.agent_session_id.as_deref() == Some(session)
+        && crate::service::worker_identity::restore_binding::prove_same_session_restoration(
+            &tab.prior_session_binding_nonces,
+            old_nonce,
+            current_nonce,
+            session,
+        )
+        .is_ok()
 }
 
 fn closing_tabs(mux: &MultiplexerState, tab_id: &str) -> Vec<Tab> {

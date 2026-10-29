@@ -2056,6 +2056,7 @@ dependencies = [
  "sha2 0.10.9",
  "tar",
  "tempfile",
+ "tokio",
  "uuid",
  "workspace-hack",
 ]
@@ -2549,6 +2550,7 @@ dependencies = [
  "codeterm-build-info",
  "codeterm-paths",
  "codeterm-plugins",
+ "codeterm-process-identity",
  "codeterm-types",
  "libc",
  "log",
@@ -3419,6 +3421,7 @@ dependencies = [
  "codeterm-mem",
  "codeterm-mem-postgres",
  "codeterm-orchestration",
+ "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-plugins",

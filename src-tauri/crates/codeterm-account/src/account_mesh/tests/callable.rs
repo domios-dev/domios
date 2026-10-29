@@ -115,6 +115,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
     let body = json!({"error":{"status":"UNAUTHENTICATED","details":{"reason":"session_revoked"}}});
     let registry = registry(Err(CallableFailure::Status {
         status: 401,
+        retry_after_seconds: None,
         body: Some(body),
     }))
     .with_revocations(observer.clone());
@@ -166,6 +167,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
                         schema_version: 1,
                         installation_id: "caller".into(),
                         request_id: "a".repeat(64),
+                        requested_membership_seconds: None,
                         operation: MeshOperation::SessionRevoke {
                             target: SessionTarget {
                                 installation_id: "target".into()
@@ -199,6 +201,7 @@ fn account_mesh_callable_errors_keep_the_typed_server_refusal() {
     for (name, refusal) in packet["refusals"].as_object().unwrap() {
         let failure = CallableFailure::Status {
             status: http(refusal["code"].as_str().unwrap()),
+            retry_after_seconds: None,
             body: Some(
                 json!({"error": {"status": refusal["code"], "details": refusal["details"]}}),
             ),
@@ -212,7 +215,11 @@ fn account_mesh_callable_errors_keep_the_typed_server_refusal() {
         );
     }
     assert_eq!(refusal(&CallableFailure::Offline), RegistryRefusal::Offline);
-    let bare = |status| CallableFailure::Status { status, body: None };
+    let bare = |status| CallableFailure::Status {
+        status,
+        body: None,
+        retry_after_seconds: None,
+    };
     assert_eq!(refusal(&bare(401)), RegistryRefusal::Unauthenticated);
     assert_eq!(
         refusal(&bare(400)),
@@ -231,6 +238,7 @@ async fn account_mesh_callable_sends_the_packet_envelope_and_reads_the_result() 
         schema_version: 1,
         installation_id: "desk-7f3a".into(),
         request_id: format!("{}1", "0".repeat(63)),
+        requested_membership_seconds: None,
         operation: MeshOperation::Publish {
             expected_metadata_revision: 0,
             endpoint: MeshEndpoint::parse("100.64.0.7", 7685).unwrap().wire(),
@@ -292,4 +300,52 @@ impl CallableRegistry<Scripted> {
     fn transport_calls(&self) -> Vec<(String, String, Value)> {
         self.transport().seen.lock().unwrap().clone()
     }
+}
+
+#[test]
+fn http_status_body_matrix_preserves_permanent_auth_transient_and_throttle_classes() {
+    let bodies = [
+        None,
+        Some(json!({"error":{"status":"UNKNOWN"}})),
+        Some(json!({"error":{"details":{"reason":"rate_limited","retry_after_seconds":45}}})),
+        Some(json!({"error":{"details":{"reason":"unknown"}}})),
+    ];
+    for body in bodies {
+        for (status, expected) in [
+            (401, RegistryRefusal::Unauthenticated),
+            (403, RegistryRefusal::Unavailable),
+            (404, RegistryRefusal::Unavailable),
+            (500, RegistryRefusal::Unavailable),
+            (503, RegistryRefusal::Unavailable),
+        ] {
+            let error = CallableFailure::Status {
+                status,
+                body: body.clone(),
+                retry_after_seconds: Some(60),
+            };
+            assert_eq!(refusal(&error), expected, "{status} {body:?}");
+        }
+        let error = CallableFailure::Status {
+            status: 429,
+            body: body.clone(),
+            retry_after_seconds: Some(60),
+        };
+        assert_eq!(error.retry_after_seconds(), Some(60));
+        assert_eq!(
+            refusal(&error),
+            RegistryRefusal::RateLimited {
+                retry_after_seconds: 60
+            }
+        );
+    }
+    assert_eq!(
+        refusal(&CallableFailure::Status {
+            status: 429,
+            body: None,
+            retry_after_seconds: None
+        }),
+        RegistryRefusal::RateLimited {
+            retry_after_seconds: 1
+        }
+    );
 }

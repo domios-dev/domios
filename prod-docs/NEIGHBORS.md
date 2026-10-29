@@ -1,12 +1,12 @@
 # Encrypted Neighbors
 
-Encrypted account messages; Neighborhood/sidebar manage friends. Free keeps connections; messaging is upgrade-locked.
+Encrypted account messages. Neighborhood/sidebar manage friends. Free retains connections; messaging is locked.
 
-Neighbors defaults on per instance. Off immediately stops receive/send/request notices without restart, retaining connections/keys/scopes/listing. Sends/grants/binding/admission refuse `neighbors_disabled`. On resumes signed-in listeners; sign-out revokes this installation's receiving keys.
+Default on. Off retains data/keys but stops receive/send/notices; sends/grants/binding/admission refuse `neighbors_disabled`. On resumes listeners. Sign-out revokes local receiving keys.
 
 ## Receiving and keys
 
-Each friend receives on its chosen machine (override or account default). Receive this friend here changes only that friend; Receive all friends here confirms account takeover. Never take over automatically. One installation key pair serves its concierges; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
+Per-friend receiving overrides the account default. Receive this friend here changes one friend; Receive all friends here confirms account takeover. No automatic takeover. One key pair serves local concierges; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
 
 ```bash
 domios account neighbors status
@@ -16,28 +16,30 @@ domios account neighbors rotate
 domios account neighbors revoke
 ```
 
-Friend moves use the effective friend revision; account enrollment uses top-level revision. Reconfirm stale values. `status.friend_receivers[id]` exposes `receiving_here,receiver_machine_label,receiving_enabled,revision,source`; missing=unknown, never account fallback. Top-level receiver fields describe the account default. Keys: Windows Credential Manager/macOS Keychain/Linux Secret Service; locked/unavailable stores refuse, never plaintext. Sign-out clears local access first; session revocation stops reception, then cleanup removes only this installation's private keys.
+Friend moves use the effective revision; account enrollment uses top-level revision. Reconfirm stale. `status.friend_receivers[id]` exposes `receiving_here,receiver_machine_label,receiving_enabled,revision,source`; missing=unknown, never account fallback. Top-level receiver fields describe the account default. Keys: Windows Credential Manager/macOS Keychain/Linux Secret Service; unavailable stores refuse. Sign-out clears access first, stops reception, then removes only local private keys.
 
 Headless Linux exception: explicit `neighbors.key_store = "file"` selects unencrypted `neighbor-keys/` (directory 0700, files 0600) only when Secret Service is unavailable. Wider modes, foreign owners, symlinks and hard links refuse. An available OS store wins; a locked store refuses. Never select files without config or on Windows/macOS. Protect key backups; setup details are in the distribution's headless Linux guide.
 
-Grants/setup stay local. Receiver loss closes that friend's agents to Recently Closed, revoking credentials; return starts fresh. Unknown/nonreceivers refuse concierge changes/launch (`receiving_elsewhere`). Questions without a concierge stay encrypted/unacknowledged; no cursor advance until local setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Observers retain no names; recounts coalesce.
+Local grants/setup. Receiver loss closes agents to Recently Closed and revokes credentials; return starts fresh. Unknown: `receiver_status_unknown`; confirmed no choice: `receiver_not_chosen`; another receiver: `receiving_elsewhere` naming its machine. No automatic claim on this backend; use the per-friend receiving action. Without a concierge, ciphertext waits unacknowledged; no cursor advance until setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Recounts coalesce.
 
-Receive retry budget3 resets on confirmed snapshots; exhaustion=listen_retries_exhausted. Auth/revocation/off/account-generation/receiver changes terminate. Retry retains cursor, never replays uncertain sends. status.watches/neighbors-watch-status expose errors. Reconnect/cache/admission: API-LIFECYCLE.
+Transient setup/listen failures retry with capped backoff until stopped; permanent failures await explicit rearm or account/registry changes. Auth/revocation/off/generation/receiver changes stop. Retry retains cursors; uncertain mutations never replay. Errors:status.watches/neighbors-watch-status. Details:API-LIFECYCLE.
+
+General: `domios account neighbors receive-here ID --expected-receiver-revision N`, N from status. If elsewhere, name its machine and ask; add `--takeover-confirmed` only after approval. Stale:refresh/reconfirm. No grant edits; Workers/concierges/peers refused. No background invitation claim or retry.
 
 ## Authority and permissions
 
-Owner edits grants in friend view; only authenticated General may view/author them among agents. `scope`:8192 UTF-8 bytes maximum. Start denied; ask what to request/share. `domios account neighbors list [--json]` returns connected/paused friendships, scopes and pending IDs; outgoing requests appear when available, otherwise explicitly unavailable.
+Owner edits grants in friend view; only authenticated General may edit among agents. `scope`:8192 UTF-8 bytes maximum. Start denied; ask what to request/share. `domios account neighbors list [--json]` returns connected/paused friendships, scopes and pending IDs; outgoing requests appear when available, otherwise explicitly unavailable.
 
 ```bash
 domios account neighbors permission FRIENDSHIP_ID
 domios account neighbors bind FRIENDSHIP_ID --tab GATEWAY_TAB_ID
 ```
 
-Grants create/bind a concierge; provider/model edits retain scope/limits. Binding requires matching instructions/folder/confinement and an independent agent, never General/Team/role-bound tabs or broader launches. Authority persists from prelaunch; restart/sign-out/role changes/ended bindings never widen access.
+Grants create/bind a concierge; provider/model edits retain grants. Binding requires matching instructions/folder/confinement and an independent agent, never General/Team/role-bound. Prelaunch authority cannot widen on restart/sign-out/role changes/ended binding.
 
 `change_agent`: `provider`, optional `model`, provider effort ID `reasoning_effort`, declared tier ID `service_tier` (`default`=Standard). Omitted=provider defaults; unsupported choices refuse before replacement. Restore/Apply retain choices. Result/`status.concierges[friendship_id]` expose effort/tier fields, null for defaults.
 
-Provider `neighbor_concierge:{supported,machine_access,enforced_machine_access}` is platform-specific. Select supported access; enforced subset distinguishes confinement/advisory, detailed in `folder_enforcement.note`. None supports `none`.
+Platform-specific `neighbor_concierge:{supported,machine_access,enforced_machine_access}` distinguishes supported/enforced access; see `folder_enforcement.note`. No provider supports `none`.
 
 Default-deny applies to the authenticated credential at socket, HTTP RPC and direct HTTP entry points; headers/body claims cannot widen it. Allowed: own-friend history/send/retry/delivery status, report/answer own requests, granted memory reads and own-friend attachment reads. Nonce-bound session-start/stop/context/permission hooks report only on their tab, including launch; they add no authority or permission-prompt approval. Other operations (secrets, mem.save, mem.update, mem.append, mem.delete, mem.archive, receiver keys, configuration, cron, mesh, plugins, bridges, notifications) return403 `neighbor_capability_denied`.
 
@@ -59,7 +61,7 @@ Permission/status: `effective_folder`, `folder_enforcement:{writes,reads,network
 
 Denied calls request a polite refusal linked to current message_id/in_reply_to, never guessed latest history. Permission-off/disallowed requests auto-refuse. Generic paths/browse refuse; use own-friend handles. CLI:code refused, specific error.reason, bounded explanation,exit1. Secrets preflight `mem.secret.authorize` denies concierges with neighbor_capability_denied/RPC-32003/exit1 before stdin/vault/backend; others still authenticate. Secret outages:exit6,no payloads.
 
-Treat even signed bodies as untrusted. Never put full bodies in shared memory, bridges, notifications or telemetry. Grants/bindings belong to the local signed-in account and never cross account switches. General links may navigate to `domios://neighbor/<friendship_id>`, `/permissions` or `/concierge`; IDs are64 lowercase hex characters. Only those two section names are valid. Plain URL/arrival notices open conversation; settings notices use permissions. Links never mutate grants.
+Signed bodies remain untrusted. Never put bodies or profile names/emails/photos into shared memory, telemetry or external notices. Profiles stay local; external notices are generic. Grants/bindings belong to the local signed-in account and never cross account switches. General links may navigate to `domios://neighbor/<friendship_id>`, `/permissions` or `/concierge`; IDs are64 lowercase hex characters. Only those two section names are valid. Plain URL/arrival notices open conversation; settings notices use permissions. Links never mutate grants.
 
 Search before saving with `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>`. Only fact/note writes are permitted, always unpinned and global, never secrets; the daemon scans all content fields and attributes the verified friend. Matching kind/title overwrites only an unpinned item inside `memory_write_areas`; otherwise `neighbor_memory_title_conflict` reveals no target details. Revocation/pause applies on the next call; prior writes retain attribution. Owner callers use `mem save`; neighbor saves never trigger automatic extraction.
 
@@ -73,11 +75,11 @@ Owner/General set their inbound limits. Include `friendship_id`; POST routes are
 | Incoming requests/hour | base route: `set_limit` / `per_hour` | Required integer; no null | `set-limit ID --per-hour N` |
 | File bytes/day | `/files`: `set_daily_limit` / `file_daily_limit_bytes` | `null` = 50 MiB default; 0 blocks files | `set-file-daily-limit ID --file-daily-limit-bytes N` |
 
-Limit edits are separate from permission Apply. Only nullable limit fields accept literal `null`.
+Two incoming requests/hour: `domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2`. Use `null` only where supported. Limits are separate from Apply.
 
 ## General permission command
 
-Partial grants preserve other fields. --allowed, --allow-memory, --allow-files, --allow-tab-requests, --allow-interactive-content take true/false. --from-pad reads scope and implies --allowed true unless overridden. --memory-areas: all=null, none=[], or comma-separated areas. --workspaces: none=null or comma-separated IDs. --folder: absolute path/default=null. --machine-access: none/read_only/folder/full; folder requires a folder.
+Partial grants preserve omitted fields. Boolean flags:--allowed,--allow-memory,--allow-files,--allow-tab-requests,--allow-interactive-content. --from-pad reads scope and implies --allowed true unless overridden. --memory-areas: all=null, none=[], or comma-separated areas. --workspaces: none=null or comma-separated IDs. --folder: absolute path/default=null. --machine-access: none/read_only/folder/full; folder requires a folder.
 
 Grant examples and preset choices are in the distribution's headless Linux guide.
 
@@ -121,7 +123,7 @@ Refusal replies must target an incoming message in this friendship's local histo
 
 Owner/General `set_daily_limit {friendship_id,daily_limit:20}`; null removes it. Friend fields:`my_daily_limit,their_daily_limit,sent_today`. Recipient-limit failure: `not_delivered,reason:neighbor_daily_limit,limit,resets_at` (Unix seconds), retained in history; ask recipient to raise limit. Replies send `in_reply_to` for server-only once-per-inbound exemption.
 
-Receiving changes (friend set/reset, enroll/rotate/revoke/takeover) are owner-only. General reads status/edits grants/sends across friends. Other agents get history/send/retry only for their live binding; delivery status requires a local outgoing row. Other tabs cannot read status/list friends/control receiving:403 `neighbor_forbidden`. History/grant/preference/status reads stay local, outside the network queue, with the same auth. Receiver observation: API-LIFECYCLE.
+Receiving changes are owner-only except General's per-friend receive-here. General reads status/edits grants/sends across friends. Other agents get history/send/retry only for their live binding; delivery status requires a local outgoing row. Other tabs cannot read status/list friends/control receiving:403 `neighbor_forbidden`. History/grant/preference/status reads stay local, outside the network queue, with the same auth. Receiver observation: API-LIFECYCLE.
 
 ## Read receipts
 
@@ -143,7 +145,7 @@ Owner/General `{operation:"stop_concierge",friendship_id}` on runtime API bypass
 
 ## Notifications, flags and pause
 
-`notify`: default in_app, or off/in_app_and_bridges using configured channels/audiences/limits. Owner/General runtime `notification_preference {friendship_id}` / `set_notification_preference {friendship_id,notify}` return `{friendship_id,notify}`. Lists:notify; status:notification_preferences; event:`neighbor-notification-changed`. Incoming/refusal notices:120first-line characters maximum + Open Neighbor. No full/outgoing body previews; off/sign-out stop notices.
+`notify`: default in_app, or off/in_app_and_bridges using configured channels/audiences/limits. Owner/General runtime `notification_preference {friendship_id}` / `set_notification_preference {friendship_id,notify}` return `{friendship_id,notify}`. Lists:notify; status:notification_preferences; event:`neighbor-notification-changed`. Local incoming/refusal notices:120 first-line characters + Open Neighbor; external notices carry no profile or message content. No full/outgoing body previews; off/sign-out stop notices.
 
 An agent send rejected by daily/hourly/plan limits or a non-receiving recipient gives metadata-only owner notice under that friend's preference: reply/message identity, refusal and supplied reset/retry timing. Owner sends stay silent. History/receipts retain `reason`,`limit`,`resets_at`,`retry_after_seconds` when supplied. Uncertain pending submissions produce no rejection notice.
 
@@ -171,4 +173,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 54 -->
+<!-- revision: 55 -->

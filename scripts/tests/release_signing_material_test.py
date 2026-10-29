@@ -87,7 +87,7 @@ class SigningMaterialTests(unittest.TestCase):
         env = dict(os.environ)
         env.pop('TAURI_SIGNING_PRIVATE_KEY', None)
         env.update(TAURI_SIGNING_PRIVATE_KEY_PATH=str(key), TAURI_SIGNING_PRIVATE_KEY_PASSWORD='')
-        signed = subprocess.run([str(cli), 'signer', 'sign', str(artifact)], env=env, capture_output=True)
+        signed = subprocess.run([str(cli), 'signer', 'sign', '--app-version', '0.0.1', str(artifact)], env=env, capture_output=True)
         self.assertEqual(signed.returncode, 0)
         manifest = self.root / 'manifest.json'
         manifest.write_text(json.dumps({'version': '0.0.1', 'platforms': {'fixture': {

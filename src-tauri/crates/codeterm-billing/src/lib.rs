@@ -2,7 +2,7 @@ pub mod adapters;
 mod cache;
 mod envelope;
 mod grant_store;
-pub use grant_store::{FileGrantStore, Floors, GrantStore};
+pub use grant_store::{startup_grant, FileGrantStore, Floors, GrantStore};
 mod model;
 use async_trait::async_trait;
 pub use cache::{Billing, DeadlineTick, RefreshEvent, Snapshot, CHECKING_DEADLINE_SECS};
@@ -30,14 +30,18 @@ pub type Result<T> = std::result::Result<T, String>;
 pub enum PlanOperation {
     Catalog {},
     Subscription {},
+    RefreshCatalog {},
+    RefreshSubscription {},
     Change { price_id: String },
 }
 
 impl PlanOperation {
     pub fn callable(self) -> (&'static str, serde_json::Value) {
         match self {
-            Self::Catalog {} => ("getAppCatalog", serde_json::json!({})),
-            Self::Subscription {} => ("getSubscriptionPlan", serde_json::json!({})),
+            Self::Catalog {} | Self::RefreshCatalog {} => ("getAppCatalog", serde_json::json!({})),
+            Self::Subscription {} | Self::RefreshSubscription {} => {
+                ("getSubscriptionPlan", serde_json::json!({}))
+            }
             Self::Change { price_id } => (
                 "changeSubscriptionPlan",
                 serde_json::json!({"price_id":price_id}),

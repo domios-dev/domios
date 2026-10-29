@@ -277,24 +277,26 @@ cat args.txt
 const preflight = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('    if [ -n "$DEV_NOTIFY_TAB" ]; then\n      trap', source.indexOf('  dev-prebuilt)')));
 const preflightHelpers = ['dev_build_phase', 'run_prebuilt_preflight', 'refuse_prebuilt'].map(sourceFunction).join('\n');
 for (const externalFrontend of [0, 1]) {
-  test(`prebuilt timeout shell preserves ready server and window only in split mode=${externalFrontend}`, () => {
-    const start = source.indexOf('      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt');
-    const launch = source.slice(start, source.indexOf('      HEALTH=', start));
-    const result = spawnSync(bash, ['-c', `set -euo pipefail
-${sourceFunction('cleanup_failed_prebuilt_launch')}
-DEV_FRONT_EXTERNAL=${externalFrontend} PREBUILT_LOG=fixture.log CT_PORT=17886
-kill_dev() { echo killed; }
-dev_app_path() { echo fixture-app; }
-dev_provenance_record() { echo fixture-record; }
-run_outside_tab_job() { return 3; }
-trap cleanup_failed_prebuilt_launch EXIT
-${launch}
-echo falsely-ready
-`], { encoding: 'utf8' });
-    assert.equal(result.status, 3, result.stderr);
-    assert.equal(result.stdout.trim(), externalFrontend ? '' : 'killed');
-    assert.match(result.stderr, externalFrontend ? /still attaching; server and window retained/ : /cleaning the owned dev processes/);
-  });
+  for (const status of [3, 1, 130, 143]) {
+    test(`prebuilt startup shell retains recovery only for retained outcome ${status}, split mode=${externalFrontend}`, () => {
+      const start = source.indexOf('      if run_outside_tab_job node scripts/dev-prep.mjs --launch-prebuilt');
+      const launch = source.slice(start, source.indexOf('      HEALTH=', start));
+      const result = spawnSync(bash, ['-c', `set -euo pipefail
+  ${sourceFunction('cleanup_failed_prebuilt_launch')}
+  DEV_FRONT_EXTERNAL=${externalFrontend} PREBUILT_LOG=fixture.log CT_PORT=17886
+  kill_dev() { echo killed; }
+  dev_app_path() { echo fixture-app; }
+  dev_provenance_record() { echo fixture-record; }
+  run_outside_tab_job() { return ${status}; }
+  trap cleanup_failed_prebuilt_launch EXIT
+  ${launch}
+  echo falsely-ready
+  `], { encoding: 'utf8' });
+      assert.equal(result.status, status, result.stderr);
+      assert.equal(result.stdout.trim(), status === 3 ? '' : 'killed');
+      assert.match(result.stderr, status === 3 ? /server and window retained for Retry\/Quit/ : /cleaning the owned dev processes/);
+    });
+  }
 }
 
 for (const refusal of ['provenance', 'runtime', 'none']) {
