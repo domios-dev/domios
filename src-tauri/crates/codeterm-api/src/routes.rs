@@ -102,10 +102,6 @@ pub struct AppState {
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
-async fn legacy_web_route_gone() -> StatusCode {
-    StatusCode::NOT_FOUND
-}
-
 #[cfg(test)]
 pub fn create_router(state: AppState) -> Router {
     create_router_with_frontend(state, None)
@@ -979,8 +975,6 @@ pub(super) fn create_router_with_preview_admission(
                 "/manifest-bootstrap",
                 axum::routing::post(web_routes::web_manifest_bootstrap),
             )
-            .route("/web", get(legacy_web_route_gone))
-            .route("/web/{*path}", get(legacy_web_route_gone))
             .fallback(move |request| {
                 let root_serve = root_serve.clone();
                 frontend_missing::serve_or_missing(root_serve, request)
@@ -1083,13 +1077,17 @@ async fn restore_orphaned_tab(
     ))
 }
 
-fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(dist: &std::path::Path) -> Router<S> {
+pub(crate) fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(
+    dist: &std::path::Path,
+) -> Router<S> {
     let files = tower_http::set_header::SetResponseHeader::overriding(
         tower_http::services::ServeDir::new(dist),
         axum::http::header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-store"),
     );
-    Router::new().nest_service("/bundled", files)
+    Router::new()
+        .nest_service("/bundled", files.clone())
+        .nest_service("/web", files)
 }
 
 fn domain_transport_routes(router: Router<AppState>) -> Router<AppState> {

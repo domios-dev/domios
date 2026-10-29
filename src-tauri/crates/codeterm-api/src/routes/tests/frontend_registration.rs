@@ -23,6 +23,11 @@ async fn frontend_bundle_routes_contract_bundled_index_and_relative_assets() {
             "<main>Bundled shell</main><script src='./assets/app.js'></script>",
         ),
         ("/bundled/assets/app.js", "window.bundled=true;"),
+        (
+            "/web/",
+            "<main>Bundled shell</main><script src='./assets/app.js'></script>",
+        ),
+        ("/web/assets/app.js", "window.bundled=true;"),
     ] {
         let response = router
             .clone()
@@ -138,4 +143,39 @@ async fn frontend_bundle_routes_contract_central_bearer_registration() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn web_frontend_index_and_assets_resolve_in_full_router() {
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let dist = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dist.path().join("assets")).unwrap();
+    std::fs::write(
+        dist.path().join("index.html"),
+        "<script src='./assets/app.js'></script>",
+    )
+    .unwrap();
+    std::fs::write(dist.path().join("assets/app.js"), "window.fixture=true;").unwrap();
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let mut state = fixture::app_state(&fixture);
+    state.web_dist = Some(dist.path().to_path_buf());
+    let router = crate::routes::create_router(state);
+    for (path, expected) in [
+        ("/web/", "<script src='./assets/app.js'></script>"),
+        ("/web/assets/app.js", "window.fixture=true;"),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
+            expected.as_bytes()
+        );
+    }
 }
