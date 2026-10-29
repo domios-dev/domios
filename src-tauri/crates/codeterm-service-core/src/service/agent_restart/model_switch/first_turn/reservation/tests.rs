@@ -48,7 +48,7 @@ fn claimed_first_send_refuses_contending_switch_before_teardown_or_commit() {
     let writes = AtomicUsize::new(0);
     let teardowns = AtomicUsize::new(0);
     let commits = AtomicUsize::new(0);
-    let (claimed_tx, claimed_rx) = mpsc::sync_channel::<bool>(1);
+    let (claimed_tx, claimed_rx) = mpsc::sync_channel(1);
     let (write_tx, write_rx) = mpsc::sync_channel(1);
     std::thread::scope(|scope| {
         let svc = fixture.service.clone();
@@ -105,7 +105,7 @@ fn reserved_switch_fences_old_first_send_before_teardown_and_new_input_uses_new_
     let teardowns = AtomicUsize::new(0);
     let commits = AtomicUsize::new(0);
     let (reserved_tx, reserved_rx) = mpsc::sync_channel(1);
-    let (claimed_tx, claimed_rx) = mpsc::sync_channel(1);
+    let (claimed_tx, claimed_rx) = mpsc::sync_channel::<bool>(1);
     std::thread::scope(|scope| {
         let svc = &fixture.service;
         let launch = &launch;
