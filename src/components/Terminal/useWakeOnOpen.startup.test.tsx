@@ -33,6 +33,35 @@ vi.mock("./TerminalTab", async () => {
       : createElement("div", { "data-chat-window-row": "prior" }, "opaque prior content")) };
 });
 
+function paneFrame(host: HTMLElement): "error" | "content" | "restoring" | "empty" {
+  const composer = host.querySelector('textarea[aria-label="Message composer"]');
+  const loading = host.querySelector('[role="status"][aria-busy="true"]');
+  if (host.querySelector('[role="alert"]')) return "error";
+  if (composer && !composer.closest('[inert], [aria-hidden="true"]')) return "content";
+  if (loading && !loading.closest('[aria-hidden="true"]')) return "restoring";
+  return "empty";
+}
+
+it("recognizes the initial sleeping loader even before wake adds progress steps", async () => {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    const view = restoreStageView({ frozen: true, agent_type: "fixture" });
+    await act(async () => root.render(<RestoreStatePanel view={view} />));
+    expect(view.phase).toBe("sleeping");
+    expect(host.querySelector('[role="progressbar"]')).toBeNull();
+    expect(paneFrame(host)).toBe("restoring");
+    await act(async () => root.render(<div aria-hidden="true"><RestoreStatePanel view={view} /></div>));
+    expect(paneFrame(host)).toBe("empty");
+    await act(async () => root.render(<div />));
+    expect(paneFrame(host)).toBe("empty");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 it("keeps automatic active-tab restore loading until the absent wake route is installed", async () => {
   let subscribed!: () => void;
   const opening = new Promise<void>(resolve => { subscribed = resolve; });
@@ -124,12 +153,7 @@ it("hands the held active tab directly from restore to ready content with no emp
   const root = createRoot(host);
   const frames: string[] = [];
   const sample = () => {
-    const composer = host.querySelector('textarea[aria-label="Message composer"]');
-    const progress = host.querySelector('[role="progressbar"]');
-    if (host.querySelector('[role="alert"]')) frames.push("error");
-    else if (composer && !composer.closest('[inert], [aria-hidden="true"]')) frames.push("content");
-    else if (progress && !progress.closest('[aria-hidden="true"]')) frames.push("restoring");
-    else frames.push("empty");
+    frames.push(paneFrame(host));
     const stale = host.querySelector('[data-chat-window-row="prior"]');
     if (stale && !stale.closest('[inert], [aria-hidden="true"]')) frames.push("stale");
   };
@@ -156,14 +180,15 @@ it("hands the held active tab directly from restore to ready content with no emp
     state = { ...state, tabs: { [tab.id]: tab }, generation: 3 };
     await act(async () => store.notify());
     await render();
-    expect(frames.every(frame => frame === "restoring")).toBe(true);
+    expect(frames, "commits before the body-ready marker").not.toHaveLength(0);
+    expect(frames.every(frame => frame === "restoring"), JSON.stringify(frames)).toBe(true);
     content.ready = true;
     await render();
     expect(host.querySelector('[data-tab-id="startup-painted-fixture"]')).toBe(box);
     const firstContent = frames.indexOf("content");
     expect(firstContent).toBeGreaterThan(-1);
     expect(frames.slice(firstContent).every(frame => frame === "content")).toBe(true);
-    expect(frames.every(frame => frame === "restoring" || frame === "content")).toBe(true);
+    expect(frames.every(frame => frame === "restoring" || frame === "content"), JSON.stringify(frames)).toBe(true);
   } finally {
     ready();
     await act(async () => root.unmount());

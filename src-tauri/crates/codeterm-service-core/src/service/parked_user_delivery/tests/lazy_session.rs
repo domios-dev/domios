@@ -17,7 +17,7 @@ fn lazy_first_turn_requires_the_exact_saved_session_until_binding() {
     assert!(!lazy_first_turn_session_matches(&tab, &authority));
 }
 
-fn mark_lazy_composer_ready(fixture: &ServiceFixture, tab_id: &str) {
+pub(super) fn mark_lazy_composer_ready(fixture: &ServiceFixture, tab_id: &str) {
     attach_fixture_pty(fixture, tab_id);
     let attempt = {
         let mut mux = fixture.service.mux.write();
@@ -85,6 +85,7 @@ fn restart_first_send_case(resumed: bool) {
     );
 
     let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert!(fixture.service.latch_user_input_authority(&authority));
     assert!(!fixture.service.user_authority_is_ready(&authority));
 
     let (writes_tx, writes_rx) = mpsc::channel();
@@ -300,10 +301,17 @@ fn lazy_session_provider_writes_every_send_after_agent_readiness() {
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&tab).unwrap();
-        tab.agent_session_id = None;
+        tab.agent_session_id = Some("opaque-session".into());
         tab.reported_session_binding_nonce = None;
     }
     mark_ready(&fixture, &tab);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .launch_session_authenticated());
     let (entered_tx, entered_rx) = mpsc::sync_channel(1);
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = Arc::new(Mutex::new(release_rx));

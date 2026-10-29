@@ -14,6 +14,7 @@ use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
 mod first_turn;
+pub(in crate::service::agent_restart) use first_turn::SessionlessTeardownError;
 mod live_command;
 mod next_turn;
 pub(super) mod staging;

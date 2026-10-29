@@ -1,10 +1,14 @@
 use super::*;
 
+mod reservation;
+pub(in crate::service::agent_restart) use reservation::SessionlessTeardownError;
+
 impl ModelSwitchLaunch {
     pub(in crate::service::agent_restart) fn is_sessionless(&self) -> bool {
         self.session_id.is_empty()
     }
 
+    #[cfg(test)]
     pub(in crate::service::agent_restart) fn sessionless_is_current(
         &self,
         svc: &ServiceContext,
