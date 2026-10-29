@@ -361,6 +361,7 @@ async function main(): Promise<void> {
   assert(terminalControl.getAttribute("aria-selected") === "true", "Terminal selection was not retained");
   const frame = host.querySelector<HTMLElement>('[data-testid="terminal-frame"]');
   assert(frame?.getAttribute("data-terminal-visible") === "true", "remote terminal frame stayed inactive");
+  assert(frame.getAttribute("data-terminal-ready") === "false", "Terminal selection fabricated frame readiness");
   assert(frame.style.visibility === "hidden", "remote terminal frame revealed before its own output arrived");
   assert(host.querySelector('[data-testid="chat-message"]') === rows[0], "Terminal removed the chat transcript node");
   const chatControl = host.querySelector<HTMLElement>('[data-testid="tab-mode-switch"] [data-value="chat"]');
