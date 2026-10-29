@@ -20,6 +20,11 @@ impl AccountMesh {
             {
                 return false;
             }
+            if inner.state.signed_in_account().is_some_and(|account| {
+                inner.record.reauth_required_accounts.contains(account)
+            }) {
+                return false;
+            }
             let stamp = CredentialStamp {
                 epoch: inner.state.account_epoch,
                 generation: session.login_generation,

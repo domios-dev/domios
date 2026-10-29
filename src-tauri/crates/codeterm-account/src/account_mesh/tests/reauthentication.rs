@@ -271,3 +271,33 @@ async fn account_mesh_removed_slot_with_stale_recovery_generation_parks() {
     assert_eq!(*harness.log.lock().unwrap(), calls);
     assert!(harness.transport.revoked.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn account_mesh_credential_refresh_cannot_clear_a_persisted_sign_in_gate() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unauthenticated);
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::Unauthenticated)
+    );
+    assert!(harness.mesh.with(|inner| inner.auth_parked.is_some()));
+    harness
+        .mesh
+        .require_sign_in(harness.state().account_epoch)
+        .await;
+    let mut refreshed = harness.sessions.0.lock().unwrap().clone().unwrap();
+    refreshed.id_token = crate::Secret::new("new-credential");
+    assert!(!harness.mesh.credentials_refreshed(&refreshed));
+    assert_eq!(
+        harness.state().last_refusal,
+        Some(AccountMeshRefusal::ReauthRequired)
+    );
+    assert!(harness
+        .store
+        .record
+        .lock()
+        .unwrap()
+        .reauth_required_accounts
+        .contains(&account_id(UID)));
+}
