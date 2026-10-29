@@ -188,3 +188,22 @@ it("a stale dialog decision cannot approve the next queued permission", async ()
   await act(async () => button("Not now").click());
   expect(await denied!).toBe(false);
 });
+
+it("a native load cancels a pending consent retry instead of borrowing the fresh document lease", async () => {
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if(command==="plugin_view_call") throw new Error("local_recording_grant_required");
+    return snapshot();
+  });
+  consentChannel = new PluginViewChannel("c".repeat(32));
+  await mount(<><PluginConsentDialog /><PluginView pluginId="fixture" api={undefined} embedded /></>);
+  const iframe=host.querySelector("iframe")!;const port=new TestViewPort();
+  consentChannel.accept(iframe.contentWindow,port.port);await act(async()=>port.prove());
+  await act(async()=>port.receive({__ctInvoke:8,method:"enable",args:{enabled:true}}));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async()=>iframe.dispatchEvent(new Event("load")));
+  await act(async()=>button("Allow").click());
+  await act(async()=>port.prove());
+  expect(vi.mocked(invoke).mock.calls.filter(([command])=>command==="plugin_view_call")).toHaveLength(1);
+  expect(vi.mocked(invoke).mock.calls.filter(([command])=>command==="plugin_manager_action")).toHaveLength(0);
+  expect(port.sent).toContainEqual({__ctReply:8,error:expect.any(String)});
+});

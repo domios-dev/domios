@@ -123,6 +123,9 @@ pub async fn plugin_ui(
             .svc
             .validate_plugin_view_context(&context)
             .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        let provider_registration = registry
+            .registration_id(provider.id())
+            .ok_or((StatusCode::NOT_FOUND, "view unavailable".into()))?;
         let registration = codeterm_plugin::media_delivery::create_frame(
             &provider, &registry, context,
         )
@@ -136,6 +139,36 @@ pub async fn plugin_ui(
         response.headers_mut().insert(
             "x-domios-plugin-view-document",
             HeaderValue::from_str(&registration.document).expect("host document is ASCII"),
+        );
+        if registry.registration_id(provider.id()).as_deref()
+            != Some(provider_registration.as_str())
+        {
+            codeterm_plugin::media_delivery::revoke_view_frame(
+                provider.id(),
+                &registration.view_lease,
+            );
+            return Err((StatusCode::FORBIDDEN, "view provider changed".into()));
+        }
+        let context = &registration.context;
+        let scope = crate::plugin_media_routes::ViewRegistrationScope {
+            surface: context.surface.clone(),
+            instance: context.instance.clone(),
+            tab: context.tab.clone(),
+            owner: context.owner.clone(),
+            workspace: context.workspace.clone(),
+            team: context.team.clone(),
+            provider_registration,
+        };
+        let snapshot =
+            serde_json::json!({"registration": registration.media_frame, "scope": scope});
+        response.headers_mut().insert(
+            "x-domios-plugin-view-registration",
+            HeaderValue::from_str(&snapshot.to_string()).map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "invalid view scope header".into(),
+                )
+            })?,
         );
         response.headers_mut().insert(
             "x-domios-plugin-view-frame",

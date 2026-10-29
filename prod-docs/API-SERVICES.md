@@ -83,10 +83,12 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | POST | `/api/plugins/remote-task-call` | Local owner only: `{tabId,pluginId,sessionId,method,args?}`, only live remote `read/refresh/submit`; claims must match live backing. |
 | POST | `/api/plugins/recording-suggestion` | Local owner only: `{pluginId,args:{inputs,microphones}}`; declared/granted recording plugin, fixed selection callback. |
 | POST | `/api/plugins/view-call` | Local owner only: `{pluginId,viewFrame,method,args?}`. Host-private document lease required; callback gets resolved owner context. See SURFACES. |
+| POST | `/api/plugins/view-frame/revoke` | Local host loader only: `{pluginId,registration}` retires context and all media handles; strict 1 KiB body. |
+| POST | `/api/plugins/view-frame/register` | Local host loader after document proof: `{pluginId,registration,scope}` remints a fresh lease/context. Original owner/workspace/Team/provider registration must still match; strict 16 KiB body. |
 | POST | `/api/plugins/view-host-action` | Check or perform a plugin view's declared user-gesture action; refusals are typed results. |
 | POST | `/api/plugins/view-host-action/download` | Stream a plugin view's own media file as a download. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

@@ -363,6 +363,7 @@ async fn plugin_media_frame_header_is_exposed_only_to_existing_frontend_origins(
     assert!(exposed.contains(&"x-domios-plugin-media-frame"));
     assert!(exposed.contains(&"x-domios-plugin-view-frame"));
     assert!(exposed.contains(&"x-domios-plugin-view-document"));
+    assert!(exposed.contains(&"x-domios-plugin-view-registration"));
     let denied = cors_app()
         .oneshot(
             Request::builder()

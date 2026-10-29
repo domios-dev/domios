@@ -6,6 +6,42 @@ const MAX_QUEUED = 32;
 const MAX_BYTES = 256 * 1024;
 let installed = false;
 
+// Structured-clone objects must fit a bounded JSON envelope before either dispatch path.
+function envelopeBytes(value: unknown): number | null {
+  let bytes = 0, nodes = 0;
+  const seen = new Set<object>();
+  const visit = (item: unknown, depth: number): boolean => {
+    if (++nodes > 8192 || depth > 16) return false;
+    if (item === null || item === undefined || typeof item === "boolean") bytes += 5;
+    else if (typeof item === "number") { if (!Number.isFinite(item)) return false; bytes += 32; }
+    else if (typeof item === "string") {
+      if (item.length > MAX_BYTES) return false;
+      bytes += new TextEncoder().encode(JSON.stringify(item)).byteLength;
+    } else if (typeof item === "object") {
+      if (seen.has(item) || (!Array.isArray(item) && Object.getPrototypeOf(item) !== Object.prototype && Object.getPrototypeOf(item) !== null)) return false;
+      seen.add(item);
+      bytes += 2;
+      if (Array.isArray(item)) {
+        if (item.length > 8192) return false;
+        for (const child of item) {
+          bytes += 1;
+          if (!visit(child, depth + 1)) return false;
+        }
+      } else for (const key in item) {
+        if (!Object.prototype.hasOwnProperty.call(item, key)) continue;
+        const child = (item as Record<string, unknown>)[key];
+        if (key.length > MAX_BYTES) return false;
+        bytes += new TextEncoder().encode(JSON.stringify(key)).byteLength + 2;
+        if (bytes > MAX_BYTES || !visit(child, depth + 1)) return false;
+      }
+    } else return false;
+    return bytes <= MAX_BYTES;
+  };
+  return visit(value, 0) ? bytes : null;
+}
+
+type DocumentLifecycle = {retire(): Promise<void>; register(): Promise<void>};
+
 function install() {
   if (installed || typeof window === "undefined") return;
   installed = true;
@@ -28,7 +64,9 @@ export class PluginViewChannel {
   private offered: { source: MessageEventSource | null; port: MessagePort } | null = null;
   private port: MessagePort | null = null;
   private challenge = 0;
+  private challenged = 0;
   private proven = false;
+  private registering = 0;
   private dead = false;
   private incoming: Packet[] = [];
   private outgoing: Record<string, unknown>[] = [];
@@ -38,7 +76,7 @@ export class PluginViewChannel {
   private invalid: (() => void) | null = null;
   private intent = (): FrameIntent => ({ shown: false, frameFocused: false, activated: false, generation: -1 });
 
-  constructor(readonly id: string) {
+  constructor(readonly id: string, private lifecycle?: DocumentLifecycle) {
     if (!/^[a-f0-9]{32}$/.test(id) || registrations.has(id)) throw new Error("Invalid plugin document registration");
     install();
     registrations.set(id, this);
@@ -64,12 +102,16 @@ export class PluginViewChannel {
     port.onmessage = (event) => {
       if (this.dead) return;
       const message = event.data;
-      if (!message || typeof message !== "object" || Array.isArray(message)) { this.fail(); return; }
+      if (!message || typeof message !== "object" || Array.isArray(message) || envelopeBytes(message) === null) { this.fail(); return; }
       if (message.__ctProof != null) {
-        if (message.__ctProof !== this.challenge) return;
-        this.proven = true;
-        this.flush();
-        this.ready?.();
+        if (message.__ctProof !== this.challenge || this.challenged !== this.challenge || this.proven || this.registering === this.challenge) return;
+        const challenge = this.challenge;
+        this.registering = challenge;
+        this.transition(challenge, this.lifecycle?.register, () => {
+          this.proven = true;
+          this.flush();
+          this.ready?.();
+        });
         return;
       }
       // Capture activation at receipt, before the proof/subscription queue or any await.
@@ -85,8 +127,23 @@ export class PluginViewChannel {
   observeLoad() {
     if (this.dead) return;
     this.proven = false;
+    this.challenged = 0;
     this.challenge += 1;
-    this.port?.postMessage({ __ctChallenge: this.challenge });
+    const challenge = this.challenge;
+    this.transition(challenge, this.lifecycle?.retire, () => {
+      if (this.port) {
+        this.challenged = challenge;
+        this.port.postMessage({ __ctChallenge: challenge });
+      }
+    });
+  }
+
+  private transition(challenge: number, work: (() => Promise<void>) | undefined, done: () => void) {
+    const current = () => !this.dead && this.challenge === challenge;
+    try {
+      if (!work) { if (current()) done(); return; }
+      void work().then(() => { if (current()) done(); }, () => { if (current()) this.fail(); });
+    } catch { if (current()) this.fail(); }
   }
 
   subscribe(receiver: Receiver, ready: () => void, invalid: () => void) {

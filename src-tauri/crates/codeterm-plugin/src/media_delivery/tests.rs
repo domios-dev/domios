@@ -409,3 +409,41 @@ fn view_leases_refuse_replaced_providers_and_context_plugin_spoofing() {
     assert!(frame_context(provider.id(), &registration.media_frame).is_err());
     revoke_plugin(provider.id());
 }
+
+#[test]
+fn native_load_retirement_revokes_context_and_media_even_after_fresh_registration() {
+    let (dir, store, provider, frame, now, registry) = fixture();
+    STORE.lock().frames.extend(store.frames);
+    let handle = register_at_root(
+        &mut STORE.lock(),
+        provider.id(),
+        &frame,
+        dir.path(),
+        source("clip.mp4"),
+        now,
+    )
+    .unwrap();
+    let reader = playback(provider.id(), &frame, &handle.handle).unwrap();
+    let old = frame_context(provider.id(), &frame).unwrap();
+    let old_lease = STORE.lock().frames[&frame].view_lease.clone();
+    revoke_frame(provider.id(), &frame);
+    assert!(context_is_live(&old).is_err());
+    assert!(view_frame(provider.id(), &old_lease).is_err());
+    assert!(reader.read(0, 4).is_err());
+    let fresh = reregister_frame(
+        &provider,
+        &registry,
+        ViewCallContext::panel(provider.id()),
+        &frame,
+    )
+    .unwrap();
+    assert_ne!(fresh.view_lease, old_lease);
+    assert_ne!(fresh.context.frame, old.frame);
+    assert!(context_is_live(&old).is_err());
+    assert!(view_frame(provider.id(), &old_lease).is_err());
+    assert!(reader.read(0, 4).is_err());
+    assert!(open_frame_media(provider.id(), &frame, &handle.handle).is_err());
+    assert!(reregister_frame(&provider, &registry, fresh.context.clone(), &frame).is_err());
+    context_is_live(&fresh.context).unwrap();
+    revoke_frame(provider.id(), &frame);
+}

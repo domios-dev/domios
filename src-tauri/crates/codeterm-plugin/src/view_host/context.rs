@@ -72,6 +72,11 @@ thread_local! {
     static INVOCATION: RefCell<Option<ViewCallContext>> = const { RefCell::new(None) };
 }
 
+/// Native lookup workers refuse every ambient document scope, including a different plugin.
+pub fn has_view_call_context() -> bool {
+    INVOCATION.with(|value| value.borrow().is_some())
+}
+
 /// Rust-only host projection. Consumers must revalidate the live registration at admission.
 pub fn current_view_call_context(plugin: &str) -> Option<ViewCallContext> {
     INVOCATION.with(|value| {

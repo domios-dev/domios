@@ -197,6 +197,11 @@ export function PluginView({
         if (!Number.isSafeInteger(m.__ctInvoke)) return;
         const requestEpoch = callDocument.epoch;
         const isCurrent = () => callDocument.live && callDocument.epoch === requestEpoch && currentCallDocument.current === callDocument && iframeRef.current?.contentWindow === win;
+        const reportRetired = () => {
+          if (callDocument.live && currentCallDocument.current === callDocument && iframeRef.current?.contentWindow === win) {
+            channel.send({__ctReply:m.__ctInvoke,error:"View document reloaded. Check saved results before submitting again."});
+          }
+        };
         try {
           // iframes (e.g. Git) never need to know their own path.
           const args =
@@ -206,13 +211,13 @@ export function PluginView({
           const method = m.method;
           if (!isCurrent() || !invokeView || typeof method !== "string") return;
           const result = await invokeViewWithConsent(pluginId, () => invokeView(method, args), isCurrent);
-          if (!isCurrent()) return;
+          if (!isCurrent()) { reportRetired(); return; }
           // In-panel actions invalidate their bubble immediately.
           const usedCwd = (args as { cwd?: unknown } | undefined)?.cwd;
           if (typeof usedCwd === "string") invalidatePluginBubble(pluginId, usedCwd);
           channel.send({ __ctReply: m.__ctInvoke, result });
         } catch (err) {
-          if (!isCurrent()) return;
+          if (!isCurrent()) { reportRetired(); return; }
           channel.send({ __ctReply: m.__ctInvoke, error: String(err) });
         }
       }
@@ -285,6 +290,7 @@ export function PluginView({
         data-plugin-id={pluginId}
         srcDoc={html}
         onLoad={() => {
+          callDocument.epoch += 1;
           invalidateHostActions();
           channel?.observeLoad();
         }}

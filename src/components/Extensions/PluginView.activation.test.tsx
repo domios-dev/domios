@@ -221,7 +221,7 @@ it("keeps an early invocation result private while a first observed load is unpr
   expect(replies()).toEqual([]);
   // Only the original document's private endpoint can prove the next load.
   await act(async () => port.prove());
-  expect(replies()).toEqual([{__ctReply:1,result:{private:true}}]);
+  expect(replies()).toEqual([{__ctReply:1,error:expect.any(String)}]);
 });
 
 it("preserves current document calls across StrictMode effect replay", async () => {

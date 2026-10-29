@@ -81,7 +81,7 @@ pub async fn revoke(
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct RevokeView {
     plugin_id: String,
-    view_frame: String,
+    registration: String,
 }
 
 pub async fn revoke_view(
@@ -89,11 +89,77 @@ pub async fn revoke_view(
     Json(request): Json<RevokeView>,
 ) -> Result<StatusCode, Error> {
     owner(caller.as_ref())?;
-    if !media::valid_plugin_id(&request.plugin_id) || !media::valid_token(&request.view_frame) {
+    if !media::valid_plugin_id(&request.plugin_id) || !media::valid_token(&request.registration) {
         return Err((StatusCode::BAD_REQUEST, "invalid view disposal"));
     }
-    media::revoke_view_frame(&request.plugin_id, &request.view_frame);
+    media::revoke_frame(&request.plugin_id, &request.registration);
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ViewRegistrationScope {
+    pub surface: Option<String>,
+    pub instance: Option<String>,
+    pub tab: Option<String>,
+    pub owner: Option<String>,
+    pub workspace: Option<String>,
+    pub team: Option<String>,
+    pub provider_registration: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ReregisterView {
+    plugin_id: String,
+    registration: String,
+    scope: ViewRegistrationScope,
+}
+
+pub async fn reregister_view(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+    Json(request): Json<ReregisterView>,
+) -> Result<Json<serde_json::Value>, Error> {
+    owner(caller.as_ref())?;
+    if !media::valid_token(&request.registration) {
+        return Err((StatusCode::BAD_REQUEST, "invalid view registration"));
+    }
+    let context = state
+        .svc
+        .plugin_view_context(
+            &request.plugin_id,
+            request.scope.surface.as_deref(),
+            request.scope.instance.as_deref(),
+            request.scope.tab.as_deref(),
+        )
+        .map_err(|_| (StatusCode::FORBIDDEN, "view scope changed"))?;
+    if context.owner != request.scope.owner
+        || context.workspace != request.scope.workspace
+        || context.team != request.scope.team
+    {
+        return Err((StatusCode::FORBIDDEN, "view scope changed"));
+    }
+    let registry = state
+        .svc
+        .ext::<codeterm_plugin::view_host::ViewRegistryHandle>();
+    if registry.registration_id(&request.plugin_id).as_deref()
+        != Some(request.scope.provider_registration.as_str())
+    {
+        return Err((StatusCode::FORBIDDEN, "view provider changed"));
+    }
+    let provider = registry
+        .get(&request.plugin_id)
+        .ok_or((StatusCode::NOT_FOUND, "view unavailable"))?;
+    let registered = media::reregister_frame(&provider, registry, context, &request.registration)
+        .map_err(denied)?;
+    if registry.registration_id(&request.plugin_id).as_deref()
+        != Some(request.scope.provider_registration.as_str())
+    {
+        media::revoke_view_frame(&request.plugin_id, &registered.view_lease);
+        return Err((StatusCode::FORBIDDEN, "view provider changed"));
+    }
+    Ok(Json(serde_json::json!({"viewLease":registered.view_lease})))
 }
 
 /// Only these exact GET/HEAD paths bypass owner authentication; the opaque live pair authenticates them.

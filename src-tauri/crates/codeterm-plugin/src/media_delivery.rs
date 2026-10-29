@@ -139,6 +139,7 @@ impl MediaStore {
 /// Called only by the authenticated host document loader.
 pub struct FrameRegistration {
     pub document: String,
+    pub context: ViewCallContext,
     pub media_frame: String,
     pub view_lease: String,
 }
@@ -146,7 +147,29 @@ pub struct FrameRegistration {
 pub fn create_frame(
     provider: &Arc<dyn ViewProvider>,
     registry: &ViewRegistryHandle,
+    context: ViewCallContext,
+) -> Result<FrameRegistration, MediaRefusal> {
+    create_frame_at_key(provider, registry, context, token())
+}
+
+/// A proven original document replaces its retired registration, never an occupied one.
+pub fn reregister_frame(
+    provider: &Arc<dyn ViewProvider>,
+    registry: &ViewRegistryHandle,
+    context: ViewCallContext,
+    presentation: &str,
+) -> Result<FrameRegistration, MediaRefusal> {
+    if !valid_token(presentation) {
+        return Err(MediaRefusal::Unknown);
+    }
+    create_frame_at_key(provider, registry, context, presentation.into())
+}
+
+fn create_frame_at_key(
+    provider: &Arc<dyn ViewProvider>,
+    registry: &ViewRegistryHandle,
     mut context: ViewCallContext,
+    frame: String,
 ) -> Result<FrameRegistration, MediaRefusal> {
     if !registry
         .get(provider.id())
@@ -162,7 +185,8 @@ pub fn create_frame(
     }
     let mut store = STORE.lock();
     store.cleanup(Instant::now());
-    if store.frames.len() >= MAX_FRAMES
+    if store.frames.contains_key(&frame)
+        || store.frames.len() >= MAX_FRAMES
         || store
             .frames
             .values()
@@ -172,7 +196,6 @@ pub fn create_frame(
     {
         return Err(MediaRefusal::Unknown);
     }
-    let frame = token();
     let view_lease = token();
     let document = uuid::Uuid::new_v4().simple().to_string();
     context.frame = Some(document.clone());
@@ -181,7 +204,7 @@ pub fn create_frame(
         Frame {
             plugin: provider.id().into(),
             view_lease: view_lease.clone(),
-            context,
+            context: context.clone(),
             provider: Arc::downgrade(provider),
             registry: Arc::downgrade(registry),
             expires: Instant::now() + FRAME_TTL,
@@ -190,6 +213,7 @@ pub fn create_frame(
     );
     Ok(FrameRegistration {
         document,
+        context,
         media_frame: frame,
         view_lease,
     })

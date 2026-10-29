@@ -72,11 +72,27 @@ The trusted first bootstrap transfers one MessagePort; its paired endpoint stays
 in a closure, with a captured native postMessage function. Plugin requests, host
 gestures, media lookup, replies, support and invalidations all use this port.
 Window messages accept only that initial port transfer, never a call or reply.
-Every iframe load suspends dispatch and results until the original port proves
-a fresh challenge. Navigation before the first load cannot inherit the endpoint,
+Every iframe load stops frontend dispatch, deletes the backend registration and
+all its media handles, then waits for retirement acknowledgement before challenging
+the original private port. A valid proof registers a fresh lease/context before
+dispatch resumes. Old TLS contexts never regain admission, even after proof. Navigation before the first load cannot inherit the endpoint,
 even with the same WindowProxy; a second hello refuses and requires explicit reopen.
 Initial reads may run after the first proof without waiting for load, avoiding
-module-await deadlock. Proof queues are bounded (32 packets, 256 KiB); gesture
+module-await deadlock. Every incoming envelope is checked before direct or queued dispatch (256 KiB,
+bounded JSON depth/nodes; malformed values refuse). The proof queue separately
+allows 32 packets and 256 KiB in total; gesture
 intent and generation are captured at receipt before any queue or await. No timer
 or automatic document replay is used. A closed frame cannot revoke a durable job
 receipt already committed by the plugin; only stale presentation is suppressed.
+
+Re-registration keeps only the presentation namespace for the original document's
+fixed media CSP; handles and backend identity are always fresh. A Local-only bounded
+request carries the host-captured original surface/owner/workspace/Team and provider
+registration id. Moved scopes, replaced providers and occupied namespaces refuse.
+The generic capability registry's host-only registration id fences replacement
+without exposing pointers or deserializing a ViewCallContext supplied by a frame.
+Retirement and registration are serialized by the loader; stale challenge results
+cannot dispatch. A failed retirement or registration closes the frontend port.
+The backend deletion acknowledgement is the retirement linearization boundary;
+effects already admitted before it retain their durable receipts. No suspension
+flag, old-context reactivation, timer or generic frame-less callback was added.

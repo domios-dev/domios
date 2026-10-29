@@ -135,7 +135,7 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
   const response = await request(path);
   const policy = response.headers.get("Content-Security-Policy");
   if (!policy) throw new Error("Plugin document security policy missing");
-  const viewLease = response.headers.get("X-Domios-Plugin-View-Frame");
+  let viewLease = response.headers.get("X-Domios-Plugin-View-Frame");
   if (!viewLease || !/^[a-f0-9]{64}$/.test(viewLease)) throw new Error("Plugin view registration missing");
   const documentId = response.headers.get("X-Domios-Plugin-View-Document");
   if (!documentId || !/^[a-f0-9]{32}$/.test(documentId)) throw new Error("Plugin document identity missing");
@@ -143,13 +143,40 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
   const plugin = new URL(path, client.origin()).pathname.match(/^\/api\/plugins\/([a-z0-9_-]{1,128})\/ui\//)?.[1];
   if (frame !== null && (!/^[a-f0-9]{64}$/.test(frame) || !plugin)) throw new Error("Invalid plugin media frame");
   const base = frame && plugin ? `/api/plugins/${plugin}` : null;
-  const channel = new PluginViewChannel(documentId);
+  const snapshotText = response.headers.get("X-Domios-Plugin-View-Registration");
+  if (!snapshotText || snapshotText.length > 16384 || !plugin) throw new Error("Plugin registration scope missing");
+  const snapshot: {registration: string; scope: Record<string, unknown>} = JSON.parse(snapshotText);
+  if (!/^[a-f0-9]{64}$/.test(snapshot.registration) || !snapshot.scope || typeof snapshot.scope !== "object" || (frame !== null && frame !== snapshot.registration)) {
+    throw new Error("Invalid plugin registration scope");
+  }
   let disposed = false;
+  let lifecycle: Promise<unknown> = Promise.resolve();
+  const enqueue = (work: () => Promise<void>) => {
+    const result = lifecycle.then(work);
+    lifecycle = result.catch(() => undefined);
+    return result;
+  };
+  const retire = () => enqueue(async () => {
+    const response = await client.request!("/api/plugins/view-frame/revoke", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({pluginId:plugin,registration:snapshot.registration}), keepalive:true,
+    }, true);
+    if (!response.ok) throw new Error("Plugin document retirement failed");
+  });
+  const channel = new PluginViewChannel(documentId, {
+    retire,
+    register: () => enqueue(async () => {
+      if (disposed || signal.aborted) throw new Error("Plugin view unavailable");
+      const result = await client.localJson<{viewLease:string}>("POST", "/api/plugins/view-frame/register", {pluginId:plugin,...snapshot}, {signal});
+      if (!/^[a-f0-9]{64}$/.test(result.viewLease)) throw new Error("Invalid plugin view registration");
+      viewLease = result.viewLease;
+    }),
+  });
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     channel.dispose();
-    if (plugin) void client.request!("/api/plugins/view-frame/revoke", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ pluginId: plugin, viewFrame: viewLease }), keepalive: true }, true).catch(() => undefined);
+    void retire().catch(() => undefined);
   };
   try {
     const mediaPolicy = base

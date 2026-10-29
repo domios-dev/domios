@@ -10,8 +10,8 @@ use serde_json::Value;
 
 mod context;
 pub use context::{
-    current_view_call_context, with_view_call_context, ViewActor, ViewCallContext, ViewCallOrigin,
-    ViewOwnerScope,
+    current_view_call_context, has_view_call_context, with_view_call_context, ViewActor,
+    ViewCallContext, ViewCallOrigin, ViewOwnerScope,
 };
 
 use crate::capability::CapabilityRegistry;

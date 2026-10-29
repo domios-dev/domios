@@ -93,3 +93,48 @@ describe("document-bound plugin view channel", () => {
     const reopened=fixture();expect(reopened.channel.id).not.toBe(f.channel.id);
   });
 });
+
+it.each(["bytes", "cycle", "bigint", "array", "sparse", "depth"] as const)("refuses proven-channel %s envelopes before receiver/effects", (attack) => {
+  const f=fixture();const port=new TestViewPort();f.channel.accept(f.source,port.port);port.prove();
+  const args: Record<string, unknown>={};
+  if(attack==="bytes") args.text="x".repeat(256*1024);
+  if(attack==="cycle") args.self=args;
+  if(attack==="bigint") args.number=1n;
+  if(attack==="array") args.array=new Array(1000000);
+  if(attack==="sparse") args.array=Array.from({length:128},()=>new Array(128));
+  if(attack==="depth") {let nested=args;for(let i=0;i<18;i++){const child={};nested.child=child;nested=child;}}
+  port.receive({__ctInvoke:1,method:"submit",args});
+  expect(f.receive).not.toHaveBeenCalled();expect(f.invalid).toHaveBeenCalledTimes(1);
+});
+
+it("retires before challenging and registers a fresh backend authority before dispatch", async () => {
+  let finishRetire!:()=>void;let finishRegister!:()=>void;
+  const retired=new Promise<void>(resolve=>{finishRetire=resolve;});const registered=new Promise<void>(resolve=>{finishRegister=resolve;});
+  const retire=vi.fn(()=>retired);const register=vi.fn(()=>registered);
+  const channel=new PluginViewChannel(crypto.randomUUID().replaceAll("-", ""),{retire,register});live.push(channel);
+  const source={} as Window;const port=new TestViewPort();const receive=vi.fn();
+  channel.bind(source,()=>({shown:true,frameFocused:true,activated:true,generation:0}));
+  channel.subscribe(receive,vi.fn(),vi.fn());channel.accept(source,port.port);
+  expect(retire).toHaveBeenCalledTimes(1);expect(port.sent).toEqual([]);
+  port.receive({__ctProof:1});expect(register).not.toHaveBeenCalled();
+  port.receive({__ctInvoke:1,method:"read"});expect(receive).not.toHaveBeenCalled();
+  finishRetire();await retired;await Promise.resolve();port.prove();
+  expect(register).toHaveBeenCalledTimes(1);expect(receive).not.toHaveBeenCalled();
+  finishRegister();await registered;await Promise.resolve();
+  expect(receive).toHaveBeenCalledTimes(1);
+});
+
+it("a failed retire or fresh registration never admits queued effects", async () => {
+  for(const failing of ["retire","register"] as const){
+    const channel=new PluginViewChannel(crypto.randomUUID().replaceAll("-", ""),{
+      retire:()=>failing==="retire"?Promise.reject(new Error("refused")):Promise.resolve(),
+      register:()=>Promise.reject(new Error("refused")),
+    });live.push(channel);
+    const source={} as Window;const port=new TestViewPort();const receive=vi.fn();const invalid=vi.fn();
+    channel.bind(source,()=>({shown:false,frameFocused:false,activated:false,generation:0}));
+    channel.subscribe(receive,vi.fn(),invalid);channel.accept(source,port.port);
+    port.receive({__ctInvoke:1,method:"submit"});
+    await Promise.resolve();port.prove();await Promise.resolve();
+    expect(receive).not.toHaveBeenCalled();expect(invalid).toHaveBeenCalledTimes(1);
+  }
+});

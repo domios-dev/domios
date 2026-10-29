@@ -234,3 +234,61 @@ fn monitor_invalidation_derives_only_live_registered_instances_in_the_host_owner
         0
     );
 }
+
+#[tokio::test]
+async fn retired_document_continuation_cannot_admit_new_work_after_a_fresh_registration() {
+    use codeterm_plugin::{
+        media_delivery as frames,
+        view_host::{with_view_call_context, ViewProvider, ViewRegistryHandle},
+    };
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    let (fixture, _, _, tab) = fixture();
+    let registry = fixture.service.ext::<ViewRegistryHandle>();
+    let provider: Arc<dyn ViewProvider> = Arc::new(View);
+    registry.register("studio", provider.clone());
+    let scope = fixture
+        .service
+        .plugin_view_context("studio", Some("board"), Some("instance-one"), Some(&tab))
+        .unwrap();
+    let registration = frames::create_frame(&provider, registry, scope.clone()).unwrap();
+    let captured = frames::frame_context("studio", &registration.media_frame).unwrap();
+    let (started, observe_started) = tokio::sync::oneshot::channel();
+    let (resume, continuation) = std::sync::mpsc::channel();
+    let effects = Arc::new(AtomicUsize::new(0));
+    let receipts = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let worker_receipts = receipts.clone();
+    let worker_effects = effects.clone();
+    let svc = fixture.service.clone();
+    let worker = tokio::task::spawn_blocking(move || {
+        with_view_call_context("studio", &captured, || {
+            worker_receipts
+                .lock()
+                .unwrap()
+                .push("already-committed-receipt");
+            started.send(()).unwrap();
+            continuation.recv().unwrap();
+            svc.with_validated_plugin_view_context("studio", &captured, || {
+                worker_effects.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+            .map_err(codeterm_plugin::view_host::ViewError::Call)
+        })
+    });
+    observe_started.await.unwrap();
+    frames::revoke_frame("studio", &registration.media_frame);
+    assert!(frames::view_frame("studio", &registration.view_lease).is_err());
+    let fresh =
+        frames::reregister_frame(&provider, registry, scope, &registration.media_frame).unwrap();
+    resume.send(()).unwrap();
+    assert!(worker.await.unwrap().is_err());
+    assert_eq!(effects.load(Ordering::SeqCst), 0);
+    assert_eq!(*receipts.lock().unwrap(), vec!["already-committed-receipt"]);
+    fixture
+        .service
+        .with_validated_plugin_view_context("studio", &fresh.context, || Ok(()))
+        .unwrap();
+    frames::revoke_frame("studio", &registration.media_frame);
+}
