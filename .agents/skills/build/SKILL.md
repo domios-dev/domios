@@ -1369,9 +1369,11 @@ fingerprints all four effective fields as a compiler input.
 - DOMIOS_AMPLITUDE_API_KEY_TEST
 - DOMIOS_AMPLITUDE_API_KEY_PROD
 
-`install-local` resolves key, project, app and redeem entries together, preferring
-the Domios secret store and falling back to a complete existing build
-environment. The optional billing functions URL independently prefers the secret store, then
+`build`, `install-local` and release packaging resolve key, project and app
+as one tuple, preferring the Domios secret store and falling back to a complete
+existing build environment. Redeem overrides come from the selected source and
+are optional for release; debug compilation still requires an explicit redeem
+endpoint to select cloud authentication. The optional billing functions URL prefers the secret store, then
 the existing environment. The auth domain also comes from its same-name local
 store entry or environment variable. These values are scoped to the packaged build;
 a missing billing URL never fails the build. Billing logs only present or absent,

@@ -210,6 +210,59 @@ printf '%s\n' 'DEV resolves build secrets through the captured parent connection
 printf '%s\n' 'DEV compiler phases share one QA project; server keys stay scoped and release lookup is unchanged.'
 
 (
+  unset DOMIOS_ACCOUNT_REDEEM_URL DOMIOS_FIREBASE_AUTH_DOMAIN
+  DOMIOS_FIREBASE_API_KEY=fixture-env-key
+  DOMIOS_FIREBASE_PROJECT_ID=fixture-env-project
+  DOMIOS_FIREBASE_APP_ID=fixture-env-app
+  ct_firebase_build_secret() { return 1; }
+  assert_packaged_config() {
+    [ "$DOMIOS_FIREBASE_API_KEY" = "fixture-$expected_source-key" ] &&
+      [ "$DOMIOS_FIREBASE_PROJECT_ID" = "fixture-$expected_source-project" ] &&
+      [ "$DOMIOS_FIREBASE_APP_ID" = "fixture-$expected_source-app" ] &&
+      [ "$DOMIOS_FIREBASE_AUTH_DOMAIN" = "$expected_domain" ] &&
+      [ -z "$DOMIOS_ACCOUNT_REDEEM_URL" ]
+  }
+  expected_source=env
+  expected_domain=fixture-env-project.firebaseapp.com
+  for CMD in build install-local release-bundle; do
+    ct_with_firebase_build_config assert_packaged_config > "$capture" 2>&1 || fail
+  done
+  DOMIOS_FIREBASE_AUTH_DOMAIN=fixture-custom.invalid
+  expected_domain=fixture-custom.invalid
+  ct_with_firebase_build_config assert_packaged_config > "$capture" 2>&1 || fail
+  unset DOMIOS_FIREBASE_AUTH_DOMAIN
+  ct_firebase_build_secret() {
+    case "$1" in
+      DOMIOS_FIREBASE_API_KEY) printf fixture-store-key ;;
+      DOMIOS_FIREBASE_PROJECT_ID) printf fixture-store-project ;;
+      DOMIOS_FIREBASE_APP_ID) printf fixture-store-app ;;
+      *) return 1 ;;
+    esac
+  }
+  expected_source=store
+  expected_domain=fixture-store-project.firebaseapp.com
+  ct_with_firebase_build_config assert_packaged_config > "$capture" 2>&1 || fail
+  ct_firebase_build_secret() {
+    case "$1" in
+      DOMIOS_FIREBASE_API_KEY) printf fixture-partial-store-key ;;
+      DOMIOS_FIREBASE_PROJECT_ID) printf fixture-partial-store-project ;;
+      *) return 1 ;;
+    esac
+  }
+  expected_source=env
+  expected_domain=fixture-env-project.firebaseapp.com
+  ct_with_firebase_build_config assert_packaged_config > "$capture" 2>&1 || fail
+  assert_no_tuple() { [ -z "$DOMIOS_FIREBASE_API_KEY$DOMIOS_FIREBASE_PROJECT_ID$DOMIOS_FIREBASE_APP_ID" ]; }
+  unset DOMIOS_FIREBASE_PROJECT_ID
+  ct_with_firebase_build_config assert_no_tuple > "$capture" 2>&1 || fail
+  DOMIOS_FIREBASE_PROJECT_ID=fixture-env-project
+  for CMD in dev dev-server; do
+    ct_with_firebase_build_config assert_no_tuple > "$capture" 2>&1 || fail
+  done
+)
+printf '%s\n' 'Packaged builds accept three fields, derive auth domain, and preserve credential-source boundaries; debug still requires a redeem endpoint.'
+
+(
   CI=true
   DOMIOS_FIREBASE_API_KEY=fixture-ci-key
   DOMIOS_FIREBASE_AUTH_DOMAIN=fixture-ci.invalid

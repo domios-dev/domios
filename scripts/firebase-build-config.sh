@@ -34,6 +34,10 @@ ct_with_firebase_build_config() {
   local secret_api_key="" secret_project_id="" secret_app_id="" secret_redeem_url=""
   local env_api_key="" env_project_id="" env_app_id="" env_redeem_url=""
   local api_key="" project_id="" app_id="" redeem_url="" auth_domain="" cloud_auth=0
+  local require_redeem=1
+  case "${CMD:-}" in
+    build|install-local|release|release-*) require_redeem=0 ;;
+  esac
 
   case "$-" in
     *x*) restore_xtrace=1; set +x ;;
@@ -66,14 +70,16 @@ ct_with_firebase_build_config() {
   fi
 
   if [[ -n "${secret_api_key//[[:space:]]/}" && -n "${secret_project_id//[[:space:]]/}" &&
-    -n "${secret_app_id//[[:space:]]/}" && -n "${secret_redeem_url//[[:space:]]/}" ]]; then
+    -n "${secret_app_id//[[:space:]]/}" ]] &&
+    { [ "$require_redeem" = 0 ] || [[ -n "${secret_redeem_url//[[:space:]]/}" ]]; }; then
     api_key="$secret_api_key"
     project_id="$secret_project_id"
     app_id="$secret_app_id"
     redeem_url="$secret_redeem_url"
     cloud_auth=1
   elif [[ -n "${env_api_key//[[:space:]]/}" && -n "${env_project_id//[[:space:]]/}" &&
-    -n "${env_app_id//[[:space:]]/}" && -n "${env_redeem_url//[[:space:]]/}" ]]; then
+    -n "${env_app_id//[[:space:]]/}" ]] &&
+    { [ "$require_redeem" = 0 ] || [[ -n "${env_redeem_url//[[:space:]]/}" ]]; }; then
     api_key="$env_api_key"
     project_id="$env_project_id"
     app_id="$env_app_id"
@@ -84,6 +90,9 @@ ct_with_firebase_build_config() {
   auth_domain="$(ct_firebase_build_secret DOMIOS_FIREBASE_AUTH_DOMAIN 2>/dev/null)" || auth_domain=""
   if [[ -z "${auth_domain//[[:space:]]/}" ]]; then
     auth_domain="${DOMIOS_FIREBASE_AUTH_DOMAIN:-}"
+  fi
+  if [[ -z "${auth_domain//[[:space:]]/}" && -n "$project_id" ]]; then
+    auth_domain="$project_id.firebaseapp.com"
   fi
 
   if [ "$cloud_auth" = 1 ]; then
