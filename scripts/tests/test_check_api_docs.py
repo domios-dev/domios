@@ -121,6 +121,22 @@ Router::new().route("/api/after", post(after))''')
         self.source('area.rs', 'Router::new().route(dynamic_path(), get(read))')
         self.check(1, 'Unrecognized route registration')
 
+    def test_wildcard_any_startup_fallback_is_not_an_endpoint(self):
+        for handler in ('any(starting)', 'axum::routing::any(starting)'):
+            with self.subTest(handler=handler):
+                self.source('startup.rs', f'Router::new().route("/api/{{*path}}", {handler})')
+                self.check(0, 'registered public routes: 1')
+
+    def test_nonfallback_without_a_recognized_method_still_fails(self):
+        for path, handler in (
+            ('/api/action', 'any(starting)'),
+            ('/api/{*path}', 'unknown(starting)'),
+            ('/api/{*path}/action', 'any(starting)'),
+        ):
+            with self.subTest(path=path, handler=handler):
+                self.source('startup.rs', f'Router::new().route("{path}", {handler})')
+                self.check(1, f'No recognized HTTP method for {path}')
+
     def test_no_routes_or_no_docs_cannot_pass(self):
         self.source('routes.rs', '// no routes')
         self.check(1, 'No production routes found')
