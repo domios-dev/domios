@@ -151,9 +151,11 @@ pub enum NodeKind {
     RespondPrompt,
     Escalate,
     Stop,
+    #[serde(untagged)]
+    Plugin(String),
 }
 impl NodeKind {
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> &str {
         match self {
             Self::Schedule => "schedule",
             Self::Event => "event",
@@ -176,7 +178,11 @@ impl NodeKind {
             Self::RespondPrompt => "respond_prompt",
             Self::Escalate => "escalate",
             Self::Stop => "stop",
+            Self::Plugin(id) => id,
         }
+    }
+    pub fn plugin(&self) -> bool {
+        matches!(self, Self::Plugin(_))
     }
     pub fn effect(&self) -> bool {
         matches!(
@@ -263,6 +269,8 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uses: Option<NodeKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin: Option<PluginStepConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<ValueForm>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<Code>,
@@ -307,6 +315,35 @@ pub struct Node {
     pub session: bool,
     #[serde(default, skip_serializing_if = "is_default")]
     pub paused: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PluginStepConfig {
+    pub revision: u32,
+    pub spending: PluginSpending,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PluginSpending {
+    pub unit: String,
+    pub run_ceiling: u64,
+    pub step_allowance: u64,
+}
+
+pub fn namespaced_plugin_step(id: &str) -> bool {
+    let parts = id.split('.').collect::<Vec<_>>();
+    id.len() <= 128
+        && parts.len() >= 2
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.len() <= 64
+                && part.as_bytes()[0].is_ascii_lowercase()
+                && part.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-')
+                })
+        })
 }
 impl Node {
     pub fn kind(&self) -> &str {

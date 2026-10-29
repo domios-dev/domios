@@ -878,6 +878,7 @@ export interface AgentTaskInput {
   profile: string;
   task: string;
   input: string;
+  media?: AgentTaskMedia[];
   timeoutMs: number;
   maxTokens: number;
   maxTurns: number;
@@ -889,12 +890,23 @@ export interface AgentTaskResult {
   error?: string;
 }
 
+export type AgentTaskMediaKind = "image" | "audio" | "video" | "file";
+export interface AgentTaskMedia {
+  kind: AgentTaskMediaKind;
+  contentType: string;
+  fileName: string;
+  bytes: number[];
+  sha256: string;
+  lineage: { plugin: string; operation: string; port: string };
+}
+
 export interface ChatBackendCloseReceipt {
   sessionId: string;
   processExited: true;
 }
 
 export interface ChatBackend {
+  agentTaskMedia?(): AgentTaskMediaKind[];
   runAgentTask?(input: AgentTaskInput): AgentTaskResult;
   abortAgentTask?(runId: string): void;
   openSession(ctx: ChatBackendOpenSessionCtx): { sessionId: string };
@@ -1011,6 +1023,10 @@ export interface SurfaceViewBridge {
   surface: { surface: string | null; instance: string | null; tab: string | null };
   invoke(method: string, args?: unknown): Promise<unknown>;
   close(): void;
+  /** Foreground gesture only; the opaque reference is stamped into Blueprint step context. */
+  openRun(reference: string): Promise<ViewHostResult>;
+  /** Owner approval displays the host's current bounded quote before recording it. */
+  decideOperation(decision: {operation: string; decisionKey: string; action: "approve" | "check_price" | "check" | "cancel"}): Promise<ViewHostResult>;
   onSurfaceStateChanged(callback: () => void): () => void;
 }
 
@@ -1138,6 +1154,7 @@ export interface PluginModule
     Partial<Transcriber>,
     Partial<Converter>,
     Partial<import("./blueprintSteps").BlueprintSteps>,
+    Partial<import("./pluginJobs").PluginJobLifecycle>,
     Partial<DecisionModelCapability>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,

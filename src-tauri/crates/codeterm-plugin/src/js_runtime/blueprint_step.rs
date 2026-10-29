@@ -19,6 +19,11 @@ impl JsBlueprintStep {
         if call.cancellation.is_cancelled() || std::time::Instant::now() >= call.deadline {
             return Err("plugin step interrupted".into());
         }
+        let _input_scope = crate::blueprint_step::StepInputScope::enter(
+            self.vm.plugin_id(),
+            call,
+            method == "blueprintSubmit",
+        );
         let mut value =
             serde_json::to_value(call.request).map_err(|_| "invalid plugin step request")?;
         value["job"] = serde_json::json!(call.job);

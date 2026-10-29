@@ -44,6 +44,16 @@ const HELD_REASONS: Readonly<Record<string, string>> = {
   uncertain_pipeline_effect: "a step's effect could not be confirmed after a restart",
   uncertain_pipeline_result: "the result delivery could not be confirmed",
   journal_write_failed: "the run journal could not be written",
+  plugin_step_waiting_for_owner_ok: "waiting for your OK",
+  plugin_step_queued: "queued",
+  plugin_step_running: "generating",
+  plugin_step_submitting: "starting",
+  plugin_step_unknown: "status unknown; check the existing operation",
+  plugin_step_unavailable: "the declared plugin step is unavailable",
+  plugin_step_input_unavailable: "the step's original input is unavailable",
+  plugin_step_store_unavailable: "the operation ledger is unavailable",
+  plugin_step_media_unavailable: "run media is unavailable",
+  plugin_step_authorization_unavailable: "the original spending authorization is unavailable",
 };
 export function heldReasonLabel(reason: string): string {
   return HELD_REASONS[reason] ?? reason;

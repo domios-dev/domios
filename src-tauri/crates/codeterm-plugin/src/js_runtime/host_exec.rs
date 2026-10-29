@@ -773,6 +773,14 @@ fn observation_wait_allowed(plugin_id: &str, job_id: &str) -> bool {
     codeterm_decision::physical::effects_allowed() || retained_job_live(plugin_id, job_id)
 }
 
+pub(super) fn await_ticket_owned(plugin_id: &str, job_id: &str) -> bool {
+    observation_wait_allowed(plugin_id, job_id)
+        && EXEC_JOBS
+            .lock()
+            .get(job_id)
+            .is_some_and(|job| job.plugin_id == plugin_id)
+}
+
 /// A waiter that gives up leaves a retained job running for the next consumer.
 fn abandon(plugin_id: &str, job_id: &str) {
     {

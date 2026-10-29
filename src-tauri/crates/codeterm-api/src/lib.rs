@@ -115,3 +115,5 @@ pub mod app_quit_routes;
 mod ui_status_tests;
 
 pub mod blueprint_viewer_routes;
+mod plugin_operation_routes;
+mod plugin_run_view_routes;

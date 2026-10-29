@@ -11,6 +11,10 @@ pub fn run(
     request: AgentTaskRequest,
 ) -> Result<AgentTaskResult, String> {
     validate_input(&request.input)?;
+    codeterm_plugin::agent_task::validate_media_capability(
+        &request.input,
+        &provider.agent_task_media(),
+    )?;
     if !provider.supports_agent_tasks() {
         return Err("agent provider capability unavailable".into());
     }

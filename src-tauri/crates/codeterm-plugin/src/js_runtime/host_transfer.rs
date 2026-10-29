@@ -312,9 +312,20 @@ pub(super) fn bind_start(sandbox: &Arc<PluginSandbox>, json: &str) -> String {
     if !crate::media_delivery::valid_token(&request.handle) {
         return failure(TransferRefusal::InvalidRequest);
     }
-    let Some(context) = crate::view_host::current_view_call_context(sandbox.plugin_id()) else {
+    let run_context = crate::blueprint_step::current_step_input(sandbox.plugin_id());
+    let view_context = crate::view_host::current_view_call_context(sandbox.plugin_id());
+    if run_context.is_some() && view_context.is_some() {
         return failure(TransferRefusal::NotAllowed);
-    };
+    }
+    if run_context
+        .as_ref()
+        .is_some_and(|context| !context.submitting)
+    {
+        return failure(TransferRefusal::NotAllowed);
+    }
+    if run_context.is_none() && view_context.is_none() {
+        return failure(TransferRefusal::NotAllowed);
+    }
     let session = match session(sandbox) {
         Ok(value) => value,
         Err(error) => return failure(error),
@@ -335,6 +346,9 @@ pub(super) fn bind_start(sandbox: &Arc<PluginSandbox>, json: &str) -> String {
         );
     let deadline =
         codeterm_decision::physical::deadline().map_or(requested, |bound| bound.min(requested));
+    let deadline = run_context
+        .as_ref()
+        .map_or(deadline, |context| context.deadline.min(deadline));
     let control = InputPreparation {
         abort: TransferAbort::default(),
         deadline,
@@ -352,13 +366,24 @@ pub(super) fn bind_start(sandbox: &Arc<PluginSandbox>, json: &str) -> String {
         serde_json::json!({"error":"deadline","requestMayHaveStarted":false,"status":null}),
         move || {
             let _scope = observer.map(codeterm_decision::physical::RequestScope::enter);
-            match service.bind_view_transfer_input(
-                &owner,
-                &context,
-                &request.handle,
-                &request.destination_origin,
-                &control,
-            ) {
+            let bound = match (run_context, view_context) {
+                (Some(context), None) => service.bind_run_transfer_input(
+                    &owner,
+                    &context,
+                    &request.handle,
+                    &request.destination_origin,
+                    &control,
+                ),
+                (None, Some(context)) => service.bind_view_transfer_input(
+                    &owner,
+                    &context,
+                    &request.handle,
+                    &request.destination_origin,
+                    &control,
+                ),
+                _ => Err(TransferRefusal::NotAllowed),
+            };
+            match bound {
                 Ok(grant) => serde_json::to_string(&grant)
                     .unwrap_or_else(|_| failure(TransferRefusal::Unavailable)),
                 Err(error) => failure(error),

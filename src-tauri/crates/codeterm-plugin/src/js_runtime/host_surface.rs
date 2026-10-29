@@ -75,6 +75,28 @@ pub(crate) fn surface_invalidate(sandbox: &PluginSandbox, identity_json: &str) -
 }
 
 pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result<(), VmError> {
+    host.set(
+        "awaitInvocationId",
+        Func::new(crate::surface_invocation::root_identity),
+    )
+    .map_err(|_| VmError::Script("set awaitInvocationId failed".into()))?;
+    host.set(
+        "awaitTakeMode",
+        Func::new(|key: String, job: String, owner: String| {
+            crate::surface_invocation::take_mode(&key, &job, &owner)
+        }),
+    )
+    .map_err(|_| VmError::Script("set awaitTakeMode failed".into()))?;
+    host.set(
+        "surfaceInvocationBegin",
+        Func::new(|id: String| crate::surface_invocation::begin(&id)),
+    )
+    .map_err(|_| VmError::Script("set surfaceInvocationBegin failed".into()))?;
+    host.set(
+        "surfaceInvocationEnd",
+        Func::new(|id: String, suspended: bool| crate::surface_invocation::end(&id, suspended)),
+    )
+    .map_err(|_| VmError::Script("set surfaceInvocationEnd failed".into()))?;
     let sb = sandbox.clone();
     host.set(
         "surfaceCall",
@@ -93,5 +115,7 @@ pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result
     .map_err(|e| VmError::Script(format!("set surfaceInvalidate: {e}")))
 }
 
+#[cfg(test)]
+mod continuation_tests;
 #[cfg(test)]
 mod tests;

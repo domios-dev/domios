@@ -1,4 +1,5 @@
 //! Notification creation with OS toast support.
+mod daemon;
 
 #[cfg(test)]
 use codeterm_notification_core::contract::NotificationAction;
@@ -324,6 +325,9 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        if let Some(result) = self.answer_host_question(id, label) {
+            return result;
+        }
         if let Some(result) = self.answer_mesh_link_notification(id, label) {
             return result;
         }

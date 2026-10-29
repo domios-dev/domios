@@ -152,6 +152,12 @@ fn default_command_timeout_ms() -> u64 {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StepKind {
+    Plugin {
+        node_type: String,
+        config: crate::blueprint_document::PluginStepConfig,
+        params: Value,
+        outcomes: Vec<String>,
+    },
     Call {
         call: crate::blueprint_document::Call,
         grants: Vec<String>,
@@ -186,6 +192,8 @@ pub enum StepKind {
         to: MediaKind,
     },
     Agent {
+        #[serde(default)]
+        review: bool,
         provider: String,
         profile: String,
         task: String,
@@ -199,6 +207,9 @@ impl StepKind {
     pub const DESCRIPTORS: &'static [crate::blueprint_catalog::NodeDescriptor] =
         crate::blueprint_catalog::STEPS;
     pub fn name(&self) -> &'static str {
+        if matches!(self, Self::Plugin { .. }) {
+            return "plugin";
+        }
         if matches!(self, Self::Call { .. }) {
             return "call";
         }
@@ -209,7 +220,9 @@ impl StepKind {
             return "code";
         }
         Self::DESCRIPTORS[match self {
-            Self::Code { .. } | Self::Call { .. } | Self::Effect { .. } => unreachable!(),
+            Self::Code { .. } | Self::Call { .. } | Self::Effect { .. } | Self::Plugin { .. } => {
+                unreachable!()
+            }
             Self::Command { .. } => 0,
             Self::Ask { .. } => 1,
             Self::Filter { .. } => 2,
@@ -225,6 +238,7 @@ impl StepKind {
         match self {
             Self::Convert { to, .. } => IoType::from(*to),
             Self::Http { .. }
+            | Self::Plugin { .. }
             | Self::Github { .. }
             | Self::Command { .. }
             | Self::Call { .. }
@@ -238,6 +252,17 @@ impl StepKind {
 
     pub fn outcomes(&self) -> Result<BTreeSet<String>, String> {
         match self {
+            Self::Agent { review: true, .. } => Ok([
+                "pass".into(),
+                "retry".into(),
+                "choose".into(),
+                "failed".into(),
+            ]
+            .into()),
+            Self::Plugin { outcomes, .. } => {
+                validate_buckets("outcomes", outcomes)?;
+                Ok(outcomes.iter().cloned().chain(["failed".into()]).collect())
+            }
             Self::Http { .. } => Ok(["up".into(), "down".into(), "failed".into()].into()),
             Self::Github { probe }
                 if probe.resource == crate::blueprint_github::GithubResource::Runners =>
@@ -513,6 +538,28 @@ pub fn validate_parts(
             );
         }
         match &step.kind {
+            StepKind::Plugin {
+                node_type,
+                config,
+                params,
+                ..
+            } => {
+                if !crate::blueprint_document::namespaced_plugin_step(node_type)
+                    || config.revision == 0
+                    || config.spending.unit.is_empty()
+                    || config.spending.unit.len() > 64
+                    || config.spending.run_ceiling > 9_007_199_254_740_991
+                    || config.spending.step_allowance > 9_007_199_254_740_991
+                    || !params.is_object()
+                    || params.to_string().len() > 65_536
+                {
+                    error(
+                        &mut errors,
+                        field.parameters("plugin"),
+                        "invalid bounded plugin step configuration",
+                    );
+                }
+            }
             StepKind::Http { probe } => {
                 if step.input != IoType::Text {
                     error(
@@ -544,6 +591,7 @@ pub fn validate_parts(
                 deadline_ms,
                 max_tokens,
                 max_turns,
+                ..
             } => {
                 if provider.is_empty()
                     || provider.len() > 128

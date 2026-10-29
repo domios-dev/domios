@@ -130,10 +130,16 @@ A plugin contributes graph nodes through `capabilities.graphNodes` in its manife
 - **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
 Plugin `steps` declare up to 32 namespaced operations with versioned parameter
 schemas, named input/output ports, outcomes, and lifecycle/cost declarations.
-`domios blueprint nodes` lists them with `available: false` and
-`hold_reason: plugin_step_runner_unavailable`. They are discoverable contracts;
-Blueprint execution and owner-approval continuation are awaiting runner
-integration. No paid operation is admitted through this declaration alone.
+`domios blueprint nodes` lists installed descriptors. Namespaced YAML steps pin
+their revision, spending unit/ceilings and typed forward bindings. Paid operations
+require a fresh safe estimate; missing/stale prices and exhausted allowance hold
+visibly for the owner. Approval applies only to that exact operation and maximum,
+never downstream spend. Unknown status permits a free exact-job check, never a
+paid retry. `ct.openRun` opens the attributed run from a foreground gesture.
+`capabilities.jobLifecycle` supplies frame-independent existing-job observation;
+`host.jobs` retains exact receipts, observes state and invalidates current views.
+Static `capabilities.costUnits` and SDK `formatCostAmount` keep studio and host
+approval prices identical, with exact decimals and no currency conversion.
 
 ### Model endpoints and presets
 
@@ -185,4 +191,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

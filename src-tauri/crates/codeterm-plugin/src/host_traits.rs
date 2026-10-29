@@ -20,6 +20,9 @@ impl std::error::Error for ModelProviderEnvUnavailable {}
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
 pub trait PluginHostCtx: Send + Sync {
+    fn plugin_job_json(&self, _plugin: &str, _request: &str) -> String {
+        r#"{"error":"plugin_jobs_unavailable"}"#.into()
+    }
     fn runtime_launch_authorized(
         &self,
         _binding: &crate::agent_runtime::RuntimeLaunchBinding,
@@ -87,6 +90,17 @@ pub trait PluginHostCtx: Send + Sync {
         &self,
         _plugin: &str,
         _context: &crate::view_host::ViewCallContext,
+        _handle: &str,
+        _destination: &str,
+        _control: &crate::binary_transfer::InputPreparation,
+    ) -> crate::binary_transfer::Result<crate::binary_transfer::TransferInputGrant> {
+        Err(crate::binary_transfer::TransferRefusal::NotAllowed)
+    }
+
+    fn bind_run_transfer_input(
+        &self,
+        _plugin: &str,
+        _context: &crate::blueprint_step::StepInputContext,
         _handle: &str,
         _destination: &str,
         _control: &crate::binary_transfer::InputPreparation,

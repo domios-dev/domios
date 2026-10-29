@@ -349,11 +349,12 @@ fn plugin_steps_owner_exception_history_names_exact_scope_unit_and_immutable_cei
     let runtime = runtime(&ledger, &descriptor, fixture);
     drive(&runtime, &request);
     ledger
-        .authorize(
+        .authorize_fresh(
             &request.context.operation,
             &request.context.scope,
             "owner",
             5,
+            100,
         )
         .unwrap();
     let record = drive(&runtime, &request);

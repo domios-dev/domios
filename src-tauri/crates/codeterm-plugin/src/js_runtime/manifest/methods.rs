@@ -73,6 +73,16 @@ impl PluginManifest {
             return Err("binaryTransfer limits exceed the host bounds".into());
         }
         manifest.capabilities.validate_tab_menu()?;
+        if manifest
+            .capabilities
+            .job_lifecycle
+            .as_ref()
+            .is_some_and(|descriptor| !descriptor.valid() || !manifest.capabilities.view)
+        {
+            return Err(
+                "jobLifecycle requires a view and contract version 1 with reconciliation".into(),
+            );
+        }
         manifest.capabilities.validate_surfaces()?;
         manifest.capabilities.validate_view_host_actions()?;
         for source in manifest.capabilities.record_sources.values() {

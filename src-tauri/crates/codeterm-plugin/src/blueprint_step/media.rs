@@ -1,4 +1,5 @@
 use super::*;
+use crate::media_delivery::{RunMediaLookupContext, RunMediaLookupOrigin};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -6,7 +7,12 @@ use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
 pub trait RunMediaResolver: Send + Sync {
-    fn fingerprint(&self, plugin: &str, media_id: &str, kind: PortKind) -> Result<String, String>;
+    fn fingerprint(
+        &self,
+        context: &RunMediaLookupContext,
+        media_id: &str,
+        kind: PortKind,
+    ) -> Result<String, String>;
 }
 
 pub trait StepMedia: Send + Sync {
@@ -35,10 +41,19 @@ pub struct RunMediaRegistry {
 #[derive(Serialize, Deserialize)]
 struct Reference {
     scope: RunScope,
+    owner: String,
     lineage: InputLineage,
     media_id: String,
     kind: PortKind,
     fingerprint: String,
+}
+
+pub struct RunMediaSource {
+    pub lookup: RunMediaLookupContext,
+    pub plugin: String,
+    pub media_id: String,
+    pub kind: PortKind,
+    pub fingerprint: String,
 }
 
 fn refusal(_: rusqlite::Error) -> String {
@@ -46,6 +61,24 @@ fn refusal(_: rusqlite::Error) -> String {
 }
 
 impl RunMediaRegistry {
+    pub fn resolve_input(
+        &self,
+        context: &StepContext,
+        receiver: &str,
+        handle: &str,
+        kind: PortKind,
+    ) -> Result<RunMediaSource, String> {
+        self.input(context, receiver, handle, kind)?;
+        let reference = self.reference(handle)?;
+        Ok(RunMediaSource {
+            lookup: lookup_context(&reference, &context.node),
+            plugin: reference.lineage.plugin,
+            media_id: reference.media_id,
+            kind: reference.kind,
+            fingerprint: reference.fingerprint,
+        })
+    }
+
     pub fn open(
         path: &std::path::Path,
         resolver: Arc<dyn RunMediaResolver>,
@@ -62,16 +95,23 @@ impl RunMediaRegistry {
 
     pub fn authorize_handoff(
         &self,
-        scope: &RunScope,
+        context: &StepContext,
         handle: &str,
         receiver: &str,
         node: &str,
     ) -> Result<(), String> {
         let reference = self.reference(handle)?;
-        if &reference.scope != scope || !token(receiver) || !token(node) {
+        let identity = |value: &str| {
+            !value.is_empty() && value.len() <= 128 && !value.chars().any(char::is_control)
+        };
+        if reference.scope != context.scope
+            || reference.owner != context.owner
+            || !identity(receiver)
+            || !identity(node)
+        {
             return Err("run media handoff refused".into());
         }
-        self.fresh(&reference)?;
+        self.fresh(&reference, node)?;
         let mut db = self.db.lock();
         let tx = db.transaction().map_err(refusal)?;
         let count: u64 = tx
@@ -108,11 +148,11 @@ impl RunMediaRegistry {
             .map_err(|_| "run media record invalid".into())
     }
 
-    fn fresh(&self, reference: &Reference) -> Result<(), String> {
+    fn fresh(&self, reference: &Reference, receiver_node: &str) -> Result<(), String> {
         let fingerprint = self
             .resolver
             .fingerprint(
-                &reference.lineage.plugin,
+                &lookup_context(reference, receiver_node),
                 &reference.media_id,
                 reference.kind,
             )
@@ -133,14 +173,17 @@ impl StepMedia for RunMediaRegistry {
         kind: PortKind,
     ) -> Result<InputLineage, String> {
         let reference = self.reference(handle)?;
-        if reference.scope != context.scope || reference.kind != kind {
+        if reference.scope != context.scope
+            || reference.owner != context.owner
+            || reference.kind != kind
+        {
             return Err("run media scope/type refused".into());
         }
         let permitted: bool = self.db.lock().query_row("SELECT EXISTS(SELECT 1 FROM blueprint_media_handoffs WHERE handle=?1 AND receiver=?2 AND node=?3)", params![handle, receiver, context.node], |r| r.get(0)).map_err(refusal)?;
         if !permitted {
             return Err("run media receiving step not authorized".into());
         }
-        self.fresh(&reference)?;
+        self.fresh(&reference, &context.node)?;
         Ok(reference.lineage)
     }
 
@@ -152,15 +195,9 @@ impl StepMedia for RunMediaRegistry {
         id: &str,
         kind: PortKind,
     ) -> Result<String, String> {
-        let fingerprint = self
-            .resolver
-            .fingerprint(producer, id, kind)
-            .map_err(|_| "run media output unavailable")?;
-        if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
-            return Err("run media fingerprint invalid".into());
-        }
-        let reference = Reference {
+        let mut reference = Reference {
             scope: context.scope.clone(),
+            owner: context.owner.clone(),
             lineage: InputLineage {
                 plugin: producer.into(),
                 operation: context.operation.clone(),
@@ -168,8 +205,16 @@ impl StepMedia for RunMediaRegistry {
             },
             media_id: id.into(),
             kind,
-            fingerprint,
+            fingerprint: String::new(),
         };
+        let fingerprint = self
+            .resolver
+            .fingerprint(&lookup_context(&reference, &context.node), id, kind)
+            .map_err(|_| "run media output unavailable")?;
+        if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err("run media fingerprint invalid".into());
+        }
+        reference.fingerprint = fingerprint;
         let handle = format!(
             "{}{}",
             uuid::Uuid::new_v4().simple(),
@@ -212,5 +257,19 @@ impl StepMedia for RunMediaRegistry {
         .map_err(refusal)?;
         tx.commit().map_err(refusal)?;
         Ok(handle)
+    }
+}
+
+fn lookup_context(reference: &Reference, receiver_node: &str) -> RunMediaLookupContext {
+    RunMediaLookupContext {
+        origin: RunMediaLookupOrigin::DurableRun,
+        plugin: reference.lineage.plugin.clone(),
+        workspace: reference.scope.workspace.clone(),
+        team: reference.scope.team.clone(),
+        owner: reference.owner.clone(),
+        run: reference.scope.run.clone(),
+        producer_operation: reference.lineage.operation.clone(),
+        producer_port: reference.lineage.port.clone(),
+        receiver_node: receiver_node.into(),
     }
 }

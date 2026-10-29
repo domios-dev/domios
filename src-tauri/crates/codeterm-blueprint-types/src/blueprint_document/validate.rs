@@ -216,6 +216,27 @@ fn nodes(
             ));
         }
         errors.extend(super::code_contract::errors(node, &path));
+        if let Some(NodeKind::Plugin(id)) = &node.uses {
+            if !namespaced_plugin_step(id)
+                || node.plugin.as_ref().is_none_or(|config| {
+                    config.revision == 0
+                        || config.spending.unit.is_empty()
+                        || config.spending.unit.len() > 64
+                        || !config.spending.unit.bytes().all(|b| {
+                            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-')
+                        })
+                        || config.spending.run_ceiling > 9_007_199_254_740_991
+                        || config.spending.step_allowance > 9_007_199_254_740_991
+                })
+            {
+                errors.push((format!("{path}.plugin"), "Declare a namespaced step, positive revision and bounded spending unit/allowances".into()));
+            }
+        } else if node.plugin.is_some() {
+            errors.push((
+                format!("{path}.plugin"),
+                "Plugin settings require a namespaced step".into(),
+            ));
+        }
         if let Some(code) = &node.code {
             if code.src.is_some() == code.file.is_some() {
                 errors.push((
@@ -316,7 +337,10 @@ fn nodes(
             }
         }
         for (field, bind) in &node.bind {
-            if !data_slot(node, field) && !matches!(node.kind(), "code" | "command") {
+            if !data_slot(node, field)
+                && !matches!(node.kind(), "code" | "command" | "agent")
+                && !node.uses.as_ref().is_some_and(NodeKind::plugin)
+            {
                 errors.push((
                     format!("{path}.bind.{field}"),
                     "Runtime binds are allowed only in data slots".into(),
@@ -331,7 +355,8 @@ fn nodes(
             ));
         }
         if node.bind.len() > 32
-            || matches!(node.kind(), "code" | "command")
+            || (matches!(node.kind(), "code" | "command" | "agent")
+                || node.uses.as_ref().is_some_and(NodeKind::plugin))
                 && node
                     .bind
                     .keys()

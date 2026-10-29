@@ -168,7 +168,9 @@ use integer atomic units such as `usd_micro` or `credit_milli`; run ceilings
 are independent per unit. Requests carry host-owned operation identity and
 attribution; reuse the exact operation for reconciliation. An uncertain submit
 must never be replayed. `waiting_for_owner_ok` is a distinct owner hold, with
-`estimate_missing`, `estimate_stale`, `over_run_ceiling` or `over_step_allowance`.
+`estimate_missing`, `estimate_stale`, `over_run_ceiling`, `over_step_allowance`
+or `owner_confirmation`. Parameters/JSON ports support closed bounded nested
+schemas and finite discriminated alternatives; model catalogs remain plugin-owned.
 
 Owner approval may grant one operation an exception to the remaining run ceiling.
 `BlueprintOperationApproval` records its exact scope, unit and maximum with
@@ -181,10 +183,29 @@ Backend media outputs use `{kind: "media_source", id, media}` for an existing
 plugin-owned artifact. Host handles are inputs only and require an explicit
 receiving-step grant. UI frame tokens cannot be used as run handles.
 
-The current foundation lists these descriptors with `available: false` and
-`hold_reason: "plugin_step_runner_unavailable"`. YAML execution, owner decision
-transport, plugin history updates and media delivery are awaiting runner
-integration. Declaring a node does not authorize submission.
+The forward runner accepts namespaced YAML steps with pinned revision, per-unit
+spending and typed forward bindings. Holds retain the exact cursor and outputs.
+Declaring a node does not authorize submission. `refresh_estimate` is quote-only.
+
+`capabilities.jobLifecycle` declares frame-independent exact-job observation.
+`host.jobs.admit()` persists trusted origin before effects; `track(operation,job)`
+retains an existing id before monitor admission. These calls grant no submission
+or spending authority. Implement `jobReconcile` and optional `jobCancel` through
+the synchronous continuation bridge. `return host.surface.dispatch(verb,args)`
+carries sanctioned continuations from an agent surface handler; never a Promise.
+
+Static manifest `capabilities.costUnits` declares atomic unit display metadata:
+`{usd_micro:{one:"micro-dollar",other:"micro-dollars",currency:{code:"USD",scale:6}}}`.
+Use `formatCostAmount(amount,unit,units)` for all studio prices. Currency metadata
+describes an existing denomination, never conversion. Formatting is exact,
+trims trailing zeros beyond two decimal places, and keeps undeclared units
+explicit. Native and SDK formatters share a fixture. Frame strings grant no spend.
+
+`ct.openRun(reference)` and `ct.decideOperation({operation,decisionKey,action})`
+require a foreground gesture/current private document. Approval previews the
+host quote and asks through a host-owned bar. Actions are approve/check_price/
+check/cancel; unknown offers no paid retry. Runtime/release proof and the minimum
+published host version accompany integration separately.
 
 ## Decision model capability
 
@@ -251,3 +272,4 @@ export default plugin;
 `capabilities.receiverStatusQuery` declares one immutable HID status request (2–64bytes), application-collection usage and reportID. `host.localRecording.statusReport()` exchanges only that declaration with a sibling collection belonging to the exact selected receiver; persisted `local_recording` grant and current selection/availability are checked before and after IO. No device path or request argument is exposed. The plugin owns decoding, connection/battery semantics and `statusBubble`; unsupported platforms or unavailable status return a refusal. `TabContext.tabId` identifies the host-supplied bubble recipient.
 
 `localRecordingTrigger.button` supplies the selected interface/collection, report schema, approved singleton button usages, press usage and duplicate window. Native adapters validate that declared shape instead of branching on manufacturer identity. A missing native mapping remains unavailable.
+

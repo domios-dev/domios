@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 use crate::scheduler::Handle;
 #[cfg(test)]
 mod plugin_steps_tests;
+mod plugin_validation;
 use codeterm_service_core::service::ServiceContext;
 
 pub trait BlueprintExt {
@@ -113,6 +114,7 @@ impl BlueprintExt for ServiceContext {
                     checks.push(field_check(&format!("steps[{index}].github"), &errors));
                 }
                 StepKind::Command { .. }
+                | StepKind::Plugin { .. }
                 | StepKind::Code { .. }
                 | StepKind::Call { .. }
                 | StepKind::Effect { .. } => {}
@@ -171,7 +173,7 @@ impl BlueprintExt for ServiceContext {
             nodes.push(
                 json!({"role":"step", "kind":step.descriptor.id, "title":step.descriptor.title,
                 "plugin":step.plugin, "descriptor":step.descriptor,
-                "available":false, "hold_reason":"plugin_step_runner_unavailable"}),
+                "available":true}),
             );
         }
         for (_, conversion) in self
@@ -268,6 +270,7 @@ impl BlueprintExt for ServiceContext {
         let mut errors = codeterm_blueprint_types::blueprint_pipeline::validate(spec, &converters)
             .err()
             .unwrap_or_default();
+        errors.extend(plugin_validation::validate(self, spec));
         for (index, step) in spec.steps.iter().enumerate() {
             if let StepKind::Agent { provider, .. } = &step.kind {
                 if !self

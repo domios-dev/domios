@@ -12,6 +12,8 @@ pub(super) fn run_step(
     input_display: &str,
     cleanup: Option<std::sync::Arc<crate::input::Cleanup>>,
     limit: Duration,
+    agent_media: Vec<codeterm_plugin::agent_task::AgentTaskMedia>,
+    run_id: &str,
 ) -> StepResult {
     let previous_text = input.payload_text();
     let previous = previous_text.as_str();
@@ -19,7 +21,7 @@ pub(super) fn run_step(
         return failed_input_step(reason);
     }
     match &step.kind {
-        StepKind::Call { .. } | StepKind::Effect { .. } => {
+        StepKind::Call { .. } | StepKind::Effect { .. } | StepKind::Plugin { .. } => {
             failed_input_step("call_context_required")
         }
         StepKind::Code { code } => super::code::run(handle, lease, step, code, input, limit),
@@ -27,6 +29,7 @@ pub(super) fn run_step(
             sources::run(handle, lease, step, input, limit)
         }
         StepKind::Agent {
+            review,
             provider,
             profile,
             task,
@@ -46,12 +49,13 @@ pub(super) fn run_step(
                 crate::agent_stage::effective_deadline(*deadline_ms, remaining, Instant::now());
             let request = codeterm_plugin::agent_task::AgentTaskRequest {
                 input: codeterm_plugin::agent_task::AgentTaskInput {
-                    run_id: uuid::Uuid::new_v4().simple().to_string(),
+                    run_id: run_id.into(),
                     tab_id: lease.job.creator_tab_id.clone(),
                     workspace_id: lease.job.workspace_id.clone(),
                     profile: profile.clone(),
                     task: task.clone(),
                     input: previous.into(),
+                    media: agent_media,
                     timeout_ms: deadline
                         .saturating_duration_since(Instant::now())
                         .as_millis()
@@ -73,14 +77,27 @@ pub(super) fn run_step(
                     output: serde_json::Value::Null,
                     error: Some(error),
                 });
-            let (done, _) = crate::agent_stage::result_fields(&result);
+            let (mut done, _) = crate::agent_stage::result_fields(&result);
+            let verdict = if *review && done {
+                super::agent_media::review_verdict(&result.output).ok()
+            } else {
+                None
+            };
+            if *review && verdict.is_none() {
+                done = false;
+            }
+            let outcome = if done {
+                verdict.unwrap_or("done")
+            } else {
+                "failed"
+            };
             StepResult {
-                outcome: if done {
-                    StepOutcome::Done
-                } else {
-                    StepOutcome::Failed
+                outcome: match outcome {
+                    "done" => StepOutcome::Done,
+                    "failed" => StepOutcome::Failed,
+                    verdict => StepOutcome::Bucket(verdict.into()),
                 },
-                stored_outcome: if done { "done" } else { "failed" }.into(),
+                stored_outcome: outcome.into(),
                 state: if done {
                     JournalState::Done
                 } else {

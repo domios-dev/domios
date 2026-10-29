@@ -15,211 +15,8 @@ use arguments::Arguments;
 use parking_lot::Mutex;
 use rquickjs::{CatchResultExt, Context, Function, Runtime, Value};
 
-/// Convenience layer wrapped around the raw `host` API. Loaded into
-/// every plugin VM right after `host_api::install` and before the
-/// plugin's own code, so plugin authors get parsed objects out of
-/// readDir/walkDir/sqliteQuery/manifest without writing JSON.parse
-/// boilerplate at every call site.
-///
-/// Keep `host.readDirJson` / `host.walkDirJson` / `host.sqliteQueryAllJson`
-/// / `host.manifestJson` reachable as raw escape hatches; the preamble
-/// only **adds** properties, never shadows the raw ones.
-const PLUGIN_PREAMBLE: &str = r#"
-(function() {
-  if (typeof host !== "object" || host === null) return;
-  function parseJson(s) {
-    if (s === null || s === undefined) return null;
-    try { return JSON.parse(s); } catch (_) { return null; }
-  }
-  // The SDK declares readFile as string | null; the native binding yields undefined.
-  var nativeReadFile = host.readFile;
-  host.readFile = function (p) { var s = nativeReadFile(p); return s === undefined ? null : s; };
-  host.fs = {
-    readFile:      host.readFile,
-    readFileHead:  host.readFileHead,
-    readFileTail:  host.readFileTail,
-    writeFile:     host.writeFile,
-    writeFileAtomic: host.writeFileAtomic,
-    lockFile:      host.lockFile,
-    unlockFile:    host.unlockFile,
-    removeFile:    host.removeFile,
-    makeDirs:      host.makeDirs,
-    fileExists:    host.fileExists,
-    isSymlink:     host.isSymlink,
-    expandHome:    host.expandHome,
-    writeTempFile: host.writeTempFile,
-    readDir: function (p) { return parseJson(host.readDirJson(p)) || []; },
-    walkDir: function (p, maxDepth) {
-      var d = (maxDepth === undefined || maxDepth === null) ? 8 : (maxDepth | 0);
-      return parseJson(host.walkDirJson(p, d)) || [];
-    },
-    sqliteQuery: function (db, sql, params) {
-      var pj = (params === undefined || params === null) ? null : JSON.stringify(params);
-      return parseJson(host.sqliteQueryAllJson(db, sql, pj)) || [];
-    },
-    // Same rows as sqliteQuery, read on a host thread while the VM serves other calls.
-    sqliteQueryAsync: function (db, sql, params, then) {
-      if (typeof then !== "function") { throw new Error("host.fs.sqliteQueryAsync requires a continuation function"); }
-      var pj = (params === undefined || params === null) ? null : JSON.stringify(params);
-      var j = parseJson(host.sqliteQueryStart(db, sql, pj));
-      if (j && typeof j.jobId === "string") {
-        return host.awaitJob(j.jobId, function (r) {
-          if (r && typeof r.rangeError === "string") { throw new RangeError(r.rangeError); }
-          return then((r && r.rows) || []);
-        });
-      }
-      if (j && typeof j.error === "string") { return then(host.fs.sqliteQuery(db, sql, params)); }
-      return then([]);
-    },
-    readJson: function (p) {
-      var s = host.readFile(p);
-      return s === null || s === undefined ? null : parseJson(s);
-    },
-    writeJson: function (p, value) {
-      return host.writeFile(p, JSON.stringify(value, null, 2));
-    },
-  };
-  host.shell = {
-    quote:     host.shellQuote,
-    quoteFor:  host.shellQuoteFor,
-    envPrefix: host.shellEnvPrefix,
-  };
-  host.toolcall = {
-    parse: host.toolcallParse,
-  };
-  // Normalize/slurp path variants (native vs forwarded slash forms) before comparisons.
-  // Session detection depends on semantic equality, not raw string equality.
-  host.path = {
-    isWindows: host.platform() === "windows",
-    toForwardSlash: function (p) { return String(p || "").replace(/\\/g, "/"); },
-    toNative: function (p) {
-      var s = String(p || "");
-      return host.path.isWindows ? s.replace(/\//g, "\\") : s.replace(/\\/g, "/");
-    },
-    normalize: function (p) {
-      var s = String(p || "").replace(/\\/g, "/");
-      return host.path.isWindows ? s.toLowerCase() : s;
-    },
-    equal: function (a, b) {
-      return host.path.normalize(a) === host.path.normalize(b);
-    },
-  };
-  host.manifest = function () { return parseJson(host.manifestJson()); };
-  // null = denied/unreadable; [] = readable but no child dirs.
-  host.listChildDirs = function (p) { return parseJson(host.listChildDirsJson(p)); };
-
-  // sync per step). Not Promise-wrapped: QuickJS can't drain a Promise in a sync `call_json` dispatch.
-  host.mem = {
-    search: function (opts) { return parseJson(host.memSearch(JSON.stringify(opts))) || { hits: [] }; },
-  };
-  // null means the host could not answer; a refusal arrives as an { error } object.
-  host.analytics = {
-    query: function (query) { return parseJson(host.analyticsQuery(JSON.stringify(query || {}))); },
-  };
-  host.events = {
-    emit: function (event) { return parseJson(host.graphEventEmit(JSON.stringify(event || {}))); },
-  };
-  // Returns the JSON text `{ result }` or `{ error }` exactly as the host produced it.
-  host.surface = {
-    call: function (verb, argsJson) {
-      var args = typeof argsJson === "string" ? argsJson : JSON.stringify(argsJson === undefined ? [] : argsJson);
-      var reply = host.surfaceCall(String(verb || ""), args);
-      var plan = parseJson(reply);
-      if (!plan || !plan.view_dispatch) return reply;
-      var dispatch = plan.view_dispatch;
-      // Reuse this active VM: re-entering the ViewProvider port would lock the same VM.
-      try {
-        if (!globalThis.__plugin__ || typeof globalThis.__plugin__.onSurfaceCall !== "function")
-          return JSON.stringify({error:"plugin declares view verbs but has no onSurfaceCall"});
-        var result = globalThis.__plugin__.onSurfaceCall(dispatch.context, dispatch.verb, dispatch.args);
-        if (typeof result !== "string") return JSON.stringify({error:"onSurfaceCall must return a string"});
-        if (result.length > 32768) return JSON.stringify({error:"surface result exceeds 32768 characters"});
-        return JSON.stringify({result:result});
-      } catch (_) { return JSON.stringify({error:"view surface verb failed"}); }
-    },
-    invalidate: function (identity) { return parseJson(host.surfaceInvalidate(JSON.stringify(identity || {}))); },
-  };
-  host.receiverTarget = {
-    get:   function () { return parseJson(host.receiverTargetGet()); },
-    clear: function () { return parseJson(host.receiverTargetClear()); },
-  };
-  host.localRecording = {
-    listInputDevices: function () { return parseJson(host.localRecordingInputs()); },
-    selectDevices: function (devices) { return parseJson(host.localRecordingSelect(JSON.stringify(devices))); },
-    savedSelection: function () { return parseJson(host.localRecordingSavedSelection()); },
-    statusReport: function () { return parseJson(host.receiverStatusReport()); },
-    status: function () { return parseJson(host.localRecordingStatus()); },
-    setEnabled: function (enabled) { return parseJson(host.localRecordingSetEnabled(enabled === true)); },
-  };
-  host.workspace = {
-    ensure: function (opts) { return parseJson(host.workspaceEnsure(JSON.stringify(opts))); },
-    tabs: function (workspaceId) { return parseJson(host.workspaceTabs(workspaceId)) || []; },
-  };
-  host.worker = {
-    start: function (opts) { return parseJson(host.workerStart(JSON.stringify(opts))); },
-    poll:  function (jobId) { return parseJson(host.workerPoll(jobId)); },
-  };
-  host.progress = function (opts) { return host.progressRaw(JSON.stringify(opts || {})); };
-  host.agent = {
-    spawn:  function (workspaceId, opts) { return parseJson(host.agentSpawn(workspaceId, JSON.stringify(opts))); },
-    resume: function (workspaceId, sessionId) { return parseJson(host.agentResume(workspaceId, sessionId)); },
-    get:    function (workspaceId, key) { return parseJson(host.agentGet(workspaceId, key)); },
-    send:   function (sessionId, text) { return parseJson(host.agentSend(sessionId, text)); },
-    poll:   function (ticket) { return parseJson(host.agentPoll(ticket)); },
-    reap:   function (sessionId) { host.agentReap(sessionId); },
-    usage:  function (sessionId) { return parseJson(host.agentUsage(sessionId)); },
-  };
-  host.transfer = {
-    start: function(opts) { return parseJson(host.transferStart(JSON.stringify(opts))); },
-    abort: function(jobId) { return host.transferAbort(jobId); },
-    bindInput: function(handle,destinationOrigin,then) {
-      if (typeof then !== "function") throw new Error("host.transfer.bindInput requires a continuation");
-      var job=parseJson(host.transferBindInput(JSON.stringify({handle:handle,destinationOrigin:destinationOrigin})));
-      if (!job || typeof job.jobId!=="string") return then(job);
-      return host.awaitJob(job.jobId,then);
-    },
-    async: function(opts, then) {
-      if (typeof then !== "function") throw new Error("host.transfer.async requires a continuation");
-      var job = this.start(opts);
-      if (!job || typeof job.jobId !== "string") return then(job);
-      return host.awaitJob(job.jobId, then);
-    },
-  };
-  host.fetch.stream = function (opts) { return parseJson(host.fetchStream(JSON.stringify(opts))); };
-  host.fetch.streamPoll = function (jobId) { return parseJson(host.fetchStreamPoll(jobId)); };
-  host.fetch.streamClose = function (jobId) { host.fetchStreamClose(jobId); };
-  host.fetch.async = function (opts, then) {
-    if (typeof then !== "function") { throw new Error("host.fetch.async requires a continuation function"); }
-    var j = parseJson(host.fetchStart(JSON.stringify(opts)));
-    if (!j || typeof j.jobId !== "string") { return then({ error: (j && j.error) || "fetch start failed" }); }
-    return host.awaitJob(j.jobId, then);
-  };
-  // Async exec (job-id + poll) so a slow tool call never holds the shared VM lock for its whole duration.
-  host.exec.start = function (opts) { return parseJson(host.execStart(JSON.stringify(opts))); };
-  host.exec.poll = function (jobId) { return parseJson(host.execPoll(jobId)); };
-  host.exec.close = function (jobId) { host.execClose(jobId); };
-  // Awaiting a job must release the VM frame so the host can complete it and re-enter only for the continuation.
-  var __awaitSeq__ = 0;
-  var __awaits__ = {};
-  globalThis.__ct_await_take__ = function (k) {
-    var f = __awaits__[k];
-    delete __awaits__[k];
-    return f;
-  };
-  host.awaitJob = function (jobId, then) {
-    if (typeof then !== "function") { throw new Error("host.awaitJob requires a continuation function"); }
-    if (typeof jobId !== "string" || jobId === "") { return then({ error: "host.awaitJob: missing job id" }); }
-    var k = String(++__awaitSeq__);
-    __awaits__[k] = then;
-    return { __ctAwait__: { job: jobId, k: k } };
-  };
-  host.exec.async = function (opts, then) {
-    var j = host.exec.start(opts);
-    if (!j || typeof j.jobId !== "string") { return then({ error: (j && j.error) || "exec.start failed" }); }
-    return host.awaitJob(j.jobId, then);
-  };
-})();
-"#;
+mod bootstrap;
+use bootstrap::PLUGIN_PREAMBLE;
 
 const INVOKE_HELPERS: &str = r#"
 globalThis.__ct_call_args__ = function () {
@@ -760,46 +557,23 @@ fn call_prepared<R: serde::de::DeserializeOwned>(
         return Err(VmError::MissingFunction(method.to_owned()));
     }
     let _file_lock_scope = super::host_api::FileLockCallScope::new();
+    let _surface_scope = crate::surface_invocation::RootScope::enter(&vm.plugin_id);
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| {
         call_json_inner_interruptible::<R>(vm, method, args, strict, interrupt)
     });
-    match std::panic::catch_unwind(run) {
+    let result = match std::panic::catch_unwind(run) {
         Ok(res) => res,
         Err(_) => Err(VmError::Script(format!(
             "{method}: plugin panicked (caught — provider isolated)"
         ))),
-    }
+    };
+    awaits::discard_root(vm);
+    result
 }
 
-/// A method that returned `host.awaitJob(job, then)` instead of a value. Matched by
-/// exact shape (sole key, two string fields) so an ordinary object return is
-/// never mistaken for one.
-struct AwaitRequest {
-    job: String,
-    continuation: String,
-}
-
-const AWAIT_MARKER_PREFIX: &str = "{\"__ctAwait__\":";
-
-fn parse_await(result_json: &str) -> Option<AwaitRequest> {
-    if !result_json.starts_with(AWAIT_MARKER_PREFIX) {
-        return None;
-    }
-    let value: serde_json::Value = serde_json::from_str(result_json).ok()?;
-    let outer = value.as_object()?;
-    if outer.len() != 1 {
-        return None;
-    }
-    let marker = outer.get("__ctAwait__")?.as_object()?;
-    if marker.len() != 2 {
-        return None;
-    }
-    Some(AwaitRequest {
-        job: marker.get("job")?.as_str()?.to_string(),
-        continuation: marker.get("k")?.as_str()?.to_string(),
-    })
-}
+mod awaits;
+use awaits::parse_await;
 
 fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
@@ -814,7 +588,19 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
         timing.enter("vm_wait");
     }
     let mut result_json = enter_call(vm, method, args, strict, interrupt.clone(), timing.as_mut())?;
+    let mut continuations = 0;
     while let Some(pending) = parse_await(&result_json) {
+        continuations += 1;
+        if continuations > 256 {
+            awaits::discard(vm, &pending);
+            return Err(VmError::Script("await continuation limit reached".into()));
+        }
+        awaits::validate(
+            vm,
+            method,
+            &pending,
+            interrupt.as_ref().map(|(_, deadline)| *deadline),
+        )?;
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
         let waited = match &interrupt {
@@ -829,17 +615,15 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
         let job_result = match waited {
             super::host_exec::WaitResult::Completed(result) => result,
             super::host_exec::WaitResult::TimedOut => {
-                if let Some(inner) = vm.inner.try_lock() {
-                    inner._ctx.with(|ctx| {
-                        if let Ok(take) = ctx.globals().get::<_, Function>("__ct_await_take__") {
-                            let _ =
-                                take.call::<_, rquickjs::Value>((pending.continuation.as_str(),));
-                        }
-                    });
-                }
+                awaits::discard(vm, &pending);
                 return Err(VmError::AsyncJobTimedOut);
             }
         };
+        let _resume = crate::surface_invocation::ResumeScope::enter(
+            &pending.continuation,
+            &pending.job,
+            false,
+        );
         result_json = resume_call(
             vm,
             method,

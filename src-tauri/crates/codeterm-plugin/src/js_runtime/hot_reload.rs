@@ -123,10 +123,11 @@ impl CapabilityRegistries {
                 && (!caps.graph_nodes.steps.iter().any(|s| s.lifecycle.cancel)
                     || super::has_method(vm, "blueprintCancel"));
             if exports {
-                if let Err(error) = self.graph_nodes.register_steps(
+                if let Err(error) = self.graph_nodes.register_steps_with_units(
                     id,
                     &caps.graph_nodes.steps,
                     Arc::new(super::JsBlueprintStep::new(vm.clone())),
+                    caps.cost_units.clone(),
                 ) {
                     log::error!("[plugin] step registration refused: {error}");
                 }
@@ -193,7 +194,8 @@ impl CapabilityRegistries {
                     )
                     .with_host_actions(caps.view_host_actions.clone())
                     .with_view_inputs(caps.view_inputs.as_ref())
-                    .with_media_delivery(caps.media_delivery.clone()),
+                    .with_media_delivery(caps.media_delivery.clone())
+                    .with_job_lifecycle(caps.job_lifecycle.clone()),
                 ),
             );
         }

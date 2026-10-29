@@ -226,6 +226,7 @@ export interface BlueprintRunSnapshot extends BlueprintProjection {
 }
 
 export interface BlueprintSnapshot extends BlueprintProjection {
+  plugin_hold?: {run:string;node:string;operation:string;state:string;reason:string} | null;
   note?: string | null;
   stopped_at?: number | null;
   deletes_at?: number | null;

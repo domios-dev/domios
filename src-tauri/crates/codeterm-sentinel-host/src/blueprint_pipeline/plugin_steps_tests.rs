@@ -21,7 +21,7 @@ impl BlueprintStep for Unavailable {
 }
 
 #[test]
-fn plugin_steps_catalog_is_discoverable_removed_and_execution_stays_closed() {
+fn plugin_steps_catalog_is_discoverable_and_removal_revokes_admission() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let registry = fixture
@@ -41,8 +41,8 @@ fn plugin_steps_catalog_is_discoverable_removed_and_execution_stays_closed() {
         .find(|node| node["kind"] == "fixture.generate")
         .unwrap();
     assert_eq!(node["descriptor"]["contractVersion"], 1);
-    assert_eq!(node["available"], false);
-    assert_eq!(node["hold_reason"], "plugin_step_runner_unavailable");
+    assert_eq!(node["available"], true);
+    assert!(node.get("hold_reason").is_none());
     assert!(serde_json::from_value::<StepKind>(json!({"kind":"fixture.generate"})).is_err());
     registry.unregister("fixture");
     assert!(!fixture

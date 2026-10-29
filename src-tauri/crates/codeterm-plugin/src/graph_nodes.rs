@@ -14,6 +14,7 @@ pub struct GraphNodeRegistry {
 
 #[derive(Clone)]
 pub struct RegisteredStep {
+    pub cost_units: crate::cost_units::CostUnits,
     pub plugin: String,
     pub descriptor: StepDescriptor,
     pub adapter: Arc<dyn BlueprintStep>,
@@ -99,6 +100,16 @@ impl GraphNodeRegistry {
         descriptors: &[StepDescriptor],
         adapter: Arc<dyn BlueprintStep>,
     ) -> Result<(), String> {
+        self.register_steps_with_units(plugin, descriptors, adapter, Default::default())
+    }
+
+    pub fn register_steps_with_units(
+        &self,
+        plugin: &str,
+        descriptors: &[StepDescriptor],
+        adapter: Arc<dyn BlueprintStep>,
+        cost_units: crate::cost_units::CostUnits,
+    ) -> Result<(), String> {
         if descriptors.len() > crate::blueprint_step::MAX_STEP_DESCRIPTORS {
             return Err("too many plugin steps".into());
         }
@@ -130,6 +141,7 @@ impl GraphNodeRegistry {
             adapter,
         });
         steps.extend(descriptors.iter().map(|descriptor| RegisteredStep {
+            cost_units: cost_units.clone(),
             plugin: plugin.into(),
             descriptor: descriptor.clone(),
             adapter: adapter.clone(),

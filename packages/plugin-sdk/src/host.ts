@@ -410,6 +410,7 @@ export interface HostLocalRecording {
 
 // Acts on the calling agent's authorized surface; only inside onAgentCommand, with the `surfaces` grant.
 export interface HostSurface {
+  dispatch(verb: string, argsJson?: string | string[] | { args: string[]; of?: string }): { result: string } | { error: string };
   // Returns the JSON text `{ "result": string }` or `{ "error": string }`.
   call(verb: string, argsJson: string): string;
   /** Identity only; plugin identity comes from the sandbox. Returns {ok:true} or {error}. */
@@ -473,6 +474,7 @@ export interface Host {
   // The VM must yield while the job completes so a plugin cannot block other calls.
   awaitJob<T, R = ExecPollResult>(jobId: string, then: (result: R) => T): T;
   transfer: import("./binaryTransfer").HostTransfer;
+  jobs: import("./pluginJobs").HostJobs;
   transferStart(optsJson: string): string;
   transferAbort(jobId: string): boolean;
   transferBindInput(requestJson: string): string;
