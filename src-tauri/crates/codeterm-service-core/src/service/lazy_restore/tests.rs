@@ -3,6 +3,28 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
 
 #[test]
+fn startup_does_not_freeze_an_already_owned_pty_with_idle_hooks() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.restored_from_snapshot = true;
+    tab.agent_type = Some("fixture".into());
+    tab.pty_id = Some("own-working-pty".into());
+    tab.agent_state = Some(
+        codeterm_types::pty::TabVerdict {
+            state: codeterm_types::pty::TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+    let fixture = ServiceFixture::new(mux);
+    initialize(&fixture.service, 0);
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert!(!tab.frozen);
+    assert_eq!(tab.pty_id.as_deref(), Some("own-working-pty"));
+}
+
+#[test]
 fn focus_wakes_failed_sleeping_chat_on_its_own_session() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();

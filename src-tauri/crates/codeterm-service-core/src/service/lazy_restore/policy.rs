@@ -39,6 +39,9 @@ pub(super) fn continuing_tabs(plans: &[Plan]) -> HashSet<String> {
 }
 
 pub(super) fn decision(tab: &Tab, continuing: bool, shell: RestoreDecision) -> RestoreDecision {
+    if tab.pty_id.is_some() {
+        return RestoreDecision::Start;
+    }
     if tab.agent_type.is_none() || tab.protected {
         return shell;
     }
