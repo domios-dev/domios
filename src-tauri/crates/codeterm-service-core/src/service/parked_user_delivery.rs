@@ -53,6 +53,7 @@ mod handoff;
 mod liveness;
 use handoff::{PayloadEnqueued, UserWrite};
 mod owner_wake;
+mod startup_override;
 use owner_wake::OwnerWakeBoundary;
 
 fn is_prelaunch_stage(stage: Option<codeterm_types::pty::BootStage>) -> bool {

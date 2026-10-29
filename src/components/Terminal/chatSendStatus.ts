@@ -83,6 +83,7 @@ export async function sendTrackedChatMessage(
   tabId: string,
   messageId: string,
   message: string,
+  startupOverrideNonce?: string | null,
 ): Promise<ChatSendStatus> {
   const key = admissionKey(tabId, messageId);
   activeAdmissions.add(key);
@@ -91,6 +92,7 @@ export async function sendTrackedChatMessage(
       tabId,
       text: message,
       clientToken: messageId,
+      ...(startupOverrideNonce ? { startupOverrideNonce } : {}),
     });
     observeDeliveryStatus(status);
     return status;
@@ -128,6 +130,8 @@ export function isProvenAdmissionRefusal(error: unknown): boolean {
     "user admission sequence exhausted",
     "user token retention capacity reached",
     "user original exceeds 4 MiB storage bound",
+    "startup override ",
+    "Startup override ",
   ].some((refusal) => message.includes(refusal));
 }
 

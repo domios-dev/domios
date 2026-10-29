@@ -14,6 +14,26 @@ fn launch() -> UserSendAuthority {
 }
 
 #[test]
+fn dispatch_proof_never_marks_ready_and_cannot_cross_nonce_pty_or_generation() {
+    let mut latch = ReadyLaunchLatch::default();
+    let authority = launch();
+    assert!(!latch.was_dispatched(&authority));
+    assert!(latch.mark_dispatched(&authority));
+    assert!(!latch.is_ready(&authority));
+    let mut next = authority.clone();
+    next.binding_nonce = "other-launch".into();
+    assert!(!latch.was_dispatched(&next));
+    next = authority.clone();
+    next.pty_id = Some("other-pty".into());
+    assert!(!latch.was_dispatched(&next));
+    next = authority.clone();
+    next.pty_session_generation = Some(2);
+    assert!(!latch.was_dispatched(&next));
+    next.pty_session_generation = None;
+    assert!(!latch.mark_dispatched(&next));
+}
+
+#[test]
 fn ready_once_ignores_session_detection_and_survives_busy_unknown_chat_and_supporter_changes() {
     let mut latch = ReadyLaunchLatch::default();
     let mut authority = launch();

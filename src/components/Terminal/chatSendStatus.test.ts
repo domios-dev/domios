@@ -157,6 +157,9 @@ test("request rejection is logged and rethrown without a UI status channel", asy
 
 test("only proven pre-admission refusal allows Retry", () => {
   assert.equal(isProvenAdmissionRefusal(new Error("user send capacity: 32 unsettled admissions")), true);
+  assert.equal(isProvenAdmissionRefusal(new Error("startup override requires the provider launch command to be written")), true);
+  assert.equal(isProvenAdmissionRefusal(new Error("Startup override requires authenticated owner authority")), true);
+  assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: startup override response lost")), false);
   assert.equal(isProvenAdmissionRefusal(new Error("admission_unknown: durability could not be qualified")), false);
   assert.equal(isProvenAdmissionRefusal(new TypeError("Failed to fetch")), false);
   assert.equal(isProvenAdmissionRefusal(new Error("connection reset")), false);

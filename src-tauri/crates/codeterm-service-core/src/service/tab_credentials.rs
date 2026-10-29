@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
 use parking_lot::Mutex;
+mod handoff;
+pub(crate) use handoff::CredentialFile;
+use handoff::CredentialHandoff;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TabCaller {
@@ -117,7 +120,10 @@ struct Credential {
 }
 
 #[derive(Default)]
-pub(crate) struct TabCredentials(Mutex<HashMap<String, Credential>>);
+pub(crate) struct TabCredentials(
+    Mutex<HashMap<String, Credential>>,
+    Mutex<HashMap<String, CredentialHandoff>>,
+);
 
 impl TabCredentials {
     fn mint(&self, caller: TabCaller) -> String {
@@ -130,6 +136,7 @@ impl TabCredentials {
                 session: None,
             });
         if entry.caller != caller {
+            self.1.lock().remove(&caller.tab_id);
             *entry = Credential {
                 token: uuid::Uuid::new_v4().to_string(),
                 caller,
@@ -158,6 +165,7 @@ impl TabCredentials {
             if !matches {
                 let tab_id = tab_id.clone();
                 credentials.remove(&tab_id);
+                self.1.lock().remove(&tab_id);
             }
             return matches;
         }
@@ -172,6 +180,7 @@ impl TabCredentials {
         if let Some(credential) = credentials.get_mut(tab_id) {
             if credential.session.is_some() || next.is_none() {
                 credentials.remove(tab_id);
+                self.1.lock().remove(tab_id);
             } else {
                 credential.session = next.map(str::to_owned);
             }
@@ -179,17 +188,55 @@ impl TabCredentials {
     }
 
     fn revoke_token(&self, token: &str) {
-        self.0.lock().retain(|_, credential| {
-            !super::tokens::constant_time_eq(credential.token.as_bytes(), token.as_bytes())
+        let mut retired = Vec::new();
+        self.0.lock().retain(|tab, credential| {
+            let keep = !super::tokens::constant_time_eq(credential.token.as_bytes(), token.as_bytes());
+            if !keep { retired.push(tab.clone()); }
+            keep
         });
+        let mut handoffs = self.1.lock();
+        for tab in retired { handoffs.remove(&tab); }
     }
 
     fn revoke(&self, tab_id: &str) {
         self.0.lock().remove(tab_id);
+        self.1.lock().remove(tab_id);
     }
 }
 
 impl super::ServiceContext {
+    pub(crate) fn retain_launch_credential_file(
+        &self,
+        tab_id: &str,
+        nonce: &str,
+        pty_id: &str,
+        file: CredentialFile,
+    ) -> Result<(), String> {
+        let mut handoffs = self.tab_credentials.1.lock();
+        match handoffs.entry(tab_id.into()) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                Err("launch already has an uncertain credential handoff".into())
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(CredentialHandoff {
+                    nonce: nonce.into(), pty_id: pty_id.into(), _file: file,
+                });
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn retire_launch_credential_file(&self, tab_id: &str) {
+        self.tab_credentials.1.lock().remove(tab_id);
+    }
+
+    pub(crate) fn finish_launch_credential_file(&self, tab_id: &str, pty_id: &str, nonce: &str) {
+        let mut handoffs = self.tab_credentials.1.lock();
+        if handoffs.get(tab_id).is_some_and(|handoff| handoff.nonce == nonce && handoff.pty_id == pty_id) {
+            handoffs.remove(tab_id);
+        }
+    }
+
     pub fn authenticate_local_credential(&self, token: &str) -> Result<Option<TabCaller>, String> {
         if token.is_empty() {
             return Err("A local API credential is required".into());
