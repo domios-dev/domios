@@ -11,6 +11,10 @@ use codeterm_service_core::plugin::js_runtime::ViewHostAction;
 use codeterm_service_core::plugin_media::{
     valid_media_handle, FrameMedia, MediaRefusal, OpenedMedia, PluginMediaResolver,
 };
+use codeterm_plugin::media_delivery::{
+    self, IngestLimits, IngestRefusal, IngestSource, ViewInputDescriptor,
+};
+use codeterm_plugin::view_host::ViewCallContext;
 use codeterm_service_core::view_host::{ViewRegistry, ViewRegistryHandle};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -22,8 +26,9 @@ pub struct HostActionRequest {
     pub action: ViewHostAction,
     #[serde(default)]
     pub handle: Option<String>,
-    /// Host-held token of the iframe generation that asked; media must belong to it.
-    #[serde(default)]
+    /// The asking document's frame, resolved by the daemon from the app-stamped private lease;
+    /// never read from the body (a body naming it is refused as an unknown field).
+    #[serde(skip)]
     pub frame: Option<String>,
     /// `saveAs` only: the path the user picked in the native save dialog.
     #[serde(default)]
@@ -107,10 +112,12 @@ fn write_failed(error: std::io::Error) -> Value {
     refused("unavailable", "write_failed")
 }
 
-/// Copy the already-opened media into a fresh, randomly named sibling temp file this call
-/// creates, then rename it over the destination. A failed copy never leaves a truncated file
-/// where the user asked for one, and cleanup only ever removes that temp file.
-fn copy_to(mut media: OpenedMedia, destination: &Path) -> Result<(), Value> {
+/// Copy exactly the registered length of the already-opened media into a fresh, randomly named
+/// sibling temp file this call creates, then rename it over the destination. Bytes the plugin
+/// appended after registration are never read; a file cut short after admission is refused.
+/// A failed copy never leaves a truncated file where the user asked for one, and cleanup only
+/// ever removes that temp file.
+fn copy_to(media: OpenedMedia, destination: &Path) -> Result<(), Value> {
     let folder = destination
         .parent()
         .ok_or_else(|| refused("invalid", "destination"))?;
@@ -118,7 +125,11 @@ fn copy_to(mut media: OpenedMedia, destination: &Path) -> Result<(), Value> {
         .prefix(".domios-save-")
         .tempfile_in(folder)
         .map_err(write_failed)?;
-    std::io::copy(&mut media.file, partial.as_file_mut()).map_err(write_failed)?;
+    let mut registered = std::io::Read::take(media.file, media.size);
+    let copied = std::io::copy(&mut registered, partial.as_file_mut()).map_err(write_failed)?;
+    if copied != media.size {
+        return Err(refused("unavailable", "media_changed"));
+    }
     partial.as_file().sync_all().map_err(write_failed)?;
     partial
         .persist(destination)
@@ -150,6 +161,21 @@ pub(super) fn perform(
         }),
         ViewHostAction::Reveal => open_media(resolver, media)
             .map(|opened| json!({ "ok": true, "path": opened.path.to_string_lossy() })),
+        // The app's preflight before it opens the picker: the declared kinds and bounds, so the
+        // dialog can filter. Files themselves only ever come in through the ingest route.
+        ViewHostAction::PickFile => registry
+            .get(&request.plugin_id)
+            .and_then(|provider| provider.view_inputs())
+            .filter(ViewInputDescriptor::valid)
+            .map(|inputs| {
+                json!({
+                    "ok": true,
+                    "accept": inputs.accept,
+                    "maxBytes": inputs.max_bytes,
+                    "maxFiles": inputs.max_files,
+                })
+            })
+            .ok_or_else(|| refused("denied", "undeclared")),
     };
     result.unwrap_or_else(|refusal| refusal)
 }
@@ -164,11 +190,49 @@ pub(super) fn open_download(
     open_media(resolver, media)
 }
 
+/// What the app stamped on a host-action request, from the asking document's loader: its private
+/// lease and its registration (presentation) key. Neither ever comes from the frame.
+#[derive(Clone, Copy)]
+pub struct DocumentStamp<'a> {
+    pub lease: Option<&'a str>,
+    pub registration: Option<&'a str>,
+}
+
+/// The asking document, proven by its private lease: the lease resolves to a live registration
+/// whose key is the stamped one, served by the plugin's current view provider, in a context the
+/// service still accepts. A retired, reminted or replaced document answers `denied / stale`.
+fn leased_frame(
+    svc: &codeterm_service_core::service::ServiceState,
+    plugin_id: &str,
+    stamp: DocumentStamp<'_>,
+) -> Result<(String, ViewCallContext), Value> {
+    let stale = || refused("denied", "stale");
+    let key = stamp
+        .registration
+        .filter(|key| valid_media_handle(key))
+        .ok_or_else(stale)?;
+    let (provider, context) =
+        media_delivery::view_frame(plugin_id, stamp.lease.ok_or_else(stale)?).map_err(|_| stale())?;
+    let current = svc.ext::<ViewRegistryHandle>().get(plugin_id).ok_or_else(stale)?;
+    if !std::sync::Arc::ptr_eq(&provider, &current)
+        || media_delivery::frame_context(plugin_id, key).map_err(|_| stale())? != context
+        || svc.validate_plugin_view_context(&context).is_err()
+    {
+        return Err(stale());
+    }
+    Ok((key.to_owned(), context))
+}
+
 /// Shared by the desktop app and the web mirror (`POST /api/plugins/view-host-action`).
 pub fn view_host_action(
     svc: &codeterm_service_core::service::ServiceState,
-    request: HostActionRequest,
+    mut request: HostActionRequest,
+    stamp: DocumentStamp<'_>,
 ) -> Value {
+    match leased_frame(svc, &request.plugin_id, stamp) {
+        Ok((frame, _)) => request.frame = Some(frame),
+        Err(refusal) => return refusal,
+    }
     perform(svc.ext::<ViewRegistryHandle>(), Some(&FrameMedia), request)
 }
 
@@ -176,15 +240,100 @@ pub fn view_host_action(
 pub fn view_host_download(
     svc: &codeterm_service_core::service::ServiceState,
     plugin_id: &str,
-    frame: Option<&str>,
+    stamp: DocumentStamp<'_>,
     handle: Option<&str>,
 ) -> Result<OpenedMedia, Value> {
+    let (frame, _) = leased_frame(svc, plugin_id, stamp)?;
     let media = MediaRef {
         plugin_id,
-        frame,
+        frame: Some(&frame),
         handle,
     };
     open_download(svc.ext::<ViewRegistryHandle>(), Some(&FrameMedia), media)
+}
+
+/// Where a picked file comes from: the file the app's native open dialog chose, already opened
+/// without following links (desktop), or the bounded request body (web mirror). Never a frame value.
+pub enum PickedSource {
+    Opened(std::fs::File),
+    Body(Box<dyn std::io::Read + Send>),
+}
+
+fn ingest_refusal(refusal: IngestRefusal) -> Value {
+    match refusal {
+        IngestRefusal::UnknownFrame => refused("denied", "stale"),
+        IngestRefusal::TooLarge => refused("invalid", "too_large"),
+        IngestRefusal::TypeNotAccepted => refused("invalid", "type"),
+        IngestRefusal::Unreadable => refused("unavailable", "unreadable"),
+        IngestRefusal::Storage => refused("unavailable", "storage"),
+        IngestRefusal::Deadline => refused("unavailable", "deadline"),
+    }
+}
+
+/// A display name for a picked file: no separators, controls or reserved characters, never empty.
+fn picked_name(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | '"' | ':' | '*' | '?' | '<' | '>' | '|'))
+        .take(120)
+        .collect();
+    let trimmed = cleaned.trim().trim_start_matches('.');
+    if trimmed.is_empty() { "file".into() } else { trimmed.into() }
+}
+
+/// Backs `POST /api/plugins/view-input`: ingest one file the user picked into the plugin's own
+/// inputs, bound to the asking document's verified context, and answer with its frame handle.
+pub fn view_host_input(
+    svc: &codeterm_service_core::service::ServiceState,
+    plugin_id: &str,
+    stamp: DocumentStamp<'_>,
+    source: PickedSource,
+    file_name: &str,
+    declared_mime: &str,
+) -> Value {
+    let registry: &ViewRegistry = svc.ext::<ViewRegistryHandle>();
+    if let Err(refusal) = declared(registry, plugin_id, ViewHostAction::PickFile) {
+        return refusal;
+    }
+    let (frame, context) = match leased_frame(svc, plugin_id, stamp) {
+        Ok(found) => found,
+        Err(refusal) => return refusal,
+    };
+    let Some(inputs) = registry
+        .get(plugin_id)
+        .and_then(|provider| provider.view_inputs())
+        .filter(ViewInputDescriptor::valid)
+    else {
+        return refused("denied", "undeclared");
+    };
+    let source = match source {
+        PickedSource::Opened(file) => IngestSource::Opened(file),
+        PickedSource::Body(reader) => IngestSource::Reader(reader),
+    };
+    let limits = IngestLimits {
+        accept: &inputs.accept,
+        max_bytes: inputs.max_bytes,
+    };
+    match media_delivery::ingest_frame_input(
+        plugin_id,
+        &frame,
+        &context,
+        source,
+        &picked_name(file_name),
+        declared_mime,
+        limits,
+    ) {
+        Ok(input) => json!({
+            "ok": true,
+            "input": {
+                "handle": input.handle,
+                "fileName": input.file_name,
+                "contentType": input.content_type,
+                "size": input.size,
+            },
+        }),
+        Err(refusal) => ingest_refusal(refusal),
+    }
 }
 
 #[cfg(test)]

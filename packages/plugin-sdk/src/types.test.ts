@@ -21,6 +21,7 @@ import type {
   ViewHostAction,
   ViewHostBridge,
   ViewHostResult,
+  ViewInputsContribution,
   WebhookDelivery,
   WebhookReceiveContext,
   WebhookReceiverCapability,
@@ -397,8 +398,18 @@ const unknownRenderer: SurfaceContribution = {
   renderer: "canvas",
 };
 void unknownRenderer;
-const declaredHostActions: ViewHostAction[] = ["copyText", "saveAs", "reveal"];
+const declaredHostActions: ViewHostAction[] = ["copyText", "saveAs", "reveal", "pickFile"];
 void declaredHostActions;
+const referenceInputs: ViewInputsContribution = { accept: ["image/png", "image/jpeg"], maxBytes: 20_971_520, maxFiles: 4 };
+void referenceInputs;
+// @ts-expect-error only passive media may be picked
+const svgInputs: ViewInputsContribution = { accept: ["image/svg+xml"], maxBytes: 1, maxFiles: 1 };
+void svgInputs;
+async function pickReference(bridge: ViewHostBridge): Promise<string[]> {
+  const result = await bridge.pickFile({ accept: ["image/png"], multiple: true });
+  return result.ok ? result.inputs.map((input) => input.handle) : [];
+}
+void pickReference;
 // @ts-expect-error host actions are a closed set
 const openUrlAction: ViewHostAction = "openUrl";
 void openUrlAction;

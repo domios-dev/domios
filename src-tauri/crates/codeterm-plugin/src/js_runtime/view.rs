@@ -18,6 +18,7 @@ pub struct JsViewProvider {
     id: String,
     webhook_receiver_kind: Option<WebhookReceiverKind>,
     host_actions: Vec<ViewHostAction>,
+    view_inputs: Option<crate::media_delivery::ViewInputDescriptor>,
     media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
 }
 
@@ -44,6 +45,7 @@ impl JsViewProvider {
             id: id.into(),
             webhook_receiver_kind,
             host_actions: Vec::new(),
+            view_inputs: None,
             media_delivery: None,
         }
     }
@@ -51,6 +53,16 @@ impl JsViewProvider {
     /// The manifest's `viewHostActions`, the only gesture actions the host performs for this view.
     pub fn with_host_actions(mut self, host_actions: Vec<ViewHostAction>) -> Self {
         self.host_actions = host_actions;
+        self
+    }
+
+    /// The manifest's `viewInputs`: what `pickFile` may ingest, as media delivery's descriptor.
+    pub fn with_view_inputs(mut self, inputs: Option<&crate::js_runtime::ViewInputs>) -> Self {
+        self.view_inputs = inputs.map(|inputs| crate::media_delivery::ViewInputDescriptor {
+            accept: inputs.accept.iter().map(|kind| kind.as_str().to_owned()).collect(),
+            max_bytes: inputs.max_bytes,
+            max_files: inputs.max_files,
+        });
         self
     }
 }
@@ -67,6 +79,10 @@ impl ViewProvider for JsViewProvider {
 
     fn host_actions(&self) -> &[ViewHostAction] {
         &self.host_actions
+    }
+
+    fn view_inputs(&self) -> Option<crate::media_delivery::ViewInputDescriptor> {
+        self.view_inputs.clone().filter(|inputs| inputs.valid())
     }
 
     fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> {

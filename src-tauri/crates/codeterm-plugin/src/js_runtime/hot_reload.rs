@@ -192,6 +192,7 @@ impl CapabilityRegistries {
                         caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
                     )
                     .with_host_actions(caps.view_host_actions.clone())
+                    .with_view_inputs(caps.view_inputs.as_ref())
                     .with_media_delivery(caps.media_delivery.clone()),
                 ),
             );

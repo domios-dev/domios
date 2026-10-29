@@ -126,7 +126,7 @@ it("accepts rendered readiness and shares the complete theme only through the do
   expect(host!.querySelector('[role="status"]')).toBeNull();
   for (const token of ["--ct-bg","--ct-surface","--ct-border","--ct-muted-fg","--ct-magenta","--ct-cyan","--ct-green","--ct-hover"]) expect(PLUGIN_THEME_VARS).toContain(token);
   expect(port.sent.some(message => message.__ctTheme != null)).toBe(true);
-  expect(port.sent).toContainEqual({__ctHostSupport:{copyText:true,saveAs:true,reveal:false}});
+  expect(port.sent).toContainEqual({__ctHostSupport:{copyText:true,saveAs:true,reveal:false,pickFile:false}});
 });
 
 it("closes on Escape only while shown", async () => {

@@ -140,7 +140,7 @@ export function PluginView({
 
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
   const documentPath = `${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`;
-  const { channel, html, invoke: invokeView, media, dispose: disposeDocument, frameToken, error: documentError } = usePluginDocument(documentPath);
+  const { channel, html, invoke: invokeView, media, hostRequest, dispose: disposeDocument, frameToken, error: documentError } = usePluginDocument(documentPath);
   channelRef.current = channel;
   useEffect(() => invalidateHostActions, [documentPath, frameToken, invalidateHostActions]);
   const callDocument = useMemo(() => ({ live: true, epoch: 0 }), [documentPath, invokeView]);
@@ -170,7 +170,7 @@ export function PluginView({
         // The request belongs to this document generation; hide, reload, navigation and disposal end it for good.
         const generation = intent.generation;
         const isCurrent = () => generationRef.current === generation && iframeRef.current?.contentWindow === win && activeRef.current;
-        const deps = viewHostDeps();
+        const deps = viewHostDeps(hostRequest);
         const writeText = deps.writeText;
         const announced = writeText && {
           ...deps,
@@ -179,7 +179,7 @@ export function PluginView({
             announceCopy();
           },
         };
-        const result = await performViewHostAction(pluginId, frameToken ?? null, m, intent, announced || deps, isCurrent, hostGate.current);
+        const result = await performViewHostAction(pluginId, m, intent, announced || deps, isCurrent, hostGate.current);
         if (isCurrent()) channel.send({ __ctReply: m.__ctHost, result });
         return;
       }
@@ -222,7 +222,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath, surface, media, frameToken, invokeView, callDocument, announceCopy, channel],
+    [pluginId, cwd, onClose, documentPath, surface, media, hostRequest, invokeView, callDocument, announceCopy, channel],
   );
 
   const captureIntent = useCallback((): FrameIntent => ({
@@ -238,7 +238,7 @@ export function PluginView({
   useEffect(() => channel?.subscribe(onMessage, () => {
     channel.send({ __ctTheme: themeCss() });
     channel.send({ __ctActive: activeRef.current });
-    channel.send({ __ctHostSupport: viewHostSupport(viewHostDeps()) });
+    channel.send({ __ctHostSupport: viewHostSupport(viewHostDeps(hostRequest)) });
     if (surface) channel.send({ __ctSurfaceStateChanged: true });
   }, () => {
     callDocument.live = false;
@@ -246,7 +246,7 @@ export function PluginView({
     invalidateHostActions();
     disposeDocument?.();
     setRuntime({ path: documentPath, state: { status: "error", reason: "Plugin document changed. Reopen the view to continue." } });
-  }), [channel, onMessage, surface, callDocument, invalidateHostActions, disposeDocument, documentPath]);
+  }), [channel, onMessage, surface, callDocument, invalidateHostActions, disposeDocument, documentPath, hostRequest]);
 
   useEffect(() => {
     if (!kpiNotices) return;

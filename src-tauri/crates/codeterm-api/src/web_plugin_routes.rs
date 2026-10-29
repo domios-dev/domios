@@ -28,7 +28,8 @@ window.ct.host=(function(){function ask(action,args){var id=++s;return new Promi
  return{availability:function(){return known?Promise.resolve(known):new Promise(function(res){waiting.push(res);});},
  copyText:function(text){return ask('copyText',{text:text});},
  saveAs:function(handle,suggestedName){return ask('saveAs',{handle:handle,suggestedName:suggestedName});},
- reveal:function(handle){return ask('reveal',{handle:handle});}};})();
+ reveal:function(handle){return ask('reveal',{handle:handle});},
+ pickFile:function(options){var o=options||{};return ask('pickFile',{accept:o.accept,multiple:o.multiple===true});}};})();
 window.ct.onSurfaceStateChanged=function(fn){if(typeof fn!=="function")throw new Error("callback required");subscribers.add(fn);return function(){subscribers.delete(fn);};};
 window.ct.__reportUiState=function(state){send({__ctUiState:state});};
 window.dispatchEvent(new Event('ct-bridge-ready'));

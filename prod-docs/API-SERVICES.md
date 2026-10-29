@@ -87,8 +87,9 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | POST | `/api/plugins/view-frame/register` | Local host loader after document proof: `{pluginId,registration,scope}` remints a fresh lease/context. Original owner/workspace/Team/provider registration must still match; strict 16 KiB body. |
 | POST | `/api/plugins/view-host-action` | Check or perform a plugin view's declared user-gesture action; refusals are typed results. |
 | POST | `/api/plugins/view-host-action/download` | Stream a plugin view's own media file as a download. |
+| POST | `/api/plugins/view-input` | Ingest a file the user picked for a plugin view; answers an opaque frame handle. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
