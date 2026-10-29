@@ -24,12 +24,16 @@ ct_configure_dev_qa_project() {
 
 ct_with_firebase_build_config() {
   [ "$#" -gt 0 ] || return 2
+  if [ -n "${CI:-}" ]; then
+    "$@"
+    return $?
+  fi
 
   local billing_url="" secret_billing_url="" env_billing_url="" qa_project="" qa_api_key="" qa_app_id=""
   local restore_xtrace=0 status=0
   local secret_api_key="" secret_project_id="" secret_app_id="" secret_redeem_url=""
   local env_api_key="" env_project_id="" env_app_id="" env_redeem_url=""
-  local api_key="" project_id="" app_id="" redeem_url="" cloud_auth=0
+  local api_key="" project_id="" app_id="" redeem_url="" auth_domain="" cloud_auth=0
 
   case "$-" in
     *x*) restore_xtrace=1; set +x ;;
@@ -77,6 +81,11 @@ ct_with_firebase_build_config() {
     cloud_auth=1
   fi
 
+  auth_domain="$(ct_firebase_build_secret DOMIOS_FIREBASE_AUTH_DOMAIN 2>/dev/null)" || auth_domain=""
+  if [[ -z "${auth_domain//[[:space:]]/}" ]]; then
+    auth_domain="${DOMIOS_FIREBASE_AUTH_DOMAIN:-}"
+  fi
+
   if [ "$cloud_auth" = 1 ]; then
     printf 'Firebase config: cloud-auth enabled\n'
   else
@@ -101,6 +110,7 @@ ct_with_firebase_build_config() {
     DOMIOS_QA_FIREBASE_APP_ID="${qa_app_id//[[:space:]]/}" \
     DOMIOS_BILLING_FUNCTIONS_URL="$billing_url" \
     DOMIOS_FIREBASE_API_KEY="$api_key" \
+    DOMIOS_FIREBASE_AUTH_DOMAIN="$auth_domain" \
     DOMIOS_FIREBASE_PROJECT_ID="$project_id" \
     DOMIOS_FIREBASE_APP_ID="$app_id" \
     DOMIOS_ACCOUNT_REDEEM_URL="$redeem_url" \
@@ -108,7 +118,7 @@ ct_with_firebase_build_config() {
 
   unset secret_api_key secret_project_id secret_app_id secret_redeem_url
   unset env_api_key env_project_id env_app_id env_redeem_url
-  unset api_key project_id app_id redeem_url billing_url secret_billing_url env_billing_url qa_project qa_api_key qa_app_id
+  unset api_key project_id app_id redeem_url auth_domain billing_url secret_billing_url env_billing_url qa_project qa_api_key qa_app_id
   [ "$restore_xtrace" = 0 ] || set -x
   return "$status"
 }

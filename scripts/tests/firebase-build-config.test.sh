@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+unset CI
 
 source scripts/firebase-build-config.sh
 capture="$(mktemp)"
@@ -207,3 +208,20 @@ printf '%s\n' 'DEV resolves build secrets through the captured parent connection
   ct_with_firebase_build_config assert_missing_qa > "$capture" 2>&1 || fail
 )
 printf '%s\n' 'DEV compiler phases share one QA project; server keys stay scoped and release lookup is unchanged.'
+
+(
+  CI=true
+  DOMIOS_FIREBASE_API_KEY=fixture-ci-key
+  DOMIOS_FIREBASE_AUTH_DOMAIN=fixture-ci.invalid
+  DOMIOS_FIREBASE_PROJECT_ID=fixture-ci-project
+  DOMIOS_FIREBASE_APP_ID=fixture-ci-app
+  ct_firebase_build_secret() { fail; }
+  assert_ci_config() {
+    [ "$DOMIOS_FIREBASE_API_KEY" = fixture-ci-key ] &&
+      [ "$DOMIOS_FIREBASE_AUTH_DOMAIN" = fixture-ci.invalid ] &&
+      [ "$DOMIOS_FIREBASE_PROJECT_ID" = fixture-ci-project ] &&
+      [ "$DOMIOS_FIREBASE_APP_ID" = fixture-ci-app ]
+  }
+  ct_with_firebase_build_config assert_ci_config || fail
+)
+printf '%s\n' 'CI preserves repository variables without machine-local overrides.'

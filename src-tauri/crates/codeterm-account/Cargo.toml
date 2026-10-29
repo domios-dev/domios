@@ -25,6 +25,9 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [lints]
 workspace = true
 
+[build-dependencies]
+sha2 = "0.10"
+
 [dev-dependencies]
 codeterm-util = { path = "../codeterm-util", features = ["test-support"] }
 tempfile = "3"

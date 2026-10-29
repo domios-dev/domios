@@ -375,6 +375,7 @@ fn config_from_build(vendor: crate::build_config::Vendor) -> Config {
     let present = |value: Option<&'static str>| value.filter(|value| !value.trim().is_empty());
     let available = [
         vendor.api_key,
+        vendor.auth_domain,
         vendor.project_id,
         vendor.app_id,
         vendor.redeem_url,
