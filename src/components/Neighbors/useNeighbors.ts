@@ -35,18 +35,17 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
     });
     let latest = 0;
     let pushes = 0;
-    async function load(force = false, retryReferral = false, read?: Promise<NeighborList>) {
+    async function load(force = false, read?: Promise<NeighborList>) {
       const request = ++latest;
       const push = pushes;
       let referral: ReferralClaim | null = null;
       let referralError: string | null = null;
       try {
-        try { referral = await shared!.referral(client, retryReferral); }
-        catch { referralError = "Your referral could not be checked. Refresh Neighbors to try again."; }
+        try { referral = await shared!.referral(client); }
+        catch { referralError = "Your referral could not be checked for this session."; }
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
         const list = await (read ?? shared!.list.read(() => client.list(), force));
         if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
-        shared!.observe(list);
         setLoaded(previous => pushes === push ? { identity, list, referral, error: referralError }
           : { ...previous, referral, error: referralError });
       } catch (failure: unknown) {
@@ -56,9 +55,8 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
         }
       }
     }
-    void load(revision > 0, revision > 0);
-    const reload = () => { void load(true, false, shared.list.refresh(() => client.list())); };
-    const stopReloads = shared.subscribeReloads(client, read => { void load(true, false, read); });
+    void load(revision > 0);
+    const stopReloads = shared.subscribeReloads(client, read => { void load(true, read); });
     const unlisteners: (() => void)[] = [];
     const retain = (stop: () => void) => {
       if (controller.signal.aborted) stop();
@@ -68,9 +66,8 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
       if (controller.signal.aborted || generation.current !== epoch || event.payload?.uid !== identity) return;
       let list: NeighborList;
       try { list = parseNeighbors(event.payload.list); }
-      catch { reload(); return; }
+      catch { return; }
       pushes++;
-      shared.observe(list);
       shared.list.write(list);
       setLoaded(previous => ({ identity, list, error: null, referral: previous.identity === identity ? previous.referral : null }));
       void shared.referral(client).then(referral => {

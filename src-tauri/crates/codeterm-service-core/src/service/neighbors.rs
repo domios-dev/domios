@@ -4,6 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod backend_reads;
+mod recovery;
 pub mod capabilities;
 mod confinement;
 mod delivery;
@@ -101,7 +102,7 @@ impl ServiceContext {
         } else {
             None
         };
-        let response = if name == "friendsList" {
+        let response = if matches!(name, "friendsList" | "claimReferralTrial") {
             use codeterm_neighbors::adapter::AuthenticatedCall;
             let calls = runtime::callable::Calls {
                 service: self.clone(), uid: session.identity.uid.clone(),

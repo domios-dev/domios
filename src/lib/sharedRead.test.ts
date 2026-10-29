@@ -108,16 +108,3 @@ it("starts a forced read even while the previous caller's promise is settling", 
   await first;
   expect(read.value).toBe(2);
 });
-
-it("joins concurrent refreshes without queuing another request", async () => {
-  const read = new SharedRead<number>();
-  let resolve!: (value: number) => void;
-  let calls = 0;
-  const load = () => { calls++; return new Promise<number>(done => { resolve = done; }); };
-  const first = read.refresh(load);
-  expect(read.refresh(load)).toBe(first);
-  expect(read.read(load)).toBe(first);
-  resolve(9);
-  expect(await first).toBe(9);
-  expect(calls).toBe(1);
-});

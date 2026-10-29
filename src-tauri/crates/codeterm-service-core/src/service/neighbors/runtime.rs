@@ -198,8 +198,8 @@ impl ServiceContext {
         let session = account
             .current_session()
             .await
-            .map_err(|_| "Sign in to use Neighbors")?
-            .ok_or("Sign in to use Neighbors")?;
+            .map_err(|_| Error::Transport.to_string())?
+            .ok_or_else(|| Error::Revoked.to_string())?;
         let uid = session.identity.uid.clone();
         let installation_id = self.installation_id().await?.as_str().to_owned();
         let configured_label = self.configuration().mesh.instance_name.clone();

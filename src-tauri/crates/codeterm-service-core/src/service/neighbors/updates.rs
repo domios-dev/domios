@@ -28,6 +28,7 @@ pub(crate) struct UpdateCell {
 struct Handle {
     task: tokio::task::JoinHandle<()>,
     stopped: watch::Sender<bool>,
+    rearm: Arc<super::recovery::Rearm>,
 }
 
 impl ServiceContext {
@@ -45,29 +46,34 @@ impl ServiceContext {
         let Some(account) = self.ext::<AccountCell>().0.get().cloned() else {
             return;
         };
+        let generation = self.neighbor_updates().generation.load(Ordering::Acquire);
+        let service = self.clone();
+        self.start_neighbor_updates_with(move || {
+            let service = service.clone();
+            let account = account.clone();
+            async move { run(service, account, generation).await }
+        }, Arc::new(codeterm_neighbors::supervisor::RuntimeClock));
+    }
+
+    fn start_neighbor_updates_with<F, A>(&self, attempt: A, clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>)
+    where F: std::future::Future<Output = Result<()>> + Send + 'static, A: FnMut() -> F + Send + 'static {
         let cell = self.neighbor_updates();
         let mut slot = cell.task.lock();
-        if slot.is_some() {
-            return;
-        }
-        let generation = cell.generation.load(Ordering::Acquire);
-        let (stopped, receiver) = watch::channel(false);
-        let service = self.clone();
+        if slot.is_some() { return; }
+        let (stop, receiver) = watch::channel(false);
+        let rearm = Arc::new(super::recovery::Rearm::default());
+        let task_rearm = rearm.clone();
         let task = tokio::spawn(async move {
-            let _ = run(service, account, generation, receiver).await;
+            let _ = super::recovery::run(&task_rearm, clock.as_ref(), attempt, || {
+                let mut shutdown = receiver.clone();
+                async move { stopped(&mut shutdown).await }
+            }).await;
         });
-        *slot = Some(Handle {
-            task,
-            stopped,
-        });
+        *slot = Some(Handle { task, stopped: stop, rearm });
     }
 
     pub(crate) fn rearm_neighbor_updates(&self) {
-        let mut slot = self.neighbor_updates().task.lock();
-        if slot.as_ref().is_some_and(|handle| handle.task.is_finished()) {
-            slot.take();
-        }
-        drop(slot);
+        if let Some(handle) = self.neighbor_updates().task.lock().as_ref() { handle.rearm.signal(); }
         self.restore_neighbor_updates_once();
     }
 
@@ -89,7 +95,6 @@ struct Session {
     generation: u64,
     transport: FirebaseTransport,
     metadata: Metadata,
-    shutdown: watch::Receiver<bool>,
     progress: AtomicU64,
 }
 
@@ -112,6 +117,7 @@ impl Session {
         if self.current().is_ok() {
             if status == ListenerState::Receiving {
                 self.progress.fetch_add(1, Ordering::AcqRel);
+                if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() { handle.rearm.success(); }
             }
             self.service.neighbor_watch_state("account", status, None);
         }
@@ -201,22 +207,15 @@ impl Session {
                 if service.require_neighbors_enabled().is_err() {
                     break;
                 }
-                service.create_notification_actions_reported(
+                service.create_in_app_notice(
                     notice.title,
-                    Some("Open Neighborhood to view this connection.".into()),
-                    Some("info"),
-                    crate::notification::store::Ask::default(),
-                    Some(false),
+                    vec![],
                     crate::service::notification::NotificationOrigin::default(),
                     crate::service::notification::PushIntent {
-                        level: Some(crate::notification::push::NotifyLevel::Verbose),
-                        event_key: Some(format!(
-                            "neighbor:{}:{}",
-                            codeterm_neighbors::crypto::sha256_hex(uid.as_bytes()),
-                            notice.event_id
-                        )),
+                        level: None,
+                        event_key: Some(format!("neighbor:{}:{}", codeterm_neighbors::crypto::sha256_hex(uid.as_bytes()), notice.event_id)),
                     },
-                    None,
+                    false,
                 );
             }
         })
@@ -237,7 +236,6 @@ async fn run(
     service: ServiceContext,
     account: Arc<codeterm_account::Account>,
     generation: u64,
-    shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     if service.neighbor_access_locked().await { return Err(Error::Locked); }
     let expected = account
@@ -289,7 +287,6 @@ async fn run(
         generation,
         transport,
         metadata,
-        shutdown,
         progress: AtomicU64::new(0),
     };
     supervise_documents(&session).await
@@ -319,7 +316,7 @@ impl DocumentSession for Session {
         self.progress.load(Ordering::Acquire)
     }
     async fn stopped(&self) {
-        stopped(&mut self.shutdown.clone()).await;
+        std::future::pending::<()>().await;
     }
     async fn listen(&self) -> Result<()> {
         self.current()?;

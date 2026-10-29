@@ -48,20 +48,20 @@ it("shares lists and referral claims, consumes pushed lists, and bounds focus re
   });
   expect(states.map(state => state.list)).toEqual([pushed, pushed]);
   expect(client.list).toHaveBeenCalledTimes(1);
-  expect(client.claimReferralTrial).toHaveBeenCalledTimes(2);
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
   now = 59_999;
   await act(async () => window.dispatchEvent(new Event("focus")));
   expect(client.list).toHaveBeenCalledTimes(1);
   now = 60_000;
   await act(async () => window.dispatchEvent(new Event("focus")));
   expect(client.list).toHaveBeenCalledTimes(1);
-  expect(client.claimReferralTrial).toHaveBeenCalledTimes(2);
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
   await act(async () => states[0].refresh());
   expect(client.list).toHaveBeenCalledTimes(2);
   expect(states[1].list).toEqual(list);
 });
 
-it("lets explicit Refresh retry a failed first claim after the first list without a focus storm", async () => {
+it("keeps a failed referral claim cached across focus and explicit list refresh", async () => {
   let now = 0;
   vi.spyOn(Date, "now").mockImplementation(() => now);
   const list: NeighborList = { schema_version: 1, access: "locked", can_invite: false, friends: [], incoming: [], outgoing: [] };
@@ -83,43 +83,32 @@ it("lets explicit Refresh retry a failed first claim after the first list withou
   });
   expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
   await act(async () => states[0].refresh());
-  expect(client.claimReferralTrial).toHaveBeenCalledTimes(2);
-  expect(states[0].referral).toEqual(claim);
-  expect(states[0].error).toBeNull();
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
+  expect(states[0].referral).toBeNull();
+  expect(states[0].error).toContain("Your referral could not be checked");
 });
 
-it.each(["eligibility", "identity"] as const)("bounds automatic failed-claim retries and ignores a stale claim rejection after an %s transition", async transition => {
-  let now = 0;
-  vi.spyOn(Date, "now").mockImplementation(() => now);
-  let rejectOld!: (failure: Error) => void;
-  const old = new Promise<ReferralClaim>((_resolve, reject) => { rejectOld = reject; });
+it("claims once per account session and resets only after identity or sign-in changes", async () => {
   const client: NeighborClient = {
     list: vi.fn(), apply: vi.fn(),
-    claimReferralTrial: vi.fn<NeighborClient["claimReferralTrial"]>().mockRejectedValueOnce(new Error("offline")).mockReturnValueOnce(old)
-      .mockResolvedValue({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })),
   };
-  const reads = neighborReads(client, "cooldown-owner")!;
-  await expect(reads.referral(client)).rejects.toThrow("offline");
-  reads.observe({ schema_version: 1, access: "locked", friends: [], incoming: [], outgoing: [] });
-  now = 59_999;
-  await expect(reads.referral(client)).rejects.toThrow("offline");
+  const first = neighborReads(client, "first")!;
+  const claim = first.referral(client);
+  expect(first.referral(client)).toBe(claim);
+  await claim;
+  expect(first.referral(client)).toBe(claim);
   expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
-  now = 60_000;
-  const previous = reads.referral(client);
-  const rejected = expect(previous).rejects.toThrow("old eligibility");
-  let currentReads = reads;
-  if (transition === "identity") {
-    neighborReads(client, null);
-    currentReads = neighborReads(client, "cooldown-owner")!;
-  } else {
-    reads.observe({ schema_version: 1, access: "paid", friends: [], incoming: [], outgoing: [] });
-  }
-  const current = currentReads.referral(client);
-  rejectOld(new Error("old eligibility"));
-  await rejected;
-  await current;
-  expect(currentReads.referral(client)).toBe(current);
+  const second = neighborReads(client, "second")!;
+  await second.referral(client);
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(2);
+  const switchedBack = neighborReads(client, "first")!;
+  expect(switchedBack).not.toBe(first);
+  await switchedBack.referral(client);
   expect(client.claimReferralTrial).toHaveBeenCalledTimes(3);
+  neighborReads(client, null);
+  await neighborReads(client, "first")!.referral(client);
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(4);
 });
 
 it("coalesces forced invalidations from two mounted consumers while the list port is pending", async () => {
@@ -144,7 +133,7 @@ it("coalesces forced invalidations from two mounted consumers while the list por
   expect(states.map(state => state.list)).toEqual([list, list]);
 });
 
-it("keeps one fresh read after an entitlement event invalidates a pending read", async () => {
+it.each(["entitlement-changed", "neighbors-changed"])("keeps one fresh read after %s invalidates a pending read", async event => {
   let finishOld!: (value: NeighborList) => void;
   const old = new Promise<NeighborList>(resolve => { finishOld = resolve; });
   const list: NeighborList = { schema_version: 1, access: "paid", friends: [], incoming: [], outgoing: [] };
@@ -158,10 +147,30 @@ it("keeps one fresh read after an entitlement event invalidates a pending read",
   await act(async () => root.render(<><Harness client={client} index={0} /><Harness client={client} index={1} /></>));
   expect(client.list).toHaveBeenCalledTimes(1);
   await act(async () => {
-    for (const handler of bridge.handlers.get("entitlement-changed") ?? []) handler({ payload: {} });
+    for (const handler of bridge.handlers.get(event) ?? []) handler({ payload: event === "neighbors-changed" ? { uid: "owner", list: null } : {} });
   });
   expect(client.list).toHaveBeenCalledTimes(1);
   await act(async () => finishOld({ ...list, access: "locked" }));
   expect(client.list).toHaveBeenCalledTimes(2);
   expect(states.map(state => state.list)).toEqual([list, list]);
+});
+
+it("rearms the one referral claim on sign-in but not on list refresh", async () => {
+  const list: NeighborList = { schema_version: 1, access: "paid", friends: [], incoming: [], outgoing: [] };
+  const client: NeighborClient = {
+    list: vi.fn(async () => list), apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })),
+  };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<><Harness client={client} index={0} /><Harness client={client} index={1} /></>));
+  await act(async () => states[0].refresh());
+  await act(async () => states[1].refresh());
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    for (const handler of bridge.handlers.get("account-changed") ?? []) handler({ payload: null });
+  });
+  await act(async () => states[0].refresh());
+  await act(async () => states[1].refresh());
+  expect(client.claimReferralTrial).toHaveBeenCalledTimes(2);
 });

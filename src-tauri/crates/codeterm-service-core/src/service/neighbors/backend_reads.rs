@@ -14,6 +14,7 @@ struct State {
 
 #[derive(Default)]
 struct ReadGate {
+    session_cached: bool,
     revision: AtomicU64,
     state: tokio::sync::Mutex<State>,
     rearmed: AtomicU64,
@@ -35,7 +36,7 @@ impl ReadGate {
         if state.key.as_ref() != Some(&key) {
             *state = State { key: Some(key), ..State::default() };
         } else if let Some(result) = &state.result {
-            if self.revision.load(Ordering::Acquire) != revision {
+            if self.session_cached || self.revision.load(Ordering::Acquire) != revision {
                 return result.clone();
             }
             if let Err(error) = result {
@@ -64,11 +65,21 @@ impl ReadGate {
     }
 }
 
-#[derive(Default)]
 struct Reads {
     locked: parking_lot::Mutex<Option<bool>>,
     list: ReadGate,
     receiver: ReadGate,
+    keys: ReadGate,
+    claims: ReadGate,
+}
+
+impl Default for Reads {
+    fn default() -> Self {
+        Self {
+            locked: Default::default(), list: Default::default(), receiver: Default::default(), keys: Default::default(),
+            claims: ReadGate { session_cached: true, ..Default::default() },
+        }
+    }
 }
 
 impl ServiceContext {
@@ -116,6 +127,8 @@ impl ServiceContext {
         let gate = match route {
             "friendsList" => &reads.list,
             "friendsReceiverStatus" => &reads.receiver,
+            "friendsOwnKeys" => &reads.keys,
+            "claimReferralTrial" => &reads.claims,
             _ => return if locked { Err(Error::Locked) } else { load.await },
         };
         gate.read((uid.to_owned(), generation), locked, Instant::now, rand::random, load).await
@@ -125,6 +138,7 @@ impl ServiceContext {
         let reads = self.extensions.get_or_init(Reads::default);
         reads.list.rearm();
         reads.receiver.rearm();
+        reads.keys.rearm();
         self.rearm_neighbor_updates();
         self.rearm_neighbor_restoration();
     }

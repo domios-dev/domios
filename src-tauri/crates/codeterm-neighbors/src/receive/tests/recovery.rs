@@ -626,7 +626,7 @@ async fn internal_stream_reset_resumes_cursor_once_but_permission_and_auth_error
             Err(error)
         );
         let opens = fixture.opens.lock().unwrap();
-        assert_eq!(opens.len(), if [7, 16].contains(&code) { 1 } else { 4 });
+        assert_eq!(opens.len(), if code == 7 { 1 } else { 4 });
         assert!(opens[0].is_none());
         assert!(opens[1..]
             .iter()

@@ -102,10 +102,6 @@ async fn document_retries_exhaust_visibly_and_terminal_auth_never_reconnects() {
             code: 7,
             operation: "listen",
         },
-        Error::Firestore {
-            code: 16,
-            operation: "listen",
-        },
         Error::Locked,
         Error::PermissionDenied,
         Error::SessionRevoked,

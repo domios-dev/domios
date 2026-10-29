@@ -139,10 +139,11 @@ pub fn retryable(error: Error) -> bool {
     matches!(
         error,
         Error::Transport
+            | Error::CursorStore
             | Error::LocalKeyUnavailable
             | Error::SecretStore
             | Error::Firestore {
-                code: 1 | 2 | 4 | 8 | 10 | 13 | 14,
+                code: 1 | 2 | 4 | 8 | 10 | 13 | 14 | 16,
                 ..
             }
             | Error::ListenProtocol {
@@ -166,7 +167,7 @@ pub trait RetryClock: Send + Sync {
     async fn wait(&self, delay: std::time::Duration);
 }
 
-struct RuntimeClock;
+pub struct RuntimeClock;
 
 #[async_trait]
 impl RetryClock for RuntimeClock {
