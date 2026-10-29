@@ -112,6 +112,37 @@ for entry in [Entry(owner=0), Entry(mode=stat.S_IFREG | 0o644), Entry(links=2), 
 `, 'container');
 });
 
+test('offline backend selection adds an omitted setting without changing nested embedder config', () => {
+  python(`
+subject.prepare = lambda: None
+with tempfile.TemporaryDirectory() as temporary:
+    subject.DATA = pathlib.Path(temporary)
+    config = subject.DATA / 'config.toml'
+    config.write_text('[memory.embedder]\\nprovider = "local"\\n')
+    assert subject.command(['select-memory', '--to', 'postgres']) == 0
+    assert subject.tomllib.loads(config.read_text()) == {'memory': {'backend': 'postgres', 'embedder': {'provider': 'local'}}}
+    assert list(subject.DATA.iterdir()) == [config]
+`, 'container');
+});
+
+test('offline selection refuses ambiguous TOML without rewriting the original file', () => {
+  python(`
+subject.prepare = lambda: None
+with tempfile.TemporaryDirectory() as temporary:
+    subject.DATA = pathlib.Path(temporary)
+    config = subject.DATA / 'config.toml'
+    original = 'memory = { backend = "sqlite" }\\n'
+    config.write_text(original)
+    try:
+        subject.command(['select-memory', '--to', 'postgres'])
+    except subject.tomllib.TOMLDecodeError:
+        pass
+    else:
+        raise AssertionError('Ambiguous configuration was rewritten')
+    assert config.read_text() == original
+`, 'container');
+});
+
 test('signed production feed verifies and tampered signature refuses', {
   skip: spawnSync('minisign', ['-v'], { encoding: 'utf8' }).error ? 'minisign is installed in Linux smoke CI; unavailable on this host' : false,
 }, () => {

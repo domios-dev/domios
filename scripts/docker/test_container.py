@@ -1,7 +1,12 @@
 import importlib.util
+import contextlib
+import io
+import json
 import pathlib
 import subprocess
 import unittest
+from unittest import mock
+import tempfile
 from types import SimpleNamespace
 
 spec = importlib.util.spec_from_file_location(
@@ -23,6 +28,7 @@ class InjectedProcess:
         self.deadlines = []
         self.reaped = False
         self.closed = False
+        self.failures = []
 
     def install(self, handler):
         self.handler = handler
@@ -63,6 +69,9 @@ class InjectedProcess:
 
     def close(self):
         self.closed = True
+
+    def diagnostics(self, reason):
+        self.failures.append(reason)
 
 
 class SupervisorTests(unittest.TestCase):
@@ -119,6 +128,102 @@ class SupervisorTests(unittest.TestCase):
         self.assertEqual(supervisor.run(lambda: process.handler(signal.SIGTERM)), 0)
         self.assertFalse(process.live)
         self.assertTrue(process.closed)
+
+    def test_unexpected_exit_emits_diagnostics_once(self):
+        process = InjectedProcess(["ready", "exit"])
+        self.assertEqual(self.supervise(process), 1)
+        self.assertEqual(process.failures, ["unexpected exit"])
+
+    def test_normal_stop_emits_no_failure_diagnostics(self):
+        process = InjectedProcess(["ready", "stop", "exit"])
+        self.assertEqual(self.supervise(process), 0)
+        self.assertEqual(process.failures, [])
+
+
+class OfflineMemoryTests(unittest.TestCase):
+    def test_migration_delegates_to_existing_offline_server_and_preserves_failure(self):
+        with mock.patch.object(subject, "prepare") as prepare, mock.patch.object(subject.subprocess, "run") as run:
+            run.return_value.returncode = 7
+            self.assertEqual(subject.command(["migrate-memory", "--to", "postgres"]), 7)
+            prepare.assert_called_once_with()
+            run.assert_called_once_with([
+                subject.SERVER, "memory-migrate", "--to", "postgres", "--json",
+            ], check=False)
+
+    def test_ambiguous_migration_arguments_start_no_process(self):
+        with mock.patch.object(subject.subprocess, "run") as run:
+            for args in [["migrate-memory"], ["migrate-memory", "--to", "remote"],
+                         ["migrate-memory", "--to", "postgres", "--into-nonempty"]]:
+                with self.assertRaises(ValueError):
+                    subject.command(args)
+            run.assert_not_called()
+
+    def test_offline_selection_preserves_config_and_leaves_no_temporary_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            config = root / "config.toml"
+            config.write_text('[api]\nhost = "0.0.0.0"\n[memory]\nbackend = "sqlite"\nother = 9\n[memory.embedder]\nprovider = "local"\n')
+            with mock.patch.object(subject, "DATA", root), mock.patch.object(subject, "prepare"), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(subject.command(["select-memory", "--to", "postgres"]), 0)
+            self.assertEqual(subject.tomllib.loads(config.read_text()), {
+                "api": {"host": "0.0.0.0"},
+                "memory": {"backend": "postgres", "other": 9, "embedder": {"provider": "local"}},
+            })
+            self.assertEqual(list(root.iterdir()), [config])
+
+    def test_selection_write_failure_preserves_previous_configuration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            config = root / "config.toml"
+            original = '[memory]\nbackend = "sqlite"\n'
+            config.write_text(original)
+            with mock.patch.object(subject, "DATA", root), mock.patch.object(subject, "prepare"), mock.patch.object(subject.os, "replace", side_effect=OSError("fixture")):
+                with self.assertRaises(OSError):
+                    subject.select_memory("postgres")
+            self.assertEqual(config.read_text(), original)
+            self.assertEqual(list(root.iterdir()), [config])
+
+
+class DiagnosticsTests(unittest.TestCase):
+    def test_failed_startup_log_is_bounded_and_redacts_local_and_url_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "logs").mkdir()
+            old = "previous startup must not be forwarded\n"
+            log = root / "logs/domios.log"
+            log.write_text(old + "x" * 70000 + '\ncurrent memory failure Bearer standalone\n'
+                           'postgresql://domios:password-fragment@postgres/db api_token=readiness-token\n'
+                           'password-fragment local-value\n')
+            (root / ".secrets").write_text(json.dumps({
+                "domios.instance:api_token": "readiness-token",
+                "local": json.dumps({"value": "local-value"}),
+                "database": json.dumps({"value": "postgresql://domios:password-fragment@postgres/db"}),
+            }))
+            runtime = subject.ProcessRuntime.__new__(subject.ProcessRuntime)
+            runtime.log_offset = len(old)
+            stderr = io.StringIO()
+            with mock.patch.object(subject, "DATA", root), mock.patch.object(subject, "private"), contextlib.redirect_stderr(stderr):
+                runtime.diagnostics("unexpected exit")
+            output = stderr.getvalue()
+            self.assertIn("current memory failure", output)
+            self.assertIn("[REDACTED]", output)
+            self.assertLess(len(output), 8500)
+            for secret in ["readiness-token", "local-value", "password-fragment", "standalone", "previous startup"]:
+                self.assertNotIn(secret, output)
+
+    def test_unreadable_secret_store_withholds_log_contents(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / "logs").mkdir()
+            (root / "logs/domios.log").write_text("sensitive fixture\n")
+            (root / ".secrets").write_text("not valid JSON")
+            runtime = subject.ProcessRuntime.__new__(subject.ProcessRuntime)
+            runtime.log_offset = 0
+            stderr = io.StringIO()
+            with mock.patch.object(subject, "DATA", root), mock.patch.object(subject, "private"), contextlib.redirect_stderr(stderr):
+                runtime.diagnostics("unexpected exit")
+            self.assertIn("unavailable", stderr.getvalue())
+            self.assertNotIn("sensitive fixture", stderr.getvalue())
 
 
 if __name__ == "__main__":
