@@ -719,6 +719,19 @@ export interface OrchestrationConfig {
   nudge_interval_secs: number;
 }
 
+export interface NetworkIdentity { kind: string; network_id: string }
+export interface NetworkTransportStatus {
+  display_name: string;
+  state: "not_installed" | "not_running" | "permission_needed" | "signed_out" | "starting" | "connected" | "unknown";
+  identity: NetworkIdentity | null;
+  network_name: string | null;
+  user?: string | null;
+  addresses: string[];
+  peer_listener: boolean;
+  encrypted: boolean;
+  setup_actions: Array<{ kind: string; url: string }>;
+}
+
 export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
@@ -727,6 +740,8 @@ export interface MeshStatus {
   local_ip: string | null;
   api_port: number;
   paired_count: number;
+  transport: NetworkTransportStatus | null;
+  web_ui: WebUiAnnouncement | null;
 }
 
 export interface PeerAddress {

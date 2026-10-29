@@ -301,6 +301,8 @@ pub struct MeshStatus {
     pub local_ip: Option<String>,
     pub api_port: u16,
     pub paired_count: usize,
+    pub transport: Option<crate::network_transport::TransportStatus>,
+    pub web_ui: Option<WebUiAnnouncement>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
