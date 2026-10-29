@@ -4,7 +4,6 @@ import { isMac } from "../../lib/keybindings";
 import { routeClipboardToTerm } from "../../lib/clipboardPaste";
 import { createTerminalReplyFilter } from "./terminalReplyFilter";
 import { writeTerminalInput } from "./terminalInputWrite";
-import { createTerminalUndoBoundary, resetTerminalHelperUndo } from "./terminalUndoBoundary";
 
 export interface UseTerminalInputOptions {
   tabId: string;
@@ -54,15 +53,6 @@ export function useTerminalInput({
   useEffect(() => {
     const term = termRef.current;
     if (!term || !termReady) return;
-    const textarea = term.textarea;
-    const undoBoundary = createTerminalUndoBoundary({
-      schedule: queueMicrotask,
-      reset: () => { if (textarea) resetTerminalHelperUndo(textarea); },
-    });
-    const compositionStart = () => undoBoundary.compositionStart();
-    const compositionEnd = () => undoBoundary.compositionEnd();
-    textarea?.addEventListener("compositionstart", compositionStart);
-    textarea?.addEventListener("compositionend", compositionEnd);
     // No connectedPtyRef guard — PTY connects async; onData checks the ref at write time.
 
     // Ctrl+V/Cmd+V: handle paste at keydown so we don't depend on WebView2's flaky `paste` event.
@@ -98,7 +88,6 @@ export function useTerminalInput({
 
     const onDataDisposable = term.onData((data) => {
       if (!terminalActive || readOnly) return;
-      undoBoundary.input(data);
       const currentPty = connectedPtyRef.current;
       if (terminalReplyFilterPtyRef.current !== currentPty) {
         if (terminalReplyFlushTimerRef.current !== null) {
@@ -146,9 +135,6 @@ export function useTerminalInput({
     el?.addEventListener("mousedown", focusXterm);
 
     return () => {
-      undoBoundary.dispose();
-      textarea?.removeEventListener("compositionstart", compositionStart);
-      textarea?.removeEventListener("compositionend", compositionEnd);
       if (terminalReplyFlushTimerRef.current !== null) {
         window.clearTimeout(terminalReplyFlushTimerRef.current);
         terminalReplyFlushTimerRef.current = null;

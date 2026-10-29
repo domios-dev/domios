@@ -6,8 +6,28 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from release_issue_contract import BOUNDARY_VERIFICATION_STEPS, closure_boundary_refusal
+from release_issue_contract import BOUNDARY_VERIFICATION_STEPS, ContractError, closure_boundary_refusal, parse_metadata
 from release_issue_resolution import included_history, included_pull_requests, MAX_PR_PAGES
+
+
+class PublicMarkerAliasTests(unittest.TestCase):
+    def test_repository_marker_for_exact_public_repository_is_public(self):
+        self.assertEqual(
+            parse_metadata("Repository-Issue: rollacode/codeterm-releases#99"),
+            parse_metadata("Public-Issue: rollacode/codeterm-releases#99"),
+        )
+        self.assertEqual(
+            parse_metadata("Repository-Issue: rollacode/codeterm-releases#99"),
+            (["rollacode/codeterm-releases#99"], []),
+        )
+
+    def test_alias_keeps_repository_and_number_validation(self):
+        for value in ("other/releases#99", "rollacode/codeterm-releases#0",
+                      "rollacode/codeterm-releases#99x"):
+            with self.subTest(value=value), self.assertRaises(ContractError):
+                parse_metadata(f"Repository-Issue: {value}")
+        self.assertEqual(parse_metadata("Repository-Issue: domios-dev/domios#7"),
+                         ([], ["domios-dev/domios#7"]))
 
 
 class ClosureBoundaryTests(unittest.TestCase):

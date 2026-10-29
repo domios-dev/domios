@@ -22,7 +22,7 @@ impl Drop for WakeRequest {
     }
 }
 
-fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
+pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
     tab.frozen
         || explicit
             && !tab.protected
@@ -70,6 +70,10 @@ pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
 }
 
 impl ServiceContext {
+    pub(crate) fn thaw_tab_for_restart(&self, tab_id: &str) -> Result<(), String> {
+        wake_with(self, tab_id, false, |_, _| Ok(()))
+    }
+
     pub fn wake_frozen_tab(&self, tab_id: &str) -> Result<(), String> {
         self.wake_tab(tab_id, false)
     }

@@ -496,6 +496,8 @@ SHA; readers confirm that run through Actions. A failed/cancelled run qualifies 
 exact-attempt jobs prove public-mirror verification, Debian verification and boundary minting
 succeeded in one job before any failure/cancellation. Missing/unverifiable boundaries are refused,
 never inferred from asset presence or release ownership.
+Set repository variable `RELEASE_CLOSE_PUBLIC_ISSUES=false` when the owner closes public issues
+manually; this skips only automatic closure, preserving publication verification and boundary evidence.
 Included-history resolution prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
 alias of the same version, resolves fully qualified tag refs, and still requires verified publication boundaries.
 Associated PRs come from closed PRs sorted by update time, filtered by included merge SHA.
