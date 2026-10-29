@@ -1,5 +1,6 @@
 import type { NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
 import { materializeToolEvent } from "@codeterm/chat-core";
+import { useState } from "react";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import type { OpenPlan, ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { toolCommandShape } from "./codeterm/commandShape";
@@ -34,7 +35,21 @@ interface ToolCallBubbleProps {
   openDiffs?: boolean;
 }
 
-export function ToolCallBubble({
+export function ToolCallBubble(props: ToolCallBubbleProps) {
+  const event = props.event ?? (props.message ? materializeToolEvent(props.message) : null);
+  const [retainCommandShell] = useState(() => event?.kind === "command" && event.status === "pending"
+    && !event.stream && !event.commandBatch);
+  if (!event) return null;
+  if (retainCommandShell && event.kind === "command" && !event.stream && !event.commandBatch) {
+    const specialized = toolCommandShape(event).kind !== "single";
+    return <CommandCard event={event} expanded={props.expanded} onToggle={() => props.onToggle(!props.expanded)}>
+      {specialized && props.expanded ? <ToolCallBubbleContent {...props} event={event} /> : undefined}
+    </CommandCard>;
+  }
+  return <ToolCallBubbleContent {...props} event={event} />;
+}
+
+function ToolCallBubbleContent({
   event: suppliedEvent,
   message,
   expanded,

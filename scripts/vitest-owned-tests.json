@@ -1,4 +1,5 @@
 [
+  "src/components/Terminal/ChatWindowRow.streamingTools.test.tsx",
   "src/components/Sidebar/Sidebar.neighbors.test.tsx",
   "src/lib/updatePresentation.test.ts",
   "src/components/Neighbors/neighborNotify.test.tsx",

@@ -4,7 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, readableSystemReminder, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -159,7 +159,11 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   const isCommandGroup = item?.kind === "tool" && !item.event.stream
     && (item.event.kind === "command" || item.event.kind === "codeterm")
     && toolCommandShape(item.event)?.kind === "group";
-  const shouldAutoExpand = isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
+  const [startedPendingCommand] = useState(() => {
+    const event = item?.kind === "tool" ? item.event : materializeToolEvent(message);
+    return event?.kind === "command" && event.status === "pending";
+  });
+  const shouldAutoExpand = !startedPendingCommand && (isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item));
   const persistKey = expansionKey(message, item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
