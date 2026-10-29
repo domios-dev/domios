@@ -58,8 +58,8 @@ async fn refresh(
     force: bool,
 ) -> Result<AvailabilitySnapshot, String> {
     let method = state.lock().install_method.clone();
-    let app_result = codeterm_update::checker::check_for_update(&method).await;
-    if let Ok(info) = &app_result {
+    let app_result = codeterm_update::checker::check_with_diagnostic(&method, None).await;
+    if let Ok((info, _)) = &app_result {
         let mut state = state.lock();
         state.last_check = Some(info.clone());
         state.last_check_time = Some(std::time::Instant::now());
@@ -74,7 +74,14 @@ async fn refresh(
             serde_json::from_value(codeterm_plugins::update_inventory(ctx, force)?)
                 .map_err(|e| e.to_string())?;
         match app_result {
-            Ok(info) => snapshot.items.push(info.availability),
+            Ok((info, error)) => {
+                let mut item = info.availability;
+                if let Some(error) = error {
+                    snapshot.errors.insert("app".into(), error);
+                    item = cached_app_availability(item);
+                }
+                snapshot.items.push(item);
+            }
             Err(error) => {
                 snapshot.errors.insert("app".into(), error);
                 ensure_app(&mut snapshot);
@@ -169,6 +176,16 @@ fn ensure_app(snapshot: &mut AvailabilitySnapshot) {
             channel: Some("official".into()),
         });
     }
+}
+
+fn cached_app_availability(mut item: AvailabilityItem) -> AvailabilityItem {
+    item.reason = if item.state == codeterm_plugins::AvailabilityState::UpdateAvailable {
+        "cached_manifest"
+    } else {
+        "cached_check"
+    }
+    .into();
+    item
 }
 
 fn local_plugins() -> Result<Vec<AvailabilityItem>, String> {

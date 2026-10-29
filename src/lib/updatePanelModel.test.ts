@@ -17,7 +17,7 @@ assert.equal(readUpdateIntent("broken"), null);
 assert.deepEqual(nextUpdateStep(createUpdateIntent(items.filter(item => item.group === "Plugins")), "1.0.0", items), { kind: "plugin", id: "plugin" });
 console.log("update panel grouping and persisted ordering: 7 assertions passed");
 
-import { availabilityIntent, hasUpdateBadge, panelItems, updateableItems } from "./updatePanelModel";
+import { availabilityIntent, hasUpdateBadge, panelItems, updateableItems, updateSourceMessage } from "./updatePanelModel";
 import type { UpdateAvailabilityItem } from "./updateAvailability";
 const plugin: UpdateAvailabilityItem = { id: "plugin", kind: "plugin", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "update_available", channel: "official", reason: "newer" };
 assert.equal(hasUpdateBadge(plugin), true);
@@ -102,3 +102,17 @@ import { summarizeUpdatePanel, type UpdateRow } from "./updatePanelModel";
   assert.equal(summarizeUpdatePanel([row("a", "available", "opaque")], idle).label, "No applicable updates");
 }
 console.log("update panel summary: 8 assertions passed");
+
+const sourceFailure = { app: "GitHub rate limit, retry at 14:30" };
+const uncheckedApp: UpdateAvailabilityItem = { ...app, latest: null, state: "up_to_date", reason: "not_checked" };
+assert.equal(panelItems([uncheckedApp], sourceFailure)[0].channelError, sourceFailure.app);
+assert.deepEqual(updateableItems([uncheckedApp], sourceFailure), []);
+assert.equal(panelItems([app], sourceFailure)[0].channelError, sourceFailure.app);
+assert.deepEqual(updateableItems([app], sourceFailure), []);
+const cachedApp: UpdateAvailabilityItem = { ...app, reason: "cached_manifest" };
+assert.equal(panelItems([cachedApp], sourceFailure)[0].channelError, undefined);
+assert.deepEqual(updateableItems([cachedApp], sourceFailure), [cachedApp]);
+
+assert.equal(panelItems([cachedApp], sourceFailure)[0].sourceWarning, sourceFailure.app);
+assert.equal(updateSourceMessage("Failed to fetch release: source: GitHub rate limit, retry at 14:30; mirror: access denied"), "GitHub rate limit, retry at 14:30");
+assert.equal(updateSourceMessage("offline"), "offline");
