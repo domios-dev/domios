@@ -255,6 +255,7 @@ fn default_capabilities() -> Capabilities {
         status_bubble: false,
         view: false,
         media_delivery: None,
+        binary_transfer: None,
         agent_runtime: None,
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),

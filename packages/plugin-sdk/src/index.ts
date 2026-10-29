@@ -64,3 +64,5 @@ export { activityLabel, activityCommand, type ActivityTool } from "./activityLab
 export type { ChatAttachment } from "./gen/ChatAttachment";
 
 export * from "./mediaDelivery";
+
+export * from "./binaryTransfer";

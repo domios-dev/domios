@@ -209,7 +209,7 @@ describe("scoped plugin media documents", () => {
     expect(media.url).toBe(`${origin}/api/plugins/example/media/${frame}/${handle}`);
     const [url, init] = fixture.fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
     expect(new URL(String(url)).pathname).toBe(`/api/plugins/example/media-register/${frame}`);
-    expect(JSON.parse(init!.body as string)).toEqual({ id: "job-output" });
+    expect(JSON.parse(init!.body as string)).toEqual({ id: "job-output",viewFrame:"d".repeat(64) });
     expect(new Headers(init!.headers).get("authorization")).toBe("Bearer owner-secret");
     document.dispose();
     document.dispose();
@@ -313,4 +313,36 @@ it("retires backend media/lease on every native load and remints only after orig
   expect(liveLease).toBeNull();expect(registrations).toBe(1);
   // A replacement cannot answer the original endpoint: nothing is reactivated.
   document.dispose();
+});
+
+function deferredValue<T>() {
+  let resolve!: (value:T)=>void;
+  const promise=new Promise<T>(done=>{resolve=done;});
+  return {promise,resolve};
+}
+it("rejects a media response after native retirement before another proof remints a lease",async()=>{
+  const frame="a".repeat(64),handle="b".repeat(64);const started=deferredValue<void>();const response=deferredValue<Response>();
+  const fetch=vi.fn<typeof globalThis.fetch>().mockImplementation(async(input,init)=>{
+    const endpoint=new URL(String(input)).pathname;
+    if(endpoint.endsWith("/view-frame/revoke"))return new Response(null,{status:204});
+    if(endpoint.includes("/media-register/")){expect(JSON.parse(String(init?.body)).viewFrame).toBe("d".repeat(64));started.resolve();return response.promise;}
+    return new Response("<html><head></head><body></body></html>",{headers:{"Content-Security-Policy":policy+"; media-src 'none'","X-Domios-Plugin-View-Registration":registrationSnapshot(frame),"X-Domios-Plugin-View-Document":crypto.randomUUID().replaceAll("-",""),"X-Domios-Plugin-View-Frame":"d".repeat(64),"X-Domios-Plugin-Media-Frame":frame}});
+  });
+  const document=await loadPluginDocument(createTransportClient({origin,token:"owner",fetch}),path,new AbortController().signal);const pending=document.media("output");await started.promise;
+  document.channel.observeLoad();response.resolve(Response.json({handle,url:`/api/plugins/example/media/${frame}/${handle}`,content_type:"video/mp4",file_name:"clip.mp4",expires_in_seconds:600}));
+  await expect(pending).rejects.toThrow("unavailable");await expect(document.media("output")).rejects.toThrow("unavailable");expect(fetch.mock.calls.filter(([url])=>String(url).includes("/media-register/"))).toHaveLength(1);document.dispose();
+});
+it("does not publish a stale registration response after a newer native retirement",async()=>{
+  const frame="e".repeat(64);const registering=deferredValue<void>(),retiredAgain=deferredValue<void>(),challenge=deferredValue<void>();const registration=deferredValue<Response>();let revokes=0;
+  const fetch=vi.fn<typeof globalThis.fetch>().mockImplementation(async(input)=>{
+    const endpoint=new URL(String(input)).pathname;
+    if(endpoint.endsWith("/view-frame/revoke")){if(++revokes===2)retiredAgain.resolve();return new Response(null,{status:204});}
+    if(endpoint.endsWith("/view-frame/register")){registering.resolve();return registration.promise;}
+    if(endpoint.endsWith("/view-call"))throw new Error("retired lease was reused");
+    return new Response("<html><head></head><body></body></html>",{headers:{"Content-Security-Policy":policy+"; media-src 'none'","X-Domios-Plugin-View-Registration":registrationSnapshot(frame),"X-Domios-Plugin-View-Document":crypto.randomUUID().replaceAll("-",""),"X-Domios-Plugin-View-Frame":"d".repeat(64),"X-Domios-Plugin-Media-Frame":frame}});
+  });
+  const document=await loadPluginDocument(createTransportClient({origin,token:"owner",fetch}),path,new AbortController().signal);const port=new TestViewPort();const post=port.postMessage.bind(port);port.postMessage=message=>{post(message);if(message.__ctChallenge!=null)challenge.resolve();};
+  document.channel.bind(window,()=>({shown:true,frameFocused:true,activated:false,generation:1}));document.channel.subscribe(vi.fn(),vi.fn(),vi.fn());document.channel.accept(window,port.port);await challenge.promise;port.prove();await registering.promise;
+  document.channel.observeLoad();registration.resolve(Response.json({viewLease:"f".repeat(64)}));await retiredAgain.promise;
+  await expect(document.invoke("read",{})).rejects.toThrow("unavailable");await expect(document.media("output")).rejects.toThrow("unavailable");expect(fetch.mock.calls.filter(([url])=>String(url).endsWith("/view-call"))).toHaveLength(0);document.dispose();
 });

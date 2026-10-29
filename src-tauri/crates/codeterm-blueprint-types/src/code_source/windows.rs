@@ -23,7 +23,7 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
         return Err("contract_violation");
     }
     let mut path = directory.to_path_buf();
-    let root_handle = open(&path)?;
+    let root_handle = open_directory(&path)?;
     if !root_handle
         .metadata()
         .is_ok_and(|metadata| metadata.is_dir())
@@ -52,6 +52,12 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
         handles.push(handle);
     }
     handles.pop().ok_or("contract_violation")
+}
+
+pub fn open_directory(path: &Path) -> Result<File, &'static str> {
+    let file = open(path)?;
+    if !file.metadata().is_ok_and(|value| value.is_dir()) { return Err("contract_violation"); }
+    Ok(file)
 }
 
 fn open(path: &Path) -> Result<File, &'static str> {

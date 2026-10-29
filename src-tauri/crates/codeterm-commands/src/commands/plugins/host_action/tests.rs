@@ -56,6 +56,7 @@ impl PluginMediaResolver for StubMedia {
             return Err(MediaRefusal::Foreign);
         }
         Ok(OpenedMedia {
+            size: std::fs::metadata(&self.file).expect("fixture media").len(),
             file: std::fs::File::open(&self.file).expect("fixture media"),
             path: self.file.clone(),
             file_name: "frame.png".into(),

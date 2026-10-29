@@ -150,27 +150,36 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
     throw new Error("Invalid plugin registration scope");
   }
   let disposed = false;
+  let retirementGeneration=0;
   let lifecycle: Promise<unknown> = Promise.resolve();
   const enqueue = (work: () => Promise<void>) => {
     const result = lifecycle.then(work);
     lifecycle = result.catch(() => undefined);
     return result;
   };
-  const retire = () => enqueue(async () => {
+  const retire = () => {
+    retirementGeneration+=1;
+    viewLease=null;
+    return enqueue(async () => {
     const response = await client.request!("/api/plugins/view-frame/revoke", {
       method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({pluginId:plugin,registration:snapshot.registration}), keepalive:true,
     }, true);
     if (!response.ok) throw new Error("Plugin document retirement failed");
-  });
+    });
+  };
   const channel = new PluginViewChannel(documentId, {
     retire,
-    register: () => enqueue(async () => {
+    register: () => {
+      const capturedGeneration=retirementGeneration;
+      return enqueue(async () => {
       if (disposed || signal.aborted) throw new Error("Plugin view unavailable");
       const result = await client.localJson<{viewLease:string}>("POST", "/api/plugins/view-frame/register", {pluginId:plugin,...snapshot}, {signal});
       if (!/^[a-f0-9]{64}$/.test(result.viewLease)) throw new Error("Invalid plugin view registration");
+      if (disposed || signal.aborted || capturedGeneration!==retirementGeneration) throw new Error("Plugin view registration retired");
       viewLease = result.viewLease;
-    }),
+      });
+    },
   });
   const dispose = () => {
     if (disposed) return;
@@ -189,14 +198,16 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
     });
     signal.throwIfAborted();
     return { html, channel, frameToken: frame, dispose, async invoke(method, args) {
-      if (disposed || signal.aborted || !plugin) throw new Error("Plugin view unavailable");
-      const result = await client.localJson<unknown>("POST", "/api/plugins/view-call", {pluginId:plugin,viewFrame:viewLease,method,args}, {signal});
-      if (disposed || signal.aborted) throw new Error("Plugin view unavailable");
+      if (disposed || signal.aborted || !plugin || !viewLease) throw new Error("Plugin view unavailable");
+      const capturedLease=viewLease;
+      const result = await client.localJson<unknown>("POST", "/api/plugins/view-call", {pluginId:plugin,viewFrame:capturedLease,method,args}, {signal});
+      if (disposed || signal.aborted || !viewLease || capturedLease!==viewLease) throw new Error("Plugin view unavailable");
       return result;
     }, async media(id) {
-      if (disposed || signal.aborted || !base || typeof id !== "string" || !id || id.length > 256) throw new Error("Plugin media unavailable");
-      const result = await client.localJson<PluginMediaHandle>("POST", `${base}/media-register/${frame}`, { id }, { signal });
-      if (disposed || signal.aborted) throw new Error("Plugin media unavailable");
+      if (disposed || signal.aborted || !base || !viewLease || typeof id !== "string" || !id || id.length > 256) throw new Error("Plugin media unavailable");
+      const capturedLease=viewLease;
+      const result = await client.localJson<PluginMediaHandle>("POST", `${base}/media-register/${frame}`, { id,viewFrame:capturedLease }, { signal });
+      if (disposed || signal.aborted || !viewLease || capturedLease!==viewLease) throw new Error("Plugin media unavailable");
       if (!/^[a-f0-9]{64}$/.test(result.handle)) throw new Error("Invalid plugin media handle");
       const expected = `${base}/media/${frame}/${result.handle}`;
       if (result.url !== null && result.url !== expected) throw new Error("Invalid plugin media URL");

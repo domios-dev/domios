@@ -406,6 +406,8 @@ pub struct Capabilities {
     pub view: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_transfer: Option<crate::binary_transfer::BinaryTransferDescriptor>,
     /// Drives a non-PTY tab as a full conversational backend (e.g. LM Studio).
     /// The tab routes send/read through the plugin instead of a terminal.
     /// Bool (registered, backend-only) or `{ spawnable }` object (user-openable).

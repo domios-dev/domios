@@ -460,6 +460,7 @@ pub(in crate::js_runtime) fn install(
     });
 
     // host compute base (host.worker/agent/workspace/mem) — lives in `host_compute` to keep this bind table flat.
+    crate::js_runtime::host_transfer::install_handles(&host, &sandbox)?;
     crate::js_runtime::host_compute::install_handles(&host, &sandbox)?;
 
     #[cfg(test)]

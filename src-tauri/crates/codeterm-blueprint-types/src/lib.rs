@@ -30,3 +30,5 @@ pub mod code_source;
 
 #[cfg(test)]
 mod test_support;
+
+pub mod owned_output;
