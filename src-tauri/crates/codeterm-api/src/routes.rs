@@ -102,8 +102,15 @@ pub struct AppState {
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
-pub(crate) async fn legacy_web_route_gone() -> StatusCode {
+async fn legacy_web_route_gone() -> StatusCode {
     StatusCode::NOT_FOUND
+}
+
+pub(crate) fn retired_web_routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
+    Router::new()
+        .route("/web", get(legacy_web_route_gone))
+        .route("/web/", get(legacy_web_route_gone))
+        .route("/web/{*path}", get(legacy_web_route_gone))
 }
 
 #[cfg(test)]
@@ -962,6 +969,7 @@ pub(super) fn create_router_with_preview_admission(
             .layer(CompressionLayer::new()),
     );
 
+    let router = router.merge(retired_web_routes());
     let router = if let Some(dist) = &state.web_dist {
         let root_serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
@@ -979,8 +987,6 @@ pub(super) fn create_router_with_preview_admission(
                 "/manifest-bootstrap",
                 axum::routing::post(web_routes::web_manifest_bootstrap),
             )
-            .route("/web", get(legacy_web_route_gone))
-            .route("/web/{*path}", get(legacy_web_route_gone))
             .fallback(move |request| {
                 let root_serve = root_serve.clone();
                 frontend_missing::serve_or_missing(root_serve, request)
