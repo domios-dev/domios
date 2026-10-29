@@ -45,6 +45,11 @@ impl ServiceContext {
                     }),
                 );
                 drop(claim);
+                if let Err(reason) = self.wake_frozen_tab(target) {
+                    log::debug!(
+                        "[agent-delivery] retained recipient wake failed tab={target}: {reason}"
+                    );
+                }
                 self.schedule_agent_delivery_flush(target);
                 return Ok(Delivery::Pending { delivery_id: id });
             }

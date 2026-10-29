@@ -8,6 +8,9 @@ fn eligible() -> SleepFacts {
         general: false,
         protected: false,
         status: Some(TabStatus::Idle),
+        active_turn: false,
+        live_pty: false,
+        last_pty_output_ms: None,
         last_turn: Some(LastTurnEvidence {
             session_id: "own-session".into(),
             completed: true,
@@ -36,6 +39,45 @@ fn eligible() -> SleepFacts {
 
 fn decision(facts: &SleepFacts) -> SleepDecision {
     evaluate(&SleepPolicy::default(), facts, NOW)
+}
+
+#[test]
+fn own_pty_stream_with_stale_idle_hook_never_sleeps() {
+    let policy = SleepPolicy::default();
+    let mut facts = eligible();
+    facts.live_pty = true;
+    for tick in 0..100 {
+        let now = NOW + tick * 60_000;
+        facts.last_pty_output_ms = Some(now);
+        assert_eq!(
+            evaluate(&policy, &facts, now),
+            SleepDecision::Stay(StayReason::PtyActivity)
+        );
+    }
+}
+
+#[test]
+fn active_turn_overrides_idle_hook_even_without_output() {
+    let mut facts = eligible();
+    facts.active_turn = true;
+    facts.live_pty = true;
+    facts.last_pty_output_ms = Some(0);
+    assert_eq!(decision(&facts), SleepDecision::Stay(StayReason::ActiveTurn));
+}
+
+#[test]
+fn truly_idle_pty_may_sleep_only_with_old_output_evidence() {
+    let mut facts = eligible();
+    facts.live_pty = true;
+    for output in [None, Some(NOW), Some(NOW + 1)] {
+        facts.last_pty_output_ms = output;
+        assert_eq!(decision(&facts), SleepDecision::Stay(StayReason::PtyActivity));
+    }
+    let threshold = SleepPolicy::default().idle_minutes * 60_000;
+    facts.last_pty_output_ms = Some(NOW - threshold);
+    assert_eq!(decision(&facts), SleepDecision::Stay(StayReason::PtyActivity));
+    facts.last_pty_output_ms = Some(NOW - threshold - 1);
+    assert_eq!(decision(&facts), SleepDecision::Sleep);
 }
 
 macro_rules! refuses_flag {
