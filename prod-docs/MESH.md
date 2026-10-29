@@ -2,21 +2,21 @@
 
 ## Core Principles
 
-1. **The account is the only source of new links.** A machine joins the mesh only by linking a machine enrolled in the same account. There is no LAN broadcast, mDNS, UDP beacon, Tailnet-wide scan, manual address pairing, pairing request or introduction.
-2. **Paired is necessary, not sufficient.** Traffic on a paired edge also needs that edge's admission to be open right now (see *Admission and sign-out*).
-3. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, per-machine and independent of account membership. Each machine decides locally what a peer can do. Default = Full.
-4. **Only explicit removal deletes a pair.** `domios mesh disconnect` or an account revoke removes it; sign-out, expiry, outage and account switches never do.
-5. **One machine = one mesh.** Cannot be in two meshes simultaneously.
+1. **New links require the same account.** Link only machines enrolled in that account. No LAN broadcast, mDNS, UDP beacon, Tailnet scan, manual address pairing, pairing request or introduction.
+2. **Paired edges need open admission** for traffic (see *Admission and sign-out*).
+3. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, locally decided per-machine, independent of account membership. Default: Full.
+4. **Only `domios mesh disconnect` or account revoke deletes a pair.** Sign-out, expiry, outage and account switches retain it.
+5. **One mesh per machine.**
 
 ## Adding a machine
 
-When Tailscale is connected and the API is enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic without withdrawing the web listener. Signed-in machines publish their health-proven endpoint to the account.
+With Tailscale connected and the API enabled, the local web UI/API listens on assigned Tailscale IPv4/IPv6 addresses even while signed out; native address changes update listeners. The Mesh card offers QR, Open and Copy only for health-proven listeners. Open carries the instance API token in a URL fragment; browser API access requires it. Sign-out or revocation blocks peer requests and handshakes. Disabling Mesh blocks peer traffic but retains the web listener. Signed-in machines publish their proven endpoint to the account.
 
-Health-proven HTTP access remains available without Tailscale Serve HTTPS. The card prefers verified HTTPS, then tailnet HTTP, then LAN HTTP. Loopback offers **Open on this machine** without a phone QR or Copy action. The card labels the selected route; HTTPS-dependent browser features still require HTTPS. After Tailscale or Serve setup, run `domios mesh refresh --json`: it re-detects the transport, reconciles Serve, verifies web endpoints, publishes them and resyncs the card. Read back `transport.state` and `web_ui.endpoints` in that response or in `domios mesh status --json` (the latest cached local state, available even while signed out), then verify the card offers Open, Copy and QR for the proven endpoint before reporting setup complete. Access denial appears as **Permission needed**, separately from a stopped or missing Tailscale installation.
+Health-proven HTTP works without Tailscale Serve HTTPS. The card prefers verified HTTPS, tailnet HTTP, then LAN HTTP and labels the route. Loopback offers **Open on this machine**, without phone QR or Copy. HTTPS-dependent features require HTTPS. After Tailscale/Serve setup, `domios mesh refresh --json` re-detects transport, reconciles Serve, verifies/publishes web endpoints and resyncs the card. Read `transport.state` and `web_ui.endpoints` from its response or `domios mesh status --json` (cached local state, available signed out). Verify Open, Copy and QR for the proven endpoint before declaring setup complete. Access denial shows **Permission needed**, distinct from stopped/missing Tailscale.
 
-Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
+Windows Defender may request incoming access on first use; macOS may prompt when its application firewall is enabled. Linux may need a firewall rule allowing the Domios port on Tailscale. Domios neither changes firewall rules nor listens on LAN addresses for this feature.
 
-Both machines must be signed in to the same account, enrolled, online to the account registry and directly reachable (for example over the same Tailnet). Pick the machine from the account's machine list, or run:
+Both machines must be signed in to the same account, enrolled, registry-online and directly reachable (e.g. on one Tailnet). Select the account machine or run:
 
 ```bash
 domios mesh link <installation-id>
@@ -133,7 +133,7 @@ After origin review accepts the report, run `domios plan task merge-remote-lane 
 
 Both peers enforce Full access and owner rules. No token, provider credential, secret, or secret-bearing environment enters the task payload.
 
-The general `agent spawn --mesh PEER --role Worker` path remains task-less and does not create an origin attempt. Use plan-bound dispatch for accountable work; use task-less mesh spawn only for exploratory work without a plan assignment.
+Use plan-bound dispatch for accountable tasks; general `agent spawn --mesh PEER --role Worker` is task-less, with no origin attempt.
 
 1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
 
@@ -145,9 +145,9 @@ The general `agent spawn --mesh PEER --role Worker` path remains task-less and d
 
    Mesh spawns require `--cwd` to name a workspace directory on the peer; the peer refuses one that is not an absolute, existing directory there. Git Bash rewrites POSIX arguments such as `/srv/project` into Windows paths before the CLI runs, so pass a POSIX `--cwd` with `MSYS_NO_PATHCONV=1` set. A `--task-file` path is read on the caller machine and its contents are sent; the local path is never sent to the peer.
 
-   This is a **supported task-less Worker shape**, including for work that changes source on the peer: it owns no task because none can exist for it, and it declares no `--execution-intent`. Keep `--role Worker` — that is the field the peer resolves the Worker doctrine from, including the rule that every turn ends in exactly one `domios agent report`. A roleless spawn is accepted too and loses that doctrine silently, which on a remote machine means the work never reports home. `--execution-intent mutating` is still refused without a task binding, on the peer's own daemon; the mesh has no binding to give it, so leave the flag off.
+   **Task-less Workers may edit peer source**, but own no task and omit `--execution-intent`: the peer refuses `mutating` without a task binding. Keep `--role Worker` so the peer applies Worker doctrine, including exactly one `domios agent report` per turn. Roleless spawn is accepted but loses that doctrine and automatic reporting home.
 
-The general mesh spawn path remains available for task-less work; it does not participate in the origin task/report/merge lifecycle above.
+Task-less spawn does not participate in the origin task/report/merge lifecycle.
 
 ## Peer API compatibility
 
@@ -183,4 +183,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 | POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 71 -->
+<!-- revision: 72 -->

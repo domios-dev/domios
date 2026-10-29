@@ -49,9 +49,22 @@ fn sessionless_model_switch_prepares_fresh_model_and_fences_first_send_or_replac
             ModelSwitchLaunch::prepare(&fixture.service, &snap, "", "vendor/next-model").unwrap();
         assert_eq!(launch.params.model.as_deref(), Some("vendor/next-model"));
         assert!(launch.params.resume_session_id.is_none());
-        let expected_identity = system_prompt.then_some(IDENTITY);
-        assert_eq!(launch.task.as_deref(), expected_identity);
-        assert_eq!(launch.params.system_prompt.as_deref(), expected_identity);
+        let expected_identity = if system_prompt {
+            Some(IDENTITY.to_string())
+        } else {
+            crate::service::orchestrator::provider_launch_task(
+                &fixture.service.agent_registry,
+                &snap.provider,
+                None,
+                snap.role.as_deref(),
+                snap.role_profile.as_deref(),
+            )
+        };
+        assert_eq!(launch.task, expected_identity);
+        assert_eq!(
+            launch.params.system_prompt.as_deref(),
+            system_prompt.then_some(IDENTITY)
+        );
         assert!(launch.params.task.is_none());
         assert_eq!(
             launch.params.starter_prompt,

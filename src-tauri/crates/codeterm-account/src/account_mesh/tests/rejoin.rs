@@ -220,7 +220,7 @@ async fn account_mesh_rejoin_rotates_then_enrolls_then_syncs() {
     assert_ne!(own.key_id, old.key_id);
     assert_eq!(own.key_generation, old.generation + 1);
     assert_eq!(state.enrollment, Enrollment::Enrolled);
-    assert!(state.current_membership(START).is_some());
+    assert!(state.current_membership(harness.clock.now()).is_some());
     assert!(state.registry.as_ref().unwrap().rows[0].active);
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
