@@ -7,6 +7,13 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.17.1]
+
+### Fixed
+
+- Enter submits again in Terminal view on macOS with inline predictive text. Fixes rollacode/codeterm-releases#99.
+- Added update-restart cleanup regression tests. The main-thread cleanup fix already shipped in1.17.0; this release adds coverage (Refs rollacode/codeterm-releases#98).
+
 ## [Unreleased]
 
 ### Added
