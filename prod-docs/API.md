@@ -79,6 +79,7 @@ Outgoing Neighbor history entries expose optional `delivered_at` and `read_at` a
 | GET | `/api/identify` | — | Version, platform, features |
 | POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
+| GET | `/api/network/web-token` | — | Token-bearing web UI link; host/owner or authenticated local General only. |
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
@@ -199,4 +200,4 @@ Live authenticated Plan owners may recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 241 -->
+<!-- revision: 242 -->
