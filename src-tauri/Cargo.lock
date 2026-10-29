@@ -3389,6 +3389,7 @@ dependencies = [
  "codeterm-frontend-shell",
  "codeterm-mem",
  "codeterm-orchestration",
+ "codeterm-paths",
  "codeterm-plan",
  "codeterm-plugin",
  "codeterm-plugins",
