@@ -27,6 +27,7 @@ pub struct StartupAccount {
     grant: Option<VerifiedGrant>,
     valid: Arc<AtomicBool>,
     observed: Arc<AtomicU64>,
+    clock: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
 pub fn remember(root: &Path, backend: &str, identity: Option<Identity>) -> Result<(), String> {
@@ -75,6 +76,7 @@ pub fn load(root: &Path) -> Option<StartupAccount> {
         grant,
         valid: Arc::new(AtomicBool::new(true)),
         observed: Arc::new(AtomicU64::new(observed)),
+        clock: Arc::new(now),
     })
 }
 
@@ -87,7 +89,7 @@ fn now() -> u64 {
 
 impl StartupAccount {
     fn now(&self) -> u64 {
-        monotonic_now(&self.observed)
+        monotonic_now(&self.observed, (self.clock)())
     }
     pub fn is_valid(&self) -> bool {
         self.valid.load(Ordering::Acquire)
@@ -113,17 +115,24 @@ impl StartupAccount {
         let Some(grant) = &self.grant else {
             return crate::service::billing::pending_limit_gate();
         };
-        let payload = grant.payload();
-        let deadline = payload
-            .period_end
-            .unwrap_or(payload.expires_at)
-            .min(payload.expires_at);
+        let verdict = grant.verdict(self.now());
+        if !verdict.state.retains_grant() {
+            return crate::service::billing::pending_limit_gate();
+        }
+        let access = verdict.effective();
+        let deadline = (access.authority == codeterm_entitlements::Authority::Free).then(|| {
+            let payload = grant.payload();
+            payload
+                .period_end
+                .unwrap_or(payload.expires_at)
+                .min(payload.expires_at)
+        });
         let observed = self.observed.clone();
-        LimitGate::new(
-            grant.verdict(self.now()).effective(),
-            codeterm_entitlements::enforcing(),
+        let clock = self.clock.clone();
+        LimitGate::new(access, codeterm_entitlements::enforcing()).with_deadline(
+            deadline,
+            Arc::new(move || monotonic_now(&observed, clock())),
         )
-        .with_deadline(Some(deadline), Arc::new(move || monotonic_now(&observed)))
     }
 
     pub fn snapshot(&self) -> Option<Snapshot> {
@@ -139,7 +148,7 @@ impl StartupAccount {
                         if verdict.state.retains_grant() {
                             Plan::from(&verdict.label)
                         } else {
-                            Plan::Free
+                            Plan::Paid("unavailable".into())
                         }
                     },
                 ),
@@ -161,8 +170,7 @@ impl StartupAccount {
     }
 }
 
-fn monotonic_now(observed: &AtomicU64) -> u64 {
-    let current = now();
+fn monotonic_now(observed: &AtomicU64, current: u64) -> u64 {
     observed.fetch_max(current, Ordering::SeqCst).max(current)
 }
 
