@@ -475,6 +475,7 @@ pub(crate) fn compose_observed(
         frontend_dev_url,
         resource_dir,
         quit_port,
+        &api,
     )?;
     service_state.schedule_restored_agent_delivery_reconciliation();
     codeterm_service_core::service::provider_hooks::ensure_integrations_for_all(
