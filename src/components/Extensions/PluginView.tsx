@@ -1,4 +1,4 @@
-import { invokePluginWithConsent } from "../../lib/pluginConsent";
+import { invokeViewWithConsent } from "../../lib/pluginConsent";
 /**
  * Host for a plugin's iframe UI (the `view` capability). Renders the plugin's
  * `ui/index.html` in a sandboxed iframe (origin-null, CSP-locked) and relays the
@@ -7,7 +7,7 @@ import { invokePluginWithConsent } from "../../lib/pluginConsent";
  * The iframe holds no capability: its only channel is postMessage to us, and we
  * forward each call to the host (which stamps the plugin id + checks permissions).
  */
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen, type UnlistenFn } from "../../lib/bridge";
 import { type DaemonApiConfig } from "../../lib/webApi";
 import { PluginUiHost } from "./PluginUiHost";
@@ -145,8 +145,16 @@ export function PluginView({
 
   const path = `/api/plugins/${encodeURIComponent(pluginId)}/ui/index.html${surfaceQuery(surface).replace(/^&/, "?")}`;
   const documentPath = `${path}${path.includes("?") ? "&" : "?"}reload=${reloadNonce}`;
-  const { html, media, dispose: disposeDocument, frameToken, error: documentError } = usePluginDocument(documentPath);
+  const { html, invoke: invokeView, media, dispose: disposeDocument, frameToken, error: documentError } = usePluginDocument(documentPath);
   useEffect(() => invalidateHostActions, [documentPath, frameToken, invalidateHostActions]);
+  const callDocument = useMemo(() => ({ live: true, epoch: 0 }), [documentPath, invokeView]);
+  const currentCallDocument = useRef(callDocument);
+  currentCallDocument.current = callDocument;
+  useEffect(() => {
+    callDocument.live = true;
+    callDocument.epoch += 1;
+    return () => { callDocument.live = false; callDocument.epoch += 1; };
+  }, [callDocument]);
   const state = pluginUiDocumentState(html, documentError, runtime?.path === documentPath ? runtime.state : { status: "loading" });
 
   const onMessage = useCallback(
@@ -204,25 +212,29 @@ export function PluginView({
         return;
       }
       if (m.__ctInvoke != null) {
+        if (!Number.isSafeInteger(m.__ctInvoke)) return;
+        const requestEpoch = callDocument.epoch;
+        const isCurrent = () => callDocument.live && callDocument.epoch === requestEpoch && currentCallDocument.current === callDocument && iframeRef.current?.contentWindow === win;
         try {
           // iframes (e.g. Git) never need to know their own path.
           const args =
             cwd && m.args && typeof m.args === "object" && (m.args as { cwd?: unknown }).cwd == null
               ? { ...m.args, cwd }
               : m.args;
-          const result = await invokePluginWithConsent("plugin_view_call", { pluginId, method: m.method, args }, () => iframeRef.current?.contentWindow === win);
-          if (iframeRef.current?.contentWindow !== win) return;
+          if (!isCurrent() || !invokeView || typeof m.method !== "string") return;
+          const result = await invokeViewWithConsent(pluginId, () => invokeView(m.method, args), isCurrent);
+          if (!isCurrent()) return;
           // In-panel actions invalidate their bubble immediately.
           const usedCwd = (args as { cwd?: unknown } | undefined)?.cwd;
           if (typeof usedCwd === "string") invalidatePluginBubble(pluginId, usedCwd);
           win.postMessage({ __ctReply: m.__ctInvoke, result }, "*");
         } catch (err) {
-          if (iframeRef.current?.contentWindow !== win) return;
+          if (!isCurrent()) return;
           win.postMessage({ __ctReply: m.__ctInvoke, error: String(err) }, "*");
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath, surface, media, frameToken, announceCopy],
+    [pluginId, cwd, onClose, documentPath, surface, media, frameToken, invokeView, callDocument, announceCopy],
   );
 
   useEffect(() => {
@@ -275,6 +287,8 @@ export function PluginView({
         onLoad={() => {
           invalidateHostActions();
           if (loadedDocument.current === documentPath) {
+            callDocument.live = false;
+            callDocument.epoch += 1;
             disposeDocument?.();
             setReloadNonce((nonce) => nonce + 1);
           }

@@ -1,4 +1,5 @@
 [
+  "src/lib/pluginViewConsent.test.ts",
   "src/components/Neighbors/neighborNotify.test.tsx",
   "src/components/Neighbors/neighborRuntimeClient.test.ts",
   "src/components/Neighbors/neighborStatusStore.test.tsx",

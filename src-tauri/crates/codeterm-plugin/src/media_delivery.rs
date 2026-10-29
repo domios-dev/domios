@@ -1,5 +1,5 @@
 //! Opaque, frame-scoped access to passive files owned by a plugin.
-use crate::view_host::{ViewProvider, ViewRegistry, ViewRegistryHandle};
+use crate::view_host::{ViewCallContext, ViewProvider, ViewRegistry, ViewRegistryHandle};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
@@ -52,6 +52,8 @@ pub struct MediaHandle {
 
 struct Frame {
     plugin: String,
+    view_lease: String,
+    context: ViewCallContext,
     provider: Weak<dyn ViewProvider>,
     registry: Weak<ViewRegistry>,
     expires: Instant,
@@ -135,18 +137,26 @@ impl MediaStore {
 }
 
 /// Called only by the authenticated host document loader.
+pub struct FrameRegistration {
+    pub media_frame: String,
+    pub view_lease: String,
+}
+
 pub fn create_frame(
     provider: &Arc<dyn ViewProvider>,
     registry: &ViewRegistryHandle,
-) -> Result<String, MediaRefusal> {
+    mut context: ViewCallContext,
+) -> Result<FrameRegistration, MediaRefusal> {
     if !registry
         .get(provider.id())
         .is_some_and(|current| Arc::ptr_eq(&current, provider))
     {
         return Err(MediaRefusal::Unknown);
     }
-    let descriptor = provider.media_delivery().ok_or(MediaRefusal::Unknown)?;
-    if !valid_plugin_id(provider.id()) || !descriptor.valid() {
+    if !valid_plugin_id(provider.id())
+        || context.plugin != provider.id()
+        || context.origin != crate::view_host::ViewCallOrigin::Document
+    {
         return Err(MediaRefusal::Unknown);
     }
     let mut store = STORE.lock();
@@ -162,17 +172,100 @@ pub fn create_frame(
         return Err(MediaRefusal::Unknown);
     }
     let frame = token();
+    let view_lease = token();
+    context.frame = Some(uuid::Uuid::new_v4().simple().to_string());
     store.frames.insert(
         frame.clone(),
         Frame {
             plugin: provider.id().into(),
+            view_lease: view_lease.clone(),
+            context,
             provider: Arc::downgrade(provider),
             registry: Arc::downgrade(registry),
             expires: Instant::now() + FRAME_TTL,
             handles: HashMap::new(),
         },
     );
-    Ok(frame)
+    Ok(FrameRegistration {
+        media_frame: frame,
+        view_lease,
+    })
+}
+
+/// The presentation frame key is not a backend view-call credential.
+pub fn view_frame(
+    plugin: &str,
+    lease: &str,
+) -> Result<(Arc<dyn ViewProvider>, ViewCallContext), MediaRefusal> {
+    if !valid_token(lease) {
+        return Err(MediaRefusal::Unknown);
+    }
+    let mut store = STORE.lock();
+    let now = Instant::now();
+    store.cleanup(now);
+    let key = store
+        .frames
+        .iter()
+        .find(|(_, frame)| frame.plugin == plugin && frame.view_lease == lease)
+        .map(|(key, _)| key.clone())
+        .ok_or(MediaRefusal::Unknown)?;
+    let frame = store.frame(plugin, &key, now)?;
+    Ok((
+        frame.provider.upgrade().ok_or(MediaRefusal::Expired)?,
+        frame.context.clone(),
+    ))
+}
+
+/// Only authenticated host media routes use the presentation key to resolve this context.
+pub fn frame_context(plugin: &str, key: &str) -> Result<ViewCallContext, MediaRefusal> {
+    let mut store = STORE.lock();
+    store.cleanup(Instant::now());
+    Ok(store.frame(plugin, key, Instant::now())?.context.clone())
+}
+
+/// Host admission checks the captured invocation without accepting an echoed scope or lease.
+pub fn context_provider(context: &ViewCallContext) -> Result<Arc<dyn ViewProvider>, MediaRefusal> {
+    let mut store = STORE.lock();
+    let now = Instant::now();
+    store.cleanup(now);
+    let key = store
+        .frames
+        .iter()
+        .find(|(_, frame)| frame.context == *context)
+        .map(|(key, _)| key.clone())
+        .ok_or(MediaRefusal::Unknown)?;
+    store
+        .frame(&context.plugin, &key, now)?
+        .provider
+        .upgrade()
+        .ok_or(MediaRefusal::Expired)
+}
+
+pub fn context_is_live(context: &ViewCallContext) -> Result<(), MediaRefusal> {
+    context_provider(context).map(|_| ())
+}
+
+pub fn active_view_contexts(plugin: &str) -> Vec<ViewCallContext> {
+    let mut store = STORE.lock();
+    let now = Instant::now();
+    store.cleanup(now);
+    store
+        .frames
+        .keys()
+        .filter_map(|key| {
+            store
+                .frame(plugin, key, now)
+                .ok()
+                .map(|frame| frame.context.clone())
+        })
+        .collect()
+}
+
+pub fn revoke_view_frame(plugin: &str, lease: &str) {
+    STORE
+        .lock()
+        .frames
+        .retain(|_, frame| frame.plugin != plugin || frame.view_lease != lease);
 }
 
 pub fn revoke_frame(plugin: &str, frame: &str) {

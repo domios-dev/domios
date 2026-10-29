@@ -73,6 +73,7 @@ pub fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) ->
         .expose_headers([
             axum::http::header::CONTENT_SECURITY_POLICY,
             axum::http::HeaderName::from_static("x-domios-plugin-media-frame"),
+            axum::http::HeaderName::from_static("x-domios-plugin-view-frame"),
             axum::http::header::ETAG,
         ])
 }
@@ -794,7 +795,21 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/plugins/action", post(web_routes::plugin_action))
         .route("/api/plugins/glance", post(web_routes::plugin_glance))
         .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
-        .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
+        .route(
+            "/api/plugins/remote-task-call",
+            plugin_host_action_routes::owner_post(web_routes::remote_task_call)
+                .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
+        )
+        .route(
+            "/api/plugins/recording-suggestion",
+            plugin_host_action_routes::owner_post(web_routes::recording_suggestion)
+                .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
+        )
+        .route(
+            "/api/plugins/view-call",
+            plugin_host_action_routes::owner_post(web_routes::plugin_view_call)
+                .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
+        )
         .route(
             "/api/plugins/view-host-action",
             plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action),
@@ -847,6 +862,10 @@ pub(super) fn create_router_with_preview_admission(
             "/api/plugins/{id}/media-register/{frame}",
             post(crate::plugin_media_routes::register)
                 .layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/api/plugins/{id}/view-frame/{frame}",
+            axum::routing::delete(crate::plugin_media_routes::revoke_view),
         )
         .route(
             "/api/plugins/{id}/media-frame/{frame}",

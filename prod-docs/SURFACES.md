@@ -1,15 +1,13 @@
 # Plugin surface tabs
 
-A surface tab is a tab whose content a plugin renders. Domios owns the frame:
-the tab's identity, owner, header, lifecycle and restore. The plugin owns what
-is inside. Surface tabs sit in the sidebar next to terminals and chats, nested
-under the tab that owns them, and render the same way in the desktop app and
-the web mirror.
+A surface tab is a tab whose content a plugin renders. Domios owns the frame: the tab's identity, owner,
+header, lifecycle and restore. The plugin owns what is inside. Surface tabs sit in the sidebar next to
+terminals and chats, nested under the tab that owns them, and render the same way in the desktop app and the
+web mirror.
 
-A surface renders in one of two ways. A `view` surface shows the plugin's
-sandboxed view (`ui/index.html`), the same page the plugin shows as a panel. A
-`stream` surface shows live frames from a core surface runtime, such as the
-browser, and the viewer's clicks and keys go back to that runtime.
+A surface renders in one of two ways. A `view` surface shows the plugin's sandboxed view (`ui/index.html`),
+the same page the plugin shows as a panel. A `stream` surface shows live frames from a core surface runtime,
+such as the browser, and the viewer's clicks and keys go back to that runtime.
 
 ## Declaring a surface
 
@@ -50,10 +48,16 @@ the browser runtime reloads its last http(s) or file page in the same profile,
 falling back to the clean profile when that profile is gone. `placeholder` and
 `none` keep the tab and start the runtime fresh.
 
-The view page receives `surface`, `instance` and `tab` through `ct.surface`
-and talks to the plugin through `ct.invoke`, exactly like
-the panel view. One plugin view can serve several surfaces by reading
-`surface`, and several open copies of one surface by reading `instance`.
+The page reads `ct.surface` for presentation only. `ct.invoke(method,args)` calls
+`viewCall(method,args,context)` with host-resolved `{plugin,origin,surface,instance,tab,owner,workspace,team,actor,frame}`.
+`actor` is `{kind:"local"}`; document `origin` is `document` and `frame` is a non-secret identity. Surface fields
+are null for unowned panels, which cannot register owned jobs. Resolve callback
+results against this context's owner/scope, never `args.owner`, query words or echoed context.
+The host verifies the live tuple, owner, provider and document lease before/after callbacks.
+Close, reload, provider replacement and owner changes refuse stale calls; no private lease reaches the iframe.
+This grants no run/budget authority. A stopped document cannot erase a previously committed job receipt.
+Host UI remote-task controls use a separate Local-only live-tab/provider/session port (`remote_task` origin); recording suggestions use a declared/granted selection-only port (`recording_setup`).
+Those host contexts have `frame:null`; generic view calls always require their private document lease.
 
 ### Host actions from a view
 
@@ -189,7 +193,6 @@ element card to the surface owner, signed by the caller.
 | GET | `/api/surfaces` | — | `{ declared: [...], open: [...] }` |
 | POST | `/api/surfaces/open` | `{ target, owner_tab_id?, caller_tab_id?, workspace_id?, title_from_owner? }` | The opened tab row |
 | POST | `/api/surfaces/close` | `{ tab_id, caller_tab_id? }` | `{ tab_id, warnings }` |
-
 | GET | `/api/surfaces/{tab_id}/stream?w=&h=&dpr=` | — | SSE stream of a stream surface |
 | POST | `/api/surfaces/{tab_id}/call` | `{ method, args }` | `{ result }` or `{ error }` |
 
@@ -233,4 +236,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

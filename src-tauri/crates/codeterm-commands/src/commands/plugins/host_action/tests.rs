@@ -23,7 +23,12 @@ impl ViewProvider for StubView {
         &self.actions
     }
 
-    async fn call(&self, _method: &str, _args: Value) -> Result<Value, ViewError> {
+    async fn call(
+        &self,
+        _method: &str,
+        _args: Value,
+        _context: &codeterm_plugin::view_host::ViewCallContext,
+    ) -> Result<Value, ViewError> {
         Ok(Value::Null)
     }
 }

@@ -1,11 +1,17 @@
-import { act, type ReactElement } from "react";
+import { act, StrictMode, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const documentState = vi.hoisted(() => ({ html: "<html></html>" as string | undefined, error: null as string | null, media: undefined as undefined | ((id: string) => Promise<unknown>), dispose: undefined as undefined | (() => void) }));
+const documentState = vi.hoisted(() => ({ html: "<html></html>" as string | undefined, error: null as string | null, media: undefined as undefined | ((id: string) => Promise<unknown>), dispose: undefined as undefined | (() => void), invoke: undefined as undefined | ((method: string, args: unknown) => Promise<unknown>) }));
 const documentLoad = vi.hoisted(() => vi.fn(() => documentState));
 const listeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 
+vi.mock("../../lib/pluginConsent", () => ({
+  invokeViewWithConsent: async (_plugin: string, operation: () => Promise<unknown>, current: () => boolean) => {
+    if (!current()) throw new Error("stale");
+    return operation();
+  },
+}));
 vi.mock("../../lib/bridge", () => ({
   invoke: vi.fn(),
   listen: vi.fn((event: string, handler: (event: { payload: unknown }) => void) => {
@@ -45,6 +51,7 @@ afterEach(async () => {
   documentState.error = null;
   documentState.media = undefined;
   documentState.dispose = undefined;
+  documentState.invoke = undefined;
   documentLoad.mockClear();
 });
 
@@ -349,5 +356,40 @@ describe("view surface invalidation", () => {
     expect(post).not.toHaveBeenCalled();
     await act(async () => window.dispatchEvent(new MessageEvent("message", {source:frame.contentWindow,data:{__ctReady:true}})));
     expect(post).toHaveBeenCalledWith({__ctSurfaceStateChanged:true}, "*");
+  });
+});
+
+describe("trusted view invocation lifecycle", () => {
+  it("uses only the host document invocation port and suppresses stale same-WindowProxy results", async () => {
+    let settle!: (value: unknown) => void;
+    const invoke = vi.fn((_method:string,_args:unknown)=>new Promise<unknown>(resolve=>{settle=resolve;}));
+    documentState.invoke=invoke;
+    await mount(<PluginView pluginId="studio" api={undefined} />);
+    const frame=host!.querySelector("iframe")!;
+    const post=vi.spyOn(frame.contentWindow!,"postMessage");
+    await act(async()=>window.dispatchEvent(new MessageEvent("message",{source:frame.contentWindow,data:{__ctInvoke:1,method:"read",args:{owner:"forged"},viewFrame:"forged"}})));
+    expect(invoke).toHaveBeenCalledWith("read",{owner:"forged"});
+    // A second load ends this host document even though contentWindow is the same proxy.
+    await act(async()=>{ frame.dispatchEvent(new Event("load")); frame.dispatchEvent(new Event("load")); });
+    await act(async()=>settle({private_result:true}));
+    expect(post).not.toHaveBeenCalledWith(expect.objectContaining({__ctReply:1}),"*");
+  });
+
+  it("never invokes a backend from an unrelated source frame", async()=>{
+    documentState.invoke=vi.fn(async()=>({ok:true}));
+    await mount(<PluginView pluginId="studio" api={undefined} />);
+    await act(async()=>window.dispatchEvent(new MessageEvent("message",{source:window,data:{__ctInvoke:1,method:"submit",args:{}}})));
+    expect(documentState.invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("view invocation strict lifecycle",()=>{
+  it("allows the current document to complete after effect replay",async()=>{
+    documentState.invoke=vi.fn(async()=>({current:true}));
+    await mount(<StrictMode><PluginView pluginId="studio" api={undefined}/></StrictMode>);
+    const frame=host!.querySelector("iframe")!;
+    const post=vi.spyOn(frame.contentWindow!,"postMessage");
+    await act(async()=>window.dispatchEvent(new MessageEvent("message",{source:frame.contentWindow,data:{__ctInvoke:7,method:"read",args:{}}})));
+    expect(post).toHaveBeenCalledWith({__ctReply:7,result:{current:true}},"*");
   });
 });

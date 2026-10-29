@@ -77,6 +77,15 @@ pub async fn revoke(
     Ok(StatusCode::NO_CONTENT)
 }
 
+pub async fn revoke_view(
+    caller: Option<Extension<CallerIdentity>>,
+    Path((plugin, lease)): Path<(String, String)>,
+) -> Result<StatusCode, Error> {
+    owner(caller.as_ref())?;
+    media::revoke_view_frame(&plugin, &lease);
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Only these exact GET/HEAD paths bypass owner authentication; the opaque live pair authenticates them.
 pub(crate) fn is_playback_path(method: &Method, path: &str) -> bool {
     if *method != Method::GET && *method != Method::HEAD {

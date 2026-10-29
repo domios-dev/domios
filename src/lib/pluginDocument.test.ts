@@ -31,7 +31,7 @@ function fixture(assetStatus = 200) {
   const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
     const pathname = new URL(String(input)).pathname;
     if (pathname.endsWith("index.html")) return new Response('<html><head><style nonce="fixture">body{background:url(./icon.svg)}</style></head><body><img src="./icon.svg"><script nonce="fixture" src="./app.js"></script></body></html>', {
-      headers: { "Content-Type": "text/html", "Content-Security-Policy": policy },
+      headers: { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Frame": "d".repeat(64) },
     });
     if (pathname.endsWith("app.js")) return new Response("window.test=1", { status: assetStatus, headers: { "Content-Type": "text/javascript" } });
     return new Response("<svg></svg>", { headers: { "Content-Type": "image/svg+xml" } });
@@ -118,7 +118,7 @@ describe("authenticated plugin document", () => {
       const filename = new URL(String(input)).pathname.split("/").pop()!;
       return new Response(filename === "index.html" ? raw : readFileSync(resolve(directory, filename), "utf8"), {
         headers: filename === "index.html"
-          ? { "Content-Type": "text/html", "Content-Security-Policy": policy }
+          ? { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Frame": "d".repeat(64) }
           : { "Content-Type": "text/javascript" },
       });
     });
@@ -186,7 +186,7 @@ describe("scoped plugin media documents", () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
       if (init?.method === "DELETE") return new Response(null, { status: 204 });
       if (init?.method === "POST") return Response.json({ handle, url: mediaUrl, content_type: "video/mp4", file_name: "clip.mp4", expires_in_seconds: 600 });
-      return new Response(html, { headers: { "Content-Security-Policy": scopedPolicy, "X-Domios-Plugin-Media-Frame": frame } });
+      return new Response(html, { headers: { "Content-Security-Policy": scopedPolicy, "X-Domios-Plugin-View-Frame": "d".repeat(64), "X-Domios-Plugin-Media-Frame": frame } });
     });
     return { fetch, client: createTransportClient({ origin, token: "owner-secret", fetch }) };
   }
@@ -223,10 +223,38 @@ describe("scoped plugin media documents", () => {
     expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
   });
   it("does not offer registration when the document has no media capability", async () => {
-    const fixture = createTransportClient({ origin, token: "secret", fetch: vi.fn(async () => new Response("<html></html>", { headers: { "Content-Security-Policy": policy } })) });
+    const fixture = createTransportClient({ origin, token: "secret", fetch: vi.fn(async () => new Response("<html></html>", { headers: { "Content-Security-Policy": policy, "X-Domios-Plugin-View-Frame": "d".repeat(64) } })) });
     const document = await loadPluginDocument(fixture, path, new AbortController().signal);
     expect(document.frameToken).toBeNull();
     await expect(document.media("output")).rejects.toThrow("unavailable");
     document.dispose();
+  });
+});
+
+describe("host-private plugin view invocation", () => {
+  it("binds backend calls to the originating loader lease without exposing it in HTML", async () => {
+    const lease = "d".repeat(64);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input,init) => {
+      if (init?.method === "POST") return Response.json({accepted:true});
+      if (init?.method === "DELETE") return new Response(null,{status:204});
+      return new Response("<html><head></head><body></body></html>",{headers:{"Content-Security-Policy":policy,"X-Domios-Plugin-View-Frame":lease}});
+    });
+    const client = createTransportClient({origin,token:"owner-secret",fetch});
+    const document = await loadPluginDocument(client,path,new AbortController().signal);
+    expect(document.html).not.toContain(lease);
+    const forged = {owner:"foreign",viewFrame:"forged",frame:"forged"};
+    await document.invoke("read",forged);
+    const [url,init] = fetch.mock.calls.find(([,init])=>init?.method==="POST")!;
+    expect(new URL(String(url)).pathname).toBe("/api/plugins/view-call");
+    expect(JSON.parse(String(init!.body))).toEqual({pluginId:"example",viewFrame:lease,method:"read",args:forged});
+    document.dispose();
+    const calls=fetch.mock.calls.length;
+    await expect(document.invoke("submit",{})).rejects.toThrow("unavailable");
+    expect(fetch.mock.calls).toHaveLength(calls);
+  });
+
+  it("refuses documents without a private registration", async () => {
+    const client=createTransportClient({origin,token:"owner",fetch:vi.fn(async()=>new Response("<html></html>",{headers:{"Content-Security-Policy":policy}}))});
+    await expect(loadPluginDocument(client,path,new AbortController().signal)).rejects.toThrow("registration missing");
   });
 });

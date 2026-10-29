@@ -12,7 +12,12 @@ impl ViewProvider for Provider {
             types: vec![MediaType::Mp4, MediaType::Png],
         })
     }
-    async fn call(&self, _: &str, _: Value) -> Result<Value, crate::view_host::ViewError> {
+    async fn call(
+        &self,
+        _: &str,
+        _: Value,
+        _context: &crate::view_host::ViewCallContext,
+    ) -> Result<Value, crate::view_host::ViewError> {
         Ok(Value::Null)
     }
 }
@@ -39,6 +44,8 @@ fn fixture() -> (
         frame.clone(),
         Frame {
             plugin: provider.id().into(),
+            view_lease: token(),
+            context: ViewCallContext::panel(provider.id()),
             provider: Arc::downgrade(&provider),
             registry: Arc::downgrade(&registry),
             expires: now + FRAME_TTL,
@@ -314,7 +321,9 @@ fn frame_and_plugin_revocation_prevent_deferred_registration_and_old_streams() {
         now,
     )
     .unwrap();
-    let second_frame = create_frame(&provider, &registry).unwrap();
+    let second_frame = create_frame(&provider, &registry, ViewCallContext::panel(provider.id()))
+        .unwrap()
+        .media_frame;
     assert_eq!(
         frame_owns_handle(provider.id(), &second_frame, &first.handle),
         Err(MediaRefusal::Foreign)
@@ -358,4 +367,45 @@ fn native_registry_replacement_and_removal_revoke_live_frame_authority() {
     registry.unregister(provider.id());
     assert!(frame_provider(provider.id(), &frame).is_err());
     revoke_frame(provider.id(), &frame);
+}
+
+#[test]
+fn private_view_lease_never_accepts_presentation_key_and_revokes_with_frame() {
+    let (_, _, provider, _, _, registry) = fixture();
+    let registration =
+        create_frame(&provider, &registry, ViewCallContext::panel(provider.id())).unwrap();
+    let (_, context) = view_frame(provider.id(), &registration.view_lease).unwrap();
+    assert_ne!(registration.view_lease, registration.media_frame);
+    assert_ne!(
+        context.frame.as_deref(),
+        Some(registration.view_lease.as_str())
+    );
+    assert_ne!(
+        context.frame.as_deref(),
+        Some(registration.media_frame.as_str())
+    );
+    assert!(view_frame(provider.id(), &registration.media_frame).is_err());
+    assert!(view_frame("foreign-plugin", &registration.view_lease).is_err());
+    assert_eq!(
+        frame_context(provider.id(), &registration.media_frame).unwrap(),
+        context
+    );
+    context_is_live(&context).unwrap();
+    revoke_view_frame(provider.id(), &registration.view_lease);
+    assert!(view_frame(provider.id(), &registration.view_lease).is_err());
+    assert!(frame_context(provider.id(), &registration.media_frame).is_err());
+    assert!(context_is_live(&context).is_err());
+}
+
+#[test]
+fn view_leases_refuse_replaced_providers_and_context_plugin_spoofing() {
+    let (_, _, provider, _, _, registry) = fixture();
+    assert!(create_frame(&provider, &registry, ViewCallContext::panel("foreign")).is_err());
+    let registration =
+        create_frame(&provider, &registry, ViewCallContext::panel(provider.id())).unwrap();
+    let replacement: Arc<dyn ViewProvider> = Arc::new(Provider(provider.id().into()));
+    registry.register(provider.id(), replacement);
+    assert!(view_frame(provider.id(), &registration.view_lease).is_err());
+    assert!(frame_context(provider.id(), &registration.media_frame).is_err());
+    revoke_plugin(provider.id());
 }

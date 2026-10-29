@@ -70,19 +70,33 @@ pub async fn plugin_ui(
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
     }
-    let media_provider = if rel.ends_with(".html")
-        && matches!(
+    let view = if rel.ends_with(".html") {
+        if !matches!(
             caller.as_ref().map(|value| &value.0),
             Some(crate::auth::CallerIdentity::Local)
         ) {
-        state
+            return Err((
+                StatusCode::FORBIDDEN,
+                "plugin view requires local owner".into(),
+            ));
+        }
+        let registry = state
             .svc
-            .try_ext::<codeterm_plugin::view_host::ViewRegistryHandle>()
-            .and_then(|registry| {
-                registry
-                    .get(&id)
-                    .map(|provider| (provider, registry.clone()))
-            })
+            .ext::<codeterm_plugin::view_host::ViewRegistryHandle>()
+            .clone();
+        let provider = registry
+            .get(&id)
+            .ok_or((StatusCode::NOT_FOUND, "plugin view unavailable".into()))?;
+        let context = state
+            .svc
+            .plugin_view_context(
+                &id,
+                q.surface.as_deref(),
+                q.instance.as_deref(),
+                q.tab.as_deref(),
+            )
+            .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        Some((provider, registry, context))
     } else {
         None
     };
@@ -99,15 +113,29 @@ pub async fn plugin_ui(
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
 
     let mut response = plugin_ui_response(rel, bytes, &q);
-    if let Some((provider, registry)) =
-        media_provider.filter(|(provider, _)| provider.media_delivery().is_some())
-    {
-        if let Ok(frame) = codeterm_plugin::media_delivery::create_frame(&provider, &registry) {
-            if let Ok(value) = HeaderValue::from_str(&frame) {
-                response
-                    .headers_mut()
-                    .insert("x-domios-plugin-media-frame", value);
-            }
+    if let Some((provider, registry, context)) = view {
+        state
+            .svc
+            .validate_plugin_view_context(&context)
+            .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        let registration = codeterm_plugin::media_delivery::create_frame(
+            &provider, &registry, context,
+        )
+        .map_err(|_| {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "plugin view registration unavailable".into(),
+            )
+        })?;
+        response.headers_mut().insert(
+            "x-domios-plugin-view-frame",
+            HeaderValue::from_str(&registration.view_lease).expect("host token is ASCII"),
+        );
+        if provider.media_delivery().is_some() {
+            response.headers_mut().insert(
+                "x-domios-plugin-media-frame",
+                HeaderValue::from_str(&registration.media_frame).expect("host token is ASCII"),
+            );
         }
     }
     Ok(response)

@@ -16,6 +16,7 @@ export interface PluginDocument {
   html: string;
   frameToken: string | null;
   dispose(): void;
+  invoke(method: string, args: unknown): Promise<unknown>;
   media(id: string): Promise<PluginMediaHandle>;
 }
 
@@ -132,6 +133,8 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
   const response = await request(path);
   const policy = response.headers.get("Content-Security-Policy");
   if (!policy) throw new Error("Plugin document security policy missing");
+  const viewLease = response.headers.get("X-Domios-Plugin-View-Frame");
+  if (!viewLease || !/^[a-f0-9]{64}$/.test(viewLease)) throw new Error("Plugin view registration missing");
   const frame = response.headers.get("X-Domios-Plugin-Media-Frame");
   const plugin = new URL(path, client.origin()).pathname.match(/^\/api\/plugins\/([a-z0-9_-]{1,128})\/ui\//)?.[1];
   if (frame !== null && (!/^[a-f0-9]{64}$/.test(frame) || !plugin)) throw new Error("Invalid plugin media frame");
@@ -140,7 +143,7 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    if (base) void client.request!(`${base}/media-frame/${frame}`, { method: "DELETE", keepalive: true }, true).catch(() => undefined);
+    if (plugin) void client.request!(`/api/plugins/${plugin}/view-frame/${viewLease}`, { method: "DELETE", keepalive: true }, true).catch(() => undefined);
   };
   try {
     const mediaPolicy = base
@@ -152,7 +155,12 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
       return { bytes: new Uint8Array(await asset.arrayBuffer()), mime: asset.headers.get("Content-Type")?.split(";")[0].trim() ?? "" };
     });
     signal.throwIfAborted();
-    return { html, frameToken: frame, dispose, async media(id) {
+    return { html, frameToken: frame, dispose, async invoke(method, args) {
+      if (disposed || signal.aborted || !plugin) throw new Error("Plugin view unavailable");
+      const result = await client.localJson<unknown>("POST", "/api/plugins/view-call", {pluginId:plugin,viewFrame:viewLease,method,args}, {signal});
+      if (disposed || signal.aborted) throw new Error("Plugin view unavailable");
+      return result;
+    }, async media(id) {
       if (disposed || signal.aborted || !base || typeof id !== "string" || !id || id.length > 256) throw new Error("Plugin media unavailable");
       const result = await client.localJson<PluginMediaHandle>("POST", `${base}/media-register/${frame}`, { id }, { signal });
       if (disposed || signal.aborted) throw new Error("Plugin media unavailable");

@@ -84,16 +84,27 @@ impl ViewProvider for JsViewProvider {
             .map_err(|_| ViewError::Call("media file refused".into()))
     }
 
-    async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError> {
+    async fn call(
+        &self,
+        method: &str,
+        args: Value,
+        context: &crate::view_host::ViewCallContext,
+    ) -> Result<Value, ViewError> {
         // A plugin-supplied cwd must not mint a read grant; only host context can do so.
         let vm = self.vm.clone();
         let method = method.to_string();
+        let invocation = context.clone();
+        let plugin = self.id.clone();
+        let context = serde_json::to_value(context)
+            .map_err(|_| ViewError::Call("invalid view context".into()))?;
         tokio::task::spawn_blocking(move || {
-            call_json::<Value>(&vm, "viewCall", &[Value::String(method), args])
+            crate::view_host::with_view_call_context(&plugin, &invocation, || {
+                call_json::<Value>(&vm, "viewCall", &[Value::String(method), args, context])
+                    .map_err(|error| ViewError::Call(format!("{error:?}")))
+            })
         })
         .await
         .map_err(|e| ViewError::Call(format!("view task failed: {e}")))?
-        .map_err(|e| ViewError::Call(format!("{e:?}")))
     }
 }
 

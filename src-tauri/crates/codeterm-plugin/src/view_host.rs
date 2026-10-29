@@ -8,6 +8,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
+mod context;
+pub use context::{
+    current_view_call_context, with_view_call_context, ViewActor, ViewCallContext, ViewCallOrigin,
+    ViewOwnerScope,
+};
+
 use crate::capability::CapabilityRegistry;
 use crate::js_runtime::{ViewHostAction, WebhookReceiverKind};
 
@@ -51,7 +57,12 @@ pub trait ViewProvider: Send + Sync {
 
     /// Dispatch one `ct.invoke(method, args)` from the iframe to the plugin's
     /// `viewCall(method, args)` export. Returns its JSON result.
-    async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError>;
+    async fn call(
+        &self,
+        method: &str,
+        args: Value,
+        context: &ViewCallContext,
+    ) -> Result<Value, ViewError>;
 }
 
 pub type ViewRegistry = CapabilityRegistry<dyn ViewProvider>;

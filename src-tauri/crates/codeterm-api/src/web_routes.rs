@@ -17,6 +17,8 @@ use std::time::{Duration, SystemTime};
 use crate::routes::{check_auth, AppState};
 
 pub use crate::web_plugin_routes::plugin_ui;
+mod plugin_view;
+pub use plugin_view::{plugin_view_call, recording_suggestion, remote_task_call};
 mod session_transcript;
 pub use session_transcript::session_transcript;
 
@@ -945,33 +947,6 @@ pub async fn repo_watch_unsubscribe(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(value))
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ViewCallReq {
-    pub plugin_id: String,
-    pub method: String,
-    #[serde(default)]
-    pub args: Option<serde_json::Value>,
-}
-
-/// Web-mirror twin of the `plugin_view_call` Tauri command (the iframe bridge).
-pub async fn plugin_view_call(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(req): Json<ViewCallReq>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    commands::plugins::view_call(
-        &state.svc,
-        &req.plugin_id,
-        &req.method,
-        req.args.unwrap_or(serde_json::Value::Null),
-    )
-    .await
-    .map(Json)
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 #[derive(serde::Deserialize)]

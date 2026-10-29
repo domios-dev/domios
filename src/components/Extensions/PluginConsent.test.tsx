@@ -12,7 +12,12 @@ import type { PluginSnapshot } from "./types";
 import { invoke } from "../../lib/bridge";
 
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn(), listen: vi.fn(async () => () => {}) }));
-vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ html: "<html></html>", error: null }) }));
+vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ html: "<html></html>", error: null,
+  invoke: (method: string, args: unknown) => invoke("plugin_view_call", {pluginId:"fixture",method,args}),
+}) }));
+vi.mock("../../lib/daemonBootstrap", () => ({ baseDaemonTransport: () => ({
+  localJson: (_method: string, path: string, action: unknown) => invoke(path.endsWith("snapshot") ? "plugin_manager_snapshot" : "plugin_manager_action", {action}),
+}) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 let host: HTMLElement;
