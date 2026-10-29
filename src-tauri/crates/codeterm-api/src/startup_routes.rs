@@ -46,16 +46,7 @@ pub fn router(
         storage_error: states.storage.unavailable_reason().map(str::to_owned),
         account,
     };
-    let router = desktop_api(desktop.clone());
-    let router = if let Some(dist) = dist {
-        router
-            .nest_service("/bundled", tower_http::services::ServeDir::new(&dist))
-            .fallback_service(tower_http::services::ServeDir::new(&dist).fallback(
-                tower_http::services::ServeFile::new(dist.join("index.html")),
-            ))
-    } else {
-        router
-    };
+    let router = desktop_routes(desktop.clone(), dist);
     if let Some(bundles) = bundles {
         let token = states.config.lock().api.token.clone();
         router.merge(
@@ -67,6 +58,21 @@ pub fn router(
             )
             .layer(middleware::from_fn_with_state(desktop, authorize)),
         )
+    } else {
+        router
+    }
+}
+
+fn desktop_routes(desktop: Desktop, dist: Option<PathBuf>) -> Router {
+    let router = desktop_api(desktop)
+        .route("/web", get(crate::routes::legacy_web_route_gone))
+        .route("/web/{*path}", get(crate::routes::legacy_web_route_gone));
+    if let Some(dist) = dist {
+        router
+            .merge(crate::routes::bundled_frontend_routes(&dist))
+            .fallback_service(tower_http::services::ServeDir::new(&dist).fallback(
+                tower_http::services::ServeFile::new(dist.join("index.html")),
+            ))
     } else {
         router
     }

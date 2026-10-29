@@ -102,7 +102,7 @@ pub struct AppState {
 /// Lifetime of the `codeterm-web-token` PWA bootstrap cookie (web_routes).
 pub(crate) const WEB_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
-async fn legacy_web_route_gone() -> StatusCode {
+pub(crate) async fn legacy_web_route_gone() -> StatusCode {
     StatusCode::NOT_FOUND
 }
 
@@ -1083,7 +1083,9 @@ async fn restore_orphaned_tab(
     ))
 }
 
-fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(dist: &std::path::Path) -> Router<S> {
+pub(crate) fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(
+    dist: &std::path::Path,
+) -> Router<S> {
     let files = tower_http::set_header::SetResponseHeader::overriding(
         tower_http::services::ServeDir::new(dist),
         axum::http::header::CACHE_CONTROL,

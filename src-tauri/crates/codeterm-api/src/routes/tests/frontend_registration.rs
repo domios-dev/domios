@@ -139,3 +139,47 @@ async fn frontend_bundle_routes_contract_central_bearer_registration() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::CONFLICT);
 }
+
+#[tokio::test]
+async fn root_frontend_resolves_and_legacy_web_is_gone_in_full_router() {
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let dist = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dist.path().join("assets")).unwrap();
+    std::fs::write(
+        dist.path().join("index.html"),
+        "<script src='./assets/app.js'></script>",
+    )
+    .unwrap();
+    std::fs::write(dist.path().join("assets/app.js"), "window.fixture=true;").unwrap();
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let mut state = fixture::app_state(&fixture);
+    state.web_dist = Some(dist.path().to_path_buf());
+    let router = crate::routes::create_router(state);
+    for (path, expected) in [
+        ("/", "<script src='./assets/app.js'></script>"),
+        ("/assets/app.js", "window.fixture=true;"),
+    ] {
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
+            expected.as_bytes()
+        );
+    }
+    for path in ["/web", "/web/", "/web/assets/app.js"] {
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
+    }
+}
