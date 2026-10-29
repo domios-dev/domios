@@ -199,9 +199,7 @@ fn same_root(root: &File, path: &Path) -> io::Result<()> {
 }
 #[cfg(windows)]
 fn same_root(_: &File, path: &Path) -> io::Result<()> {
-    crate::code_source::open_directory(path)
-        .map(|_| ())
-        .map_err(|_| io::ErrorKind::PermissionDenied.into())
+    open_output_directory(path).map(|_| ())
 }
 #[cfg(unix)]
 fn publish(root: &File, _: &Path, from: &str, to: &str) -> io::Result<()> {
