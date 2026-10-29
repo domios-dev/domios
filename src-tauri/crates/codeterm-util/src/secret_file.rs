@@ -225,6 +225,7 @@ fn has_file_entry(path: &std::path::Path, account: &str) -> Result<bool, SecretF
 /// Write or remove an account in a file-backed keychain. Atomic rename
 /// avoids corruption if the daemon dies mid-write. Permissions: 0600 on
 /// Unix so other users cannot read the secret material.
+#[cfg(test)]
 fn write_file_entry(
     path: &std::path::Path,
     account: &str,

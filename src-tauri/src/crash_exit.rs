@@ -257,4 +257,5 @@ pub fn is_exact_server_shutdown_reply(
 }
 
 #[cfg(test)]
+#[path = "crash_exit/tests.rs"]
 mod tests;
