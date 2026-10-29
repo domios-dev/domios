@@ -2,7 +2,7 @@ use super::{postgres_url, MemBackendError, MemBackendOpener};
 use codeterm_service_core::{
     mem::{
         backend::{
-            migrate::{transfer, verify_counts},
+            migrate::{content_digests, transfer_verified, verify_counts},
             MemStore, StoreTable, TableCounts, WriteContext,
         },
         embedder::{
@@ -19,12 +19,16 @@ use std::sync::Arc;
 #[derive(Debug)]
 pub enum MigrationError {
     DaemonRunning,
+    SchemaBusy { side: MemoryBackend },
     Backend(MemBackendError),
     Failed(String),
 }
 impl std::fmt::Display for MigrationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::SchemaBusy { side } => {
+                write!(f, "memory_migration_schema_busy: {side} schema is in use")
+            }
             Self::DaemonRunning => {
                 f.write_str("memory_migration_daemon_running: stop the daemon first")
             }
@@ -114,9 +118,11 @@ pub fn execute(options: &Options) -> Result<serde_json::Value, MigrationError> {
         data_dir: identity.data(),
         postgres_url: url.as_ref().map(|url| url.expose_secret()),
     };
-    let source = opener.open(options.to.other(), true)?;
-    let original_counts = source.table_counts()?;
-    let target = opener.migration_target(options.to)?;
+    // Schema claims precede all opens: source, target, then bootstrap inside open.
+    let source_claim = opener.migration_claim(options.to.other())?;
+    let target_claim = opener.migration_claim(options.to)?;
+    let source = opener.open_migration(options.to.other(), true, source_claim.as_ref())?;
+    let target = opener.open_migration(options.to, false, target_claim.as_ref())?;
     let source_stamp = source.vector_stamp()?;
     let target_stamp = target.vector_stamp()?;
     let embedder = &config.memory.embedder;
@@ -153,17 +159,18 @@ pub fn execute(options: &Options) -> Result<serde_json::Value, MigrationError> {
     } else {
         None
     };
-    let copied = transfer(&source, &target, options.into_nonempty)?;
+    let verification = transfer_verified(&source, &target, options.into_nonempty)?;
+    let copied = verification.target_counts;
     let mut expected = copied.clone();
     if let Some(provider) = provider {
         reindex(&target, ActiveEmbedder::new(provider), &mut expected)?;
     }
     let final_counts = target.table_counts()?;
     verify_counts(&expected, &final_counts)?;
-    let copied_source = source.table_counts()?;
-    verify_counts(&original_counts, &copied_source)?;
+    let copied_source = verification.source_counts;
+    let final_digests = content_digests(target.as_ref())?;
     Ok(
-        serde_json::json!({"from": options.to.other(), "to": options.to, "verified": true, "reembedded": reembed, "source_unchanged": true, "source_counts": copied_source, "copied_counts": copied, "target_counts": final_counts, "config_changed": false}),
+        serde_json::json!({"from": options.to.other(), "to": options.to, "verified": true, "reembedded": reembed, "source_unchanged": true, "source_counts": copied_source, "copied_counts": copied, "target_counts": final_counts, "config_changed": false, "source_digests": verification.source_digests, "copied_digests": verification.target_digests, "target_digests": final_digests}),
     )
 }
 

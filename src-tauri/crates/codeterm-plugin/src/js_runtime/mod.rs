@@ -1,5 +1,6 @@
 mod agent_commands;
 mod bin_resolve;
+mod blueprint_step;
 mod bubble;
 #[cfg(test)]
 mod call_gate;
@@ -37,6 +38,7 @@ pub use bin_resolve::{
     probe_bin_with_environment, refresh_user_path, resolved_bin_path, well_known_bin_dirs,
     BinProbe, BinResolution, BinSearchEnvironment, EnvironmentValue, PathSource, SystemPathSource,
 };
+pub use blueprint_step::JsBlueprintStep;
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;
@@ -77,8 +79,9 @@ pub use manifest::{
     IntegrationKind, PermissionsConfig, PluginManifest, RuleConfig, SerdeHookEventBinding,
     SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
     SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, TabMenuAction, TabMenuItem, TrustGrantConfig, UsageConfig, WebhookReceiverCap,
-    WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
+    SpawnConfig, TabMenuAction, TabMenuItem, TrustGrantConfig, UsageConfig, ViewHostAction,
+    WebhookReceiverCap, WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS,
+    RESUME_TEMPLATE_PLACEHOLDERS,
 };
 use vm::call_json_strict;
 pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};

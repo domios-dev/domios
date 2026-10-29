@@ -7,14 +7,26 @@ use serde::Deserialize;
 use crate::routes::AppState;
 
 const PLUGIN_BRIDGE_JS: &str = r#"
-(function(){var p={},s=0;
+(function(){var p={},s=0,subscribers=new Set();
 window.addEventListener('message',function(e){var m=e.data||{};
  if(m.__ctReply!=null&&p[m.__ctReply]){var d=p[m.__ctReply];delete p[m.__ctReply];
   m.error?d.reject(new Error(m.error)):d.resolve(m.result);}
+ if(e.source===parent&&m.__ctSurfaceStateChanged===true){subscribers.forEach(function(fn){try{fn();}catch(_){}});}
  if(m.__ctTheme!=null){document.documentElement.style.cssText=m.__ctTheme;}});
 window.ct={surface:__CT_SURFACE__,invoke:function(method,args){var id=++s;return new Promise(function(res,rej){
   p[id]={resolve:res,reject:rej};parent.postMessage({__ctInvoke:id,method:method,args:args||null},'*');});},
+ media:function(id){var key=++s;return new Promise(function(res,rej){p[key]={resolve:res,reject:rej};parent.postMessage({__ctMedia:key,id:id},'*');});},
  close:function(){parent.postMessage({__ctClose:true},'*');}};
+window.ct.host=(function(){function ask(action,args){var id=++s;return new Promise(function(res){
+  p[id]={resolve:res,reject:function(e){res({ok:false,code:'unavailable',reason:String(e&&e.message||e)});}};
+  parent.postMessage({__ctHost:id,action:action,args:args},'*');});}
+ var known,waiting=[];window.addEventListener('message',function(e){var m=e.data||{};
+  if(e.source===parent&&m.__ctHostSupport!=null&&!known){known=m.__ctHostSupport;waiting.splice(0).forEach(function(f){f(known);});}});
+ return{availability:function(){return known?Promise.resolve(known):new Promise(function(res){waiting.push(res);});},
+  copyText:function(text){return ask('copyText',{text:text});},
+  saveAs:function(handle,suggestedName){return ask('saveAs',{handle:handle,suggestedName:suggestedName});},
+  reveal:function(handle){return ask('reveal',{handle:handle});}};})();
+window.ct.onSurfaceStateChanged=function(fn){if(typeof fn!=="function")throw new Error("callback required");subscribers.add(fn);return function(){subscribers.delete(fn);};};
 parent.postMessage({__ctReady:true},'*');
 function rz(){if(!document.body)return;var h=document.body.scrollHeight;if(h)parent.postMessage({__ctResize:h},'*');}
 function watch(){if(window.ResizeObserver){new ResizeObserver(rz).observe(document.body);}rz();}
@@ -45,7 +57,8 @@ fn ui_mime(path: &str) -> &'static str {
 }
 
 pub async fn plugin_ui(
-    AxumState(_state): AxumState<AppState>,
+    AxumState(state): AxumState<AppState>,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
     axum::extract::Path((id, path)): axum::extract::Path<(String, String)>,
     Query(q): Query<PluginUiQuery>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
@@ -57,6 +70,22 @@ pub async fn plugin_ui(
     if rel.contains("..") {
         return Err((StatusCode::BAD_REQUEST, "path traversal".into()));
     }
+    let media_provider = if rel.ends_with(".html")
+        && matches!(
+            caller.as_ref().map(|value| &value.0),
+            Some(crate::auth::CallerIdentity::Local)
+        ) {
+        state
+            .svc
+            .try_ext::<codeterm_plugin::view_host::ViewRegistryHandle>()
+            .and_then(|registry| {
+                registry
+                    .get(&id)
+                    .map(|provider| (provider, registry.clone()))
+            })
+    } else {
+        None
+    };
     let relative = rel.to_owned();
     let bytes = tokio::task::spawn_blocking(move || {
         codeterm_plugin::bundle_access::read_plugin_files(&id, || {
@@ -69,7 +98,19 @@ pub async fn plugin_ui(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
 
-    Ok(plugin_ui_response(rel, bytes, &q))
+    let mut response = plugin_ui_response(rel, bytes, &q);
+    if let Some((provider, registry)) =
+        media_provider.filter(|(provider, _)| provider.media_delivery().is_some())
+    {
+        if let Ok(frame) = codeterm_plugin::media_delivery::create_frame(&provider, &registry) {
+            if let Ok(value) = HeaderValue::from_str(&frame) {
+                response
+                    .headers_mut()
+                    .insert("x-domios-plugin-media-frame", value);
+            }
+        }
+    }
+    Ok(response)
 }
 
 fn plugin_ui_response(
@@ -96,7 +137,7 @@ fn plugin_frame_csp(nonce: &str) -> String {
     // A style nonce suppresses unsafe-inline, blocking attributes and Git's unnonced runtime styles.
     format!(
         "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; \
-         img-src blob: data:; font-src blob: data:; \
+         img-src blob: data:; font-src blob: data:; media-src 'none'; \
          connect-src 'none'; base-uri 'none'; form-action 'none'"
     )
 }

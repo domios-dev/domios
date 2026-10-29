@@ -13,6 +13,8 @@ use crate::provider::AgentProvider;
 
 use super::{load_one, PluginManifest};
 
+#[cfg(test)]
+mod blueprint_step_tests;
 mod fs_events;
 mod install;
 mod registration;
@@ -107,6 +109,32 @@ impl CapabilityRegistries {
                 )),
             );
         }
+        if !caps.graph_nodes.steps.is_empty() {
+            let exports = super::has_method(vm, "blueprintSubmit")
+                && (!caps
+                    .graph_nodes
+                    .steps
+                    .iter()
+                    .any(|s| s.effects.potentially_paid)
+                    || super::has_method(vm, "blueprintEstimate"))
+                && (!caps.graph_nodes.steps.iter().any(|s| s.lifecycle.reconcile)
+                    || super::has_method(vm, "blueprintReconcile"))
+                && (!caps.graph_nodes.steps.iter().any(|s| s.lifecycle.cancel)
+                    || super::has_method(vm, "blueprintCancel"));
+            if exports {
+                if let Err(error) = self.graph_nodes.register_steps(
+                    id,
+                    &caps.graph_nodes.steps,
+                    Arc::new(super::JsBlueprintStep::new(vm.clone())),
+                ) {
+                    log::error!("[plugin] step registration refused: {error}");
+                }
+            } else {
+                log::error!(
+                    "[plugin] step registration refused: declared lifecycle export missing"
+                );
+            }
+        }
         if !caps.graph_nodes.event_sources.is_empty() && vm.graph_events_allowed() {
             if let Err(error) = self.event_source.register(
                 id.clone(),
@@ -153,13 +181,18 @@ impl CapabilityRegistries {
             );
         }
         if caps.view || caps.remote_task.is_some() {
+            crate::media_delivery::revoke_plugin(&id);
             self.view.register(
                 id.clone(),
-                Arc::new(super::JsViewProvider::with_webhook_receiver(
-                    vm.clone(),
-                    id.clone(),
-                    caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
-                )),
+                Arc::new(
+                    super::JsViewProvider::with_webhook_receiver(
+                        vm.clone(),
+                        id.clone(),
+                        caps.webhook_receiver.as_ref().map(|receiver| receiver.kind),
+                    )
+                    .with_host_actions(caps.view_host_actions.clone())
+                    .with_media_delivery(caps.media_delivery.clone()),
+                ),
             );
         }
         if caps.chat_backend.enabled()
@@ -232,6 +265,7 @@ impl CapabilityRegistries {
     }
 
     fn deregister_common(&self, id: &str) {
+        crate::media_delivery::revoke_plugin(id);
         self.decision_model.unregister(id);
         self.transcribe.unregister(id);
         self.converter.unregister(id);

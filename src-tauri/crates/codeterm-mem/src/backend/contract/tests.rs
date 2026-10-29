@@ -114,3 +114,9 @@ fn sqlite_engine_shadow_publication() {
     ));
     engine_shadow_contract(&store, &active, &target);
 }
+
+#[test]
+fn sqlite_guarded_replace_refuses_new_area() {
+    let (_dir, store) = fixture();
+    guarded_replace_refuses_new_area(&store);
+}

@@ -4,7 +4,7 @@ use codeterm_mem::backend::{
 };
 use postgres::{
     types::{ToSql, Type},
-    Row, Transaction,
+    GenericClient, Row, Transaction,
 };
 use std::collections::BTreeMap;
 
@@ -58,7 +58,7 @@ fn ordering(table: StoreTable) -> &'static str {
     }
 }
 
-pub(crate) fn exists(tx: &mut Transaction<'_>, table: StoreTable) -> StoreResult<bool> {
+pub(crate) fn exists(tx: &mut impl GenericClient, table: StoreTable) -> StoreResult<bool> {
     Ok(tx
         .query_one("SELECT to_regclass($1) IS NOT NULL", &[&name(table)])
         .map_err(db_error)?
@@ -101,7 +101,7 @@ fn row_values(row: &Row) -> StoreResult<BTreeMap<String, StoreValue>> {
 }
 
 pub(crate) fn export_in(
-    tx: &mut Transaction<'_>,
+    tx: &mut impl GenericClient,
     after: Option<&ExportCursor>,
     limit: usize,
 ) -> StoreResult<ExportPage> {
@@ -298,7 +298,7 @@ pub(crate) fn import_in(tx: &mut Transaction<'_>, page: &ExportPage) -> StoreRes
     Ok(())
 }
 
-pub(crate) fn counts_in(tx: &mut Transaction<'_>) -> StoreResult<TableCounts> {
+pub(crate) fn counts_in(tx: &mut impl GenericClient) -> StoreResult<TableCounts> {
     StoreTable::ALL
         .into_iter()
         .map(|table| {
@@ -328,6 +328,36 @@ impl PostgresMemStore {
     }
 
     pub fn table_counts(&self) -> StoreResult<TableCounts> {
-        self.transaction(counts_in)
+        self.transaction(|tx| counts_in(tx))
+    }
+}
+
+struct Snapshot<'a>(std::cell::RefCell<Transaction<'a>>);
+impl codeterm_mem::backend::ExportSnapshot for Snapshot<'_> {
+    fn export_page(&self, after: Option<&ExportCursor>, limit: usize) -> StoreResult<ExportPage> {
+        export_in(&mut *self.0.borrow_mut(), after, limit)
+    }
+    fn table_counts(&self) -> StoreResult<TableCounts> {
+        counts_in(&mut *self.0.borrow_mut())
+    }
+}
+impl PostgresMemStore {
+    pub(crate) fn snapshot(
+        &self,
+        visitor: &mut dyn FnMut(&dyn codeterm_mem::backend::ExportSnapshot) -> StoreResult<()>,
+    ) -> StoreResult<()> {
+        self.fence.check()?;
+        let mut conn = self
+            .pool
+            .get()
+            .map_err(|_| "Postgres memory pool unavailable")?;
+        let tx = conn
+            .build_transaction()
+            .isolation_level(postgres::IsolationLevel::RepeatableRead)
+            .read_only(true)
+            .start()
+            .map_err(db_error)?;
+        visitor(&Snapshot(std::cell::RefCell::new(tx)))?;
+        self.fence.check()
     }
 }

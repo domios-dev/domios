@@ -7,7 +7,9 @@ use std::{sync::Arc, time::Duration};
 mod blueprint;
 mod curation;
 mod engines;
+mod fence;
 mod graph;
+pub use fence::MigrationLease;
 mod implementation;
 mod items;
 mod maintenance;
@@ -54,6 +56,7 @@ pub enum PostgresOpenError {
     InvalidUrl,
     Connection,
     Migration,
+    SchemaBusy,
     SchemaVersionMismatch { found: Option<i64>, expected: i64 },
 }
 
@@ -63,6 +66,7 @@ impl std::fmt::Display for PostgresOpenError {
             Self::InvalidOptions => "invalid Postgres memory options",
             Self::InvalidUrl => "invalid Postgres memory connection secret",
             Self::Connection => "Postgres memory connection failed",
+            Self::SchemaBusy => "postgres_memory_schema_busy: schema is in use",
             Self::Migration => "Postgres memory migration failed",
             Self::SchemaVersionMismatch { .. } => "Postgres memory schema version mismatch",
         })
@@ -83,25 +87,22 @@ pub struct PostgresMemStore {
     pool: r2d2::Pool<Manager>,
     gate: Arc<Mutex<()>>,
     read_only: bool,
+    fence: Arc<fence::SchemaFence>,
 }
 
 impl PostgresMemStore {
     fn connect(url: &str, options: PostgresOptions) -> Result<Self, PostgresOpenError> {
-        if !valid_schema(&options.schema)
-            || !(1..=32).contains(&options.pool_size)
-            || options.statement_timeout < Duration::from_millis(1)
-            || options.statement_timeout > Duration::from_secs(300)
-        {
-            return Err(PostgresOpenError::InvalidOptions);
-        }
-        let mut config: Config = url.parse().map_err(|_| PostgresOpenError::InvalidUrl)?;
-        config.connect_timeout(Duration::from_secs(5));
-        config.options(&format!(
-            "-c search_path={},public -c statement_timeout={} -c lock_timeout=5000 -c default_transaction_read_only={}",
-            options.schema,
-            options.statement_timeout.as_millis(),
-            if options.read_only { "on" } else { "off" }
-        ));
+        let config = connection_config(url, &options)?;
+        let fence = fence::SchemaFence::acquire(&config, &options.schema, false)?;
+        Self::connect_fenced(config, options, fence)
+    }
+
+    fn connect_fenced(
+        config: Config,
+        options: PostgresOptions,
+        fence: Arc<fence::SchemaFence>,
+    ) -> Result<Self, PostgresOpenError> {
+        fence.check().map_err(|_| PostgresOpenError::Connection)?;
         let pool = r2d2::Pool::builder()
             .max_size(options.pool_size)
             .min_idle(Some(0))
@@ -109,18 +110,28 @@ impl PostgresMemStore {
             .error_handler(Box::new(SilentPoolErrors))
             .build(PostgresConnectionManager::new(config, NoTls))
             .map_err(|_| PostgresOpenError::Connection)?;
-        let mut conn = pool.get().map_err(|_| PostgresOpenError::Connection)?;
-        if options.read_only {
-            migrations::verify_version(&mut conn, &options.schema)?;
+        if fence.exclusive {
+            let mut conn = fence.client.lock();
+            if options.read_only {
+                migrations::verify_version(&mut conn, &options.schema)?;
+            } else {
+                migrations::run(&mut conn, &options.schema, None)
+                    .map_err(|_| PostgresOpenError::Migration)?;
+            }
         } else {
-            migrations::run(&mut conn, &options.schema)
-                .map_err(|_| PostgresOpenError::Migration)?;
+            let mut conn = pool.get().map_err(|_| PostgresOpenError::Connection)?;
+            if options.read_only {
+                migrations::verify_version(&mut conn, &options.schema)?;
+            } else {
+                migrations::run(&mut conn, &options.schema, Some(&fence))
+                    .map_err(|_| PostgresOpenError::Migration)?;
+            }
         }
-        drop(conn);
         Ok(Self {
             pool,
             gate: Arc::new(Mutex::new(())),
             read_only: options.read_only,
+            fence,
         })
     }
 
@@ -136,13 +147,39 @@ impl PostgresMemStore {
         f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
         let _gate = self.gate.lock();
+        if self.fence.exclusive {
+            return self.transaction_on(&mut self.fence.client.lock(), f);
+        }
         let mut conn = self
             .pool
             .get()
             .map_err(|_| E::from("Postgres memory pool unavailable".into()))?;
+        self.transaction_on(&mut conn, f)
+    }
+
+    fn transaction_on<T, E: From<String>>(
+        &self,
+        conn: &mut postgres::Client,
+        f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
         let mut tx = conn
-            .transaction()
+            .build_transaction()
+            .read_only(self.read_only)
+            .start()
             .map_err(|error| E::from(db_error(error)))?;
+        if !self.fence.exclusive {
+            let acquired: bool = tx
+                .query_one(
+                    "SELECT pg_try_advisory_xact_lock_shared(hashtextextended($1, 0))",
+                    &[&self.fence.key],
+                )
+                .map_err(|error| E::from(db_error(error)))?
+                .get(0);
+            if !acquired {
+                return Err(E::from("postgres_memory_schema_busy".into()));
+            }
+            self.fence.check().map_err(E::from)?;
+        }
         tx.query_one(
             "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(), 0))",
             &[],
@@ -189,3 +226,25 @@ fn valid_schema(schema: &str) -> bool {
 
 #[cfg(test)]
 mod tests;
+
+fn connection_config(url: &str, options: &PostgresOptions) -> Result<Config, PostgresOpenError> {
+    if !valid_schema(&options.schema)
+        || !(1..=32).contains(&options.pool_size)
+        || options.statement_timeout < Duration::from_millis(1)
+        || options.statement_timeout > Duration::from_secs(300)
+    {
+        return Err(PostgresOpenError::InvalidOptions);
+    }
+    let mut config: Config = url.parse().map_err(|_| PostgresOpenError::InvalidUrl)?;
+    config.connect_timeout(Duration::from_secs(5));
+    configure(&mut config, options);
+    Ok(config)
+}
+fn configure(config: &mut Config, options: &PostgresOptions) {
+    config.options(&format!(
+            "-c search_path={},public -c statement_timeout={} -c lock_timeout=5000 -c default_transaction_read_only={}",
+            options.schema,
+            options.statement_timeout.as_millis(),
+            if options.read_only { "on" } else { "off" }
+        ));
+}

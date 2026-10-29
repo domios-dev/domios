@@ -148,7 +148,7 @@ pub(super) struct PluginSandbox {
     secrets_allowed: bool,
     /// `agent_commands` grant — gates routing a spawned agent's `domios plugin <id> <verb>` to `onAgentCommand`.
     agent_commands_allowed: bool,
-    /// `surfaces` grant — gates `host.surface.call` driving the calling agent's own stream surface.
+    /// `surfaces` grant — gates `host.surface.call` driving the calling agent's authorized surface.
     surfaces_allowed: bool,
     /// Whether `host.workspace*` is permitted (`manage_workspaces` grant).
     manage_workspaces_allowed: bool,

@@ -110,7 +110,7 @@ Response (one of):
 
 ### Graph nodes (plugin declarations)
 
-A plugin contributes graph nodes through `capabilities.graphNodes` in its manifest: media `converters` and typed `eventSources`. Both lists are optional, and a declared block must name at least one node.
+A plugin contributes graph nodes through `capabilities.graphNodes` in its manifest: media `converters`, typed `eventSources`, and typed `steps`. The lists are optional, and a declared block must name at least one node.
 
 ```json
 "capabilities": {
@@ -128,6 +128,13 @@ A plugin contributes graph nodes through `capabilities.graphNodes` in its manife
 
 - **converters** declare which media kinds (`text`, `audio`, `video`, `image`) the plugin turns into which (`from` differs from `to`, at most 16). The plugin exports `convert(request)` returning `{ text }`, `{ path }` (a file inside the request's `outputDir`), or `{ error }`. The host chains conversion steps across plugins from the declarations alone, so a plan never depends on which plugin serves a step. A `transcriber` capability is registered as `audio -> text` automatically.
 - **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
+Plugin `steps` declare up to 32 namespaced operations with versioned parameter
+schemas, named input/output ports, outcomes, and lifecycle/cost declarations.
+`domios blueprint nodes` lists them with `available: false` and
+`hold_reason: plugin_step_runner_unavailable`. They are discoverable contracts;
+Blueprint execution and owner-approval continuation are awaiting runner
+integration. No paid operation is admitted through this declaration alone.
+
 ### Model endpoints and presets
 
 `domios model-provider` routes to the installed provider declaring model configuration support. In the app, each such harness's plugin page has a **Custom model endpoints** section with the same operations plus edit and model discovery: a typed key is saved to the secret store (masked, never shown again), or a saved secret is copied into the endpoint's owned slot. The HTTP endpoint `POST /api/model-providers` accepts `?provider=<id>` to address one harness.
@@ -178,4 +185,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

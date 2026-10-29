@@ -58,12 +58,12 @@ fn declared_advisory_rules_preapprove_exact_native_tools_without_bypass() {
 #[test]
 fn rule_roots_cannot_inject_patterns_or_relative_authority() {
     assert_eq!(
-        absolute_rule_path("C:/Users/opaque pad").unwrap(),
-        "//c/Users/opaque pad"
+        absolute_rule_path("D:/Opaque/opaque pad").unwrap(),
+        "//d/Opaque/opaque pad"
     );
     assert_eq!(
-        absolute_rule_path("/Users/opaque pad").unwrap(),
-        "//Users/opaque pad"
+        absolute_rule_path("/opt/opaque pad").unwrap(),
+        "//opt/opaque pad"
     );
     for bad in [
         "relative",

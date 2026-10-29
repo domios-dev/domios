@@ -4,6 +4,7 @@ use codeterm_mem::store::MemAuthor;
 
 mod blueprint;
 mod bootstrap;
+mod consistency;
 mod engines;
 mod maintenance;
 mod recall;
@@ -287,3 +288,8 @@ fn options_reject_schema_injection_and_errors_redact_url() {
     assert!(!error.contains(secret));
     assert!(!error.contains("do-not-print"));
 }
+
+contract_case!(
+    postgres_guarded_replace_refuses_new_area,
+    guarded_replace_refuses_new_area
+);

@@ -81,8 +81,10 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | POST | `/api/plugins/glance` | Read a plugin glance. |
 | POST | `/api/plugins/tab-menu/action` | Invoke a plugin tab-menu action. |
 | POST | `/api/plugins/view-call` | Invoke a plugin view method. |
+| POST | `/api/plugins/view-host-action` | Check or perform a plugin view's declared user-gesture action; refusals are typed results. |
+| POST | `/api/plugins/view-host-action/download` | Stream a plugin view's own media file as a download. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

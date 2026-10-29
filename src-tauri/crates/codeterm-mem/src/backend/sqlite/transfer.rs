@@ -95,75 +95,6 @@ fn blob_path(root: &Path, name: &str) -> Result<std::path::PathBuf, String> {
 }
 
 impl SqliteMemStore {
-    pub(super) fn export_rows(
-        &self,
-        after: Option<&ExportCursor>,
-        limit: usize,
-    ) -> Result<ExportPage, String> {
-        if limit == 0 || limit > 10_000 {
-            return Err("export page limit must be 1 to 10000".into());
-        }
-        let table = after.map_or(StoreTable::Items, |c| c.table);
-        let offset = after.map_or(0, |c| c.offset);
-        let conn = self.conn.lock();
-        let mut rows = Vec::new();
-        if exists(&conn, table)? {
-            let projection = if table == StoreTable::Fts {
-                "rowid, *"
-            } else {
-                "*"
-            };
-            let sql = format!(
-                "SELECT {projection} FROM {} ORDER BY {} LIMIT ?1 OFFSET ?2",
-                table.sqlite_name(),
-                table.order_key()
-            );
-            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
-            let columns: Vec<_> = stmt.column_names().into_iter().map(str::to_owned).collect();
-            let mut cursor = stmt
-                .query(rusqlite::params![
-                    limit as i64 + 1,
-                    i64::try_from(offset).map_err(|e| e.to_string())?
-                ])
-                .map_err(|e| e.to_string())?;
-            while let Some(row) = cursor.next().map_err(|e| e.to_string())? {
-                let mut values = BTreeMap::new();
-                for (i, name) in columns.iter().enumerate() {
-                    values.insert(
-                        name.clone(),
-                        value(row.get_ref(i).map_err(|e| e.to_string())?)?,
-                    );
-                }
-                let mut blobs = BTreeMap::new();
-                if let Some(StoreValue::Text(name)) = values.get("body_blob_path") {
-                    blobs.insert(
-                        name.clone(),
-                        std::fs::read(blob_path(&self.blobs_dir, name)?)
-                            .map_err(|e| e.to_string())?,
-                    );
-                }
-                rows.push(StoreRow { values, blobs });
-            }
-        }
-        let next = if rows.len() > limit {
-            rows.pop();
-            Some(ExportCursor {
-                table,
-                offset: offset + rows.len() as u64,
-            })
-        } else {
-            StoreTable::ALL
-                .iter()
-                .position(|t| *t == table)
-                .and_then(|i| StoreTable::ALL.get(i + 1))
-                .map(|table| ExportCursor {
-                    table: *table,
-                    offset: 0,
-                })
-        };
-        Ok(ExportPage { table, rows, next })
-    }
-
     pub(super) fn import_rows(&self, page: &ExportPage) -> Result<(), String> {
         if page.rows.is_empty() {
             return Ok(());
@@ -194,10 +125,9 @@ impl SqliteMemStore {
                 model: text("model")?,
                 dimension,
             };
-            if crate::embedder::index::stamp(&tx)?.as_ref() == Some(&identity) {
-                return tx.commit().map_err(|e| e.to_string());
+            if crate::embedder::index::stamp(&tx)?.as_ref() != Some(&identity) {
+                crate::embedder::index::recreate_in(&tx, &identity)?;
             }
-            crate::embedder::index::recreate_in(&tx, &identity)?;
         }
         let sql = format!("SELECT * FROM {} LIMIT 0", page.table.sqlite_name());
         let stmt = tx.prepare(&sql).map_err(|e| e.to_string())?;
@@ -253,9 +183,84 @@ impl SqliteMemStore {
         }
         tx.commit().map_err(|e| e.to_string())
     }
+}
 
-    pub(super) fn counts(&self) -> Result<TableCounts, String> {
-        let conn = self.conn.lock();
+struct Snapshot<'a> {
+    conn: &'a Connection,
+    blobs_dir: &'a Path,
+}
+impl crate::backend::ExportSnapshot for Snapshot<'_> {
+    fn export_page(
+        &self,
+        after: Option<&ExportCursor>,
+        limit: usize,
+    ) -> Result<ExportPage, String> {
+        if limit == 0 || limit > 10_000 {
+            return Err("export page limit must be 1 to 10000".into());
+        }
+        let table = after.map_or(StoreTable::Items, |c| c.table);
+        let offset = after.map_or(0, |c| c.offset);
+        let conn = self.conn;
+        let mut rows = Vec::new();
+        if exists(&conn, table)? {
+            let projection = if table == StoreTable::Fts {
+                "rowid, *"
+            } else {
+                "*"
+            };
+            let sql = format!(
+                "SELECT {projection} FROM {} ORDER BY {} LIMIT ?1 OFFSET ?2",
+                table.sqlite_name(),
+                table.order_key()
+            );
+            let mut stmt = conn.prepare(&sql).map_err(|e| e.to_string())?;
+            let columns: Vec<_> = stmt.column_names().into_iter().map(str::to_owned).collect();
+            let mut cursor = stmt
+                .query(rusqlite::params![
+                    limit as i64 + 1,
+                    i64::try_from(offset).map_err(|e| e.to_string())?
+                ])
+                .map_err(|e| e.to_string())?;
+            while let Some(row) = cursor.next().map_err(|e| e.to_string())? {
+                let mut values = BTreeMap::new();
+                for (i, name) in columns.iter().enumerate() {
+                    values.insert(
+                        name.clone(),
+                        value(row.get_ref(i).map_err(|e| e.to_string())?)?,
+                    );
+                }
+                let mut blobs = BTreeMap::new();
+                if let Some(StoreValue::Text(name)) = values.get("body_blob_path") {
+                    blobs.insert(
+                        name.clone(),
+                        std::fs::read(blob_path(self.blobs_dir, name)?)
+                            .map_err(|e| e.to_string())?,
+                    );
+                }
+                rows.push(StoreRow { values, blobs });
+            }
+        }
+        let next = if rows.len() > limit {
+            rows.pop();
+            Some(ExportCursor {
+                table,
+                offset: offset + rows.len() as u64,
+            })
+        } else {
+            StoreTable::ALL
+                .iter()
+                .position(|t| *t == table)
+                .and_then(|i| StoreTable::ALL.get(i + 1))
+                .map(|table| ExportCursor {
+                    table: *table,
+                    offset: 0,
+                })
+        };
+        Ok(ExportPage { table, rows, next })
+    }
+
+    fn table_counts(&self) -> Result<TableCounts, String> {
+        let conn = self.conn;
         StoreTable::ALL
             .into_iter()
             .map(|table| {
@@ -272,5 +277,41 @@ impl SqliteMemStore {
                 Ok((table, count))
             })
             .collect()
+    }
+}
+
+impl SqliteMemStore {
+    pub(super) fn snapshot(
+        &self,
+        visitor: &mut dyn FnMut(&dyn crate::backend::ExportSnapshot) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock();
+        let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+        visitor(&Snapshot {
+            conn: &tx,
+            blobs_dir: &self.blobs_dir,
+        })
+    }
+    pub(super) fn export_rows(
+        &self,
+        after: Option<&ExportCursor>,
+        limit: usize,
+    ) -> Result<ExportPage, String> {
+        use crate::backend::ExportSnapshot;
+        let conn = self.conn.lock();
+        Snapshot {
+            conn: &conn,
+            blobs_dir: &self.blobs_dir,
+        }
+        .export_page(after, limit)
+    }
+    pub(super) fn counts(&self) -> Result<TableCounts, String> {
+        use crate::backend::ExportSnapshot;
+        let conn = self.conn.lock();
+        Snapshot {
+            conn: &conn,
+            blobs_dir: &self.blobs_dir,
+        }
+        .table_counts()
     }
 }

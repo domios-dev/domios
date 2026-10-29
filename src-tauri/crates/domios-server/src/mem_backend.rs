@@ -7,6 +7,7 @@ use std::{path::Path, sync::Arc};
 
 pub const POSTGRES_URL_KEY: &str = "domios.mem:postgres_url";
 pub mod migrate;
+mod migration_claim;
 
 pub fn open_configured(
     data_dir: &Path,

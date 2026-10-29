@@ -12,6 +12,13 @@ use codeterm_mem::{
 };
 
 impl MemStore for PostgresMemStore {
+    fn with_export_snapshot(
+        &self,
+        visitor: &mut dyn FnMut(&dyn codeterm_mem::backend::ExportSnapshot) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.snapshot(visitor)
+    }
+
     fn seed_graph(
         &self,
         _ctx: &WriteContext,

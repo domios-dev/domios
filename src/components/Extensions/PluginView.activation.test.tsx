@@ -2,7 +2,7 @@ import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const documentState = vi.hoisted(() => ({ html: "<html></html>" as string | undefined, error: null as string | null }));
+const documentState = vi.hoisted(() => ({ html: "<html></html>" as string | undefined, error: null as string | null, media: undefined as undefined | ((id: string) => Promise<unknown>), dispose: undefined as undefined | (() => void) }));
 const documentLoad = vi.hoisted(() => vi.fn(() => documentState));
 const listeners = vi.hoisted(() => new Map<string, (event: { payload: unknown }) => void>());
 
@@ -19,6 +19,12 @@ vi.mock("../../lib/webApi", () => ({
   daemonAuthToken: () => "token",
 }));
 vi.mock("./usePluginDocument", () => ({ usePluginDocument: documentLoad }));
+const hostDeps = vi.hoisted(() => ({
+  call: vi.fn(async (_request: Record<string, unknown>): Promise<unknown> => ({ ok: true })),
+  writeText: vi.fn(async (_text: string) => undefined),
+  download: vi.fn(async () => ({ ok: true as const })),
+}));
+vi.mock("../../lib/pluginViewHostDeps", () => ({ viewHostDeps: () => hostDeps }));
 vi.mock("../../lib/pluginBubbleCache", () => ({ invalidatePluginBubble: vi.fn() }));
 
 import { KPI_CHANGE_NOTICE, KPI_RECORDED_EVENT } from "../../lib/kpiChanges";
@@ -37,8 +43,16 @@ afterEach(async () => {
   listeners.clear();
   documentState.html = "<html></html>";
   documentState.error = null;
+  documentState.media = undefined;
+  documentState.dispose = undefined;
   documentLoad.mockClear();
 });
+
+/** Focus moves into a frame when the user clicks inside it. */
+function focusFrame(iframe: HTMLIFrameElement) {
+  iframe.tabIndex = 0;
+  iframe.focus();
+}
 
 function pressEscape() {
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
@@ -52,6 +66,44 @@ async function mount(ui: ReactElement) {
 }
 
 describe("plugin view activation", () => {
+  it("registers media only for the exact current iframe and sends no frame-provided path", async () => {
+    const media = vi.fn(async () => ({ handle: "opaque", url: "scoped" }));
+    documentState.media = media;
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    const postMessage = vi.fn();
+    const ownWindow = { postMessage };
+    Object.defineProperty(iframe, "contentWindow", { configurable: true, value: ownWindow });
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: window, data: { __ctMedia: 1, id: "foreign", path: "/secret" } })));
+    expect(media).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: ownWindow as unknown as Window, data: { __ctMedia: 2, id: "own", path: "/secret", plugin: "foreign" } })));
+    expect(media).toHaveBeenCalledExactlyOnceWith("own");
+    expect(postMessage).toHaveBeenCalledWith({ __ctReply: 2, result: { handle: "opaque", url: "scoped" } }, "*");
+  });
+  it("does not reply to a replaced frame after media registration finishes", async () => {
+    let resolve!: (value: unknown) => void;
+    documentState.media = () => new Promise((done) => { resolve = done; });
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    const postMessage = vi.fn();
+    const ownWindow = { postMessage };
+    Object.defineProperty(iframe, "contentWindow", { configurable: true, value: ownWindow });
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: ownWindow as unknown as Window, data: { __ctMedia: 2, id: "own" } })));
+    Object.defineProperty(iframe, "contentWindow", { configurable: true, value: { postMessage: vi.fn() } });
+    await act(async () => resolve({ handle: "opaque" }));
+    expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 2 }), "*");
+  });
+  it("revokes media on an in-frame reload even when the surface instance is unchanged", async () => {
+    documentState.dispose = vi.fn();
+    await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    // Happy DOM delivers the initial srcdoc load during mount.
+    expect(documentState.dispose).not.toHaveBeenCalled();
+    expect(documentLoad).toHaveBeenLastCalledWith(expect.stringContaining("reload=0"));
+    await act(async () => iframe.dispatchEvent(new Event("load")));
+    expect(documentState.dispose).toHaveBeenCalledTimes(1);
+    expect(documentLoad).toHaveBeenLastCalledWith(expect.stringContaining("reload=1"));
+  });
   it("keeps a plugin mount exception visible and retries a fresh document", async () => {
     await mount(<PluginView pluginId="fixture" api={undefined} embedded />);
     const iframe = host!.querySelector("iframe")!;
@@ -124,5 +176,178 @@ describe("plugin view activation", () => {
   it("does not subscribe a view that has not opted into KPI notices", async () => {
     await mount(<PluginView pluginId="git" api={undefined} active />);
     expect(listeners.has(KPI_RECORDED_EVENT)).toBe(false);
+  });
+
+  it("answers a host action from its own frame with the app's gesture and plugin id, never the frame's", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const iframe = host!.querySelector("iframe")!;
+    const ownWindow = iframe.contentWindow!;
+    const reply = vi.spyOn(ownWindow, "postMessage");
+    const ask = (id: number) => act(async () => window.dispatchEvent(new MessageEvent("message", {
+      source: ownWindow, data: { __ctHost: id, action: "copyText", args: { text: "fox" }, pluginId: "other", gesture: true },
+    })));
+
+    focusFrame(iframe);
+    await ask(1);
+    expect(reply).toHaveBeenCalledWith({ __ctReply: 1, result: { ok: false, code: "denied", reason: "gesture" } }, "*");
+    expect(hostDeps.call).not.toHaveBeenCalled();
+
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      // Activation from a click in app chrome: focus left the frame, so the frame is not the one asking.
+      const chrome = document.createElement("button");
+      document.body.append(chrome);
+      chrome.focus();
+      await ask(2);
+      expect(reply).toHaveBeenCalledWith({ __ctReply: 2, result: { ok: false, code: "denied", reason: "gesture" } }, "*");
+      chrome.remove();
+
+      focusFrame(iframe);
+      await ask(3);
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    expect(hostDeps.call).toHaveBeenCalledTimes(1);
+    expect(hostDeps.call).toHaveBeenCalledWith({ pluginId: "studio", action: "copyText" });
+    expect(hostDeps.writeText).toHaveBeenCalledWith("fox");
+    expect(reply).toHaveBeenCalledWith({ __ctReply: 3, result: { ok: true } }, "*");
+  });
+
+  it("tells a ready frame which host actions this app can perform", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const ownWindow = host!.querySelector("iframe")!.contentWindow!;
+    const post = vi.spyOn(ownWindow, "postMessage");
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { source: ownWindow, data: { __ctReady: true } })));
+    expect(post).toHaveBeenCalledWith({ __ctHostSupport: { copyText: true, saveAs: true, reveal: false } }, "*");
+  });
+
+  it("ignores host actions posted by any window other than its own frame", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    hostDeps.call.mockClear();
+    focusFrame(host!.querySelector("iframe")!);
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: window, data: { __ctHost: 3, action: "copyText", args: { text: "x" } },
+      })));
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    expect(hostDeps.call).not.toHaveBeenCalled();
+  });
+
+  it("drops a pending host action when its frame is replaced before the daemon answers", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const oldFrame = host!.querySelector("iframe")!;
+    const oldWindow = oldFrame.contentWindow!;
+    const reply = vi.spyOn(oldWindow, "postMessage");
+    hostDeps.call.mockClear();
+    hostDeps.writeText.mockClear();
+    let answer!: (value: unknown) => void;
+    hostDeps.call.mockImplementationOnce(() => new Promise((done) => { answer = done; }));
+    focusFrame(oldFrame);
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: oldWindow, data: { __ctHost: 4, action: "copyText", args: { text: "late" } },
+      })));
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    await act(async () => root!.render(<PluginView pluginId="other-plugin" api={undefined} embedded />));
+    expect(host!.querySelector("iframe")).not.toBe(oldFrame);
+    await act(async () => answer({ ok: true }));
+    expect(hostDeps.writeText).not.toHaveBeenCalled();
+    expect(reply).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 4 }), "*");
+  });
+
+  /** Sends a copy request from the current frame whose declaration check stays pending until `answer`. */
+  async function pendingCopy(id: number) {
+    // Happy DOM delivers the frame's initial srcdoc load during mount, before any user click.
+    const frame = host!.querySelector("iframe")!;
+    const ownWindow = frame.contentWindow!;
+    const reply = vi.spyOn(ownWindow, "postMessage");
+    hostDeps.call.mockClear();
+    hostDeps.writeText.mockClear();
+    let answer!: (value: unknown) => void;
+    hostDeps.call.mockImplementationOnce(() => new Promise((done) => { answer = done; }));
+    focusFrame(frame);
+    Object.defineProperty(navigator, "userActivation", { configurable: true, value: { isActive: true } });
+    try {
+      await act(async () => window.dispatchEvent(new MessageEvent("message", {
+        source: ownWindow, data: { __ctHost: id, action: "copyText", args: { text: "late" } },
+      })));
+    } finally {
+      delete (navigator as { userActivation?: unknown }).userActivation;
+    }
+    expect(hostDeps.call).toHaveBeenCalledTimes(1);
+    return { frame, ownWindow, reply, answer: (value: unknown) => answer(value) };
+  }
+
+  it("never revives a request across hide and reactivate, even with the same frame", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} active embedded />);
+    const pending = await pendingCopy(5);
+    await act(async () => root!.render(<PluginView pluginId="studio" api={undefined} active={false} embedded />));
+    await act(async () => root!.render(<PluginView pluginId="studio" api={undefined} active embedded />));
+    expect(host!.querySelector("iframe")).toBe(pending.frame);
+    await act(async () => pending.answer({ ok: true }));
+    expect(hostDeps.writeText).not.toHaveBeenCalled();
+    expect(pending.reply).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 5 }), "*");
+  });
+
+  it("ends a pending request when the same frame reloads or navigates", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const pending = await pendingCopy(6);
+    // A reload or navigation inside the frame keeps the WindowProxy; only the element's load reveals it.
+    await act(async () => pending.frame.dispatchEvent(new Event("load")));
+    await act(async () => pending.answer({ ok: true }));
+    expect(hostDeps.writeText).not.toHaveBeenCalled();
+    expect(pending.reply).not.toHaveBeenCalledWith(expect.objectContaining({ __ctReply: 6 }), "*");
+  });
+
+  it("shows its own Copied notice after every copy a plugin asks for", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} embedded />);
+    const pending = await pendingCopy(7);
+    expect(host!.querySelector('[data-testid="plugin-view-copied"]')).toBeNull();
+    await act(async () => pending.answer({ ok: true }));
+    expect(hostDeps.writeText).toHaveBeenCalledWith("late");
+    expect(host!.querySelector('[data-testid="plugin-view-copied"]')?.textContent).toBe("Copied from studio");
+    expect(pending.reply).toHaveBeenCalledWith({ __ctReply: 7, result: { ok: true } }, "*");
+  });
+});
+
+describe("view surface invalidation", () => {
+  it("refreshes only the exact plugin frame instance and unsubscribes on close", async () => {
+    const surface = { surfaceId: "board", instanceId: "one", tabId: "surface-one" };
+    await mount(<PluginView pluginId="studio" api={undefined} surface={surface} />);
+    const frame = host!.querySelector("iframe")!;
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    const emit = listeners.get("surface-state-invalidated")!;
+    const own = { plugin: "studio", surface: "board", instance: "one", tab: "surface-one" };
+    for (const wrong of [{plugin:"other"},{surface:"other"},{instance:"old"},{tab:"other"}]) {
+      await act(async () => emit({payload:{...own,...wrong}}));
+    }
+    expect(post).not.toHaveBeenCalled();
+    await act(async () => emit({payload:own}));
+    expect(post).toHaveBeenCalledWith({__ctSurfaceStateChanged:true}, "*");
+    await act(async () => root!.unmount());
+    root = null;
+    expect(listeners.has("surface-state-invalidated")).toBe(false);
+    post.mockClear();
+    await act(async () => emit({payload:own}));
+    expect(post).not.toHaveBeenCalled();
+  });
+
+  it("reopened frames ignore the previous instance and catch up on their own readiness", async () => {
+    await mount(<PluginView pluginId="studio" api={undefined} surface={{surfaceId:"board",instanceId:"one",tabId:"tab"}} />);
+    await act(async () => root!.render(<PluginView pluginId="studio" api={undefined} surface={{surfaceId:"board",instanceId:"two",tabId:"tab"}} />));
+    const frame = host!.querySelector("iframe")!;
+    const post = vi.spyOn(frame.contentWindow!, "postMessage");
+    await act(async () => listeners.get("surface-state-invalidated")!({payload:{plugin:"studio",surface:"board",instance:"one",tab:"tab"}}));
+    expect(post).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {source:window,data:{__ctReady:true}})));
+    expect(post).not.toHaveBeenCalled();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", {source:frame.contentWindow,data:{__ctReady:true}})));
+    expect(post).toHaveBeenCalledWith({__ctSurfaceStateChanged:true}, "*");
   });
 });

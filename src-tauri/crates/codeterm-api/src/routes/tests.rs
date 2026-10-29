@@ -339,3 +339,37 @@ async fn locked_pty_spawn_returns_typed_403_without_a_process() {
         .is_none());
     assert!(fixture.service.pty_ownership.launch_claim(&tab).is_none());
 }
+
+#[tokio::test]
+async fn plugin_media_frame_header_is_exposed_only_to_existing_frontend_origins() {
+    let response = cors_app()
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header(header::ORIGIN, "tauri://localhost")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(allowed_origin(&response), Some("tauri://localhost"));
+    let exposed = response.headers()[header::ACCESS_CONTROL_EXPOSE_HEADERS]
+        .to_str()
+        .unwrap()
+        .split(',')
+        .map(str::trim)
+        .collect::<Vec<_>>();
+    assert!(exposed.contains(&"content-security-policy"));
+    assert!(exposed.contains(&"x-domios-plugin-media-frame"));
+    let denied = cors_app()
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .header(header::ORIGIN, "https://foreign.example")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(allowed_origin(&denied).is_none());
+}

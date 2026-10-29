@@ -135,6 +135,57 @@ properties with optional `description`, `enum`, `maxLength` (<= 65536) and
 `maxItems` (<= 256); at most 32 properties. `$ref`, combinators
 (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
 
+## Blueprint step declarations
+
+`GraphNodesManifestCapability.steps` accepts up to 32 `BlueprintStepDescriptor`
+records. A plugin may declare specialized nodes and a general node whose model
+and parameters are selected by its own bounded schema. The host never knows
+supplier models or endpoints.
+
+```ts
+import type { BlueprintStepDescriptor } from "@codeterm/plugin-sdk";
+
+const generate: BlueprintStepDescriptor = {
+  contractVersion: 1, revision: 1, id: "fixture.generate",
+  title: "Generate", description: "Generate an output from a prompt",
+  params: { type: "object", properties: {
+    model: { type: "string", enum: ["small", "large"], maxLength: 16 },
+  }, required: ["model"] },
+  inputs: {
+    prompt: { kind: "text", minItems: 1, maxItems: 1 },
+    references: { kind: "image", minItems: 0, maxItems: 4 },
+  },
+  outputs: { image: { kind: "image", minItems: 1, maxItems: 1 } },
+  outcomes: ["done", "failed"],
+  lifecycle: { reconcile: true, cancel: true },
+  effects: { sideEffects: true, potentiallyPaid: true },
+};
+```
+
+Export `blueprintEstimate`, `blueprintSubmit`, and the declared optional
+`blueprintReconcile`/`blueprintCancel` methods from `BlueprintSteps`. Estimates
+use integer atomic units such as `usd_micro` or `credit_milli`; run ceilings
+are independent per unit. Requests carry host-owned operation identity and
+attribution; reuse the exact operation for reconciliation. An uncertain submit
+must never be replayed. `waiting_for_owner_ok` is a distinct owner hold, with
+`estimate_missing`, `estimate_stale`, `over_run_ceiling` or `over_step_allowance`.
+
+Owner approval may grant one operation an exception to the remaining run ceiling.
+`BlueprintOperationApproval` records its exact scope, unit and maximum with
+`runCeilingException`; the run ceiling and every later operation remain unchanged.
+In-flight cancellation records intent and uncertainty until an exact known job
+can confirm cancellation. Invalid response payloads preserve a valid returned
+job ID for reconciliation.
+
+Backend media outputs use `{kind: "media_source", id, media}` for an existing
+plugin-owned artifact. Host handles are inputs only and require an explicit
+receiving-step grant. UI frame tokens cannot be used as run handles.
+
+The current foundation lists these descriptors with `available: false` and
+`hold_reason: "plugin_step_runner_unavailable"`. YAML execution, owner decision
+transport, plugin history updates and media delivery are awaiting runner
+integration. Declaring a node does not authorize submission.
+
 ## Decision model capability
 
 Decision adapters may expose `selectModel(id): boolean` to apply a catalogue model immediately (modelId must report the selected id), and `metadata()` for display_name, help_url, server_address and settings_url. Metadata must never contain credentials. Without selectModel, the host only accepts the model reported by modelId.

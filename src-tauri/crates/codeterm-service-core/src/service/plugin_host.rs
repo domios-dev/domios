@@ -533,6 +533,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         self.surface_agent_call_json(plugin_id, Some(caller), verb, args_json)
     }
 
+    fn surface_invalidate_json(&self, plugin_id: &str, identity_json: &str) -> String {
+        self.invalidate_surface_view_json(plugin_id, identity_json)
+    }
+
     // ── Receiver target ──────────────────────────────────────────────────
 
     fn receiver_target_json(&self, plugin_id: &str) -> String {

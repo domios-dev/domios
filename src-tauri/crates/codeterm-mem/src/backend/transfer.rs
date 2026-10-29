@@ -81,3 +81,9 @@ pub struct ExportPage {
 }
 
 pub type TableCounts = BTreeMap<StoreTable, u64>;
+
+pub trait ExportSnapshot {
+    fn export_page(&self, after: Option<&ExportCursor>, limit: usize)
+        -> Result<ExportPage, String>;
+    fn table_counts(&self) -> Result<TableCounts, String>;
+}

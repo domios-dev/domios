@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::capability::CapabilityRegistry;
-use crate::js_runtime::WebhookReceiverKind;
+use crate::js_runtime::{ViewHostAction, WebhookReceiverKind};
 
 #[derive(Debug)]
 pub enum ViewError {
@@ -26,7 +26,7 @@ impl std::fmt::Display for ViewError {
 
 impl std::error::Error for ViewError {}
 
-/// A plugin that renders an iframe UI. `call` is the single bridge entry.
+/// A plugin iframe backend. Host-owned ports remain separate from viewCall.
 #[async_trait]
 pub trait ViewProvider: Send + Sync {
     fn id(&self) -> &str;
@@ -34,6 +34,19 @@ pub trait ViewProvider: Send + Sync {
     /// The webhook capability served by this view, when it has one.
     fn webhook_receiver_kind(&self) -> Option<WebhookReceiverKind> {
         None
+    }
+
+    /// The user-gesture host actions the plugin declared for its view; nothing else is performed.
+    fn host_actions(&self) -> &[ViewHostAction] {
+        &[]
+    }
+
+    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> {
+        None
+    }
+
+    async fn media_file(&self, _id: &str) -> Result<crate::media_delivery::MediaFile, ViewError> {
+        Err(ViewError::Call("media delivery not supported".into()))
     }
 
     /// Dispatch one `ct.invoke(method, args)` from the iframe to the plugin's

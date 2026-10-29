@@ -176,3 +176,57 @@ describe("authenticated plugin document", () => {
 
   });
 });
+
+
+describe("scoped plugin media documents", () => {
+  const frame = "a".repeat(64);
+  const handle = "b".repeat(64);
+  const scopedPolicy = policy + "; media-src 'none'";
+  function mediaFixture(mediaUrl = `/api/plugins/example/media/${frame}/${handle}`, html = "<html><head></head><body><video></video></body></html>") {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (init?.method === "POST") return Response.json({ handle, url: mediaUrl, content_type: "video/mp4", file_name: "clip.mp4", expires_in_seconds: 600 });
+      return new Response(html, { headers: { "Content-Security-Policy": scopedPolicy, "X-Domios-Plugin-Media-Frame": frame } });
+    });
+    return { fetch, client: createTransportClient({ origin, token: "owner-secret", fetch }) };
+  }
+  it("uses the same authenticated transport for desktop/web and scopes only media-src to this frame", async () => {
+    const fixture = mediaFixture();
+    const document = await loadPluginDocument(fixture.client, path, new AbortController().signal);
+    expect(document.frameToken).toBe(frame);
+    const policy = new DOMParser().parseFromString(document.html, "text/html").querySelector('meta[http-equiv="Content-Security-Policy"]')!.getAttribute("content")!;
+    expect(policy).toContain(`media-src ${origin}/api/plugins/example/media/${frame}/ blob:`);
+    expect(policy).toContain("connect-src 'none'");
+    expect(policy).toContain("img-src blob: data:");
+    expect(policy).not.toContain("media-src *");
+    expect(document.html).not.toContain("owner-secret");
+    const media = await document.media("job-output");
+    expect(media.url).toBe(`${origin}/api/plugins/example/media/${frame}/${handle}`);
+    const [url, init] = fixture.fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect(new URL(String(url)).pathname).toBe(`/api/plugins/example/media-register/${frame}`);
+    expect(JSON.parse(init!.body as string)).toEqual({ id: "job-output" });
+    expect(new Headers(init!.headers).get("authorization")).toBe("Bearer owner-secret");
+    document.dispose();
+    document.dispose();
+    expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+    await expect(document.media("job-output")).rejects.toThrow("unavailable");
+  });
+  it.each(["https://foreign.example/clip.mp4", `/api/plugins/other/media/${frame}/${handle}`, `/api/plugins/example/media/${"c".repeat(64)}/${handle}`])("rejects a returned URL outside this exact frame: %s", async (url) => {
+    const fixture = mediaFixture(url);
+    const document = await loadPluginDocument(fixture.client, path, new AbortController().signal);
+    await expect(document.media("output")).rejects.toThrow("Invalid plugin media URL");
+    document.dispose();
+  });
+  it("revokes the minted frame when materialization fails", async () => {
+    const fixture = mediaFixture(undefined, '<script>untrusted()</script>');
+    await expect(loadPluginDocument(fixture.client, path, new AbortController().signal)).rejects.toThrow("nonce");
+    expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+  });
+  it("does not offer registration when the document has no media capability", async () => {
+    const fixture = createTransportClient({ origin, token: "secret", fetch: vi.fn(async () => new Response("<html></html>", { headers: { "Content-Security-Policy": policy } })) });
+    const document = await loadPluginDocument(fixture, path, new AbortController().signal);
+    expect(document.frameToken).toBeNull();
+    await expect(document.media("output")).rejects.toThrow("unavailable");
+    document.dispose();
+  });
+});

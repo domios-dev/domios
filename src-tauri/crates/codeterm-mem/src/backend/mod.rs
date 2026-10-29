@@ -19,7 +19,9 @@ pub use blueprint::BlueprintStore;
 mod transfer;
 pub use engines::EngineStore;
 pub use sqlite::SqliteMemStore;
-pub use transfer::{ExportCursor, ExportPage, StoreRow, StoreTable, StoreValue, TableCounts};
+pub use transfer::{
+    ExportCursor, ExportPage, ExportSnapshot, StoreRow, StoreTable, StoreValue, TableCounts,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WriteContext {
@@ -75,6 +77,10 @@ impl WriteContext {
 }
 
 pub trait MemStore: BlueprintStore + EngineStore + Send + Sync {
+    fn with_export_snapshot(
+        &self,
+        visitor: &mut dyn FnMut(&dyn ExportSnapshot) -> Result<(), String>,
+    ) -> Result<(), String>;
     fn seed_graph(
         &self,
         ctx: &WriteContext,

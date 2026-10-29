@@ -37,8 +37,25 @@ const STEPS: &[&str] = &[
     include_str!("migrations/002_authorship.sql"),
 ];
 
-pub(crate) fn run(client: &mut Client, schema: &str) -> StoreResult<()> {
+pub(crate) fn run(
+    client: &mut Client,
+    schema: &str,
+    fence: Option<&crate::fence::SchemaFence>,
+) -> StoreResult<()> {
     let mut tx = client.transaction().map_err(db_error)?;
+    if let Some(fence) = fence {
+        let acquired: bool = tx
+            .query_one(
+                "SELECT pg_try_advisory_xact_lock_shared(hashtextextended($1, 0))",
+                &[&fence.key],
+            )
+            .map_err(db_error)?
+            .get(0);
+        if !acquired {
+            return Err("postgres_memory_schema_busy".into());
+        }
+        fence.check()?;
+    }
     tx.query_one(
         "SELECT pg_advisory_xact_lock(hashtextextended('domios_mem:bootstrap', 0))",
         &[],

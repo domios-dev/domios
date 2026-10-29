@@ -1,4 +1,7 @@
-use super::{MemStore, StoreTable, TableCounts, WriteContext};
+mod digest;
+use super::{ExportSnapshot, MemStore, StoreTable, TableCounts, WriteContext};
+use digest::Contents;
+pub use digest::{content_digests, verify_digests, TableDigests};
 use std::{collections::BTreeSet, sync::Arc};
 
 pub fn verify_counts(expected: &TableCounts, actual: &TableCounts) -> Result<(), String> {
@@ -38,7 +41,50 @@ pub fn transfer(
     if Arc::ptr_eq(source, target) {
         return Err("memory_migration_same_store: source and target must differ".into());
     }
+    Ok(transfer_verified(source, target, into_nonempty)?.target_counts)
+}
+
+#[derive(Debug)]
+pub struct TransferVerification {
+    pub source_counts: TableCounts,
+    pub target_counts: TableCounts,
+    pub source_digests: TableDigests,
+    pub target_digests: TableDigests,
+}
+
+pub fn transfer_verified(
+    source: &Arc<dyn MemStore>,
+    target: &Arc<dyn MemStore>,
+    into_nonempty: bool,
+) -> Result<TransferVerification, String> {
+    transfer_with_hook(source, target, into_nonempty, &mut |_| Ok(()))
+}
+
+pub fn transfer_with_hook(
+    source: &Arc<dyn MemStore>,
+    target: &Arc<dyn MemStore>,
+    into_nonempty: bool,
+    hook: &mut dyn FnMut(&super::ExportPage) -> Result<(), String>,
+) -> Result<TransferVerification, String> {
+    if Arc::ptr_eq(source, target) {
+        return Err("memory_migration_same_store: source and target must differ".into());
+    }
+    let mut result = None;
+    source.with_export_snapshot(&mut |snapshot| {
+        result = Some(copy_snapshot(snapshot, target, into_nonempty, hook)?);
+        Ok(())
+    })?;
+    result.ok_or("memory_migration_snapshot_missing".into())
+}
+
+fn copy_snapshot(
+    source: &dyn ExportSnapshot,
+    target: &Arc<dyn MemStore>,
+    into_nonempty: bool,
+    hook: &mut dyn FnMut(&super::ExportPage) -> Result<(), String>,
+) -> Result<TransferVerification, String> {
     let source_counts = source.table_counts()?;
+
     let target_counts = target.table_counts()?;
     verify_counts(&source_counts, &source_counts)?;
     verify_counts(&target_counts, &target_counts)?;
@@ -48,9 +94,38 @@ pub fn transfer(
             "memory_migration_target_nonempty: use --into-nonempty to authorize import".into(),
         );
     }
-    if populated && target.vector_stamp()? != source.vector_stamp()? {
+    let source_stamp = source
+        .export_page(
+            Some(&super::ExportCursor {
+                table: StoreTable::Embedder,
+                offset: 0,
+            }),
+            256,
+        )?
+        .rows;
+    let target_stamp = target
+        .export_page(
+            Some(&super::ExportCursor {
+                table: StoreTable::Embedder,
+                offset: 0,
+            }),
+            256,
+        )?
+        .rows;
+    let identity = |rows: &[super::StoreRow]| {
+        rows.first()
+            .map(|row| ["provider", "model", "dimension"].map(|key| row.values.get(key).cloned()))
+    };
+    if populated && identity(&target_stamp) != identity(&source_stamp) {
         return Err("memory_migration_target_stamp_conflict: non-empty target must use the source embedder stamp before import".into());
     }
+    let mut expected_contents = None;
+    target.with_export_snapshot(&mut |snapshot| {
+        expected_contents = Some(Contents::read(snapshot)?);
+        Ok(())
+    })?;
+    let mut expected_contents = expected_contents.ok_or("memory_migration_snapshot_missing")?;
+    let mut source_contents = Contents::new();
     let mut expected = target_counts;
     for table in StoreTable::ALL {
         expected.insert(
@@ -94,7 +169,10 @@ pub fn transfer(
                 return Err("memory_migration_cursor: export failed to advance".into());
             }
         }
+        source_contents.add(&page, false)?;
+        expected_contents.add(&page, true)?;
         target.import_page(&ctx, &page)?;
+        hook(&page)?;
         cursor = page.next;
         if cursor.is_none() {
             break;
@@ -107,5 +185,12 @@ pub fn transfer(
     verify_counts(&source_counts, &source.table_counts()?)?;
     let counts = target.table_counts()?;
     verify_counts(&expected, &counts)?;
-    Ok(counts)
+    let target_digests = content_digests(target.as_ref())?;
+    verify_digests(&expected_contents.finish(), &target_digests)?;
+    Ok(TransferVerification {
+        source_counts,
+        target_counts: counts,
+        source_digests: source_contents.finish(),
+        target_digests,
+    })
 }
