@@ -50,8 +50,14 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
         .create_new(true)
         .open(&destination)?;
     file.rewind()?;
-    std::io::copy(&mut file, &mut copy)?;
+    let started = std::time::Instant::now();
+    let bytes = std::io::copy(&mut file, &mut copy)?;
     copy.sync_all()?;
+    log::debug!(
+        "[boot-operation] worker CLI pinned copy bytes={} elapsed_ms={}",
+        bytes,
+        started.elapsed().as_millis()
+    );
     drop(copy);
     #[cfg(unix)]
     {
@@ -63,7 +69,13 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
     let alias = lease
         .path()
         .join(format!("domios{}", std::env::consts::EXE_SUFFIX));
-    std::fs::copy(&destination, &alias)?;
+    let started = std::time::Instant::now();
+    let bytes = std::fs::copy(&destination, &alias)?;
+    log::debug!(
+        "[boot-operation] worker CLI alias copy bytes={} elapsed_ms={}",
+        bytes,
+        started.elapsed().as_millis()
+    );
     let mut pinned_alias = options.open(&alias)?;
     verify_digest(&mut pinned_alias, expected)?;
     Ok(WorkerCli {
@@ -75,9 +87,16 @@ fn verify_worker_cli(path: &Path, expected: &str) -> io::Result<WorkerCli> {
 }
 
 fn verify_digest(file: &mut File, expected: &str) -> io::Result<()> {
+    let started = std::time::Instant::now();
     let mut hash = Sha256::new();
-    std::io::copy(file, &mut hash)?;
-    if format!("{:x}", hash.finalize()) != expected {
+    let bytes = std::io::copy(file, &mut hash)?;
+    let digest = format!("{:x}", hash.finalize());
+    log::debug!(
+        "[boot-operation] worker CLI integrity hash bytes={} elapsed_ms={}",
+        bytes,
+        started.elapsed().as_millis()
+    );
+    if digest != expected {
         return Err(io::Error::other(
             "Worker CLI does not match the server's built CLI artifact",
         ));
