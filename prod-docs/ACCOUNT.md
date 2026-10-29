@@ -34,6 +34,8 @@ Encrypted channels between accounts are managed in General > Neighbors and throu
 
 ## Product analytics
 
+Analytics status includes read-only `amplitude_test_key_fingerprint` and `amplitude_prod_key_fingerprint`: project-labelled eight-hex SHA-256 build fingerprints, or `none`. They identify embedded build configuration without exposing keys; runtime overrides do not change these build fingerprints.
+
 Desktop product analytics is on by default only when local settings are absent. The single toggle at the top of Settings > General, or `domios analytics status|enable|disable`, controls only desktop-originated events to Amplitude. OFF stops local delivery, clears queued events and analytics identifiers, and persists across restarts. No account, network, server consent update or withdrawal retry is needed. Server-side funnel events such as payment, trial and churn are independent of this local setting. Analytics never shows a dialog, banner or toast. The first-run screen shows "Product analytics is on. Turn off in Settings." only when local status is ON; Settings links to General, and returning after OFF hides the line.
 
 Every event contains its catalog properties plus a random installation ID (`device_id`), unique event ID (`insert_id`) and timestamp (`time`). An authenticated account contributes only its exact Firebase account UID (`user_id`, without hashing). Account identity is attached locally; the desktop sends no server identity-linking calls. Sign-out removes the UID from subsequent events; queued events retain the identity that owned them. A restarted daemon clears its active analytics account ID until account refresh establishes the identity again.
@@ -117,4 +119,4 @@ Mesh enrollment never fails sign-in. Only a `mesh.machines` refusal (`{reason, l
 
 Authenticated server refusals with `UNAUTHENTICATED` and `details: {"reason":"session_revoked"}` clear the local account session, keep its installation key, block Mesh, and open sign-in with “This machine was signed out from your account”. A real sign-in restores access. My machines and Mesh ask for confirmation naming the selected machine. Remove from mesh offers an optional “Also sign it out” checkbox; the account menu offers Sign out this machine alongside normal Sign out.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
