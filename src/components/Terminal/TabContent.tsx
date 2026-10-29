@@ -1,8 +1,10 @@
 import {isRemoteTaskTab} from "../../lib/remoteExecution";
+import { BusyState } from "../shared/BusyState";
+import { transcriptWindowKey, useTranscriptWindow } from "./transcriptStore";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
-import { restorePanelOwnsBody, restoreStageView } from "../../lib/restoreStageView";
+import { restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect, useRef } from "react";
@@ -70,8 +72,19 @@ export function TabContent({
   const wake = useWakeOnOpen(tab, isVisible && !lock.locked && Boolean(tab && isTabVisible(tab)));
   const descriptor = useAgentDescriptor(tab?.agent_type ?? (tab?.backing?.kind === "chat_backend" ? tab.backing.plugin_id : null));
   const { providers, loading } = useAgentProviders();
+  const sessionId = tab?.agent_session_id || (tab?.backing?.kind === "chat_backend" ? tab.backing.session_id : null);
+  const cached = useTranscriptWindow(transcriptWindowKey(tab?.id ?? "", sessionId ?? null)).transcript;
+  const hasCachedTranscript = cached.authority?.sourceSessionId === sessionId
+    && cached.authority?.sessionBindingNonce === (tab?.session_binding_nonce ?? null)
+    && cached.segments.some(segment => segment.rows.length > 0);
+  const restore = restoreStageView(tab ?? {}, wake);
   const bodyRef = useRef<HTMLDivElement>(null);
   const bodyPainted = useBodyPainted(bodyRef, tab?.id ?? "");
+  const initialBody = useRef({ tabId: tab?.id, waiting: Boolean(tab?.frozen && !tab.slept_at_ms && (tab.agent_type || tab.backing?.kind === "chat_backend")) });
+  if (initialBody.current.tabId !== tab?.id) initialBody.current = {
+    tabId: tab?.id, waiting: Boolean(tab?.frozen && !tab.slept_at_ms && (tab.agent_type || tab.backing?.kind === "chat_backend")),
+  };
+  if (bodyPainted) initialBody.current.waiting = false;
   const headerTabMenu = useHeaderTabMenu(tab, workspaceId, descriptor);
   useLayoutEffect(() => {
     if (tab?.close_restore?.record_id) {
@@ -86,12 +99,11 @@ export function TabContent({
     <LockBadge view={lock} />
     <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} />
   </TabWrapper>;
-  const restore = restoreStageView(tab, wake);
-  const sleepingTranscript = hasSleepingTranscript(tab) && restore.phase !== "ready";
-  const restoreOwnsBody = !sleepingTranscript && restorePanelOwnsBody(tab, wake, restore);
+  const sleepingTranscript = (hasSleepingTranscript(tab) || hasCachedTranscript) && restore.phase !== "ready";
+  const restoreOwnsBody = !sleepingTranscript && !hasCachedTranscript && (restorePanelOwnsBody(tab, wake, restore) || initialBody.current.waiting);
   const showRestore = restoreOwnsBody && !bodyPainted;
   const restoreInline = restoreOwnsBody && bodyPainted;
-  const restorePanel = <RestoreStatePanel view={restore} />;
+  const restorePanel = <RestoreStatePanel view={initialBody.current.waiting && restore.phase === "ready" ? transcriptLoadingStageView(tab) : restore} />;
 
   if (isFirstRunGeneralTab(tab)) {
     return (
@@ -126,7 +138,7 @@ export function TabContent({
     tab.agent_provider_resolved_model ?? tab.agent_session_model ?? tab.agent_requested_model ?? null;
   const cwd = tab.cwd ?? workspaceCwd ?? null;
 
-  const body = tab.frozen && !sleepingTranscript && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
+  const body = tab.frozen && !sleepingTranscript && !bodyPainted && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
     tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
     <RemoteTaskTab key={chatBacking.session_id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
   ) : isChatBackend ? (
@@ -174,12 +186,12 @@ export function TabContent({
           </div>
         )}
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
-          {sleepingTranscript && <div role="status" aria-live="polite" className="shrink-0 px-3 py-2 text-xs text-[var(--ct-muted-fg)]">
-            {restore.phase === "failed" ? <InlineErrorNotice error={restore.detail} operation="resuming this session" /> : "Waking…"}
-          </div>}
-          {restoreInline && <div role="status" aria-live="polite" className="shrink-0 px-3 py-2 text-xs text-[var(--ct-muted-fg)]">
-            {restore.phase === "failed" ? <InlineErrorNotice error={restore.detail} operation="resuming this session" /> : restore.steps[Math.max(0, restore.current)]?.label ?? restore.label}
-          </div>}
+          <DeferredPresence present={isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restore.phase !== "ready" || wake.pending || (hasCachedTranscript && !bodyPainted))}
+            className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
+            {restore.phase === "failed"
+              ? <div className="pointer-events-auto"><InlineErrorNotice error={restore.detail} operation="resuming this session" /></div>
+              : <BusyState inline label="Restoring…" phase="work" className="ct-bar-pill" />}
+          </DeferredPresence>
           <div ref={bodyRef} className="min-h-0 flex-1" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
           <DeferredPresence present={showRestore && isVisible} className="absolute inset-0 z-20">{restorePanel}</DeferredPresence>
         </div>

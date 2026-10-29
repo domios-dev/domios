@@ -95,7 +95,7 @@ fn desktop_api(desktop: Desktop) -> Router {
                 (
                     StatusCode::SERVICE_UNAVAILABLE,
                     Json(serde_json::json!({
-                        "ok": false, "error": {"code": "starting", "subsystem": "service"}
+                        "ok": false, "error": {"code": "starting", "subsystem": "service", "request_executed": false}
                     })),
                 )
             }),

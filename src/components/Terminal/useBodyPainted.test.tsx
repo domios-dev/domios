@@ -12,6 +12,22 @@ it("treats chat rows and non-empty terminal rows as painted content", () => {
   expect(hasPaintedContent(root)).toBe(true);
   root.innerHTML = '<div data-chat-window-row="m1"></div>';
   expect(hasPaintedContent(root)).toBe(true);
+  root.innerHTML = '<section data-chat-ready="false"><div data-chat-window-row="prior"></div></section>';
+  expect(hasPaintedContent(root)).toBe(false);
+  root.querySelector("section")!.setAttribute("data-chat-ready", "true");
+  expect(hasPaintedContent(root)).toBe(true);
+});
+
+it("accepts an acknowledged blank terminal and rejects hidden or unready terminal text", () => {
+  const root = document.createElement("div");
+  root.innerHTML = '<section data-terminal-visible="true" data-terminal-ready="false" style="visibility:hidden"><div class="xterm-rows">prior text</div></section>';
+  expect(hasPaintedContent(root)).toBe(false);
+  const terminal = root.querySelector<HTMLElement>("section")!;
+  terminal.setAttribute("data-terminal-ready", "true");
+  expect(hasPaintedContent(root)).toBe(false);
+  terminal.style.visibility = "visible";
+  terminal.querySelector(".xterm-rows")!.textContent = "";
+  expect(hasPaintedContent(root)).toBe(true);
 });
 
 it("reports painted once content appears after mount", async () => {

@@ -395,7 +395,7 @@ function openRemoteOutputConnection(ordinaryTabId: string, record: RemoteOutputR
     if (abort.signal.aborted || !record.recovery.isCurrent(generation)) return;
     return handleRemoteOutputFrame(ordinaryTabId, record, generation, remoteTabId, data as OutputFrame);
   }, {
-    signal: abort.signal, raw: true, onActivity() {
+    signal: abort.signal, raw: true, onStarting() { deadline.clear(); }, onReady() { deadline.arm(); }, onActivity() {
       deadline.arm();
       if (record.recovery.isCurrent(generation)) for (const sink of remoteSinks.get(ordinaryTabId) ?? []) sink.onReady?.();
     },

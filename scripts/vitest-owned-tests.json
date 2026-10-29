@@ -336,6 +336,8 @@
   "src/components/Settings/embedder/embedderModel.test.ts",
   "src/lib/serverReadiness.test.ts",
   "src/lib/startupLoading.test.ts",
+  "src/components/Terminal/useWakeOnOpen.startup.test.tsx",
+  "src/components/Terminal/TabContent.readiness.test.tsx",
   "src/lib/appShortcuts.test.ts",
   "src/components/CommandPalette/CommandPalette.dialog.test.tsx",
   "src/store/multiplexer/createdSelection.test.tsx",
