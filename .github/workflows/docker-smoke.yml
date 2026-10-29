@@ -1,0 +1,76 @@
+name: Docker headless archive smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - packaging/docker/**
+      - scripts/docker/**
+      - .github/workflows/docker-smoke.yml
+      - build.sh
+      - cli/src/cmd/update/**
+      - cli/src/cmd/update.rs
+      - src-tauri/crates/codeterm-update/**
+      - src-tauri/crates/codeterm-paths/src/container_install.rs
+      - src-tauri/crates/domios-server/src/headless_update.rs
+      - src-tauri/crates/codeterm-api/src/updater_routes.rs
+permissions:
+  contents: read
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            release_arch: x86_64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-24.04
+          - arch: arm64
+            release_arch: aarch64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    env:
+      DOMIOS_DOCKER_SMOKE: "1"
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: 22.22.0
+          package-manager-cache: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          version: 10.32.1
+          run_install: false
+      - name: Install pinned Rust and native headless dependencies
+        run: |
+          rustup show active-toolchain
+          rustup target add "$CARGO_BUILD_TARGET"
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libdbus-1-dev minisign
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Verify the pinned public updater key
+        run: |
+          python3 - <<'PY'
+          import base64, json, pathlib
+          config = json.loads(pathlib.Path('src-tauri/tauri.conf.json').read_text())
+          assert pathlib.Path('packaging/docker/release.pub').read_bytes() == base64.b64decode(config['plugins']['updater']['pubkey'])
+          PY
+      - name: Build production-profile headless archive from this checkout
+        run: bash ./build.sh docker-smoke-inputs
+      - name: Verify packaging models, archive guards and signed feed fixtures
+        run: |
+          node --test scripts/tests/docker-packaging.test.mjs
+          python3 -m unittest discover -s scripts/docker -p test_container.py
+      - name: Build, start, prove health and update refusal, clean up
+        env:
+          ARCH: ${{ matrix.arch }}
+          RELEASE_ARCH: ${{ matrix.release_arch }}
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          archive="target/docker-smoke/archives/domios-headless-v$version-linux-$RELEASE_ARCH.tar.gz"
+          read -r checksum filename < "$archive.sha256"
+          bash scripts/docker/smoke.sh "$version" "$ARCH" "$archive" "$checksum"

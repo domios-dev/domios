@@ -128,6 +128,18 @@ requires compilation. Binaries, proc macros and crates using generated absolute
 paths can remain non-cacheable or miss; do not promise a fully cold time from a
 populated-cache measurement.
 
+## Docker smoke inputs
+
+On native Ubuntu CI, use `CI=true DOMIOS_DOCKER_SMOKE=1
+CARGO_BUILD_TARGET=x86_64-unknown-linux-gnu bash ./build.sh docker-smoke-inputs`
+(or the native `aarch64-unknown-linux-gnu` target). This operation builds the
+frontend and CLI/server with the release profile, binds the exact CLI digest,
+checks the headless closure and writes the archive and checksum under
+`target/docker-smoke/archives/`. It installs nothing and publishes nothing.
+Only the Dockerfile's explicit `ARCHIVE_SOURCE=ci-smoke` plus `ALLOW_CI_SMOKE=1`
+path accepts these unsigned inputs; production defaults to minisign verification.
+Run the resulting image only through `.github/workflows/docker-smoke.yml`.
+
 ## Rebuild cost
 
 Named `dev` and `dev-server` select nonincremental compilation and the portable
@@ -1408,7 +1420,7 @@ Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
-<!-- revision: 56 -->
+<!-- revision: 57 -->
 
 ### Lane and batch scopes
 

@@ -2775,6 +2775,9 @@ case "$CMD" in
   process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-arm64-compile|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
+  docker-smoke-inputs)
+    enter_cargo_gateway "$CMD ${*:2}"
+    ;;
   frontend-build)
     enter_build_gateway "$CMD"
     ;;
@@ -2817,6 +2820,7 @@ Domios build commands
   runner-status               List runners with labels and paused machines
   frontend                    Production frontend typecheck + bundle
   release-inputs [--for-bundle] Build target-aware inputs; defer native compilation for bundling
+  docker-smoke-inputs          Linux CI-only production-profile headless archive for Docker smoke
   release-bundle [--fresh-target] [tauri args...]  Package in one session; optionally use the fresh release target policy
   release-arm64-compile TAG SHA ARCHIVE  Build unsigned hosted bundles and freeze handoff in one session
   release-finalize [stage args...]  Verify/package final bytes while the stable gateway path exists
@@ -3129,6 +3133,14 @@ EOF
   frontend-build)
     ensure_deps
     pnpm build
+    ;;
+  docker-smoke-inputs)
+    [ "$#" = 1 ] || { echo "Usage: ./build.sh docker-smoke-inputs" >&2; exit 2; }
+    [ "${CI:-}" = true ] && [ "${DOMIOS_DOCKER_SMOKE:-}" = 1 ] || {
+      echo 'docker-smoke-inputs is restricted to explicit CI smoke builds' >&2; exit 2;
+    }
+    ensure_deps
+    bash scripts/docker/build-inputs.sh
     ;;
   release-inputs)
     [ "$#" -le 2 ] && { [ -z "${2:-}" ] || [ "$2" = --for-bundle ]; } || {

@@ -232,8 +232,7 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
 ## Memory storage backend
 
-`memory.backend` is `"sqlite"` (default) or `"postgres"`. The desktop daemon and headless server use the same selection. Postgres requires a server built with Postgres support and the URL saved in the active secret store as `domios.mem:postgres_url`; the URL never belongs in configuration. Missing or empty credentials and builds without Postgres support refuse startup. There is no automatic backend fallback.
+`memory.backend` selects `"sqlite"` (default) or `"postgres"`. For build requirements, secret-store credentials and migration before switching an existing store, see `domios docs MEMORY`.
 
-An empty selected backend cannot start when the other configured store contains memory items. Stop the daemon, run `domios mem backend migrate --to postgres` or `--to sqlite`, then set `backend` under `[memory]` in the instance configuration before restarting. The migration command leaves configuration unchanged. See `domios docs MEMORY` for copy verification, target conflicts and embedding requirements.
-
-<!-- revision: 128 -->
+**Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
+<!-- revision: 129 -->

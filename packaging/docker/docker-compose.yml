@@ -1,0 +1,36 @@
+services:
+  domios:
+    image: ${DOMIOS_IMAGE:?Set DOMIOS_IMAGE to a verified versioned image tag}
+    container_name: domios
+    stop_grace_period: 30s
+    command: ["postgres"]
+    ports:
+      - "127.0.0.1:7685:7685"
+    volumes:
+      - domios-data:/home/domios/.domios
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: domios
+      POSTGRES_DB: domios
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U domios -d domios"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+volumes:
+  domios-data:
+  postgres-data:

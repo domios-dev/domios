@@ -30,6 +30,9 @@ fn managed(cgroup: &str, executable: &Path, installed: &Path) -> bool {
 }
 
 pub fn register_if_managed() {
+    if codeterm_update::container::refusal().is_some() {
+        return;
+    }
     #[cfg(target_os = "linux")]
     {
         let evidence = std::fs::read_to_string("/proc/self/cgroup").and_then(|cgroup| {

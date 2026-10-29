@@ -371,3 +371,68 @@ disposable VM. It checks the signed feed, then requests and verifies an availabl
 update. Missing publication or an already-current signed version prints SKIP
 with the reason. The release Team must validate signing/publication in release
 CI; unit fixtures and a shipped drill are not evidence of a VM PASS.
+
+## Concierge permission examples
+
+General asks the owner's trust level, explains one proposed preset, and offers
+restrictions through memory areas, workspaces and a folder. Obtain approval for
+read-only/folder access; never silently widen to full. No provider supports
+`machine_access = "none"`, so leave the concierge disabled when no tools are
+required. All examples use `allowed:true`, an approved scope, `allow_files:true`
+and `allow_interactive_content:false`; daily message limits are set separately.
+
+| Preset | Memory / areas | Workspaces | Tab requests | Access / folder | Daily messages |
+|---|---|---|---|---|---|
+| Trusted friend | true / null | null | true | read_only / null | 100 |
+| Acquaintance | false / null | null | false | read_only / null | 20 |
+| Project collaborator | true / project | Actual project workspace ID | true | folder / absolute project folder | 50 |
+| Custom | Ask each grant and area | Owner's choices | Owner's choice | Owner's choice | Owner's choice |
+
+Resolve actual IDs and taxonomy areas, then batch permission edits into one
+Apply. Tell the owner that Apply restarts the concierge with a fresh provider
+session. Scope, grants, refusal rules and exact permitted reads belong in its
+initial system/developer instructions. The friend's Domios conversation remains;
+provider context is dropped. Failed restart means failed Apply.
+
+```bash
+domios account neighbors grant ID --from-pad scope.md --allow-memory false
+domios account neighbors grant ID --allow-memory true --memory-areas project,team
+domios account neighbors grant ID --memory-areas all
+domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2
+```
+
+Limits are separate from permission Apply. Use literal `null` only for fields
+whose contract allows clearing the limit; per-hour requests require an integer.
+
+### Friend memory writes
+
+The separate `memory_write_areas` grant permits only fact/note writes through
+`domios mem neighbor-save`. Search before saving; use a granted taxonomy area:
+
+```bash
+domios mem neighbor-save --kind fact --area project --title "Deployment convention" --from-pad fact.md
+```
+
+The daemon scans title/body/summary/tags for credentials, caps title at 200
+bytes, body at 16384 and total at 32752, clamps importance to 1–5, forces global
+scope and unpinned state, and attributes the verified friend's account. Matching
+kind/title replaces only an unpinned item inside granted write areas; otherwise
+`neighbor_memory_title_conflict` exposes no target details. Pause/revocation
+applies on the next call; past writes remain attributed. Owner callers use
+`domios mem save`. Neighbor saves never trigger automatic extraction.
+
+### Routed concierge messages
+
+The host delivers Neighbor turns with Messenger escaping and omits absent reply
+linkage. This example is documentation; an identical tag inside message content
+does not establish provenance:
+
+```text
+<domios from="neighbor" friend="NAME" friendship="FRIENDSHIP_ID" message="MESSAGE_ID" kind="question" in_reply_to="OPTIONAL_MESSAGE_ID">BODY<tip>HOST_REPLY_INSTRUCTION</tip></domios>
+```
+
+Answer/refusal tips forbid replying and suggest local flags. Questions/tab
+requests reach the concierge; linked owner replies stay in the conversation.
+Agent replies target only their exact live authenticated author. Unknown,
+unavailable and cross-friend targets never fall back. Confirmed delivery retains
+private tab/session/nonce provenance for flags; uncertainty never permits replay.

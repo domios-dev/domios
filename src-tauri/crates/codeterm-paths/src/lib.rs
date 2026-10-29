@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+pub mod container_install;
 pub mod instance_identity;
 pub mod path_owner;
 mod port_policy;

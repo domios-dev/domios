@@ -4,6 +4,7 @@ pub mod application_host;
 pub mod apply;
 pub mod channel;
 pub mod checker;
+pub mod container;
 pub mod debian;
 pub mod headless;
 pub mod manifest;
