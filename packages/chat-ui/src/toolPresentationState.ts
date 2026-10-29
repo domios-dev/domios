@@ -1,4 +1,6 @@
 import type { NormalizedChatMessage, TimelineItem, ToolEvent } from "@codeterm/chat-core";
+import { toolCommandShape } from "./codeterm/commandShape";
+import { isSend } from "./codeterm/templates";
 
 const RETAINED_COMMAND_LIMIT = 4096;
 const retainedCommands = new Map<string, true>();
@@ -14,7 +16,11 @@ export function toolPresentationKey(message: NormalizedChatMessage, item?: Timel
 export function retainStreamedCommandShell(event: ToolEvent): boolean {
   if (event.kind !== "command" || event.stream || event.commandBatch || event.agents) return false;
   const key = toolPresentationKey(event.message, { kind: "tool", event });
-  if (event.status !== "pending" && !retainedCommands.has(key)) return false;
+  if (!retainedCommands.has(key)) {
+    if (event.status !== "pending") return false;
+    const shape = toolCommandShape(event);
+    if (shape.kind === "codeterm" && isSend(shape.invocation)) return false;
+  }
   retainedCommands.delete(key);
   retainedCommands.set(key, true);
   if (retainedCommands.size > RETAINED_COMMAND_LIMIT) retainedCommands.delete(retainedCommands.keys().next().value!);

@@ -211,3 +211,36 @@ it("keeps a group collapsed when its full input arrives with the first pending p
   expect(host?.querySelector('button[aria-expanded="false"]')).not.toBeNull();
   expect(host?.querySelector('[data-testid="chat-command-group"]')).toBeNull();
 });
+
+it.each([false, true])("keeps outbound message content primary when arguments start complete: %s", async (startsComplete) => {
+  const sendCommand = 'domios send --tab opaque_target "opaque_outbound_body"';
+  const pending = part({ toolInput: { command: sendCommand }, toolSummary: sendCommand, toolDetail: sendCommand });
+  const first = await renderPart(startsComplete ? pending : part());
+  const row = first.querySelector("[data-chat-window-row]");
+  const card = first.querySelector('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]');
+  await renderPart(pending);
+  const body = host!.querySelector('[data-testid="chat-sent-message"]');
+  expect(body).not.toBeNull();
+  expect(body?.textContent).toContain("opaque_outbound_body");
+  expect(body?.closest("[hidden]")).toBeNull();
+  expect(host?.querySelector("[data-chat-window-row]")).toBe(row);
+  expect(host?.querySelector('[data-testid="chat-tool-call"], [data-testid="chat-sent-to-card"]')).toBe(card);
+
+  const completed = { ...pending, toolError: false };
+  await renderPart(completed);
+  expect(host?.querySelector('[data-testid="chat-sent-message"]')).toBe(body);
+  if (!startsComplete) {
+    const disclosure = host!.querySelector<HTMLButtonElement>('button[aria-label="Show full command"]')!;
+    expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => disclosure.click());
+    expect(host?.querySelectorAll('[data-testid="chat-sent-message"]')).toHaveLength(1);
+    expect(host?.querySelector('[data-testid="chat-sent-message"]')).toBe(body);
+    expectUniqueDisclosureTargets(host!);
+    await act(async () => disclosure.click());
+    expect(host?.querySelector('[data-testid="chat-sent-message"]')).toBe(body);
+    expect(body?.closest("[hidden]")).toBeNull();
+  }
+  await remountPart(completed);
+  expect(host?.querySelector('[data-testid="chat-sent-message"]')?.textContent).toContain("opaque_outbound_body");
+  expect(host?.querySelector('[data-testid="chat-sent-message"]')?.closest("[hidden]")).toBeNull();
+});

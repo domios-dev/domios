@@ -6,7 +6,8 @@ import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import type { OpenPlan, ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { AgentActivityCard } from "./toolcard/AgentActivityCard";
-import { CodetermActionCard } from "./toolcard/CodetermActionCard";
+import { CodetermActionCard, CodetermSentContent } from "./toolcard/CodetermActionCard";
+import { isSend } from "./codeterm/templates";
 import { CommandCard } from "./toolcard/CommandCard";
 import { CommandGroupCard } from "./toolcard/CommandGroupCard";
 import { EditCard } from "./toolcard/EditCard";
@@ -42,10 +43,13 @@ export function ToolCallBubble(props: ToolCallBubbleProps) {
   const [retainCommandShell] = useState(() => event ? retainStreamedCommandShell(event) : false);
   if (!event) return null;
   if (retainCommandShell && event.kind === "command" && !event.stream && !event.commandBatch) {
-    return <CommandCard event={event} expanded={props.expanded} onToggle={() => props.onToggle(!props.expanded)}>
-      {props.expanded ? <StreamedCommandDetail event={event} resolveTabName={props.resolveTabName}
-        resolvePeerName={props.resolvePeerName} onFocusTab={props.onFocusTab} onOpenPlan={props.onOpenPlan}
-        resolvePlanRef={props.resolvePlanRef} fontScale={props.fontScale} /> : undefined}
+    const navigation = { resolveTabName: props.resolveTabName, resolvePeerName: props.resolvePeerName,
+      onFocusTab: props.onFocusTab, onOpenPlan: props.onOpenPlan, resolvePlanRef: props.resolvePlanRef, fontScale: props.fontScale };
+    const shape = toolCommandShape(event);
+    const primaryContent = shape.kind === "codeterm" && isSend(shape.invocation)
+      ? <CodetermSentContent event={event} invocation={shape.invocation} {...navigation} /> : undefined;
+    return <CommandCard event={event} expanded={props.expanded} onToggle={() => props.onToggle(!props.expanded)} primaryContent={primaryContent}>
+      {props.expanded ? <StreamedCommandDetail event={event} {...navigation} /> : undefined}
     </CommandCard>;
   }
   return <ToolCallBubbleContent {...props} event={event} />;
