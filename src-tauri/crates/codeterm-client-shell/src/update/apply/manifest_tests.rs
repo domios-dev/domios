@@ -12,7 +12,11 @@ fn retained_metadata_prepares_without_network_and_keeps_signature_verification()
     let mut context = tauri::test::mock_context(tauri::test::noop_assets());
     context.config_mut().plugins.0.insert(
         "updater".into(),
-        serde_json::json!({ "pubkey": public_key, "requireSignedVersion": true }),
+        serde_json::json!({
+            "pubkey": public_key,
+            "requireSignedVersion": true,
+            "endpoints": ["https://metadata.invalid/latest.json"]
+        }),
     );
     let app = crate::app_runtime::builder()
         .plugin(
