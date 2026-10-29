@@ -3,6 +3,7 @@ use super::state::AccountMeshRefusal;
 #[derive(Default)]
 pub(super) struct Retry {
     failures: u32,
+    permanent_failures: u32,
     pub deadline: Option<u64>,
     pub refusal: Option<AccountMeshRefusal>,
 }
@@ -19,7 +20,7 @@ impl Retry {
     }
 
     pub fn resume(&mut self) {
-        if self.exhausted() {
+        if self.exhausted() || self.permanent_failures > 0 {
             *self = Self::default();
         }
     }
@@ -32,6 +33,25 @@ impl Retry {
     }
 
     pub fn settle(&mut self, now: u64, result: Result<(), AccountMeshRefusal>) {
+        if matches!(
+            result,
+            Err(AccountMeshRefusal::Invalid
+                | AccountMeshRefusal::Forbidden
+                | AccountMeshRefusal::Conflict
+                | AccountMeshRefusal::KeyConflict
+                | AccountMeshRefusal::GenerationMismatch
+                | AccountMeshRefusal::ChallengeInvalid
+                | AccountMeshRefusal::ProofInvalid
+                | AccountMeshRefusal::Revoked)
+        ) {
+            let delay = (300u64 << self.permanent_failures.min(6)).min(14400);
+            self.permanent_failures = self.permanent_failures.saturating_add(1);
+            self.failures = 0;
+            self.deadline = Some(now.saturating_add(delay));
+            self.refusal = result.err();
+            return;
+        }
+        self.permanent_failures = 0;
         let delay = match result {
             Err(AccountMeshRefusal::RateLimited {
                 retry_after_seconds,

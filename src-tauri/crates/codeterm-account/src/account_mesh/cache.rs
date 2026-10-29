@@ -43,6 +43,36 @@ impl Inner {
 }
 
 impl AccountMesh {
+    pub(super) fn cached_active_target(&self, signed: &Signed) -> Option<super::wire::MeshTarget> {
+        let cache = self.with(|inner| inner.record.admission_cache.clone())?;
+        let grant = parse_membership_token(&cache.token).ok()?;
+        let verified = verify_membership(
+            &grant,
+            &signed.trust,
+            &MembershipExpectation {
+                account_id: &signed.account,
+                installation_id: Some(&self.installation()),
+                key_id: Some(&cache.own.key_id),
+                key_generation: Some(cache.own.key_generation),
+                slot_revision: Some(cache.own.slot_revision),
+            },
+            cache.issued_at,
+        )
+        .ok()?;
+        cache
+            .registry?
+            .rows
+            .into_iter()
+            .find(|row| {
+                row.active
+                    && row.installation_id == verified.installation_id
+                    && row.key_id == verified.key_id
+                    && row.key_generation == verified.key_generation
+                    && row.slot_revision == verified.slot_revision
+            })
+            .map(|row| row.target())
+    }
+
     pub(super) fn restore_admission(&self, signed: &Signed) {
         let candidate = self.with(|inner| {
             if inner.state.membership.is_some() || inner.record.signed_out {

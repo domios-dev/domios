@@ -71,7 +71,12 @@ impl VerifiedMembership {
     }
     pub fn refresh_after(&self) -> u64 {
         let duration = self.expires_at.saturating_sub(self.issued_at);
-        let margin = 120.max(duration / 4).min(duration / 2);
+        let proportional = if duration <= 3600 {
+            (duration / 4).min(600)
+        } else {
+            duration / 4
+        };
+        let margin = 120.max(proportional).min(duration / 2);
         self.expires_at.saturating_sub(margin)
     }
 }

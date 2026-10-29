@@ -282,10 +282,6 @@ impl FakeRegistry {
         valid.then_some(()).ok_or(RegistryRefusal::Forbidden)
     }
 
-    pub fn replace_slot_key(&self, uid: &str, key_id: String, generation: u64) {
-        self.accounts.lock().unwrap().get_mut(uid).unwrap().slot_key = Some((key_id, generation));
-    }
-
     pub fn slot(&self, uid: &str) -> Option<u64> {
         self.accounts.lock().unwrap().get(uid).and_then(|a| a.slot)
     }
@@ -549,7 +545,7 @@ impl MeshRegistry for FakeRegistry {
                     MeshOperation::Enroll { .. } if account.inactive => {
                         return Err(RegistryRefusal::Forbidden)
                     }
-                    MeshOperation::Enroll { .. } => return Err(RegistryRefusal::Conflict),
+                    MeshOperation::Enroll { .. } => return Err(RegistryRefusal::Forbidden),
                     MeshOperation::Renew {
                         expected_slot_revision,
                     } if account.slot == Some(*expected_slot_revision)
@@ -568,6 +564,7 @@ impl MeshRegistry for FakeRegistry {
                     {
                         target.slot_revision + 1
                     }
+                    MeshOperation::Recover { .. } => return Err(RegistryRefusal::Forbidden),
                     _ => return Err(RegistryRefusal::Invalid),
                 };
                 account.slot = Some(slot);
@@ -753,6 +750,13 @@ impl MeshRegistry for FakeRegistry {
                 }))
             }
             MeshOperation::List { .. } => {
+                if account.inactive
+                    || account.slot_key.as_ref().is_some_and(|(key, generation)| {
+                        key != &proof.key_id || *generation != proof.generation
+                    })
+                {
+                    return Err(RegistryRefusal::Forbidden);
+                }
                 if let Some(refusal) = self.script.lock().unwrap().list {
                     return Err(refusal);
                 }

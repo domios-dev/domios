@@ -316,7 +316,7 @@ pub struct KeyBinding {
 pub struct AccountMeshRecord {
     /// First account association; an account switch never rebinds saved pairs.
     pub owner: Option<String>,
-    #[serde(skip)]
+    #[serde(default, skip_serializing)]
     pub admission_cache: Option<super::cache::AdmissionCache>,
     pub signed_out: bool,
     pub cleanup_pending: bool,

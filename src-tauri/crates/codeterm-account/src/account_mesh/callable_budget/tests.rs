@@ -523,3 +523,98 @@ async fn parked_multi_route_burst_serializes_probes_and_rechecks_new_429_before_
     );
     assert_eq!(*transport.calls.lock(), ["mesh", "neighbors", "gift"]);
 }
+
+struct CleanupTransport {
+    calls: parking_lot::Mutex<Vec<String>>,
+}
+#[async_trait::async_trait]
+impl super::super::callable::CallableTransport for CleanupTransport {
+    async fn call(
+        &self,
+        route: &str,
+        _: &str,
+        _: serde_json::Value,
+    ) -> Result<serde_json::Value, super::super::callable::CallableFailure> {
+        self.calls.lock().push(route.into());
+        Ok(serde_json::json!({"result":{
+            "kind":"withdrawn", "installation_id":"cleanup-installation",
+            "previous_metadata_revision":2, "metadata_revision":3,
+            "slot_revision":2, "registry_revision":7,
+        }}))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_parked() {
+    use super::super::{
+        callable::CallableRegistry, ports::MeshRegistry, tests::support::session, wire::*,
+    };
+    let uid = "cleanup-priority-budget";
+    let (waiting, mut waits) = tokio::sync::mpsc::unbounded_channel();
+    let clock = ParkedClock {
+        time: ClockPort::new(),
+        waiting,
+        release: tokio::sync::Semaphore::new(0),
+    };
+    account(uid)
+        .lock()
+        .await
+        .limited("admission", clock.now(), 300);
+    let registry = CallableRegistry::new(CleanupTransport {
+        calls: Default::default(),
+    });
+    let parked_guard = guard();
+    let cleanup = async {
+        waits.recv().await.unwrap();
+        let session = session(uid);
+        let envelope = SignedEnvelope {
+            request: MeshAdmissionBody {
+                schema_version: 1,
+                installation_id: "cleanup-installation".into(),
+                request_id: "a".repeat(64),
+                requested_membership_seconds: None,
+                operation: MeshOperation::Withdraw {
+                    expected_metadata_revision: 2,
+                },
+            },
+            installation_proof: InstallationProof {
+                schema_version: 1,
+                key_id: "b".repeat(64),
+                generation: 1,
+                timestamp: 1_800_000_000,
+                nonce: "nonce".into(),
+                signature: "signature".into(),
+            },
+        };
+        let start = tokio::time::Instant::now();
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            registry.admission(&session, &envelope),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(matches!(
+            result,
+            MeshResult::Withdrawn(WithdrawnResult {
+                metadata_revision: 3,
+                ..
+            })
+        ));
+        assert_eq!(start.elapsed(), Duration::ZERO);
+        assert_eq!(
+            account(uid).lock().await.remaining(clock.now()),
+            Duration::from_secs(300)
+        );
+        parked_guard.authority.send_replace(None);
+    };
+    let (parked, ()) = tokio::join!(biased;
+        run(registry.transport(), uid, "ordinary", "", serde_json::Value::Null, &parked_guard, &clock),
+        cleanup,
+    );
+    assert_eq!(
+        parked,
+        Err(super::super::callable::CallableFailure::Retired)
+    );
+    assert_eq!(*registry.transport().calls.lock(), [ROUTE_ADMISSION]);
+}

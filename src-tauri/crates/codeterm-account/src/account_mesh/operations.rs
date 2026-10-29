@@ -380,7 +380,9 @@ impl AccountMesh {
                             .await?
                         }
                         Ok(None) if self.own_removed() => self.rejoin(&mut signed).await?,
-                        Err(AccountMeshRefusal::KeyConflict) => self.rejoin(&mut signed).await?,
+                        Err(AccountMeshRefusal::KeyConflict | AccountMeshRefusal::Forbidden) => {
+                            self.rejoin(&mut signed).await?
+                        }
                         Ok(None) => {
                             self.admission(
                                 &signed,
