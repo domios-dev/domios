@@ -15,7 +15,6 @@ pub use super::launch_env::PreparedAgentCommand;
 pub(crate) use crate::agent::registry::AgentRegistry;
 pub(crate) use command::prepare_agent_command_for_service;
 mod generation_registry;
-#[path = "launch/credentials.rs"]
 mod credentials;
 use generation_registry::LaunchRegistry;
 #[path = "launch/backend_reader.rs"]
