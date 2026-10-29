@@ -1,3 +1,4 @@
+use super::key::sha256_hex;
 use super::lifecycle::AccountMesh;
 use super::operations::{request_id, Signed};
 use super::state::AccountMeshRefusal;
@@ -5,14 +6,51 @@ use super::wire::*;
 
 type Outcome<T> = Result<T, AccountMeshRefusal>;
 
+pub(super) struct CredentialStamp {
+    epoch: u64,
+    generation: u64,
+    token_digest: String,
+}
+
 impl AccountMesh {
+    pub fn credentials_refreshed(&self, session: &crate::Session) -> bool {
+        self.with(|inner| {
+            if inner.state.signed_in_account()
+                != Some(super::account_id(&session.identity.uid).as_str())
+            {
+                return false;
+            }
+            let stamp = CredentialStamp {
+                epoch: inner.state.account_epoch,
+                generation: session.login_generation,
+                token_digest: sha256_hex(session.id_token.expose().as_bytes()),
+            };
+            let rearm = inner.auth_parked.as_ref().is_some_and(|parked| {
+                parked.epoch == stamp.epoch
+                    && parked.generation == stamp.generation
+                    && parked.token_digest != stamp.token_digest
+            });
+            inner.refreshed_credentials = Some(stamp);
+            if !rearm {
+                return false;
+            }
+            inner.auth_parked = None;
+            inner.retry = Default::default();
+            inner.update(&self.watch, |state| {
+                state.last_refusal = None;
+                state.retry_at = None;
+            });
+            true
+        })
+    }
+
     pub(super) async fn admission(
         &self,
         signed: &Signed,
         operation: MeshOperation,
     ) -> Outcome<MeshResult> {
         let _guard = self.admission_lock.lock().await;
-        if self.with(|inner| inner.auth_parked) {
+        if self.with(|inner| inner.auth_parked.is_some()) {
             return Err(AccountMeshRefusal::Unauthenticated);
         }
         let mut current = Signed {
@@ -29,26 +67,43 @@ impl AccountMesh {
         if result != Err(AccountMeshRefusal::Unauthenticated) {
             return result;
         }
-        let refreshed = self.call_session_refresh().await;
-        if let Ok(Some(session)) = refreshed {
-            if session.identity.uid != signed.session.identity.uid
-                || session.login_generation != signed.session.login_generation
-                || (signed.epoch != 0 && !self.with(|inner| inner.is_current(signed.epoch)))
-            {
-                return Err(AccountMeshRefusal::Cancelled);
-            }
-            current.session = session;
-            let result = self.admission_once(&current, operation).await;
-            if result.is_ok() {
-                return result;
+        let session = self
+            .call_session_refresh()
+            .await?
+            .ok_or(AccountMeshRefusal::Unauthenticated)?;
+        if session.identity.uid != signed.session.identity.uid
+            || session.login_generation != signed.session.login_generation
+            || (signed.epoch != 0 && !self.with(|inner| inner.is_current(signed.epoch)))
+        {
+            return Err(AccountMeshRefusal::Cancelled);
+        }
+        current.session = session;
+        let result = self.admission_once(&current, operation).await;
+        if result == Err(AccountMeshRefusal::Unauthenticated) {
+            let superseded = self.with(|inner| {
+                if !inner.is_current(signed.epoch) {
+                    return false;
+                }
+                let stamp = CredentialStamp {
+                    epoch: signed.epoch,
+                    generation: current.session.login_generation,
+                    token_digest: sha256_hex(current.session.id_token.expose().as_bytes()),
+                };
+                if inner.refreshed_credentials.as_ref().is_some_and(|latest| {
+                    latest.epoch == stamp.epoch
+                        && latest.generation == stamp.generation
+                        && latest.token_digest != stamp.token_digest
+                }) {
+                    return true;
+                }
+                inner.auth_parked = Some(stamp);
+                false
+            });
+            if superseded {
+                return Err(AccountMeshRefusal::Unavailable);
             }
         }
-        self.with(|inner| {
-            if inner.is_current(signed.epoch) {
-                inner.auth_parked = true;
-            }
-        });
-        Err(AccountMeshRefusal::Unauthenticated)
+        result
     }
 
     async fn call_session_refresh(&self) -> Outcome<Option<crate::Session>> {

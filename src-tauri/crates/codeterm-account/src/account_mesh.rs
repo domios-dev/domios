@@ -54,6 +54,12 @@ pub struct IdentityObservers(pub Vec<Arc<dyn IdentityObserver>>);
 
 #[async_trait]
 impl IdentityObserver for IdentityObservers {
+    async fn session_refreshed(&self, session: &crate::Session) {
+        for observer in &self.0 {
+            observer.session_refreshed(session).await;
+        }
+    }
+
     async fn changed(&self, identity: Option<&Identity>) {
         for observer in &self.0 {
             observer.changed(identity).await;

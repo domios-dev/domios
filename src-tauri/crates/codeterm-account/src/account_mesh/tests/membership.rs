@@ -454,3 +454,14 @@ fn account_mesh_refusal_details_map_exactly_and_only_mesh_machines_is_a_plan_lim
         );
     }
 }
+
+#[test]
+fn account_mesh_short_membership_renewal_is_strictly_after_issuance() {
+    for (seconds, refresh) in [(1, 1), (119, 60), (120, 60), (121, 61), (3600, 3480)] {
+        let payload = with(valid_payload(), "expires_at", json!(START + seconds));
+        let membership = verify(&payload, START).unwrap();
+        assert_eq!(membership.refresh_after(), START + refresh);
+        assert!(membership.is_current(START));
+        assert!(!membership.is_current(START + seconds));
+    }
+}

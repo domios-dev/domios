@@ -9,6 +9,7 @@ async fn admitted() -> Harness {
     let harness = Harness::new().await;
     harness.sign_in("owner").await;
     harness.mesh.refresh(EnrollTrigger::Automatic).await.unwrap();
+    harness.registry.entered.notified().await;
     harness.log.lock().unwrap().clear();
     harness
 }
@@ -114,8 +115,10 @@ async fn account_mesh_admission_reuse_concurrent_callers_share_one_handshake() {
         let release = async { gate.notify_one(); };
         tokio::join!(biased; explicit, release).0
     };
-    harness.registry.entered.notified().await;
-    let (owner, joined) = tokio::join!(biased; owner, joined);
+    let (owner, joined) = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        async { tokio::join!(biased; owner, joined) },
+    ).await.unwrap();
     assert_eq!(owner, Ok(()));
     assert_eq!(joined, Ok(()));
     assert_eq!(harness.calls("renew"), 1);

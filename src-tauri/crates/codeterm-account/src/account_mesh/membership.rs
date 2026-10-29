@@ -71,9 +71,9 @@ impl VerifiedMembership {
         self.issued_at <= now.saturating_add(NOT_BEFORE_SKEW_SECONDS) && now < self.expires_at
     }
     pub fn refresh_after(&self) -> u64 {
-        self.expires_at
-            .saturating_sub(MAX_MEMBERSHIP_SECONDS - RENEW_AFTER_SECONDS)
-            .max(self.issued_at)
+        let margin = (MAX_MEMBERSHIP_SECONDS - RENEW_AFTER_SECONDS)
+            .min(self.expires_at.saturating_sub(self.issued_at) / 2);
+        self.expires_at.saturating_sub(margin)
     }
 }
 

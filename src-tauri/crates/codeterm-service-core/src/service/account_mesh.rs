@@ -240,6 +240,17 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn account_mesh_credentials_refreshed(&self, session: &Session) {
+        let resumed = self
+            .extensions
+            .try_get::<AccountMeshCell>()
+            .and_then(|cell| cell.0.get())
+            .is_some_and(|service| service.mesh.credentials_refreshed(session));
+        if resumed {
+            self.spawn_account_mesh_refresh(EnrollTrigger::Automatic);
+        }
+    }
+
     /// Enrollment runs beside sign-in; its outcome never changes the sign-in result.
     pub fn spawn_account_mesh_refresh(&self, trigger: EnrollTrigger) {
         let Some(service) = self
