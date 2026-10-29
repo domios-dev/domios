@@ -79,7 +79,7 @@ impl AccountMesh {
             inner.published_until = expires_at;
             inner.publication_refresh_after = publication_refresh_after(self.now(), expires_at);
             inner.record.published = result.publication != PublicationState::None;
-            inner.observe_registry_keys(&result.registry.rows);
+            inner.observe_registry_keys(&result.registry.rows, &self.installation());
             let revoked = inner.record.revoked_installations.clone();
             let cleanup_confirmed = cleanup_confirmed && inner.record.cleanup_pending;
             if cleanup_confirmed {

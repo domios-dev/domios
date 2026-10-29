@@ -140,6 +140,16 @@ impl Inner {
     ) {
         let mut next = (*self.state).clone();
         change(&mut next);
+        next.unavailable_installations = self
+            .record
+            .peer_presence
+            .iter()
+            .filter(|(installation, presence)| {
+                presence.presence == RegistryPresence::SignedOut
+                    && !self.record.revoked_installations.contains(*installation)
+            })
+            .map(|(installation, _)| installation.clone())
+            .collect();
         if next.registry != self.state.registry {
             match next.registry.as_ref() {
                 Some(registry) => {
@@ -313,10 +323,20 @@ impl AccountMesh {
         self.with(|inner| {
             let unreadable = loaded.is_err();
             inner.store_unreadable = unreadable;
-            let record = loaded.unwrap_or_else(|_| AccountMeshRecord {
+            let mut record = loaded.unwrap_or_else(|_| AccountMeshRecord {
                 signed_out: true,
                 ..AccountMeshRecord::default()
             });
+            let own = self.installation();
+            record.peer_presence.remove(&own);
+            if !record.revoked_generations.contains_key(&own) {
+                record.revoked_installations.remove(&own);
+            }
+            for installation in record.peer_presence.keys() {
+                if !record.revoked_generations.contains_key(installation) {
+                    record.revoked_installations.remove(installation);
+                }
+            }
             inner.record = record.clone();
             inner.update(&self.watch, |state| {
                 state.presence = if record.signed_out {

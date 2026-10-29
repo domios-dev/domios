@@ -20,25 +20,20 @@ async fn enrolled() -> Harness {
 }
 
 fn assert_blocked(harness: &Harness, token: &str, blocked: bool) {
+    let state = harness.state();
+    let revoked = state.revoked_installations.contains(PEER);
+    let unavailable = state.unavailable_installations.contains(PEER);
+    assert_eq!(revoked || unavailable, blocked);
     assert_eq!(
         harness.mesh.verify_peer_membership(token, START).is_err(),
-        blocked
+        revoked
     );
+    let transport = harness.transport.last.lock().unwrap();
+    let applied = transport.as_ref().unwrap();
+    assert_eq!(applied.revoked_installations.contains(PEER), revoked);
     assert_eq!(
-        harness.state().revoked_installations.contains(PEER),
-        blocked
-    );
-    assert_eq!(
-        harness
-            .transport
-            .last
-            .lock()
-            .unwrap()
-            .as_ref()
-            .unwrap()
-            .revoked_installations
-            .contains(PEER),
-        blocked
+        applied.unavailable_installations.contains(PEER),
+        unavailable
     );
 }
 
@@ -86,6 +81,14 @@ async fn account_mesh_registry_signed_out_blocks_on_sync_and_fences_stale_presen
     let signed = harness.mesh.signed(None).await.unwrap();
     harness.mesh.sync_registry(&signed).await.unwrap();
     assert_blocked(&harness, &token, true);
+    assert!(!harness.state().revoked_installations.contains(PEER));
+    assert!(!harness
+        .store
+        .record
+        .lock()
+        .unwrap()
+        .revoked_generations
+        .contains_key(PEER));
     harness.restart().await;
     harness.sign_in("owner").await;
     {
@@ -135,6 +138,8 @@ async fn account_mesh_registry_presence_notice_readmits_without_waiting_for_leas
     assert_blocked(&harness, &token, true);
     let membership = harness.state().membership.clone().unwrap();
     let before = harness.calls("list");
+    let admissions_before =
+        count(&harness.log, "registry:enroll") + count(&harness.log, "registry:recover");
     {
         let mut script = harness.registry.script.lock().unwrap();
         script.peer_presence = RegistryPresence::Present;
@@ -146,6 +151,10 @@ async fn account_mesh_registry_presence_notice_readmits_without_waiting_for_leas
         .await
         .unwrap());
     assert_eq!(harness.calls("list"), before + 1);
+    assert_eq!(
+        count(&harness.log, "registry:enroll") + count(&harness.log, "registry:recover"),
+        admissions_before
+    );
     assert_eq!(harness.clock.now(), START);
     assert_eq!(harness.state().membership.clone().unwrap(), membership);
     assert_blocked(&harness, &token, false);
@@ -333,7 +342,7 @@ async fn account_mesh_long_lease_restore_observes_revocation_and_keeps_cached_me
         let result = harness.mesh.refresh(EnrollTrigger::Automatic).await;
         assert_eq!(harness.calls("list"), 1);
         if offline {
-            assert_eq!(result, Err(AccountMeshRefusal::Offline));
+            assert_eq!(result, Ok(()));
             assert!(harness
                 .transport
                 .last
@@ -437,4 +446,104 @@ async fn account_mesh_partial_sync_preserves_last_complete_security_view() {
     let current = state.registry_security.as_ref().unwrap();
     assert_eq!(current.revision, 10);
     assert_ne!(current.digest, previous.digest);
+}
+
+#[tokio::test]
+async fn account_mesh_own_signed_out_row_cannot_clear_fresh_membership_before_signin_sync() {
+    let harness = enrolled().await;
+    harness.logout().await;
+    harness.sign_in("owner").await;
+    let gate = std::sync::Arc::new(tokio::sync::Notify::new());
+    harness.registry.script.lock().unwrap().sync_gate = Some(gate.clone());
+    let refresh = harness.mesh.refresh(EnrollTrigger::Explicit);
+    let read = async {
+        harness.registry.sync_entered.notified().await;
+        let fresh = harness.state().membership.clone().unwrap();
+        assert_eq!(
+            harness.registry.presence("owner"),
+            RegistryPresence::SignedOut
+        );
+        harness.mesh.list().await.unwrap();
+        assert_eq!(harness.state().membership.as_ref(), Some(&fresh));
+        assert!(!harness.state().revoked_installations.contains(INSTALLATION));
+        assert!(!harness
+            .state()
+            .unavailable_installations
+            .contains(INSTALLATION));
+        gate.notify_one();
+    };
+    let (result, ()) = tokio::join!(biased; refresh, read);
+    result.unwrap();
+    assert!(harness.state().current_membership(START).is_some());
+    assert_eq!(harness.calls("recover_key"), 0);
+    assert_eq!(harness.calls("enroll_key"), 1);
+}
+
+#[tokio::test]
+async fn account_mesh_corrupt_presence_cache_preserves_membership_and_refreshes_when_online() {
+    let mut harness = enrolled().await;
+    harness.store.record.lock().unwrap().peer_presence_refresh = true;
+    harness.restart().await;
+    harness.sign_in("owner").await;
+    harness.registry.script.lock().unwrap().list = Some(wire::RegistryRefusal::Offline);
+    let before = harness.calls("list");
+    assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
+    assert_eq!(harness.calls("list"), before + 1);
+    assert!(harness
+        .transport
+        .last
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .membership
+        .as_ref()
+        .is_some_and(|membership| membership.verified.is_current(START)));
+    harness.registry.script.lock().unwrap().list = None;
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("list"), before + 2);
+    assert!(harness
+        .transport
+        .last
+        .lock()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .membership
+        .as_ref()
+        .is_some_and(|membership| membership.verified.is_current(START)));
+    assert!(!harness.store.record.lock().unwrap().peer_presence_refresh);
+}
+
+#[tokio::test]
+async fn account_mesh_corrupt_availability_list_rate_limit_does_not_skip_due_renewal() {
+    let mut harness = enrolled().await;
+    let original = harness.state().membership.clone().unwrap();
+    harness.store.record.lock().unwrap().peer_presence_refresh = true;
+    harness.restart().await;
+    harness.sign_in("owner").await;
+    harness.clock.set(original.verified.refresh_after());
+    {
+        let mut script = harness.registry.script.lock().unwrap();
+        script.list = Some(wire::RegistryRefusal::RateLimited {
+            retry_after_seconds: 60,
+        });
+        script.membership_registry_revision = Some(9);
+    }
+    let before = harness.calls("list");
+    harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
+    assert_eq!(harness.calls("list"), before + 1);
+    assert_eq!(harness.calls("renew"), 1);
+    assert!(
+        harness
+            .state()
+            .membership
+            .as_ref()
+            .unwrap()
+            .verified
+            .expires_at
+            > original.verified.expires_at
+    );
+    assert!(harness.store.record.lock().unwrap().peer_presence_refresh);
+    assert_eq!(harness.calls("recover_key"), 0);
 }

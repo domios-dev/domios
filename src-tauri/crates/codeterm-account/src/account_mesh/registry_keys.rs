@@ -3,8 +3,8 @@ use super::state::{KeyBinding, RegistryPresenceBinding};
 use super::wire::{MeshManagementRow, RegistryPresence};
 
 impl Inner {
-    pub(super) fn observe_registry_keys(&mut self, rows: &[MeshManagementRow]) -> bool {
-        let mut changed = false;
+    pub(super) fn observe_registry_keys(&mut self, rows: &[MeshManagementRow], own: &str) -> bool {
+        let mut changed = self.record.peer_presence.remove(own).is_some();
         for row in rows {
             if row.key_generation == 0 {
                 continue;
@@ -26,24 +26,26 @@ impl Inner {
                 );
                 changed = true;
             }
-            let presence = self.record.peer_presence.get(&row.installation_id);
-            if presence.is_none_or(|known| {
-                row.key_generation > known.generation
-                    || (row.key_generation == known.generation
-                        && (row.metadata_revision > known.metadata_revision
-                            || (row.metadata_revision == known.metadata_revision
-                                && row.presence == RegistryPresence::SignedOut)))
-            }) {
-                let observation = RegistryPresenceBinding {
-                    generation: row.key_generation,
-                    metadata_revision: row.metadata_revision,
-                    presence: row.presence,
-                };
-                if presence != Some(&observation) {
-                    self.record
-                        .peer_presence
-                        .insert(row.installation_id.clone(), observation);
-                    changed = true;
+            if row.installation_id != own {
+                let presence = self.record.peer_presence.get(&row.installation_id);
+                if presence.is_none_or(|known| {
+                    row.key_generation > known.generation
+                        || (row.key_generation == known.generation
+                            && (row.metadata_revision > known.metadata_revision
+                                || (row.metadata_revision == known.metadata_revision
+                                    && row.presence == RegistryPresence::SignedOut)))
+                }) {
+                    let observation = RegistryPresenceBinding {
+                        generation: row.key_generation,
+                        metadata_revision: row.metadata_revision,
+                        presence: row.presence,
+                    };
+                    if presence != Some(&observation) {
+                        self.record
+                            .peer_presence
+                            .insert(row.installation_id.clone(), observation);
+                        changed = true;
+                    }
                 }
             }
             if !row.active {
@@ -61,12 +63,7 @@ impl Inner {
                 .record
                 .revoked_generations
                 .get(&row.installation_id)
-                .is_some_and(|generation| row.key_generation <= *generation)
-                || self
-                    .record
-                    .peer_presence
-                    .get(&row.installation_id)
-                    .is_some_and(|known| known.presence == RegistryPresence::SignedOut);
+                .is_some_and(|generation| row.key_generation <= *generation);
             if blocked {
                 changed |= self
                     .record

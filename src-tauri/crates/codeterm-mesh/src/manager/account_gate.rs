@@ -248,7 +248,12 @@ impl MeshManager {
                     instance_id: peer.instance_id.clone(),
                     installation_id: record.installation_id().map(str::to_string),
                     admission: record.admission.label().to_string(),
-                    online: peer.online,
+                    online: peer.online
+                        && !record.installation_id().is_some_and(|installation| {
+                            self.account
+                                .unavailable_installations
+                                .contains(installation)
+                        }),
                     name: peer.instance_name.clone(),
                 })
             })

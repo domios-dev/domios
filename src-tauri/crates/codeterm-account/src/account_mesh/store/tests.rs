@@ -123,15 +123,25 @@ async fn candidate_inline_admission_cache_is_accepted_then_removed_on_save() {
 }
 
 #[tokio::test]
-async fn unreadable_peer_presence_is_preserved_and_blocks_store_writes() {
+async fn corrupt_peer_presence_requires_refresh_without_poisoning_the_main_store() {
     let directory = tempfile::tempdir().unwrap();
     let store = FileAccountMeshStore::new(directory.path().into());
-    store.save(&AccountMeshRecord::default()).await.unwrap();
+    let record = AccountMeshRecord {
+        owner: Some("owner".into()),
+        ..Default::default()
+    };
+    store.save(&record).await.unwrap();
     let path = directory
         .path()
         .join("state/account/mesh-peer-presence.json");
     fs::write(&path, b"corrupt-presence").unwrap();
-    assert!(store.load().await.is_err());
-    assert!(store.save(&AccountMeshRecord::default()).await.is_err());
-    assert_eq!(fs::read(path).unwrap(), b"corrupt-presence");
+    let mut loaded = store.load().await.unwrap();
+    assert!(loaded.peer_presence_refresh);
+    assert!(loaded.peer_presence.is_empty());
+    store.save(&loaded).await.unwrap();
+    assert!(store.load().await.unwrap().peer_presence_refresh);
+    loaded.peer_presence_refresh = false;
+    store.save(&loaded).await.unwrap();
+    assert!(!store.load().await.unwrap().peer_presence_refresh);
+    assert_eq!(fs::read(path).unwrap(), b"{}");
 }

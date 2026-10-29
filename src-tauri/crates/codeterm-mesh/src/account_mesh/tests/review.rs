@@ -279,3 +279,53 @@ async fn account_mesh_registry_revocation_closes_an_open_adopted_stream() {
         crate::account_mesh::ledger::LinkAdmission::Adopted { .. }
     ));
 }
+
+#[tokio::test]
+async fn account_mesh_signed_out_peer_is_unavailable_and_returns_on_the_same_adopted_edge() {
+    use crate::account_mesh::{
+        gate::{BlockReason, TrafficDecision},
+        AccountMeshAuthority,
+    };
+    let (a, b) = linked_pair();
+    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
+    b.mesh.lock().insert_legacy_pair_for_test(a.as_peer());
+    let transport = Loopback::new(&[&a, &b]);
+    adopt_peer_with(&a.mesh, &transport, &b.id()).await.unwrap();
+    let original = serde_json::to_value(a.mesh.lock().link_record(&b.id()).unwrap()).unwrap();
+    let token = a
+        .mesh
+        .lock()
+        .link_record(&b.id())
+        .unwrap()
+        .remote_membership
+        .as_ref()
+        .unwrap()
+        .token
+        .clone();
+    let mut state = a.mesh.lock().account_state().clone();
+    state
+        .unavailable_installations
+        .insert(b.installation_id.clone());
+    a.mesh.lock().apply_account_state(state.clone());
+    assert_eq!(
+        a.mesh.lock().traffic_decision(&b.id()),
+        TrafficDecision::Blocked(BlockReason::PeerUnavailable)
+    );
+    assert!(a.authority.verify_membership(&token, START).is_ok());
+    assert!(a
+        .mesh
+        .lock()
+        .account_state()
+        .revoked_installations
+        .is_empty());
+    assert!(!a.mesh.lock().account_mesh_pairs()[0].online);
+    state.unavailable_installations.clear();
+    a.mesh.lock().apply_account_state(state);
+    assert!(a.mesh.lock().traffic_open(&b.id()));
+    assert_eq!(
+        serde_json::to_value(a.mesh.lock().link_record(&b.id()).unwrap()).unwrap(),
+        original
+    );
+    assert_eq!(a.mesh.lock().paired_peers.len(), 1);
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
+}

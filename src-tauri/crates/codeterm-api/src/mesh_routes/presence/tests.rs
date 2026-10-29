@@ -140,7 +140,7 @@ fn account_registry_block_allows_signed_notice_then_reopens_only_after_observati
     .unwrap();
     assert!(mesh.traffic_open(sender));
     state
-        .revoked_installations
+        .unavailable_installations
         .insert("sender-installation".into());
     mesh.apply_account_state(state.clone());
     assert!(!mesh.traffic_open(sender));
@@ -149,7 +149,7 @@ fn account_registry_block_allows_signed_notice_then_reopens_only_after_observati
     let notice = crown::sign_request(&private, sender).unwrap();
     assert_eq!(authorize_notice(&mut mesh, &notice).unwrap(), sender);
     assert!(!mesh.traffic_open(sender));
-    state.revoked_installations.clear();
+    state.unavailable_installations.clear();
     mesh.apply_account_state(state);
     assert!(mesh.traffic_open(sender));
 }

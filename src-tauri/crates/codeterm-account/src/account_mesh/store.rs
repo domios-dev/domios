@@ -25,21 +25,12 @@ fn read(path: &PathBuf) -> io::Result<AccountMeshRecord> {
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
     match fs::read(path.with_file_name("mesh-peer-presence.json")) {
-        Ok(bytes) => {
-            record.peer_presence = serde_json::from_slice(&bytes).map_err(io::Error::other)?
-        }
+        Ok(bytes) => match serde_json::from_slice(&bytes) {
+            Ok(presence) => record.peer_presence = presence,
+            Err(_) => record.peer_presence_refresh = record.owner.is_some(),
+        },
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => return Err(error),
-    }
-    for (installation, presence) in &record.peer_presence {
-        if presence.presence == super::wire::RegistryPresence::SignedOut
-            && record
-                .peer_keys
-                .get(installation)
-                .is_none_or(|known| known.generation <= presence.generation)
-        {
-            record.revoked_installations.insert(installation.clone());
-        }
+        Err(_) => record.peer_presence_refresh = record.owner.is_some(),
     }
     Ok(record)
 }
@@ -49,13 +40,15 @@ fn write(path: &PathBuf, record: &AccountMeshRecord) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let presence_path = path.with_file_name("mesh-peer-presence.json");
-    let temporary_presence = presence_path.with_extension("json.tmp");
-    fs::write(
-        &temporary_presence,
-        serde_json::to_vec(&record.peer_presence).map_err(io::Error::other)?,
-    )?;
-    fs::rename(&temporary_presence, &presence_path)?;
+    if !record.peer_presence_refresh {
+        let presence_path = path.with_file_name("mesh-peer-presence.json");
+        let temporary_presence = presence_path.with_extension("json.tmp");
+        fs::write(
+            &temporary_presence,
+            serde_json::to_vec(&record.peer_presence).map_err(io::Error::other)?,
+        )?;
+        fs::rename(&temporary_presence, &presence_path)?;
+    }
     let bytes = serde_json::to_vec(record).map_err(io::Error::other)?;
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, bytes)?;

@@ -73,10 +73,7 @@ impl AccountMesh {
             .map(|row| row.target())
     }
 
-    pub(super) async fn restore_admission(
-        &self,
-        signed: &Signed,
-    ) -> Result<(), super::AccountMeshRefusal> {
+    pub(super) async fn restore_admission(&self, signed: &Signed) -> bool {
         let candidate = self.with(|inner| {
             if inner.state.membership.is_some() || inner.record.signed_out {
                 return None;
@@ -88,13 +85,13 @@ impl AccountMesh {
             ))
         });
         let Some((cache, binding, slot)) = candidate else {
-            return Ok(());
+            return false;
         };
         if binding.key_id != signed.key.key_id() {
-            return Ok(());
+            return false;
         }
         let Ok(grant) = parse_membership_token(&cache.token) else {
-            return Ok(());
+            return false;
         };
         let Ok(verified) = verify_membership(
             &grant,
@@ -108,7 +105,7 @@ impl AccountMesh {
             },
             cache.issued_at,
         ) else {
-            return Ok(());
+            return false;
         };
         let long_lease = verified.is_current(self.now())
             && verified.expires_at.saturating_sub(verified.issued_at) > 3600;
@@ -169,11 +166,11 @@ impl AccountMesh {
                             inner.update(&self.watch, |state| state.membership = None);
                         }
                     });
-                    return Ok(());
                 }
-                return Err(refusal);
+                return true;
             }
+            return true;
         }
-        Ok(())
+        false
     }
 }

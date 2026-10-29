@@ -245,6 +245,8 @@ pub struct LifecycleState {
     #[serde(skip)]
     pub membership: Option<SignedMembership>,
     pub revoked_installations: BTreeSet<String>,
+    #[serde(skip)]
+    pub unavailable_installations: BTreeSet<String>,
     pub cleanup: Cleanup,
     pub publication: Publication,
     pub publication_failure: Option<AccountMeshRefusal>,
@@ -377,4 +379,6 @@ pub struct AccountMeshRecord {
     pub peer_keys: BTreeMap<String, KeyBinding>,
     #[serde(default, skip_serializing)]
     pub peer_presence: BTreeMap<String, RegistryPresenceBinding>,
+    #[serde(skip)]
+    pub peer_presence_refresh: bool,
 }

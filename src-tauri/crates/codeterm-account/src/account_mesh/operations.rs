@@ -332,7 +332,10 @@ impl AccountMesh {
 
     pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
-        self.restore_admission(&signed).await?;
+        let observed_registry = self.restore_admission(&signed).await;
+        if !observed_registry && self.with(|inner| inner.record.peer_presence_refresh) {
+            let _ = self.read_registry(&signed).await;
+        }
         let now = self.now();
         let current = self.with(|inner| {
             inner
@@ -734,7 +737,13 @@ impl AccountMesh {
         };
         let keys_changed = self.with(|inner| {
             if inner.is_current(signed.epoch) || signed.epoch == 0 {
-                let changed = inner.observe_registry_keys(&observation.rows);
+                let recovered_presence =
+                    inner.record.peer_presence_refresh && observation.cursor.is_none();
+                if recovered_presence {
+                    inner.record.peer_presence_refresh = false;
+                }
+                let changed = recovered_presence
+                    | inner.observe_registry_keys(&observation.rows, &installation);
                 let revoked = inner.record.revoked_installations.clone();
                 let own_invalid = inner.state.membership.as_ref().is_some_and(|membership| {
                     let own = &membership.verified;

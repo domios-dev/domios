@@ -204,6 +204,7 @@ impl Machine {
             },
             membership: Some(membership(account, &self.installation_id, expires_at)),
             revoked_installations: BTreeSet::new(),
+            unavailable_installations: BTreeSet::new(),
             plan_limit_locked: false,
         });
     }
@@ -214,6 +215,7 @@ impl Machine {
             presence: AccountPresence::SignedOut,
             membership: None,
             revoked_installations: BTreeSet::new(),
+            unavailable_installations: BTreeSet::new(),
             plan_limit_locked: false,
         });
     }
