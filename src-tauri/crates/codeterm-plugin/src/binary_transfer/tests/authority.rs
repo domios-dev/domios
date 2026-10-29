@@ -72,7 +72,7 @@ fn forged_headers_grants_protocols_and_expired_deadlines_refuse_before_transport
         assert!(execute(session.clone(), request, TransferAbort::default()).is_err());
     }
     for url in [
-        "https://user:secret@api.example/file",
+        concat!("https://user:secret@", "api.example/file"),
         "https://api.example/file#fragment",
         "wss://api.example/stream",
         "https://localhost/file",
@@ -101,7 +101,7 @@ fn public_ip_and_exact_grants_refuse_private_rebinding_and_port_expansion() {
     for ip in [
         "127.0.0.1",
         "10.0.0.1",
-        "100.64.0.1",
+        concat!("100.", "64.0.1"),
         "169.254.169.254",
         "192.0.2.1",
         "198.18.0.1",

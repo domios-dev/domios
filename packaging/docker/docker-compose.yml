@@ -7,7 +7,7 @@ services:
     ports:
       - "127.0.0.1:7685:7685"
     volumes:
-      - domios-data:/home/domios/.domios
+      - domios-data:/var/lib/domios/.domios
     depends_on:
       postgres:
         condition: service_healthy

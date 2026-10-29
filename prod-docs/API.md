@@ -61,6 +61,13 @@ Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {instal
 
 Outgoing Neighbor history entries expose optional `delivered_at` and `read_at` as UNIX milliseconds. `read_at` implies delivery. Accepted sending is one tick, delivered is two ticks, read is two blue ticks. `neighbor-history-changed` carries the affected `friendship_id` after receipt persistence. See `NEIGHBORS` for the signal and catch-up behavior.
 
+#### Plugin media and Neighbor memory
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/plugins/{plugin}/media/{frame}/{handle}` | — | Passive plugin image/audio/video delivery; the opaque live frame/handle pair authorizes access. Also accepts HEAD. Supports one byte Range (206; invalid ranges 416), `no-store` and `nosniff`; unknown, expired or revoked authority returns 404. No filesystem paths. |
+| POST | `/api/mem/neighbor-save` | `{kind,area,title,body,summary?,tags?,importance?}` | Authenticated Neighbor-derived tab only; requires a live matching friendship and a memory write grant for the exact area. Saves only `fact` or `note`, with server-derived authorship and global scope; returns `{id}`. Credentials and oversized content refuse. HTTP 403 returns `{code,reason,message}` for denied authority, area, kind, credentials or size. Local owner and ordinary tabs cannot use this route. |
+
 #### Local previews
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
@@ -200,4 +207,4 @@ Live authenticated Plan owners may recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 242 -->
+<!-- revision: 243 -->
