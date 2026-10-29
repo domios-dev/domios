@@ -30,6 +30,9 @@ fn overwrite_history_keeps_prior_author_and_full_blob_body_in_both_directions() 
         .unwrap();
         let got = get(&conn, &id, &blobs).unwrap().unwrap();
         assert_eq!(got.author, second);
+        let graph = graph_full(&conn).unwrap();
+        let projected = graph.nodes.iter().find(|node| node.id == id).unwrap();
+        assert_eq!(projected.author.as_ref(), Some(&second));
         assert_eq!(got.body, "replacement");
         let history = get_item_history(&conn, &id).unwrap();
         let last = history.last().unwrap();

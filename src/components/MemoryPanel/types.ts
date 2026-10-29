@@ -1,3 +1,10 @@
+export interface MemAuthor {
+  kind: "owner" | "neighbor" | "system";
+  account_uid?: string;
+  friendship_id?: string;
+  label?: string;
+}
+
 export type MemKind =
   | "skill"
   | "fact"
@@ -13,6 +20,8 @@ export type MemKind =
   | string;
 
 export interface MemNode {
+  author?: MemAuthor | null;
+  pinned?: boolean;
   id: string;
   kind: MemKind;
   title: string;
@@ -45,6 +54,7 @@ export interface GraphFullResponse {
 }
 
 export interface MemItemFull {
+  author?: MemAuthor | null;
   id: string;
   kind: string;
   scope: string;

@@ -90,7 +90,7 @@ export function useGraphData(api: ApiConfig) {
             const next = new Map<string, MemNode>();
             for (const n of resp.nodes) {
               const prior = prev.nodes.get(n.id);
-              next.set(n.id, prior ?? n);
+              next.set(n.id, { ...prior, ...n });
             }
             return { ...prev, nodes: next, edges: resp.edges, stats: resp.stats };
           });

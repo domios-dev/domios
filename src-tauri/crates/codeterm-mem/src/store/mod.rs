@@ -405,6 +405,8 @@ pub struct TailEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<MemAuthor>,
     pub id: String,
     pub kind: String,
     pub title: String,
