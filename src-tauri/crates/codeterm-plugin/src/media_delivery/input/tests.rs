@@ -309,3 +309,83 @@ fn stale_registration_and_cleanup_cannot_affect_a_new_document_in_the_same_names
     context_is_live(&fresh.context).unwrap();
     assert!(open_frame_media(provider.id(), &lease.frame, &handle.handle).is_ok());
 }
+
+#[test]
+fn scope_loss_after_registration_removes_only_the_attempt_file_and_handle() {
+    for retirement in 0..3 {
+        let (directory, provider, registry, survivor) = install();
+        let accept = vec!["image/png".into()];
+        let saved = ingest_at_root(
+            provider.id(),
+            &survivor.frame,
+            directory.path(),
+            IngestSource::Bytes(png()),
+            "saved.png",
+            "image/png",
+            limits(&accept),
+        )
+        .unwrap();
+        let registration = create_frame(
+            &provider,
+            &registry,
+            crate::view_host::ViewCallContext::panel(provider.id()),
+        )
+        .unwrap();
+        let attempt = Lease {
+            plugin: provider.id().into(),
+            frame: registration.media_frame,
+        };
+        let abandoned = std::cell::RefCell::new(None);
+        let still_current = || {
+            {
+                let store = STORE.lock();
+                let handles = &store.frames[&attempt.frame].handles;
+                assert_eq!(handles.len(), 1);
+                let (handle, entry) = handles.iter().next().unwrap();
+                assert!(entry.resolved.path.is_file());
+                *abandoned.borrow_mut() = Some((handle.clone(), entry.resolved.path.clone()));
+            }
+            match retirement {
+                1 => {
+                    STORE.lock().frames.get_mut(&attempt.frame).unwrap().expires =
+                        Instant::now() - Duration::from_secs(1);
+                }
+                2 => revoke_frame(provider.id(), &attempt.frame),
+                _ => {}
+            }
+            false
+        };
+        let error = ingest_target(
+            IngestTarget {
+                plugin: provider.id(),
+                frame: &attempt.frame,
+                root: directory.path(),
+                context: &registration.context,
+                still_current: &still_current,
+            },
+            IngestSource::Bytes(png()),
+            "abandoned.png",
+            "image/png",
+            limits(&accept),
+        )
+        .unwrap_err();
+        assert_eq!(error, IngestRefusal::UnknownFrame);
+        let (handle, path) = abandoned.into_inner().unwrap();
+        assert!(!path.exists());
+        assert!(STORE
+            .lock()
+            .frames
+            .get(&attempt.frame)
+            .is_none_or(|frame| !frame.handles.contains_key(&handle)));
+        let mut saved_file = open_frame_media(provider.id(), &survivor.frame, &saved.handle).unwrap();
+        let mut bytes = Vec::new();
+        saved_file.file.read_to_end(&mut bytes).unwrap();
+        assert_eq!(bytes, png());
+        assert_eq!(
+            std::fs::read_dir(directory.path().join("inputs"))
+                .unwrap()
+                .count(),
+            1
+        );
+    }
+}

@@ -398,8 +398,8 @@ pub fn register_context_media(
 }
 pub fn revoke_context_media(plugin: &str, frame: &str, context: &ViewCallContext, handle: &str) {
     let mut store = STORE.lock();
-    if require_frame_context(&store, plugin, frame, context).is_ok() {
-        if let Some(frame) = store.frames.get_mut(frame) {
+    if let Some(frame) = store.frames.get_mut(frame) {
+        if frame.plugin == plugin && &frame.context == context {
             frame.handles.remove(handle);
         }
     }
