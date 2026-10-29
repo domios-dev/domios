@@ -242,7 +242,7 @@ fn in_flight_ingestion_cannot_move_into_a_reminted_frame_or_retire_the_new_docum
     let fresh = Arc::new(Mutex::new(None));
     let source = RemintingReader {
         provider: provider.clone(),
-        registry,
+        registry: registry.clone(),
         frame: lease.frame.clone(),
         fresh: fresh.clone(),
         first: true,
