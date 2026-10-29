@@ -3,9 +3,10 @@ use std::{collections::BTreeMap, path::Path};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
-use super::{
-    current_changed_by, get_item_history, insert, update, MemKind, MemScope, MemUpdate, NewMemItem,
-};
+use super::{get_item_history, MemKind, MemScope, MemUpdate, NewMemItem};
+
+#[cfg(test)]
+use super::{insert, update};
 
 pub const DREAMER_AREA_MERGE_CAP: usize = 3;
 const MERGE_PREFIX: &str = "area_merge=";
@@ -44,7 +45,12 @@ pub fn validate_areas(from: &str, into: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn update_area(conn: &Connection, id: &str, into: &str) -> Result<bool, String> {
+pub(super) fn update_area_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    id: &str,
+    into: &str,
+) -> Result<bool, String> {
     let previous: Option<Option<String>> = conn
         .query_row("SELECT area FROM mem_items WHERE id = ?1", [id], |row| {
             row.get(0)
@@ -57,6 +63,7 @@ pub(super) fn update_area(conn: &Connection, id: &str, into: &str) -> Result<boo
     if from.as_deref() == Some(into) {
         return Ok(false);
     }
+    let author = ctx.author.clone();
     conn.execute_batch("SAVEPOINT mem_area_update")
         .map_err(|e| e.to_string())?;
     let applied = (|| -> Result<(), String> {
@@ -75,8 +82,8 @@ pub(super) fn update_area(conn: &Connection, id: &str, into: &str) -> Result<boo
             })
             .map_err(|e| e.to_string())?
         );
-        conn.execute("INSERT INTO mem_item_history (item_id, changed_at, changed_by, change_type, reason) VALUES (?1, ?2, ?3, 'update', ?4)",
-            params![id, chrono::Utc::now().to_rfc3339(), current_changed_by(), reason]).map_err(|e| e.to_string())?;
+        conn.execute("INSERT INTO mem_item_history (item_id, changed_at, changed_by, change_type, reason, author_kind, author_uid, author_friendship, author_label) VALUES (?1, ?2, ?3, 'update', ?4, ?5, ?6, ?7, ?8)",
+            params![id, chrono::Utc::now().to_rfc3339(), ctx.changed_by.clone(), reason, author.kind.as_str(), author.account_uid, author.friendship_id, author.label]).map_err(|e| e.to_string())?;
         Ok(())
     })();
     if applied.is_err() {
@@ -97,6 +104,26 @@ pub fn merge_area(
     dry_run: bool,
     dream_run: Option<&str>,
 ) -> Result<AreaMergeOutcome, String> {
+    merge_area_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        blobs,
+        from,
+        into,
+        dry_run,
+        dream_run,
+    )
+}
+
+pub fn merge_area_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    blobs: &Path,
+    from: &str,
+    into: &str,
+    dry_run: bool,
+    dream_run: Option<&str>,
+) -> Result<AreaMergeOutcome, String> {
     validate_areas(from, into)?;
     let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let rows: Vec<(String, String)> = {
@@ -110,6 +137,10 @@ pub fn merge_area(
     };
     if rows.is_empty() {
         return Err(format!("source area {from} is empty or does not exist"));
+    }
+    let unsafe_target: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM mem_items WHERE area=?1 AND author_kind='neighbor') AND EXISTS(SELECT 1 FROM mem_items WHERE area=?2 AND (kind IN ('rule','preference','skill') OR is_pinned_wakeup!=0))", params![from,into], |r| r.get(0)).map_err(|e| e.to_string())?;
+    if unsafe_target {
+        return Err("neighbor area cannot merge into an instruction or pinned target".into());
     }
     let mut counts = BTreeMap::new();
     for (_, kind) in &rows {
@@ -148,7 +179,8 @@ pub fn merge_area(
         .map_err(|e| e.to_string())?
     );
     for (id, _) in &rows {
-        if !update(
+        if !super::update_with_context(
+            ctx,
             &tx,
             id,
             &MemUpdate {
@@ -164,7 +196,8 @@ pub fn merge_area(
     }
     if let Some(source) = run_source {
         let summary = format!("Area merge {from:?} -> {into:?}: {} items; undo each with domios mem restore <id> --version <history-row>.", rows.len());
-        let diary_id = insert(
+        let diary_id = super::insert_with_context(
+            ctx,
             &tx,
             &NewMemItem {
                 kind: MemKind::Daily,
@@ -195,6 +228,22 @@ pub fn restore_area(
     id: &str,
     version: Option<i64>,
 ) -> Result<Option<String>, String> {
+    restore_area_with_context(
+        &crate::MemManager::write_context(),
+        conn,
+        blobs,
+        id,
+        version,
+    )
+}
+
+pub fn restore_area_with_context(
+    ctx: &crate::backend::WriteContext,
+    conn: &Connection,
+    blobs: &Path,
+    id: &str,
+    version: Option<i64>,
+) -> Result<Option<String>, String> {
     let history = get_item_history(conn, id)?;
     let row = match version {
         Some(version) => history.iter().find(|h| h.id == version),
@@ -208,7 +257,8 @@ pub fn restore_area(
     };
     let change: AreaChange = serde_json::from_str(encoded).map_err(|e| e.to_string())?;
     let from = change.from.ok_or("area merge history has no source")?;
-    if !update(
+    if !super::update_with_context(
+        ctx,
         conn,
         id,
         &MemUpdate {

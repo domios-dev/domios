@@ -36,6 +36,23 @@ pub(super) fn socket_request(
     action: &MemAction,
 ) -> Option<(&'static str, Option<serde_json::Value>)> {
     match action {
+        MemAction::NeighborSave {
+            kind,
+            area,
+            title,
+            from_pad,
+            summary,
+            tags,
+        } => {
+            let body = crate::cmd::payload_source::read_from_pad(from_pad)
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
+            Some((
+                "mem.neighbor_save",
+                Some(super::neighbor_save::payload(
+                    kind, area, title, body, summary, tags,
+                )),
+            ))
+        }
         MemAction::Area {
             action:
                 crate::args::mem::MemAreaAction::Merge {

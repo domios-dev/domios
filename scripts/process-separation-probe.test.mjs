@@ -135,7 +135,7 @@ for (const target of ['', 'opaque-target']) test(`DEV stages exact paired artifa
     const build = 'a'.repeat(40);
     const cargoLog = path.join(root, 'server.jsonl'), cliLog = path.join(root, 'cli.jsonl'), treeLog = path.join(root, 'tree.txt');
     const scriptReceipt = { reason: 'build-script-executed', package_id: 'domios-server', env: [['BUILD_SHA', build], ['SERVER_CLI_SHA256', digest(cli)]] };
-    const artifact = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'], src_path: serverSource }, executable: server, profile: { test: false }, features: ['embeddings'] };
+    const artifact = { reason: 'compiler-artifact', target: { name: 'domios-server', kind: ['bin'], src_path: serverSource }, executable: server, profile: { test: false }, features: ['embeddings', 'mem-postgres'] };
     const finish = { reason: 'build-finished', success: true };
     writeFileSync(cargoLog, [scriptReceipt, artifact, finish].map(JSON.stringify).join('\n'));
     writeFileSync(cliLog, [{ ...artifact, target: { name: legacy, kind: ['bin'], src_path: cliSource }, executable: cli }, finish].map(JSON.stringify).join('\n'));

@@ -328,8 +328,11 @@ pub(crate) fn compose_observed(
     let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
 
     let startup_step = startup::StartupStep::logged("memory initialization");
-    let mem = mem::MemManager::open(&codeterm_service_core::paths::data_dir())
-        .expect("mem manager init failed");
+    let config = states.config.lock().clone();
+    let data_dir = codeterm_service_core::paths::data_dir();
+    let store = crate::mem_backend::open_configured(&data_dir, &config, &secret_registry)
+        .map_err(|error| error.to_string())?;
+    let mem = mem::MemManager::open_store(store, &data_dir)?;
     match mem.seed_bundled_if_needed() {
         Ok(outcome) if outcome.written() > 0 || !outcome.skipped.is_empty() => {
             log::info!(

@@ -48,6 +48,7 @@ impl ServiceContext {
             "mem.search",
             "mem.get",
             "mem.wake_up",
+            "mem.neighbor_save",
             "tab.list",
             "tab.send_text",
         ]

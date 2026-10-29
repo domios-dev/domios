@@ -83,6 +83,9 @@ pub fn newest_release(found: Vec<LatestRelease>) -> Option<LatestRelease> {
 }
 
 pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateInfo, String> {
+    if let Some(backend) = crate::headless::backend() {
+        return backend.check().await.map_err(|e| e.to_string());
+    }
     check_for_update_at(install_method, None).await
 }
 

@@ -48,6 +48,7 @@ pub(super) fn capability_grants(friendship: &str, permission: &Permission) -> Va
     grants["allow_files"] = json!(files);
     grants["allow_tab_requests"] = json!(permission.allowed && permission.allow_tab_requests);
     grants["commands"] = json!({
+        "memory_neighbor_save":permission.memory_write_areas.iter().filter(|_|permission.allowed).map(|area|json!(["domios","mem","neighbor-save","--kind","fact","--title","<title>","--from-pad","<body.md>","--area",area])).collect::<Vec<_>>(),
         "memory_search":memory_search,
         "memory_get":(memory && areas.is_none_or(|areas|!areas.is_empty())).then(||json!(["domios","mem","get","<item_id>"])),
         "memory_wake_up":(memory && areas.is_none()).then(||json!(["domios","mem","wake-up"])),
