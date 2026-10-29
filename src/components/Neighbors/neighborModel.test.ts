@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { parseNeighbors, validNeighborLimit } from "./neighborModel";
+import { parseNeighbors, validNeighborLimit, neighborName, neighborIdentity } from "./neighborModel";
 import { conciergeWork, readableBody, refusalLine } from "./neighborConversationModel";
 import type { HistoryEntry } from "./neighborConciergeClient";
 import { conciergeProviders } from "./ChangeConciergeDialog";
@@ -87,4 +87,11 @@ it("explains each delivery refusal in plain words and says when to retry only wh
   expect(refusalLine({ ...base, reason: "aggregate_daily_limited", limit: 200, resets_at: now + 9 * 3_600_000 }, "Ada", now))
     .toBe("You reached today's sending limit (200). It resets in 9h.");
   expect(refusalLine({ ...base, reason: "something_new" }, "Ada", now)).toBeNull();
+});
+
+it("prefers display name then email then uid", () => {
+  expect(neighborName({ uid: "opaque", displayName: "Anya", email: "anya@example.test" })).toBe("Anya");
+  expect(neighborIdentity({ uid: "opaque", displayName: "Anya", email: "anya@example.test" })).toBe("Anya (anya@example.test)");
+  expect(neighborName({ uid: "opaque", displayName: null, email: "anya@example.test" })).toBe("anya@example.test");
+  expect(neighborName({ uid: "opaque", displayName: null, email: null })).toBe("opaque");
 });

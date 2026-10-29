@@ -300,6 +300,11 @@ async fn global_stop_and_signout_retire_all_local_friends_without_touching_other
 #[tokio::test]
 async fn nonreceiver_bind_apply_create_and_ensure_refuse_before_network_or_new_tabs() {
     for receiver in [None, Some(false)] {
+        let expected = if receiver.is_none() {
+            Error::ReceiverNotChosen
+        } else {
+            Error::ReceivingElsewhere
+        };
         let data = tempfile::tempdir().unwrap();
         let (fixture, metadata, friend, root, _, _) = fixture(data.path()).await;
         let service = &fixture.service;
@@ -325,14 +330,14 @@ async fn nonreceiver_bind_apply_create_and_ensure_refuse_before_network_or_new_t
                 .bind_neighbor_concierge(&metadata, &transport, &friend, &root)
                 .await
                 .unwrap_err(),
-            Error::ReceivingElsewhere
+            expected
         );
         assert_eq!(
             service
                 .set_neighbor_permission(&metadata, &transport, &friend, Permission::default())
                 .await
                 .unwrap_err(),
-            Error::ReceivingElsewhere
+            expected
         );
         assert_eq!(
             service
@@ -347,7 +352,7 @@ async fn nonreceiver_bind_apply_create_and_ensure_refuse_before_network_or_new_t
                 )
                 .await
                 .unwrap_err(),
-            Error::ReceivingElsewhere.to_string()
+            expected.to_string()
         );
         assert_eq!(
             service
@@ -359,7 +364,7 @@ async fn nonreceiver_bind_apply_create_and_ensure_refuse_before_network_or_new_t
                 )
                 .await
                 .unwrap_err(),
-            Error::ReceivingElsewhere.to_string()
+            expected.to_string()
         );
         assert_eq!(service.mux.read().snapshot().tabs.len(), before);
         assert!(!metadata
@@ -401,7 +406,7 @@ async fn cold_nonreceiver_boot_cannot_materialize_and_retirement_survives_anothe
         );
         assert_eq!(
             service.wake_frozen_tab(id).unwrap_err(),
-            Error::ReceivingElsewhere.to_string()
+            Error::ReceiverNotChosen.to_string()
         );
     }
     service.set_neighbor_friend_receiver_for_test(&friend, Some(false), 9);

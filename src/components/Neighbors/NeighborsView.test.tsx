@@ -701,3 +701,21 @@ it("shows a friend you disabled as disabled on the graph", async () => {
   expect(hasButton("Ada, disabled")).toBe(true);
   expect(document.querySelector('[data-node-id="pair"]')?.hasAttribute("data-paused")).toBe(true);
 });
+
+it("shows friend email in the panel and tooltip and incoming request identity", async () => {
+  const { list } = await render("paid", { friend: { ...neighbor, email: "ada@example.test" } });
+  expect(button("Ada, connected").title).toBe("Ada (ada@example.test)");
+  await act(async () => button("Ada, connected").click());
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain("ada@example.test");
+  await act(async () => button("Close Ada").click());
+  const next = { ...list, incoming: list.incoming.map(request => ({ ...request, email: "grace@example.test" })) };
+  await act(async () => emit("neighbors-changed", { uid: "owner", list: next }));
+  await act(async () => button("Grace, wants to connect").click());
+  expect(document.querySelector("aside")?.textContent).toContain("Grace (grace@example.test) wants to be your Neighbor");
+});
+
+it("uses email before uid when a friend has no display name", async () => {
+  await render("paid", { friend: { ...neighbor, displayName: null, email: "ada@example.test" } });
+  expect(hasButton("ada@example.test, connected")).toBe(true);
+  expect(document.body.textContent).not.toContain(neighbor.uid);
+});

@@ -39,3 +39,23 @@ fn arrival_and_proven_acceptance_notify_once_across_restore() {
     .iter()
     .all(|notice| notice.event_id.starts_with("request:")));
 }
+
+#[test]
+fn local_request_identity_uses_email_and_never_exposes_uid_when_profile_exists() {
+    assert_eq!(
+        name(&json!({"uid":"opaque","displayName":"Anya","email":"anya@example.test"})).unwrap(),
+        "Anya (anya@example.test)"
+    );
+    assert_eq!(
+        name(&json!({"uid":"opaque","displayName":null,"email":"anya@example.test"})).unwrap(),
+        "anya@example.test"
+    );
+    assert_eq!(
+        name(&json!({"uid":"opaque","displayName":"Anya","email":null})).unwrap(),
+        "Anya"
+    );
+    assert_eq!(
+        name(&json!({"uid":"opaque","displayName":null,"email":null})).unwrap(),
+        "opaque"
+    );
+}

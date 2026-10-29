@@ -38,7 +38,7 @@ export function NeighborReceiveHere({ receiver, onReceive, friendName, targetMac
   const label = friendName === undefined ? "Receive all friends here" : operation === "reset" ? "Use account receiver" : "Receive this friend here";
   const close = () => { setConfirming(null); onClose?.(); };
   if (confirming === null) {
-    return <div className="neighbors-receive"><Button size="sm" onClick={() => { setError(null); setConfirming(receiver.revision); }}>{label}</Button></div>;
+    return <div className="neighbors-receive">{friendName && receiver.receiving_enabled && <p className="neighbor-note">Messages from {friendName} are received on {receiver.receiver_machine_label ?? "another machine"}. Receive them here?</p>}<Button size="sm" onClick={() => { setError(null); setConfirming(receiver.revision); }}>{label}</Button></div>;
   }
   const stale = confirming !== receiver.revision;
   return <div role="group" aria-label={friendName === undefined ? "Receive on this machine" : `Receive ${friendName} on this machine`} className="ct-card ct-card--static neighbors-receive neighbors-receive--confirm">

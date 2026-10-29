@@ -23,6 +23,11 @@ pub(super) enum Operation {
     },
     ReceiverChanged,
     RegistryChanged,
+    ClaimFirstReceiver {
+        friendship: String,
+        uid: String,
+        expected_generation: u64,
+    },
     Refuse {
         friendship: String,
         message_id: String,
@@ -84,6 +89,16 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
+            Operation::ClaimFirstReceiver {
+                friendship,
+                uid,
+                expected_generation,
+            } => {
+                self.require_neighbor_generation(expected_generation)?;
+                self.claim_first_neighbor_receiver_owned(&friendship, &uid, generation)
+                    .await?;
+                Ok(Outcome::Value(Value::Null))
+            }
             Operation::StopLocal {
                 expected_generation,
             } => {
@@ -111,6 +126,8 @@ impl ServiceContext {
                 .map(Outcome::Value),
             Operation::ReceiverChanged | Operation::RegistryChanged => {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
+                self.fulfill_neighbor_receiving_invites(&registry, &scope, &metadata, generation)
+                    .await?;
                 self.start_neighbor_listeners(
                     transport.clone(),
                     registry,
@@ -181,6 +198,8 @@ impl ServiceContext {
             #[cfg(not(any(test, feature = "test-support")))]
             Operation::Restore => {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
+                self.fulfill_neighbor_receiving_invites(&registry, &scope, &metadata, generation)
+                    .await?;
                 self.start_neighbor_listeners(transport, registry, scope, metadata, generation)
                     .await?;
                 Ok(Outcome::Value(Value::Null))

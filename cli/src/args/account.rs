@@ -55,7 +55,16 @@ pub enum NeighborAction {
     },
     /// Show local channel enrollment and gateway bindings
     Status,
-    /// Receive all friends here (account takeover); use a friend's UI to move only that friend
+    /// General Agent: receive one named friend's messages here; confirm an existing receiver move with the owner
+    ReceiveHere {
+        friendship_id: String,
+        #[arg(long)]
+        expected_receiver_revision: u64,
+        /// Pass only after the owner explicitly agrees to move receiving from the named machine
+        #[arg(long)]
+        takeover_confirmed: bool,
+    },
+    /// Receive all friends here (account takeover); use receive-here to move only one friend
     Enroll {
         #[arg(long, required = true)]
         confirm_takeover: bool,

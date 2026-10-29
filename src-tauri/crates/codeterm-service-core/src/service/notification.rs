@@ -86,6 +86,7 @@ impl ServiceContext {
                 intent,
                 per_scope_limit: plan.per_scope_limit,
                 deliver: move |envelope| {
+                    let envelope = neighbor_notice_push(envelope);
                     super::notification_push::deliver_plan(
                         &plan.targets,
                         &plan.refusals,
@@ -694,3 +695,11 @@ fn deliver_private_push(
 #[cfg(test)]
 #[path = "notification/private_push_tests.rs"]
 mod private_push_tests;
+
+fn neighbor_notice_push(mut envelope: PushEnvelope) -> PushEnvelope {
+    envelope.content.title = "Neighbor activity".into();
+    envelope.content.body = Some("Open Neighbors on your machine to view it.".into());
+    envelope.content.provenance = Default::default();
+    envelope.choices.clear();
+    envelope
+}

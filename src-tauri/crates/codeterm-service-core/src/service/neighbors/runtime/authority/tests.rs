@@ -150,6 +150,12 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
         NeighborRuntimeCommand::ResumeFriend {
             friendship_id: friend_a.clone(),
         },
+        NeighborRuntimeCommand::SetFriendReceiver {
+            friendship_id: friend_a.clone(),
+            receiver_operation: receiver::selection::Selection::Set,
+            takeover_confirmed: false,
+            expected_receiver_revision: 0,
+        },
         NeighborRuntimeCommand::OwnKeys,
         NeighborRuntimeCommand::Permission {
             friendship_id: friend_a.clone(),
@@ -168,6 +174,12 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
         }
     }
     for command in [
+        NeighborRuntimeCommand::SetFriendReceiver {
+            friendship_id: friend_a.clone(),
+            receiver_operation: receiver::selection::Selection::Reset,
+            takeover_confirmed: true,
+            expected_receiver_revision: 0,
+        },
         NeighborRuntimeCommand::Enroll {
             takeover_confirmed: true,
             expected_receiver_revision: 1,

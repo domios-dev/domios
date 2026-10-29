@@ -63,12 +63,27 @@ impl SelectionPort for RelaySelection<'_> {
     }
 }
 
+fn validate_selection(
+    status: &ReceiverStatus,
+    revision: u64,
+    confirmed: bool,
+) -> codeterm_neighbors::Result<()> {
+    if revision != status.receiver_revision {
+        return Err(Error::ReceiverRevisionStale);
+    }
+    if status.receiver_installation_id.is_some() && !status.is_me && !confirmed {
+        return Err(Error::ReceiverElsewhere);
+    }
+    Ok(())
+}
+
 async fn select_friend_receiver(
     port: &impl SelectionPort,
     installation: &str,
     friendship: &str,
     selection: Selection,
     expected_revision: u64,
+    takeover: bool,
 ) -> codeterm_neighbors::Result<Value> {
     if matches!(selection, Selection::Set) {
         let account = port.account_receiver().await?;
@@ -82,7 +97,7 @@ async fn select_friend_receiver(
     }
     port.select(json!({
         "installation_id":installation,"friendship_id":friendship,"operation":selection,
-        "takeover":true,"expected_revision":expected_revision,"operation_id":uuid::Uuid::new_v4().simple().to_string(),
+        "takeover":takeover,"expected_revision":expected_revision,"operation_id":uuid::Uuid::new_v4().simple().to_string(),
     })).await
 }
 
@@ -102,9 +117,15 @@ impl ServiceContext {
         {
             return Err(Error::InvalidRequest);
         }
-        if !confirmed {
-            return Err(Error::Gateway);
-        }
+        let account = registry.receiver_status().await?;
+        let list = registry.calls.invoke("friendsList", json!({})).await?;
+        let friend = super::super::first_action::friend_status(
+            &list,
+            friendship,
+            &account,
+            &registry.installation_id,
+        )?;
+        validate_selection(&friend, expected_revision, confirmed)?;
         self.require_neighbor_generation(generation)
             .map_err(|_| Error::Revoked)?;
         let port = RelaySelection {
@@ -119,6 +140,7 @@ impl ServiceContext {
             friendship,
             selection,
             expected_revision,
+            confirmed,
         )
         .await?;
         self.require_neighbor_generation(generation)

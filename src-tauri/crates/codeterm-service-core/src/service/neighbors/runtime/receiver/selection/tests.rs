@@ -1,7 +1,7 @@
 use super::*;
 
 struct Port {
-    account_installation: &'static str,
+    account_installation: Option<&'static str>,
     fail_enrollment: bool,
     trace: parking_lot::Mutex<Vec<Value>>,
 }
@@ -12,11 +12,11 @@ impl SelectionPort for Port {
         self.trace.lock().push(json!({"call":"account_status"}));
         Ok(ReceiverStatus {
             receiver_revision: 3,
-            receiver_installation_id: Some(self.account_installation.into()),
+            receiver_installation_id: self.account_installation.map(str::to_owned),
             receiver_key_id: Some("account-key".into()),
             receiver_machine_label: Some("Account machine".into()),
-            receiving_enabled: true,
-            is_me: self.account_installation == "here",
+            receiving_enabled: self.account_installation.is_some(),
+            is_me: self.account_installation == Some("here"),
             legacy_active: false,
         })
     }
@@ -51,12 +51,12 @@ async fn set_enrolls_only_the_secondary_installation_then_moves_the_named_friend
     let friendship = "a".repeat(64);
     for (account_installation, installation_only) in [("elsewhere", true), ("here", false)] {
         let port = Port {
-            account_installation,
+            account_installation: Some(account_installation),
             fail_enrollment: false,
             trace: Default::default(),
         };
         assert_eq!(
-            select_friend_receiver(&port, "here", &friendship, Selection::Set, 9)
+            select_friend_receiver(&port, "here", &friendship, Selection::Set, 9, true)
                 .await
                 .unwrap(),
             json!({"selected":true})
@@ -87,12 +87,12 @@ async fn set_enrolls_only_the_secondary_installation_then_moves_the_named_friend
 #[tokio::test]
 async fn reset_skips_key_enrollment_and_submits_only_the_friend_reset() {
     let port = Port {
-        account_installation: "elsewhere",
+        account_installation: Some("elsewhere"),
         fail_enrollment: true,
         trace: Default::default(),
     };
     let friendship = "b".repeat(64);
-    select_friend_receiver(&port, "here", &friendship, Selection::Reset, 10)
+    select_friend_receiver(&port, "here", &friendship, Selection::Reset, 10, true)
         .await
         .unwrap();
     let trace = port.trace.lock();
@@ -106,12 +106,12 @@ async fn reset_skips_key_enrollment_and_submits_only_the_friend_reset() {
 #[tokio::test]
 async fn failed_installation_enrollment_never_submits_a_friend_receiver_mutation() {
     let port = Port {
-        account_installation: "elsewhere",
+        account_installation: Some("elsewhere"),
         fail_enrollment: true,
         trace: Default::default(),
     };
     assert_eq!(
-        select_friend_receiver(&port, "here", &"a".repeat(64), Selection::Set, 9).await,
+        select_friend_receiver(&port, "here", &"a".repeat(64), Selection::Set, 9, true).await,
         Err(Error::KeyLimit {
             limit: 5,
             active: 5
@@ -126,4 +126,45 @@ async fn failed_installation_enrollment_never_submits_a_friend_receiver_mutation
     assert!(!trace
         .iter()
         .any(|call| call["call"] == "friendsSetFriendReceiver"));
+}
+
+#[test]
+fn stale_revision_and_unconfirmed_takeover_are_refused_before_mutation() {
+    let mut status = ReceiverStatus {
+        receiver_revision: 4,
+        receiver_installation_id: Some("other".into()),
+        receiver_machine_label: Some("Anya's Mac".into()),
+        receiver_key_id: None,
+        receiving_enabled: true,
+        is_me: false,
+        legacy_active: false,
+    };
+    assert_eq!(
+        validate_selection(&status, 3, true),
+        Err(Error::ReceiverRevisionStale)
+    );
+    assert_eq!(
+        validate_selection(&status, 4, false),
+        Err(Error::ReceiverElsewhere)
+    );
+    assert_eq!(validate_selection(&status, 4, true), Ok(()));
+    status.receiver_installation_id = None;
+    status.receiving_enabled = false;
+    assert_eq!(validate_selection(&status, 4, false), Ok(()));
+}
+
+#[tokio::test]
+async fn first_claim_sends_no_takeover_and_only_the_named_friend() {
+    let port = Port {
+        account_installation: None,
+        fail_enrollment: false,
+        trace: Default::default(),
+    };
+    select_friend_receiver(&port, "here", &"c".repeat(64), Selection::Set, 0, false)
+        .await
+        .unwrap();
+    let trace = port.trace.lock();
+    assert_eq!(trace[2]["command"]["friendship_id"], "c".repeat(64));
+    assert_eq!(trace[2]["command"]["takeover"], false);
+    assert_eq!(trace[2]["command"]["expected_revision"], 0);
 }

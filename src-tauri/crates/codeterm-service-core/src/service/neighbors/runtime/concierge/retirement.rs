@@ -10,7 +10,16 @@ impl ServiceContext {
         if self.neighbor_friend_receiving_here(friendship) {
             Ok(())
         } else {
-            Err(Error::ReceivingElsewhere)
+            Err(
+                if self
+                    .neighbor_friend_receiver(friendship)
+                    .is_some_and(|status| status.receiver_installation_id.is_some())
+                {
+                    Error::ReceivingElsewhere
+                } else {
+                    Error::ReceiverNotChosen
+                },
+            )
         }
     }
 
@@ -61,7 +70,7 @@ impl ServiceContext {
         }
         let binding = self
             .neighbor_friend_receiver_binding(friendship)
-            .ok_or_else(|| Error::ReceivingElsewhere.to_string())?;
+            .ok_or_else(|| Error::ReceiverNotChosen.to_string())?;
         let settings = metadata
             .settings()
             .await

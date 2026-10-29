@@ -457,6 +457,7 @@ fn neighbor_failure(message: String) -> Response {
         Some(
             "receiver_elsewhere"
             | "receiving_elsewhere"
+            | "receiver_not_chosen"
             | "feature_unsupported"
             | "key_revoked"
             | "friendship_ended"

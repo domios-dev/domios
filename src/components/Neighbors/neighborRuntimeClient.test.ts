@@ -61,5 +61,13 @@ it("keeps size and tab-request refusals typed", async () => {
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "reply_target_stopped", message: "The owner stopped this request; nothing was sent" }), { status: 409 }));
   await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "reply_target_stopped", message: "The owner stopped this request; nothing was sent" });
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiving_elsewhere", message: "Another machine receives for this account" }), { status: 409 }));
-  await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere", message: "This machine is not receiving this friend's messages." });
+  await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere", message: "Another machine receives for this account" });
+});
+
+it("preserves a named receiving refusal and a separate none-chosen code", async () => {
+  const message = "Messages from Anya are received on Anya's Mac. Receive them here?";
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiving_elsewhere", message }), { status: 409 }));
+  await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere", message });
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiver_not_chosen", message: "No receiver chosen" }), { status: 409 }));
+  await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiver_not_chosen", message: "No receiver chosen" });
 });

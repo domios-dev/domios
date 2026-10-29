@@ -42,6 +42,7 @@ pub enum Error {
     Refused,
     ReceiverElsewhere,
     ReceivingElsewhere,
+    ReceiverNotChosen,
     ReceiverRevisionStale,
     NotReceiver,
     RecipientNotReceiving,
@@ -136,6 +137,7 @@ impl std::fmt::Display for Error {
             Self::FeatureUnsupported => "feature_unsupported: The account receiver must update before moving one friend",
             Self::EntitlementsUnavailable => "entitlements_unavailable: The service could not verify access; try again",
             Self::ReceiverElsewhere => "receiver_elsewhere: Receiving on another machine",
+            Self::ReceiverNotChosen => "receiver_not_chosen: No machine has been chosen to receive this friend",
             Self::ReceivingElsewhere => "receiving_elsewhere: This machine is not receiving; no concierge can run here",
             Self::ReceiverRevisionStale => {
                 "receiver_revision_stale: Receiving changed; refresh and confirm again"

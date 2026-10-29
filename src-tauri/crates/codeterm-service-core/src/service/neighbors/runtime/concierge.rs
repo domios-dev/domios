@@ -10,6 +10,8 @@ use super::super::storage::ConciergeOptions;
 pub(super) fn launch_error(error: String) -> Error {
     if error.starts_with("neighbor_machine_access_unsupported:") {
         Error::MachineAccessUnsupported
+    } else if error.starts_with("receiver_not_chosen:") {
+        Error::ReceiverNotChosen
     } else if error.starts_with("receiving_elsewhere:") {
         Error::ReceivingElsewhere
     } else {
