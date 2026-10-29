@@ -56,6 +56,7 @@ pub struct OpenedInput {
     pub sha256: String,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn ingest_frame_input(
     plugin: &str,
     frame: &str,
@@ -64,6 +65,7 @@ pub fn ingest_frame_input(
     display_name: &str,
     declared_mime: &str,
     limits: IngestLimits<'_>,
+    still_current: &dyn Fn() -> bool,
 ) -> Result<IngestedInput, IngestRefusal> {
     let root = codeterm_paths::data_dir().join(plugin);
     ingest_target(
@@ -72,6 +74,7 @@ pub fn ingest_frame_input(
             frame,
             root: &root,
             context,
+            still_current,
         },
         source,
         display_name,
@@ -84,6 +87,7 @@ struct IngestTarget<'a> {
     frame: &'a str,
     root: &'a Path,
     context: &'a ViewCallContext,
+    still_current: &'a dyn Fn() -> bool,
 }
 #[cfg(test)]
 fn ingest_at_root(
@@ -102,6 +106,7 @@ fn ingest_at_root(
             frame,
             root,
             context: &context,
+            still_current: &|| true,
         },
         source,
         display_name,
@@ -121,6 +126,7 @@ fn ingest_target(
         frame,
         root,
         context,
+        still_current,
     } = target;
     let provider = frame_provider_for_context(plugin, frame, context)
         .map_err(|_| IngestRefusal::UnknownFrame)?;
@@ -284,6 +290,8 @@ fn ingest_target(
     };
     let refusal = if Instant::now() >= deadline {
         Some(IngestRefusal::Deadline)
+    } else if !still_current() {
+        Some(IngestRefusal::UnknownFrame)
     } else {
         frame_provider_for_context(plugin, frame, context)
             .err()
