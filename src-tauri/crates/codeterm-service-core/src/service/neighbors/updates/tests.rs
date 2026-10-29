@@ -15,7 +15,6 @@ async fn disabling_cancels_the_account_signal_watch_and_invalidates_its_generati
     *fixture.service.neighbor_updates().task.lock() = Some(Handle {
         task,
         stopped,
-        retry: Arc::new(Notify::new()),
     });
     running.await.unwrap();
     fixture

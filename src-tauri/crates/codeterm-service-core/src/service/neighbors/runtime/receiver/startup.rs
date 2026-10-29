@@ -138,6 +138,7 @@ impl ServiceContext {
         generation: u64,
         recover_keys: bool,
     ) -> Result<(), String> {
+        if self.neighbor_access_locked().await { return Err(Error::Locked.to_string()); }
         self.require_neighbors_enabled()
             .map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;
@@ -179,7 +180,7 @@ impl ServiceContext {
         let list = match cached {
             Some(list) => list,
             None => {
-                self.neighbor_registry(super::super::super::NeighborCommand::List {})
+                self.neighbor_registry_owned(super::super::super::NeighborCommand::List {})
                     .await?
             }
         };

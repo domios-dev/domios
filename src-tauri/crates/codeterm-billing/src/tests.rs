@@ -1110,3 +1110,6 @@ mod observer;
 mod refresh_error;
 
 mod focus;
+
+#[path = "neighbors_tests.rs"]
+mod neighbors;

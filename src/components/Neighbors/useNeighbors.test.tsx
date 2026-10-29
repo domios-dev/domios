@@ -54,10 +54,10 @@ it("shares lists and referral claims, consumes pushed lists, and bounds focus re
   expect(client.list).toHaveBeenCalledTimes(1);
   now = 60_000;
   await act(async () => window.dispatchEvent(new Event("focus")));
-  expect(client.list).toHaveBeenCalledTimes(2);
+  expect(client.list).toHaveBeenCalledTimes(1);
   expect(client.claimReferralTrial).toHaveBeenCalledTimes(2);
   await act(async () => states[0].refresh());
-  expect(client.list).toHaveBeenCalledTimes(3);
+  expect(client.list).toHaveBeenCalledTimes(2);
   expect(states[1].list).toEqual(list);
 });
 
@@ -120,4 +120,48 @@ it.each(["eligibility", "identity"] as const)("bounds automatic failed-claim ret
   await current;
   expect(currentReads.referral(client)).toBe(current);
   expect(client.claimReferralTrial).toHaveBeenCalledTimes(3);
+});
+
+it("coalesces forced invalidations from two mounted consumers while the list port is pending", async () => {
+  let resolve!: (value: NeighborList) => void;
+  const list: NeighborList = { schema_version: 1, access: "paid", friends: [], incoming: [], outgoing: [] };
+  const client: NeighborClient = {
+    list: vi.fn<NeighborClient["list"]>().mockResolvedValueOnce(list).mockImplementation(() => new Promise(done => { resolve = done; })),
+    apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })),
+  };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<><Harness client={client} index={0} /><Harness client={client} index={1} /></>));
+  await act(async () => {
+    for (const handler of bridge.handlers.get("entitlement-changed") ?? []) handler({ payload: {} });
+  });
+  expect(client.list).toHaveBeenCalledTimes(2);
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(client.list).toHaveBeenCalledTimes(2);
+  await act(async () => resolve(list));
+  expect(client.list).toHaveBeenCalledTimes(2);
+  expect(states.map(state => state.list)).toEqual([list, list]);
+});
+
+it("keeps one fresh read after an entitlement event invalidates a pending read", async () => {
+  let finishOld!: (value: NeighborList) => void;
+  const old = new Promise<NeighborList>(resolve => { finishOld = resolve; });
+  const list: NeighborList = { schema_version: 1, access: "paid", friends: [], incoming: [], outgoing: [] };
+  const client: NeighborClient = {
+    list: vi.fn<NeighborClient["list"]>().mockReturnValueOnce(old).mockResolvedValue(list),
+    apply: vi.fn(async () => {}),
+    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })),
+  };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<><Harness client={client} index={0} /><Harness client={client} index={1} /></>));
+  expect(client.list).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    for (const handler of bridge.handlers.get("entitlement-changed") ?? []) handler({ payload: {} });
+  });
+  expect(client.list).toHaveBeenCalledTimes(1);
+  await act(async () => finishOld({ ...list, access: "locked" }));
+  expect(client.list).toHaveBeenCalledTimes(2);
+  expect(states.map(state => state.list)).toEqual([list, list]);
 });

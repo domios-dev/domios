@@ -87,15 +87,12 @@ async fn document_retries_exhaust_visibly_and_terminal_auth_never_reconnects() {
         code: 14,
         operation: "registry.listen.read",
     };
-    let watch = Watch::new(vec![(false, transient); 4]);
-    assert_eq!(supervise_documents(&watch).await, Err(transient));
-    assert_eq!(*watch.retries.lock().unwrap(), vec![1, 2, 3]);
-    assert_eq!(
-        watch.failures.lock().unwrap().last(),
-        Some(&Error::ListenProtocol {
-            kind: "listen_retries_exhausted"
-        })
-    );
+    let mut failures = vec![(false, transient); 12];
+    failures.push((false, Error::Revoked));
+    let watch = Watch::new(failures);
+    assert_eq!(supervise_documents(&watch).await, Err(Error::Revoked));
+    assert_eq!(*watch.retries.lock().unwrap(), (1..=12).collect::<Vec<_>>());
+    assert_eq!(watch.failures.lock().unwrap().last(), Some(&Error::Revoked));
     assert_eq!(
         watch.states.lock().unwrap().last(),
         Some(&ListenerState::Stopped)
@@ -109,6 +106,9 @@ async fn document_retries_exhaust_visibly_and_terminal_auth_never_reconnects() {
             code: 16,
             operation: "listen",
         },
+        Error::Locked,
+        Error::PermissionDenied,
+        Error::SessionRevoked,
         Error::Revoked,
         Error::Disabled,
         Error::NotReceiver,
@@ -121,12 +121,10 @@ async fn document_retries_exhaust_visibly_and_terminal_auth_never_reconnects() {
 
 #[test]
 fn backoff_has_bounded_exponential_jitter_and_only_transport_errors_retry() {
-    for attempt in 1..=3 {
-        let base = 500u64 << (attempt - 1);
-        for jitter in [0, 1, u64::MAX] {
-            let delay = reconnect_delay(attempt, jitter).as_millis();
-            assert!((u128::from(base)..=u128::from(base + base / 2)).contains(&delay));
-        }
+    for (attempt, ceiling) in [(1, 500), (2, 1000), (3, 2000), (10, 256000), (11, 300000), (usize::MAX, 300000)] {
+        assert_eq!(reconnect_delay(attempt, 0).as_millis(), 0);
+        assert_eq!(reconnect_delay(attempt, ceiling).as_millis(), u128::from(ceiling));
+        assert!(reconnect_delay(attempt, u64::MAX).as_millis() <= u128::from(ceiling));
     }
     assert!(retryable(Error::Transport));
     for kind in [
@@ -146,4 +144,18 @@ fn backoff_has_bounded_exponential_jitter_and_only_transport_errors_retry() {
     assert!(!retryable(Error::ListenProtocol {
         kind: "response_missing"
     }));
+}
+
+struct Clock(Mutex<Vec<std::time::Duration>>);
+#[async_trait]
+impl RetryClock for Clock {
+    fn jitter(&self) -> u64 { 300_000 }
+    async fn wait(&self, delay: std::time::Duration) { self.0.lock().unwrap().push(delay); }
+}
+
+#[tokio::test]
+async fn retry_clock_receives_one_bounded_deadline_without_sleeping() {
+    let clock = Clock(Mutex::new(vec![]));
+    reconnect_backoff_with(&clock, usize::MAX).await;
+    assert_eq!(*clock.0.lock().unwrap(), vec![std::time::Duration::from_secs(300)]);
 }

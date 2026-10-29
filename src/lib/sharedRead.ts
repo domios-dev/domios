@@ -22,6 +22,10 @@ export class SharedRead<T> {
     for (const listener of this.listeners) listener(value);
   }
 
+  refresh(load: () => Promise<T>): Promise<T> {
+    return this.flight ?? this.read(load, true);
+  }
+
   read(load: () => Promise<T>, force = false): Promise<T> {
     if (this.flight) {
       if (force) {

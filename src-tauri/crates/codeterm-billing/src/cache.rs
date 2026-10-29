@@ -272,6 +272,15 @@ impl Billing {
             .map_or_else(codeterm_entitlements::compiled_free, Verdict::effective);
         LimitGate::new(access, enforcing).with_deadline(valid_until, self.clock.clone())
     }
+    pub fn neighbors_locked(&self, uid: &str) -> bool {
+        let cache = self.cache.lock();
+        cache.uid.as_deref() == Some(uid)
+            && cache.observed
+            && !cache.snapshot.stale
+            && !self.checking(&cache)
+            && self.recompute(&cache).access.is_some_and(|access| access.authority == Authority::Free)
+    }
+
     pub fn entitlement_allows(
         &self,
         session: Option<&codeterm_account::Session>,

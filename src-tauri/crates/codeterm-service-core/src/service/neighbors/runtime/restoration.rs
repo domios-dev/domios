@@ -50,6 +50,14 @@ impl ServiceContext {
         *self.neighbor_cell().restoration.lock() = Some(tokio::spawn(future));
     }
 
+    pub(in crate::service::neighbors) fn rearm_neighbor_restoration(&self) {
+        if self.neighbor_cell().restoration.lock().as_ref().is_none_or(|task| task.is_finished()) {
+            self.neighbor_cell().bootstrapped.store(false, Ordering::Release);
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        self.restore_neighbors_once();
+    }
+
     pub(super) fn cancel_neighbor_restoration(&self) {
         if let Some(task) = self.neighbor_cell().restoration.lock().take() {
             task.abort();
@@ -59,6 +67,7 @@ impl ServiceContext {
     #[cfg(not(any(test, feature = "test-support")))]
     pub(super) fn restore_neighbor_watches(&self, generation: u64) -> WatchStartup<'_> {
         Box::pin(async move {
+            if self.neighbor_access_locked().await { return Err(Error::Locked.to_string()); }
             self.require_neighbors_enabled()
                 .map_err(|error| error.to_string())?;
             self.require_neighbor_generation(generation)?;
@@ -134,7 +143,6 @@ impl ServiceContext {
                 Ok(true) => {},
                 Ok(false) => { let _ = service.neighbor_operation(owner::Operation::Restore).await; },
                 Err(error) => {
-                    service.neighbor_cell().bootstrapped.store(false, Ordering::Release);
                     log::debug!("[neighbors] restoration failed: {error}");
                     service.ui.emit("neighbor-runtime-status", json!({"receiver_unavailable":true,"reason":"neighbor_reception_start_failed","message":error}));
                 },

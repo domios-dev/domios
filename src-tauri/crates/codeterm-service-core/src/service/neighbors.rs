@@ -3,6 +3,7 @@ use codeterm_account::account_mesh::callable::{CallableFailure, CallableTranspor
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod backend_reads;
 pub mod capabilities;
 mod confinement;
 mod delivery;
@@ -70,6 +71,20 @@ impl NeighborCommand {
 
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
+        if matches!(&command, NeighborCommand::List {}) {
+            self.rearm_neighbor_reads();
+        }
+        self.neighbor_registry_owned(command).await
+    }
+
+    pub(super) async fn neighbor_registry_owned(&self, command: NeighborCommand) -> Result<Value, String> {
+        if self.neighbor_access_locked().await {
+            return match command {
+                NeighborCommand::List {} => Ok(backend_reads::locked_list()),
+                NeighborCommand::ClaimReferralTrial {} => Ok(json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null})),
+                _ => Err(codeterm_neighbors::Error::Locked.to_string()),
+            };
+        }
         let history_generation = self.neighbor_history_generation();
         let pause_versions = self.neighbor_cell().pauses.snapshot();
         let account = self.account().await?;
@@ -86,7 +101,18 @@ impl ServiceContext {
         } else {
             None
         };
-        let response = transport.call(name, session.id_token.expose(), data).await;
+        let response = if name == "friendsList" {
+            use codeterm_neighbors::adapter::AuthenticatedCall;
+            let calls = runtime::callable::Calls {
+                service: self.clone(), uid: session.identity.uid.clone(),
+                generation: session.login_generation,
+                own_keys: Default::default(), receiver_status: Default::default(),
+            };
+            let result = calls.invoke(name, data).await.map_err(|error| error.to_string())?;
+            Ok(json!({"result": result}))
+        } else {
+            transport.call(name, session.id_token.expose(), data).await
+        };
         let body = match response {
             Ok(body) => body,
             Err(CallableFailure::Status {

@@ -68,11 +68,21 @@ impl AuthenticatedCall for Calls {
         );
     }
     async fn id_token(&self) -> Result<Zeroizing<String>> {
+        if self.service.neighbor_access_locked().await { return Err(Error::Locked); }
         self.session()
             .await
             .map(|session| Zeroizing::new(session.id_token.expose().to_owned()))
     }
     async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
+        self.local_session().await?;
+        let result = self.service.neighbor_backend_read(route, &self.uid, self.generation, self.invoke_owned(route, data)).await;
+        self.local_session().await?;
+        result
+    }
+}
+
+impl Calls {
+    async fn invoke_owned(&self, route: &str, data: Value) -> Result<Value> {
         let cached_lookup = match route {
             "friendsOwnKeys" => Some(self.own_keys.lock().await),
             "friendsReceiverStatus" => Some(self.receiver_status.lock().await),
@@ -101,14 +111,12 @@ impl AuthenticatedCall for Calls {
         let response = transport.call(route, session.id_token.expose(), data).await;
         let body = match response {
             Ok(body) => body,
-            Err(CallableFailure::Status {
-                body: Some(body), ..
-            }) => {
-                if codeterm_account::session_revocation::is_session_revoked(&body) {
+            Err(CallableFailure::Status { status, body }) => {
+                if body.as_ref().is_some_and(codeterm_account::session_revocation::is_session_revoked) {
                     self.service.session_revocations().revoked(&session).await;
                     return Err(Error::SessionRevoked);
                 }
-                return Err(refusal(&body));
+                return Err(callable_error(status, body.as_ref()));
             }
             Err(_) => return Err(Error::Transport),
         };
@@ -121,6 +129,18 @@ impl AuthenticatedCall for Calls {
     }
 }
 
+fn callable_error(status: u16, body: Option<&Value>) -> Error {
+    if let Some(error) = body.map(refusal).filter(|error| *error != Error::Refused) {
+        return error;
+    }
+    match status {
+        401 => Error::SessionRevoked,
+        403 => Error::PermissionDenied,
+        429 | 500..=599 => Error::Transport,
+        _ => Error::Refused,
+    }
+}
+
 fn refusal(body: &Value) -> Error {
     if let Some(failure) = codeterm_neighbors::files::refusal::Failure::from_callable(body) {
         return Error::File(failure);
@@ -129,6 +149,7 @@ fn refusal(body: &Value) -> Error {
         .pointer("/error/details/reason")
         .and_then(Value::as_str)
         .or_else(|| body.pointer("/error/message").and_then(Value::as_str))
+        .or_else(|| body.pointer("/error/status").and_then(Value::as_str))
     {
         Some(reason @ ("neighbor_daily_limit" | "aggregate_daily_limited")) => {
             match (
@@ -172,7 +193,9 @@ fn refusal(body: &Value) -> Error {
                 None => Error::Refused,
             }
         }
-        Some("friends_locked") => Error::Locked,
+        Some("friends_locked" | "entitlement_locked") => Error::Locked,
+        Some("permission_denied" | "PERMISSION_DENIED") => Error::PermissionDenied,
+        Some("unauthenticated" | "UNAUTHENTICATED") => Error::SessionRevoked,
         Some("key_revoked" | "unknown_key") => Error::Revoked,
         Some("key_not_found") => Error::KeyNotFound,
         Some("feature_unsupported") => Error::FeatureUnsupported,

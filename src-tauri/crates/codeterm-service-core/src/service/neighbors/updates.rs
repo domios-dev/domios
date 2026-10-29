@@ -17,7 +17,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use tokio::sync::{watch, Notify};
+use tokio::sync::watch;
 
 #[derive(Default)]
 pub(crate) struct UpdateCell {
@@ -28,7 +28,6 @@ pub(crate) struct UpdateCell {
 struct Handle {
     task: tokio::task::JoinHandle<()>,
     stopped: watch::Sender<bool>,
-    retry: Arc<Notify>,
 }
 
 impl ServiceContext {
@@ -48,23 +47,28 @@ impl ServiceContext {
         };
         let cell = self.neighbor_updates();
         let mut slot = cell.task.lock();
-        if let Some(handle) = slot.as_ref().filter(|handle| !handle.task.is_finished()) {
-            handle.retry.notify_one();
+        if slot.is_some() {
             return;
         }
         let generation = cell.generation.load(Ordering::Acquire);
         let (stopped, receiver) = watch::channel(false);
-        let retry = Arc::new(Notify::new());
         let service = self.clone();
-        let retry_task = retry.clone();
         let task = tokio::spawn(async move {
-            let _ = run(service, account, generation, receiver, retry_task).await;
+            let _ = run(service, account, generation, receiver).await;
         });
         *slot = Some(Handle {
             task,
             stopped,
-            retry,
         });
+    }
+
+    pub(crate) fn rearm_neighbor_updates(&self) {
+        let mut slot = self.neighbor_updates().task.lock();
+        if slot.as_ref().is_some_and(|handle| handle.task.is_finished()) {
+            slot.take();
+        }
+        drop(slot);
+        self.restore_neighbor_updates_once();
     }
 
     pub(super) fn stop_neighbor_updates(&self) {
@@ -86,7 +90,6 @@ struct Session {
     transport: FirebaseTransport,
     metadata: Metadata,
     shutdown: watch::Receiver<bool>,
-    retry: Arc<Notify>,
     progress: AtomicU64,
 }
 
@@ -235,8 +238,8 @@ async fn run(
     account: Arc<codeterm_account::Account>,
     generation: u64,
     shutdown: watch::Receiver<bool>,
-    retry: Arc<Notify>,
 ) -> Result<()> {
+    if service.neighbor_access_locked().await { return Err(Error::Locked); }
     let expected = account
         .current_session()
         .await
@@ -287,7 +290,6 @@ async fn run(
         transport,
         metadata,
         shutdown,
-        retry,
         progress: AtomicU64::new(0),
     };
     supervise_documents(&session).await
@@ -306,10 +308,7 @@ impl ReceptionEvents for Session {
         self.service.neighbor_watch_failure("account", error);
     }
     async fn retry_after_failure(&self, attempt: usize) -> Result<()> {
-        tokio::select! {
-            _ = self.retry.notified() => {},
-            _ = codeterm_neighbors::supervisor::reconnect_backoff(attempt) => {},
-        }
+        codeterm_neighbors::supervisor::reconnect_backoff(attempt).await;
         self.current()
     }
 }
