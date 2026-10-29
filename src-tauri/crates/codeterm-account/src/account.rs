@@ -452,6 +452,24 @@ impl Account {
     pub async fn current_session(&self) -> Result<Option<Session>> {
         self.session_with_refresh(false).await
     }
+    pub async fn recover_session(&self, rejected: &Session) -> Result<Option<Session>> {
+        let (generation, revision) = {
+            let state = self.state.lock().await;
+            let current = state.session.as_ref().ok_or(Error::Cancelled)?;
+            if state.refresh_blocked || current.login_generation != rejected.login_generation || current.identity.uid != rejected.identity.uid {
+                return Err(Error::Cancelled);
+            }
+            if current.id_token.expose() != rejected.id_token.expose() {
+                return Ok(Some(current.clone()));
+            }
+            (state.generation, state.refresh_revision)
+        };
+        self.refresh_shared(generation, revision, true).await?;
+        let state = self.state.lock().await;
+        if state.refresh_blocked || state.generation != generation { return Err(Error::Cancelled); }
+        Ok(state.session.clone().filter(|current| current.identity.uid == rejected.identity.uid && current.login_generation == rejected.login_generation))
+    }
+
     pub async fn fresh_session(&self) -> Result<Option<Session>> {
         self.session_with_refresh(true).await
     }

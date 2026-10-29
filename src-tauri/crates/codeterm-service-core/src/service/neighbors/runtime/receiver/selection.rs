@@ -14,6 +14,7 @@ trait SelectionPort: Send + Sync {
         &self,
         enrollment: codeterm_neighbors::adapter::Enrollment,
     ) -> codeterm_neighbors::Result<()>;
+    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)>;
     async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value>;
 }
 
@@ -52,6 +53,12 @@ impl SelectionPort for RelaySelection<'_> {
         Ok(())
     }
 
+    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)> {
+        self.service
+            .neighbor_automatic_claim_snapshot(self.registry)
+            .await
+    }
+
     async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
         self.service
             .require_neighbor_generation(self.generation)
@@ -63,13 +70,44 @@ impl SelectionPort for RelaySelection<'_> {
     }
 }
 
+fn validate_selection(
+    status: &ReceiverStatus,
+    revision: u64,
+    confirmed: bool,
+) -> codeterm_neighbors::Result<()> {
+    if revision != status.receiver_revision {
+        return Err(Error::ReceiverRevisionStale);
+    }
+    if status.receiver_installation_id.is_some() && !status.is_me && !confirmed {
+        return Err(Error::ReceiverElsewhere);
+    }
+    Ok(())
+}
+
 async fn select_friend_receiver(
     port: &impl SelectionPort,
     installation: &str,
     friendship: &str,
     selection: Selection,
     expected_revision: u64,
+    takeover: bool,
+    require_no_receivers: bool,
 ) -> codeterm_neighbors::Result<Value> {
+    if require_no_receivers {
+        if takeover || !matches!(selection, Selection::Set) {
+            return Err(Error::InvalidRequest);
+        }
+        let (account, list) = port.automatic_snapshot().await?;
+        if super::super::first_action::first_claim_revision(
+            &list,
+            friendship,
+            &account,
+            installation,
+        )? != Some(expected_revision)
+        {
+            return Err(Error::ReceiverNotChosen);
+        }
+    }
     if matches!(selection, Selection::Set) {
         let account = port.account_receiver().await?;
         port.enroll(codeterm_neighbors::adapter::Enrollment {
@@ -80,10 +118,14 @@ async fn select_friend_receiver(
         })
         .await?;
     }
-    port.select(json!({
+    let mut command = json!({
         "installation_id":installation,"friendship_id":friendship,"operation":selection,
-        "takeover":true,"expected_revision":expected_revision,"operation_id":uuid::Uuid::new_v4().simple().to_string(),
-    })).await
+        "takeover":takeover,"expected_revision":expected_revision,"operation_id":uuid::Uuid::new_v4().simple().to_string(),
+    });
+    if require_no_receivers {
+        command["require_no_receivers"] = json!(true);
+    }
+    port.select(command).await
 }
 
 impl ServiceContext {
@@ -95,6 +137,7 @@ impl ServiceContext {
         friendship: &str,
         selection: Selection,
         confirmed: bool,
+        require_no_receivers: bool,
         expected_revision: u64,
         generation: u64,
     ) -> codeterm_neighbors::Result<Value> {
@@ -102,9 +145,15 @@ impl ServiceContext {
         {
             return Err(Error::InvalidRequest);
         }
-        if !confirmed {
-            return Err(Error::Gateway);
-        }
+        let account = registry.receiver_status().await?;
+        let list = registry.calls.invoke("friendsList", json!({})).await?;
+        let friend = super::super::first_action::friend_status(
+            &list,
+            friendship,
+            &account,
+            &registry.installation_id,
+        )?;
+        validate_selection(&friend, expected_revision, confirmed)?;
         self.require_neighbor_generation(generation)
             .map_err(|_| Error::Revoked)?;
         let port = RelaySelection {
@@ -119,6 +168,8 @@ impl ServiceContext {
             friendship,
             selection,
             expected_revision,
+            confirmed,
+            require_no_receivers,
         )
         .await?;
         self.require_neighbor_generation(generation)

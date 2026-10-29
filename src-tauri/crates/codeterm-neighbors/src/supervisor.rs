@@ -34,7 +34,7 @@ pub async fn supervise(
     session: &dyn InboxSession,
     events: &dyn ReceptionEvents,
 ) -> Result<()> {
-    let mut attempt = 0;
+    let mut attempt: usize = 0;
     loop {
         if attempt > 0 {
             events.state(ListenerState::Reconnecting);
@@ -81,15 +81,10 @@ pub async fn supervise(
             events.failure(error);
         }
         match result {
-            Err(error) if retryable(error) && attempt < 3 => {
-                attempt += 1;
+            Err(error) if retryable(error) => {
+                attempt = attempt.saturating_add(1);
             }
             result => {
-                if result.is_err_and(retryable) {
-                    events.failure(Error::ListenProtocol {
-                        kind: "listen_retries_exhausted",
-                    });
-                }
                 events.state(ListenerState::Stopped);
                 return result;
             }
@@ -108,7 +103,7 @@ pub trait DocumentSession: ReceptionEvents {
 }
 
 pub async fn supervise_documents(session: &dyn DocumentSession) -> Result<()> {
-    let mut attempt = 0;
+    let mut attempt: usize = 0;
     loop {
         if attempt > 0 {
             session.state(ListenerState::Reconnecting);
@@ -132,16 +127,11 @@ pub async fn supervise_documents(session: &dyn DocumentSession) -> Result<()> {
         if session.progress() != progress {
             attempt = 0;
         }
-        if !retryable(error) || attempt == 3 {
-            if retryable(error) {
-                session.failure(Error::ListenProtocol {
-                    kind: "listen_retries_exhausted",
-                });
-            }
+        if !retryable(error) {
             session.state(ListenerState::Stopped);
             return Err(error);
         }
-        attempt += 1;
+        attempt = attempt.saturating_add(1);
     }
 }
 
@@ -149,10 +139,11 @@ pub fn retryable(error: Error) -> bool {
     matches!(
         error,
         Error::Transport
+            | Error::CursorStore
             | Error::LocalKeyUnavailable
             | Error::SecretStore
             | Error::Firestore {
-                code: 1 | 2 | 4 | 8 | 10 | 13 | 14,
+                code: 1 | 2 | 4 | 8 | 10 | 13 | 14 | 16,
                 ..
             }
             | Error::ListenProtocol {
@@ -166,14 +157,34 @@ pub fn retryable(error: Error) -> bool {
 }
 
 pub fn reconnect_delay(attempt: usize, jitter: u64) -> std::time::Duration {
-    let base = 500u64 << attempt.saturating_sub(1).min(3);
-    std::time::Duration::from_millis(base + jitter % (base / 2 + 1))
+    let ceiling = (500u64 << attempt.saturating_sub(1).min(10)).min(300_000);
+    std::time::Duration::from_millis(jitter % (ceiling + 1))
+}
+
+#[async_trait]
+pub trait RetryClock: Send + Sync {
+    fn jitter(&self) -> u64;
+    async fn wait(&self, delay: std::time::Duration);
+}
+
+pub struct RuntimeClock;
+
+#[async_trait]
+impl RetryClock for RuntimeClock {
+    fn jitter(&self) -> u64 {
+        rand::random()
+    }
+    async fn wait(&self, delay: std::time::Duration) {
+        tokio::time::sleep_until(tokio::time::Instant::now() + delay).await;
+    }
+}
+
+pub async fn reconnect_backoff_with(clock: &dyn RetryClock, attempt: usize) {
+    clock.wait(reconnect_delay(attempt, clock.jitter())).await;
 }
 
 pub async fn reconnect_backoff(attempt: usize) {
-    let delay = reconnect_delay(attempt, rand::random());
-    // A failed stream arms one bounded recovery deadline; this never polls data.
-    tokio::time::sleep(delay).await;
+    reconnect_backoff_with(&RuntimeClock, attempt).await;
 }
 
 #[cfg(test)]

@@ -2,6 +2,7 @@ mod authority;
 pub(super) mod callable;
 mod concierge;
 pub(super) mod files;
+mod first_action;
 mod gateway;
 mod listener;
 mod local;
@@ -198,8 +199,8 @@ impl ServiceContext {
         let session = account
             .current_session()
             .await
-            .map_err(|_| "Sign in to use Neighbors")?
-            .ok_or("Sign in to use Neighbors")?;
+            .map_err(|_| Error::Transport.to_string())?
+            .ok_or_else(|| Error::Revoked.to_string())?;
         let uid = session.identity.uid.clone();
         let installation_id = self.installation_id().await?.as_str().to_owned();
         let configured_label = self.configuration().mesh.instance_name.clone();
@@ -382,13 +383,48 @@ impl ServiceContext {
             _ => registry,
         };
         let friend_mutation = matches!(&command, NeighborRuntimeCommand::SetFriendReceiver { .. });
-        let receiver_status = if friend_mutation {
+        let receiver_status = if friend_mutation
+            || matches!(
+                &command,
+                NeighborRuntimeCommand::SetPermission { .. }
+                    | NeighborRuntimeCommand::Bind { .. }
+                    | NeighborRuntimeCommand::ChangeAgent { .. }
+            ) {
             self.refresh_neighbor_receiver_readonly(&registry, generation)
                 .await?
         } else {
             self.refresh_neighbor_receiver(&registry, &scope, generation)
                 .await?
         };
+        match &command {
+            NeighborRuntimeCommand::SetPermission { friendship_id, .. }
+            | NeighborRuntimeCommand::Bind { friendship_id, .. }
+            | NeighborRuntimeCommand::ChangeAgent { friendship_id, .. } => {
+                self.prepare_neighbor_owner_action(
+                    &registry,
+                    &scope,
+                    &metadata,
+                    friendship_id,
+                    generation,
+                )
+                .await?;
+            }
+            NeighborRuntimeCommand::SetFriendReceiver {
+                friendship_id,
+                takeover_confirmed,
+                expected_receiver_revision,
+                ..
+            } => {
+                self.require_neighbor_receiver_confirmation(
+                    &registry,
+                    friendship_id,
+                    *expected_receiver_revision,
+                    *takeover_confirmed,
+                )
+                .await?;
+            }
+            _ => {}
+        }
         let lifecycle = InstallationKeys {
             store: &OsKeyStore,
             registry: registry.as_ref(),
@@ -510,7 +546,7 @@ impl ServiceContext {
                 }
                 NeighborRuntimeCommand::SetFriendReceiver { friendship_id,receiver_operation,takeover_confirmed,expected_receiver_revision } => {
                     self.set_neighbor_friend_receiver(&registry,&scope,&metadata,&friendship_id,receiver_operation,
-                        takeover_confirmed,expected_receiver_revision,generation).await
+                        takeover_confirmed,false,expected_receiver_revision,generation).await
                 }
                 NeighborRuntimeCommand::Retry { friendship_id } => {
                     if !hex_id(&friendship_id, 64) {

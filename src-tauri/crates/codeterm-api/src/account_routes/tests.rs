@@ -871,3 +871,14 @@ async fn friend_receiver_machine_limit_preserves_typed_counts() {
     assert_eq!(body["limit"], 5);
     assert_eq!(body["active"], 5);
 }
+
+#[tokio::test]
+async fn no_receiver_chosen_has_its_own_conflict_code() {
+    let response = neighbor_failure("receiver_not_chosen: No machine receives this friend".into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "receiver_not_chosen");
+}

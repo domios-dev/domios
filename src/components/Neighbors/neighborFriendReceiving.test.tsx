@@ -161,3 +161,16 @@ it("only the explicit all-friends control moves the account, naming the count an
   expect(runtimeClient.receiveFriend).not.toHaveBeenCalled();
   expect(hasButton("Receive here")).toBe(false);
 });
+
+it("keeps the single-friend receiving action inside concierge setup", async () => {
+  const runtimeClient = receiving(elsewhere);
+  await render("paid", { runtimeClient });
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Change agent").click());
+  const dialog = document.querySelector('form[role="dialog"]');
+  const receive = Array.from(dialog?.querySelectorAll("button") ?? []).find(node => node.textContent === "Confirm receiving");
+  expect(receive).toBeDefined();
+  await act(async () => receive!.click());
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7);
+  expect(runtimeClient.enroll).not.toHaveBeenCalled();
+});

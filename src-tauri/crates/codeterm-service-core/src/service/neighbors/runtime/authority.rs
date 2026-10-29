@@ -61,8 +61,10 @@ impl ServiceContext {
         }
         if matches!(
             command,
-            NeighborRuntimeCommand::Enroll { .. }
-                | NeighborRuntimeCommand::SetFriendReceiver { .. }
+            NeighborRuntimeCommand::SetFriendReceiver {
+                receiver_operation: receiver::selection::Selection::Reset,
+                ..
+            } | NeighborRuntimeCommand::Enroll { .. }
                 | NeighborRuntimeCommand::Rotate
                 | NeighborRuntimeCommand::Revoke
         ) {

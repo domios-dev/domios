@@ -78,6 +78,13 @@ fn request(action: NeighborAction) -> (&'static str, Value) {
                 json!({"operation":"set_daily_limit","friendship_id":friendship_id,"file_daily_limit_bytes":limit_value(file_daily_limit_bytes)}),
             )
         }
+        NeighborAction::ReceiveHere {
+            friendship_id,
+            expected_receiver_revision,
+            takeover_confirmed,
+        } => {
+            json!({"operation":"set_friend_receiver","friendship_id":friendship_id,"receiver_operation":"set","expected_receiver_revision":expected_receiver_revision,"takeover_confirmed":takeover_confirmed})
+        }
         NeighborAction::Status => json!({"operation":"status"}),
         NeighborAction::Enroll {
             confirm_takeover,

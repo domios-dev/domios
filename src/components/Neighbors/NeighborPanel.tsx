@@ -2,7 +2,7 @@ import { Lock, X } from "lucide-react";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
 import { Button } from "../shared/Button";
-import type { NeighborRequest } from "./neighborModel";
+import { neighborIdentity, type NeighborRequest } from "./neighborModel";
 import { missingConciergeLine, type ConciergeStatus } from "./useConciergeStatus";
 import { STATUS_LABEL, type NeighborNodeStatus } from "./neighborhoodModel";
 
@@ -46,7 +46,7 @@ export function NeighborRequestPanel({ request, pending, onAccept, onDecline, on
 }) {
   return <aside className="neighbor-panel" aria-label={request.name}>
     <PanelHead name={request.name} photoURL={request.photoURL} status="request" onClose={onClose} />
-    <p className="neighbor-panel__lead">{request.name} wants their agents to be able to message yours. Your General Agent will ask what they may do once you accept.</p>
+    <p className="neighbor-panel__lead">{neighborIdentity(request)} wants to be your Neighbor. Their agents will be able to message yours. Your General Agent will ask what they may do once you accept.</p>
     <div className="neighbor-confirm__actions">
       <Button size="sm" variant="primary" disabled={pending} onClick={onAccept} aria-label={`Accept ${request.name}`}>Accept</Button>
       <Button size="sm" disabled={pending} onClick={onDecline} aria-label={`Decline ${request.name}`}>Decline</Button>

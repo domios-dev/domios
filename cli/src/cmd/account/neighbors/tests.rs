@@ -426,3 +426,44 @@ fn grant_refuses_unknown_boolean_access_and_malformed_selections() {
         ));
     }
 }
+
+#[test]
+fn receive_here_is_one_friend_with_required_revision_and_explicit_takeover() {
+    use crate::args::account::NeighborAction;
+    for confirmed in [false, true] {
+        let mut args = vec![
+            "domios",
+            "account",
+            "neighbors",
+            "receive-here",
+            "opaque-friend",
+            "--expected-receiver-revision",
+            "9",
+        ];
+        if confirmed {
+            args.push("--takeover-confirmed");
+        }
+        let cli = Cli::try_parse_from(args).unwrap();
+        let crate::Commands::Account {
+            action: crate::args::account::AccountAction::Neighbors { action },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        let (path, body) = super::request(action);
+        assert_eq!(path, "/api/account/neighbors/runtime");
+        assert_eq!(
+            body,
+            serde_json::json!({"operation":"set_friend_receiver","friendship_id":"opaque-friend","receiver_operation":"set","expected_receiver_revision":9,"takeover_confirmed":confirmed})
+        );
+    }
+    assert!(
+        Cli::try_parse_from(["domios", "account", "neighbors", "receive-here", "friend"]).is_err()
+    );
+    let (_, body) = super::request(NeighborAction::ReceiveHere {
+        friendship_id: "one".into(),
+        expected_receiver_revision: 0,
+        takeover_confirmed: false,
+    });
+    assert_eq!(body["takeover_confirmed"], false);
+}

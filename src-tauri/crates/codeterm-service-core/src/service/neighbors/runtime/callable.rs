@@ -13,6 +13,9 @@ pub(in crate::service::neighbors) struct Calls {
     pub receiver_status: tokio::sync::Mutex<Option<Value>>,
 }
 
+#[derive(Default)]
+struct AuthFailures(parking_lot::Mutex<std::collections::HashSet<(String, u64)>>);
+
 impl Calls {
     async fn local_session(&self) -> Result<codeterm_account::Session> {
         let account = self
@@ -45,8 +48,8 @@ impl Calls {
     }
 
     async fn validate_session(&self, expected: &codeterm_account::Session) -> Result<()> {
-        let account = self.service.account().await.map_err(|_| Error::Transport)?;
-        if super::super::same_session(account.session().await.as_ref(), expected) {
+        let current = self.local_session().await?;
+        if super::super::same_session(Some(&current), expected) {
             Ok(())
         } else {
             Err(Error::Revoked)
@@ -63,16 +66,110 @@ impl AuthenticatedCall for Calls {
         code: Option<i32>,
         kind: &str,
     ) {
+        if code == Some(16) {
+            self.service
+                .extensions
+                .get_or_init(AuthFailures::default)
+                .0
+                .lock()
+                .insert((self.uid.clone(), self.generation));
+        }
         log::debug!(
             "[neighbor-listen] operation={operation} target={target} code={code:?} kind={kind}"
         );
     }
     async fn id_token(&self) -> Result<Zeroizing<String>> {
-        self.session()
-            .await
-            .map(|session| Zeroizing::new(session.id_token.expose().to_owned()))
+        if self.service.neighbor_access_locked().await {
+            return Err(Error::Locked);
+        }
+        let mut session = self.session().await?;
+        let failed = {
+            let mut failures = self
+                .service
+                .extensions
+                .get_or_init(AuthFailures::default)
+                .0
+                .lock();
+            let failed = failures.remove(&(self.uid.clone(), self.generation));
+            failures.retain(|key| key.0 == self.uid && key.1 == self.generation);
+            failed
+        };
+        if failed {
+            session = self.recover_session(&session).await?;
+        }
+        self.validate_session(&session).await?;
+        Ok(Zeroizing::new(session.id_token.expose().to_owned()))
     }
     async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
+        self.local_session().await?;
+        let result = self
+            .service
+            .neighbor_backend_read(
+                route,
+                &self.uid,
+                self.generation,
+                self.invoke_owned(route, data),
+            )
+            .await;
+        self.local_session().await?;
+        result
+    }
+}
+
+impl Calls {
+    pub(in crate::service::neighbors) async fn invoke_fresh(
+        &self,
+        route: &str,
+        data: Value,
+    ) -> Result<Value> {
+        if !matches!(route, "friendsList" | "friendsReceiverStatus") {
+            return Err(Error::InvalidRequest);
+        }
+        if self.service.neighbor_access_locked().await {
+            return Err(Error::Locked);
+        }
+        self.local_session().await?;
+        self.receiver_status.lock().await.take();
+        let result = self.invoke_owned(route, data).await?;
+        self.local_session().await?;
+        Ok(result)
+    }
+
+    async fn invoke_owned(&self, route: &str, data: Value) -> Result<Value> {
+        let transport =
+            HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
+                .map_err(|_| Error::Transport)?;
+        self.invoke_with_transport(&transport, route, data).await
+    }
+
+    async fn recover_session(
+        &self,
+        expected: &codeterm_account::Session,
+    ) -> Result<codeterm_account::Session> {
+        let account = self
+            .service
+            .ext::<crate::service::account::AccountCell>()
+            .0
+            .get()
+            .ok_or(Error::Revoked)?;
+        let session = account
+            .recover_session(expected)
+            .await
+            .map_err(|error| match error {
+                codeterm_account::Error::Cancelled => Error::Revoked,
+                _ => Error::Transport,
+            })?
+            .ok_or(Error::Revoked)?;
+        self.validate_session(&session).await?;
+        Ok(session)
+    }
+
+    async fn invoke_with_transport(
+        &self,
+        transport: &dyn CallableTransport,
+        route: &str,
+        data: Value,
+    ) -> Result<Value> {
         let cached_lookup = match route {
             "friendsOwnKeys" => Some(self.own_keys.lock().await),
             "friendsReceiverStatus" => Some(self.receiver_status.lock().await),
@@ -94,21 +191,33 @@ impl AuthenticatedCall for Calls {
             self.own_keys.lock().await.take();
             self.receiver_status.lock().await.take();
         }
-        let session = self.session().await?;
-        let transport =
-            HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
-                .map_err(|_| Error::Transport)?;
-        let response = transport.call(route, session.id_token.expose(), data).await;
+        let mut session = self.session().await?;
+        let mut response = transport
+            .call(route, session.id_token.expose(), data.clone())
+            .await;
+        if matches!(&response, Err(CallableFailure::Status { status: 401, body }) if recoverable_authentication(body.as_ref()))
+        {
+            session = self.recover_session(&session).await?;
+            if matches!(
+                route,
+                "friendsList" | "friendsReceiverStatus" | "friendsOwnKeys"
+            ) {
+                response = transport.call(route, session.id_token.expose(), data).await;
+            } else {
+                return Err(Error::Transport);
+            }
+        }
         let body = match response {
             Ok(body) => body,
-            Err(CallableFailure::Status {
-                body: Some(body), ..
-            }) => {
-                if codeterm_account::session_revocation::is_session_revoked(&body) {
+            Err(CallableFailure::Status { status, body }) => {
+                if body
+                    .as_ref()
+                    .is_some_and(codeterm_account::session_revocation::is_session_revoked)
+                {
                     self.service.session_revocations().revoked(&session).await;
                     return Err(Error::SessionRevoked);
                 }
-                return Err(refusal(&body));
+                return Err(callable_error(status, body.as_ref()));
             }
             Err(_) => return Err(Error::Transport),
         };
@@ -121,6 +230,23 @@ impl AuthenticatedCall for Calls {
     }
 }
 
+fn recoverable_authentication(body: Option<&Value>) -> bool {
+    !body.is_some_and(codeterm_account::session_revocation::is_session_revoked)
+        && body.is_none_or(|body| matches!(refusal(body), Error::Transport | Error::Refused))
+}
+
+fn callable_error(status: u16, body: Option<&Value>) -> Error {
+    if let Some(error) = body.map(refusal).filter(|error| *error != Error::Refused) {
+        return error;
+    }
+    match status {
+        401 => Error::Transport,
+        403 => Error::PermissionDenied,
+        429 | 500..=599 => Error::Transport,
+        _ => Error::Refused,
+    }
+}
+
 fn refusal(body: &Value) -> Error {
     if let Some(failure) = codeterm_neighbors::files::refusal::Failure::from_callable(body) {
         return Error::File(failure);
@@ -129,6 +255,7 @@ fn refusal(body: &Value) -> Error {
         .pointer("/error/details/reason")
         .and_then(Value::as_str)
         .or_else(|| body.pointer("/error/message").and_then(Value::as_str))
+        .or_else(|| body.pointer("/error/status").and_then(Value::as_str))
     {
         Some(reason @ ("neighbor_daily_limit" | "aggregate_daily_limited")) => {
             match (
@@ -152,6 +279,7 @@ fn refusal(body: &Value) -> Error {
         },
         Some("operation_id_conflict") => Error::OperationIdConflict,
         Some("installation_unverified") => Error::InstallationUnverified,
+        Some("receivers_present") => Error::ReceiversPresent,
         Some("receiver_elsewhere") => Error::ReceiverElsewhere,
         Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
         Some("not_receiver") => Error::NotReceiver,
@@ -172,7 +300,9 @@ fn refusal(body: &Value) -> Error {
                 None => Error::Refused,
             }
         }
-        Some("friends_locked") => Error::Locked,
+        Some("friends_locked" | "entitlement_locked") => Error::Locked,
+        Some("permission_denied" | "PERMISSION_DENIED") => Error::PermissionDenied,
+        Some("unauthenticated" | "UNAUTHENTICATED") => Error::Transport,
         Some("key_revoked" | "unknown_key") => Error::Revoked,
         Some("key_not_found") => Error::KeyNotFound,
         Some("feature_unsupported") => Error::FeatureUnsupported,
