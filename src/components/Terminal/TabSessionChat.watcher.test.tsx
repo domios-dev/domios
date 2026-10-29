@@ -273,9 +273,9 @@ test("first local send stays visible across pending binding, snapshot, and echo"
     await act(async () => {
       const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
       setter?.call(composer, text);
-      composer.dispatchEvent(new testWindow.Event("input", { bubbles: true }));
+      composer.dispatchEvent(new testWindow.Event("input", { bubbles: true }) as unknown as Event);
     });
-    await act(async () => composer.dispatchEvent(new testWindow.KeyboardEvent("keydown", { bubbles: true, key: "Enter", code: "Enter", keyCode: 13 })));
+    await act(async () => composer.dispatchEvent(new testWindow.KeyboardEvent("keydown", { bubbles: true, key: "Enter", code: "Enter", keyCode: 13 }) as unknown as KeyboardEvent));
     assert(composer.value === "", "composer clears on the first user send");
     assert(commands.filter(name => name === "chat_send_text").length === 1, "one send reached the mocked admission port");
     assert(bubbleCount() === 1, "one local bubble remains visible before any session or snapshot");
