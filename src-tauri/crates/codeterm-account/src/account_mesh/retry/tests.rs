@@ -63,3 +63,35 @@ fn rate_limit_uses_the_longer_server_or_exponential_backoff_deadline() {
     );
     assert_eq!(retry.deadline, Some(370));
 }
+
+#[test]
+fn permanent_refusals_back_off_to_hours_and_success_clears_the_history() {
+    let mut retry = Retry::default();
+    let mut now = 100;
+    for delay in [300, 600, 1200, 2400, 4800, 9600, 14400, 14400] {
+        retry.settle(now, Err(AccountMeshRefusal::Forbidden));
+        assert_eq!(retry.deadline, Some(now + delay));
+        assert_eq!(
+            retry.pending(now + delay - 1),
+            Some(AccountMeshRefusal::Forbidden)
+        );
+        now += delay;
+        assert_eq!(retry.pending(now), None);
+        assert!(!retry.exhausted());
+    }
+    retry.settle(now, Ok(()));
+    retry.settle(now, Err(AccountMeshRefusal::Invalid));
+    assert_eq!(retry.deadline, Some(now + 300));
+}
+
+#[test]
+fn permanent_backoff_resume_rearms_without_waiting_for_its_deadline() {
+    let mut retry = Retry::default();
+    retry.settle(100, Err(AccountMeshRefusal::Forbidden));
+    assert_eq!(retry.pending(101), Some(AccountMeshRefusal::Forbidden));
+    retry.resume();
+    assert_eq!(retry.pending(101), None);
+    assert_eq!(retry.deadline, None);
+    retry.settle(101, Err(AccountMeshRefusal::Forbidden));
+    assert_eq!(retry.deadline, Some(401));
+}

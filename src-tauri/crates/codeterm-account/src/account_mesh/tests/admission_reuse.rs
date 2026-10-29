@@ -27,7 +27,7 @@ async fn admitted() -> Harness {
 #[tokio::test]
 async fn account_mesh_admission_reuse_within_validity_makes_zero_calls() {
     let harness = admitted().await;
-    harness.clock.set(START + 2699);
+    harness.clock.set(START + 2999);
     for trigger in [
         EnrollTrigger::Automatic,
         EnrollTrigger::Lease,
@@ -46,7 +46,7 @@ async fn account_mesh_admission_reuse_within_validity_makes_zero_calls() {
 
 #[tokio::test]
 async fn account_mesh_admission_reuse_expiry_runs_one_handshake() {
-    for elapsed in [2700, 3600] {
+    for elapsed in [3000, 3600] {
         let harness = admitted().await;
         harness.clock.set(START + elapsed);
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));

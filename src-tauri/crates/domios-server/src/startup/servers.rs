@@ -440,28 +440,11 @@ pub(crate) fn start_servers(
             };
         if api_config.enabled && listener_allowed {
             let weak_mesh = Arc::downgrade(&states.mesh);
-            let mesh_config = states.config.clone();
             states.rest_api.listeners.configure(
                 remote_bind.expect("validated remote bind"),
                 Arc::new(move |ready| {
                     if let Some(mesh) = weak_mesh.upgrade() {
-                        let changed = {
-                            let mut state = mesh.lock();
-                            state.set_ready_listeners(ready)
-                        };
-                        if changed && mesh_config.lock().mesh.enabled {
-                            codeterm_service_core::async_runtime::spawn(async move {
-                                let report =
-                                    codeterm_service_core::mesh::broadcast_announce(&mesh, None)
-                                        .await;
-                                if !report.errors.is_empty() {
-                                    log::warn!(
-                                        "[mesh] listener-set announcement failed: {:?}",
-                                        report.errors
-                                    );
-                                }
-                            });
-                        }
+                        mesh.lock().set_ready_listeners(ready);
                     }
                 }),
             );

@@ -88,22 +88,27 @@ pub(super) async fn run<T: super::callable::CallableTransport + ?Sized>(
     use super::callable::CallableFailure;
     let admission = account_budget(uid);
     let budget = &admission.state;
-    let _probe = tokio::select! {
-        biased;
-        _ = guard.retired() => return Err(CallableFailure::Retired),
-        permit = admission.probe.acquire() => permit.map_err(|_| CallableFailure::Retired)?,
+    let _probe = if guard.closing_session() {
+        None
+    } else {
+        let permit = tokio::select! {
+            biased;
+            _ = guard.retired() => return Err(CallableFailure::Retired),
+            permit = admission.probe.acquire() => permit.map_err(|_| CallableFailure::Retired)?,
+        };
+        tokio::select! {
+            biased;
+            _ = guard.retired() => return Err(CallableFailure::Retired),
+            _ = async {
+                loop {
+                    let delay = budget.lock().await.remaining(clock.now());
+                    if delay.is_zero() { break; }
+                    clock.wait(delay).await;
+                }
+            } => {},
+        }
+        Some(permit)
     };
-    tokio::select! {
-        biased;
-        _ = guard.retired() => return Err(CallableFailure::Retired),
-        _ = async {
-            loop {
-                let delay = budget.lock().await.remaining(clock.now());
-                if delay.is_zero() { break; }
-                clock.wait(delay).await;
-            }
-        } => {},
-    }
     if !guard.current().await {
         return Err(CallableFailure::Retired);
     }
