@@ -38,18 +38,7 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
     if parts.is_empty() {
         return Err("contract_violation");
     }
-    let root =
-        CString::new(directory.as_os_str().as_encoded_bytes()).map_err(|_| "contract_violation")?;
-    let fd = unsafe {
-        libc::open(
-            root.as_ptr(),
-            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-        )
-    };
-    if fd < 0 {
-        return Err("contract_violation");
-    }
-    let mut parent = unsafe { File::from_raw_fd(fd) };
+    let mut parent = open_directory(directory)?;
     let mut source = None;
     for (index, part) in parts.iter().enumerate() {
         let last = index + 1 == parts.len();
@@ -76,10 +65,26 @@ pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str>
     Ok(file)
 }
 
+#[cfg(unix)]
+pub fn open_directory(directory: &Path) -> Result<File, &'static str> {
+    let name =
+        CString::new(directory.as_os_str().as_encoded_bytes()).map_err(|_| "contract_violation")?;
+    let fd = unsafe {
+        libc::open(
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err("contract_violation");
+    }
+    Ok(unsafe { File::from_raw_fd(fd) })
+}
+
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::open_file;
+pub use windows::{open_directory, open_file};
 
 #[cfg(test)]
 mod tests;

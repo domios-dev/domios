@@ -4,7 +4,7 @@ use postgres::Client;
 pub(crate) const VERSION: i64 = 2;
 
 pub(crate) fn verify_version(
-    client: &mut Client,
+    client: &mut impl postgres::GenericClient,
     schema: &str,
 ) -> Result<(), crate::PostgresOpenError> {
     let table = format!("{schema}.mem_schema_version");
@@ -44,17 +44,7 @@ pub(crate) fn run(
 ) -> StoreResult<()> {
     let mut tx = client.transaction().map_err(db_error)?;
     if let Some(fence) = fence {
-        let acquired: bool = tx
-            .query_one(
-                "SELECT pg_try_advisory_xact_lock_shared(hashtextextended($1, 0))",
-                &[&fence.key],
-            )
-            .map_err(db_error)?
-            .get(0);
-        if !acquired {
-            return Err("postgres_memory_schema_busy".into());
-        }
-        fence.check()?;
+        fence.admit(&mut tx)?;
     }
     tx.query_one(
         "SELECT pg_advisory_xact_lock(hashtextextended('domios_mem:bootstrap', 0))",

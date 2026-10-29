@@ -261,6 +261,9 @@ jobs:
             --tree-log "release-artifacts/build-logs/$TARGET/closure.txt" \
             --bundle "${debs[0]}" --output-dir release-artifacts
 
+      - name: Verify compiled analytics production key
+        run: node scripts/check-release-analytics-key.mjs target/domios-package/domios-server/domios-server
+
       - name: Verify independent headless assets and checksum
         run: node scripts/release-headless-assets.mjs verify "${{ inputs.tag }}" linux-x86_64 release-artifacts "${{ inputs.source_ref }}"
 

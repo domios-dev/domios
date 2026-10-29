@@ -1,3 +1,4 @@
+import { PluginViewChannel } from "./pluginViewChannel";
 import { PLUGIN_UI_MONITOR } from "./pluginUiMonitor";
 import { parse } from "es-module-lexer/js";
 import type { TransportClient } from "./transportClient";
@@ -14,8 +15,10 @@ export interface PluginMediaHandle {
 
 export interface PluginDocument {
   html: string;
+  channel: PluginViewChannel;
   frameToken: string | null;
   dispose(): void;
+  invoke(method: string, args: unknown): Promise<unknown>;
   media(id: string): Promise<PluginMediaHandle>;
 }
 
@@ -132,15 +135,57 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
   const response = await request(path);
   const policy = response.headers.get("Content-Security-Policy");
   if (!policy) throw new Error("Plugin document security policy missing");
+  let viewLease = response.headers.get("X-Domios-Plugin-View-Frame");
+  if (!viewLease || !/^[a-f0-9]{64}$/.test(viewLease)) throw new Error("Plugin view registration missing");
+  const documentId = response.headers.get("X-Domios-Plugin-View-Document");
+  if (!documentId || !/^[a-f0-9]{32}$/.test(documentId)) throw new Error("Plugin document identity missing");
   const frame = response.headers.get("X-Domios-Plugin-Media-Frame");
   const plugin = new URL(path, client.origin()).pathname.match(/^\/api\/plugins\/([a-z0-9_-]{1,128})\/ui\//)?.[1];
   if (frame !== null && (!/^[a-f0-9]{64}$/.test(frame) || !plugin)) throw new Error("Invalid plugin media frame");
   const base = frame && plugin ? `/api/plugins/${plugin}` : null;
+  const snapshotText = response.headers.get("X-Domios-Plugin-View-Registration");
+  if (!snapshotText || snapshotText.length > 16384 || !plugin) throw new Error("Plugin registration scope missing");
+  const snapshot: {registration: string; scope: Record<string, unknown>} = JSON.parse(snapshotText);
+  if (!/^[a-f0-9]{64}$/.test(snapshot.registration) || !snapshot.scope || typeof snapshot.scope !== "object" || (frame !== null && frame !== snapshot.registration)) {
+    throw new Error("Invalid plugin registration scope");
+  }
   let disposed = false;
+  let retirementGeneration=0;
+  let lifecycle: Promise<unknown> = Promise.resolve();
+  const enqueue = (work: () => Promise<void>) => {
+    const result = lifecycle.then(work);
+    lifecycle = result.catch(() => undefined);
+    return result;
+  };
+  const retire = () => {
+    retirementGeneration+=1;
+    viewLease=null;
+    return enqueue(async () => {
+    const response = await client.request!("/api/plugins/view-frame/revoke", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({pluginId:plugin,registration:snapshot.registration}), keepalive:true,
+    }, true);
+    if (!response.ok) throw new Error("Plugin document retirement failed");
+    });
+  };
+  const channel = new PluginViewChannel(documentId, {
+    retire,
+    register: () => {
+      const capturedGeneration=retirementGeneration;
+      return enqueue(async () => {
+      if (disposed || signal.aborted) throw new Error("Plugin view unavailable");
+      const result = await client.localJson<{viewLease:string}>("POST", "/api/plugins/view-frame/register", {pluginId:plugin,...snapshot}, {signal});
+      if (!/^[a-f0-9]{64}$/.test(result.viewLease)) throw new Error("Invalid plugin view registration");
+      if (disposed || signal.aborted || capturedGeneration!==retirementGeneration) throw new Error("Plugin view registration retired");
+      viewLease = result.viewLease;
+      });
+    },
+  });
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    if (base) void client.request!(`${base}/media-frame/${frame}`, { method: "DELETE", keepalive: true }, true).catch(() => undefined);
+    channel.dispose();
+    void retire().catch(() => undefined);
   };
   try {
     const mediaPolicy = base
@@ -152,10 +197,17 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
       return { bytes: new Uint8Array(await asset.arrayBuffer()), mime: asset.headers.get("Content-Type")?.split(";")[0].trim() ?? "" };
     });
     signal.throwIfAborted();
-    return { html, frameToken: frame, dispose, async media(id) {
-      if (disposed || signal.aborted || !base || typeof id !== "string" || !id || id.length > 256) throw new Error("Plugin media unavailable");
-      const result = await client.localJson<PluginMediaHandle>("POST", `${base}/media-register/${frame}`, { id }, { signal });
-      if (disposed || signal.aborted) throw new Error("Plugin media unavailable");
+    return { html, channel, frameToken: frame, dispose, async invoke(method, args) {
+      if (disposed || signal.aborted || !plugin || !viewLease) throw new Error("Plugin view unavailable");
+      const capturedLease=viewLease;
+      const result = await client.localJson<unknown>("POST", "/api/plugins/view-call", {pluginId:plugin,viewFrame:capturedLease,method,args}, {signal});
+      if (disposed || signal.aborted || !viewLease || capturedLease!==viewLease) throw new Error("Plugin view unavailable");
+      return result;
+    }, async media(id) {
+      if (disposed || signal.aborted || !base || !viewLease || typeof id !== "string" || !id || id.length > 256) throw new Error("Plugin media unavailable");
+      const capturedLease=viewLease;
+      const result = await client.localJson<PluginMediaHandle>("POST", `${base}/media-register/${frame}`, { id,viewFrame:capturedLease }, { signal });
+      if (disposed || signal.aborted || !viewLease || capturedLease!==viewLease) throw new Error("Plugin media unavailable");
       if (!/^[a-f0-9]{64}$/.test(result.handle)) throw new Error("Invalid plugin media handle");
       const expected = `${base}/media/${frame}/${result.handle}`;
       if (result.url !== null && result.url !== expected) throw new Error("Invalid plugin media URL");

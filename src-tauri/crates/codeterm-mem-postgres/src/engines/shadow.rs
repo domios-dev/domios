@@ -37,19 +37,10 @@ impl PostgresMemStore {
             .filter(|w| *w > 0)
             .ok_or("invalid shadow vector dimension")?;
         let _gate = self.gate.lock();
-        let mut conn = self
-            .pool
-            .get()
-            .map_err(|_| "Postgres memory pool unavailable")?;
-        let mut tx = conn.transaction().map_err(db_error)?;
-        tx.query_one(
-            "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(),0))",
-            &[],
-        )
-        .map_err(db_error)?;
+        let published = self.transaction_locked(true, |tx| -> Result<bool, String> {
         let mut ready = Vec::new();
-        for unit in targets::units(&mut tx)? {
-            match checkpoint(&mut tx, stamp, &unit.key())? {
+        for unit in targets::units(tx)? {
+            match checkpoint(tx, stamp, &unit.key())? {
                 Some((hash, bytes)) if hash == unit.hash() => ready.push((unit, bytes)),
                 _ => return Ok(false),
             }
@@ -66,11 +57,11 @@ impl PostgresMemStore {
             }
         }
         tx.batch_execute("DROP TABLE IF EXISTS mem_vectors; DELETE FROM mem_embedder; DELETE FROM mem_vector_pending; DELETE FROM blueprint_vectors").map_err(db_error)?;
-        vectors::initialize_in(&mut tx, &identity)?;
+        vectors::initialize_in(tx, &identity)?;
         for (unit, bytes) in ready {
             let Some(bytes) = bytes else {
                 if !unit.blueprint {
-                    super::mark(&mut tx, &unit.id, "re-embed failed for this item")?;
+                    super::mark(tx, &unit.id, "re-embed failed for this item")?;
                 }
                 continue;
             };
@@ -95,8 +86,11 @@ impl PostgresMemStore {
         }
         tx.execute("DELETE FROM mem_shadow", &[])
             .map_err(db_error)?;
-        tx.commit().map_err(db_error)?;
-        active.replace_silent(target.provider());
         Ok(true)
+        })?;
+        if published {
+            active.replace_silent(target.provider());
+        }
+        Ok(published)
     }
 }

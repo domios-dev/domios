@@ -16,7 +16,11 @@ async fn routes_bridge_calls_to_view_call() {
     );
     let v = JsViewProvider::new(vm, "test-view");
     let out = v
-        .call("echo", serde_json::json!({ "x": 21 }))
+        .call(
+            "echo",
+            serde_json::json!({ "x": 21 }),
+            &crate::view_host::ViewCallContext::panel("test-view"),
+        )
         .await
         .unwrap();
     assert_eq!(out["got"], 42);
@@ -49,7 +53,11 @@ async fn view_args_cwd_never_mints_a_read_grant() {
     let cwd = tmp.path().to_string_lossy().into_owned();
 
     let out = v
-        .call("probe", serde_json::json!({ "cwd": cwd }))
+        .call(
+            "probe",
+            serde_json::json!({ "cwd": cwd }),
+            &crate::view_host::ViewCallContext::panel("confined-view"),
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -61,7 +69,11 @@ async fn view_args_cwd_never_mints_a_read_grant() {
     // Once the HOST granted the same cwd (bubble/glance path), the view works.
     sandbox.grant_cwd_read_root(&cwd);
     let out = v
-        .call("probe", serde_json::json!({ "cwd": cwd }))
+        .call(
+            "probe",
+            serde_json::json!({ "cwd": cwd }),
+            &crate::view_host::ViewCallContext::panel("confined-view"),
+        )
         .await
         .unwrap();
     assert_eq!(out["names"], serde_json::json!(["loot"]));

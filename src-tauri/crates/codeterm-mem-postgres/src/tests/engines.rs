@@ -2,9 +2,9 @@ use super::*;
 use codeterm_mem::backend::engines::{EngineStore, SourceRefresh};
 use codeterm_mem::embedder::{provider::*, ActiveEmbedder};
 
-struct Provider {
-    model: &'static str,
-    dimension: usize,
+pub(super) struct Provider {
+    pub(super) model: &'static str,
+    pub(super) dimension: usize,
 }
 impl EmbeddingProvider for Provider {
     fn id(&self) -> &str {

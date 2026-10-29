@@ -23,3 +23,8 @@ pub async fn plugin_manager_snapshot_for_service(
 pub fn invalidate_plugin_snapshot() {
     action::invalidate_plugin_snapshot();
 }
+
+pub use view::host::{
+    recording_suggestion as plugin_recording_suggestion,
+    remote_task_call as plugin_remote_task_call,
+};

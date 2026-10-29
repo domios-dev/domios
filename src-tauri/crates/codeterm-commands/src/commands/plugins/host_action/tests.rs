@@ -23,7 +23,12 @@ impl ViewProvider for StubView {
         &self.actions
     }
 
-    async fn call(&self, _method: &str, _args: Value) -> Result<Value, ViewError> {
+    async fn call(
+        &self,
+        _method: &str,
+        _args: Value,
+        _context: &codeterm_plugin::view_host::ViewCallContext,
+    ) -> Result<Value, ViewError> {
         Ok(Value::Null)
     }
 }
@@ -51,6 +56,7 @@ impl PluginMediaResolver for StubMedia {
             return Err(MediaRefusal::Foreign);
         }
         Ok(OpenedMedia {
+            size: std::fs::metadata(&self.file).expect("fixture media").len(),
             file: std::fs::File::open(&self.file).expect("fixture media"),
             path: self.file.clone(),
             file_name: "frame.png".into(),

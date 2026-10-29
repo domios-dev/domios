@@ -509,6 +509,47 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     // ── Secrets ──────────────────────────────────────────────────────────
 
+    fn bind_view_transfer_input(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::view_host::ViewCallContext,
+        handle: &str,
+        destination: &str,
+        control: &codeterm_plugin::binary_transfer::InputPreparation,
+    ) -> codeterm_plugin::binary_transfer::Result<
+        codeterm_plugin::binary_transfer::TransferInputGrant,
+    > {
+        use codeterm_plugin::binary_transfer::{
+            prepare_plugin_input_bounded, FileIdentity, TransferRefusal,
+        };
+        let mut refusal = None;
+        let prepared = self
+            .with_validated_plugin_view_context(plugin, context, || {
+                let input =
+                    codeterm_plugin::media_delivery::open_context_input(plugin, context, handle)
+                        .map_err(|_| "input_not_allowed".to_string())?;
+                let identity = FileIdentity {
+                    size: input.media.size,
+                    sha256: input.sha256,
+                };
+                prepare_plugin_input_bounded(
+                    plugin,
+                    destination,
+                    input.media.file,
+                    &input.media.file_name,
+                    &input.media.content_type,
+                    Some(&identity),
+                    control,
+                )
+                .map_err(|error| {
+                    refusal = Some(error);
+                    "input_not_allowed".to_string()
+                })
+            })
+            .map_err(|_| refusal.unwrap_or(TransferRefusal::NotAllowed))?;
+        prepared.commit()
+    }
+
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String> {
         secret_bucket(plugin_id).get(name).ok()
     }

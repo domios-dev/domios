@@ -374,6 +374,12 @@ jobs:
             --bundle $bundles[0].FullName --output-dir release-artifacts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Verify compiled analytics production key
+        shell: pwsh
+        run: |
+          node scripts/check-release-analytics-key.mjs target/domios-package/domios-server/domios-server.exe
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Verify independent headless assets and checksum
         shell: pwsh
         run: |

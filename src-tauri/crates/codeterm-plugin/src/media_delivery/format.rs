@@ -96,6 +96,10 @@ impl MediaType {
     }
 }
 pub(super) fn safe_name(name: &str, kind: MediaType) -> String {
+    safe_extension_name(name, kind.extension())
+}
+
+pub(super) fn safe_extension_name(name: &str, extension: &str) -> String {
     let stem = name.rsplit_once('.').map_or(name, |(stem, _)| stem);
     let cleaned: String = stem
         .chars()
@@ -130,6 +134,6 @@ pub(super) fn safe_name(name: &str, kind: MediaType) -> String {
         } else {
             cleaned
         },
-        kind.extension()
+        extension
     )
 }

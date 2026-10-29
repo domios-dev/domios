@@ -169,6 +169,22 @@ const PLUGIN_PREAMBLE: &str = r#"
     reap:   function (sessionId) { host.agentReap(sessionId); },
     usage:  function (sessionId) { return parseJson(host.agentUsage(sessionId)); },
   };
+  host.transfer = {
+    start: function(opts) { return parseJson(host.transferStart(JSON.stringify(opts))); },
+    abort: function(jobId) { return host.transferAbort(jobId); },
+    bindInput: function(handle,destinationOrigin,then) {
+      if (typeof then !== "function") throw new Error("host.transfer.bindInput requires a continuation");
+      var job=parseJson(host.transferBindInput(JSON.stringify({handle:handle,destinationOrigin:destinationOrigin})));
+      if (!job || typeof job.jobId!=="string") return then(job);
+      return host.awaitJob(job.jobId,then);
+    },
+    async: function(opts, then) {
+      if (typeof then !== "function") throw new Error("host.transfer.async requires a continuation");
+      var job = this.start(opts);
+      if (!job || typeof job.jobId !== "string") return then(job);
+      return host.awaitJob(job.jobId, then);
+    },
+  };
   host.fetch.stream = function (opts) { return parseJson(host.fetchStream(JSON.stringify(opts))); };
   host.fetch.streamPoll = function (jobId) { return parseJson(host.fetchStreamPoll(jobId)); };
   host.fetch.streamClose = function (jobId) { host.fetchStreamClose(jobId); };
@@ -364,6 +380,10 @@ struct Inner {
 }
 
 impl PluginVm {
+    pub(super) fn activate_binary_transfers(&self) {
+        super::host_transfer::activate(&self.sandbox);
+    }
+
     /// Load a plugin bundle (`plugin.js`) into a fresh QuickJS context.
     ///
     /// The bundle is expected to be a self-contained ES module that
@@ -625,6 +645,7 @@ impl PluginVm {
         inner._ctx = ctx;
         inner._rt = rt;
         inner.bundle_source = new_source;
+        super::host_transfer::reload(&self.sandbox);
         *self.methods.write() = methods;
         drop(inner);
         *self.runtime_inner.lock() = None;
@@ -635,6 +656,7 @@ impl PluginVm {
 
 impl Drop for PluginVm {
     fn drop(&mut self) {
+        super::host_transfer::revoke(&self.sandbox);
         // The sandbox's id, not the VM's: that is what `host.exec`/`host.fetch`
         // keyed the jobs by when the plugin started them.
         super::host_net::drop_plugin_jobs(self.sandbox.plugin_id());

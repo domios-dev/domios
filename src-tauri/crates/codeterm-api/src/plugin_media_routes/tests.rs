@@ -118,7 +118,7 @@ async fn actual_routes_refuse_unknown_handles_and_non_owner_registration_without
                 .method("POST")
                 .uri(format!("/api/plugins/example/media-register/{token}"))
                 .header("content-type", "application/json")
-                .body(Body::from(r#"{"id":"own"}"#))
+                .body(Body::from(r#"{"id":"own","viewFrame":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#))
                 .unwrap(),
         )
         .await
@@ -223,4 +223,159 @@ async fn range_get_head_and_full_stream_preserve_headers_and_bounded_reads() {
     let response = playback_response(source.clone(), Method::GET, headers).unwrap();
     assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
     assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes */150000");
+}
+
+struct DeferredMedia {
+    id: String,
+    entered: parking_lot::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    release: std::sync::Arc<tokio::sync::Notify>,
+    contexts: std::sync::Arc<parking_lot::Mutex<Vec<codeterm_plugin::view_host::ViewCallContext>>>,
+}
+#[async_trait::async_trait]
+impl codeterm_plugin::view_host::ViewProvider for DeferredMedia {
+    fn id(&self) -> &str {
+        &self.id
+    }
+    fn media_delivery(&self) -> Option<media::MediaDeliveryDescriptor> {
+        Some(media::MediaDeliveryDescriptor {
+            types: vec![media::MediaType::Mp4],
+        })
+    }
+    async fn media_file(
+        &self,
+        _id: &str,
+        context: &codeterm_plugin::view_host::ViewCallContext,
+    ) -> Result<media::MediaFile, codeterm_plugin::view_host::ViewError> {
+        self.contexts.lock().push(context.clone());
+        if let Some(entered) = self.entered.lock().take() {
+            let _ = entered.send(());
+        }
+        self.release.notified().await;
+        Ok(media::MediaFile {
+            path: "generated/clip.mp4".into(),
+            file_name: None,
+            content_type: media::MediaType::Mp4,
+        })
+    }
+    async fn call(
+        &self,
+        _method: &str,
+        _args: serde_json::Value,
+        _context: &codeterm_plugin::view_host::ViewCallContext,
+    ) -> Result<serde_json::Value, codeterm_plugin::view_host::ViewError> {
+        Ok(serde_json::Value::Null)
+    }
+}
+#[tokio::test]
+async fn media_lookup_receives_registered_context_and_never_publishes_after_frame_or_provider_loss()
+{
+    use codeterm_plugin::view_host::{ViewProvider, ViewRegistryHandle};
+    use std::sync::Arc;
+    for provider_lost in [false, true] {
+        let fixture = ServiceFixture::new(MultiplexerState::empty());
+        let plugin = format!("media-context-{}", uuid::Uuid::new_v4().simple());
+        let (entered, ready) = tokio::sync::oneshot::channel();
+        let release = Arc::new(tokio::sync::Notify::new());
+        let contexts = Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let provider: Arc<dyn ViewProvider> = Arc::new(DeferredMedia {
+            id: plugin.clone(),
+            entered: parking_lot::Mutex::new(Some(entered)),
+            release: release.clone(),
+            contexts: contexts.clone(),
+        });
+        let registry = fixture.service.ext::<ViewRegistryHandle>();
+        registry.register(&plugin, provider.clone());
+        let context = fixture
+            .service
+            .plugin_view_context(&plugin, None, None, None)
+            .unwrap();
+        let registration = media::create_frame(&provider, registry, context).unwrap();
+        let expected = media::frame_context(&plugin, &registration.media_frame).unwrap();
+        let state = crate::test_support::app_state(&fixture);
+        let router = Router::new()
+            .route("/api/plugins/{id}/media-register/{frame}", post(register))
+            .layer(Extension(CallerIdentity::Local))
+            .with_state(state);
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/plugins/{plugin}/media-register/{}",
+                registration.media_frame
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"id":"output","viewFrame":registration.view_lease}).to_string(),
+            ))
+            .unwrap();
+        let response = tokio::spawn(async move { router.oneshot(request).await.unwrap() });
+        tokio::time::timeout(std::time::Duration::from_secs(2), ready)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(contexts.lock().as_slice(), &[expected]);
+        if provider_lost {
+            registry.unregister(&plugin);
+        } else {
+            media::revoke_frame(&plugin, &registration.media_frame);
+        }
+        release.notify_one();
+        let response = tokio::time::timeout(std::time::Duration::from_secs(2), response)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = axum::body::to_bytes(response.into_body(), 1024)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("handle"));
+        media::revoke_plugin(&plugin);
+    }
+}
+
+#[tokio::test]
+async fn late_old_media_request_cannot_adopt_or_revoke_a_reminted_document() {
+    use codeterm_plugin::view_host::{ViewProvider, ViewRegistryHandle};
+    use std::sync::Arc;
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let plugin = format!("media-old-lease-{}", uuid::Uuid::new_v4().simple());
+    let (entered, _ready) = tokio::sync::oneshot::channel();
+    let contexts = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let provider: Arc<dyn ViewProvider> = Arc::new(DeferredMedia {
+        id: plugin.clone(),
+        entered: parking_lot::Mutex::new(Some(entered)),
+        release: Arc::new(tokio::sync::Notify::new()),
+        contexts: contexts.clone(),
+    });
+    let registry = fixture.service.ext::<ViewRegistryHandle>();
+    registry.register(&plugin, provider.clone());
+    let context = fixture
+        .service
+        .plugin_view_context(&plugin, None, None, None)
+        .unwrap();
+    let old = media::create_frame(&provider, registry, context.clone()).unwrap();
+    media::revoke_frame(&plugin, &old.media_frame);
+    let fresh = media::reregister_frame(&provider, registry, context, &old.media_frame).unwrap();
+    let router = Router::new()
+        .route("/api/plugins/{id}/media-register/{frame}", post(register))
+        .layer(Extension(CallerIdentity::Local))
+        .with_state(crate::test_support::app_state(&fixture));
+    let request = Request::builder()
+        .method("POST")
+        .uri(format!(
+            "/api/plugins/{plugin}/media-register/{}",
+            old.media_frame
+        ))
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({"id":"output","viewFrame":old.view_lease}).to_string(),
+        ))
+        .unwrap();
+    let response = tokio::time::timeout(std::time::Duration::from_secs(2), router.oneshot(request))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert!(contexts.lock().is_empty());
+    media::view_frame(&plugin, &fresh.view_lease).unwrap();
+    media::revoke_plugin(&plugin);
 }

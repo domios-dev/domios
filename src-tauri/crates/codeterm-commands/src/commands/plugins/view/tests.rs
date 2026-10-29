@@ -93,7 +93,12 @@ impl ViewProvider for StubView {
         self.kind
     }
 
-    async fn call(&self, method: &str, _args: Value) -> Result<Value, ViewError> {
+    async fn call(
+        &self,
+        method: &str,
+        _args: Value,
+        _context: &codeterm_plugin::view_host::ViewCallContext,
+    ) -> Result<Value, ViewError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(serde_json::json!({ "forwarded": method }))
     }
@@ -114,7 +119,11 @@ async fn call(
     method: &str,
     settings_requests: &AtomicUsize,
 ) -> Result<Value, String> {
-    dispatch_view_call(registry, plugin_id, method, Value::Null, |kind| {
+    let provider = registry
+        .get(plugin_id)
+        .ok_or_else(|| format!("no view provider for plugin '{plugin_id}'"))?;
+    let context = codeterm_plugin::view_host::ViewCallContext::panel(plugin_id);
+    dispatch_view_call(provider, method, Value::Null, &context, |kind| {
         settings_requests.fetch_add(1, Ordering::SeqCst);
         webhook_settings_with(store, kind, || BASE_URL.to_string())
     })

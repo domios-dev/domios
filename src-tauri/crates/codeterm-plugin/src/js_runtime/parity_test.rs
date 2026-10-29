@@ -1184,14 +1184,15 @@ mod launch_session_support;
 
 mod reply_relay;
 
-#[path = "parity_test/local_recording_devices.rs"]
-mod local_recording_devices;
-
-#[path = "parity_test/runtime_chat_descriptor.rs"]
-mod runtime_chat_descriptor;
-
+#[path = "parity_test/binary_transfer.rs"]
+mod binary_transfer;
 #[path = "parity_test/data_dir.rs"]
 mod data_dir;
-
+#[path = "parity_test/local_recording_devices.rs"]
+mod local_recording_devices;
 #[path = "parity_test/media_delivery.rs"]
 mod media_delivery;
+#[path = "parity_test/runtime_chat_descriptor.rs"]
+mod runtime_chat_descriptor;
+#[path = "parity_test/view_context.rs"]
+mod view_context;

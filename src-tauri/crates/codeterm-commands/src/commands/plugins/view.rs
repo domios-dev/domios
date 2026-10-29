@@ -38,38 +38,59 @@ pub async fn view_call(
     plugin_id: &str,
     method: &str,
     args: Value,
+    view_frame: &str,
 ) -> Result<Value, String> {
-    dispatch_view_call(
-        svc.ext::<codeterm_service_core::view_host::ViewRegistryHandle>(),
-        plugin_id,
-        method,
-        args,
-        |kind| webhook_settings(svc, kind),
-    )
-    .await
+    if method.is_empty()
+        || method.len() > 128
+        || method.chars().any(char::is_control)
+        || serde_json::to_vec(&args)
+            .map_err(|_| "plugin_view_request_invalid")?
+            .len()
+            > 65536
+    {
+        return Err("plugin_view_request_invalid".into());
+    }
+    let (provider, context) = codeterm_plugin::media_delivery::view_frame(plugin_id, view_frame)
+        .map_err(|_| "plugin_view_frame_invalid")?;
+    svc.validate_plugin_view_context(&context)?;
+    let result = dispatch_view_call(provider.clone(), method, args, &context, |kind| {
+        webhook_settings(svc, kind)
+    })
+    .await;
+    let (current, current_context) =
+        codeterm_plugin::media_delivery::view_frame(plugin_id, view_frame)
+            .map_err(|_| "plugin_view_frame_invalid")?;
+    if !std::sync::Arc::ptr_eq(&provider, &current) || context != current_context {
+        return Err("plugin_view_frame_invalid".into());
+    }
+    svc.validate_plugin_view_context(&current_context)?;
+    result
 }
 
 async fn dispatch_view_call<F, Fut>(
-    registry: &codeterm_service_core::view_host::ViewRegistry,
-    plugin_id: &str,
+    provider: std::sync::Arc<dyn codeterm_plugin::view_host::ViewProvider>,
     method: &str,
     args: Value,
+    context: &codeterm_plugin::view_host::ViewCallContext,
     webhook_settings: F,
 ) -> Result<Value, String>
 where
     F: FnOnce(WebhookReceiverKind) -> Fut,
     Fut: std::future::Future<Output = Result<Value, String>>,
 {
-    let provider = registry
-        .get(plugin_id)
-        .ok_or_else(|| format!("no view provider for plugin '{plugin_id}'"))?;
+    if provider.id() != context.plugin {
+        return Err("plugin_view_scope_invalid".into());
+    }
     if method == "webhookSettings" {
         let kind = provider
             .webhook_receiver_kind()
             .ok_or_else(|| "webhookSettings is unavailable for this view".to_string())?;
         return webhook_settings(kind).await;
     }
-    provider.call(method, args).await.map_err(|e| e.to_string())
+    provider
+        .call(method, args, context)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 async fn webhook_settings(
@@ -143,3 +164,9 @@ fn public_api_base_url(port: u16) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "view/frame_tests.rs"]
+mod frame_tests;
+
+pub mod host;

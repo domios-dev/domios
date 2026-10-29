@@ -23,8 +23,8 @@ export function LocalRecordingSetup({ pluginId, onClose }: { pluginId: string; o
       if (!active) return;
       const audioInputs = devices.filter((device) => device.kind === "audioinput" && device.deviceId);
       setMicrophones(audioInputs);
-      const proposal = await invoke<unknown>("plugin_view_call", {
-        pluginId, method: "selectRecordingDevices", args: {
+      const proposal = await invoke<unknown>("plugin_recording_suggestion", {
+        pluginId, args: {
           inputs: selected,
           microphones: audioInputs.map(({ deviceId, label }) => ({ deviceId, label })),
         },

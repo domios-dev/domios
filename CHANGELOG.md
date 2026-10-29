@@ -73,6 +73,78 @@ lives in `git log` with no aggregated narrative.
   acknowledgement or restatement is not sent at all. Two prompt-surface
   regression tests guard the wake-up and the standing rule.
 
+## [1.17.0] — 2026-10-28
+
+Domios 1.17.0 gives each friend a receiving machine and a concierge whose
+access follows the friendship's grants, with clearer conversation status
+and controls throughout the app. Changes since v1.16.0:
+
+### Neighbors
+
+- **Choose where each friend is received.** Receive one friend on this
+  machine from the sidebar, concierge row or conversation, with explicit
+  takeover confirmation. Other friends can keep receiving on their current
+  machines. The all-friends control identifies this machine and the number
+  of friends affected. Moving receiving away retires that friend's local
+  concierge and its delegated access.
+- **Concierge access follows the friendship grant.** Scope, memory,
+  workspace, file and machine-access permissions govern the concierge and
+  its delegated agents. Applying permissions starts a fresh concierge
+  session with the new instructions; the friend's conversation remains.
+  Restoring an unchanged grant resumes the existing session.
+- **General can edit the complete grant.** Partial changes preserve other
+  fields, including memory enabled/disabled, allowed memory areas,
+  workspace access, files, tab requests, interactive content, machine
+  access and folder scope. Memory can be turned off explicitly.
+- **Empty messages are refused before sending.** Empty or whitespace-only
+  text returns `empty_body` without queueing a submission. File-only
+  messages remain supported. Receiver-takeover and non-receiving-machine
+  errors explain why the operation was refused.
+- **Read receipts reflect actual reading or handling.** A visible incoming
+  message or confirmed concierge handling advances the read state after
+  delivery acknowledgement is committed. Delivery alone does not mark a
+  message read; reconnects preserve newer read status.
+- **See and stop concierge work.** Conversations show incoming handling
+  status and provide Stop for the friend's active concierge. Replies to an
+  owner-stopped request are refused before sending and are not offered as
+  retryable submissions.
+- **Flag suspicious incoming messages.** Owners and authorized agents can
+  flag instructions, requests for private data, malicious links, spam or
+  other concerns. Flags stay local and appear with the message; they are
+  not sent to the friend or forwarded to bridges.
+- **Choose concierge model, effort and speed** from the providers and
+  options that support concierge work. The selected model appears below
+  the concierge in the sidebar.
+
+### Agents and interface
+
+- **Codex Cloud is available in the new-session picker.** Environment
+  discovery refreshes after sign-in and on request, so the picker can
+  offer the available Cloud environments and execution modes.
+- **The bundled control skill is now named `domios`.** Agent guidance and
+  skill mirroring use the new name.
+- **Consistent loading states** across the app, including terminal boot,
+  with shared activity indicators and a Mesh card that keeps its size
+  while loading.
+- **Clearer session controls:** readable program names in command lines,
+  and improved model and destination pickers. After a connection drops,
+  the loaded app stays usable with a quiet reconnect pill while updates
+  are paused; initial connection still has a loading state.
+- **Mesh discovery improvements** include passive detection of macOS
+  system-extension Tailscale and framed LocalAPI response handling.
+- **Jobs is easier to navigate.** Import Blueprints from a file or
+  repository through a dialog with a drop area; select General, a
+  workspace or a Team with the shared destination picker. Jobs show as
+  working only while a run executes, and an empty list has a clear empty
+  state.
+
+### Upgrade note
+
+- **Upgrade both ends of a Mesh connection to 1.17.0.** The running app's
+  version is the peer minimum, so a 1.17.0 installation refuses older
+  peers. Official plugins keep their independently managed versions and
+  minimum-host requirements; the app version bump does not bump plugins.
+
 ## [1.1.14] — 2026-05-05
 
 Patch: stop the periodic console-window flash users were seeing on

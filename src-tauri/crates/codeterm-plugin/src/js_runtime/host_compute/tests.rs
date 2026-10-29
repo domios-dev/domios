@@ -128,6 +128,10 @@ impl PluginHostCtx for AnalyticsHost {
         false
     }
     fn receiver_target_json(&self, plugin_id: &str) -> String {
+        if plugin_id == "view-invocation-probe" {
+            return serde_json::to_string(&crate::view_host::current_view_call_context(plugin_id))
+                .unwrap();
+        }
         json!({ "pluginId": plugin_id, "tabId": "tab-bound", "live": true }).to_string()
     }
     fn receiver_target_clear_json(&self, plugin_id: &str) -> String {
@@ -394,4 +398,22 @@ fn view_invalidation_uses_sandbox_plugin_identity_without_agent_scope_and_is_bou
             .get("error")
             .is_some()
     );
+}
+
+#[tokio::test]
+async fn view_host_projection_survives_actual_continuation_and_cannot_be_seeded_by_args() {
+    use crate::view_host::{ViewCallContext, ViewProvider};
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
+    let vm=Arc::new(PluginVm::from_source("view-invocation-probe",r#"module.exports.default={viewCall(method,args,context){return host.awaitJob("view-context-absent-job",function(){return {passed:context,host:host.receiverTarget.get()}})}}"#.into()).unwrap());
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let view = crate::js_runtime::JsViewProvider::new(vm, "view-invocation-probe");
+    let mut context = ViewCallContext::panel("view-invocation-probe");
+    context.frame = Some("public-id".into());
+    let out = view
+        .call("read", json!({"context":{"owner":"attacker"}}), &context)
+        .await
+        .unwrap();
+    assert_eq!(out["passed"], serde_json::to_value(&context).unwrap());
+    assert_eq!(out["host"], out["passed"]);
+    assert!(crate::view_host::current_view_call_context("view-invocation-probe").is_none());
 }

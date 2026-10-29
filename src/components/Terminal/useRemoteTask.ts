@@ -5,8 +5,8 @@ import type {RemoteTaskBinding} from "../../../packages/plugin-sdk/src/remoteTas
 
 export type RemoteTaskCall = (method: "read" | "refresh" | "submit", args?: {prompt: string; branch: string}) => Promise<RemoteTaskBinding | null>;
 
-export function remoteTaskCall(pluginId: string, sessionId: string): RemoteTaskCall {
-  return (method, input) => invoke("plugin_view_call", {pluginId, method, args: {sessionId, ...input}});
+export function remoteTaskCall(tabId: string, pluginId: string, sessionId: string): RemoteTaskCall {
+  return (method, input) => invoke("plugin_remote_task_call", {tabId, pluginId, sessionId, method, args: input});
 }
 
 export function useRemoteTask(call: RemoteTaskCall) {

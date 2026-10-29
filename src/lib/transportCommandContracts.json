@@ -780,6 +780,8 @@
         "/api/plugins/tab-menu/action"
       ]
     ],
+    "plugin_recording_suggestion": [["POST", "/api/plugins/recording-suggestion"]],
+    "plugin_remote_task_call": [["POST", "/api/plugins/remote-task-call"]],
     "plugin_view_call": [
       [
         "POST",

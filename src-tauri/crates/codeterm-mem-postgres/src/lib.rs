@@ -113,7 +113,7 @@ impl PostgresMemStore {
         if fence.exclusive {
             let mut conn = fence.client.lock();
             if options.read_only {
-                migrations::verify_version(&mut conn, &options.schema)?;
+                migrations::verify_version(&mut *conn, &options.schema)?;
             } else {
                 migrations::run(&mut conn, &options.schema, None)
                     .map_err(|_| PostgresOpenError::Migration)?;
@@ -121,7 +121,14 @@ impl PostgresMemStore {
         } else {
             let mut conn = pool.get().map_err(|_| PostgresOpenError::Connection)?;
             if options.read_only {
-                migrations::verify_version(&mut conn, &options.schema)?;
+                let mut tx = conn
+                    .transaction()
+                    .map_err(|_| PostgresOpenError::Connection)?;
+                fence
+                    .admit(&mut tx)
+                    .map_err(|_| PostgresOpenError::Connection)?;
+                migrations::verify_version(&mut tx, &options.schema)?;
+                tx.commit().map_err(|_| PostgresOpenError::Connection)?;
             } else {
                 migrations::run(&mut conn, &options.schema, Some(&fence))
                     .map_err(|_| PostgresOpenError::Migration)?;
@@ -147,19 +154,28 @@ impl PostgresMemStore {
         f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
         let _gate = self.gate.lock();
+        self.transaction_locked(true, f)
+    }
+
+    fn transaction_locked<T, E: From<String>>(
+        &self,
+        wait: bool,
+        f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
+    ) -> Result<T, E> {
         if self.fence.exclusive {
-            return self.transaction_on(&mut self.fence.client.lock(), f);
+            return self.transaction_on(&mut self.fence.client.lock(), wait, f);
         }
         let mut conn = self
             .pool
             .get()
             .map_err(|_| E::from("Postgres memory pool unavailable".into()))?;
-        self.transaction_on(&mut conn, f)
+        self.transaction_on(&mut conn, wait, f)
     }
 
     fn transaction_on<T, E: From<String>>(
         &self,
         conn: &mut postgres::Client,
+        wait: bool,
         f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
         let mut tx = conn
@@ -167,27 +183,46 @@ impl PostgresMemStore {
             .read_only(self.read_only)
             .start()
             .map_err(|error| E::from(db_error(error)))?;
-        if !self.fence.exclusive {
-            let acquired: bool = tx
-                .query_one(
-                    "SELECT pg_try_advisory_xact_lock_shared(hashtextextended($1, 0))",
-                    &[&self.fence.key],
-                )
-                .map_err(|error| E::from(db_error(error)))?
-                .get(0);
-            if !acquired {
-                return Err(E::from("postgres_memory_schema_busy".into()));
-            }
-            self.fence.check().map_err(E::from)?;
+        self.fence.admit(&mut tx).map_err(E::from)?;
+        if wait {
+            tx.query_one(
+                "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(), 0))",
+                &[],
+            )
+            .map_err(|error| E::from(db_error(error)))?;
+        } else if !tx
+            .query_one(
+                "SELECT pg_try_advisory_xact_lock(hashtextextended(current_schema(), 0))",
+                &[],
+            )
+            .map_err(|error| E::from(db_error(error)))?
+            .get::<_, bool>(0)
+        {
+            return Err(E::from(
+                "memory is busy; embedder switch cannot complete now".into(),
+            ));
         }
-        tx.query_one(
-            "SELECT pg_advisory_xact_lock(hashtextextended(current_schema(), 0))",
-            &[],
-        )
-        .map_err(|error| E::from(db_error(error)))?;
         let result = f(&mut tx)?;
         tx.commit().map_err(|error| E::from(db_error(error)))?;
         Ok(result)
+    }
+
+    fn nontransactional_write<T>(
+        &self,
+        f: impl FnOnce(&mut postgres::Client) -> StoreResult<T>,
+    ) -> StoreResult<T> {
+        let _gate = self.gate.lock();
+        if self.read_only {
+            return Err("postgres_memory_read_only (25006)".into());
+        }
+        if self.fence.exclusive {
+            let mut conn = self.fence.client.lock();
+            conn.simple_query("SELECT 1")
+                .map_err(|_| "postgres_memory_fence_lost: reopen the store".to_string())?;
+            return f(&mut conn);
+        }
+        let mut session = self.fence.shared_session()?;
+        f(&mut session.client)
     }
 }
 
