@@ -54,7 +54,7 @@ async fn desktop_api_requires_owner_bearer_and_keeps_unknown_areas_starting() {
 }
 
 #[tokio::test]
-async fn web_frontend_index_and_assets_resolve_before_service_readiness() {
+async fn root_frontend_resolves_and_legacy_web_is_gone_before_service_readiness() {
     let dist = tempfile::tempdir().unwrap();
     std::fs::create_dir(dist.path().join("assets")).unwrap();
     std::fs::write(
@@ -78,8 +78,8 @@ async fn web_frontend_index_and_assets_resolve_before_service_readiness() {
         Some(dist.path().to_path_buf()),
     );
     for (path, expected) in [
-        ("/web/", "<script src='./assets/app.js'></script>"),
-        ("/web/assets/app.js", "window.fixture=true;"),
+        ("/", "<script src='./assets/app.js'></script>"),
+        ("/assets/app.js", "window.fixture=true;"),
     ] {
         let response = router
             .clone()
@@ -91,6 +91,16 @@ async fn web_frontend_index_and_assets_resolve_before_service_readiness() {
             to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
             expected.as_bytes()
         );
+    }
+
+    for path in ["/web", "/web/", "/web/assets/app.js"] {
+        let response = router
+            .clone()
+            .oneshot(axum::http::Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
     }
     let response = router
         .oneshot(

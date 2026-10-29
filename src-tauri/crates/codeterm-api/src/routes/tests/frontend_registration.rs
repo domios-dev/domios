@@ -23,11 +23,6 @@ async fn frontend_bundle_routes_contract_bundled_index_and_relative_assets() {
             "<main>Bundled shell</main><script src='./assets/app.js'></script>",
         ),
         ("/bundled/assets/app.js", "window.bundled=true;"),
-        (
-            "/web/",
-            "<main>Bundled shell</main><script src='./assets/app.js'></script>",
-        ),
-        ("/web/assets/app.js", "window.bundled=true;"),
     ] {
         let response = router
             .clone()
@@ -146,7 +141,7 @@ async fn frontend_bundle_routes_contract_central_bearer_registration() {
 }
 
 #[tokio::test]
-async fn web_frontend_index_and_assets_resolve_in_full_router() {
+async fn root_frontend_resolves_and_legacy_web_is_gone_in_full_router() {
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
 
@@ -164,8 +159,8 @@ async fn web_frontend_index_and_assets_resolve_in_full_router() {
     state.web_dist = Some(dist.path().to_path_buf());
     let router = crate::routes::create_router(state);
     for (path, expected) in [
-        ("/web/", "<script src='./assets/app.js'></script>"),
-        ("/web/assets/app.js", "window.fixture=true;"),
+        ("/", "<script src='./assets/app.js'></script>"),
+        ("/assets/app.js", "window.fixture=true;"),
     ] {
         let response = router
             .clone()
@@ -177,5 +172,14 @@ async fn web_frontend_index_and_assets_resolve_in_full_router() {
             to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
             expected.as_bytes()
         );
+    }
+    for path in ["/web", "/web/", "/web/assets/app.js"] {
+        let response = router
+            .clone()
+            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
     }
 }

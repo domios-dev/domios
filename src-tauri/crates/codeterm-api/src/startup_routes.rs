@@ -64,7 +64,9 @@ pub fn router(
 }
 
 fn desktop_routes(desktop: Desktop, dist: Option<PathBuf>) -> Router {
-    let router = desktop_api(desktop);
+    let router = desktop_api(desktop)
+        .route("/web", get(crate::routes::legacy_web_route_gone))
+        .route("/web/{*path}", get(crate::routes::legacy_web_route_gone));
     if let Some(dist) = dist {
         router
             .merge(crate::routes::bundled_frontend_routes(&dist))
