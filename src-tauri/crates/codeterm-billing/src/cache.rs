@@ -10,7 +10,7 @@ use std::{
         atomic::{AtomicU64, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, Default)]
@@ -47,6 +47,7 @@ pub enum RefreshEvent {
     Focus,
     Explicit,
     CheckoutReturned,
+    PlanChanged,
     /// The verdict reached `refresh_after` while the daemon ran.
     Deadline,
 }
@@ -55,7 +56,16 @@ struct Cache {
     uid: Option<String>,
     generation: u64,
     snapshot: Snapshot,
-    last_focus: Option<Instant>,
+    login_generation: Option<u64>,
+    login_floor: u64,
+    retired_login: Option<u64>,
+    refresh_flight: Option<tokio::sync::watch::Receiver<Option<Snapshot>>>,
+    refresh_queued: bool,
+    refresh_followup: bool,
+    refresh_attempted_at: Option<u64>,
+    retry_after: u64,
+    error_revision: u64,
+    reads: [reads::PlanRead; 2],
     checkout_pending: bool,
     checkout_event_pending: bool,
     observed: bool,
@@ -188,7 +198,9 @@ impl Billing {
     pub fn prime(&self, session: &codeterm_account::Session) -> Option<u64> {
         let generation = {
             let mut cache = self.cache.lock();
-            self.bind(&mut cache, Some(session));
+            if !self.bind(&mut cache, Some(session)) {
+                return None;
+            }
             cache.generation
         };
         let grants = self.grants.as_ref()?;
@@ -213,9 +225,21 @@ impl Billing {
         self
     }
     // Identity changes can remove the grant file; callers must keep this off the async runtime.
-    fn bind(&self, cache: &mut Cache, session: Option<&codeterm_account::Session>) {
+    fn bind(&self, cache: &mut Cache, session: Option<&codeterm_account::Session>) -> bool {
+        if session.is_some_and(|session| {
+            session.login_generation < cache.login_floor
+                || cache.retired_login.is_some_and(|retired| session.login_generation <= retired)
+        }) {
+            return false;
+        }
+        if let Some(session) = session {
+            cache.login_floor = cache.login_floor.max(session.login_generation);
+        } else if let Some(generation) = cache.login_generation {
+            cache.retired_login = Some(generation);
+        }
         let uid = session.map(|s| s.identity.uid.clone());
-        if cache.uid != uid {
+        let login_generation = session.map(|session| session.login_generation);
+        if cache.uid != uid || cache.login_generation != login_generation {
             if cache.uid.is_some() {
                 if let Some(grants) = &self.grants {
                     if let Err(error) = grants.store.clear() {
@@ -236,17 +260,42 @@ impl Billing {
             cache.uid = uid;
             cache.generation += 1;
             cache.snapshot = Snapshot::default();
-            cache.last_focus = None;
+            cache.login_generation = login_generation;
+            cache.refresh_flight = None;
+            cache.refresh_queued = false;
+            cache.refresh_followup = false;
+            cache.refresh_attempted_at = None;
+            cache.retry_after = 0;
+            cache.error_revision = 0;
+            cache.reads = Default::default();
             cache.checkout_pending = false;
             cache.checkout_event_pending = false;
             cache.observed = false;
             cache.neighbors_free = false;
             self.rearm.notify_one();
         }
+        true
+    }
+    pub fn binding_generation(&self) -> u64 {
+        self.cache.lock().generation
+    }
+    pub fn snapshot_if_current(
+        &self,
+        session: Option<&codeterm_account::Session>,
+        expected_generation: u64,
+    ) -> Snapshot {
+        let mut cache = self.cache.lock();
+        if cache.generation != expected_generation {
+            return self.recompute(&cache);
+        }
+        if !self.bind(&mut cache, session) { return Snapshot::default(); }
+        self.recompute(&cache)
     }
     pub fn snapshot(&self, session: Option<&codeterm_account::Session>) -> Snapshot {
         let mut cache = self.cache.lock();
-        self.bind(&mut cache, session);
+        if !self.bind(&mut cache, session) {
+            return Snapshot::default();
+        }
         self.recompute(&cache)
     }
     /// Limits bind through the verified verdict, or compiled free without one. Checking defers
@@ -298,25 +347,15 @@ impl Billing {
                 .access
                 .is_some_and(|access| access.authority != Authority::Free)
     }
-    pub async fn refresh(
+    async fn fetch_refresh(
         &self,
         session: Option<&codeterm_account::Session>,
-        event: RefreshEvent,
-        now: Instant,
+        generation: u64,
     ) -> Snapshot {
-        let worker = self.clone();
-        let owned_session = session.cloned();
-        let generation = tokio::task::spawn_blocking(move || {
-            worker.begin_refresh(owned_session.as_ref(), event, now)
-        })
-        .await;
-        let generation = match generation {
-            Ok(Ok(generation)) => generation,
-            Ok(Err(snapshot)) => return snapshot,
-            Err(error) => {
-                log::debug!("Grant cache task failed: {error}");
-                return self.snapshot(session);
-            }
+        let error_revision = {
+            let cache = self.cache.lock();
+            if cache.generation != generation { return Snapshot::default(); }
+            cache.error_revision
         };
         let mut result = match session {
             Some(session) => self.provider.entitlements(session).await,
@@ -371,7 +410,7 @@ impl Billing {
         let worker = self.clone();
         let owned_session = session.cloned();
         match tokio::task::spawn_blocking(move || {
-            worker.finish_refresh(owned_session.as_ref(), generation, result)
+            worker.finish_refresh(owned_session.as_ref(), generation, error_revision, result)
         })
         .await
         {
@@ -381,47 +420,6 @@ impl Billing {
                 self.snapshot(session)
             }
         }
-    }
-    fn begin_refresh(
-        &self,
-        session: Option<&codeterm_account::Session>,
-        event: RefreshEvent,
-        now: Instant,
-    ) -> std::result::Result<u64, Snapshot> {
-        let mut cache = self.cache.lock();
-        self.bind(&mut cache, session);
-        if session.is_none() {
-            return Err(self.recompute(&cache));
-        }
-        if event == RefreshEvent::Focus
-            && !cache.checkout_pending
-            && !cache.checkout_event_pending
-            && (cache
-                .verified
-                .as_ref()
-                .is_some_and(|grant| grant.verdict(self.now()).state == TimeState::Fresh)
-                || cache.last_focus.is_some_and(|last| {
-                    now.saturating_duration_since(last) < Duration::from_secs(60)
-                }))
-        {
-            return Err(self.recompute(&cache));
-        }
-        cache.last_focus = Some(now);
-        let returned = cache.checkout_event_pending
-            && matches!(event, RefreshEvent::Focus | RefreshEvent::CheckoutReturned);
-        if returned {
-            cache.checkout_event_pending = false;
-        }
-        cache.checkout_pending = false;
-        cache.generation += 1;
-        let generation = cache.generation;
-        drop(cache);
-        if returned {
-            if let Some(observer) = &self.observer {
-                observer(ProductEvent::CheckoutReturned);
-            }
-        }
-        Ok(generation)
     }
     fn load_grant(
         &self,
@@ -483,6 +481,7 @@ impl Billing {
         &self,
         session: Option<&codeterm_account::Session>,
         generation: u64,
+        error_revision: u64,
         result: Result<Reading>,
     ) -> Snapshot {
         let mut cache = self.cache.lock();
@@ -490,6 +489,13 @@ impl Billing {
         let observed = cache.observed;
         let mut refreshed = false;
         if cache.generation == generation {
+            if result.is_err() {
+                cache.error_revision += 1;
+                cache.retry_after = self.now().saturating_add(60);
+            } else if cache.error_revision == error_revision {
+                cache.retry_after = 0;
+                cache.reads[1].recovered();
+            }
             if let Ok(reading) = &result {
                 cache.checking_until = None;
                 if let (Some(grants), Some(session)) = (&self.grants, session) {
@@ -592,6 +598,9 @@ impl Billing {
             }
         }
         let snapshot = self.recompute(&cache);
+        if refreshed && observed && previous != snapshot.entitlements {
+            cache.reads[1].invalidate();
+        }
         if refreshed {
             cache.snapshot.entitlements.plan = snapshot.entitlements.plan.clone();
         }
@@ -621,16 +630,27 @@ impl Billing {
     pub async fn portal_url(&self, session: &codeterm_account::Session) -> Result<url::Url> {
         self.provider.portal_url(session).await
     }
-    pub async fn plan_operation(
+    pub fn browser_return_event(
         &self,
         session: &codeterm_account::Session,
-        operation: PlanOperation,
-    ) -> Result<serde_json::Value> {
-        self.provider.plan_operation(session, operation).await
+        event: RefreshEvent,
+    ) -> RefreshEvent {
+        let mut cache = self.cache.lock();
+        if event == RefreshEvent::Focus
+            && cache.uid.as_ref() == Some(&session.identity.uid)
+            && cache.login_generation == Some(session.login_generation)
+            && cache.checkout_pending
+        {
+            cache.checkout_pending = false;
+            RefreshEvent::CheckoutReturned
+        } else { event }
     }
+
     pub fn checkout_browser_opened(&self, session: &codeterm_account::Session, plan: Plan) {
         let mut cache = self.cache.lock();
-        self.bind(&mut cache, Some(session));
+        if !self.bind(&mut cache, Some(session)) {
+            return;
+        }
         cache.checkout_pending = true;
         cache.checkout_event_pending = true;
         drop(cache);
@@ -640,10 +660,17 @@ impl Billing {
     }
     pub fn browser_opened(&self, session: &codeterm_account::Session) {
         let mut cache = self.cache.lock();
-        self.bind(&mut cache, Some(session));
+        if !self.bind(&mut cache, Some(session)) {
+            return;
+        }
         cache.checkout_pending = true;
     }
 }
 
 mod deadlines;
+mod refresh;
+mod reads;
 pub use deadlines::DeadlineTick;
+
+#[cfg(test)]
+mod tests;

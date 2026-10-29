@@ -79,7 +79,7 @@ export function scheduledPlanCopy(value: SubscriptionReadback, formatDate: (seco
   return `${tierName(value.current_tier)} until ${date}, ${tierName(pending.to_tier)} from ${date}`;
 }
 
-export async function billingOperation(operation: "catalog" | "subscription" | "change", priceId?: string, signal?: AbortSignal): Promise<unknown> {
+export async function billingOperation(operation: "catalog" | "subscription" | "refresh_catalog" | "refresh_subscription" | "change", priceId?: string, signal?: AbortSignal): Promise<unknown> {
   const response = await localFetch("/api/account/billing", { method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ operation, ...(priceId ? { price_id: priceId } : {}) }), signal });
   if (!response.ok) throw new Error(await response.text());

@@ -7,7 +7,7 @@ export class SharedRead<T> {
   private revision = 0;
   private readonly listeners = new Set<(value: T) => void>();
 
-  constructor(private readonly now = () => Date.now()) {}
+  constructor(private readonly now = () => Date.now(), private readonly cacheMs = 60_000) {}
 
   subscribe(listener: (value: T) => void) {
     this.listeners.add(listener);
@@ -30,7 +30,7 @@ export class SharedRead<T> {
       }
       return this.flight;
     }
-    if (!force && this.now() - this.attemptedAt < 60_000) {
+    if (!force && this.now() - this.attemptedAt < this.cacheMs) {
       return this.failure === undefined ? Promise.resolve(this.value!) : Promise.reject(this.failure);
     }
     let complete!: (value: T) => void;
