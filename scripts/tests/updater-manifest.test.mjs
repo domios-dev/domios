@@ -103,12 +103,13 @@ function minisignKeypair() {
       raw,
     ]).toString("base64")}\n`,
   ).toString("base64");
-  const signatureFor = (content) => {
+  const signatureFor = (content, comment = 'timestamp:1 file:fixture version:9.9.9') => {
     const digest = createHash("blake2b512").update(content).digest();
     const signature = edSign(null, digest, privateKey);
     const payload = Buffer.concat([Buffer.from("ED"), keyId, signature]).toString("base64");
+    const commentSignature = edSign(null, Buffer.concat([signature, Buffer.from(comment)]), privateKey).toString("base64");
     return Buffer.from(
-      `untrusted comment: signature from test key\n${payload}\ntrusted comment: test\nAAAA\n`,
+      `untrusted comment: signature from test key\n${payload}\ntrusted comment: ${comment}\n${commentSignature}\n`,
     ).toString("base64");
   };
   return { pubkeyField, signatureFor };
@@ -251,7 +252,7 @@ test("verification refuses a manifest belonging to a different release", () => {
         platforms: {
           "darwin-aarch64": {
             url: "https://github.com/rollacode/codeterm-releases/releases/download/v9.9.8/Domios_aarch64.app.tar.gz",
-            signature: signatureFor(readFileSync(artifact)),
+            signature: signatureFor(readFileSync(artifact), 'timestamp:1 file:fixture version:9.9.8'),
           },
         },
       }),
@@ -418,3 +419,71 @@ foreignOriginCase(
   "a version segment outside the release download path is not provenance",
   "https://github.com/rollacode/codeterm-releases/raw/v9.9.9/Domios_aarch64.app.tar.gz",
 );
+
+test("every platform binds its authenticated comment to the manifest version, including unselected platforms", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const names = ['darwin-aarch64', 'darwin-x86_64', 'linux-aarch64', 'linux-x86_64', 'windows-aarch64', 'windows-x86_64'];
+    const platforms = {};
+    const bytes = Buffer.from('platform archive fixture');
+    for (const name of names) {
+      const filename = name === 'darwin-aarch64' ? 'Domios_aarch64.app.tar.gz'
+        : name === 'darwin-x86_64' ? 'Domios_x64.app.tar.gz' : `${name}.bin`;
+      writeFileSync(path.join(dir, filename), bytes);
+      platforms[name] = { url: `https://example.invalid/${filename}`, signature: signatureFor(bytes) };
+    }
+    const manifest = path.join(dir, 'latest.json');
+    const save = () => writeFileSync(manifest, JSON.stringify({version: '9.9.9', platforms}));
+    save();
+    const valid = verify(dir, manifest, pubkeyField);
+    assert.equal(valid.code, 0, valid.stdout);
+    assert.match(valid.stdout, /all 6 platform signature\(s\) verify/);
+    for (const name of names) {
+      const original = platforms[name].signature;
+      platforms[name].signature = signatureFor(bytes, 'timestamp:1 file:fixture version:9.9.8');
+      save();
+      const result = verify(dir, manifest, pubkeyField, ['--platform', 'darwin-aarch64']);
+      assert.equal(result.code, 1, `${name}: ${result.stdout}`);
+      assert.ok(result.stdout.includes(`${name}: trusted comment must bind exactly version:9.9.9`), result.stdout);
+      platforms[name].signature = original;
+    }
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});
+
+test("missing, prefix-matching and duplicate version bindings refuse valid archive signatures", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const bytes = Buffer.from('archive fixture');
+    writeFileSync(path.join(dir, 'fixture.bin'), bytes);
+    const manifest = path.join(dir, 'latest.json');
+    for (const comment of ['timestamp:1 file:fixture', 'version:9.9.90',
+      'version:9.9.9 version:9.9.8', 'version:9.9.9 version:9.9.9']) {
+      writeFileSync(manifest, JSON.stringify({version: '9.9.9', platforms: {
+        'windows-x86_64': {url: 'https://example.invalid/fixture.bin', signature: signatureFor(bytes, comment)},
+      }}));
+      const result = verify(dir, manifest, pubkeyField);
+      assert.equal(result.code, 1, result.stdout);
+      assert.match(result.stdout, /trusted comment must bind exactly version:9\.9\.9/);
+    }
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});
+
+test("rewriting a trusted version without signing the comment again is refused", () => {
+  const dir = scratch();
+  try {
+    const { pubkeyField, signatureFor } = minisignKeypair();
+    const bytes = Buffer.from('archive fixture');
+    writeFileSync(path.join(dir, 'fixture.bin'), bytes);
+    const signed = Buffer.from(signatureFor(bytes, 'version:9.9.8'), 'base64').toString('utf8');
+    const forged = Buffer.from(signed.replace('version:9.9.8', 'version:9.9.9')).toString('base64');
+    const manifest = path.join(dir, 'latest.json');
+    writeFileSync(manifest, JSON.stringify({version: '9.9.9', platforms: {
+      'windows-x86_64': {url: 'https://example.invalid/fixture.bin', signature: forged},
+    }}));
+    const result = verify(dir, manifest, pubkeyField);
+    assert.equal(result.code, 1, result.stdout);
+    assert.match(result.stdout, /trusted comment signature does not verify/);
+  } finally { rmSync(dir, {recursive: true, force: true}); }
+});

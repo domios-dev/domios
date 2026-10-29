@@ -1,10 +1,13 @@
 import type { NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
 import { materializeToolEvent } from "@codeterm/chat-core";
+import { useState } from "react";
+import { retainStreamedCommandShell } from "./toolPresentationState";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import type { OpenPlan, ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { AgentActivityCard } from "./toolcard/AgentActivityCard";
-import { CodetermActionCard } from "./toolcard/CodetermActionCard";
+import { CodetermActionCard, CodetermSentContent } from "./toolcard/CodetermActionCard";
+import { isSend } from "./codeterm/templates";
 import { CommandCard } from "./toolcard/CommandCard";
 import { CommandGroupCard } from "./toolcard/CommandGroupCard";
 import { EditCard } from "./toolcard/EditCard";
@@ -15,6 +18,7 @@ import { ReadCard } from "./toolcard/ReadCard";
 import { RichResultCard } from "./toolcard/RichResultCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
+import { StreamedCommandDetail } from "./toolcard/StreamedCommandDetail";
 import { ToolActivityStream, type RenderStreamAction } from "./toolcard/ToolActivityStream";
 
 type PlanFocusKind = "plan" | "task" | "section";
@@ -34,7 +38,24 @@ interface ToolCallBubbleProps {
   openDiffs?: boolean;
 }
 
-export function ToolCallBubble({
+export function ToolCallBubble(props: ToolCallBubbleProps) {
+  const event = props.event ?? (props.message ? materializeToolEvent(props.message) : null);
+  const [retainCommandShell] = useState(() => event ? retainStreamedCommandShell(event) : false);
+  if (!event) return null;
+  if (retainCommandShell && event.kind === "command" && !event.stream && !event.commandBatch) {
+    const navigation = { resolveTabName: props.resolveTabName, resolvePeerName: props.resolvePeerName,
+      onFocusTab: props.onFocusTab, onOpenPlan: props.onOpenPlan, resolvePlanRef: props.resolvePlanRef, fontScale: props.fontScale };
+    const shape = toolCommandShape(event);
+    const primaryContent = shape.kind === "codeterm" && isSend(shape.invocation)
+      ? <CodetermSentContent event={event} invocation={shape.invocation} {...navigation} /> : undefined;
+    return <CommandCard event={event} expanded={props.expanded} onToggle={() => props.onToggle(!props.expanded)} primaryContent={primaryContent}>
+      {props.expanded ? <StreamedCommandDetail event={event} {...navigation} /> : undefined}
+    </CommandCard>;
+  }
+  return <ToolCallBubbleContent {...props} event={event} />;
+}
+
+function ToolCallBubbleContent({
   event: suppliedEvent,
   message,
   expanded,

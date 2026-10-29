@@ -88,10 +88,16 @@ impl ServiceContext {
             HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
                 .map_err(|_| "unavailable")?;
         let body = match transport
-            .call(
+            .call_for_account(
+                &session.identity.uid,
                 "redeemGiftKey",
                 session.id_token.expose(),
                 json!({"key": request.key}),
+                &super::account::callable_admission::SessionGuard {
+                    service: self,
+                    expected: &session,
+                    neighbors: false,
+                },
             )
             .await
         {
@@ -104,13 +110,14 @@ impl ServiceContext {
                 }
                 return Err(refusal(&body).into());
             }
+            Err(CallableFailure::Retired) => return Err("account_changed".into()),
             Err(_) => return Err("unavailable".into()),
         };
         if !same_session(account.session().await.as_ref(), &session) {
             return Err("account_changed".into());
         }
         let result = receipt(body.get("result").cloned().ok_or("invalid_response")?)?;
-        self.refresh_billing(codeterm_billing::RefreshEvent::Explicit)
+        self.refresh_billing(codeterm_billing::RefreshEvent::PlanChanged)
             .await
             .map_err(|_| "refresh_unavailable")?;
         if !same_session(account.session().await.as_ref(), &session) {

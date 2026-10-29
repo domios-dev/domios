@@ -127,3 +127,23 @@ it("ignores deferred friend publication older than a newer invalidation", async 
   expect(seen).toBeNull();
   expect(runtime.status).toHaveBeenCalledTimes(1);
 });
+
+it("shares receiver status on open across concurrent consumers", async () => {
+  const pending = deferred<ChannelStatus>();
+  const { runtime } = client(pending.promise);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: Array<boolean | null> = [];
+  const Probe = () => {
+    seen = [useReceiverState(runtime, true)?.receiving_here ?? null,
+      useReceiverState(runtime, true)?.receiving_here ?? null,
+      useReceiverState(runtime, true)?.receiving_here ?? null];
+    return null;
+  };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  expect(runtime.status).toHaveBeenCalledTimes(1);
+  await act(async () => pending.resolve(status(true, 1)));
+  expect(runtime.status).toHaveBeenCalledTimes(1);
+  expect(seen).toEqual([true, true, true]);
+});

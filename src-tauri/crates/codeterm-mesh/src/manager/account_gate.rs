@@ -45,6 +45,9 @@ impl MeshManager {
         if matches!(state.presence, AccountPresence::SignedOut) {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
         }
+        if state.signed_in_account() != self.account.signed_in_account() {
+            self.registry_revision = None;
+        }
         self.account = state;
         self.account_ready = true;
         if bound {
@@ -245,7 +248,12 @@ impl MeshManager {
                     instance_id: peer.instance_id.clone(),
                     installation_id: record.installation_id().map(str::to_string),
                     admission: record.admission.label().to_string(),
-                    online: peer.online,
+                    online: peer.online
+                        && !record.installation_id().is_some_and(|installation| {
+                            self.account
+                                .unavailable_installations
+                                .contains(installation)
+                        }),
                     name: peer.instance_name.clone(),
                 })
             })

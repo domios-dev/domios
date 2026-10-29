@@ -113,6 +113,7 @@ impl ServiceContext {
     /// or belongs to an earlier launch. A proof no live agent stands behind
     /// must never outrank an honest spawn failure.
     pub(crate) fn void_launch_session_proof(&self, tab_id: &str) {
+        self.retire_launch_credential_file(tab_id);
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.reported_session_binding_nonce = None;
         }

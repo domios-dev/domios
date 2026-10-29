@@ -53,7 +53,7 @@ const daemon = vi.hoisted(() => {
     }
     if (path.endsWith("/billing")) {
       const operation = JSON.parse(String(init?.body)).operation;
-      if (operation === "catalog") return state.catalogUnavailable ? { ok: false, text: async () => "unavailable" } : ok(desktopCatalogFixture);
+      if (operation === "catalog" || operation === "refresh_catalog") return state.catalogUnavailable ? { ok: false, text: async () => "unavailable" } : ok(desktopCatalogFixture);
       if (state.subscriptionUnavailable) return { ok: false, text: async () => "unavailable" };
       const paid = state.paidPlan === undefined ? state.account.plan === "free" ? null : state.account.plan : state.paidPlan;
       return ok({ current_tier: state.account.plan, period_end: 1700604800, pending_change: null, billing_interval: paid ? "year" : null,
@@ -275,7 +275,8 @@ it("does not offer checkout when actual subscription status could not be verifie
     const choose = button(card(name), `Choose ${name}`);
     expect(choose === undefined || choose.disabled).toBe(true);
   }
-  expect(planFailure()).not.toBeNull();
+  expect(planFailure()).toBeNull();
+  expect(host.textContent).toContain("Verifying your subscription status");
   expect(daemon.state.upgrades).toEqual([]);
   daemon.state.subscriptionUnavailable = false;
   await click(host, "Refresh plan offers");
@@ -303,12 +304,10 @@ it("does not apply a previous account's late checkout refusal to the next accoun
 it("does not substitute built-in prices when a signed-in account's catalog is unavailable", async () => {
   daemon.state.identity = { uid: "invited-user", display_name: "Ada", email: "ada@example.test", provider: "fake" };
   daemon.state.catalogUnavailable = true;
-  // The catalog read is shared for a minute; step past it so this mount really asks and really fails.
-  vi.setSystemTime(Date.now() + 61_000);
   await mount();
-  vi.useRealTimers();
   expect(host.querySelector('[role="group"][aria-label="Subscription plans"]')).toBeNull();
-  expect(planFailure()).not.toBeNull();
+  expect(planFailure()).toBeNull();
+  expect(host.textContent).toContain("Refresh plan offers to choose a subscription.");
   expect(daemon.state.upgrades).toEqual([]);
   daemon.state.catalogUnavailable = false;
   await click(host, "Refresh plan offers");

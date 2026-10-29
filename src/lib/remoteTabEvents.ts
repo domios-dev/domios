@@ -93,7 +93,7 @@ function connect(record: SubscriptionRecord): void {
             record.handler({ payload: { event_type: message.event_type, peer_id: record.peerId } });
         }
     }, {
-        signal: controller.signal, raw: true, onActivity: () => deadline.arm(),
+        signal: controller.signal, raw: true, onStarting: () => deadline.clear(), onReady: () => deadline.arm(), onActivity: () => deadline.arm(),
         onEnd(end) {
             const reason: StreamEndReason = end.reason === "http" ? streamResponseFailureReason(end.status ?? 500)
                 : end.reason === "eof" ? "eof" : "error";

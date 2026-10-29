@@ -36,6 +36,11 @@
   },
   {
     "method": "GET",
+    "path": "/web/",
+    "reason": "Retired web URL returns 404; the current web interface is the daemon root fallback."
+  },
+  {
+    "method": "GET",
     "path": "/web/{*path}",
     "reason": "Retired web URL returns 404; the current web interface is the daemon root fallback."
   },

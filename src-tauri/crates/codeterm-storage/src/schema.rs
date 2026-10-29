@@ -17,7 +17,7 @@ mod tab_todo;
 /// `PRAGMA application_id` of every Storage database ("CTST").
 pub(crate) const APPLICATION_ID: i32 = 0x4354_5354;
 
-/// Index `n` upgrades schema `n` to `n + 1`; follow-up domain migrations append here.
+// Slot count retains the persisted 1.17 schema identity; only fresh databases execute these statements.
 const MIGRATIONS: &[&str] = &[
     SCHEMA_V1,
     cron::SCHEMA,
@@ -28,7 +28,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE sentinel_runtime ADD COLUMN run_transitions INTEGER NOT NULL DEFAULT 0 CHECK (run_transitions >= 0);",
     "ALTER TABLE sentinel_buckets ADD COLUMN rearm_on_change INTEGER NOT NULL DEFAULT 0 CHECK (rearm_on_change IN (0, 1));",
     // The source pair lands in one rebuild; later source kinds need no schema change.
-    sentinel::SOURCE_SCHEMA,
+    "",
     sentinel::PIPELINE_SCHEMA,
     "ALTER TABLE sentinel_transitions ADD COLUMN decision_json TEXT CHECK (decision_json IS NULL OR length(decision_json) <= 4096);",
     "ALTER TABLE sentinel_runtime ADD COLUMN causal_run_json TEXT CHECK (causal_run_json IS NULL OR length(causal_run_json) <= 4096);
@@ -141,13 +141,10 @@ pub(crate) fn open_writer(
         ensure_fresh(layout, root)?;
         initialize(layout)?;
     }
-    let mut conn = open_existing(&layout.database, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-    let version = validate_identity(&conn)?;
+    let conn = open_existing(&layout.database, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    validate_identity(&conn)?;
     check_integrity(&conn)?;
     let settings = configure(&conn, true, busy_timeout)?;
-    if version < SCHEMA_VERSION {
-        migrate(&mut conn, version)?;
-    }
     read_meta(&conn, COMMIT_REVISION)?;
     Ok((conn, settings))
 }
@@ -204,7 +201,7 @@ fn initialize(layout: &Layout) -> Result<(), StorageError> {
             .map_err(|e| sqlite_error("configure staging", e))?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|e| sqlite_error("configure staging", e))?;
-        migrate(&mut conn, 0)?;
+        initialize_schema(&mut conn)?;
         let mode: String = conn
             .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))
             .map_err(|e| sqlite_error("enable wal", e))?;
@@ -233,11 +230,11 @@ fn suffixed(path: &Path, suffix: &str) -> std::path::PathBuf {
     text.into()
 }
 
-/// Refuses foreign, empty and newer databases; returns the schema version.
+/// Accepts only this application and the schema shipped in 1.17.
 pub(crate) fn validate_identity(conn: &Connection) -> Result<i32, StorageError> {
     let application_id: i32 = pragma_value(conn, "application_id")?;
     let version: i32 = pragma_value(conn, "user_version")?;
-    if application_id != APPLICATION_ID || version <= 0 || version > SCHEMA_VERSION {
+    if application_id != APPLICATION_ID || version != SCHEMA_VERSION {
         return Err(StorageError::Incompatible {
             application_id,
             schema_version: version,
@@ -257,46 +254,39 @@ pub(crate) fn check_integrity(conn: &Connection) -> Result<(), StorageError> {
     Ok(())
 }
 
-fn migrate(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
+fn initialize_schema(conn: &mut Connection) -> Result<(), StorageError> {
     conn.pragma_update(None, "foreign_keys", "OFF")
-        .map_err(|e| sqlite_error("suspend migration foreign keys", e))?;
-    let result = migrate_transaction(conn, from);
+        .map_err(|e| sqlite_error("suspend initialization foreign keys", e))?;
+    let result = initialize_schema_transaction(conn);
     conn.pragma_update(None, "foreign_keys", "ON")
-        .map_err(|e| sqlite_error("restore migration foreign keys", e))?;
+        .map_err(|e| sqlite_error("restore initialization foreign keys", e))?;
     result
 }
 
-fn migrate_transaction(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
+fn initialize_schema_transaction(conn: &mut Connection) -> Result<(), StorageError> {
     let tx = conn
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|e| sqlite_error("begin migration", e))?;
-    for step in MIGRATIONS.iter().skip(from as usize) {
-        if *step == sentinel::GRAPH_SCHEMA {
-            sentinel::refuse_stored_stages(&tx)?;
-        }
-        if *step == sentinel::SOURCE_SCHEMA && sentinel::definitions_carry_source_pair(&tx)? {
-            continue;
-        }
+        .map_err(|e| sqlite_error("begin schema initialization", e))?;
+    for step in MIGRATIONS {
         tx.execute_batch(step)
-            .map_err(|e| sqlite_error("apply migration", e))?;
+            .map_err(|e| sqlite_error("initialize schema", e))?;
     }
-    if from == 0 {
-        tx.pragma_update(None, "application_id", APPLICATION_ID)
-            .map_err(|e| sqlite_error("stamp application id", e))?;
-    }
+    tx.pragma_update(None, "application_id", APPLICATION_ID)
+        .map_err(|e| sqlite_error("stamp application id", e))?;
     tx.pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(|e| sqlite_error("stamp schema version", e))?;
     let violations: i64 = tx
         .query_row("SELECT COUNT(*) FROM pragma_foreign_key_check", [], |row| {
             row.get(0)
         })
-        .map_err(|e| sqlite_error("verify migration foreign keys", e))?;
+        .map_err(|e| sqlite_error("verify schema foreign keys", e))?;
     if violations != 0 {
         return Err(StorageError::Corrupt {
-            detail: "migration violates foreign keys".into(),
+            detail: "schema initialization violates foreign keys".into(),
         });
     }
-    tx.commit().map_err(|e| sqlite_error("commit migration", e))
+    tx.commit()
+        .map_err(|e| sqlite_error("commit schema initialization", e))
 }
 
 fn configure(

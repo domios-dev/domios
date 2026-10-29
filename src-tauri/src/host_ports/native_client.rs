@@ -82,7 +82,7 @@ fn map_shell_result<T>(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NativeClientStatus {
     Attached,
-    NativeHostUnavailable,
+    NativeHostUnavailable { message: String, retryable: bool },
 }
 
 pub(crate) struct NativeClientInitialization {
@@ -289,10 +289,12 @@ pub(crate) async fn initialize_client(
 pub(crate) async fn retry_initialize_client(
     app: AppHandle,
 ) -> Result<NativeClientInitialization, ClientStartupFailure> {
-    let gate = app
+    let Some(gate) = app
         .try_state::<NativeClientInitializationGate>()
         .map(|state| state.inner().clone())
-        .ok_or_else(|| "Verified native client installation inputs are unavailable".to_string())?;
+    else {
+        return crate::run::retry_client_installation(app).await;
+    };
     let _permit = gate
         .acquire()
         .ok_or_else(|| "Native client initialization is already active".to_string())?;
@@ -372,10 +374,22 @@ async fn initialize_client_once(
         Err(error) => {
             startup_refused(ClientStartupStage::NativeEnrollment);
             log::debug!("[native-client] optional host attachment unavailable: {error}");
-            NativeClientStatus::NativeHostUnavailable
+            NativeClientStatus::NativeHostUnavailable {
+                message: error.message().into(),
+                retryable: error.retryable(),
+            }
         }
     };
 
+    #[cfg(target_os = "linux")]
+    if matches!(native, NativeClientStatus::Attached) {
+        let ready = reply.ready.clone();
+        tokio::task::spawn_blocking(move || {
+            codeterm_update::debian::handoff::acknowledge_start(&ready)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     Ok(NativeClientInitialization {
         ready: reply.ready,
         native,
@@ -388,7 +402,7 @@ async fn connect_native_host(
     ready: &ServerReady,
     allowed_view_origins: HashSet<String>,
     diagnostics_mode: crate::LocalWebviewDiagnosticsMode,
-) -> Result<(Arc<NativeHostClient>, Stream), String> {
+) -> Result<(Arc<NativeHostClient>, Stream), ClientStartupFailure> {
     let address = codeterm_types::native_host::native_host_socket_address(&ready.bootstrap_address)
         .ok_or_else(|| "Server native-host address is invalid".to_string())?;
     let name = address
@@ -396,8 +410,13 @@ async fn connect_native_host(
         .map_err(|error| error.to_string())?;
     let mut stream = timeout(REQUEST_DEADLINE, Stream::connect(name))
         .await
-        .map_err(|_| "Native-host socket connection deadline elapsed".to_string())?
-        .map_err(|error| error.to_string())?;
+        .map_err(|_| {
+            ClientStartupFailure::native_connection(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Native-host socket connection deadline elapsed",
+            ))
+        })?
+        .map_err(ClientStartupFailure::native_connection)?;
     let server_process =
         Arc::new(verify_native_peer(&stream, ready).map_err(|error| error.to_string())?);
 

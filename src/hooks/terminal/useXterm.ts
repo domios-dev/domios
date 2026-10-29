@@ -99,6 +99,8 @@ export function useXterm({
         screenReaderMode: E2E_TEST_MODE,
         ...terminalXtermOptions(viewerLocalGeometryRef.current, winBuildNumber),
       });
+      // Renderer status queries must not become input on a shared PTY.
+      term.parser.registerDcsHandler({ intermediates: "$", final: "q" }, () => true);
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);

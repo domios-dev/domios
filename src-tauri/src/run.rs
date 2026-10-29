@@ -56,6 +56,9 @@ pub fn run(
     }
 
     let builder = builder
+        .register_uri_scheme_protocol(startup::frontend_shell::initial_document::SCHEME, |_, _| {
+            startup::frontend_shell::initial_document::protocol_response()
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
@@ -80,6 +83,7 @@ pub fn run(
             crate::install_client_startup_options(&app_handle, startup_options)?;
             startup::frontend_shell_initialize(&app_handle)?;
             app.manage(startup::desktop_lifecycle::DesktopLifecycle::default());
+            startup::starting_window::show(&app_handle)?;
             crate::host_ports::update_pair::install(&app_handle);
             startup::build_system_tray(app)?;
             #[cfg(target_os = "macos")]
@@ -89,44 +93,9 @@ pub fn run(
             }
             #[cfg(unix)]
             install_client_signal_handlers(app_handle.clone());
-            let root = client_resource_root(&app_handle).inspect_err(|error| {
-                crate::host_ports::native_client::startup_io_error(
-                    crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
-                    error,
-                );
-                crate::host_ports::native_client::startup_refused(
-                    crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
-                );
-            })?;
             let instance = selector.clone();
             tauri::async_runtime::spawn(async move {
-                let inputs = tokio::task::spawn_blocking(move || {
-                    crate::host_ports::native_client::startup_started(
-                        crate::host_ports::native_client::ClientStartupStage::Inventory,
-                    );
-                    load_client_components(root, instance).inspect_err(|error| {
-                        crate::host_ports::native_client::startup_io_error(
-                            crate::host_ports::native_client::ClientStartupStage::Inventory,
-                            error,
-                        );
-                    })
-                })
-                .await;
-                let result = match inputs {
-                    Ok(Ok((manifest, resources, options))) => {
-                        crate::host_ports::native_client::initialize_client(
-                            app_handle.clone(),
-                            manifest,
-                            resources,
-                            options,
-                        )
-                        .await
-                    }
-                    Ok(Err(error)) => {
-                        Err(format!("Installed client resources refused: {error}").into())
-                    }
-                    Err(_) => Err("Installed client resource verification was interrupted".into()),
-                };
+                let result = initialize_client_installation(app_handle.clone(), instance).await;
                 match result {
                     Ok(attached) => {
                         log::debug!(
@@ -155,7 +124,12 @@ pub fn run(
                                     crate::host_ports::native_client::ClientStartupStage::Frontend,
                                 );
                                 log::error!("[client] frontend initialization refused: {error}");
-                                handle.exit(1);
+                                if let Some(window) = handle.get_webview_window("starting") {
+                                    startup::frontend_shell::show_start_failure(
+                                        &window,
+                                        &error.to_string(),
+                                    );
+                                }
                                 return;
                             }
                             #[cfg(debug_assertions)]
@@ -167,7 +141,12 @@ pub fn run(
                                 crate::host_ports::native_client::ClientStartupStage::Frontend,
                             );
                             log::error!("[client] frontend scheduling refused: {error}");
-                            app_handle.exit(1);
+                            if let Some(window) = app_handle.get_webview_window("starting") {
+                                startup::frontend_shell::show_start_failure(
+                                    &window,
+                                    &error.to_string(),
+                                );
+                            }
                         }
                     }
                     Err(error) => {
@@ -177,13 +156,10 @@ pub fn run(
                         log::error!("[client] server attachment refused: {error}");
                         let handle = app_handle.clone();
                         if let Err(error) = app_handle.run_on_main_thread(move || {
-                            if let Err(refusal) =
-                                startup::desktop_lifecycle::show_or_create(&handle)
+                            if let Some(window) = handle
+                                .get_webview_window("starting")
+                                .or_else(|| handle.get_webview_window("main"))
                             {
-                                log::error!("[client] unavailable frontend refused: {refusal}");
-                            }
-                            // Nothing else replaces the starting page, so the first failure must name its cause.
-                            if let Some(window) = handle.get_webview_window("main") {
                                 startup::frontend_shell::show_start_failure(
                                     &window,
                                     error.message(),
@@ -306,9 +282,6 @@ pub(crate) fn request_client_quit_exact(
                 client_generation,
             } => {
                 log::debug!("[client] exact server exit observed; epoch={} client_generation={client_generation}", server.epoch);
-                if !crash::exit::confirm_client_exit(ticket) {
-                    return;
-                }
             }
             ExactServerShutdownResult::RefusedBeforeDispatch(reason) => {
                 crash::exit::refuse_client_exit_before_dispatch(ticket);
@@ -319,11 +292,16 @@ pub(crate) fn request_client_quit_exact(
                 log::debug!("[client] exact server exit remains uncertain: {reason:?}");
             }
         }
-        match quit_plan::plan_quit_result(origin, quit_plan::classify_shutdown(&result)) {
-            QuitResolution::ExitClient => app.exit(0),
-            QuitResolution::CloseClientOnly => close_client_only(&app),
-            QuitResolution::Feedback(feedback) => show_quit_feedback(&app, feedback),
-        }
+        quit_plan::finish_quit(
+            origin,
+            &result,
+            || crash::exit::confirm_client_exit(ticket),
+            |resolution| match resolution {
+                QuitResolution::ExitClient => app.exit(0),
+                QuitResolution::CloseClientOnly => close_client_only(&app),
+                QuitResolution::Feedback(feedback) => show_quit_feedback(&app, feedback),
+            },
+        );
     });
     Ok(())
 }
@@ -472,9 +450,50 @@ fn start_attached_frontend(
     Ok(())
 }
 
+pub(crate) async fn initialize_client_installation(
+    app: codeterm_client_shell::app_runtime::AppHandle,
+    instance: InstanceSelector,
+) -> Result<
+    crate::host_ports::native_client::NativeClientInitialization,
+    crate::host_ports::native_client::ClientStartupFailure,
+> {
+    let root = client_resource_root(&app).map_err(|error| {
+        crate::host_ports::native_client::startup_io_error(
+            crate::host_ports::native_client::ClientStartupStage::ResourceRoot,
+            &error,
+        );
+        format!("Installed client resource directory unavailable: {error}")
+    })?;
+    let inputs = tokio::task::spawn_blocking(move || {
+        crate::host_ports::native_client::startup_started(
+            crate::host_ports::native_client::ClientStartupStage::Inventory,
+        );
+        load_client_components(root, instance)
+    })
+    .await
+    .map_err(|_| "Installed client resource verification was interrupted".to_string())?
+    .map_err(|error| format!("Installed client resources refused: {error}"))?;
+    let (manifest, resources, options) = inputs;
+    crate::host_ports::native_client::initialize_client(app, manifest, resources, options).await
+}
+
+pub(crate) async fn retry_client_installation(
+    app: codeterm_client_shell::app_runtime::AppHandle,
+) -> Result<
+    crate::host_ports::native_client::NativeClientInitialization,
+    crate::host_ports::native_client::ClientStartupFailure,
+> {
+    let instance = client_instance_selector().map_err(|error| error.to_string())?;
+    initialize_client_installation(app, instance).await
+}
+
 fn client_resource_root(
     app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> io::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    if let Some(directory) = std::env::var_os("DOMIOS_UPDATE_ROLLBACK") {
+        return Ok(std::path::PathBuf::from(directory).join("rollback/resources"));
+    }
     app.path().resource_dir().map_err(io::Error::other)
 }
 

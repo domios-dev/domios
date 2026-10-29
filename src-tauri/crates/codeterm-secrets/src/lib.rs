@@ -16,7 +16,9 @@ pub mod js_backend;
 pub mod legacy;
 pub mod local;
 pub mod mock;
+mod readiness;
 pub mod redact;
+mod registry;
 pub mod secret_file;
 
 pub use capability::{
@@ -25,6 +27,7 @@ pub use capability::{
 };
 pub use factory::{factory as get_factory, list as list_factories, SecretBackendFactory};
 pub use legacy::{purge_legacy_master_password_file, LegacyPurge};
+pub use registry::SecretRegistry;
 
 use std::fmt;
 
@@ -356,11 +359,6 @@ pub trait SecretStore: Send + Sync {
 /// an `Arc<dyn SecretStore>` so calls can retain the selected store during a swap.
 pub type SecretStoreState = std::sync::Arc<RwLock<std::sync::Arc<dyn SecretStore>>>;
 
-/// Runtime registry of plugin-contributed secret backends, keyed by id. A
-/// plugin (e.g. Bitwarden) registers a ready instance here on activate;
-/// `build_active_store` prefers it over the built-in factory.
-pub type SecretRegistry = codeterm_plugin::capability::CapabilityRegistry<dyn SecretStore>;
-
 /// Build the active backend from a full config snapshot. Registered plugins
 /// resolve through the registry on each call; built-ins use the factory.
 pub fn build_active_store(
@@ -415,44 +413,6 @@ pub fn is_valid_http_url(s: &str) -> bool {
         .trim_start_matches('/');
     let host = after_scheme.split(['/', '?', '#']).next().unwrap_or("");
     !host.is_empty()
-}
-
-/// One-time carry-over of a pre-existing native-Bitwarden setup into the
-/// Bitwarden *plugin* namespace: server URL → `config.plugins.bitwarden.serverUrl`
-/// and saved session/master/email from `domios.secrets.bitwarden` →
-/// `codeterm.plugin.bitwarden`. Best-effort, idempotent. Returns true if config changed.
-pub fn migrate_native_bitwarden_to_plugin(config: &mut codeterm_config::schema::AppConfig) -> bool {
-    let mut changed = false;
-    let native_url = config.integrations.secrets.bitwarden.server_url.clone();
-    let entry = config
-        .plugins
-        .entry("bitwarden".to_string())
-        .or_insert_with(|| serde_json::json!({}));
-    let has_url = entry
-        .get("serverUrl")
-        .and_then(|v| v.as_str())
-        .map(|s| !s.is_empty())
-        .unwrap_or(false);
-    if !has_url && !native_url.is_empty() {
-        if let Some(obj) = entry.as_object_mut() {
-            obj.insert("serverUrl".into(), serde_json::json!(native_url));
-            changed = true;
-        }
-    }
-    let native = secret_file::SecretFile::new("domios.secrets.bitwarden");
-    let plugin = capability::plugin_secret_bucket("bitwarden");
-    for (from, to) in [
-        ("session", "session"),
-        ("master_password", "master_password"),
-        ("login_email", "login_email"),
-    ] {
-        if plugin.get(to).is_err() {
-            if let Ok(v) = native.get(from) {
-                let _ = plugin.set(to, &v);
-            }
-        }
-    }
-    changed
 }
 
 /// Validate a secret name — used by every adapter to keep behaviour uniform.

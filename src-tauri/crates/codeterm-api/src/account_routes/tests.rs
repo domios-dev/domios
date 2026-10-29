@@ -362,7 +362,7 @@ async fn account_plan_routes_local_journey() {
     for (method, path, expected_plan, stale) in [
         ("GET", "/api/account/plan", "free", false),
         ("POST", "/api/account/login", "", false),
-        ("GET", "/api/account/plan", "free", false),
+        ("GET", "/api/account/plan", "pro", false),
         ("POST", "/api/account/logout", "", false),
         ("GET", "/api/account/plan", "free", false),
     ] {
@@ -390,7 +390,9 @@ async fn account_plan_routes_local_journey() {
         if !expected_plan.is_empty() {
             assert_eq!(value["entitlements"]["plan"], expected_plan);
             assert_eq!(value["stale"], stale);
-            assert_eq!(value["limits"]["enforcing"], true);
+            let checking = expected_plan == "pro";
+            assert_eq!(value["checking"], checking);
+            assert_eq!(value["limits"]["enforcing"], !checking);
             assert_eq!(value["limits"]["agent.tabs"], 35);
         }
     }
@@ -637,12 +639,11 @@ async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttle
     state.config.lock().api.token = Some("fixture-token".into());
     state.config.lock().account = serde_json::json!({"provider":"local"});
     let router = crate::routes::create_router(state);
-    for path in [
-        "/api/account/login",
-        "/api/account/plan/refresh",
-        "/api/account/plan/refresh",
+    for (path, calls) in [
+        ("/api/account/login", 1),
+        ("/api/account/plan/refresh", 1),
+        ("/api/account/plan/refresh", 1),
     ] {
-        let before = *provider.calls.lock();
         let response = router
             .clone()
             .oneshot(
@@ -656,7 +657,7 @@ async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttle
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(*provider.calls.lock(), before + 1);
+        assert_eq!(*provider.calls.lock(), calls);
     }
     let before = *provider.calls.lock();
     let response = router
@@ -870,4 +871,15 @@ async fn friend_receiver_machine_limit_preserves_typed_counts() {
     assert_eq!(body["code"], "key_limit");
     assert_eq!(body["limit"], 5);
     assert_eq!(body["active"], 5);
+}
+
+#[tokio::test]
+async fn no_receiver_chosen_has_its_own_conflict_code() {
+    let response = neighbor_failure("receiver_not_chosen: No machine receives this friend".into());
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["code"], "receiver_not_chosen");
 }

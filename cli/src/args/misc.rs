@@ -703,6 +703,7 @@ pub enum ConfigAction {
 pub enum WebAction {
     /// Print a ready-to-open browser UI URL for THIS machine with the API token
     /// embedded in the URL fragment (use --query for ?token= instead).
+    /// Local owner or authenticated General Agent only; never share through notifications or memory.
     Link {
         /// Build a link for a paired mesh PEER (by instance name) instead of
         /// this machine: resolves the peer's host (prefers its HTTPS

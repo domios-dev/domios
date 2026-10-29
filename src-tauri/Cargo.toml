@@ -1,7 +1,7 @@
 [package]
 license = "AGPL-3.0-only"
 name = "codeterm"
-version = "1.17.1"
+version = "1.17.2"
 edition = "2021"
 default-run = "domios-app"
 
@@ -94,6 +94,10 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# Startup verifies complete executable images, including the larger DEV artifacts.
+[profile.dev.package.sha2]
+opt-level = 3
 
 # Building the CLI's clap command is ~10^4x slower unoptimized; dev/test parsing otherwise hangs for minutes.
 [profile.dev.package.codeterm-cli]

@@ -14,13 +14,21 @@ pub(super) struct Notice {
     pub title: String,
 }
 
-fn name(profile: &Value) -> Result<&str> {
-    profile["displayName"]
-        .as_str()
-        .filter(|name| !name.is_empty())
-        .or_else(|| profile["uid"].as_str())
-        .filter(|name| !name.is_empty() && name.len() <= 512)
-        .ok_or(Error::Transport)
+fn name(profile: &Value) -> Result<String> {
+    let field = |key: &str| {
+        profile[key]
+            .as_str()
+            .filter(|value| !value.trim().is_empty() && value.len() <= 512)
+    };
+    let email = field("email");
+    let name = field("displayName")
+        .or(email)
+        .or_else(|| field("uid"))
+        .ok_or(Error::Transport)?;
+    Ok(match email.filter(|email| *email != name) {
+        Some(email) => format!("{name} ({email})"),
+        None => name.to_owned(),
+    })
 }
 
 fn rows<'a>(list: &'a Value, key: &str) -> Result<&'a [Value]> {

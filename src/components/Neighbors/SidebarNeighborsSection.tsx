@@ -8,7 +8,7 @@ import type { Tab } from "../../lib/types";
 import { useAccount } from "../Settings/useAccount";
 import { AccountAvatar } from "../Titlebar/AccountAvatar";
 import { accountInitials } from "../Settings/accountModel";
-import { SidebarStructuralSection } from "../Sidebar/SidebarStructuralSection";
+import { SidebarDisclosure } from "../Sidebar/SidebarDisclosure";
 import { SurfaceOwnerBlock } from "../Sidebar/SurfaceAttachments";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
@@ -32,13 +32,7 @@ import { resetPausedFriends, setFriendPaused, usePausedFriends } from "./neighbo
 import { FriendReceiveConfirm, friendReceiveItems, friendReceivingLine, useFriendReceiveRequest } from "./neighborFriendReceiving";
 import { friendReceiverState } from "./useReceiverState";
 
-const STORAGE_KEY = "codeterm.sidebar.neighbors-expanded";
 const ROW = "sidebar-tab sidebar-tab-dimmed group flex items-center hover:bg-[var(--ct-hover)]";
-
-function readExpanded(): boolean {
-  try { return localStorage.getItem(STORAGE_KEY) !== "false"; }
-  catch { return true; }
-}
 
 /** Your connected Neighbors as sidebar rows, each with its concierge tucked under it; hidden until you have one. */
 export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTab, enabled = true, activeChat = null, activeTabId = null, client, runtimeClient = neighborRuntimeClient,
@@ -54,7 +48,7 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
   const workspaces = useMuxSelector(state => state.workspaces);
   const tabs = useMuxSelector(state => state.tabs);
   const tabStatuses = useMuxSelector(state => state.tabStatuses);
-  const [expanded, setExpanded] = useState(readExpanded);
+  const [expanded, setExpanded] = useState(false);
   const [bindings, setBindings] = useState<Record<string, string>>({});
   const isPaused = usePausedFriends(conciergeClient);
   const receive = useFriendReceiveRequest();
@@ -112,12 +106,13 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
         title: "General Agent unavailable", detail: failure instanceof Error ? failure.message : "Open General and try again." }));
   };
 
-  return <SidebarStructuralSection label="NEIGHBORS" ariaLabel="Neighbors" testId="neighbors-section-toggle" expanded={expanded}
-    action={loading ? <span className="sidebar-neighbors-loading" role="status" aria-label="Refreshing Neighbors"><ActivityDots size="small" tone="muted" active /></span> : null}
-    onToggle={() => setExpanded(value => {
-      try { localStorage.setItem(STORAGE_KEY, String(!value)); } catch { /* Storage can be unavailable in a private viewer. */ }
-      return !value;
-    })}>
+  return <section aria-label="Neighbors" className="sidebar-neighbors-section">
+    <SidebarDisclosure expanded={expanded} touchMode={touchMode} onClick={() => setExpanded(value => !value)}
+      className="sidebar-structural-header w-full">
+      <span className="sidebar-structural-label truncate">Neighbors</span>
+      {loading && <span className="sidebar-neighbors-loading" role="status" aria-label="Refreshing Neighbors"><ActivityDots size="small" tone="muted" active /></span>}
+    </SidebarDisclosure>
+    <div className="sidebar-neighbors-section__items mt-0.5 overflow-y-auto">
     {expanded && !enabled && <p role="status" className="sidebar-neighbors-off">Neighbors is off</p>}
     {expanded && <ul aria-label="Your Neighbors" className="sidebar-neighbors" data-off={enabled ? undefined : true}>{friends.map(friend => {
       const name = neighborName(friend);
@@ -166,7 +161,8 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
             client={runtimeClient} onClose={receive.close} /></div>}
       </li>;
     })}</ul>}
-  </SidebarStructuralSection>;
+  </div>
+  </section>;
 }
 
 /** The concierge's model (and effort) is its stable subline; what it is doing shows only as the working dots. */

@@ -91,6 +91,9 @@ def registered_routes(root):
                 if not constant:
                     raise ValueError(f'Cannot resolve route constant {path}')
                 path = constant[1]
+            # Wildcard any handlers are startup fallbacks, not API endpoints.
+            if path.endswith('/{*path}') and re.search(r'(?:^|[.\s(])(?:axum::routing::)?any\s*\(', expr):
+                continue
             methods = re.findall(r'(?:^|[.\s(])(?:axum::routing::)?(' + METHODS.lower() + r')\s*\(', expr)
             if not methods:
                 raise ValueError(f'No recognized HTTP method for {path} in {source}')

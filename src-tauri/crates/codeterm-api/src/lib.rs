@@ -69,6 +69,7 @@ pub mod services_routes;
 pub(crate) mod session_binding_routes;
 pub(crate) mod session_exchange;
 pub mod session_routes;
+pub mod startup_routes;
 pub(crate) mod stream_census;
 pub(crate) mod stream_diagnostics;
 pub(crate) mod stream_mux;

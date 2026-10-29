@@ -1,13 +1,19 @@
 //! Account Mesh admission: installation possession key, server proofs, membership trust and
 //! the sign-in / sign-out lifecycle that gates every Mesh edge of this installation.
 
+mod admission;
+mod cache;
 pub mod callable;
+mod callable_budget;
 mod key;
+mod lease_timer;
 mod lifecycle;
 mod membership;
 mod notice;
 mod operations;
 mod ports;
+mod reauthentication;
+mod registry_hint;
 mod registry_keys;
 mod registry_presence;
 mod registry_read;
@@ -53,6 +59,12 @@ pub struct IdentityObservers(pub Vec<Arc<dyn IdentityObserver>>);
 
 #[async_trait]
 impl IdentityObserver for IdentityObservers {
+    async fn session_refreshed(&self, session: &crate::Session) {
+        for observer in &self.0 {
+            observer.session_refreshed(session).await;
+        }
+    }
+
     async fn changed(&self, identity: Option<&Identity>) {
         for observer in &self.0 {
             observer.changed(identity).await;

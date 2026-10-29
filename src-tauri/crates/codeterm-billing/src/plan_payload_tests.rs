@@ -2,7 +2,7 @@ use super::*;
 use std::time::Instant;
 
 #[tokio::test]
-async fn plan_payload_never_carries_unsigned_envelope_authority() {
+async fn plan_payload_keeps_unsigned_tier_separate_from_signed_authority() {
     for (authority, full_access) in [("admin", true), ("free", false)] {
         let mut envelope: serde_json::Value =
             serde_json::from_str(include_str!("../fixtures/admin_grant_response.json")).unwrap();
@@ -21,7 +21,14 @@ async fn plan_payload_never_carries_unsigned_envelope_authority() {
         let payload = serde_json::to_value(snapshot).unwrap();
         assert_eq!(payload["access"]["authority"], "free");
         assert_eq!(payload["access"]["full_access"], false);
-        assert_eq!(payload["entitlements"]["plan"], "free");
+        assert_eq!(
+            payload["entitlements"]["plan"],
+            if authority == "admin" {
+                "admin"
+            } else {
+                "free"
+            }
+        );
         assert_eq!(payload["stale"], false);
         assert!(payload.get("grant").is_none());
     }
@@ -50,7 +57,8 @@ async fn displayed_plan_follows_verified_label_and_expiry_over_unsigned_envelope
     assert_eq!(snapshot.access.unwrap().authority, Authority::Billing);
     time.store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);
     let snapshot = billing.snapshot(Some(&user));
-    assert_eq!(snapshot.entitlements.plan, Plan::Free);
+    assert_eq!(snapshot.entitlements.plan, Plan::Sponsor);
+    assert!(snapshot.checking);
 
     assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
 }

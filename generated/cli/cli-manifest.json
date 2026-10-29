@@ -117,7 +117,7 @@
             },
             {
               "name": "enroll",
-              "about": "Receive all friends here (account takeover); use a friend's UI to move only that friend",
+              "about": "Receive all friends here (account takeover); use receive-here to move only one friend",
               "aliases": [],
               "args": [
                 {
@@ -362,6 +362,44 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "receive-here",
+              "about": "General Agent: receive one named friend's messages here; confirm an existing receiver move with the owner",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "expected-receiver-revision",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "EXPECTED_RECEIVER_REVISION",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "friendship_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "FRIENDSHIP_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "takeover-confirmed",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TAKEOVER_CONFIRMED",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Pass only after the owner explicitly agrees to move receiving from the named machine",
                   "aliases": []
                 }
               ],
@@ -1314,7 +1352,7 @@
         },
         {
           "name": "set-orchestrator",
-          "about": "Mark a tab as orchestrator (top-level, can spawn workers)",
+          "about": "Promote your own live roleless, team-less agent to Orchestrator (can spawn workers)",
           "aliases": [],
           "args": [
             {
@@ -19175,7 +19213,7 @@
       "subcommands": [
         {
           "name": "link",
-          "about": "Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)",
+          "about": "Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead). Local owner or authenticated General Agent only; never share through notifications or memory",
           "aliases": [],
           "args": [
             {

@@ -3,9 +3,9 @@
 pub enum BrandFallback {
     /// The native client is starting and its interface is not painted yet.
     Starting,
-    /// The native client lost its interface and retries on its own.
+    /// The native client lost its interface.
     Reconnecting,
-    /// The server refused to start; the URL fragment carries its stated reason.
+    /// Startup failed; the URL fragment carries the reason.
     StartFailed,
     /// The server is running but has no frontend files to serve.
     InterfaceMissing,
@@ -14,11 +14,11 @@ pub enum BrandFallback {
 /// The native window is frameless; these links are handled by the client as `domios-shell://<action>`.
 const NATIVE_CHROME: &str = r#"<header><div class="drag" onmousedown="if(event.button===0)location.href='domios-shell://drag'"></div><a href="domios-shell://minimize" aria-label="Minimize">&#8212;</a><a href="domios-shell://maximize" aria-label="Maximize">&#9633;</a><a class="close" href="domios-shell://close" aria-label="Close">&#10005;</a></header>"#;
 
-const RETRY_ACTION: &str = r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now; retries automatically every second">Retry now</a>"#;
+const RETRY_ACTION: &str =
+    r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now">Retry now</a>"#;
 
 /// A stated refusal repeats on every attempt, so this page retries only when asked.
-const START_FAILED_ACTION: &str =
-    r#"<p class="detail" hidden></p><a class="retry" href="domios-shell://retry">Retry</a>"#;
+const START_FAILED_ACTION: &str = r#"<p class="detail" hidden></p><a class="retry" href="domios-shell://retry">Retry</a><a class="retry" href="domios-shell://quit">Quit</a>"#;
 
 /// The reason travels in the fragment so the document stays fixed for navigation checks; textContent keeps it inert.
 const START_FAILED_SCRIPT: &str = r#"<script>
@@ -78,12 +78,6 @@ const DOT_WAVES: &str = r#"<script>
     if (!reduced) requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
-  // The native side drops a retry while one is already running, so a 1 s cadence never stacks attempts.
-  const retry = document.querySelector(".retry");
-  if (!retry) return;
-  const fire = () => { location.href = "domios-shell://retry"; };
-  retry.addEventListener("click", event => { event.preventDefault(); fire(); });
-  setInterval(fire, 1000);
 })();
 </script>"#;
 
@@ -114,7 +108,7 @@ pub fn brand_fallback_page(kind: BrandFallback) -> String {
         BrandFallback::StartFailed => (
             "Could not start",
             "Domios could not start",
-            "The server refused to start. Resolve the reason below, then retry.",
+            "Startup could not finish. Resolve the reason below, then retry.",
             "alert",
             "",
             NATIVE_CHROME,
@@ -147,33 +141,4 @@ pub fn brand_fallback_page(kind: BrandFallback) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn both_pages_share_the_mark_and_fill_every_slot() {
-        for kind in [BrandFallback::Reconnecting, BrandFallback::InterfaceMissing] {
-            let page = brand_fallback_page(kind);
-            assert!(page.contains("M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"));
-            assert!(!page.contains("{{"));
-        }
-        let reconnecting = brand_fallback_page(BrandFallback::Reconnecting);
-        assert!(reconnecting.contains("domios-shell://retry"));
-        assert!(reconnecting.contains("domios-shell://close"));
-        let missing = brand_fallback_page(BrandFallback::InterfaceMissing);
-        assert!(!missing.contains("<script"));
-        assert!(!missing.contains("domios-shell://"));
-    }
-
-    #[test]
-    fn start_failure_offers_a_manual_retry_and_a_reason_slot() {
-        let page = brand_fallback_page(BrandFallback::StartFailed);
-        assert!(!page.contains("{{"));
-        assert!(page.contains(r#"role="alert""#));
-        assert!(page.contains(r#"class="detail""#));
-        assert!(page.contains("location.hash"));
-        assert!(page.contains("domios-shell://retry"));
-        assert!(page.contains("domios-shell://close"));
-        assert!(!page.contains("setInterval"));
-    }
-}
+mod tests;

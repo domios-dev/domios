@@ -53,6 +53,7 @@ mod handoff;
 mod liveness;
 use handoff::{PayloadEnqueued, UserWrite};
 mod owner_wake;
+mod startup_override;
 use owner_wake::OwnerWakeBoundary;
 
 fn is_prelaunch_stage(stage: Option<codeterm_types::pty::BootStage>) -> bool {
@@ -123,6 +124,13 @@ fn requires_observed_session_id_for_readiness(
     session_starts_on_first_user_turn: bool,
 ) -> bool {
     observed_session_id.is_none() && !session_starts_on_first_user_turn
+}
+
+fn lazy_first_turn_session_matches(
+    tab: &crate::multiplexer::types::Tab,
+    authority: &UserSendAuthority,
+) -> bool {
+    authority.session_id.is_none() && tab.agent_session_id == authority.observed_session_id
 }
 
 fn supporter_pending_reason(error: &str) -> &'static str {
@@ -202,11 +210,20 @@ impl super::ServiceContext {
         if !self.user_authority_pty_generation_is_current(authority) {
             return false;
         }
+        let lazy_session = self
+            .agent_registry
+            .with_provider(&authority.provider_id, |provider| {
+                provider.session_starts_on_first_user_turn()
+            })
+            .unwrap_or(false);
         if !self
             .mux
             .read()
             .get_tab(&authority.tab_id)
-            .is_some_and(|tab| self.user_authority_matches_launch(tab, authority))
+            .is_some_and(|tab| {
+                self.user_authority_matches_launch(tab, authority)
+                    && (!lazy_session || tab.launch_session_authenticated())
+            })
         {
             return false;
         }
@@ -231,21 +248,24 @@ impl super::ServiceContext {
                     provider.session_starts_on_first_user_turn()
                 })
                 .unwrap_or(false)
-            || authority.session_id.is_some()
-            || authority.observed_session_id.is_some()
         {
             return false;
         }
+        self.claim_lazy_first_turn_input(authority, &record.send_id)
+    }
+
+    pub(crate) fn claim_lazy_first_turn_input(
+        &self,
+        authority: &UserSendAuthority,
+        send_id: &str,
+    ) -> bool {
         let mut mux = self.mux.write();
         let Some(tab) = mux.get_tab_mut(&authority.tab_id) else {
             return false;
         };
         if !self.user_authority_matches_launch(tab, authority)
-            || tab.boot_stage != Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
-            || tab
-                .agent_session_id
-                .as_deref()
-                .is_some_and(|session| !session.trim().is_empty())
+            || !crate::service::boot_stage::first_turn_input_is_ready(tab)
+            || !lazy_first_turn_session_matches(tab, authority)
         {
             return false;
         }
@@ -259,9 +279,9 @@ impl super::ServiceContext {
             return false;
         };
         match launch.first_turn_admitted_send_id.as_deref() {
-            Some(admitted) => admitted == record.send_id,
+            Some(admitted) => admitted == send_id,
             None => {
-                launch.first_turn_admitted_send_id = Some(record.send_id.clone());
+                launch.first_turn_admitted_send_id = Some(send_id.to_string());
                 true
             }
         }
@@ -287,10 +307,7 @@ impl super::ServiceContext {
         else {
             return false;
         };
-        if !lazy_session_provider
-            || authority.session_id.is_some()
-            || authority.observed_session_id.is_some()
-        {
+        if !lazy_session_provider {
             return false;
         }
         self.mux
@@ -298,12 +315,8 @@ impl super::ServiceContext {
             .get_tab(&authority.tab_id)
             .is_some_and(|tab| {
                 self.user_authority_matches_launch(tab, authority)
-                    && tab.boot_stage
-                        == Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
-                    && tab
-                        .agent_session_id
-                        .as_deref()
-                        .is_none_or(|session| session.trim().is_empty())
+                    && tab.boot_stage == Some(codeterm_types::pty::BootStage::ProviderReady)
+                    && lazy_first_turn_session_matches(tab, authority)
                     && tab.provisional_launch.as_ref().is_some_and(|launch| {
                         launch.pty_id == authority.pty_id.as_deref().unwrap_or_default()
                             && launch.binding_nonce == authority.binding_nonce

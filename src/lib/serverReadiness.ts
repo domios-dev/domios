@@ -10,7 +10,7 @@ export function currentStartupPhase(snapshot: unknown): StartupPhase | null {
   return startupPhases.find(phase => phases[phase] === "starting") ?? null;
 }
 
-export async function waitForServerReady(client: Pick<TransportClient, "subscribe">, signal: AbortSignal, onPhase?: (phase: StartupPhase | null) => void): Promise<void> {
+export async function waitForDesktopReady(client: Pick<TransportClient, "subscribe">, signal: AbortSignal, onPhase?: (phase: StartupPhase | null) => void): Promise<void> {
   let terminal = false;
   while (!terminal) {
     await new Promise<void>((resolve, reject) => {
@@ -30,7 +30,7 @@ export async function waitForServerReady(client: Pick<TransportClient, "subscrib
         dispose = client.subscribe("/api/startup/events", (name, data) => {
           if (settled || name !== "startup-state" || !data || typeof data !== "object" || !("state" in data)) return;
           onPhase?.(currentStartupPhase(data));
-          if (data.state === "ready") { terminal = true; finish(); }
+          if (data.state === "ready" || (data.state === "starting" && "desktop_ready" in data && data.desktop_ready === true)) { terminal = true; finish(); }
           else if (data.state === "failed") finish(new Error("Server initialization failed"));
         }, { signal, requireEventStream: true, onEnd: end => {
           if (end.reason === "eof") finish();

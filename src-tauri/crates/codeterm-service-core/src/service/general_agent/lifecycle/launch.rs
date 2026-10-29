@@ -208,6 +208,7 @@ pub(super) fn start(
 
     let use_resume = session_id.is_some();
     let mut startup_message = None;
+    let mut first_turn_planned = false;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match super::super::launch_files::command(
@@ -281,6 +282,9 @@ pub(super) fn start(
             .flatten();
         let launch_instructions =
             compose_launch_instructions(system_prompt, bootstrap_message, &system_prompt_delivery);
+        first_turn_planned = launch_instructions.starter_prompt
+            != crate::agent::provider::StarterPrompt::NoStarter
+            || launch_instructions.startup_message.is_some();
         startup_message = launch_instructions.startup_message;
         if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(
@@ -369,6 +373,11 @@ pub(super) fn start(
         return;
     }
 
+    let Some(readiness_attempt) =
+        crate::service::launch_readiness::LaunchAttempt::current(mux, &tab_id, &pty_id)
+    else {
+        return;
+    };
     let launched = await_agent_launch_evidence(
         screen_state,
         &svc.agent_registry,
@@ -377,7 +386,9 @@ pub(super) fn start(
         &pty_id,
         std::time::Duration::from_secs(15),
     );
-    if !tab_still_owns_pty(mux, &tab_id, &pty_id) {
+    if crate::service::launch_readiness::LaunchAttempt::current(mux, &tab_id, &pty_id).as_ref()
+        != Some(&readiness_attempt)
+    {
         log::info!(
             "[general-agent] Launch on stale PTY {} for Tab {} ignored; Tab moved on",
             pty_id,
@@ -390,6 +401,15 @@ pub(super) fn start(
         return;
     }
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
+    if super::first_turn::prepare(
+        svc,
+        &readiness_attempt,
+        provider_name,
+        use_resume,
+        first_turn_planned,
+    ) {
+        return;
+    }
     let bound_session = match deliver_before_binding(
         || {
             if let Some(message) = startup_message {

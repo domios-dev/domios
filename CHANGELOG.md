@@ -7,6 +7,24 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.17.2]
+
+This update improves startup and session restoration, terminal input, mesh recovery, and update handling.
+
+- Restore working tabs and OpenCode sessions more reliably, with clearer startup progress and fewer loading-state flashes.
+- Improve streaming tool cards and terminal/chat continuity.
+- Fix mesh admission and recovery. Machines removed from your mesh stop retrying and ask you to sign in again.
+- While the plan cannot be verified, Domios keeps you unlocked and shows checking; paid features still require a verified plan.
+- Improve updater recovery, platform packaging and signed macOS update archives.
+- Include the DECRQSS terminal fix.
+
+### Update notes and known limitations
+
+- Updating from 1.17.1 may require closing tabs or using the installer.
+- Adoption with 1.17.x peers stays on legacy links.
+- The stray terminal "m" has not yet been attributed to a cause; the DECRQSS fix does not establish that it is resolved.
+- The mimo provider key error is upstream.
+
 ## [1.17.1]
 
 ### Fixed

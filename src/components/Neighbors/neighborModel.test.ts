@@ -1,5 +1,7 @@
 import { expect, it } from "vitest";
-import { parseNeighbors, validNeighborLimit } from "./neighborModel";
+import { parseNeighbors, validNeighborLimit, neighborName, neighborIdentity, type NeighborList } from "./neighborModel";
+import { readNeighborCache, writeNeighborCache, clearNeighborCaches } from "./neighborListCache";
+import { neighborhoodNodes } from "./neighborhoodModel";
 import { conciergeWork, readableBody, refusalLine } from "./neighborConversationModel";
 import type { HistoryEntry } from "./neighborConciergeClient";
 import { conciergeProviders } from "./ChangeConciergeDialog";
@@ -87,4 +89,40 @@ it("explains each delivery refusal in plain words and says when to retry only wh
   expect(refusalLine({ ...base, reason: "aggregate_daily_limited", limit: 200, resets_at: now + 9 * 3_600_000 }, "Ada", now))
     .toBe("You reached today's sending limit (200). It resets in 9h.");
   expect(refusalLine({ ...base, reason: "something_new" }, "Ada", now)).toBeNull();
+});
+
+it("prefers display name then email then uid", () => {
+  expect(neighborName({ uid: "opaque", displayName: "Anya", email: "anya@example.test" })).toBe("Anya");
+  expect(neighborIdentity({ uid: "opaque", displayName: "Anya", email: "anya@example.test" })).toBe("Anya (anya@example.test)");
+  expect(neighborName({ uid: "opaque", displayName: null, email: "anya@example.test" })).toBe("anya@example.test");
+  expect(neighborName({ uid: "opaque", displayName: null, email: null })).toBe("opaque");
+});
+
+it("retains friend and request emails through the last-known graph cache", () => {
+  const list: NeighborList = {
+    schema_version: 1, access: "paid",
+    friends: [{ uid: "friend-uid", displayName: null, email: "friend@example.test", photoURL: null,
+      friendship_id: "pair", inbound_per_hour: 10, outbound_per_hour: 10, since: 1, receiving: true }],
+    incoming: [{ uid: "request-uid", displayName: null, email: "request@example.test", photoURL: null,
+      request_id: "request", created_at: 1 }],
+    outgoing: [],
+  };
+  try {
+    writeNeighborCache("owner", list);
+    const cache = readNeighborCache("owner");
+    expect(cache?.friends[0].email).toBe("friend@example.test");
+    expect(cache?.incoming[0].email).toBe("request@example.test");
+    expect(neighborhoodNodes(cache, false)).toMatchObject([
+      { kind: "neighbor", name: "friend@example.test", email: "friend@example.test" },
+      { kind: "request", name: "request@example.test", email: "request@example.test" },
+    ]);
+    const stored: { friends: Array<{ email: unknown }>; incoming: Array<{ email: unknown }> } =
+      JSON.parse(localStorage.getItem("domios.neighbors.last-known:owner")!);
+    stored.friends[0].email = 42;
+    stored.incoming[0].email = {};
+    localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify(stored));
+    expect(readNeighborCache("owner")).toMatchObject({ friends: [], incoming: [] });
+  } finally {
+    clearNeighborCaches();
+  }
 });

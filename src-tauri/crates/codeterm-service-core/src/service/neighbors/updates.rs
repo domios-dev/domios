@@ -17,7 +17,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use tokio::sync::{watch, Notify};
+use tokio::sync::watch;
 
 #[derive(Default)]
 pub(crate) struct UpdateCell {
@@ -28,7 +28,7 @@ pub(crate) struct UpdateCell {
 struct Handle {
     task: tokio::task::JoinHandle<()>,
     stopped: watch::Sender<bool>,
-    retry: Arc<Notify>,
+    rearm: Arc<super::recovery::Rearm>,
 }
 
 impl ServiceContext {
@@ -46,25 +46,53 @@ impl ServiceContext {
         let Some(account) = self.ext::<AccountCell>().0.get().cloned() else {
             return;
         };
+        let generation = self.neighbor_updates().generation.load(Ordering::Acquire);
+        let service = self.clone();
+        self.start_neighbor_updates_with(
+            move || {
+                let service = service.clone();
+                let account = account.clone();
+                async move { run(service, account, generation).await }
+            },
+            Arc::new(codeterm_neighbors::supervisor::RuntimeClock),
+        );
+    }
+
+    fn start_neighbor_updates_with<F, A>(
+        &self,
+        attempt: A,
+        clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>,
+    ) where
+        F: std::future::Future<Output = Result<()>> + Send + 'static,
+        A: FnMut() -> F + Send + 'static,
+    {
         let cell = self.neighbor_updates();
         let mut slot = cell.task.lock();
-        if let Some(handle) = slot.as_ref().filter(|handle| !handle.task.is_finished()) {
-            handle.retry.notify_one();
+        if slot.is_some() {
             return;
         }
-        let generation = cell.generation.load(Ordering::Acquire);
-        let (stopped, receiver) = watch::channel(false);
-        let retry = Arc::new(Notify::new());
-        let service = self.clone();
-        let retry_task = retry.clone();
+        let (stop, receiver) = watch::channel(false);
+        let rearm = Arc::new(super::recovery::Rearm::default());
+        let task_rearm = rearm.clone();
         let task = tokio::spawn(async move {
-            let _ = run(service, account, generation, receiver, retry_task).await;
+            let _ = super::recovery::run(&task_rearm, clock.as_ref(), attempt, || {
+                let mut shutdown = receiver.clone();
+                async move { stopped(&mut shutdown).await }
+            })
+            .await;
         });
         *slot = Some(Handle {
             task,
-            stopped,
-            retry,
+            stopped: stop,
+            rearm,
         });
+    }
+
+    pub(crate) fn rearm_neighbor_updates(&self) {
+        if let Some(handle) = self.neighbor_updates().task.lock().as_ref() {
+            handle.rearm.signal();
+        }
+        self.restore_neighbor_updates_once();
     }
 
     pub(super) fn stop_neighbor_updates(&self) {
@@ -85,8 +113,6 @@ struct Session {
     generation: u64,
     transport: FirebaseTransport,
     metadata: Metadata,
-    shutdown: watch::Receiver<bool>,
-    retry: Arc<Notify>,
     progress: AtomicU64,
 }
 
@@ -107,9 +133,6 @@ impl Session {
 
     fn state(&self, status: ListenerState) {
         if self.current().is_ok() {
-            if status == ListenerState::Receiving {
-                self.progress.fetch_add(1, Ordering::AcqRel);
-            }
             self.service.neighbor_watch_state("account", status, None);
         }
     }
@@ -198,22 +221,15 @@ impl Session {
                 if service.require_neighbors_enabled().is_err() {
                     break;
                 }
-                service.create_notification_actions_reported(
-                    notice.title,
-                    Some("Open Neighborhood to view this connection.".into()),
-                    Some("info"),
-                    crate::notification::store::Ask::default(),
-                    Some(false),
-                    crate::service::notification::NotificationOrigin::default(),
-                    crate::service::notification::PushIntent {
-                        level: Some(crate::notification::push::NotifyLevel::Verbose),
-                        event_key: Some(format!(
+                service.create_in_app_notice_record(
+                    crate::service::notification::InAppNotice::neighbor_connection(
+                        notice.title,
+                        format!(
                             "neighbor:{}:{}",
                             codeterm_neighbors::crypto::sha256_hex(uid.as_bytes()),
                             notice.event_id
-                        )),
-                    },
-                    None,
+                        ),
+                    ),
                 );
             }
         })
@@ -234,9 +250,10 @@ async fn run(
     service: ServiceContext,
     account: Arc<codeterm_account::Account>,
     generation: u64,
-    shutdown: watch::Receiver<bool>,
-    retry: Arc<Notify>,
 ) -> Result<()> {
+    if service.neighbor_access_locked().await {
+        return Err(Error::Locked);
+    }
     let expected = account
         .current_session()
         .await
@@ -286,8 +303,6 @@ async fn run(
         generation,
         transport,
         metadata,
-        shutdown,
-        retry,
         progress: AtomicU64::new(0),
     };
     supervise_documents(&session).await
@@ -306,10 +321,7 @@ impl ReceptionEvents for Session {
         self.service.neighbor_watch_failure("account", error);
     }
     async fn retry_after_failure(&self, attempt: usize) -> Result<()> {
-        tokio::select! {
-            _ = self.retry.notified() => {},
-            _ = codeterm_neighbors::supervisor::reconnect_backoff(attempt) => {},
-        }
+        codeterm_neighbors::supervisor::reconnect_backoff(attempt).await;
         self.current()
     }
 }
@@ -320,7 +332,7 @@ impl DocumentSession for Session {
         self.progress.load(Ordering::Acquire)
     }
     async fn stopped(&self) {
-        stopped(&mut self.shutdown.clone()).await;
+        std::future::pending::<()>().await;
     }
     async fn listen(&self) -> Result<()> {
         self.current()?;
@@ -331,6 +343,9 @@ impl DocumentSession for Session {
             .unwrap_or_default();
         let mut listener = self.transport.listen_registry().await?;
         let mut revisions = delivery::Revisions::default();
+        let mut health = codeterm_neighbors::supervisor::StreamHealth::default();
+        let clock = codeterm_neighbors::supervisor::RuntimeClock;
+        use codeterm_neighbors::supervisor::RetryClock;
         loop {
             let signal = listener.next().await?.ok_or(Error::Transport)?;
             self.current()?;
@@ -341,6 +356,12 @@ impl DocumentSession for Session {
                 self.refresh(&signal, &mut seen).await?;
             }
             self.delivery(&signal, catch_up).await?;
+            if health.observe(clock.now(), !catch_up) {
+                self.progress.fetch_add(1, Ordering::AcqRel);
+                if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() {
+                    handle.rearm.success();
+                }
+            }
             self.state(ListenerState::Receiving);
         }
     }

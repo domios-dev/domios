@@ -3,11 +3,13 @@ use codeterm_account::account_mesh::callable::{CallableFailure, CallableTranspor
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+mod backend_reads;
 pub mod capabilities;
 mod confinement;
 mod delivery;
 mod flags;
 mod handling;
+mod recovery;
 pub use flags::FlagCategory;
 pub(crate) mod history;
 mod launch_fence;
@@ -70,6 +72,25 @@ impl NeighborCommand {
 
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
+        if matches!(&command, NeighborCommand::List {}) {
+            self.rearm_neighbor_reads();
+        }
+        self.neighbor_registry_owned(command).await
+    }
+
+    pub(super) async fn neighbor_registry_owned(
+        &self,
+        command: NeighborCommand,
+    ) -> Result<Value, String> {
+        if self.neighbor_access_locked().await {
+            return match command {
+                NeighborCommand::List {} => Ok(backend_reads::locked_list()),
+                NeighborCommand::ClaimReferralTrial {} => Ok(
+                    json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null}),
+                ),
+                _ => Err(codeterm_neighbors::Error::Locked.to_string()),
+            };
+        }
         let history_generation = self.neighbor_history_generation();
         let pause_versions = self.neighbor_cell().pauses.snapshot();
         let account = self.account().await?;
@@ -80,13 +101,42 @@ impl ServiceContext {
             .ok_or("Sign in to manage Neighbors")?;
         let base = codeterm_account::firebase_endpoints::current().functions;
         let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
+        let owner_connect = matches!(&command, NeighborCommand::Respond { accept: true, .. });
         let (name, data) = command.callable();
         let removed = if name == "friendsRemove" {
             data["friendship_id"].as_str().map(str::to_owned)
         } else {
             None
         };
-        let response = transport.call(name, session.id_token.expose(), data).await;
+        let response = if matches!(name, "friendsList" | "claimReferralTrial") {
+            use codeterm_neighbors::adapter::AuthenticatedCall;
+            let calls = runtime::callable::Calls {
+                service: self.clone(),
+                uid: session.identity.uid.clone(),
+                generation: session.login_generation,
+                own_keys: Default::default(),
+                receiver_status: Default::default(),
+            };
+            let result = calls
+                .invoke(name, data)
+                .await
+                .map_err(|error| error.to_string())?;
+            Ok(json!({"result": result}))
+        } else {
+            transport
+                .call_for_account(
+                    &session.identity.uid,
+                    name,
+                    session.id_token.expose(),
+                    data,
+                    &super::account::callable_admission::SessionGuard {
+                        service: self,
+                        expected: &session,
+                        neighbors: true,
+                    },
+                )
+                .await
+        };
         let body = match response {
             Ok(body) => body,
             Err(CallableFailure::Status {
@@ -133,8 +183,18 @@ impl ServiceContext {
         } else if name != "friendsRemove" {
             self.forget_neighbor_registry();
         }
+        if owner_connect {
+            if let Some(friendship) = result["friendship_id"].as_str() {
+                Box::pin(self.claim_first_neighbor_receiver(
+                    friendship,
+                    &session.identity.uid,
+                    history_generation,
+                ))
+                .await?;
+            }
+        }
         if name == "claimReferralTrial" && referral::refresh_required(&result)? {
-            self.refresh_billing(codeterm_billing::RefreshEvent::Explicit)
+            self.refresh_billing(codeterm_billing::RefreshEvent::PlanChanged)
                 .await?;
             if !same_session(account.session().await.as_ref(), &session) {
                 return Err("Account changed while checking the referral".into());

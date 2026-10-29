@@ -8,7 +8,7 @@
   }
 }
 
-.sidebar-recently-closed__items {
+.sidebar-neighbors-section__items {
   max-height: 165px;
 }
 
@@ -23,7 +23,7 @@
     overflow: visible;
   }
 
-  .ct-sidebar-panel .sidebar-recently-closed__items {
+  .ct-sidebar-panel .sidebar-neighbors-section__items {
     max-height: none;
     overflow: visible;
   }

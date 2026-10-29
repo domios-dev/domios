@@ -72,17 +72,9 @@ function SegmentDetail({ event, row, index, navigation }: { event: ToolEvent; ro
 
 /** One command call made of several shell segments: a compact tree line per segment, one outcome for the whole call. */
 export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigation }: CommandGroupCardProps) {
-  const callKey = commandCallKey(event);
-  const [openRow, setOpenRowState] = useState<number | null>(() => openSegmentOf(callKey));
   const regionId = useId();
-  const toggleRow = (index: number) => {
-    const next = openRow === index ? null : index;
-    rememberOpenSegment(callKey, next);
-    setOpenRowState(next);
-  };
   const title = event.description || (event.commandBatch ? event.title : undefined) || commandGroupSummary(rows);
   const countLabel = `${rows.length} commands`;
-  const capped = !expanded && (openRow ?? -1) < COMMAND_TREE_CAP;
 
   return (
     <section
@@ -113,15 +105,33 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
         <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </button>
-      <CommandTree
-        rows={rows}
-        cap={capped ? COMMAND_TREE_CAP : undefined}
-        openIndex={openRow}
-        onLine={toggleRow}
-        renderDetail={(index) => <SegmentDetail event={event} row={rows[index]} index={index} navigation={navigation} />}
-      />
+      <CommandGroupDetail event={event} rows={rows} expanded={expanded} {...navigation} />
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
       </div>
     </section>
   );
+}
+
+export function CommandGroupDetail({ event, rows, expanded = true, ...navigation }: CodetermNavigationProps & {
+  event: ToolEvent;
+  rows: CommandRow[];
+  expanded?: boolean;
+}) {
+  const callKey = commandCallKey(event);
+  const [openRow, setOpenRowState] = useState<number | null>(() => openSegmentOf(callKey));
+  const toggleRow = (index: number) => {
+    const next = openRow === index ? null : index;
+    rememberOpenSegment(callKey, next);
+    setOpenRowState(next);
+  };
+  const capped = !expanded && (openRow ?? -1) < COMMAND_TREE_CAP;
+  return <div role="group" aria-label={`${rows.length} commands`}>
+    <CommandTree
+      rows={rows}
+      cap={capped ? COMMAND_TREE_CAP : undefined}
+      openIndex={openRow}
+      onLine={toggleRow}
+      renderDetail={(index) => <SegmentDetail event={event} row={rows[index]} index={index} navigation={navigation} />}
+    />
+  </div>;
 }

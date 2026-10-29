@@ -168,7 +168,7 @@ pub enum AgentAction {
         )]
         after: u64,
     },
-    /// Mark a tab as orchestrator (top-level, can spawn workers)
+    /// Promote your own live roleless, team-less agent to Orchestrator (can spawn workers)
     SetOrchestrator {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]

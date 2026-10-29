@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn explicit_focus_refresh_throttled_checkout_bypasses() {
+async fn focus_never_refreshes_even_after_browser_opened() {
     let provider = Arc::new(adapters::fake::Fake::default());
     let billing = Billing::new(provider.clone());
     let session = session("owner");
@@ -24,7 +24,7 @@ async fn explicit_focus_refresh_throttled_checkout_bypasses() {
             now + Duration::from_secs(60),
         )
         .await;
-    assert_eq!(*provider.calls.lock(), 2);
+    assert_eq!(*provider.calls.lock(), 1);
     billing.browser_opened(&session);
     billing
         .refresh(
@@ -33,11 +33,11 @@ async fn explicit_focus_refresh_throttled_checkout_bypasses() {
             now + Duration::from_secs(61),
         )
         .await;
-    assert_eq!(*provider.calls.lock(), 3);
+    assert_eq!(*provider.calls.lock(), 1);
 }
 
 #[tokio::test]
-async fn focus_respects_signed_freshness_and_throttle_checkout_still_bypasses() {
+async fn focus_never_refreshes_stale_grant_checkout_event_still_refreshes() {
     let provider = GrantReplies::new(vec![Ok(paid_grant())]);
     let (now, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider.clone()).with_test_grants(
@@ -72,7 +72,7 @@ async fn focus_respects_signed_freshness_and_throttle_checkout_still_bypasses() 
                 focus + Duration::from_secs(offset),
             )
             .await;
-        assert!(snapshot.stale);
+        assert!(!snapshot.stale);
         assert!(snapshot.grant.is_some());
         assert!(billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
         billing
@@ -83,10 +83,10 @@ async fn focus_respects_signed_freshness_and_throttle_checkout_still_bypasses() 
             )
             .await;
     }
-    assert_eq!(provider.count(), 3);
+    assert_eq!(provider.count(), 1);
     now.store(1_700_000_060, std::sync::atomic::Ordering::SeqCst);
     billing
         .refresh(Some(&user), RefreshEvent::CheckoutReturned, focus)
         .await;
-    assert_eq!(provider.count(), 4);
+    assert_eq!(provider.count(), 2);
 }

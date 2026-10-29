@@ -14,7 +14,9 @@ fn admit(remote: bool, caller_tab: Option<&str>) -> Result<(), String> {
         return Err("Instance API credentials are local-only; run on the owning machine".into());
     }
     if caller_tab.is_some() {
-        return Err("Instance API credentials and token-bearing web links are host-only; tabs use their launch credential".into());
+        return Err(
+            "Instance API credentials are host-only; tabs use their launch credential".into(),
+        );
     }
     Ok(())
 }

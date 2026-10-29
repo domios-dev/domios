@@ -34,15 +34,21 @@ const { neighbor, mounted, button, hasButton, emit, runtime, renderSection, conc
 
 
 
+async function expandSection() {
+  const toggle = document.querySelector<HTMLButtonElement>('section[aria-label="Neighbors"] button[aria-expanded="false"]');
+  if (toggle) await act(async () => toggle.click());
+}
+
 it("keeps the sidebar Neighbors section away until there is a Neighbor", async () => {
   await renderSection([]);
-  expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
+  expect(document.querySelector('section[aria-label="Neighbors"]')).toBeNull();
 });
 
 it("updates the sidebar immediately from an own-account push and removes its subscription on unmount", async () => {
   await renderSection([]);
   const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
+  await expandSection();
   expect(hasButton("Open Ada")).toBe(true);
   await act(async () => mounted.current!.root.unmount());
   expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
@@ -88,6 +94,7 @@ it("nests a concierge bound from any workspace under its friend and marks it hid
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<><SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} /><Probe /></>));
+  await expandSection();
   expect(hasButton("Open Ada's concierge")).toBe(true);
   expect(seen[seen.length - 1]?.has("tab-gateway")).toBe(true);
 });
@@ -97,12 +104,14 @@ it("draws last known friends at once with a quiet refresh indicator, and stays a
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
+  await expandSection();
   expect(hasButton("Open Ada")).toBe(true);
   expect(hasButton("Open Ada's concierge")).toBe(true);
   expect(document.querySelector('[aria-label="Refreshing Neighbors"]')).not.toBeNull();
   localStorage.setItem("domios.neighbors.last-known:owner", JSON.stringify({ access: "paid", friends: [] }));
   await act(async () => root.render(<SidebarNeighborsSection key="empty" touchMode={false} client={pendingClient()} runtimeClient={runtime()} />));
-  expect(document.querySelector('[data-testid="neighbors-section-toggle"]')).toBeNull();
+  await expandSection();
+  expect(document.querySelector('section[aria-label="Neighbors"]')).toBeNull();
 });
 
 it("highlights an open concierge chat like an open tab, without the friend row", async () => {
@@ -113,10 +122,12 @@ it("highlights an open concierge chat like an open tab, without the friend row",
   const root = createRoot(host); mounted.current = { root, host };
   const runtimeClient = runtime();
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-gateway" />));
+  await expandSection();
   expect(button("Open Ada's concierge").getAttribute("aria-current")).toBe("page");
   expect(button("Open Ada's concierge").closest("[data-tab-active]")?.querySelector(".active-tab-pill")).not.toBeNull();
   expect(button("Open Ada").getAttribute("aria-current")).toBeNull();
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} activeTabId="tab-general" />));
+  await expandSection();
   expect(button("Open Ada's concierge").getAttribute("aria-current")).toBeNull();
 });
 
@@ -133,6 +144,7 @@ it("remembers only names, avatars and the concierge binding, and forgets them on
     friends: [{ friendship_id: "pair", uid: "peer", displayName: "Ada", photoURL: null, gateway_tab: "tab-gateway" }] });
   account.model = { kind: "signed_out" };
   await act(async () => mounted.current!.root.render(<SidebarNeighborsSection touchMode={false} runtimeClient={runtime()} />));
+  await expandSection();
   expect(localStorage.getItem("domios.neighbors.last-known:owner")).toBeNull();
 });
 
@@ -148,6 +160,7 @@ it("never claims a missing concierge when one is bound, and omits a zero count",
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />));
+  await expandSection();
   expect(hasButton("Open Ada's concierge")).toBe(true);
   expect(document.body.textContent).not.toContain("no concierge here");
 });
@@ -160,6 +173,7 @@ it("disables a friend from their sidebar row menu and shows the row as disabled"
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
+  await expandSection();
   await act(async () => { button("Actions for Ada").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
   await act(async () => Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Disable Ada")!.click());
   expect(conciergeClient.setPaused).toHaveBeenCalledExactlyOnceWith("pair", true);

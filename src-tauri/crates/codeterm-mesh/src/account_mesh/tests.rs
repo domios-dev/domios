@@ -233,6 +233,20 @@ fn account_mesh_adopted_edge_never_falls_back_and_expiry_keeps_the_record() {
                 &context,
                 &b.installation_id,
                 membership(ACCOUNT, &b.installation_id, remote_expiry),
+                (
+                    &FakeAuthority::permit(
+                        &a.installation_id,
+                        &b.installation_id,
+                        ACCOUNT,
+                        &[0; 32],
+                    ),
+                    &super::LinkPermitExpectation {
+                        transcript: [0; 32],
+                        holder_installation_id: a.installation_id.clone(),
+                        peer_installation_id: b.installation_id.clone(),
+                        account_id: ACCOUNT.into(),
+                    },
+                ),
             )
             .unwrap();
         assert_eq!(manager.admission_deadline(&b.id()), Some(remote_expiry));
@@ -283,6 +297,7 @@ fn account_mesh_known_local_revoke_blocks_immediately() {
         },
         membership: Some(membership(ACCOUNT, &a.installation_id, START + 60)),
         revoked_installations: Default::default(),
+        unavailable_installations: Default::default(),
         plan_limit_locked: false,
     };
     assert!(gate::decide(Some(&record), &b.public_key(), Some(ACCOUNT), &state, START).is_open());
@@ -430,6 +445,7 @@ async fn account_mesh_logout_during_handshake_persists_nothing() {
                     presence: super::AccountPresence::SignedOut,
                     membership: None,
                     revoked_installations: Default::default(),
+                    unavailable_installations: Default::default(),
                     plan_limit_locked: false,
                 });
         }
@@ -470,7 +486,7 @@ async fn account_mesh_bilateral_adoption_commits_in_place() {
         );
     }
     assert_eq!(a.mesh.lock().paired_peers[&b.id()].public_key, key_before);
-    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]

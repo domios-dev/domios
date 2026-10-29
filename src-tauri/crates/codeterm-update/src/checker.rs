@@ -13,56 +13,113 @@ pub struct LatestRelease {
     pub tag: String,
 }
 
-fn latest_release_request(client: &reqwest::Client, repository: &str) -> reqwest::RequestBuilder {
-    client
-        .get(format!(
-            "https://api.github.com/repos/{repository}/releases/latest"
-        ))
-        .query(&[("codeterm_cache_bust", uuid::Uuid::new_v4().to_string())])
-        .header(reqwest::header::CACHE_CONTROL, "no-cache, no-store")
-        .header(reqwest::header::PRAGMA, "no-cache")
+#[derive(Clone)]
+struct ResolvedManifest {
+    release: LatestRelease,
+    manifest: super::manifest::Manifest,
+    refresh_error: Option<String>,
 }
 
-pub async fn latest_release_tag() -> Result<LatestRelease, String> {
-    if codeterm_plugins::update_source::fixture_root().is_some() {
-        let manifest =
-            super::manifest::fetch("https://fixtures.invalid/domios-latest.json").await?;
-        return Ok(LatestRelease {
-            repository: GITHUB_REPO,
-            tag: format!("v{}", manifest.version),
-        });
+mod cache;
+
+pub async fn resolve_manifest(
+    method: &InstallMethod,
+    channel: super::Channel,
+    manifest_url: Option<&str>,
+) -> Result<super::manifest::Manifest, String> {
+    if let Some(url) = manifest_url {
+        return super::manifest::fetch(url).await;
     }
-    let client = reqwest::Client::builder()
-        .user_agent("Domios-Updater")
-        .build()
-        .map_err(|e| e.to_string())?;
+    resolve_feed(method, channel)
+        .await
+        .map(|resolved| resolved.manifest)
+}
+
+async fn resolve_feed(
+    method: &InstallMethod,
+    channel: super::Channel,
+) -> Result<ResolvedManifest, String> {
+    let root = codeterm_plugins::update_source::fixture_root()
+        .map(|root| root.join("manifest-cache"))
+        .unwrap_or_else(|| codeterm_paths::data_dir_path().join("update-manifests"));
+    resolve_with(method, channel, root, |endpoint| async move {
+        super::manifest::fetch(&endpoint).await
+    })
+    .await
+}
+
+async fn resolve_with<F, Fut>(
+    method: &InstallMethod,
+    channel: super::Channel,
+    root: std::path::PathBuf,
+    mut fetch: F,
+) -> Result<ResolvedManifest, String>
+where
+    F: FnMut(String) -> Fut,
+    Fut: std::future::Future<Output = Result<super::manifest::Manifest, String>>,
+{
+    let key = super::channel::manifest_filename_for_install_method(channel, method);
     let mut found = Vec::new();
     let mut errors = Vec::new();
-    for repository in UPDATE_REPOSITORIES {
-        match repository_latest_tag(&client, repository).await {
-            Ok(tag) => found.push(LatestRelease { repository, tag }),
+    let endpoints = super::channel::default_endpoints_for_install_method(channel, method);
+    for (repository, endpoint) in UPDATE_REPOSITORIES.into_iter().zip(endpoints) {
+        match fetch(endpoint).await.and_then(|manifest| {
+            semver::Version::parse(&manifest.version).map_err(|e| e.to_string())?;
+            Ok(manifest)
+        }) {
+            Ok(manifest) => found.push(ResolvedManifest {
+                release: LatestRelease {
+                    repository,
+                    tag: format!("v{}", manifest.version),
+                },
+                manifest,
+                refresh_error: None,
+            }),
             Err(error) => errors.push(format!("{repository}: {error}")),
         }
     }
-    newest_release(found).ok_or_else(|| format!("Failed to fetch release: {}", errors.join("; ")))
+    let best = newest_release(found.iter().map(|item| item.release.clone()).collect());
+    let fresh = best.and_then(|best| found.into_iter().find(|item| item.release == best));
+    tokio::task::spawn_blocking(move || cache::publish(&root, key, fresh, &errors))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
-async fn repository_latest_tag(
-    client: &reqwest::Client,
-    repository: &str,
-) -> Result<String, String> {
-    let release = latest_release_request(client, repository)
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
-    if !release.status().is_success() {
-        return Err(format!("HTTP {}", release.status()));
+fn reuse_manifest(
+    fresh: Option<ResolvedManifest>,
+    cached: Option<ResolvedManifest>,
+    errors: &[String],
+) -> Result<ResolvedManifest, String> {
+    let error = format!("Failed to fetch release: {}", errors.join("; "));
+    match (fresh, cached) {
+        (Some(fresh), Some(mut cached)) => {
+            let fresh_version =
+                semver::Version::parse(&fresh.manifest.version).map_err(|e| e.to_string())?;
+            let cached_version =
+                semver::Version::parse(&cached.manifest.version).map_err(|e| e.to_string())?;
+            if cached_version > fresh_version
+                || (cached_version == fresh_version && !errors.is_empty())
+            {
+                cached.refresh_error = Some(if errors.is_empty() {
+                    format!(
+                        "Release feed returned {}; keeping known {}",
+                        fresh_version, cached_version
+                    )
+                } else {
+                    error
+                });
+                Ok(cached)
+            } else {
+                Ok(fresh)
+            }
+        }
+        (Some(fresh), None) => Ok(fresh),
+        (None, Some(mut cached)) => {
+            cached.refresh_error = Some(error);
+            Ok(cached)
+        }
+        (None, None) => Err(error),
     }
-    let release: serde_json::Value = release.json().await.map_err(|e| e.to_string())?;
-    release["tag_name"]
-        .as_str()
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| "no tag_name".to_string())
 }
 
 /// Highest semantic version wins; the earlier repository wins a tie, and unparsable tags never win.
@@ -90,23 +147,22 @@ pub async fn check_for_update_at(
     install_method: &InstallMethod,
     manifest_url: Option<&str>,
 ) -> Result<UpdateInfo, String> {
-    let endpoint = match manifest_url {
-        Some(url) => url.to_string(),
+    check_with_diagnostic(install_method, manifest_url)
+        .await
+        .map(|(info, _)| info)
+}
+
+pub async fn check_with_diagnostic(
+    install_method: &InstallMethod,
+    manifest_url: Option<&str>,
+) -> Result<(UpdateInfo, Option<String>), String> {
+    let (manifest, refresh_error) = match manifest_url {
+        Some(url) => (super::manifest::fetch(url).await?, None),
         None => {
-            let latest = latest_release_tag().await?;
-            super::channel::immutable_endpoint_for_release(
-                latest.repository,
-                &latest.tag,
-                super::Channel::Stable,
-                install_method,
-            )
+            let resolved = resolve_feed(install_method, super::Channel::Stable).await?;
+            (resolved.manifest, resolved.refresh_error)
         }
     };
-    let endpoint = endpoint.as_str();
-    let manifest = super::manifest::fetch(endpoint).await.map_err(|error| {
-        log::error!("[updater] GET {endpoint} failed: {error}");
-        format!("GET {endpoint}: {error}")
-    })?;
     let current_str = codeterm_build_info::version();
     let compatible = super::manifest::current_platform_key()
         .is_some_and(|key| manifest.platforms.contains_key(key));
@@ -120,26 +176,29 @@ pub async fn check_for_update_at(
     let download_url = super::manifest::current_platform_key()
         .and_then(|key| manifest.platforms.get(key))
         .map(|platform| platform.url.clone());
-    Ok(UpdateInfo {
-        current_version: current_str.into(),
-        latest_version: manifest.version.clone(),
-        update_available: availability.state
-            == codeterm_plugins::AvailabilityState::UpdateAvailable,
-        install_method: install_method.clone(),
-        update_command: build_update_command(
-            install_method,
-            &manifest.version,
-            download_url.as_deref(),
-        ),
-        download_url,
-        release_url: format!(
-            "https://github.com/{GITHUB_REPO}/releases/tag/v{}",
-            manifest.version
-        ),
-        release_notes: manifest.notes,
-        published_at: manifest.pub_date,
-        availability,
-    })
+    Ok((
+        UpdateInfo {
+            current_version: current_str.into(),
+            latest_version: manifest.version.clone(),
+            update_available: availability.state
+                == codeterm_plugins::AvailabilityState::UpdateAvailable,
+            install_method: install_method.clone(),
+            update_command: build_update_command(
+                install_method,
+                &manifest.version,
+                download_url.as_deref(),
+            ),
+            download_url,
+            release_url: format!(
+                "https://github.com/{GITHUB_REPO}/releases/tag/v{}",
+                manifest.version
+            ),
+            release_notes: manifest.notes,
+            published_at: manifest.pub_date,
+            availability,
+        },
+        refresh_error,
+    ))
 }
 
 fn build_update_command(

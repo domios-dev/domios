@@ -108,6 +108,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::service::neighbors::updates::UpdateCell>();
         self.insert_late::<crate::service::neighbors::history::HistoryCell>();
         self.insert_late::<crate::service::account::AccountCredentialCell>();
+        self.insert_late::<crate::service::account::startup::StartupAccount>();
         self.insert_late::<crate::service::account::logout::LogoutCell>();
         self.insert_late::<crate::service::agent_restart::ProviderSwitchOperations>();
         self.insert_late::<crate::CronState>();

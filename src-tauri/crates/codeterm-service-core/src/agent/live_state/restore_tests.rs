@@ -34,6 +34,35 @@ fn classify_restore_liveness(
 }
 
 #[test]
+fn composer_ready_restore_remains_live_after_the_binding_deadline() {
+    let mut tab = restored_tab();
+    tab.restored_from_snapshot = false;
+    tab.pty_id = Some("owned-pty".into());
+    tab.boot_stage = Some(BootStage::ProviderReady);
+    tab.agent_set_at =
+        Some(std::time::Instant::now() - crate::service::worker_ack::STARTUP_BINDING_DEADLINE);
+    let mut launch = crate::service::boot_stage::provisional_launch_for(
+        &tab,
+        "owned-pty",
+        "current-launch",
+        "opaque composer evidence",
+    )
+    .unwrap();
+    launch.first_turn_input_ready = true;
+    launch.awaiting_binding_ack = true;
+    tab.provisional_launch = Some(launch);
+    assert_eq!(
+        classify_restore_liveness(&tab, evidence(&tab)),
+        AgentLiveness::Live
+    );
+    tab.session_binding_nonce = Some("replacement-launch".into());
+    assert_eq!(
+        classify_restore_liveness(&tab, evidence(&tab)),
+        AgentLiveness::Absent
+    );
+}
+
+#[test]
 fn report_before_readiness_waits_for_own_session_event() {
     let mut tab = restored_tab();
     let bound = vec![RestorePane {

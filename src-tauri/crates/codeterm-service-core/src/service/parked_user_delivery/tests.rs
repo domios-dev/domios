@@ -532,6 +532,7 @@ mod recording_contract;
 mod restart_liveness;
 #[path = "tests/retained_uncertainty.rs"]
 mod retained_uncertainty;
+mod startup_override;
 
 mod ready_order;
 

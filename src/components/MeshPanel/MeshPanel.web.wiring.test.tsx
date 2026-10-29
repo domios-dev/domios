@@ -18,6 +18,8 @@ const inventory: MeshDataResult = {
 let meshData = inventory;
 const refreshKeys: number[] = [];
 const registryRefreshKeys: number[] = [];
+const bridgeCommands: string[] = [];
+const meshListeners = new Set<() => void>();
 
 vi.mock("./useMeshData", () => ({ useMeshData: (refreshKey: number) => { refreshKeys.push(refreshKey); return meshData; } }));
 vi.mock("../Jobs/JobsView", () => ({ JobsView: () => <section aria-label="Jobs" /> }));
@@ -25,10 +27,13 @@ vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (_peers: unknown, _chan
 vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
-  invoke: async (command: string) => command === "get_serve_status"
+  invoke: async (command: string) => { bridgeCommands.push(command); return command === "get_serve_status"
     ? { installed: true, active: true, snapshot: webUiSnapshot("ready") }
-    : { api_port: 7686, local_ip: "192.168.1.2", web_listener: "100.64.1.2:7686" },
-  listen: async () => () => {},
+    : { api_port: 7686, local_ip: "192.168.1.2", web_listener: "100.64.1.2:7686" }; },
+  listen: async (event: string, callback: () => void) => {
+    if (event === "mesh-state-changed") meshListeners.add(callback);
+    return () => { meshListeners.delete(callback); };
+  },
 }));
 vi.mock("qrcode", () => ({ default: { toDataURL: async () => "data:image/png;base64,fixture" } }));
 vi.mock("@codeterm/canvas-camera", async (original) => ({
@@ -50,6 +55,11 @@ it("wires the toolbar Refresh to the account registry as well as inventory", asy
     await act(async () => host.querySelector<HTMLButtonElement>('button[title="Refresh"]')!.click());
     expect(refreshKeys[refreshKeys.length - 1]).toBe(inventoryKey + 1);
     expect(registryRefreshKeys[registryRefreshKeys.length - 1]).toBe(registryKey + 1);
+    const serveLoads = bridgeCommands.filter(command => command === "get_serve_status").length;
+    const networkLoads = bridgeCommands.filter(command => command === "get_network_info").length;
+    await act(async () => { for (const listener of meshListeners) listener(); });
+    expect(bridgeCommands.filter(command => command === "get_serve_status").length).toBe(serveLoads + 1);
+    expect(bridgeCommands.filter(command => command === "get_network_info").length).toBe(networkLoads + 1);
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -165,7 +175,7 @@ it("shows the access card directly in the graph without a duplicate details dial
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('[data-testid="web-access-status"]')).toBeNull();
-    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('100.64.1.2:7686');
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('host.tail.ts' + '.net');
     const expand = host.querySelector<HTMLButtonElement>('button[aria-label="Expand Mesh UI"]');
     expect(expand).not.toBeNull();
     await act(async () => expand!.click());

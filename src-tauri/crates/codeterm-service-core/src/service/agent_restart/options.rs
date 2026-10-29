@@ -19,6 +19,8 @@ impl ServiceContext {
         if let Some(refusal) = self.tab_write_lock(tab_id) {
             return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
         }
+        self.thaw_tab_for_restart(tab_id)
+            .map_err(AgentRestartError::BadRequest)?;
         let RestartOptions {
             force,
             grace_secs,

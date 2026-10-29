@@ -104,7 +104,9 @@ fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
         AccountMeshRefusal::KeyConflict,
         AccountMeshRefusal::GenerationMismatch,
         AccountMeshRefusal::ChallengeInvalid,
-        AccountMeshRefusal::EnrollmentBudget,
+        AccountMeshRefusal::EnrollmentBudget {
+            retry_after_seconds: None,
+        },
         AccountMeshRefusal::ProofInvalid,
         AccountMeshRefusal::RateLimited {
             retry_after_seconds: 30,
@@ -138,6 +140,10 @@ fn account_mesh_only_the_machine_limit_reaches_the_gate_as_mesh_machines() {
     assert_eq!(
         membership_refusal(MembershipRefusal::Expired),
         mesh::AdmissionRefusal::Revoked
+    );
+    assert_eq!(
+        membership_refusal(MembershipRefusal::Duration),
+        mesh::AdmissionRefusal::handshake("membership-duration")
     );
     assert_eq!(
         membership_refusal(MembershipRefusal::Signature),
@@ -283,6 +289,10 @@ struct NoSession;
 #[async_trait]
 impl SessionSource for NoSession {
     async fn session(&self) -> Result<Option<codeterm_account::Session>, AccountMeshRefusal> {
+        Ok(None)
+    }
+
+    async fn refresh(&self) -> Result<Option<codeterm_account::Session>, AccountMeshRefusal> {
         Ok(None)
     }
 }

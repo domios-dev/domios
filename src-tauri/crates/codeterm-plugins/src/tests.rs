@@ -756,7 +756,7 @@ mod store_index_tests {
             std::env::remove_var("CODETERM_TEST_GIT_BIN"); // use the real git binary
 
             let git = |args: &[&str], cwd: Option<&Path>| {
-                let mut c = git_command();
+                let mut c = git_command().expect("git resolved");
                 if let Some(d) = cwd {
                     c.current_dir(d);
                 }
@@ -882,6 +882,10 @@ mod store_index_tests {
                 r#"#!/bin/sh
 set -eu
 printf '%s\n' "$*" >> "$CODETERM_TEST_GIT_LOG"
+if [ "$1" = "--version" ]; then
+  printf 'git version 2.21.0\n'
+  exit 0
+fi
 if [ "$1" = "clone" ]; then
   for arg do dest="$arg"; done
   mkdir -p "$dest"
@@ -896,6 +900,10 @@ exit 0
                 bin.join("git.cmd"),
                 r#"@echo off
 echo %*>>"%CODETERM_TEST_GIT_LOG%"
+if "%~1"=="--version" (
+  echo git version 2.21.0
+  exit /b 0
+)
 if not "%~1"=="clone" exit /b 0
 for %%a in (%*) do set "dest=%%~a"
 mkdir "%dest%" 2>nul
@@ -935,7 +943,8 @@ exit /b 0
             assert!(git_log.contains("clone"));
             assert!(git_log.contains("core.longpaths=true"));
             assert!(git_log.contains("--depth 1"));
-            assert!(git_log.contains("--filter=blob:none"));
+            assert!(!git_log.contains("--filter=blob:none"));
+            assert!(!git_log.contains("--sparse"));
             assert!(git_log.contains("https://example.invalid/demo.git"));
             assert!(git_log.contains("fetch --depth 1 origin main"));
 

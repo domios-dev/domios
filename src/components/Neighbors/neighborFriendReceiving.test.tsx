@@ -55,6 +55,8 @@ async function mount(node: React.ReactNode) {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(node));
+  const toggle = host.querySelector<HTMLButtonElement>('section[aria-label="Neighbors"] button[aria-expanded="false"]');
+  if (toggle) await act(async () => toggle.click());
 }
 /** Opens a row's menu and returns its item labels; `choose` then picks one from the open menu. */
 async function openMenu(menu: string): Promise<(string | null)[]> {
@@ -160,4 +162,18 @@ it("only the explicit all-friends control moves the account, naming the count an
   expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
   expect(runtimeClient.receiveFriend).not.toHaveBeenCalled();
   expect(hasButton("Receive here")).toBe(false);
+});
+
+it("keeps the single-friend receiving action inside concierge setup", async () => {
+  const runtimeClient = receiving(elsewhere);
+  await render("paid", { runtimeClient });
+  await act(async () => button("Ada, connected").click());
+  expect(hasButton("Change agent")).toBe(false);
+  await act(async () => button("Set up concierge").click());
+  const dialog = document.querySelector('form[role="dialog"]');
+  const receive = Array.from(dialog?.querySelectorAll("button") ?? []).find(node => node.textContent === "Confirm receiving");
+  expect(receive).toBeDefined();
+  await act(async () => receive!.click());
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7);
+  expect(runtimeClient.enroll).not.toHaveBeenCalled();
 });

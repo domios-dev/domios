@@ -202,7 +202,7 @@ export async function webUpload(
 ): Promise<{ path: string; size: number }> {
   const form = await browserUploadBody(file, filename);
   const controller = new AbortController();
-  const interrupt = () => controller.abort();
+  const interrupt = () => controller.abort(new DOMException("Interrupted", "AbortError"));
   const visibilityChanged = () => { if (document.visibilityState === "hidden") interrupt(); };
   window.addEventListener("pagehide", interrupt);
   document.addEventListener("visibilitychange", visibilityChanged);

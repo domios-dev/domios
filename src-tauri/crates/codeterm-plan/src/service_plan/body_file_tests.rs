@@ -157,13 +157,15 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         personality_provenance: None,
         attachments: vec![],
     });
+    store.save(&mut plan, 1).unwrap();
+    let database = store.database_path_for_test();
     let json_path = paths::plan_json_path(&project, &plan.status, &plan.id).unwrap();
-    std::fs::create_dir_all(json_path.parent().unwrap()).unwrap();
-    std::fs::write(&json_path, serde_json::to_string_pretty(&plan).unwrap()).unwrap();
     let section_path = json_path.parent().unwrap().join("sections/spec.md");
     std::fs::create_dir_all(section_path.parent().unwrap()).unwrap();
     std::fs::write(&section_path, [0xff, 0xfe, b'#']).unwrap();
 
+    drop(store);
+    let store = PlanStore::open(database).unwrap();
     store.scan_project(dir.path()).unwrap();
 
     let loaded = store
@@ -179,6 +181,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
     store.reload_from_disk(&plan.id).unwrap();
     let reloaded = store.get(&plan.id).unwrap();
     assert_eq!(reloaded.sections[0].body.trim_end(), "json section body");
+    assert_eq!(std::fs::read(section_path).unwrap(), [0xff, 0xfe, b'#']);
 }
 
 #[test]

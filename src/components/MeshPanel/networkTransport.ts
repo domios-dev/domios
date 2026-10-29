@@ -1,17 +1,7 @@
 import type { TailscaleState } from "./tailscaleSetup";
 
-export interface NetworkIdentity { kind: string; network_id: string }
-export interface NetworkTransportStatus {
-  display_name: string;
-  state: "not_installed" | "not_running" | "signed_out" | "starting" | "connected" | "unknown";
-  identity: NetworkIdentity | null;
-  network_name: string | null;
-  user?: string | null;
-  addresses: string[];
-  peer_listener: boolean;
-  encrypted: boolean;
-  setup_actions: Array<{ kind: string; url: string }>;
-}
+import type { NetworkIdentity, NetworkTransportStatus } from "../../lib/types";
+export type { NetworkIdentity, NetworkTransportStatus } from "../../lib/types";
 
 export function transportState(status: NetworkTransportStatus): TailscaleState {
   switch (status.state) {

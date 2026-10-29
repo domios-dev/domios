@@ -4,7 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, readableSystemReminder, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -14,6 +14,7 @@ import {
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
+import { retainStreamedCommandShell, toolPresentationKey } from "./toolPresentationState";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { OrderedAttachmentContent } from "./OrderedAttachmentContent";
@@ -117,15 +118,6 @@ function hasVisibleEdit(item: TimelineItem | undefined): boolean {
     && Boolean(item.event.edits?.length);
 }
 
-// Transport ids are re-keyed when a snapshot replaces live rows, so tool expansion keys on source identity.
-function expansionKey(message: ChatMessage, item: TimelineItem | undefined): string {
-  if (item?.kind !== "tool") return message.id;
-  const session = message.sourceSessionId ?? "";
-  if (item.event.stream) return `stream:${session}:${item.event.stream.flowId}`;
-  const toolId = item.event.toolId?.trim();
-  return toolId ? `tool:${session}:${toolId}` : message.id;
-}
-
 function isOutboundMessage(item: TimelineItem | undefined): boolean {
   if (item?.kind !== "tool") return false;
   const { command, argv } = toolCommand(item.event);
@@ -159,8 +151,12 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   const isCommandGroup = item?.kind === "tool" && !item.event.stream
     && (item.event.kind === "command" || item.event.kind === "codeterm")
     && toolCommandShape(item.event)?.kind === "group";
-  const shouldAutoExpand = isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
-  const persistKey = expansionKey(message, item);
+  const [startedPendingCommand] = useState(() => {
+    const event = item?.kind === "tool" ? item.event : materializeToolEvent(message);
+    return event ? retainStreamedCommandShell(event) : false;
+  });
+  const shouldAutoExpand = !startedPendingCommand && (isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item));
+  const persistKey = toolPresentationKey(message, item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
     return persisted ?? shouldAutoExpand;

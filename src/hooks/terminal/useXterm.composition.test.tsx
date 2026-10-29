@@ -1,7 +1,7 @@
 import { act, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Terminal } from "@xterm/xterm";
+import { Terminal } from "@xterm/xterm";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { useTerminalInput } from "./useTerminalInput";
 import { useXterm } from "./useXterm";
@@ -62,7 +62,7 @@ async function fixture() {
   if (!term?.textarea) throw new Error("Terminal helper did not initialize");
   const textarea = term.textarea;
   return {
-    textarea, data, writes,
+    term, textarea, data, writes,
     async dispose() {
       await act(async () => root.unmount());
       host.remove();
@@ -82,6 +82,47 @@ function enter(textarea: HTMLTextAreaElement, keyCode = 13, isComposing = false)
 }
 
 describe("xterm composition delivery", () => {
+  it("consumes renderer status queries without producing PTY input or changing user text", async () => {
+    async function output(term: Terminal, ...chunks: string[]) {
+      const parsed = chunks.map(chunk => new Promise<void>(resolve => term.write(chunk, resolve)));
+      await vi.runOnlyPendingTimersAsync();
+      await Promise.all(parsed);
+    }
+    const control = new Terminal({ allowProposedApi: true });
+    const replies: string[] = [];
+    control.onData(data => replies.push(data));
+    try {
+      await output(control, "\x1bP$qm\x1b\\");
+      expect(replies).toEqual(["\x1bP1$r0m\x1b\\"]);
+    } finally { control.dispose(); }
+
+    const f = await fixture();
+    const rawInput: string[] = [];
+    f.term.onData(data => rawInput.push(data));
+    try {
+      const left = "f7a2z8";
+      const right = "c9d4v1";
+      for (const request of ["m", "r", " q", '"q', '"p', "k6w3"]) {
+        const query = `\x1bP$q${request}\x1b\\`;
+        for (let split = 0; split <= query.length; split += 1) {
+          await act(async () => {
+            await output(f.term, `\r\n${left}`, query.slice(0, split), query.slice(split), right);
+          });
+          const buffer = f.term.buffer.active;
+          expect(buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true)).toBe(left + right);
+        }
+      }
+      expect(rawInput).toEqual([]);
+      expect(f.data).toEqual([]);
+      expect(f.writes).toEqual([]);
+      const userText = "q8n5r2m\\";
+      await act(async () => f.term.paste(userText));
+      expect(rawInput).toEqual([userText]);
+      expect(f.data).toEqual([userText]);
+      expect(f.writes).toEqual([{ ptyId: "composition-pty", data: userText }]);
+    } finally { await f.dispose(); }
+  });
+
   it("disables inline predictions before the helper receives focus", async () => {
     const focused: Array<string | null> = [];
     const focus = HTMLTextAreaElement.prototype.focus;

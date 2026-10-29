@@ -1,7 +1,23 @@
 use super::*;
 use crate::service::test_fixture::ServiceFixture;
 
-fn mark_lazy_composer_ready(fixture: &ServiceFixture, tab_id: &str) {
+#[test]
+fn lazy_first_turn_requires_the_exact_saved_session_until_binding() {
+    let (fixture, id) = pre_ready_fixture();
+    let mut authority = fixture.service.user_send_authority(&id).unwrap();
+    let mut tab = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    assert!(lazy_first_turn_session_matches(&tab, &authority));
+    tab.agent_session_id = Some("foreign-session".into());
+    assert!(!lazy_first_turn_session_matches(&tab, &authority));
+    tab.agent_session_id = None;
+    assert!(!lazy_first_turn_session_matches(&tab, &authority));
+    authority.observed_session_id = None;
+    assert!(lazy_first_turn_session_matches(&tab, &authority));
+    authority.session_id = Some("bound-session".into());
+    assert!(!lazy_first_turn_session_matches(&tab, &authority));
+}
+
+pub(super) fn mark_lazy_composer_ready(fixture: &ServiceFixture, tab_id: &str) {
     attach_fixture_pty(fixture, tab_id);
     let attempt = {
         let mut mux = fixture.service.mux.write();
@@ -22,9 +38,58 @@ fn mark_lazy_composer_ready(fixture: &ServiceFixture, tab_id: &str) {
 
 #[test]
 fn lazy_composer_admits_one_first_turn_then_binding_releases_the_queue() {
+    for resumed in [false, true] {
+        restart_first_send_case(resumed);
+    }
+}
+
+fn restart_first_send_case(resumed: bool) {
     let (fixture, tab) = queue_fixture_with_session_mode(false, None, true);
     mark_lazy_composer_ready(&fixture, &tab);
+    if resumed {
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab)
+            .unwrap()
+            .agent_session_id = Some("first-turn-session".into());
+    }
+    let pty = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .pty_id
+        .clone()
+        .unwrap();
+    let attempt =
+        crate::service::launch_readiness::LaunchAttempt::current(&fixture.service.mux, &tab, &pty)
+            .unwrap();
+    fixture.service.record_provisional_launch(
+        &attempt,
+        codeterm_types::pty::BootStage::LaunchBindingUnconfirmed,
+        "late restart binding deadline",
+    );
+    assert_eq!(
+        crate::service::boot_stage::wait_for_restart_readiness(
+            &fixture.service.mux,
+            &tab,
+            Some("replaced-pty"),
+            std::time::Duration::ZERO
+        ),
+        crate::service::boot_stage::RestartReadiness::Ready {
+            pty_id: attempt.pty_id.clone()
+        }
+    );
+
     let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert_eq!(
+        fixture.service.latch_user_input_authority(&authority),
+        !resumed,
+        "a retained session cannot acquire normal readiness before its own nonce acknowledgement",
+    );
     assert!(!fixture.service.user_authority_is_ready(&authority));
 
     let (writes_tx, writes_rx) = mpsc::channel();
@@ -240,10 +305,17 @@ fn lazy_session_provider_writes_every_send_after_agent_readiness() {
     {
         let mut mux = fixture.service.mux.write();
         let tab = mux.get_tab_mut(&tab).unwrap();
-        tab.agent_session_id = None;
+        tab.agent_session_id = Some("opaque-session".into());
         tab.reported_session_binding_nonce = None;
     }
     mark_ready(&fixture, &tab);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .launch_session_authenticated());
     let (entered_tx, entered_rx) = mpsc::sync_channel(1);
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = Arc::new(Mutex::new(release_rx));

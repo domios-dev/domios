@@ -4,8 +4,8 @@ import type { CachedNeighbors } from "./neighborListCache";
 export type NeighborNodeStatus = "connected" | "paused" | "request" | "invited";
 
 export type NeighborhoodNode =
-  | { kind: "neighbor"; id: string; name: string; photoURL: string | null; status: NeighborNodeStatus; x: number; y: number }
-  | { kind: "request"; id: string; name: string; photoURL: string | null; status: NeighborNodeStatus; x: number; y: number }
+  | { kind: "neighbor"; id: string; name: string; email?: string | null; photoURL: string | null; status: NeighborNodeStatus; x: number; y: number }
+  | { kind: "request"; id: string; name: string; email?: string | null; photoURL: string | null; status: NeighborNodeStatus; x: number; y: number }
   | { kind: "invited"; id: string; email: string; createdAt: number; status: "invited"; x: number; y: number }
   | { kind: "add"; id: "add"; x: number; y: number };
 
@@ -19,9 +19,9 @@ export const STATUS_LABEL: Record<NeighborNodeStatus, string> = {
 /** Places everyone on one ring around you, in percent of a square stage; the add node closes the ring. */
 export function neighborhoodNodes(list: CachedNeighbors | null, canAdd: boolean): NeighborhoodNode[] {
   const people = [
-    ...(list?.friends ?? []).map(friend => ({ kind: "neighbor" as const, id: friend.friendship_id, name: neighborName(friend), photoURL: friend.photoURL,
+    ...(list?.friends ?? []).map(friend => ({ kind: "neighbor" as const, id: friend.friendship_id, name: neighborName(friend), email: friend.email, photoURL: friend.photoURL,
       status: list?.access === "paid" ? "connected" as const : "paused" as const })),
-    ...(list?.incoming ?? []).map(request => ({ kind: "request" as const, id: request.request_id, name: neighborName(request), photoURL: request.photoURL,
+    ...(list?.incoming ?? []).map(request => ({ kind: "request" as const, id: request.request_id, name: neighborName(request), email: request.email, photoURL: request.photoURL,
       status: "request" as const })),
     // An invitation knows only the typed email; it never implies that person has an account.
     ...(list?.outgoing ?? []).map(invite => ({ kind: "invited" as const, id: invite.id, email: invite.typed_email, createdAt: invite.created_at, status: "invited" as const })),

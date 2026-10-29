@@ -178,54 +178,6 @@ impl LaunchDeliveryGate {
         self.consume_injection(mux, tab_id, sink, transaction)
     }
 
-    #[cfg(test)]
-    pub(crate) fn consume<F>(
-        &self,
-        mux: &MuxState,
-        tab_id: &str,
-        sink: &impl BootStageSink,
-        transaction: F,
-    ) -> Result<LaunchConsumptionOutcome, LaunchConsumptionError>
-    where
-        F: FnOnce() -> Result<bool, String>,
-    {
-        let attempt = match self.prepare_consumption(mux, tab_id) {
-            Ok(attempt) => attempt,
-            Err(outcome) => return Ok(outcome),
-        };
-        let result = dispatch_initial_delivery(
-            LaunchDeliveryMode::ConfirmedFallback,
-            sink,
-            tab_id,
-            Some(transaction),
-        )
-        .expect("fallback delivery dispatch executes the transaction");
-        let submission_observed = result.as_ref().copied().unwrap_or(false);
-        let delivery = {
-            let mut mux = mux.write();
-            let pending = mux
-                .get_tab_mut(tab_id)
-                .and_then(|tab| tab.pending_delivery.as_mut())
-                .expect("fallback launch retains its pending delivery record");
-            confirm_fallback_for_attempt(tab_id, pending, &attempt, submission_observed)
-        };
-        match delivery {
-            Ok(()) => result
-                .map(|_| LaunchConsumptionOutcome::Confirmed)
-                .map_err(|transaction| LaunchConsumptionError {
-                    delivery: DeliveryError::SubmitUnconfirmed {
-                        tab: tab_id.to_string(),
-                        detail: "launch delivery transaction failed".into(),
-                    },
-                    transaction: Some(transaction),
-                }),
-            Err(delivery) => Err(LaunchConsumptionError {
-                delivery,
-                transaction: result.err(),
-            }),
-        }
-    }
-
     fn prepare_consumption(
         &self,
         mux: &MuxState,

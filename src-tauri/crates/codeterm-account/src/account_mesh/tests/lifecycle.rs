@@ -1,4 +1,3 @@
-use super::super::membership::RENEW_AFTER_SECONDS;
 use super::support::*;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
@@ -37,8 +36,9 @@ async fn account_mesh_sign_in_enrolls_once_and_restart_renews_the_same_slot() {
         .await
         .unwrap();
     assert_eq!(harness.calls("enroll"), 1);
-    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.calls("renew"), 0);
 
+    harness.clock.set(START + 3600);
     harness.restart().await;
     assert_eq!(harness.state().presence, Presence::NeverSignedIn);
     harness.sign_in(UID).await;
@@ -49,9 +49,9 @@ async fn account_mesh_sign_in_enrolls_once_and_restart_renews_the_same_slot() {
         .unwrap();
     assert_eq!(harness.calls("enroll_key"), 1);
     assert_eq!(harness.calls("enroll"), 1);
-    assert_eq!(harness.calls("renew"), 2);
-    assert_eq!(harness.registry.slot(UID), Some(3));
-    assert!(harness.state().current_membership(START).is_some());
+    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.registry.slot(UID), Some(2));
+    assert!(harness.state().current_membership(START + 3600).is_some());
 }
 
 #[tokio::test]
@@ -139,6 +139,14 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
         .lock()
         .unwrap()
         .lose_membership_reply = Some(RegistryRefusal::Offline);
+    let due = harness
+        .state()
+        .membership
+        .as_ref()
+        .unwrap()
+        .verified
+        .refresh_after();
+    harness.clock.set(due);
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
         Err(AccountMeshRefusal::Offline)
@@ -161,7 +169,7 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(harness.registry.slot(UID), Some(4));
+    assert_eq!(harness.registry.slot(UID), Some(3));
     assert_eq!(
         harness
             .store
@@ -170,8 +178,13 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
             .unwrap()
             .slots
             .get(&account_id(UID)),
-        Some(&4)
+        Some(&3)
     );
+    assert_eq!(harness.calls("recover_key"), 0);
+    assert_eq!(harness.calls("enroll_key"), 1);
+    let script = harness.registry.script.lock().unwrap();
+    assert_eq!(script.renew_bodies.len(), 3);
+    assert_eq!(script.renew_bodies[1], script.renew_bodies[2]);
 }
 
 #[tokio::test]
@@ -209,6 +222,7 @@ async fn account_mesh_recovers_when_the_enroll_key_reply_is_lost() {
 async fn account_mesh_reenrolls_when_its_remote_row_is_inactive() {
     let harness = enrolled().await;
     harness.registry.revoke_self(UID);
+    harness.clock.set(START + 3600);
 
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
 
@@ -246,6 +260,8 @@ async fn account_mesh_recovers_a_memory_only_key_after_restart_and_renews() {
         .unwrap();
 
     assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.calls("recover"), 1);
+    assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(harness.registry.slot(UID), Some(2));
     let state = harness.state();
     let recovered = state.self_installation.as_ref().unwrap();
@@ -576,7 +592,10 @@ async fn account_mesh_session_revoke_uses_a_signed_request_and_keeps_the_pairing
     assert_eq!(revoked.target_installation_id, PEER);
     assert_eq!(revoked.revoked_at, START);
     assert_eq!(harness.calls("session_revoke"), 1);
-    assert!(harness.transport.revoked.lock().unwrap().is_empty());
+    assert_eq!(
+        *harness.transport.revoked.lock().unwrap(),
+        vec![PEER.to_owned()]
+    );
     assert_eq!(harness.state().self_installation, before.self_installation);
     assert!(harness.state().current_membership(START).is_some());
 }
@@ -719,14 +738,19 @@ async fn account_mesh_clock_behind_the_issuer_still_enrolls_without_a_longer_lea
 }
 
 async fn next_renewal(harness: &Harness) -> Duration {
-    let started = tokio::time::Instant::now();
+    let state = harness.state();
+    let due = state
+        .retry_at
+        .unwrap_or_else(|| state.membership.as_ref().unwrap().verified.refresh_after());
+    let previous = harness.mesh.now();
+    harness.clock.set(due);
     tokio::time::timeout(
         Duration::from_secs(3600),
         harness.registry.entered.notified(),
     )
     .await
     .expect("a renewal is scheduled");
-    started.elapsed()
+    Duration::from_secs(due - previous)
 }
 
 #[tokio::test(start_paused = true)]
@@ -741,10 +765,7 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
     harness.registry.entered.notified().await;
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
 
-    assert_eq!(
-        next_renewal(&harness).await,
-        Duration::from_secs(RENEW_AFTER_SECONDS)
-    );
+    assert_eq!(next_renewal(&harness).await, Duration::from_secs(3000));
     assert_eq!(harness.state().enrollment, Enrollment::Refused);
     assert_eq!(
         next_renewal(&harness).await,
@@ -769,7 +790,7 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
     assert_eq!(harness.calls("renew"), 4);
     assert_eq!(
         next_renewal(&harness).await,
-        Duration::from_secs(RENEW_AFTER_SECONDS),
+        Duration::from_secs(3000),
         "a renewed membership returns to the lease cadence"
     );
 }

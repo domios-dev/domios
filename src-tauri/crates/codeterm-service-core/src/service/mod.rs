@@ -108,7 +108,7 @@ pub use mux_emit_stats::{MuxEmitCause, MuxEmitCauseStats};
 pub mod provider_cli;
 mod published_mux_state;
 pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
-use published_mux_state::PublishedMuxState;
+pub(crate) use published_mux_state::PublishedMuxState;
 pub mod provider_cli_actions;
 pub mod provider_hooks;
 pub(crate) mod provider_signals;

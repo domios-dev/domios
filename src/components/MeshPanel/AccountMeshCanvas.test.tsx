@@ -62,6 +62,11 @@ describe("Account machines on the Mesh canvas", () => {
     expect(view.kind === "account" && view.notes.join(" ")).not.toMatch(/unavailable/i);
   });
 
+  it("does not claim removal from an ambiguous forbidden refusal", () => {
+    const view = myMachinesView({ account: "signed_in", snapshot: snapshot({ last_refusal: { reason: "forbidden" } }), linking: new Set(), now: NOW });
+    expect(view.kind === "account" && view.removed).toBe(false);
+  });
+
   it("projects refused enrollment with occupying machines normal, offering plans and removal", () => {
     const state = snapshot({ self: null, traffic: "plan_limit_locked", enrollment: "refused", last_refusal: { reason: "mesh.machines", limit: 2, active_count: 2 }, registry: { observed_at: NOW, rows: [macRow, lenovoRow] } });
     const view = myMachinesView({ account: "signed_in", snapshot: state, linking: new Set(), now: NOW });
@@ -452,11 +457,14 @@ describe("Mesh canvas wiring", () => {
   });
 
   it("signs in and rejoins a removed machine with one action", async () => {
-    const client = new FakeAccountMeshClient(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "forbidden" } }));
+    const client = new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [{ ...selfRow, active: false, eligibility: "revoked" }] }, enrollment: "refused", last_refusal: { reason: "reauth_required" } }));
     await mount(client);
     const group = host.querySelector('[role="group"][aria-label="Rejoin your mesh"]');
     expect(group).not.toBeNull();
-    await click(group!.querySelector("button"));
+    expect(group!.querySelector('[role="status"]')?.textContent).toBe("This machine was removed from your mesh. Sign in again to rejoin.");
+    const rejoin = group!.querySelector<HTMLButtonElement>("button");
+    expect(rejoin?.textContent).toBe("Sign in and rejoin");
+    await click(rejoin);
     expect(presence.signIns).toBe(1);
     expect(client.enrollCalls).toBe(0);
     expect(selected).toBe(0);

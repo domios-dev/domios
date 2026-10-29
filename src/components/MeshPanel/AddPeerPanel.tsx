@@ -7,7 +7,7 @@ import { BusySpinner, BusyState } from "../shared/BusyState";
 import { Loader } from "../shared/Loader";
 import { SettingsPill } from "../Settings/shared";
 import type { MachineRowView, MachineStatus, SelfRowView } from "./accountMachines";
-import { failureMessage } from "./accountMachines";
+import { failureMessage, REMOVED_COPY } from "./accountMachines";
 import { LockBadge } from "../billing/LockBadge";
 import { lockedDimClass } from "../billing/freeLimitModel";
 import { meshMachineLockedView } from "../billing/lockSurfaces";
@@ -177,7 +177,7 @@ export function MachineManagement({ machines }: { machines: MachinesController }
           {rowList("Saved pairings", view.saved, null)}
         </>
       )}
-      {view.removed && <p role="status" className={UI_TEXT.metaMuted}>This machine was removed from your mesh</p>}
+      {view.removed && <p role="status" className={UI_TEXT.metaMuted}>{REMOVED_COPY}</p>}
       <Notes notes={view.notes} />
       {enrollmentRefused && !view.machineLimit && (
         <div className="flex gap-2">
@@ -248,7 +248,7 @@ function SelfRow({ self, onRename, onPlans }: {
             <SettingsPill tone="amber">Over limit</SettingsPill>
           </>}
         </div>
-        {!editing && (
+        {!editing && !self.readOnly && (
           <button
             type="button"
             ref={button}
@@ -263,7 +263,7 @@ function SelfRow({ self, onRename, onPlans }: {
         <span className={UI_TEXT.metaMuted}>This machine is outside your plan's machine limit.</span>
         <button type="button" aria-label="See plans for this machine" onClick={onPlans} className={`${UI_BUTTON.accent} ${UI_BUTTON.compact}`}>See plans</button>
       </div>}
-      {editing && (
+      {editing && !self.readOnly && (
         <form className="flex items-center gap-2" onSubmit={(event) => { event.preventDefault(); void save(); }}>
           <input
             ref={input}

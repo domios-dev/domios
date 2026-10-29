@@ -22,15 +22,23 @@ pub async fn status(
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<Status>, Error> {
     admit(caller.as_ref())?;
-    Ok(Json(
-        state
+    let status = state
+        .svc
+        .account()
+        .await
+        .map_err(unavailable)?
+        .status()
+        .await;
+    if status.identity.is_none() && !status.pending && !status.session_revoked {
+        if let Some(cached) = state
             .svc
-            .account()
-            .await
-            .map_err(unavailable)?
-            .status()
-            .await,
-    ))
+            .try_ext::<codeterm_service_core::service::account::startup::StartupAccount>()
+            .filter(|cached| cached.is_valid())
+        {
+            return Ok(Json(cached.status()));
+        }
+    }
+    Ok(Json(status))
 }
 
 pub async fn backend(
@@ -457,6 +465,9 @@ fn neighbor_failure(message: String) -> Response {
         Some(
             "receiver_elsewhere"
             | "receiving_elsewhere"
+            | "receiver_not_chosen"
+            | "receiver_status_unknown"
+            | "receivers_present"
             | "feature_unsupported"
             | "key_revoked"
             | "friendship_ended"

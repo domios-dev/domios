@@ -147,7 +147,7 @@ impl LaunchGeneration {
         let Some(attempt) = self.attempt() else {
             return false;
         };
-        let mut stage = BootStage::LaunchBindingUnconfirmed;
+        let mut stage = BootStage::ProviderReady;
         let committed = self.commit_if_current(|| {
             if self.await_provider_ack(std::time::Duration::ZERO) {
                 stage = BootStage::AgentReady;

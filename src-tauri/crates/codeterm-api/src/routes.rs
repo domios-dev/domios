@@ -106,6 +106,13 @@ async fn legacy_web_route_gone() -> StatusCode {
     StatusCode::NOT_FOUND
 }
 
+pub(crate) fn retired_web_routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
+    Router::new()
+        .route("/web", get(legacy_web_route_gone))
+        .route("/web/", get(legacy_web_route_gone))
+        .route("/web/{*path}", get(legacy_web_route_gone))
+}
+
 #[cfg(test)]
 pub fn create_router(state: AppState) -> Router {
     create_router_with_frontend(state, None)
@@ -334,6 +341,10 @@ pub(super) fn create_router_with_preview_admission(
             axum::routing::delete(webhook_routes::unregister_webhook),
         )
         .route("/api/network", get(network_routes::network_info))
+        .route(
+            "/api/network/web-token",
+            get(network_routes::web_link_token),
+        )
         .route(
             "/api/network/serve/status",
             get(network_routes::serve_status_handler),
@@ -958,6 +969,7 @@ pub(super) fn create_router_with_preview_admission(
             .layer(CompressionLayer::new()),
     );
 
+    let router = router.merge(retired_web_routes());
     let router = if let Some(dist) = &state.web_dist {
         let root_serve = tower_http::services::ServeDir::new(dist).fallback(
             tower_http::services::ServeFile::new(dist.join("index.html")),
@@ -975,8 +987,6 @@ pub(super) fn create_router_with_preview_admission(
                 "/manifest-bootstrap",
                 axum::routing::post(web_routes::web_manifest_bootstrap),
             )
-            .route("/web", get(legacy_web_route_gone))
-            .route("/web/{*path}", get(legacy_web_route_gone))
             .fallback(move |request| {
                 let root_serve = root_serve.clone();
                 frontend_missing::serve_or_missing(root_serve, request)
@@ -1079,7 +1089,9 @@ async fn restore_orphaned_tab(
     ))
 }
 
-fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(dist: &std::path::Path) -> Router<S> {
+pub(crate) fn bundled_frontend_routes<S: Clone + Send + Sync + 'static>(
+    dist: &std::path::Path,
+) -> Router<S> {
     let files = tower_http::set_header::SetResponseHeader::overriding(
         tower_http::services::ServeDir::new(dist),
         axum::http::header::CACHE_CONTROL,

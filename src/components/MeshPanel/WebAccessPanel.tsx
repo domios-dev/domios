@@ -9,7 +9,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { trapDialogTab } from "../shared/dialogFocusTrap";
 import { UI_BUTTON, UI_TEXT } from "../shared/design";
-import { buildWebUiTarget, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
+import { buildWebUiTarget, canShareWebUiRoute, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
 import { deriveWebUiView } from "./meshWebUi";
 
 export type WebUiAction = "setup" | "repair" | "disable";
@@ -59,9 +59,10 @@ function WebAccessSkeleton({ embedded, qrSize }: { embedded: boolean; qrSize: nu
 }
 
 export function WebAccessPanel({ config, network, serve, loading, actions, onAction, onSetup, onClose, embedded = false, qrSize = 228, onExpand }: Props) {
-  const ready = webUiListenerReady(network);
+  const ready = webUiListenerReady(network, serve);
   const target = buildWebUiTarget(config, network, serve);
   const route = classifyWebUiRoute(config, network, serve);
+  const shareable = canShareWebUiRoute(route.kind, ready);
   const view = deriveWebUiView(serve?.snapshot, loading);
   const displayUrl = displayedWebUrl(target.link);
   const host = new URL(displayUrl).host;
@@ -80,13 +81,13 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
   }, [embedded]);
 
   useEffect(() => {
-    if (!ready) return;
+    if (!shareable) return;
     let active = true;
     void actions.qr(target.link).then((image) => {
       if (active) setQr({ link: target.link, image });
     }).catch((cause: unknown) => { if (active) setError(cause); });
     return () => { active = false; };
-  }, [ready, target.link, actions.qr]);
+  }, [shareable, target.link, actions.qr]);
 
   async function run(operation: () => Promise<string | void>) {
     setBusy(true);
@@ -130,11 +131,11 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
         </div>
         {loading && !ready && <WebAccessSkeleton embedded={embedded} qrSize={qrSize} />}
         {ready && <p className="-mt-2 truncate text-sm text-[var(--ct-muted-fg)]">{host}</p>}
-        {!ready && !loading && <p role="status">Set up Tailscale to open the web UI.</p>}
+        {!ready && !loading && <p role="status">No verified web UI endpoint is available. Check the connection or set up Tailscale.</p>}
         {!ready && view.state !== "ready" && view.state !== "loading" && <p role="status" className="text-sm" data-testid="web-access-status">{view.label}</p>}
         {view.detail && !embedded && <p className={UI_TEXT.metaMuted}>{view.detail}</p>}
         {ready && <>
-        <div className="my-2 flex shrink-0 justify-center">
+        {shareable && <div className="my-2 flex shrink-0 justify-center">
           <div className="rounded-2xl p-[3px] shadow-[0_10px_30px_rgba(31,111,235,0.25)]" style={{ background: "linear-gradient(135deg, var(--ct-accent, #58a6ff) 0%, var(--ct-magenta, #bc8cff) 100%)" }}>
             <div className="relative rounded-[15px] bg-white p-3">
               {qr?.link === target.link ? <>
@@ -148,12 +149,12 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
               </span>}
             </div>
           </div>
-        </div>
+        </div>}
         {!embedded && <input readOnly aria-label="Web address" value={displayUrl} onFocus={(event) => event.currentTarget.select()} className="w-full min-w-0 rounded border border-[var(--ct-border)] bg-transparent p-2 text-xs" />}
         <p className="flex items-start gap-1.5 text-sm text-[var(--ct-muted-fg)]" data-testid="web-access-route"><ShieldCheck size={14} className="shrink-0" />{webRouteLabel(route.kind)}</p>
         <div className={`${embedded ? "my-1" : "my-3"} grid grid-cols-2 gap-2`}>
-          <button type="button" style={{ minHeight: 48, fontSize: 16 }} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => actions.open(target.link)}><ExternalLink size={15} aria-hidden="true" />Open</button>
-          <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(async () => { await actions.copy(target.link); return "Link copied."; })}><Copy size={15} aria-hidden="true" />Copy link</button>
+          <button type="button" style={{ minHeight: 48, fontSize: 16 }} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => actions.open(target.link)}><ExternalLink size={15} aria-hidden="true" />{shareable ? "Open" : "Open on this machine"}</button>
+          {shareable && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(async () => { await actions.copy(target.link); return "Link copied."; })}><Copy size={15} aria-hidden="true" />Copy link</button>}
         </div>
         </>}
         <div className="flex flex-col gap-2">

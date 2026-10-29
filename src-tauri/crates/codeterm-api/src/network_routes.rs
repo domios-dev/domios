@@ -9,6 +9,40 @@ use serde::Deserialize;
 use crate::routes::{check_auth, AppState};
 use codeterm_service_core::api_support::OptionalJson;
 
+pub async fn web_link_token(
+    AxumState(state): AxumState<AppState>,
+    caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
+) -> Result<impl axum::response::IntoResponse, (StatusCode, &'static str)> {
+    use crate::auth::CallerIdentity;
+    let refused = (
+        StatusCode::FORBIDDEN,
+        "Token-bearing web links require the owner or authenticated General Agent",
+    );
+    match caller.as_ref().map(|caller| &caller.0) {
+        Some(CallerIdentity::Local) => {}
+        Some(CallerIdentity::Tab(actor)) => state
+            .svc
+            .require_neighbor_general(Some(&actor.tab_id), Some(&actor.binding_nonce))
+            .map_err(|_| refused)?,
+        _ => return Err(refused),
+    }
+    let token = state
+        .config
+        .lock()
+        .api
+        .token
+        .clone()
+        .filter(|token| !token.is_empty())
+        .ok_or((
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Web API credential unavailable",
+        ))?;
+    Ok((
+        [(axum::http::header::CACHE_CONTROL, "no-store")],
+        Json(serde_json::json!({"token": token})),
+    ))
+}
+
 pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
     let mesh = state.mesh.clone();
     let transport = tokio::task::spawn_blocking(move || {
@@ -24,10 +58,20 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
     let tailscale_dns = codeterm_service_core::mesh::discovery::tailscale_self_dns_name();
     let port = state.api_port;
     let tailscale_https_url = codeterm_service_core::mesh::tailscale_serve_https_url(port);
+    let web_listener = {
+        let mesh = state.mesh.lock();
+        codeterm_service_core::mesh::web_ui_endpoints::local_http_listener(
+            mesh.local_web_ui.as_ref(),
+            &mesh.ready_listeners,
+            mesh.local_http_healthy,
+            port,
+        )
+        .map(|address| address.to_string())
+    };
 
     Json(serde_json::json!({
         "transport": transport,
-        "web_listener": state.mesh.lock().ready_tailnet_endpoint().map(|(ip, port)| std::net::SocketAddr::new(ip, port).to_string()),
+        "web_listener": web_listener,
         "local_ip": local_ip,
         "tailscale_ip": tailscale_ip,
         "tailscale_dns": tailscale_dns,
@@ -177,3 +221,6 @@ pub async fn restart_app(
     });
     Ok(Json(serde_json::json!({ "ok": true })))
 }
+
+#[cfg(test)]
+mod tests;

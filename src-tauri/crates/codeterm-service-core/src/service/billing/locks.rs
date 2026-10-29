@@ -56,6 +56,7 @@ impl ServiceContext {
     fn project_limit_gate(&self, gate: LimitGate, announce: bool) {
         let summary = gate.summary();
         let change = self.mux.write().set_limit_gate(gate);
+        self.neighbor_entitlements_changed(change.gate);
         if !change.gate && !announce {
             return;
         }
