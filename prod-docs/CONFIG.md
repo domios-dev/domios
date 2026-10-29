@@ -236,4 +236,38 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 
 An empty selected backend cannot start when the other configured store contains memory items. Stop the daemon, run `domios mem backend migrate --to postgres` or `--to sqlite`, then set `backend` under `[memory]` in the instance configuration before restarting. The migration command leaves configuration unchanged. See `domios docs MEMORY` for copy verification, target conflicts and embedding requirements.
 
-<!-- revision: 128 -->
+## Container server
+
+The production headless Docker image runs as `domios` (UID/GID 10001) with all
+state on `/home/domios/.domios`. Preserve volume ownership, directory mode 0700
+and configuration/key-file mode 0600; unsafe ownership, modes or links refuse
+startup. Its initial configuration explicitly opts into the headless Linux
+Neighbor file store with `neighbors.key_store = "file"`. These unencrypted keys
+need protected backups; see `domios docs NEIGHBORS`.
+
+The container config explicitly listens on `api.host = "0.0.0.0"` inside its
+network namespace. Publish only with `-p 127.0.0.1:7685:7685` by default and use
+Mesh for remote access. Other containers on that network can reach the API;
+protected routes still require its generated bearer token. `/api/health` is the
+Docker healthcheck endpoint. Do not put tokens or database URLs in environment
+variables or build arguments.
+
+Sign in with `docker exec -it domios domios account login --no-browser`, open the
+authorization link on another machine and paste the full callback URL into the
+waiting CLI. Keep it out of history and logs. An explicit installation marker
+makes update check/install refuse with `container_managed_update`: pull a newer
+image tag and recreate the container with the same volume.
+
+Optional Compose uses pgvector PostgreSQL 17, `memory.backend = "postgres"`, a
+Compose secret file for the database password and database health ordering.
+Bootstrap the fresh volume under SQLite first, pipe the connection URL into
+`docker exec -i domios domios mem secret save --name domios.mem:postgres_url`,
+then select Postgres and recreate the container. Add `--overwrite` for rotation;
+never pass the URL using `--value`. Existing memory requires the explicit backend
+migration procedure. For SQLite, `docker exec domios domios mem backup create
+--out /backups` needs a separate protected backup mount. This archives memory and
+storage; separately snapshot the stopped data volume for credentials and config.
+Postgres requires its own protected database dump. The distribution's Docker
+README supplies the build, volume, Compose and recovery commands.
+
+<!-- revision: 129 -->

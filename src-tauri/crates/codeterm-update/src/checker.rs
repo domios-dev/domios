@@ -83,6 +83,9 @@ pub fn newest_release(found: Vec<LatestRelease>) -> Option<LatestRelease> {
 }
 
 pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateInfo, String> {
+    if let Some(error) = crate::container::refusal() {
+        return Err(serde_json::to_string(&error).unwrap_or_else(|_| error.to_string()));
+    }
     if let Some(backend) = crate::headless::backend() {
         return backend.check().await.map_err(|e| e.to_string());
     }

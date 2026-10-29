@@ -264,12 +264,25 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
 #[cfg(test)]
 mod tests;
 
+fn container_update_error(marked: bool) -> Option<crate::cmd::print::CliError> {
+    marked.then(|| crate::cmd::print::CliError {
+        message: codeterm_paths::container_install::UPDATE_MESSAGE.into(),
+        code: None,
+        data: Some(serde_json::json!({
+            "code": codeterm_paths::container_install::UPDATE_CODE,
+        })),
+    })
+}
+
 pub fn handle_update(
     json: bool,
     action: Option<UpdateAction>,
     manifest_url: Option<String>,
     after_update: Option<String>,
 ) {
+    if let Some(error) = container_update_error(codeterm_paths::container_install::marked()) {
+        crate::cmd::print::fail_with(1, &error);
+    }
     let (base_url, _) = read_api_config();
     let http = match build_local_api() {
         Ok(c) => c,

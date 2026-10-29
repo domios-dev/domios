@@ -12,6 +12,7 @@ pub const MAX_ARCHIVE_BYTES: u64 = 1024 * 1024 * 1024;
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ErrorCode {
+    ContainerManagedUpdate,
     SignedHeadlessFeedMissing,
     InvalidSignature,
     InvalidManifest,

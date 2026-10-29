@@ -135,6 +135,12 @@ pub async fn install_update(
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
 
+    if let Some(error) = codeterm_update::container::refusal() {
+        if let Err(error) = check_auth(&state.0, &headers) {
+            return error.into_response();
+        }
+        return (StatusCode::CONFLICT, Json(serde_json::json!(error))).into_response();
+    }
     if let Some(port) = codeterm_update::headless::backend() {
         if let Err(error) = check_auth(&state.0, &headers) {
             return error.into_response();
@@ -423,6 +429,9 @@ pub async fn availability(
 > {
     check_auth(&state, &headers)
         .map_err(|(status, error)| availability_error(status, error.to_string()))?;
+    if let Some(error) = codeterm_update::container::refusal() {
+        return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
+    }
     let Query(q) =
         query.map_err(|error| availability_error(StatusCode::BAD_REQUEST, error.to_string()))?;
     availability_response(
