@@ -690,33 +690,38 @@ fn integration_install_is_identical_across_codeterm_instances() {
     assert!(!dev.contains("> NUL"));
 }
 
-/// Bridge-rule install: native impl writes to `~/.claude/rules/codeterm.md`
-/// via `dirs::home_dir()`. The JS plugin gets the SAME functional
-/// guarantee using only `host.expandHome` + `host.writeFile`. Test
-/// builds a synthetic plugin whose `rule.path` points into a temp
-/// dir, then runs `installBridgeRule` through `JsProvider` (same
-/// trait method native uses) and asserts the file landed.
 #[test]
 fn bridge_rule_install_via_host_writes_file() {
-    if require_plugins().is_none() {
-        return;
-    }
-    let dir = tempfile::tempdir().unwrap();
-    let rule_path = dir.path().join("rules").join("codeterm.md");
-    let provider = claude_in_temp(&rule_path, &dir.path().join("settings.json"));
-
-    provider
-        .install_bridge_rule("PROTOCOL PAYLOAD v1")
-        .expect("install ok");
-    let written = std::fs::read_to_string(&rule_path).expect("file written");
-    assert_eq!(written, "PROTOCOL PAYLOAD v1");
-    assert!(
-        rule_path.parent().unwrap().exists(),
-        "host.writeFile must create parent dirs"
+    require_plugins().expect("bundled Claude plugin is available");
+    let (_, bundled) = pair();
+    assert_eq!(
+        bundled.manifest().rule.as_ref().unwrap().path,
+        "~/.claude/rules/domios.md"
     );
+    let native_dir = tempfile::tempdir().unwrap();
+    let js_dir = tempfile::tempdir().unwrap();
+    let native_rules = native_dir.path().join("rules");
+    let rule_path = js_dir.path().join("rules").join("domios.md");
+    let provider = claude_in_temp(&rule_path, &js_dir.path().join("settings.json"));
+    let payload = "PROTOCOL PAYLOAD v1";
+
+    crate::agent_claude::provider::install_bridge_rule_at(&native_rules, payload)
+        .expect("native install ok");
+    provider.install_bridge_rule(payload).expect("JS install ok");
+    let native_written = std::fs::read_to_string(native_rules.join("domios.md"))
+        .expect("native rule written at new path");
+    let written = std::fs::read_to_string(&rule_path).expect("JS rule written at new path");
+    assert_eq!(written, payload);
+    let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    assert_eq!(
+        native_written,
+        format!("{written}\n\n<!-- codeterm-owner -->\n<!-- codeterm-channel: {channel} -->\n")
+    );
+    assert!(!native_rules.join("codeterm.md").exists());
+    assert!(!rule_path.parent().unwrap().join("codeterm.md").exists());
 
     provider.uninstall_bridge_rule().expect("uninstall ok");
-    assert!(!rule_path.exists(), "uninstall removes the file");
+    assert!(!rule_path.exists(), "uninstall removes the new file");
 }
 
 #[test]

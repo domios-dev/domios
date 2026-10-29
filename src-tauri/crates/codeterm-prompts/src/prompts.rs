@@ -136,7 +136,7 @@ pub const CRON_SKILL_HINT: &str = include_str!("../../../prompts/cron_skill_hint
 /// skill folder is missing. Placeholders: `{skill_slug}`, `{skill_path}`.
 pub const CRON_SKILL_MISSING: &str = include_str!("../../../prompts/cron_skill_missing.md");
 
-/// CodeTerm rule installed to ~/.claude/rules/codeterm.md.
+/// CodeTerm rule installed to ~/.claude/rules/domios.md.
 pub const CODETERM_RULE: &str = include_str!("../../../prompts/codeterm_rule.md");
 
 /// Mem bridge rule payload installed per provider via `install_bridge_rule`.
