@@ -27,17 +27,18 @@ export function RawCommandDisclosure({ raw, children, details, initiallyExpanded
         <ChevronRight aria-hidden="true" size={12} strokeWidth={1.8} className={open ? "rotate-90" : ""} />
         Raw command
       </button>
-      {open && (
-        <BoundedMessageContent collapsedHeight={"12rem"} as="pre"
-          id={detailsId}
-          data-testid="message-raw-content"
-          className="m-0 whitespace-pre-wrap break-words font-mono text-xs"
-          style={{ color: "var(--ct-fg)" }}
-        >
-          {raw}
-        </BoundedMessageContent>
-      )}
-      {open && details}
+      <div id={detailsId} hidden={!open}>
+        {open && (
+          <BoundedMessageContent collapsedHeight={"12rem"} as="pre"
+            data-testid="message-raw-content"
+            className="m-0 whitespace-pre-wrap break-words font-mono text-xs"
+            style={{ color: "var(--ct-fg)" }}
+          >
+            {raw}
+          </BoundedMessageContent>
+        )}
+        {open && details}
+      </div>
       {children}
     </div>
   );
