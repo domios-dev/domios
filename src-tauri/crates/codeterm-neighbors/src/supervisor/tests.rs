@@ -47,22 +47,23 @@ impl DocumentSession for Watch {
         std::future::pending().await
     }
     async fn listen(&self) -> Result<()> {
-        let (snapshot, error) = self
+        let (stable_progress, error) = self
             .steps
             .lock()
             .unwrap()
             .pop_front()
             .expect("bounded injected listen port");
-        if snapshot {
+        self.state(ListenerState::Receiving);
+        if stable_progress {
             self.progress.fetch_add(1, Ordering::AcqRel);
-            self.state(ListenerState::Receiving);
         }
         Err(error)
     }
 }
 
 #[tokio::test]
-async fn document_internal_reset_reconnects_without_external_wakeup_and_snapshot_resets_budget() {
+async fn document_internal_reset_reconnects_without_external_wakeup_and_stable_progress_resets_budget(
+) {
     let transient = Error::Firestore {
         code: 13,
         operation: "control.listen.read",
@@ -125,12 +126,15 @@ fn backoff_has_bounded_exponential_jitter_and_only_transport_errors_retry() {
         (11, 300000),
         (usize::MAX, 300000),
     ] {
-        assert_eq!(reconnect_delay(attempt, 0).as_millis(), 0);
+        assert_eq!(reconnect_delay(attempt, 0).as_millis(), u128::from(ceiling));
         assert_eq!(
             reconnect_delay(attempt, ceiling).as_millis(),
             u128::from(ceiling)
         );
-        assert!(reconnect_delay(attempt, u64::MAX).as_millis() <= u128::from(ceiling));
+        assert!(
+            reconnect_delay(attempt, u64::MAX).as_millis()
+                <= u128::from((ceiling * 2).min(300_000))
+        );
     }
     assert!(retryable(Error::Transport));
     for kind in [
@@ -170,5 +174,60 @@ async fn retry_clock_receives_one_bounded_deadline_without_sleeping() {
     assert_eq!(
         *clock.0.lock().unwrap(),
         vec![std::time::Duration::from_secs(300)]
+    );
+}
+
+#[test]
+fn stream_health_requires_incremental_progress_after_a_stable_snapshot() {
+    use std::time::Duration;
+    let mut health = StreamHealth::default();
+    assert!(!health.observe(Duration::ZERO, false));
+    assert!(!health.observe(Duration::from_secs(29), true));
+    assert!(!health.observe(Duration::from_secs(300), false));
+    assert!(health.observe(Duration::from_secs(300), true));
+    let mut delayed_snapshot = StreamHealth::default();
+    assert!(!delayed_snapshot.observe(Duration::from_secs(1000), true));
+    assert!(!delayed_snapshot.observe(Duration::from_secs(1029), true));
+    assert!(delayed_snapshot.observe(Duration::from_secs(1030), true));
+}
+
+#[test]
+fn hundreds_of_failures_have_a_positive_nondecreasing_floor_and_bounded_admissions() {
+    let mut elapsed = std::time::Duration::ZERO;
+    let mut previous = std::time::Duration::ZERO;
+    let mut first_hour = 1;
+    for attempt in 1..=500 {
+        let delay = reconnect_delay(attempt, (attempt as u64).wrapping_mul(7919));
+        assert!(delay >= previous);
+        assert!(delay >= std::time::Duration::from_millis(500));
+        assert!(delay <= std::time::Duration::from_secs(300));
+        previous = delay;
+        elapsed += delay;
+        if elapsed < std::time::Duration::from_secs(3600) {
+            first_hour += 1;
+        }
+    }
+    assert!(first_hour <= 24, "{first_hour}");
+}
+
+#[tokio::test]
+async fn repeated_initial_document_snapshots_never_reset_the_failure_budget() {
+    let mut snapshots = vec![(false, Error::Transport); 500];
+    snapshots.push((false, Error::Revoked));
+    let watch = Watch::new(snapshots);
+    assert_eq!(supervise_documents(&watch).await, Err(Error::Revoked));
+    assert_eq!(
+        *watch.retries.lock().unwrap(),
+        (1..=500).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        watch
+            .states
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|state| **state == ListenerState::Receiving)
+            .count(),
+        501
     );
 }

@@ -4,6 +4,7 @@
 mod admission;
 mod cache;
 pub mod callable;
+mod callable_budget;
 mod key;
 mod lifecycle;
 mod membership;

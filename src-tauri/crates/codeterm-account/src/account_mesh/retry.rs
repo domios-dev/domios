@@ -27,7 +27,7 @@ impl Retry {
         let delay = match result {
             Err(AccountMeshRefusal::RateLimited {
                 retry_after_seconds,
-            }) => retry_after_seconds.max(30),
+            }) => retry_after_seconds.max((30u64 << self.failures.min(4)).min(300)),
             Err(
                 AccountMeshRefusal::Unavailable
                 | AccountMeshRefusal::Offline

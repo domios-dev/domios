@@ -1,3 +1,5 @@
+use super::callable_budget::retry_after;
+pub use super::callable_budget::Clock as CallableClock;
 use super::ports::{MeshRegistry, RegistryResult};
 use super::wire::*;
 use crate::{
@@ -15,15 +17,106 @@ use std::time::Duration;
 pub enum CallableFailure {
     /// No HTTP response at all: network, DNS, TLS or timeout.
     Offline,
+    Retired,
     Status {
         status: u16,
+        retry_after_seconds: Option<u64>,
         body: Option<Value>,
     },
+}
+
+impl CallableFailure {
+    pub fn retry_after_seconds(&self) -> Option<u64> {
+        match self {
+            Self::Status {
+                retry_after_seconds,
+                body,
+                ..
+            } => {
+                let structured = body
+                    .as_ref()
+                    .and_then(|body| body.pointer("/error/details/retry_after_seconds"))
+                    .and_then(Value::as_u64);
+                match (*retry_after_seconds, structured) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    (a, b) => a.or(b),
+                }
+            }
+            Self::Offline | Self::Retired => None,
+        }
+    }
+}
+
+#[async_trait]
+pub trait CallableGuard: Send + Sync {
+    async fn current(&self) -> bool;
+    async fn retired(&self) {
+        std::future::pending::<()>().await;
+    }
+}
+
+#[async_trait]
+pub trait CallableSessionValidator: Send + Sync {
+    async fn current(&self, expected: &Session) -> bool;
+    async fn retired(&self, _expected: &Session) {
+        std::future::pending::<()>().await;
+    }
+}
+
+struct RegistryGuard<'a> {
+    validator: Option<&'a dyn CallableSessionValidator>,
+    session: &'a Session,
+    captured_cleanup: bool,
+}
+
+#[async_trait]
+impl CallableGuard for RegistryGuard<'_> {
+    async fn retired(&self) {
+        if !self.captured_cleanup {
+            if let Some(validator) = self.validator {
+                return validator.retired(self.session).await;
+            }
+        }
+        std::future::pending::<()>().await;
+    }
+
+    async fn current(&self) -> bool {
+        if self.captured_cleanup {
+            return true;
+        }
+        match self.validator {
+            Some(validator) => validator.current(self.session).await,
+            None => true,
+        }
+    }
 }
 
 /// One Firebase callable POST: `{"data": ..}` in, `{"result": ..}` or `{"error": ..}` out.
 #[async_trait]
 pub trait CallableTransport: Send + Sync {
+    fn retry_clock(&self) -> &dyn CallableClock {
+        &super::callable_budget::RuntimeClock
+    }
+    async fn call_for_account(
+        &self,
+        account: &str,
+        route: &str,
+        id_token: &str,
+        data: Value,
+        guard: &dyn CallableGuard,
+    ) -> Result<Value, CallableFailure> {
+        super::callable_budget::run(
+            self,
+            account,
+            route,
+            id_token,
+            data,
+            guard,
+            self.retry_clock(),
+        )
+        .await
+    }
+
     async fn call(
         &self,
         route: &str,
@@ -32,14 +125,75 @@ pub trait CallableTransport: Send + Sync {
     ) -> Result<Value, CallableFailure>;
 }
 
-/// Server refusal from a callable error: typed `details` first, then the HTTP status class.
 pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
     let (status, body) = match failure {
         CallableFailure::Offline => return RegistryRefusal::Offline,
-        CallableFailure::Status { status, body } => (*status, body),
+        CallableFailure::Retired => return RegistryRefusal::Forbidden,
+        CallableFailure::Status { status, body, .. } => (*status, body),
     };
     if body.as_ref().is_some_and(is_session_revoked) {
         return RegistryRefusal::Unauthenticated;
+    }
+    match status {
+        404 => return RegistryRefusal::Invalid,
+        403 => {
+            let typed = body
+                .as_ref()
+                .and_then(|body| body.pointer("/error/details"))
+                .map(RegistryRefusal::from_details);
+            return typed
+                .filter(|reason| {
+                    !matches!(
+                        reason,
+                        RegistryRefusal::Unavailable
+                            | RegistryRefusal::Offline
+                            | RegistryRefusal::AuthorityUnavailable
+                            | RegistryRefusal::Unauthenticated
+                            | RegistryRefusal::RateLimited { .. }
+                    )
+                })
+                .unwrap_or(RegistryRefusal::Forbidden);
+        }
+        429 => {
+            if body
+                .as_ref()
+                .and_then(|body| body.pointer("/error/details"))
+                .map(RegistryRefusal::from_details)
+                == Some(RegistryRefusal::EnrollmentBudget)
+            {
+                return RegistryRefusal::EnrollmentBudget;
+            }
+            return RegistryRefusal::RateLimited {
+                retry_after_seconds: failure.retry_after_seconds().unwrap_or(0).max(1),
+            };
+        }
+        401 => {
+            let typed = body
+                .as_ref()
+                .and_then(|body| body.pointer("/error/details"))
+                .map(RegistryRefusal::from_details);
+            return typed
+                .filter(|reason| {
+                    matches!(
+                        reason,
+                        RegistryRefusal::ReauthRequired | RegistryRefusal::AppCheck
+                    )
+                })
+                .unwrap_or(RegistryRefusal::Unauthenticated);
+        }
+        500..=599 => {
+            return if body
+                .as_ref()
+                .and_then(|body| body.pointer("/error/details"))
+                .map(RegistryRefusal::from_details)
+                == Some(RegistryRefusal::AuthorityUnavailable)
+            {
+                RegistryRefusal::AuthorityUnavailable
+            } else {
+                RegistryRefusal::Unavailable
+            };
+        }
+        _ => {}
     }
     if let Some(details) = body
         .as_ref()
@@ -68,6 +222,7 @@ pub fn result<T: DeserializeOwned>(body: Value) -> RegistryResult<T> {
 pub struct CallableRegistry<T> {
     transport: T,
     revocations: Option<Arc<dyn SessionRevocationObserver>>,
+    validator: Option<Arc<dyn CallableSessionValidator>>,
 }
 
 impl<T: CallableTransport> CallableRegistry<T> {
@@ -75,7 +230,13 @@ impl<T: CallableTransport> CallableRegistry<T> {
         Self {
             transport,
             revocations: None,
+            validator: None,
         }
+    }
+
+    pub fn with_validator(mut self, validator: Arc<dyn CallableSessionValidator>) -> Self {
+        self.validator = Some(validator);
+        self
     }
 
     pub fn with_revocations(mut self, observer: Arc<dyn SessionRevocationObserver>) -> Self {
@@ -93,14 +254,35 @@ impl<T: CallableTransport> CallableRegistry<T> {
         session: &Session,
         data: &impl Serialize,
     ) -> RegistryResult<R> {
+        self.call_guarded(route, session, data, false).await
+    }
+
+    async fn call_guarded<R: DeserializeOwned>(
+        &self,
+        route: &str,
+        session: &Session,
+        data: &impl Serialize,
+        captured_cleanup: bool,
+    ) -> RegistryResult<R> {
+        let guard = RegistryGuard {
+            validator: self.validator.as_deref(),
+            session,
+            captured_cleanup,
+        };
         let data = serde_json::to_value(data).map_err(|_| RegistryRefusal::Invalid)?;
         let response = self
             .transport
-            .call(route, session.id_token.expose(), data)
+            .call_for_account(
+                &session.identity.uid,
+                route,
+                session.id_token.expose(),
+                data,
+                &guard,
+            )
             .await;
         if let Err(failure) = &response {
             let status = match failure {
-                CallableFailure::Offline => None,
+                CallableFailure::Offline | CallableFailure::Retired => None,
                 CallableFailure::Status { status, .. } => Some(*status),
             };
             log::debug!(
@@ -114,7 +296,7 @@ impl<T: CallableTransport> CallableRegistry<T> {
                 let body = match &response {
                     Ok(body) => Some(body),
                     Err(CallableFailure::Status { body, .. }) => body.as_ref(),
-                    Err(CallableFailure::Offline) => None,
+                    Err(CallableFailure::Offline | CallableFailure::Retired) => None,
                 };
                 if body.is_some_and(is_session_revoked) {
                     if let Some(observer) = &self.revocations {
@@ -142,7 +324,7 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         session: &Session,
         target: &PriorSessionsTarget,
     ) -> RegistryResult<PriorSessionsRevokedResult> {
-        self.call("revokePriorInstallationSessions", session, target)
+        self.call_guarded("revokePriorInstallationSessions", session, target, true)
             .await
     }
     async fn challenge(
@@ -169,9 +351,14 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
                 .await
                 .map(|result| result.nonce);
         }
-        self.call::<ChallengeResult>(ROUTE_CHALLENGE, session, request)
-            .await
-            .map(|result| result.nonce)
+        self.call_guarded::<ChallengeResult>(
+            ROUTE_CHALLENGE,
+            session,
+            request,
+            cleanup_challenge(request),
+        )
+        .await
+        .map(|result| result.nonce)
     }
     async fn enroll_key(
         &self,
@@ -185,7 +372,48 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         session: &Session,
         envelope: &SignedEnvelope<MeshAdmissionBody>,
     ) -> RegistryResult<MeshResult> {
-        self.call(ROUTE_ADMISSION, session, envelope).await
+        self.call_guarded(
+            ROUTE_ADMISSION,
+            session,
+            envelope,
+            cleanup_operation(&envelope.request),
+        )
+        .await
+    }
+}
+
+pub(super) fn cleanup_operation(request: &MeshAdmissionBody) -> bool {
+    matches!(
+        &request.operation,
+        MeshOperation::Withdraw { .. }
+            | MeshOperation::Presence {
+                presence: RegistryPresence::SignedOut,
+                ..
+            }
+    ) || matches!(&request.operation, MeshOperation::SessionRevoke { target } if target.installation_id == request.installation_id)
+}
+
+pub(super) fn cleanup_challenge(request: &ChallengeRequest) -> bool {
+    if request.endpoint != ProofEndpoint::MeshAdmission {
+        return false;
+    }
+    match request.body.get("operation").and_then(Value::as_str) {
+        Some("withdraw") => true,
+        Some("presence") => {
+            request.body.get("presence").and_then(Value::as_str) == Some("signed_out")
+        }
+        Some("session_revoke") => request
+            .body
+            .get("installation_id")
+            .and_then(Value::as_str)
+            .is_some_and(|installation| {
+                request
+                    .body
+                    .pointer("/target/installation_id")
+                    .and_then(Value::as_str)
+                    == Some(installation)
+            }),
+        _ => false,
     }
 }
 
@@ -227,6 +455,7 @@ impl CallableTransport for HttpCallable {
     ) -> Result<Value, CallableFailure> {
         let url = self.base.join(route).map_err(|_| CallableFailure::Status {
             status: 400,
+            retry_after_seconds: None,
             body: None,
         })?;
         let response = self
@@ -238,15 +467,22 @@ impl CallableTransport for HttpCallable {
             .await
             .map_err(|_| CallableFailure::Offline)?;
         let status = response.status();
+        let retry_after_seconds = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| retry_after(value, std::time::SystemTime::now()));
         let body = response.json::<Value>().await.ok();
         if status.is_success() {
             body.ok_or(CallableFailure::Status {
                 status: status.as_u16(),
+                retry_after_seconds,
                 body: None,
             })
         } else {
             Err(CallableFailure::Status {
                 status: status.as_u16(),
+                retry_after_seconds,
                 body,
             })
         }

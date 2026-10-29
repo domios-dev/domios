@@ -123,7 +123,19 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
             Ok(json!({"result": result}))
         } else {
-            transport.call(name, session.id_token.expose(), data).await
+            transport
+                .call_for_account(
+                    &session.identity.uid,
+                    name,
+                    session.id_token.expose(),
+                    data,
+                    &super::account::callable_admission::SessionGuard {
+                        service: self,
+                        expected: &session,
+                        neighbors: true,
+                    },
+                )
+                .await
         };
         let body = match response {
             Ok(body) => body,

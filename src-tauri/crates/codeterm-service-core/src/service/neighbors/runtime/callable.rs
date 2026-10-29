@@ -193,23 +193,49 @@ impl Calls {
         }
         let mut session = self.session().await?;
         let mut response = transport
-            .call(route, session.id_token.expose(), data.clone())
+            .call_for_account(
+                &self.uid,
+                route,
+                session.id_token.expose(),
+                data.clone(),
+                &crate::service::account::callable_admission::SessionGuard {
+                    service: &self.service,
+                    expected: &session,
+                    neighbors: true,
+                },
+            )
             .await;
-        if matches!(&response, Err(CallableFailure::Status { status: 401, body }) if recoverable_authentication(body.as_ref()))
+        if matches!(&response, Err(CallableFailure::Status { status: 401, body, .. }) if recoverable_authentication(body.as_ref()))
         {
             session = self.recover_session(&session).await?;
             if matches!(
                 route,
                 "friendsList" | "friendsReceiverStatus" | "friendsOwnKeys"
             ) {
-                response = transport.call(route, session.id_token.expose(), data).await;
+                response = transport
+                    .call_for_account(
+                        &self.uid,
+                        route,
+                        session.id_token.expose(),
+                        data,
+                        &crate::service::account::callable_admission::SessionGuard {
+                            service: &self.service,
+                            expected: &session,
+                            neighbors: true,
+                        },
+                    )
+                    .await;
             } else {
                 return Err(Error::Transport);
             }
         }
         let body = match response {
             Ok(body) => body,
-            Err(CallableFailure::Status { status, body }) => {
+            Err(CallableFailure::Status {
+                status,
+                body,
+                retry_after_seconds,
+            }) => {
                 if body
                     .as_ref()
                     .is_some_and(codeterm_account::session_revocation::is_session_revoked)
@@ -217,8 +243,13 @@ impl Calls {
                     self.service.session_revocations().revoked(&session).await;
                     return Err(Error::SessionRevoked);
                 }
-                return Err(callable_error(status, body.as_ref()));
+                return Err(classify_callable_error(
+                    status,
+                    body.as_ref(),
+                    retry_after_seconds,
+                ));
             }
+            Err(CallableFailure::Retired) => return Err(Error::Revoked),
             Err(_) => return Err(Error::Transport),
         };
         self.validate_session(&session).await?;
@@ -235,15 +266,44 @@ fn recoverable_authentication(body: Option<&Value>) -> bool {
         && body.is_none_or(|body| matches!(refusal(body), Error::Transport | Error::Refused))
 }
 
+#[cfg(test)]
 fn callable_error(status: u16, body: Option<&Value>) -> Error {
-    if let Some(error) = body.map(refusal).filter(|error| *error != Error::Refused) {
-        return error;
-    }
+    classify_callable_error(status, body, None)
+}
+
+fn classify_callable_error(status: u16, body: Option<&Value>, retry_after: Option<u64>) -> Error {
+    let structured = body.map(refusal).unwrap_or(Error::Refused);
+    let seconds = body
+        .and_then(|body| body.pointer("/error/details/retry_after_seconds"))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        .max(retry_after.unwrap_or(0));
     match status {
-        401 => Error::Transport,
-        403 => Error::PermissionDenied,
-        429 | 500..=599 => Error::Transport,
-        _ => Error::Refused,
+        404 => Error::FeatureUnsupported,
+        403 => match structured {
+            Error::Refused
+            | Error::Transport
+            | Error::RateLimited { .. }
+            | Error::AggregateLimited { .. } => Error::PermissionDenied,
+            error => error,
+        },
+        401 | 500..=599 => Error::Http {
+            status,
+            retry_after_seconds: seconds,
+        },
+        429 => match structured {
+            Error::RateLimited { .. } => Error::RateLimited {
+                retry_after_seconds: seconds,
+            },
+            Error::AggregateLimited { .. } => Error::AggregateLimited {
+                retry_after_seconds: seconds,
+            },
+            _ => Error::Http {
+                status,
+                retry_after_seconds: seconds,
+            },
+        },
+        _ => structured,
     }
 }
 

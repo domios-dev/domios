@@ -53,7 +53,10 @@ impl AccountMeshService {
     }
 }
 
-struct AccountSessions(Arc<OnceCell<Arc<codeterm_account::Account>>>);
+struct AccountSessions(
+    Arc<OnceCell<Arc<codeterm_account::Account>>>,
+    watch::Sender<u64>,
+);
 fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
     match error {
         codeterm_account::Error::Credentials => AccountMeshRefusal::Unauthenticated,
@@ -70,6 +73,35 @@ impl SessionSource for AccountSessions {
     async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal> {
         let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
         account.fresh_session().await.map_err(session_refusal)
+    }
+}
+
+#[async_trait]
+impl codeterm_account::account_mesh::callable::CallableSessionValidator for AccountSessions {
+    async fn retired(&self, expected: &Session) {
+        let mut changes = self.1.subscribe();
+        loop {
+            if !codeterm_account::account_mesh::callable::CallableSessionValidator::current(
+                self, expected,
+            )
+            .await
+            {
+                return;
+            }
+            if changes.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+
+    async fn current(&self, expected: &Session) -> bool {
+        let Some(account) = self.0.get() else {
+            return false;
+        };
+        account.session().await.is_some_and(|session| {
+            session.identity.uid == expected.identity.uid
+                && session.login_generation == expected.login_generation
+        })
     }
 }
 
@@ -173,7 +205,12 @@ impl ServiceContext {
             };
         match endpoint.map(HttpCallable::new) {
             Some(Ok(transport)) => Arc::new(
-                CallableRegistry::new(transport).with_revocations(self.session_revocations()),
+                CallableRegistry::new(transport)
+                    .with_validator(Arc::new(AccountSessions(
+                        self.ext::<AccountCell>().0.clone(),
+                        self.callable_admission_changes(),
+                    )))
+                    .with_revocations(self.session_revocations()),
             ),
             _ => Arc::new(UnavailableRegistry),
         }
@@ -200,7 +237,10 @@ impl ServiceContext {
                     },
                     AccountMeshPorts {
                         registry: self.registry(),
-                        sessions: Arc::new(AccountSessions(self.ext::<AccountCell>().0.clone())),
+                        sessions: Arc::new(AccountSessions(
+                            self.ext::<AccountCell>().0.clone(),
+                            self.callable_admission_changes(),
+                        )),
                         keys: self.account_credentials().await?,
                         store: Arc::new(FileAccountMeshStore::new(self.account_data_root()?)),
                         endpoint: listener.clone(),

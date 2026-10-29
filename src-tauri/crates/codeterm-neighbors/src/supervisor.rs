@@ -34,6 +34,16 @@ pub async fn supervise(
     session: &dyn InboxSession,
     events: &dyn ReceptionEvents,
 ) -> Result<()> {
+    supervise_with(transport, friendship, session, events, &RuntimeClock).await
+}
+
+pub async fn supervise_with(
+    transport: &dyn NeighborTransport,
+    friendship: &str,
+    session: &dyn InboxSession,
+    events: &dyn ReceptionEvents,
+    clock: &dyn RetryClock,
+) -> Result<()> {
     let mut attempt: usize = 0;
     loop {
         if attempt > 0 {
@@ -59,6 +69,8 @@ pub async fn supervise(
                 _ = session.stopped() => return Err(Error::Revoked),
                 result = transport.listen_from_cursor(friendship, cursor.as_ref()) => result?,
             };
+            let mut health = StreamHealth::default();
+            let mut ready = false;
             loop {
                 let event = tokio::select! {
                 biased;
@@ -68,10 +80,19 @@ pub async fn supervise(
                 let Some(event) = event else { break };
                 match event {
                     InboxEvent::Ready => {
-                        attempt = 0;
+                        health = StreamHealth::default();
+                        health.observe(clock.now(), false);
+                        ready = true;
                         events.state(ListenerState::Receiving);
                     }
-                    InboxEvent::Messages(mut messages) => session.receive(&mut messages).await?,
+                    InboxEvent::Snapshot(mut messages) => session.receive(&mut messages).await?,
+                    InboxEvent::Messages(mut messages) => {
+                        let incremental = !messages.is_empty();
+                        session.receive(&mut messages).await?;
+                        if ready && health.observe(clock.now(), incremental) {
+                            attempt = 0;
+                        }
+                    }
                 }
             }
             Err(Error::Transport)
@@ -139,6 +160,12 @@ pub fn retryable(error: Error) -> bool {
     matches!(
         error,
         Error::Transport
+            | Error::Http {
+                status: 401 | 429 | 500..=599,
+                ..
+            }
+            | Error::RateLimited { .. }
+            | Error::AggregateLimited { .. }
             | Error::CursorStore
             | Error::LocalKeyUnavailable
             | Error::SecretStore
@@ -157,12 +184,34 @@ pub fn retryable(error: Error) -> bool {
 }
 
 pub fn reconnect_delay(attempt: usize, jitter: u64) -> std::time::Duration {
-    let ceiling = (500u64 << attempt.saturating_sub(1).min(10)).min(300_000);
-    std::time::Duration::from_millis(jitter % (ceiling + 1))
+    let floor = (500u64 << attempt.saturating_sub(1).min(10)).min(300_000);
+    let ceiling = floor.saturating_mul(2).min(300_000);
+    std::time::Duration::from_millis(floor + jitter.saturating_sub(floor) % (ceiling - floor + 1))
+}
+
+#[derive(Default)]
+pub struct StreamHealth {
+    snapshot_at: Option<std::time::Duration>,
+}
+
+impl StreamHealth {
+    pub fn observe(&mut self, now: std::time::Duration, incremental: bool) -> bool {
+        match self.snapshot_at {
+            None => {
+                self.snapshot_at = Some(now);
+                false
+            }
+            Some(at) => incremental && now.saturating_sub(at) >= std::time::Duration::from_secs(30),
+        }
+    }
 }
 
 #[async_trait]
 pub trait RetryClock: Send + Sync {
+    fn now(&self) -> std::time::Duration {
+        static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        START.get_or_init(std::time::Instant::now).elapsed()
+    }
     fn jitter(&self) -> u64;
     async fn wait(&self, delay: std::time::Duration);
 }

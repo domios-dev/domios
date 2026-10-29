@@ -8,6 +8,7 @@ use std::{sync::Arc, time::Duration};
 
 pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
+pub(crate) mod callable_admission;
 mod credentials;
 pub(crate) mod logout;
 pub(crate) use credentials::AccountCredentialCell;
@@ -40,6 +41,7 @@ impl codeterm_account::IdentityObserver for AccountIdentity {
 
     async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
         if let Some(service) = self.0.upgrade() {
+            service.retire_callable_waiters();
             service.neighbor_identity_changed();
             if identity.is_some() {
                 service.restore_neighbor_updates_once();

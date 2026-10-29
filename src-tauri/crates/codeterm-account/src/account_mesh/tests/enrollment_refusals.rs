@@ -21,6 +21,7 @@ fn enrollment_callable_details_preserve_each_typed_refusal() {
             } else {
                 400
             },
+            retry_after_seconds: None,
             body: Some(json!({"error": {"details": {"reason": reason}}})),
         };
         assert_eq!(refusal(&failure), expected);

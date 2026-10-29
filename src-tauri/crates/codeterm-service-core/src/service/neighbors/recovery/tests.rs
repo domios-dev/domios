@@ -5,6 +5,7 @@ fn startup_string_boundary_keeps_permanent_refusals_and_retries_setup_outages() 
     for error in [
         Error::Locked,
         Error::PermissionDenied,
+        Error::FeatureUnsupported,
         Error::SessionRevoked,
         Error::Disabled,
         Error::Revoked,

@@ -308,6 +308,9 @@ struct Reconnect {
     opens: Mutex<Vec<Option<Cursor>>>,
     states: Mutex<Vec<ListenerState>>,
     empty_current: bool,
+    snapshot_only: bool,
+    max_opens: usize,
+    retries: Mutex<Vec<usize>>,
     stream_error: Error,
 }
 #[async_trait]
@@ -321,8 +324,15 @@ impl NeighborTransport for Reconnect {
         cursor: Option<&Cursor>,
     ) -> Result<Box<dyn InboxListener>> {
         self.opens.lock().unwrap().push(cursor.cloned());
-        if self.empty_current && self.opens.lock().unwrap().len() == 4 {
+        if self.empty_current && self.opens.lock().unwrap().len() == self.max_opens {
             return Err(Error::Revoked);
+        }
+        if self.snapshot_only {
+            return Ok(Box::new(Stream(VecDeque::from([
+                Ok(Some(InboxEvent::Ready)),
+                Ok(Some(InboxEvent::Snapshot(vec![message()]))),
+                Err(self.stream_error),
+            ]))));
         }
         if self.empty_current {
             return Ok(Box::new(Stream(VecDeque::from([Ok(Some(
@@ -375,8 +385,9 @@ impl ReceptionEvents for Reconnect {
     fn state(&self, state: ListenerState) {
         self.states.lock().unwrap().push(state);
     }
-    async fn retry_after_failure(&self, _: usize) -> Result<()> {
-        if self.opens.lock().unwrap().len() >= 4 {
+    async fn retry_after_failure(&self, attempt: usize) -> Result<()> {
+        self.retries.lock().unwrap().push(attempt);
+        if self.opens.lock().unwrap().len() >= self.max_opens {
             return Err(self.stream_error);
         }
         Ok(())
@@ -389,6 +400,9 @@ async fn stream_error_reopens_from_durable_cursor_and_admits_exactly_once() {
         keys: recipient(),
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
+        max_opens: 4,
+        retries: Mutex::new(vec![]),
+        snapshot_only: false,
         empty_current: false,
         stream_error: Error::Transport,
     };
@@ -438,6 +452,9 @@ async fn empty_inbox_current_marks_receiving_without_admission_or_ack() {
         keys: recipient(),
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
+        max_opens: 4,
+        retries: Mutex::new(vec![]),
+        snapshot_only: false,
         empty_current: true,
         stream_error: Error::Transport,
     };
@@ -488,6 +505,9 @@ async fn reconnect_opens_only_after_explicit_recovery_event() {
         keys: recipient(),
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
+        max_opens: 4,
+        retries: Mutex::new(vec![]),
+        snapshot_only: false,
         empty_current: true,
         stream_error: Error::Transport,
     });
@@ -568,6 +588,9 @@ async fn shutdown_settles_inflight_admission_before_listener_exits() {
         keys: recipient(),
         opens: Mutex::new(vec![]),
         states: Mutex::new(vec![]),
+        max_opens: 4,
+        retries: Mutex::new(vec![]),
+        snapshot_only: false,
         empty_current: false,
         stream_error: Error::Transport,
     });
@@ -614,6 +637,9 @@ async fn internal_stream_reset_resumes_cursor_once_but_permission_and_auth_error
             keys: recipient(),
             opens: Mutex::new(vec![]),
             states: Mutex::new(vec![]),
+            max_opens: 4,
+            retries: Mutex::new(vec![]),
+            snapshot_only: false,
             empty_current: false,
             stream_error: error,
         };
@@ -646,4 +672,69 @@ async fn internal_stream_reset_resumes_cursor_once_but_permission_and_auth_error
             1
         );
     }
+}
+
+#[tokio::test]
+async fn hundreds_of_ready_close_cycles_preserve_failure_history_without_admission() {
+    let fixture = Reconnect {
+        fixture: Fixture::new(),
+        keys: recipient(),
+        opens: Mutex::new(vec![]),
+        states: Mutex::new(vec![]),
+        max_opens: 501,
+        retries: Mutex::new(vec![]),
+        snapshot_only: false,
+        empty_current: true,
+        stream_error: Error::Transport,
+    };
+    assert_eq!(
+        supervise(&fixture, "friend", &fixture, &fixture).await,
+        Err(Error::Revoked)
+    );
+    assert_eq!(
+        *fixture.retries.lock().unwrap(),
+        (1..=500).collect::<Vec<_>>()
+    );
+    assert_eq!(fixture.opens.lock().unwrap().len(), 501);
+    assert_eq!(*fixture.fixture.writes.lock().unwrap(), 0);
+    assert!(!fixture.fixture.events.lock().unwrap().contains(&"ack"));
+}
+
+struct AdvancingClock(std::sync::atomic::AtomicU64);
+#[async_trait]
+impl crate::supervisor::RetryClock for AdvancingClock {
+    fn now(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(self.0.fetch_add(300, std::sync::atomic::Ordering::SeqCst))
+    }
+    fn jitter(&self) -> u64 {
+        0
+    }
+    async fn wait(&self, _: std::time::Duration) {
+        panic!("Injected reception owns retries");
+    }
+}
+
+#[tokio::test]
+async fn slow_initial_snapshot_delivery_never_resets_the_inbox_failure_history() {
+    let fixture = Reconnect {
+        fixture: Fixture::new(),
+        keys: recipient(),
+        opens: Mutex::new(vec![]),
+        states: Mutex::new(vec![]),
+        max_opens: 300,
+        retries: Mutex::new(vec![]),
+        snapshot_only: true,
+        empty_current: false,
+        stream_error: Error::Transport,
+    };
+    let clock = AdvancingClock(std::sync::atomic::AtomicU64::new(0));
+    assert_eq!(
+        crate::supervisor::supervise_with(&fixture, "friend", &fixture, &fixture, &clock).await,
+        Err(Error::Transport)
+    );
+    assert_eq!(
+        *fixture.retries.lock().unwrap(),
+        (1..=300).collect::<Vec<_>>()
+    );
+    assert_eq!(*fixture.fixture.writes.lock().unwrap(), 1);
 }
