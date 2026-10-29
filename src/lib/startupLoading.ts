@@ -1,10 +1,11 @@
 import type { TransportClient } from "./transportClient";
 
-export function startingSubsystem(response: Response, value: unknown): string | null {
+export function startingSubsystem(response: Response, value: unknown, requireUnexecuted = false): string | null {
   if (response.status !== 503 || !value || typeof value !== "object" || !("error" in value)) return null;
   const error = value.error;
   if (!error || typeof error !== "object" || !("code" in error) || error.code !== "starting"
     || !("subsystem" in error) || typeof error.subsystem !== "string") return null;
+  if (requireUnexecuted && (!("request_executed" in error) || error.request_executed !== false)) return null;
   return error.subsystem;
 }
 
@@ -25,7 +26,7 @@ export function createStartupLoading(subscribe: TransportClient["subscribe"]) {
           if (!waiters.size) stop();
           if (error) reject(error); else resolve();
         } };
-        const abort = () => waiter.finish(signal?.reason ?? new Error("Startup read cancelled"));
+        const abort = () => waiter.finish(signal?.reason ?? new Error("Startup request cancelled"));
         if (signal?.aborted) { abort(); return; }
         signal?.addEventListener("abort", abort, { once: true });
         waiters.add(waiter);

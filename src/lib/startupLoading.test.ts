@@ -38,7 +38,7 @@ it("cancels one area's wait without losing another area's subscription", async (
   expect(close).toHaveBeenCalledOnce();
 });
 
-it("waits for a typed starting read and never replays a mutation", async () => {
+it("waits for a typed starting read but rejects a mutation without non-execution proof", async () => {
   const pending = () => Response.json({ error: { code: "starting", subsystem: "plans" } }, { status: 503 });
   let reads = 0;
   const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
@@ -54,4 +54,101 @@ it("waits for a typed starting read and never replays a mutation", async () => {
   const before = fetch.mock.calls.length;
   await expect(client.json("POST", "/api/plans", { opaque: true })).rejects.toThrow("HTTP 503");
   expect(fetch.mock.calls.length).toBe(before + 1);
+});
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
+it.each(["POST", "PUT", "PATCH", "DELETE"] as const)("holds a refused %s until readiness and executes it once", async method => {
+  const subscribed = deferred();
+  const ready = deferred();
+  let attempts = 0;
+  let executions = 0;
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+    if (String(input).endsWith("/api/startup/events")) {
+      subscribed.resolve();
+      await ready.promise;
+      return new Response('event: startup-state\ndata: {"state":"ready"}\n\nevent: startup-state\ndata: {"state":"ready"}\n\n', {
+        headers: { "Content-Type": "text/event-stream" },
+      });
+    }
+    if (++attempts === 1) return Response.json({
+      error: { code: "starting", subsystem: "service", request_executed: false },
+    }, { status: 503 });
+    executions++;
+    return Response.json({ accepted: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const result = client.json(method, "/api/tabs/opaque/wake", { opaque: true });
+  await subscribed.promise;
+  expect(attempts).toBe(1);
+  expect(executions).toBe(0);
+  ready.resolve();
+  expect(await result).toEqual({ accepted: true });
+  expect(attempts).toBe(2);
+  expect(executions).toBe(1);
+  const mutations = fetch.mock.calls.filter(([, init]) => init?.method === method);
+  expect(mutations).toHaveLength(2);
+  expect(mutations[0][1]?.body).toBe(mutations[1][1]?.body);
+});
+
+it("accepts a current ready snapshot when readiness preceded the refusal response", async () => {
+  let attempts = 0;
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async input => {
+    if (String(input).endsWith("/api/startup/events")) return new Response(
+      'event: startup-state\ndata: {"state":"ready"}\n\n',
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+    return ++attempts === 1
+      ? Response.json({ error: { code: "starting", subsystem: "service", request_executed: false } }, { status: 503 })
+      : Response.json({ accepted: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  expect(await client.json("POST", "/api/tabs/opaque/wake")).toEqual({ accepted: true });
+  expect(attempts).toBe(2);
+});
+
+it.each([
+  { code: "unavailable", subsystem: "service", request_executed: false },
+  { code: "starting", subsystem: "service", request_executed: true },
+  { code: "starting", subsystem: "service" },
+])("does not reissue other service refusals: %j", async error => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({ error }, { status: 503 }));
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  await expect(client.json("POST", "/api/tabs/opaque/wake")).rejects.toThrow("HTTP 503");
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it("does not reissue a mutation after transport uncertainty", async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockRejectedValue(new Error("opaque transport uncertainty"));
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  await expect(client.json("POST", "/api/tabs/opaque/wake")).rejects.toThrow("opaque transport uncertainty");
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it.each([500, 502, 504])("does not reissue a mutation after HTTP %i", async status => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({
+    error: { code: "starting", subsystem: "service", request_executed: false },
+  }, { status }));
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  await expect(client.json("POST", "/api/tabs/opaque/wake")).rejects.toThrow(`HTTP ${status}`);
+  expect(fetch).toHaveBeenCalledOnce();
+});
+
+it("does not loop if the route still refuses after readiness", async () => {
+  let attempts = 0;
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async input => {
+    if (String(input).endsWith("/api/startup/events")) return new Response(
+      'event: startup-state\ndata: {"state":"ready"}\n\n',
+      { headers: { "Content-Type": "text/event-stream" } },
+    );
+    attempts++;
+    return Response.json({ error: { code: "starting", subsystem: "service", request_executed: false } }, { status: 503 });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  await expect(client.json("POST", "/api/tabs/opaque/wake")).rejects.toThrow("HTTP 503");
+  expect(attempts).toBe(2);
 });

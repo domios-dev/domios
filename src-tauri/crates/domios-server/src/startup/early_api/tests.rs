@@ -149,7 +149,9 @@ async fn starting_refusal_never_dispatches_or_replays_a_mutation() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(json(response).await["error"]["code"], "starting");
+    let refusal = json(response).await;
+    assert_eq!(refusal["error"]["code"], "starting");
+    assert_eq!(refusal["error"]["request_executed"], false);
     complete_service(&api);
     assert!(api.activate(full.clone()).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);

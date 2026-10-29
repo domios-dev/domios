@@ -215,9 +215,12 @@ export function createTransportClient(options: TransportOptions): TransportClien
 
   const tracked = async (path: string, init: RequestInit = {}, local = false) => {
     const response = await perform(path, init, local);
-    if ((init.method ?? "GET").toUpperCase() !== "GET" || response.status !== 503) return response;
+    if (response.status !== 503) return response;
+    if (typeof ReadableStream !== "undefined" && init.body instanceof ReadableStream) return response;
     const value: unknown = await response.clone().json().catch(() => null);
-    const area = startingSubsystem(response, value);
+    const read = ["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase());
+    // A mutation may proceed again only when the early router proves no handler ran.
+    const area = startingSubsystem(response, value, !read);
     if (!area) return response;
     await response.body?.cancel();
     await startup.wait(area, init.signal ?? undefined);

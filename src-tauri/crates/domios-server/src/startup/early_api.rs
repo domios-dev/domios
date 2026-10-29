@@ -380,7 +380,7 @@ async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
         })).into_response();
     }
     (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-        "ok": false, "error": {"code": if readiness.state == PhaseState::Failed { "startup_failed" } else { "starting" }, "subsystem": subsystem(path)},
+        "ok": false, "error": {"code": if readiness.state == PhaseState::Failed { "startup_failed" } else { "starting" }, "subsystem": subsystem(path), "request_executed": false},
         "startup": readiness,
     }))).into_response()
 }
