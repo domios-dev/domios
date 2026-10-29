@@ -9,6 +9,7 @@ fn lazy_session_start_writes_first_send_without_a_session_id_then_classifies_exa
         tab.agent_session_id = None;
         tab.reported_session_binding_nonce = None;
     }
+    attach_fixture_pty(&fixture, &tab);
     let first = start_current_chat_send(&fixture, &tab, "opaque-lazy-first", "client-a");
     assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
     let writes = Arc::new(AtomicUsize::new(0));
@@ -20,7 +21,7 @@ fn lazy_session_start_writes_first_send_without_a_session_id_then_classifies_exa
             Ok(())
         }),
     );
-    mark_ready(&fixture, &tab);
+    super::lazy_session::mark_lazy_composer_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
     await_owner_idle(&fixture, &tab);
     assert_eq!(
