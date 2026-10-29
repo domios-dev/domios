@@ -22,6 +22,15 @@ struct ResolvedManifest {
 
 mod cache;
 
+pub(crate) async fn resolve_release(
+    method: &InstallMethod,
+    channel: super::Channel,
+) -> Result<LatestRelease, String> {
+    resolve_feed(method, channel)
+        .await
+        .map(|resolved| resolved.release)
+}
+
 pub async fn resolve_manifest(
     method: &InstallMethod,
     channel: super::Channel,
