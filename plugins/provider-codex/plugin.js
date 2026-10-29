@@ -1033,7 +1033,7 @@ function cloudExports(hostRef) {
     sendMessage: (session, text7) => get().sendMessage(session, text7),
     poll: (session, cursor) => get().poll(session, cursor),
     closeSession: (session) => get().closeSession(session),
-    viewCall: (method, args) => get().viewCall(method, args)
+    viewCall: (method, args, context) => get().viewCall(method, args, context)
   };
 }
 

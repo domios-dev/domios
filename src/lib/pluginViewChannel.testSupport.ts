@@ -9,7 +9,8 @@ export class TestViewPort {
   close() { this.closed = true; }
   receive(data: unknown) { if (!this.closed) this.onmessage?.({ data } as MessageEvent); }
   prove() {
-    const challenge = this.sent.filter(message => message.__ctChallenge != null).at(-1)?.__ctChallenge;
+    const challenges = this.sent.filter(message => message.__ctChallenge != null);
+    const challenge = challenges[challenges.length - 1]?.__ctChallenge;
     if (challenge != null) this.receive({ __ctProof: challenge });
   }
   get port() { return this as unknown as MessagePort; }

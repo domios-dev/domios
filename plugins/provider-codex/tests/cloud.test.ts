@@ -6,8 +6,14 @@ import {CLOUD_SIGN_IN_REASON, CODEX_CLOUD_ACCOUNT_REF, cloudTaskBackend, cloudTa
 import {remoteChatBackend} from "../src/cloud/chatBackend";
 import {cloudExports} from "../src/cloud/plugin";
 import {createCodexCloudTransport} from "../src/cloud/transport";
-import type {Host} from "@codeterm/plugin-sdk";
+import type {Host, ViewCallContext} from "@codeterm/plugin-sdk";
 import type {RemoteTaskBinding, RemoteTaskCapability, RemoteTaskStorage} from "../../../packages/plugin-sdk/src/remoteTasks";
+
+const VIEW_CONTEXT: ViewCallContext = {
+  plugin: "codex", origin: "remote_task", surface: null, instance: null,
+  tab: "tab-fixture", owner: "tab-fixture", workspace: "workspace-fixture", team: null,
+  actor: {kind: "local"}, frame: null,
+};
 
 const fixture = (name: string) => JSON.parse(readFileSync(new URL(`./cloud-fixtures/${name}.json`, import.meta.url), "utf8"));
 const capability: RemoteTaskCapability = {
@@ -48,7 +54,7 @@ test("fake transport proves create shape, status/diff, restart binding, and expl
   assert.equal(f.calls.length, 1, "transcript reads do not poll the remote server");
   const running = {...fixture("task_details_with_diff"), task_status_display: {latest_turn_status_display: {turn_status: "in_progress"}}};
   f.setDetails(running);
-  plugin.viewCall("refresh", {sessionId: ctx.tabId});
+  plugin.viewCall("refresh", {sessionId: ctx.tabId}, VIEW_CONTEXT);
   assert.equal(f.storage.read(ctx.tabId)?.snapshot?.status, "running");
   const completed = {...running, task_status_display: {latest_turn_status_display: {turn_status: "completed"}}};
   f.setDetails(completed);
@@ -61,8 +67,8 @@ test("fake transport proves create shape, status/diff, restart binding, and expl
   assert.equal(f.calls.filter(call => call.method === "POST").length, 1);
   assert.ok(f.calls.some(call => call.method === "GET" && call.path === "/wham/tasks/task_123"));
   assert.throws(() => restarted.sendMessage(ctx.tabId, "follow up"));
-  assert.throws(() => restarted.viewCall("cancel", {sessionId: ctx.tabId}));
-  assert.throws(() => restarted.viewCall("apply", {sessionId: ctx.tabId}));
+  assert.throws(() => restarted.viewCall("cancel", {sessionId: ctx.tabId}, VIEW_CONTEXT));
+  assert.throws(() => restarted.viewCall("apply", {sessionId: ctx.tabId}, VIEW_CONTEXT));
   const rendered = restarted.poll(ctx.tabId);
   assert.match(rendered.messages[0].content, /Assistant response/);
   assert.equal(restarted.poll(ctx.tabId, rendered.cursor).messages.length, 0);
@@ -273,7 +279,7 @@ test("Cloud task storage uses the supplied instance data root", () => {
         readFile(path: string) { readPath = path; return null; },
       },
     } as unknown as Host;
-    cloudExports(() => host).viewCall("read", {sessionId: "tab-fixture"});
+    cloudExports(() => host).viewCall!("read", {sessionId: "tab-fixture"}, VIEW_CONTEXT);
     assert.equal(readPath, `${root.replace(/[\\/]$/, "")}/codex/tasks/tab-fixture.json`);
   }
 });
@@ -284,6 +290,6 @@ test("Cloud task storage reports an unavailable instance root", () => {
       dataDir: () => root,
       manifestJson: () => JSON.stringify({id: "codex", capabilities: {remoteTask: capability}}),
     } as unknown as Host;
-    assert.throws(() => cloudExports(() => host).viewCall("read", {sessionId: "tab-fixture"}), /Cloud task storage is unavailable/);
+    assert.throws(() => cloudExports(() => host).viewCall!("read", {sessionId: "tab-fixture"}, VIEW_CONTEXT), /Cloud task storage is unavailable/);
   }
 });

@@ -2,7 +2,7 @@ import { PluginViewChannel } from "../../lib/pluginViewChannel";
 import { TestViewPort } from "../../lib/pluginViewChannel.testSupport";
 import { act, StrictMode, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 const documentState = vi.hoisted(() => ({ channel: undefined as PluginViewChannel | undefined, html: "<html></html>" as string | undefined, error: null as string | null, media: undefined as undefined | ((id: string) => Promise<unknown>), dispose: undefined as undefined | (() => void), invoke: undefined as undefined | ((method: string, args: unknown) => Promise<unknown>) }));
 const documentLoad = vi.hoisted(() => vi.fn(() => documentState));
