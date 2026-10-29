@@ -19213,7 +19213,7 @@
       "subcommands": [
         {
           "name": "link",
-          "about": "Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead)",
+          "about": "Print a ready-to-open browser UI URL for THIS machine with the API token embedded in the URL fragment (use --query for ?token= instead). Local owner or authenticated General Agent only; never share through notifications or memory",
           "aliases": [],
           "args": [
             {
