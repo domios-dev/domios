@@ -77,6 +77,7 @@ async fn unstructured_401_refreshes_same_generation_and_shared_read_succeeds_wit
     let port = Transport::new(vec![
         Err(CallableFailure::Status {
             status: 401,
+            retry_after_seconds: None,
             body: None,
         }),
         Ok(json!({"result":{"fresh":true}})),
@@ -109,13 +110,21 @@ async fn auth_recovery_is_bounded_and_never_replays_a_mutation() {
         let port = Transport::new(vec![
             Err(CallableFailure::Status {
                 status: 401,
+                retry_after_seconds: None,
                 body: None
             });
             count
         ]);
         assert_eq!(
             calls.invoke_with_transport(&port, route, json!({})).await,
-            Err(Error::Transport)
+            Err(if count == 2 {
+                Error::Http {
+                    status: 401,
+                    retry_after_seconds: 0,
+                }
+            } else {
+                Error::Transport
+            })
         );
         assert_eq!(port.tokens.lock().len(), count);
         assert!(!account.status().await.session_revoked);
@@ -128,6 +137,7 @@ async fn structured_session_revocation_is_terminal_and_cannot_be_refreshed() {
     let old = account.session().await.unwrap();
     let port = Transport::new(vec![Err(CallableFailure::Status {
         status: 401,
+        retry_after_seconds: None,
         body: Some(
             json!({"error":{"status":"UNAUTHENTICATED","details":{"reason":"session_revoked"}}}),
         ),

@@ -38,6 +38,7 @@ pub trait InboxListener: Send {
 
 pub enum InboxEvent {
     Ready,
+    Snapshot(Vec<InboxMessage>),
     Messages(Vec<InboxMessage>),
 }
 

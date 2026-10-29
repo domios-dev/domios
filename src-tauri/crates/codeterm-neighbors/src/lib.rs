@@ -14,8 +14,13 @@ pub mod wire;
 pub enum Error {
     File(files::refusal::Failure),
     InvalidEnvelope,
-    MessageTooLarge { limit: u64 },
-    RefusalTooLong { limit: u64, actual: u64 },
+    MessageTooLarge {
+        limit: u64,
+    },
+    RefusalTooLong {
+        limit: u64,
+        actual: u64,
+    },
     ReplyTargetUnknown,
     ReplyTargetStopped,
     EmptyBody,
@@ -31,12 +36,19 @@ pub enum Error {
     LocalKeyUnavailable,
     SecretStore,
     Transport,
+    Http {
+        status: u16,
+        retry_after_seconds: u64,
+    },
     CursorStore,
     Gateway,
     Locked,
     Revoked,
     KeyNotFound,
-    KeyLimit { limit: u64, active: u64 },
+    KeyLimit {
+        limit: u64,
+        active: u64,
+    },
     FeatureUnsupported,
     EntitlementsUnavailable,
     Refused,
@@ -53,21 +65,46 @@ pub enum Error {
     SessionRevoked,
     OperationIdConflict,
     Disabled,
-    DailyLimit { limit: u64, resets_at: u64 },
-    AggregateDailyLimited { limit: u64, resets_at: u64 },
+    DailyLimit {
+        limit: u64,
+        resets_at: u64,
+    },
+    AggregateDailyLimited {
+        limit: u64,
+        resets_at: u64,
+    },
     LimitOutOfRange,
     InvalidRequest,
     FriendshipNotFound,
     FriendshipEnded,
     RecipientLocked,
-    RateLimited { retry_after_seconds: u64 },
-    AggregateLimited { retry_after_seconds: u64 },
-    Firestore { code: i32, operation: &'static str },
-    ListenProtocol { kind: &'static str },
+    RateLimited {
+        retry_after_seconds: u64,
+    },
+    AggregateLimited {
+        retry_after_seconds: u64,
+    },
+    Firestore {
+        code: i32,
+        operation: &'static str,
+    },
+    ListenProtocol {
+        kind: &'static str,
+    },
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Self::Http {
+            status,
+            retry_after_seconds,
+        } = self
+        {
+            return write!(
+                f,
+                "Neighbor HTTP {status} (retry after {retry_after_seconds}s)"
+            );
+        }
         if let Self::File(failure) = self {
             return std::fmt::Display::fmt(failure, f);
         }
@@ -131,6 +168,7 @@ impl std::fmt::Display for Error {
             Self::LocalKeyUnavailable => "Neighbor recipient key recovery required",
             Self::SecretStore => "Neighbor OS secret store unavailable",
             Self::Transport => "Neighbor transport unavailable",
+            Self::Http { .. } => unreachable!(),
             Self::CursorStore => "Neighbor cursor storage unavailable",
             Self::Gateway => "Neighbor gateway unavailable",
             Self::Locked => "friends_locked: Upgrade to use your Neighbors channel",

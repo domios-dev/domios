@@ -78,7 +78,7 @@ async fn setup_outages_recover_control_and_friend_watches_without_opening_neighb
     for stage in 1..=2 {
         assert_eq!(
             deadlines.recv().await,
-            Some(std::time::Duration::from_millis(500))
+            Some(std::time::Duration::from_millis(500 << (stage - 1)))
         );
         assert_eq!(attempts.load(Ordering::SeqCst), stage);
         clock.advance();

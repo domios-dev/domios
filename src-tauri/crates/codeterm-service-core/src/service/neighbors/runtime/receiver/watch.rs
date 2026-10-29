@@ -32,9 +32,6 @@ impl ReceptionEvents for ControlWatch {
     }
     fn state(&self, state: ListenerState) {
         if self.current().is_ok() {
-            if state == ListenerState::Receiving {
-                self.progress.fetch_add(1, Ordering::AcqRel);
-            }
             self.service.neighbor_watch_state("control", state, None);
         }
     }
@@ -65,6 +62,8 @@ impl DocumentSession for ControlWatch {
             Some(listener) => listener,
             None => self.transport.listen_control().await?,
         };
+        let mut health = codeterm_neighbors::supervisor::StreamHealth::default();
+        use codeterm_neighbors::supervisor::RetryClock;
         loop {
             listener.changed().await?.ok_or(Error::Transport)?;
             self.current()?;
@@ -80,6 +79,9 @@ impl DocumentSession for ControlWatch {
                 .await
                 .map_err(|_| Error::Transport)?;
             self.current()?;
+            if health.observe(codeterm_neighbors::supervisor::RuntimeClock.now(), true) {
+                self.progress.fetch_add(1, Ordering::AcqRel);
+            }
             self.state(ListenerState::Receiving);
         }
     }

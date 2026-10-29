@@ -88,10 +88,16 @@ impl ServiceContext {
             HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
                 .map_err(|_| "unavailable")?;
         let body = match transport
-            .call(
+            .call_for_account(
+                &session.identity.uid,
                 "redeemGiftKey",
                 session.id_token.expose(),
                 json!({"key": request.key}),
+                &super::account::callable_admission::SessionGuard {
+                    service: self,
+                    expected: &session,
+                    neighbors: false,
+                },
             )
             .await
         {
@@ -104,6 +110,7 @@ impl ServiceContext {
                 }
                 return Err(refusal(&body).into());
             }
+            Err(CallableFailure::Retired) => return Err("account_changed".into()),
             Err(_) => return Err("unavailable".into()),
         };
         if !same_session(account.session().await.as_ref(), &session) {

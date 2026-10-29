@@ -115,6 +115,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
     let body = json!({"error":{"status":"UNAUTHENTICATED","details":{"reason":"session_revoked"}}});
     let registry = registry(Err(CallableFailure::Status {
         status: 401,
+        retry_after_seconds: None,
         body: Some(body),
     }))
     .with_revocations(observer.clone());
@@ -199,6 +200,7 @@ fn account_mesh_callable_errors_keep_the_typed_server_refusal() {
     for (name, refusal) in packet["refusals"].as_object().unwrap() {
         let failure = CallableFailure::Status {
             status: http(refusal["code"].as_str().unwrap()),
+            retry_after_seconds: None,
             body: Some(
                 json!({"error": {"status": refusal["code"], "details": refusal["details"]}}),
             ),
@@ -212,7 +214,11 @@ fn account_mesh_callable_errors_keep_the_typed_server_refusal() {
         );
     }
     assert_eq!(refusal(&CallableFailure::Offline), RegistryRefusal::Offline);
-    let bare = |status| CallableFailure::Status { status, body: None };
+    let bare = |status| CallableFailure::Status {
+        status,
+        body: None,
+        retry_after_seconds: None,
+    };
     assert_eq!(refusal(&bare(401)), RegistryRefusal::Unauthenticated);
     assert_eq!(
         refusal(&bare(400)),
@@ -292,4 +298,52 @@ impl CallableRegistry<Scripted> {
     fn transport_calls(&self) -> Vec<(String, String, Value)> {
         self.transport().seen.lock().unwrap().clone()
     }
+}
+
+#[test]
+fn http_status_body_matrix_preserves_permanent_auth_transient_and_throttle_classes() {
+    let bodies = [
+        None,
+        Some(json!({"error":{"status":"UNKNOWN"}})),
+        Some(json!({"error":{"details":{"reason":"rate_limited","retry_after_seconds":45}}})),
+        Some(json!({"error":{"details":{"reason":"unknown"}}})),
+    ];
+    for body in bodies {
+        for (status, expected) in [
+            (401, RegistryRefusal::Unauthenticated),
+            (403, RegistryRefusal::Forbidden),
+            (404, RegistryRefusal::Invalid),
+            (500, RegistryRefusal::Unavailable),
+            (503, RegistryRefusal::Unavailable),
+        ] {
+            let error = CallableFailure::Status {
+                status,
+                body: body.clone(),
+                retry_after_seconds: Some(60),
+            };
+            assert_eq!(refusal(&error), expected, "{status} {body:?}");
+        }
+        let error = CallableFailure::Status {
+            status: 429,
+            body: body.clone(),
+            retry_after_seconds: Some(60),
+        };
+        assert_eq!(error.retry_after_seconds(), Some(60));
+        assert_eq!(
+            refusal(&error),
+            RegistryRefusal::RateLimited {
+                retry_after_seconds: 60
+            }
+        );
+    }
+    assert_eq!(
+        refusal(&CallableFailure::Status {
+            status: 429,
+            body: None,
+            retry_after_seconds: None
+        }),
+        RegistryRefusal::RateLimited {
+            retry_after_seconds: 1
+        }
+    );
 }

@@ -30,7 +30,7 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(
         session.current()?;
         match event {
             Some(InboxEvent::Ready) => {}
-            Some(InboxEvent::Messages(mut messages)) => {
+            Some(InboxEvent::Messages(mut messages) | InboxEvent::Snapshot(mut messages)) => {
                 messages
                     .sort_by(|a, b| (a.doc.received_at, &a.id).cmp(&(b.doc.received_at, &b.id)));
                 let peers = session.transport.peer_keys(&session.friendship).await?;

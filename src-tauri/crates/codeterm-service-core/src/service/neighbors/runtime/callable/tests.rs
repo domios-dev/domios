@@ -261,10 +261,19 @@ fn daily_limit_refusals_preserve_the_server_limit_and_reset_time() {
 #[test]
 fn outage_responses_retry_but_permission_auth_and_entitlement_refusals_stop() {
     for status in [401, 429, 500, 502, 503] {
-        assert_eq!(callable_error(status, None), Error::Transport);
+        assert_eq!(
+            callable_error(status, None),
+            Error::Http {
+                status,
+                retry_after_seconds: 0
+            }
+        );
         assert_eq!(
             callable_error(status, Some(&json!({"error":{"status":"INTERNAL"}}))),
-            Error::Transport
+            Error::Http {
+                status,
+                retry_after_seconds: 0
+            }
         );
     }
     assert_eq!(callable_error(403, None), Error::PermissionDenied);
@@ -293,3 +302,33 @@ fn callable_failure_preserves_structured_delivery_limits() {
 }
 
 mod auth;
+
+#[test]
+fn http_status_body_matrix_keeps_permanent_failures_out_of_recovery() {
+    let bodies = [
+        None,
+        Some(json!({"error":{"status":"UNKNOWN"}})),
+        Some(json!({"error":{"details":{"reason":"rate_limited","retry_after_seconds":45}}})),
+        Some(json!({"error":{"details":{"reason":"unknown"}}})),
+    ];
+    for body in bodies {
+        for status in [401, 403, 404, 429, 500, 503] {
+            let error = classify_callable_error(status, body.as_ref(), Some(60));
+            assert_eq!(
+                codeterm_neighbors::supervisor::retryable(error),
+                !matches!(status, 403 | 404),
+                "{status} {body:?}"
+            );
+            match error {
+                Error::Http {
+                    retry_after_seconds,
+                    ..
+                }
+                | Error::RateLimited {
+                    retry_after_seconds,
+                } => assert_eq!(retry_after_seconds, 60),
+                _ => {}
+            }
+        }
+    }
+}

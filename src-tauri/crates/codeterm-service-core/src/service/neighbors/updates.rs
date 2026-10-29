@@ -133,12 +133,6 @@ impl Session {
 
     fn state(&self, status: ListenerState) {
         if self.current().is_ok() {
-            if status == ListenerState::Receiving {
-                self.progress.fetch_add(1, Ordering::AcqRel);
-                if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() {
-                    handle.rearm.success();
-                }
-            }
             self.service.neighbor_watch_state("account", status, None);
         }
     }
@@ -349,6 +343,9 @@ impl DocumentSession for Session {
             .unwrap_or_default();
         let mut listener = self.transport.listen_registry().await?;
         let mut revisions = delivery::Revisions::default();
+        let mut health = codeterm_neighbors::supervisor::StreamHealth::default();
+        let clock = codeterm_neighbors::supervisor::RuntimeClock;
+        use codeterm_neighbors::supervisor::RetryClock;
         loop {
             let signal = listener.next().await?.ok_or(Error::Transport)?;
             self.current()?;
@@ -359,6 +356,12 @@ impl DocumentSession for Session {
                 self.refresh(&signal, &mut seen).await?;
             }
             self.delivery(&signal, catch_up).await?;
+            if health.observe(clock.now(), !catch_up) {
+                self.progress.fetch_add(1, Ordering::AcqRel);
+                if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() {
+                    handle.rearm.success();
+                }
+            }
             self.state(ListenerState::Receiving);
         }
     }

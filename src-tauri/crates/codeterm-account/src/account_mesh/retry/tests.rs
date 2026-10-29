@@ -43,3 +43,23 @@ fn outages_prevent_bursts_and_back_off_to_a_cap() {
     retry.settle(now, Err(AccountMeshRefusal::Unavailable));
     assert_eq!(retry.deadline, Some(now + 30));
 }
+
+#[test]
+fn rate_limit_uses_the_longer_server_or_exponential_backoff_deadline() {
+    let mut retry = Retry::default();
+    retry.settle(100, Err(AccountMeshRefusal::Unavailable));
+    retry.settle(
+        130,
+        Err(AccountMeshRefusal::RateLimited {
+            retry_after_seconds: 7,
+        }),
+    );
+    assert_eq!(retry.deadline, Some(190));
+    retry.settle(
+        190,
+        Err(AccountMeshRefusal::RateLimited {
+            retry_after_seconds: 180,
+        }),
+    );
+    assert_eq!(retry.deadline, Some(370));
+}

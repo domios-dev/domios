@@ -299,7 +299,7 @@ impl Listener {
 impl InboxListener for Listener {
     async fn next(&mut self) -> Result<Option<InboxEvent>> {
         if let Some(messages) = self.pending.take() {
-            return Ok(Some(InboxEvent::Messages(messages)));
+            return Ok(Some(InboxEvent::Snapshot(messages)));
         }
         if self.catch_up {
             let request = self.request(fs::RunQueryRequest {
@@ -335,7 +335,7 @@ impl InboxListener for Listener {
             }
             self.catch_up = messages.len() == PAGE_SIZE as usize;
             if !messages.is_empty() {
-                return Ok(Some(InboxEvent::Messages(self.sorted(messages))));
+                return Ok(Some(InboxEvent::Snapshot(self.sorted(messages))));
             }
         }
         if self.stream.is_none() {
