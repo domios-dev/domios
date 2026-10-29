@@ -4,6 +4,15 @@ function Get-InstalledImagePath {
     return $Path
 }
 
+function Test-InstalledBinaryImage {
+    param([string]$Root, [string]$Image)
+    if ([string]::IsNullOrWhiteSpace($Image)) { return $false }
+    $path = Get-InstalledImagePath $Image
+    if ([IO.Path]::GetExtension($path) -ine '.exe') { return $false }
+    $directories = @($Root, "$Root\cli", "$Root\domios-server", "$Root\conpty\x64", "$Root\conpty\arm64")
+    return $directories -contains [IO.Path]::GetDirectoryName($path)
+}
+
 function Test-InstallerCanStopTree {
     param([bool]$SnapshotSaved, [string]$QuitOutcome)
     return $SnapshotSaved -and @('completed', 'uncertain') -contains $QuitOutcome

@@ -16,6 +16,8 @@
   InitPluginsDir
   File /oname=$PLUGINSDIR\installer-preflight.ps1 "${DOMIOS_INSTALLER_HOOK_DIR}\installer-preflight.ps1"
   File /oname=$PLUGINSDIR\installer-process-model.ps1 "${DOMIOS_INSTALLER_HOOK_DIR}\installer-process-model.ps1"
+  File /oname=$PLUGINSDIR\installer-preflight-flow.ps1 "${DOMIOS_INSTALLER_HOOK_DIR}\installer-preflight-flow.ps1"
+  File /oname=$PLUGINSDIR\installer-process-native.cs "${DOMIOS_INSTALLER_HOOK_DIR}\installer-process-native.cs"
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-preflight.ps1" -InstallRoot "$INSTDIR"'
   Pop $0
   ${If} $0 != 0

@@ -126,7 +126,6 @@ async fn check_and_apply_plugin(
     update_state.lock().set_phase(UpdatePhase::Downloading);
     log::info!("[updater] downloading and verifying v{}", update.version);
     let chunk_state = update_state.clone();
-    let finish_state = update_state.clone();
     let bytes = match update
         .download(
             move |chunk_len, content_length| {
@@ -134,9 +133,7 @@ async fn check_and_apply_plugin(
                     .lock()
                     .record_download_chunk(chunk_len as u64, content_length);
             },
-            move || {
-                finish_state.lock().set_phase(UpdatePhase::Applying);
-            },
+            || {},
         )
         .await
     {
@@ -148,14 +145,12 @@ async fn check_and_apply_plugin(
         }
     };
 
-    update_state.lock().set_phase(UpdatePhase::Applying);
-
     let verified_len = bytes.len();
     let sink = super::failure_report::AppFailureSink {
         update_state: update_state.clone(),
     };
 
-    server_stop.prepare_update(&update.version).await?;
+    let target_version = update.version.clone();
     let server_identity = server_stop.install_identity()?;
     let server_stopped = std::sync::atomic::AtomicBool::new(false);
     let outcome = super::orchestrate::install_after_shutdown(
@@ -170,6 +165,8 @@ async fn check_and_apply_plugin(
             super::install_holders::preflight(server_identity).await
         },
         |holders| async {
+            server_stop.prepare_update(&target_version).await?;
+            update_state.lock().set_phase(UpdatePhase::Applying);
             stop_pair_server(server_stop.as_ref(), &server_stopped, holders).await?;
             Ok(Vec::new())
         },
