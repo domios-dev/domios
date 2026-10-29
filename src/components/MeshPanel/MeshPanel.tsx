@@ -106,25 +106,25 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     };
   }, [triggerRefresh]);
 
-  const loadServe = useCallback(async () => {
+  const loadServe = useCallback(async (accept: () => boolean = () => true) => {
     const [status, networkInfo] = await Promise.all([
       invoke<ServeStatus>("get_serve_status").catch(() => null),
       invoke<NetworkInfo>("get_network_info").catch(() => null),
     ]);
-    setNetwork(networkInfo);
-    setServe(status);
-    setServeLoading(false);
+    if (accept()) {
+      setNetwork(networkInfo);
+      setServe(status);
+      setServeLoading(false);
+    }
     return status;
   }, []);
 
   useEffect(() => {
-    void loadServe();
     let active = true;
     const refresh = () => {
-      void invoke<NetworkInfo>("get_network_info").then((info) => {
-        if (active) setNetwork(info);
-      }).catch(() => undefined);
+      void loadServe(() => active);
     };
+    refresh();
     let stop: (() => void) | undefined;
     void listen("mesh-state-changed", refresh).then((unlisten) => {
       if (active) stop = unlisten; else unlisten();

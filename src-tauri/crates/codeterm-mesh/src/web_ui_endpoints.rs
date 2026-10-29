@@ -31,20 +31,49 @@ pub fn collect_verified(
     https_url: Option<&str>,
     expected_build: &str,
 ) -> Option<WebUiAnnouncement> {
+    collect_verified_with(tailscale_ip, local_ip, api_port, https_url, |endpoint| {
+        crate::serve_setup::endpoint_matches_build(&endpoint_base_url(endpoint), expected_build)
+    })
+}
+
+fn collect_verified_with(
+    tailscale_ip: Option<&str>,
+    local_ip: Option<&str>,
+    api_port: u16,
+    https_url: Option<&str>,
+    verify: impl FnMut(&WebUiEndpoint) -> bool,
+) -> Option<WebUiAnnouncement> {
     let announcement = collect(tailscale_ip, local_ip, api_port, https_url)?;
     normalize(WebUiAnnouncement {
         protocol_version: announcement.protocol_version,
-        endpoints: announcement
-            .endpoints
-            .into_iter()
-            .filter(|endpoint| {
-                crate::serve_setup::endpoint_matches_build(
-                    &endpoint_base_url(endpoint),
-                    expected_build,
-                )
-            })
-            .collect(),
+        endpoints: announcement.endpoints.into_iter().filter(verify).collect(),
     })
+}
+
+pub fn local_http_listener(
+    announcement: Option<&WebUiAnnouncement>,
+    listeners: &[std::net::SocketAddr],
+    healthy: bool,
+    port: u16,
+) -> Option<std::net::SocketAddr> {
+    if !healthy {
+        return None;
+    }
+    announcement
+        .into_iter()
+        .flat_map(|a| &a.endpoints)
+        .find_map(|endpoint| match endpoint {
+            WebUiEndpoint::TailscaleHttp { ip, port } | WebUiEndpoint::LanHttp { ip, port } => {
+                Some(std::net::SocketAddr::new(*ip, *port))
+            }
+            _ => None,
+        })
+        .or_else(|| {
+            listeners
+                .iter()
+                .find(|a| a.port() == port && a.ip().is_loopback())
+                .copied()
+        })
 }
 
 pub fn normalize(announcement: WebUiAnnouncement) -> Option<WebUiAnnouncement> {
@@ -144,47 +173,4 @@ fn endpoint_base_url(endpoint: &WebUiEndpoint) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn collection_ranks_https_then_tailscale_then_lan() {
-        let announcement = collect(
-            Some("100.64.0.8"),
-            Some("192.168.1.8"),
-            7685,
-            Some("https://host.tailnet.ts.net"),
-        )
-        .expect("endpoints");
-        assert!(matches!(
-            announcement.endpoints[0],
-            WebUiEndpoint::TailscaleHttps { .. }
-        ));
-        assert!(matches!(
-            announcement.endpoints[1],
-            WebUiEndpoint::TailscaleHttp { .. }
-        ));
-        assert!(matches!(
-            announcement.endpoints[2],
-            WebUiEndpoint::LanHttp { .. }
-        ));
-    }
-
-    #[test]
-    fn normalization_rejects_untrusted_origins() {
-        let announcement = WebUiAnnouncement {
-            protocol_version: types::RELAY_PROTOCOL_VERSION,
-            endpoints: vec![
-                WebUiEndpoint::TailscaleHttps {
-                    host: "evil.example.com".into(),
-                    port: 443,
-                },
-                WebUiEndpoint::LanHttp {
-                    ip: "127.0.0.1".parse().unwrap(),
-                    port: 7685,
-                },
-            ],
-        };
-        assert!(normalize(announcement).is_none());
-    }
-}
+mod tests;

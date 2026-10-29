@@ -32,6 +32,8 @@ pub async fn mesh_refresh(
         "ok": true,
         "tailscale_ip": mesh.tailscale_ip,
         "local_ip": mesh.local_ip,
+        "transport": mesh.network_transport,
+        "web_ui": mesh.local_web_ui,
         "announce": report,
     })))
 }
