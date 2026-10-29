@@ -111,7 +111,7 @@ x25519-dalek = { version = "2", features = ["static_secrets"] }
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 aes-gcm = "0.10"
 url = "2"
-rand = "0.8"
+rand = "0.10"
 rusqlite = { version = "0.32", features = ["bundled", "blob", "functions", "load_extension"] }
 regex = "1"
 ulid = "1"
