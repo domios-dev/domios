@@ -91,10 +91,9 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | POST | `/api/plugins/run-view` | Local owner only: `{pluginId,reference}` resolves an opaque owned run reference to the inspector target. Requires private `X-Domios-Plugin-View-Frame` and matching `X-Domios-Plugin-Media-Frame` headers; exact live document/provider/owner/workspace/Team checks before and after lookup. Closed JSON body, max 4 KiB; typed denied/stale or run target. |
 | POST | `/api/plugins/operation-decision` | Local owner only: `{pluginId,operation,decisionKey,action}` with `preview`, `approve`, `check_price`, `check` or `cancel`. Same private document headers and exact owner scope; closed JSON body, max 4 KiB. Preview returns the host quote; approval records only a fresh exact operation/unit/maximum, never downstream authority. The host confirmation bar freezes the key. Already recorded decisions survive a stale UI reply; unknown jobs are checked, never resubmitted. |
 | DELETE | `/api/plugins/{plugin}/media-frame/{frame}` | Local owner only: retire this presentation frame and all its media handles; returns 204. |
-| GET, HEAD | `/api/plugins/{plugin}/media/{frame}/{handle}` | Scoped media URL: the opaque live frame/handle pair authorizes passive image/audio/video delivery. Supports one byte Range (206; invalid ranges 416), `no-store` and `nosniff`; unknown, expired or revoked authority returns 404. No filesystem paths. |
 | POST | `/api/plugins/{plugin}/media-register/{frame}` | Local owner only: `{id,viewFrame}` resolves a declared plugin media ID with the private current document lease. Returns `{handle,url,file_name,content_type,expires_in_seconds}`; `url` may be null for gesture-only files. The lease and live owner/workspace/Team/provider registration must match this exact frame; unavailable media returns 404. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

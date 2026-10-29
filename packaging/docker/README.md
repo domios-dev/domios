@@ -44,8 +44,9 @@ no registry push. The local example image name is not a promised registry name.
 
 ## Run and protect the data volume
 
-All server state resides in `/home/domios/.domios`, the `domios` user's data
-directory. Configuration, memory, account credentials, Neighbor keys, secret
+The image sets `HOME=/var/lib/domios` for the `domios` service account.
+All server state resides in `$HOME/.domios` (`/var/lib/domios/.domios`).
+Configuration, memory, account credentials, Neighbor keys, secret
 store, logs and model caches persist together. The image runs as UID/GID
 `10001:10001`. New named volumes inherit the image directory's ownership and
 mode `0700`; configuration is created with mode `0600` and umask `0077`.
@@ -58,7 +59,7 @@ For a bind mount, provision the directory with `install -d -m 0700 -o 10001
 docker volume create domios-data
 docker run -d --name domios --restart unless-stopped --stop-timeout 30 \
   -p 127.0.0.1:7685:7685 \
-  --mount source=domios-data,target=/home/domios/.domios \
+  --mount source=domios-data,target=/var/lib/domios/.domios \
   domios-server:VERSION
 docker inspect --format '{{.State.Health.Status}}' domios
 ```
@@ -94,7 +95,7 @@ then a hung child is killed and reaped within two seconds. Keep Docker's stop
 grace at 30 seconds (as in the run command and Compose). Docker's healthcheck
 uses a bounded standard-library HTTP request to `/api/health` every five seconds.
 
-The daemon writes its full log to `/home/domios/.domios/logs/domios.log` on the
+The daemon writes its full log to `/var/lib/domios/.domios/logs/domios.log` on the
 data volume. On an unexpected daemon exit or startup deadline, the supervisor
 writes the failure and up to 80 lines / 8 KiB of the current startup's log to
 container stderr, visible through `docker logs` or `docker compose logs domios`.
@@ -160,7 +161,7 @@ export DOMIOS_POSTGRES_PASSWORD_FILE="$secret_dir/postgres_password"
 # This environment value is a file path, never the password.
 docker volume create domios-docker_domios-data
 docker run -d --name domios-bootstrap \
-  --mount source=domios-docker_domios-data,target=/home/domios/.domios \
+  --mount source=domios-docker_domios-data,target=/var/lib/domios/.domios \
   "$DOMIOS_IMAGE"
 # Wait for Docker's healthy state before the following command.
 docker exec -i domios-bootstrap domios mem secret save --name domios.mem:postgres_url \

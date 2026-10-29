@@ -19,6 +19,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `node-script-tests-cargo` | contract | js | release | no | no | 60 | glob `scripts/affected-tests.test.mjs` `scripts/check-analytics-catalog.test.mjs` | `node scripts/test-catalogue.mjs run --entry node-script-tests-cargo` | `.agents/skills/testing/SKILL.md` |
 | `ts-unit-runner-tests` | contract | js | pr | no | no | 120 | glob `scripts/run-ts-unit-tests.test.mjs` | `node scripts/test-catalogue.mjs run --entry ts-unit-runner-tests` | `.agents/skills/testing/SKILL.md` |
 | `python-script-tests` | contract | python | pr | no | no | 120 | glob `scripts/tests/test_*.py` `scripts/tests/*_test.py` | `node scripts/test-catalogue.mjs run --entry python-script-tests` | `.agents/skills/testing/SKILL.md` |
+| `docker-container-tests` | unit | python | release | no | no | 60 | glob `scripts/docker/test_*.py` | `node scripts/test-catalogue.mjs run --entry docker-container-tests` | `packaging/docker/README.md` |
 | `account-mesh-e2e-contract` | contract | js | manual | no | no | 60 | glob `scripts/test/*.test.mjs` | `node --test scripts/test/account-mesh-e2e.test.mjs` | `scripts/account-mesh-e2e/README.md` |
 | `account-mesh-e2e` | e2e-curated | js | manual | yes | no | 3600 | single | `node scripts/account-mesh-e2e.mjs --manifest <turner-approved-manifest.json> --out <owned-evidence-dir>` | `scripts/account-mesh-e2e/README.md` |
 | `frontend-release-producer-tests` | contract | js | release | no | no | 60 | glob `scripts/frontend-release/*.test.mjs` | `node --test scripts/frontend-release/*.test.mjs` | `.agents/skills/github-release/SKILL.md` |
@@ -76,6 +77,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `rust-browser` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest browser` | `.agents/skills/gates/SKILL.md` |
 | `rust-mesh` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mesh` | `.agents/skills/gates/SKILL.md` |
 | `rust-mem` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mem` | `.agents/skills/gates/SKILL.md` |
+| `rust-mem-postgres` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest mem-postgres` | `.agents/skills/testing/SKILL.md` |
 | `rust-plan` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest plan` | `.agents/skills/gates/SKILL.md` |
 | `rust-bridge` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest codeterm-bridge` | `.agents/skills/gates/SKILL.md` |
 | `rust-pty` | unit | rust | release | no | no | 600 | nextest-list (fallback static-scan) | `./build.sh nextest pty` | `.agents/skills/gates/SKILL.md` |

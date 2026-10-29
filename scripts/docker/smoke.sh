@@ -35,7 +35,7 @@ docker buildx build --load --platform "linux/$architecture" \
   --build-arg ARCHIVE_SOURCE=ci-smoke --build-arg ALLOW_CI_SMOKE=1 \
   -f "$root/packaging/docker/Dockerfile" -t "$image" "$root"
 docker volume create "$name" >/dev/null
-docker create --name "$name" --mount "source=$name,target=/home/domios/.domios" "$image" >/dev/null
+docker create --name "$name" --mount "source=$name,target=/var/lib/domios/.domios" "$image" >/dev/null
 # Subscribe before start; --since retains health transitions if subscription admission races.
 python3 - "$name" <<'PY'
 import datetime
