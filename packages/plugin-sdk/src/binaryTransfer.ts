@@ -24,7 +24,7 @@ export interface TransferRequest {
   method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE";
   headers?: Record<string, string>;
   credential?: TransferCredential;
-  body?: { kind: "file"; file: TransferInput } | { kind: "multipart"; parts: TransferPart[] };
+  body?: { kind: "json"; value: unknown } | { kind: "file"; file: TransferInput } | { kind: "multipart"; parts: TransferPart[] };
   response:
     | { kind: "file"; fileName: string; contentType: BinaryContentType; maxBytes: number; sha256?: string; statuses: number[] }
     | { kind: "json"; maxBytes: number; statuses: number[] }

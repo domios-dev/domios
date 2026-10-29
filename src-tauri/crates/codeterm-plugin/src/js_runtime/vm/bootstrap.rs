@@ -105,6 +105,9 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
   host.jobs = {
     operations: function () { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"operations"}))); },
     admit: function () { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"admit"}))); },
+    requestBinding: function (request) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"binding",request:request}))); },
+    prepare: function (operation, request, quote) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"prepare",operation:operation,request:request,quote:quote}))); },
+    enter: function (operation, request) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"enter",operation:operation,request:request}))); },
     track: function (operation, job) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"track",operation:operation,job:job}))); },
     status: function (operation) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"status",operation:operation}))); },
     check: function (operation) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"check",operation:operation}))); },

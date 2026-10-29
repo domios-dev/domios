@@ -48,6 +48,8 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
 /// targets with the plugin id it was asked for; every other host surface is inert.
 #[derive(Default)]
 pub(crate) struct AnalyticsHost {
+    pub(crate) secrets: std::collections::BTreeMap<(String, String), String>,
+    pub(crate) jobs: Option<Arc<dyn crate::plugin_jobs::PluginJobAdmission>>,
     pub(crate) recordings: crate::local_recording::LocalRecordingRegistry,
 }
 
@@ -64,7 +66,13 @@ impl PluginHostCtx for AnalyticsHost {
     fn surface_registration(&self, plugin: &str, _: &str) -> Option<String> {
         (plugin == "origin-fixture").then(|| "epoch".into())
     }
-    fn plugin_job_json(&self, plugin: &str, _: &str) -> String {
+    fn plugin_job_json(&self, plugin: &str, request: &str) -> String {
+        if let Some(jobs) = &self.jobs {
+            return jobs
+                .invoke(plugin, request)
+                .unwrap_or_else(|_| json!({"error":"plugin_job_request_refused"}))
+                .to_string();
+        }
         match crate::surface_invocation::current(plugin) {
             Some(origin) => json!({"origin":origin}).to_string(),
             None => json!({"error":"plugin_job_request_refused"}).to_string(),
@@ -127,8 +135,8 @@ impl PluginHostCtx for AnalyticsHost {
     fn api_token(&self) -> Option<String> {
         None
     }
-    fn secret_get(&self, _: &str, _: &str) -> Option<String> {
-        None
+    fn secret_get(&self, plugin: &str, name: &str) -> Option<String> {
+        self.secrets.get(&(plugin.into(), name.into())).cloned()
     }
     fn secret_set(&self, _: &str, _: &str, _: &str) -> bool {
         false

@@ -92,7 +92,7 @@ impl OperationLedger {
             CREATE INDEX IF NOT EXISTS blueprint_plugin_operation_scope ON blueprint_plugin_operations(scope);
             CREATE TABLE IF NOT EXISTS blueprint_plugin_monitors (operation TEXT PRIMARY KEY,plugin TEXT NOT NULL,due INTEGER NOT NULL,deadline INTEGER NOT NULL,stopped INTEGER NOT NULL,claim_until INTEGER NOT NULL,record TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS blueprint_plugin_monitor_due ON blueprint_plugin_monitors(stopped,due);").map_err(db_error)?;
-        db.execute_batch("CREATE TABLE IF NOT EXISTS blueprint_job_origins(operation TEXT PRIMARY KEY,plugin TEXT NOT NULL,deadline INTEGER NOT NULL,record TEXT NOT NULL);").map_err(db_error)?;
+        db.execute_batch("CREATE TABLE IF NOT EXISTS plugin_job_spend(operation TEXT PRIMARY KEY,plugin TEXT NOT NULL,scope TEXT NOT NULL,unit TEXT NOT NULL,reserved INTEGER NOT NULL,record TEXT NOT NULL); CREATE INDEX IF NOT EXISTS plugin_job_spend_scope ON plugin_job_spend(scope,unit); CREATE TABLE IF NOT EXISTS plugin_job_budgets(scope TEXT NOT NULL,unit TEXT NOT NULL,amount INTEGER NOT NULL,period INTEGER NOT NULL,PRIMARY KEY(scope,unit)); CREATE TABLE IF NOT EXISTS blueprint_job_origins(operation TEXT PRIMARY KEY,plugin TEXT NOT NULL,deadline INTEGER NOT NULL,record TEXT NOT NULL);").map_err(db_error)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS blueprint_run_views(scope TEXT PRIMARY KEY,blueprint_key TEXT NOT NULL,reference TEXT UNIQUE NOT NULL,ordinal INTEGER NOT NULL,record TEXT NOT NULL);").map_err(db_error)?;
         Ok(Self {
             inner: Arc::new(LedgerInner {

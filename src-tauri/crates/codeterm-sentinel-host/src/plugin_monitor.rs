@@ -467,3 +467,6 @@ mod lifecycle_tests;
 mod origin_tests;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod spend_tests;
