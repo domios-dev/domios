@@ -807,7 +807,9 @@ async fn frontend_url(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| error.to_string())?;
-    readiness::wait(&client, origin).await?;
+    readiness::wait(&client, origin)
+        .await
+        .map_err(|error| error.to_string())?;
     let available = tokio::time::timeout(Duration::from_secs(10), async {
         let response = client.get(target.clone()).send().await?;
         let success = response.status().is_success();
