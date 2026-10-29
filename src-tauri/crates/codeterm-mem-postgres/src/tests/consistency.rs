@@ -96,13 +96,26 @@ fn recycling_pool_preserves_retained_fence_and_lost_fence_refuses_writes() {
         .unwrap()
         .get(0);
     assert_ne!(fence_pid, pool_pid);
-    drop(r2d2::PooledConnection::take(pooled));
+    let mut admin = fixture.client();
+    assert!(admin
+        .query_one("SELECT pg_terminate_backend($1, 5000)", &[&pool_pid])
+        .unwrap()
+        .get::<_, bool>(0));
+    assert!(pooled.simple_query("SELECT 1").is_err());
+    drop(pooled);
     store.table_counts().unwrap();
+    let recycled_pid: i32 = store
+        .pool
+        .get()
+        .unwrap()
+        .query_one("SELECT pg_backend_pid()", &[])
+        .unwrap()
+        .get(0);
+    assert_ne!(recycled_pid, pool_pid);
     assert!(matches!(
         MigrationLease::try_acquire(&fixture.url, fixture.options.clone()),
         Err(PostgresOpenError::SchemaBusy)
     ));
-    let mut admin = fixture.client();
     assert!(admin
         .query_one("SELECT pg_terminate_backend($1, 5000)", &[&fence_pid])
         .unwrap()
