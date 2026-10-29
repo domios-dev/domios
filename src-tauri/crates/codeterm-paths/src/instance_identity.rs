@@ -1,5 +1,13 @@
+use sha2::{Digest, Sha256};
 use std::io;
 use std::path::{Component, Path, PathBuf};
+
+pub fn ownership_registry() -> io::Result<PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| io::Error::other("Home directory unavailable"))?;
+    let root = home.join(".codeterm-instance-lifetimes");
+    std::fs::create_dir_all(&root)?;
+    Ok(root.join("path-owners"))
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResolvedInstancePaths {
@@ -28,6 +36,28 @@ impl ResolvedInstancePaths {
     pub fn config(&self) -> &Path {
         &self.config
     }
+
+    pub fn ownership_lock_paths(&self, registry: &Path) -> io::Result<Vec<PathBuf>> {
+        let mut keys = vec![ownership_key(&self.data)?, ownership_key(&self.config)?];
+        keys.sort_unstable();
+        keys.dedup();
+        Ok(keys
+            .into_iter()
+            .map(|key| registry.join(format!("{key}.lock")))
+            .collect())
+    }
+}
+
+fn ownership_key(path: &Path) -> io::Result<String> {
+    let path = path
+        .to_str()
+        .ok_or_else(|| io::Error::other("Instance path is not Unicode"))?;
+    #[cfg(windows)]
+    let path = crate::strip_verbatim_prefix(path).to_lowercase();
+    let mut hash = Sha256::new();
+    hash.update(b"domios-path-owner-v1\0");
+    hash.update(path.as_bytes());
+    Ok(format!("{:x}", hash.finalize()))
 }
 
 fn resolve_path(path: &Path) -> io::Result<PathBuf> {

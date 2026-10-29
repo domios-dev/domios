@@ -5,6 +5,15 @@ mod startup;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    if let Some(code) = codeterm_update::debian::handoff::entry() {
+        std::process::exit(code);
+    }
+    #[cfg(target_os = "linux")]
+    let _rollback_lease = std::env::var_os("DOMIOS_UPDATE_ROLLBACK").map(|directory| {
+        codeterm_update::debian::handoff::rollback_leases(std::path::Path::new(&directory))
+            .unwrap_or_else(|_| std::process::exit(1))
+    });
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
     run::run(app_context(), command_registration::register_commands);

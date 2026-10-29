@@ -381,6 +381,15 @@ async fn initialize_client_once(
         }
     };
 
+    #[cfg(target_os = "linux")]
+    if matches!(native, NativeClientStatus::Attached) {
+        let ready = reply.ready.clone();
+        tokio::task::spawn_blocking(move || {
+            codeterm_update::debian::handoff::acknowledge_start(&ready)
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     Ok(NativeClientInitialization {
         ready: reply.ready,
         native,

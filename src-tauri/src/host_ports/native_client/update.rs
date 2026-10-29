@@ -216,6 +216,10 @@ struct UpdateServerStop {
 
 #[async_trait::async_trait]
 impl ServerStop for UpdateServerStop {
+    #[cfg(target_os = "linux")]
+    fn debian_quit_target(&self) -> Result<codeterm_update::debian::handoff::QuitTarget, String> {
+        self.inner.debian_quit_target()
+    }
     fn install_identity(
         &self,
     ) -> Result<codeterm_client_shell::application_host::AttachedServerIdentity, String> {
@@ -250,5 +254,15 @@ impl ServerStop for UpdateServerStop {
             reason,
         })?;
         self.inner.stop_server().await
+    }
+
+    async fn prepare_detached_update(&self, version: &str) -> Result<(), String> {
+        self.prepare_update(version).await?;
+        let operation = self.operation.clone();
+        tokio::task::spawn_blocking(move || {
+            operation.mutate(|record| record.advance(Phase::Relaunching))
+        })
+        .await
+        .map_err(|e| e.to_string())?
     }
 }

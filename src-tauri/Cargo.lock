@@ -1930,6 +1930,7 @@ name = "codeterm-paths"
 version = "0.0.0"
 dependencies = [
  "dirs 6.0.0",
+ "sha2 0.10.9",
  "tempfile",
  "workspace-hack",
 ]
@@ -2518,6 +2519,7 @@ dependencies = [
  "codeterm-build-info",
  "codeterm-paths",
  "codeterm-plugins",
+ "codeterm-process-identity",
  "codeterm-types",
  "libc",
  "log",
@@ -2527,6 +2529,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "tempfile",
  "tokio",
  "uuid",

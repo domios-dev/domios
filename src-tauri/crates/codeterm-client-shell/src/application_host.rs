@@ -9,8 +9,15 @@ use crate::app_runtime::AppHandle;
 /// The native client stops its attached server before an installer replaces the pair.
 #[async_trait::async_trait]
 pub trait ServerStop: Send + Sync {
+    #[cfg(target_os = "linux")]
+    fn debian_quit_target(&self) -> Result<codeterm_update::debian::handoff::QuitTarget, String> {
+        Err("the authenticated update quit target is unavailable".into())
+    }
     async fn prepare_update(&self, _version: &str) -> Result<(), String> {
         Ok(())
+    }
+    async fn prepare_detached_update(&self, version: &str) -> Result<(), String> {
+        self.prepare_update(version).await
     }
     fn install_identity(&self) -> Result<AttachedServerIdentity, String> {
         Err("the exact attached server identity is unavailable".into())

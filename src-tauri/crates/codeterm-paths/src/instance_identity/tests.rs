@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn ownership_lock_names_match_the_server_contract_and_deduplicate_aliases() {
+    let mut identity = ResolvedInstancePaths {
+        data: "/fixture/data".into(),
+        config: "/fixture/config.toml".into(),
+    };
+    let registry = Path::new("registry");
+    assert_eq!(
+        identity.ownership_lock_paths(registry).unwrap(),
+        vec![
+            registry.join("a409bc6f490d0f93f26c081480a7f6f859fc9c28a485107ca15e43cce09bf777.lock"),
+            registry.join("b2fa0b9a7e4507490dcf3dcdad6e6f2d5a2565d77e5e14d26d677a68d4171024.lock"),
+        ]
+    );
+    identity.config = identity.data.clone();
+    assert_eq!(identity.ownership_lock_paths(registry).unwrap().len(), 1);
+}
+
+#[test]
 fn process_split_contract_missing_tail_parents_resume_existing_resolution() {
     let root = tempfile::tempdir().unwrap();
     let existing = root.path().join("existing");
