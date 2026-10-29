@@ -104,7 +104,7 @@ pub(crate) fn scoped_vectors_in(
                 &query.kind,
                 &query.area,
                 &query.scope,
-                &(limit as i64),
+                &crate::pg_limit(limit),
             ],
         )
         .map_err(db_error)?;

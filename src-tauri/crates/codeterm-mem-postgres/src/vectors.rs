@@ -116,7 +116,7 @@ pub(crate) fn nearest_in(
     check_in(tx, &vector.identity)?;
     codeterm_mem::embedder::provider::validate_vector(&vector.vector, vector.identity.dimension)
         .map_err(|e| e.to_string())?;
-    let limit = i64::try_from(k.saturating_mul(3)).map_err(|_| "vector search limit overflow")?;
+    let limit = crate::pg_limit(k.saturating_mul(3));
     let rows = tx.query("SELECT mem_id, embedding <-> $1 AS distance FROM mem_vectors ORDER BY distance,mem_id LIMIT $2",
         &[&pgvector::Vector::from(vector.vector.clone()),&limit]).map_err(db_error)?;
     let mut best = BTreeMap::<String, f64>::new();

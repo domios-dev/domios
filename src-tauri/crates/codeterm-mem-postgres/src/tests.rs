@@ -298,3 +298,18 @@ contract_case!(
     postgres_guarded_replace_refuses_new_area,
     guarded_replace_refuses_new_area
 );
+
+#[test]
+fn postgres_limit_saturates_at_signed_maximum() {
+    assert_eq!(pg_limit(0), 0);
+    assert_eq!(pg_limit(1), 1);
+    assert_eq!(pg_limit(42), 42);
+    assert_eq!(
+        pg_limit(usize::MAX),
+        i64::try_from(usize::MAX).unwrap_or(i64::MAX)
+    );
+    if let Ok(max) = usize::try_from(i64::MAX) {
+        assert_eq!(pg_limit(max), i64::MAX);
+        assert_eq!(pg_limit(max + 1), i64::MAX);
+    }
+}

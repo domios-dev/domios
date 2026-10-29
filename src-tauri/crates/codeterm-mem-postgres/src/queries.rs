@@ -77,7 +77,7 @@ pub(crate) fn tail_in(
     since: Option<&str>,
     limit: usize,
 ) -> StoreResult<Vec<TailEntry>> {
-    Ok(tx.query("SELECT m.id,m.kind,m.title,m.area,m.updated_at,coalesce((SELECT changed_by FROM mem_item_history h WHERE h.item_id=m.id ORDER BY changed_at DESC,id DESC LIMIT 1),'user') FROM mem_items m WHERE ($1::text IS NULL OR m.updated_at>$1) ORDER BY m.updated_at DESC LIMIT $2", &[&since,&(limit as i64)]).map_err(db_error)?.into_iter().map(|row|TailEntry { id:row.get(0),kind:row.get(1),title:row.get(2),area:row.get(3),updated_at:row.get(4),changed_by:row.get(5) }).collect())
+    Ok(tx.query("SELECT m.id,m.kind,m.title,m.area,m.updated_at,coalesce((SELECT changed_by FROM mem_item_history h WHERE h.item_id=m.id ORDER BY changed_at DESC,id DESC LIMIT 1),'user') FROM mem_items m WHERE ($1::text IS NULL OR m.updated_at>$1) ORDER BY m.updated_at DESC LIMIT $2", &[&since,&crate::pg_limit(limit)]).map_err(db_error)?.into_iter().map(|row|TailEntry { id:row.get(0),kind:row.get(1),title:row.get(2),area:row.get(3),updated_at:row.get(4),changed_by:row.get(5) }).collect())
 }
 
 pub(crate) fn search_in(
@@ -102,7 +102,7 @@ pub(crate) fn search_in(
         .and_then(|value| value.as_deref());
     let filter_source = cfg.source_filter.is_some();
     let rows=tx.query("SELECT m.id,ts_rank_cd(f.document,to_tsquery('simple',$1))::float8 FROM mem_fts f JOIN mem_items m ON m.id=f.mem_id WHERE f.document @@ to_tsquery('simple',$1) AND m.kind!='archived' AND ($2::text IS NULL OR m.kind=$2) AND ($3::text IS NULL OR m.scope=$3) AND ($4::text IS NULL OR m.area=$4) AND (NOT $5::boolean OR m.source IS NOT DISTINCT FROM $6::text) ORDER BY 2 DESC,m.id LIMIT $7",
-        &[&expression,&query.kind,&query.scope,&query.area,&filter_source,&source,&((limit*5) as i64)]).map_err(db_error)?;
+        &[&expression,&query.kind,&query.scope,&query.area,&filter_source,&source,&crate::pg_limit(limit.saturating_mul(5))]).map_err(db_error)?;
     let scorer = codeterm_mem::search::ranking::Scorer::new(&query.query, cfg, chrono::Utc::now());
     let mut hits = Vec::new();
     for row in rows {

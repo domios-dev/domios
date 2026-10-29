@@ -314,7 +314,7 @@ impl MemStore for PostgresMemStore {
         })
     }
     fn list_pinned(&self, limit: usize) -> Result<Vec<MemItem>, String> {
-        self.transaction(|tx|queries::items_in(tx,"SELECT id FROM mem_items WHERE is_pinned_wakeup=1 AND kind!='archived' ORDER BY importance DESC,evidence_count DESC,updated_at DESC LIMIT $1", &[&(limit.clamp(1,500) as i64)]))
+        self.transaction(|tx|queries::items_in(tx,"SELECT id FROM mem_items WHERE is_pinned_wakeup=1 AND kind!='archived' ORDER BY importance DESC,evidence_count DESC,updated_at DESC LIMIT $1", &[&crate::pg_limit(limit.clamp(1,500))]))
     }
     fn list_by_source_prefix(&self, kind: &str, prefix: &str) -> Result<Vec<MemItem>, String> {
         self.transaction(|tx|queries::items_in(tx,"SELECT id FROM mem_items WHERE kind=$1 AND source IS NOT NULL AND left(source,length($2))=$2 ORDER BY id", &[&kind,&prefix]))

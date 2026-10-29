@@ -238,6 +238,10 @@ pub fn open_for_test(
     open(url, options)
 }
 
+pub(crate) fn pg_limit(limit: usize) -> i64 {
+    i64::try_from(limit).unwrap_or(i64::MAX)
+}
+
 fn db_error(error: postgres::Error) -> String {
     match error.code() {
         Some(code) if *code == postgres::error::SqlState::READ_ONLY_SQL_TRANSACTION => {
