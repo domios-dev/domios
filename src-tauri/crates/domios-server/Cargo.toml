@@ -31,6 +31,7 @@ codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 axum = "0.8"
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"

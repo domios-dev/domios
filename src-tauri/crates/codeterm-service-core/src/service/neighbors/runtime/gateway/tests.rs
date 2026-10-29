@@ -60,6 +60,9 @@ fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
 async fn disabled_gateway_never_admits_or_records_a_message() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_neighbor_friend_receiver_for_test("f", Some(true), 1);
     *fixture.service.neighbor_cell().receiver.lock() =
         Some(codeterm_neighbors::adapter::ReceiverStatus {
             receiver_revision: 1,

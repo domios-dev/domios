@@ -4,6 +4,7 @@
 mod embedder;
 mod graph;
 mod hygiene;
+mod neighbor_save;
 
 use codeterm_service_core::mem::activity::{now_ms, MemActivityEvent, MemActivitySource};
 use codeterm_service_core::mem::learnings::{self, LearnKind};
@@ -60,6 +61,7 @@ pub(super) fn dispatch(
         }
         "mem.get" => mem_get(params, svc),
         "mem.save" => mem_save(params, svc),
+        "mem.neighbor_save" => neighbor_save::save(params, svc),
         "mem.delete" => mem_delete(params, svc),
         "mem.purge_precompact" => mem_purge_precompact(params, svc),
         "mem.archive" => hygiene::mem_archive(params, svc),

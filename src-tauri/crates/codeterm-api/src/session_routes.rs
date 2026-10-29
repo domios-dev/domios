@@ -489,6 +489,7 @@ pub async fn resume_session_api(
         execution_mode: None,
         context_files: None,
         neighbor_authority: None,
+        neighbor_machine_access: None,
         context_skills: None,
         fork_session: false,
         agent_name: None,

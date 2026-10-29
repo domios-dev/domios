@@ -156,6 +156,15 @@ pub(crate) async fn dispatch(
             })),
         ));
     }
+    if request.method == "mem.neighbor_save" {
+        let body = serde_json::from_value(request.params.unwrap_or_default()).map_err(|error| (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":{"code":-32602,"message":format!("Invalid neighbor save: {error}")}})),
+        ))?;
+        return crate::mem_routes::neighbor_save::save(State(state), headers, Json(body)).await
+            .map(|Json(value)| Json(serde_json::json!({"result":value})))
+            .map_err(|(status, Json(error))| (status, Json(serde_json::json!({"error":{"code":-32003,"message":error["message"],"data":{"reason":error["code"]}}}))));
+    }
     if let Some(value) = state
         .svc
         .neighbor_rpc_discovery(token, &request.method, request.params.as_ref())
@@ -181,13 +190,24 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
-    let author =
-        crate::mem_routes::memory_author(&state, &headers).map_err(|(status, message)| {
-            (
-                status,
-                Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
-            )
-        })?;
+    let caller = crate::auth::tab_caller(&state, &headers).map_err(|(status, message)| {
+        (
+            status,
+            Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+        )
+    })?;
+    let author = codeterm_service_core::mem_ops::author::mem_author_for_rpc(
+        &state.svc,
+        caller.as_ref().map(|caller| caller.tab_id.as_str()),
+        &request.method,
+    )
+    .await
+    .map_err(|message| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+        )
+    })?;
     let actor = codeterm_service_core::mem_ops::author::author_audit_label(&author);
     let svc = state.svc.clone();
     let method = request.method;

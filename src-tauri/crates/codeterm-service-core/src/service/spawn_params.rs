@@ -252,6 +252,10 @@ impl SpawnTabSpec {
                 .chatbackend_launch
                 .as_ref()
                 .and_then(|metadata| metadata.params.neighbor_authority.clone()),
+            neighbor_machine_access: self
+                .chatbackend_launch
+                .as_ref()
+                .and_then(|metadata| metadata.params.neighbor_machine_access.clone()),
             context_skills: None,
             agent: Some(agent.provider.clone()),
             agent_name: agent.agent_name.clone(),

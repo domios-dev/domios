@@ -8,13 +8,12 @@ use super::MemStats;
 pub(super) const INLINE_BODY_LIMIT: usize = 2048;
 
 pub mod area_merge;
-pub mod replace_guard;
-pub use replace_guard::{ReplaceGuard, ReplaceGuardError};
 mod author;
 mod blob;
 mod crud;
 mod pinned;
 mod query;
+pub mod replace_guard;
 mod schema;
 
 #[cfg(test)]
@@ -24,6 +23,7 @@ pub use author::*;
 pub use crud::*;
 pub use pinned::*;
 pub use query::*;
+pub use replace_guard::{ReplaceGuard, ReplaceGuardError};
 pub use schema::init_schema;
 
 thread_local! {

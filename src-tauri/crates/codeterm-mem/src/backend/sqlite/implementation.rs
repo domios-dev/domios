@@ -467,7 +467,18 @@ impl MemStore for SqliteMemStore {
         embeddings::recall_vector(&conn, &vector, k)
     }
     fn vector_stamp(&self) -> Result<Option<EmbedderIdentity>, String> {
-        crate::embedder::index::stamp(&self.conn.lock())
+        let conn = self.conn.lock();
+        let exists: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='mem_embedder')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if !exists {
+            return Ok(None);
+        }
+        crate::embedder::index::stamp(&conn)
     }
     fn init_vectors(&self, _ctx: &WriteContext, identity: &EmbedderIdentity) -> Result<(), String> {
         embeddings::init_index(&self.conn.lock(), identity)

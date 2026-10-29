@@ -20,7 +20,7 @@ pub async fn mem_merge(
         .map(String::from)
         .or_else(|| b.worker_id.clone());
     let ids = vec![b.keeper.clone(), b.lesser.clone()];
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let svc = state.svc.clone();
     let out = tokio::task::spawn_blocking(move || {
         codeterm_service_core::mem::store::with_author(author, || {

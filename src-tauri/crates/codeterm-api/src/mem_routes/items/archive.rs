@@ -26,7 +26,7 @@ pub async fn mem_archive(
         .filter(|value| !value.is_empty())
         .map(sanitize_actor)
         .unwrap_or_else(|| changed_by_from_headers(&headers));
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let svc = state.svc.clone();
     let target = id.clone();
     let output = tokio::task::spawn_blocking(move || {

@@ -13,6 +13,7 @@ import { applyTrustPreset, TRUST_OPTIONS, trustPresetOf, type TrustPreset } from
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import { PERMISSION_WORKSPACES, type MachineAccess, type NeighborPermission } from "./neighborRuntimeClient";
+import { scopeConflicts } from "./neighborScopeConflicts";
 
 const ACCESS_OPTIONS: { value: MachineAccess; label: string }[] = [
   { value: "read_only", label: "Read only" },
@@ -38,7 +39,8 @@ const samePermission = (a: NeighborPermission, b: NeighborPermission) => a.allow
   && a.allow_tab_requests === b.allow_tab_requests && (a.allow_interactive_content ?? false) === (b.allow_interactive_content ?? false)
   && (a.allow_memory ?? true) === (b.allow_memory ?? true) && (a.allow_files ?? true) === (b.allow_files ?? true)
   && (a.folder ?? null) === (b.folder ?? null) && (a.memory_areas ?? []).join("\n") === (b.memory_areas ?? []).join("\n") && (a.machine_access ?? "read_only") === (b.machine_access ?? "read_only")
-  && (a.workspaces ?? []).join("\n") === (b.workspaces ?? []).join("\n");
+  && (a.workspaces ?? []).join("\n") === (b.workspaces ?? []).join("\n")
+  && (a.memory_write_areas ?? []).join("\n") === (b.memory_write_areas ?? []).join("\n");
 const scopeBytes = (scope: string) => new TextEncoder().encode(scope).length;
 
 /** A field that follows its saved value until the owner edits it. Only an edit can stage a write: a saved value that
@@ -82,7 +84,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
   const limit = hourly.value;
   const { pickFolder, folderPicker } = useFolderPicker();
   const accessLabel = useId();
-  const areas = useMemoryAreas(draft?.allow_memory !== false);
+  const areas = useMemoryAreas(true);
   // The owner's own workspaces; General is the machine's home, not a place to share.
   const allWorkspaces = useMuxSelector(state => state.workspaces);
   const workspaceOptions = allWorkspaces.filter(workspace => !workspace.protected).map(workspace => ({ value: workspace.id, label: workspace.name }));
@@ -125,6 +127,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     setBaseline(permission); setDraft(permission); setIncoming(null);
   }, [permission]);
   const problem = draft ? permissionProblem(draft) : null;
+  const conflicts = draft ? scopeConflicts(draft) : [];
   // Every edit waits here until Apply sends it; permission changes restart the concierge, limits do not.
   const staged = changed || dailyChanged || fileChanged || limitChanged;
   const blocked = (changed && problem !== null) || !dailyValid || !fileValid || !validNeighborLimit(limit);
@@ -179,6 +182,9 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       checked={draft !== null && draft.allow_memory !== false} onChange={allow_memory => { if (draft && !saving) edit({ allow_memory }); }} />
     {draft && draft.allow_memory !== false && <MemoryAreas areas={areas} chosen={draft.memory_areas ?? []} disabled={saving}
       onChange={chosen => edit({ memory_areas: chosen.length > 0 ? chosen : null })} />}
+    {draft && <ChoiceMenu label="Write memory in these areas" menuLabel="Memory write areas" every="None" noun="areas" disabled={saving}
+      options={(areas ?? []).map(area => ({ value: area, label: area }))} chosen={draft.memory_write_areas ?? []}
+      onChange={memory_write_areas => edit({ memory_write_areas })} />}
     <SwitchTile label="Read files"
       checked={draft !== null && draft.allow_files !== false} onChange={allow_files => { if (draft && !saving) edit({ allow_files }); }} />
     <div className="neighbor-access">
@@ -258,6 +264,10 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     </div>
     </SettingsSection>
     {problem && changed && <p role="alert" className="neighbor-note">{problem}</p>}
+    {/* The concierge follows the switches, so prose that promises more is only pointed out; Apply stays available. */}
+    {conflicts.length > 0 && <div role="status" className="neighbor-scope-conflicts">
+      {conflicts.map(conflict => <p key={conflict.grant} className="neighbor-note">{conflict.line}</p>)}
+    </div>}
     {error && <InlineErrorNotice error={error} operation="saving Neighbor permissions" role="alert" />}
     <div className="neighbor-apply">
       {changed && <p className="neighbor-note neighbor-apply__note">Applying restarts {name}'s concierge with a fresh session.</p>}

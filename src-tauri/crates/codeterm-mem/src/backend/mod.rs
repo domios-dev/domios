@@ -13,6 +13,7 @@ pub mod blueprint;
 #[cfg(any(test, feature = "test-support"))]
 pub mod contract;
 pub mod engines;
+pub mod migrate;
 pub mod sqlite;
 pub use blueprint::BlueprintStore;
 mod transfer;

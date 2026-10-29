@@ -2,10 +2,22 @@
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
+function featureSection(manifest) {
+  return manifest.match(/^\[features\]\s*\n([\s\S]*?)(?=^\[|$(?![\s\S]))/m)?.[1] ?? '';
+}
+
 function defaultFeatureSet(manifest) {
-  const section = manifest.match(/^\[features\]\s*\n([\s\S]*?)(?=^\[|$(?![\s\S]))/m)?.[1];
-  const defaults = section?.match(/^default\s*=\s*\[([\s\S]*?)\]/m)?.[1] ?? '';
+  const defaults = featureSection(manifest).match(/^default\s*=\s*\[([\s\S]*?)\]/m)?.[1] ?? '';
   return [...defaults.matchAll(/"([^"]+)"/g)].map(match => match[1]);
+}
+
+function dependencyOnlyFeatures(manifest) {
+  return new Set([...featureSection(manifest).matchAll(/^([\w-]+)\s*=\s*\[([\s\S]*?)\]/gm)]
+    .filter(([, , definition]) => {
+      const members = [...definition.matchAll(/"([^"]+)"/g)].map(match => match[1]);
+      return members.length > 0 && members.every(member => member.startsWith('dep:'));
+    })
+    .map(([, name]) => name));
 }
 
 export function devBuildConfiguration(manifest) {
@@ -17,10 +29,12 @@ export function assertServerFeatureConfiguration(server, core) {
   const dev = devBuildConfiguration(server).features.sort();
   const serverDefaults = defaultFeatureSet(server).sort();
   const coreDefaults = defaultFeatureSet(core).sort();
-  if (JSON.stringify(dev) !== JSON.stringify(serverDefaults) || JSON.stringify(dev) !== JSON.stringify(coreDefaults)) {
+  const serverOnly = dependencyOnlyFeatures(server);
+  const coreFeatures = dev.filter(feature => !serverOnly.has(feature));
+  if (JSON.stringify(dev) !== JSON.stringify(serverDefaults) || JSON.stringify(coreFeatures) !== JSON.stringify(coreDefaults)) {
     throw new Error(`Server feature configuration diverged: dev=${dev} server-default=${serverDefaults} core-default/test=${coreDefaults}; refusing a second core configuration`);
   }
-  return dev;
+  return coreFeatures;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

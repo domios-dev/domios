@@ -4,6 +4,7 @@ use rusqlite::Connection;
 use std::{path::PathBuf, sync::Arc};
 pub(crate) mod blueprint;
 mod construction;
+pub use construction::ReadOnlyOpenError;
 mod deletion;
 pub mod engines;
 #[cfg(any(test, feature = "test-support"))]

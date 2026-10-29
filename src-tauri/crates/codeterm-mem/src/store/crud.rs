@@ -777,7 +777,14 @@ pub fn get_or_synthesize_entity(
     let Some((id, entity_type, scope, props_json, created_at, updated_at)) = row else {
         return Ok(None);
     };
-    Ok(Some(synthesize_entity(id, entity_type, scope, props_json, created_at, updated_at)))
+    Ok(Some(synthesize_entity(
+        id,
+        entity_type,
+        scope,
+        props_json,
+        created_at,
+        updated_at,
+    )))
 }
 
 pub fn synthesize_entity(

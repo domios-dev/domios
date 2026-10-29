@@ -327,7 +327,28 @@ async fn own_launch_hooks_work_before_attestation_but_foreign_hooks_and_self_app
 async fn real_history_route_refuses_other_friendships_without_identity_headers() {
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
-    let (_fixture, state, _, token) = concierge_fixture(true).await;
+    let (fixture, state, concierge, token) = concierge_fixture(true).await;
+    let foreign = {
+        let mut mux = state.svc.mux.write();
+        let workspace = mux.find_workspace_for_tab(&concierge).unwrap();
+        let id = mux.create_tab(&workspace).unwrap();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("fixture".into());
+        tab.agent_session_id = Some("foreign-session".into());
+        tab.session_binding_nonce = Some("foreign-nonce".into());
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+        id
+    };
+    fixture
+        .seed_neighbor_concierge(
+            &foreign,
+            &"b".repeat(64),
+            serde_json::from_value(
+                serde_json::json!({"allowed":true,"scope":"opaque foreign fixture"}),
+            )
+            .unwrap(),
+        )
+        .await;
     let router = crate::routes::create_router(state);
     for (friendship, status) in [
         ("a".repeat(64), StatusCode::OK),
@@ -461,4 +482,185 @@ async fn secrets_http_refuses_neighbor_before_any_secret_backend_handler() {
         assert_eq!(body["reason"], "neighbor_capability_denied");
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+async fn neighbor_save_matrix(case: &str) {
+    use axum::{body::Body, http::Request, Router};
+    use tower::ServiceExt;
+    let (fixture, state, concierge, token) = concierge_fixture(true).await;
+    let router = crate::memory_router::memory_routes(Router::new())
+        .with_state(state.clone())
+        .layer(axum::middleware::from_fn_with_state(state, auth_middleware));
+    codeterm_service_core::mem_ops::neighbor_save::matrix::run(
+        case,
+        &fixture,
+        &concierge,
+        |method, body| {
+            let router = router.clone();
+            let token = token.clone();
+            async move {
+                let token = if method == "owner" {
+                    "owner-secret".to_string()
+                } else {
+                    token
+                };
+                let path = if method == "mem.save" {
+                    "/api/mem/items"
+                } else {
+                    "/api/mem/neighbor-save"
+                };
+                let response = router
+                    .oneshot(
+                        Request::builder()
+                            .method("POST")
+                            .uri(path)
+                            .header("authorization", format!("Bearer {token}"))
+                            .header("content-type", "application/json")
+                            .body(Body::from(body.to_string()))
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let bytes = axum::body::to_bytes(response.into_body(), 65536)
+                    .await
+                    .unwrap();
+                let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                if status.is_success() {
+                    Ok(value)
+                } else {
+                    Err((
+                        status.as_u16(),
+                        value["message"].as_str().unwrap().to_string(),
+                    ))
+                }
+            }
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn neighbor_save_saved_in_granted_area() {
+    neighbor_save_matrix("saved_in_granted_area").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_area_b_refused() {
+    neighbor_save_matrix("area_b_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_empty_write_list() {
+    neighbor_save_matrix("empty_write_list").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_mem_save_denied() {
+    neighbor_save_matrix("mem_save_denied").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_forged_author_ignored() {
+    neighbor_save_matrix("forged_author_ignored").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_rule_refused() {
+    neighbor_save_matrix("rule_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_preference_refused() {
+    neighbor_save_matrix("preference_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_skill_refused() {
+    neighbor_save_matrix("skill_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_script_refused() {
+    neighbor_save_matrix("script_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_forced_fields() {
+    neighbor_save_matrix("forced_fields").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_title() {
+    neighbor_save_matrix("credentials_title").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_body() {
+    neighbor_save_matrix("credentials_body").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_summary() {
+    neighbor_save_matrix("credentials_summary").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_tags() {
+    neighbor_save_matrix("credentials_tags").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_over_cap_body() {
+    neighbor_save_matrix("over_cap_body").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_over_cap_title() {
+    neighbor_save_matrix("over_cap_title").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_over_cap_total() {
+    neighbor_save_matrix("over_cap_total").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_revoked_area() {
+    neighbor_save_matrix("revoked_area").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_paused_friend() {
+    neighbor_save_matrix("paused_friend").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_owner_refused() {
+    neighbor_save_matrix("owner_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_never_extracts() {
+    neighbor_save_matrix("never_extracts").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_missing_friend_author() {
+    neighbor_save_matrix("missing_friend_author").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_replace_inside_grant() {
+    neighbor_save_matrix("replace_inside_grant").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_replace_outside_grant() {
+    neighbor_save_matrix("replace_outside_grant").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_replace_pinned() {
+    neighbor_save_matrix("replace_pinned").await;
 }

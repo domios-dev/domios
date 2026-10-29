@@ -1876,18 +1876,20 @@ configure_app_test_cargo() {
 configure_dev_cargo() {
   CT_DEV_CARGO_PROFILE=dev
   CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/crates/domios-server/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
-  # The native client carries no server features; CT_DEV_CARGO_FEATURES applies to server packages only.
+  CT_SERVER_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" src-tauri/crates/domios-server/Cargo.toml)" || return $?
   CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   CT_DEV_TAURI_ARGS=(-- --profile "$CT_DEV_CARGO_PROFILE")
 }
 
 configure_product_cargo() {
-  local package feature features=()
+  local package feature package_features features=()
   CT_PRODUCT_CARGO_ARGS=(--no-default-features)
-  IFS=, read -r -a features <<< "$CT_DEV_CARGO_FEATURES"
   for package in domios-server codeterm-service-core codeterm-mem; do
     case " $* " in
       *" --workspace "*|*" -p $package "*)
+        package_features="$CT_DEV_CARGO_FEATURES"
+        if [ "$package" = domios-server ]; then package_features="${CT_SERVER_CARGO_FEATURES-$CT_DEV_CARGO_FEATURES}"; fi
+        IFS=, read -r -a features <<< "$package_features"
         for feature in "${features[@]}"; do CT_PRODUCT_CARGO_ARGS+=(--features "$package/$feature"); done
         ;;
     esac

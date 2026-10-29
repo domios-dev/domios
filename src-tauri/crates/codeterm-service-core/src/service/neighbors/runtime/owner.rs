@@ -11,7 +11,11 @@ pub(super) enum Operation {
         through_message_id: String,
         expected_generation: u64,
     },
-    Files(super::files::Command),
+    Files {
+        command: super::files::Command,
+        caller: Option<String>,
+        nonce: Option<String>,
+    },
     Command {
         command: NeighborRuntimeCommand,
         caller: Option<String>,
@@ -97,8 +101,12 @@ impl ServiceContext {
                     .await
                     .map(Outcome::Value)
             }
-            Operation::Files(command) => self
-                .neighbor_files_owned(command, generation)
+            Operation::Files {
+                command,
+                caller,
+                nonce,
+            } => self
+                .neighbor_files_owned(command, caller.as_deref(), nonce.as_deref(), generation)
                 .await
                 .map(Outcome::Value),
             Operation::ReceiverChanged | Operation::RegistryChanged => {
@@ -137,7 +145,7 @@ impl ServiceContext {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
                 self.require_neighbor_generation(generation)?;
                 let lifecycle = InstallationKeys {
-                    store: &OsKeyStore,
+                    store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
                     registry: registry.as_ref(),
                     scope,
                     uid: &transport.uid,
@@ -158,6 +166,7 @@ impl ServiceContext {
                     &lifecycle,
                     &metadata,
                     Outgoing {
+                        authority: authority::SendAuthority::FriendshipGrant,
                         friendship,
                         kind: Kind::Refusal,
                         body: OutboundBody::Refusal,

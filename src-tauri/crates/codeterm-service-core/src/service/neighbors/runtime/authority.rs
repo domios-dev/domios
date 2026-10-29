@@ -2,6 +2,25 @@ use super::*;
 
 const DENIED: &str = "neighbor_forbidden: This caller cannot access this Neighbor operation";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum SendAuthority {
+    Unrestricted,
+    FriendshipGrant,
+}
+
+impl SendAuthority {
+    pub(super) fn require(
+        self,
+        permission: &Permission,
+        kind: Kind,
+    ) -> codeterm_neighbors::Result<()> {
+        if self == Self::FriendshipGrant || kind == Kind::TabRequest {
+            permission.require(kind)?;
+        }
+        Ok(())
+    }
+}
+
 enum Access<'a> {
     Unrestricted,
     Friendship(&'a str),
@@ -9,6 +28,20 @@ enum Access<'a> {
 }
 
 impl ServiceContext {
+    pub(super) fn neighbor_send_authority(
+        &self,
+        command: &NeighborRuntimeCommand,
+        caller: Option<&str>,
+        nonce: Option<&str>,
+    ) -> Result<SendAuthority, String> {
+        Ok(
+            match self.neighbor_runtime_access(command, caller, nonce)? {
+                Access::Unrestricted => SendAuthority::Unrestricted,
+                Access::Friendship(_) | Access::Delivery(_) => SendAuthority::FriendshipGrant,
+            },
+        )
+    }
+
     fn neighbor_runtime_access<'a>(
         &self,
         command: &'a NeighborRuntimeCommand,

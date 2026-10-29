@@ -81,6 +81,29 @@ impl crate::service::test_fixture::ServiceFixture {
         ));
     }
 
+    pub async fn pause_neighbor_fixture(&self, tab: &str) {
+        let authority = self
+            .service
+            .mux
+            .read()
+            .get_tab(tab)
+            .unwrap()
+            .neighbor_authority
+            .clone()
+            .unwrap();
+        let metadata = Metadata::new(self.service.account_data_root().unwrap(), &authority.uid);
+        let mut settings = metadata.settings().await.unwrap();
+        settings.paused.insert(authority.friendship_id);
+        metadata.save_settings(settings).await.unwrap();
+    }
+    pub fn seed_neighbor_author(&self, owner_uid: &str, friendship: &str, peer_uid: &str) {
+        self.service
+            .extensions
+            .get_or_init(crate::mem_ops::author::FixtureNeighborAuthors::default)
+            .0
+            .write()
+            .insert((owner_uid.into(), friendship.into()), peer_uid.into());
+    }
     pub async fn save_neighbor_restore_settings(
         &self,
         uid: &str,
@@ -162,6 +185,15 @@ impl crate::service::test_fixture::ServiceFixture {
             })
             .await;
         let session = account.session().await.unwrap();
+        self.service
+            .extensions
+            .get_or_init(crate::mem_ops::author::FixtureNeighborAuthors::default)
+            .0
+            .write()
+            .insert(
+                (session.identity.uid.clone(), friendship.into()),
+                "friend-account-uid".into(),
+            );
         let metadata = Metadata::new(
             self.service.account_data_root().unwrap(),
             &session.identity.uid,

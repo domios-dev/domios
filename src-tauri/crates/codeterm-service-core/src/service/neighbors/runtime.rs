@@ -3,6 +3,7 @@ pub(super) mod callable;
 mod concierge;
 pub(super) mod files;
 mod gateway;
+mod key_store;
 mod listener;
 mod local;
 pub(crate) mod logout;
@@ -140,6 +141,7 @@ pub enum NeighborRuntimeCommand {
 }
 
 struct Outgoing {
+    authority: authority::SendAuthority,
     friendship: String,
     kind: Kind,
     body: OutboundBody,
@@ -166,6 +168,39 @@ pub(super) fn authoring_allowed(
 }
 
 impl ServiceContext {
+    pub(crate) async fn neighbor_memory_peer_uid(
+        &self,
+        authority: &crate::multiplexer::types::NeighborAuthority,
+    ) -> Result<String, String> {
+        let unavailable =
+            "neighbor_memory_author_unavailable: Verified friendship author is unavailable";
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(peers) = self.try_ext::<crate::mem_ops::author::FixtureNeighborAuthors>() {
+            return peers
+                .0
+                .read()
+                .get(&(authority.uid.clone(), authority.friendship_id.clone()))
+                .filter(|uid| !uid.is_empty())
+                .cloned()
+                .ok_or_else(|| unavailable.into());
+        }
+        let (registry, _, _) = self.neighbor_key_ports().await.map_err(|_| unavailable)?;
+        if registry.uid != authority.uid {
+            return Err(unavailable.into());
+        }
+        let transport = self
+            .neighbor_transport(&registry)
+            .map_err(|_| unavailable)?;
+        let peers = transport
+            .peer_keys(&authority.friendship_id)
+            .await
+            .map_err(|_| unavailable)?;
+        if peers.friendship_id != authority.friendship_id || peers.peer_uid.trim().is_empty() {
+            return Err(unavailable.into());
+        }
+        Ok(peers.peer_uid)
+    }
+
     pub(super) fn neighbor_cell_names(
         &self,
     ) -> parking_lot::MutexGuard<'_, HashMap<String, String>> {
@@ -345,6 +380,7 @@ impl ServiceContext {
     ) -> Result<Value, String> {
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
+        let send_authority = self.neighbor_send_authority(&command, caller, nonce)?;
         if command.is_local_read() {
             return self.neighbor_local_read(&command, caller, nonce).await;
         }
@@ -388,7 +424,7 @@ impl ServiceContext {
                 .await?
         };
         let lifecycle = InstallationKeys {
-            store: &OsKeyStore,
+            store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
             registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,
@@ -588,6 +624,7 @@ impl ServiceContext {
                         &lifecycle,
                         &metadata,
                         Outgoing {
+                            authority: send_authority,
                             friendship: friendship_id,
                             kind,
                             body: OutboundBody::Granted(Zeroizing::new(body)),

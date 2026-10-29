@@ -4,6 +4,8 @@ use crate::store::{MemAuthor, ReplaceGuard, ReplaceGuardError};
 use crate::{MemKind, MemScope, NewMemItem, Relation, SearchQuery};
 pub mod blueprint;
 pub mod recall;
+#[cfg(test)]
+mod transfer;
 
 pub fn item(title: &str) -> NewMemItem {
     NewMemItem {
@@ -323,7 +325,10 @@ pub fn export_import_round_trip(source: &dyn MemStore, target: &dyn MemStore) {
     assert_eq!(export_all(target), pages);
     assert_eq!(target.vector_stamp().unwrap(), Some(identity));
     assert_eq!(target.vector_search(&vector, 1).unwrap()[0].0, id);
-    assert_eq!(target.get(&id).unwrap().unwrap().body, payload.body);
+    assert_eq!(
+        target.managed_payload(&id).unwrap().unwrap().0.body,
+        payload.body
+    );
 }
 
 fn export_all(store: &dyn MemStore) -> Vec<crate::backend::ExportPage> {

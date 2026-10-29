@@ -10,7 +10,16 @@ use tokio::sync::Semaphore;
 
 impl MemManager {
     pub fn open(data_dir: &Path) -> Result<Arc<Self>, String> {
-        let manager = Self::open_with(
+        let mem_dir = data_dir.join("mem");
+        let store = Arc::new(SqliteMemStore::open(
+            &mem_dir.join("knowledge.db"),
+            &mem_dir.join("blobs"),
+        )?);
+        Self::open_store(store, data_dir)
+    }
+    pub fn open_store(store: Arc<dyn MemStore>, data_dir: &Path) -> Result<Arc<Self>, String> {
+        let manager = Self::with_store(
+            store,
             data_dir,
             embedder::ActiveEmbedder::global(),
             Arc::new(embedder::SystemClock),

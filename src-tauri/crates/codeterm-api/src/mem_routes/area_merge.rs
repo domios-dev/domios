@@ -19,7 +19,7 @@ pub async fn mem_area_merge(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string)
         .or_else(|| body.worker_id.clone());
-    let author = crate::mem_routes::memory_author(&state, &headers)?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let svc = state.svc.clone();
     let dry_run = body.dry_run;
     let output = tokio::task::spawn_blocking(move || {
