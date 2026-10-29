@@ -206,13 +206,13 @@ async function renderTabSessionChat(
 const testWindow = setupDom();
 let createRoot: typeof import("react-dom/client").createRoot;
 
-test("fresh ordinary and General lazy PTY chats are usable before their first session exists", async () => {
-  for (const protectedTab of [false, true]) {
-    const tabId = protectedTab ? "lazy-general" : "lazy-ordinary";
+test("fresh and resumed ordinary and General lazy PTY chats accept input before binding", async () => {
+  for (const [protectedTab, sessionId] of [[false, null], [true, null], [false, "own-resume-session"], [true, "own-resume-session"]] as const) {
+    const tabId = `${protectedTab ? "lazy-general" : "lazy-ordinary"}-${sessionId ?? "fresh"}`;
     const state = muxStateFor({ [tabId]: tabBase(tabId, {
-      agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
+      agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: sessionId,
       protected: protectedTab, agent_booting: false, frozen: false,
-      pty_id: "own-pty", session_binding_nonce: "own-nonce", boot_stage: "launch_binding_unconfirmed",
+      pty_id: "own-pty", session_binding_nonce: "own-nonce", boot_stage: "provider_ready",
       provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
         awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
     }) });
@@ -237,14 +237,18 @@ test("fresh ordinary and General lazy PTY chats are usable before their first se
 });
 
 test("first local send stays visible across pending binding, snapshot, and echo", async () => {
+  for (const sessionId of [null, "own-session"]) await firstSendTransition(sessionId);
+});
+
+async function firstSendTransition(sessionId: string | null) {
   const sends = await import("./chatSendStore");
   const { MemoryChatSendRepository } = await import("./chatSendRepository.testSupport");
   sends.__setChatSendRepositoryForTest(new MemoryChatSendRepository());
-  const tabId = "first-turn-send-transition";
+  const tabId = `first-turn-send-transition-${sessionId ?? "fresh"}`;
   const state = muxStateFor({ [tabId]: tabBase(tabId, {
-    agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
+    agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: sessionId,
     agent_booting: false, frozen: false, pty_id: "own-pty", session_binding_nonce: "own-nonce",
-    boot_stage: "launch_binding_unconfirmed",
+    boot_stage: "provider_ready",
     provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
       awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
   }) });
@@ -309,14 +313,14 @@ test("first local send stays visible across pending binding, snapshot, and echo"
     host.remove();
     sends.__setChatSendRepositoryForTest(null);
   }
-});
+}
 
 test("lazy PTY chat with stale composer authority still waits for its own launch", async () => {
   const tabId = "stale-lazy-composer";
   const state = muxStateFor({ [tabId]: tabBase(tabId, {
     agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
     agent_booting: false, pty_id: "current-pty", session_binding_nonce: "current-nonce",
-    boot_stage: "launch_binding_unconfirmed",
+    boot_stage: "provider_ready",
     provisional_launch: { pty_id: "old-pty", binding_nonce: "old-nonce", reason: "opaque",
       awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
   }) });

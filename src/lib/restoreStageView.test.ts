@@ -16,7 +16,7 @@ assert(queued.steps.every(step => step.state === "pending"));
 const awake = { ...tab, frozen: false };
 const firstTurnTab: Partial<Tab> = {
   agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
-  frozen: false, agent_booting: false, boot_stage: "launch_binding_unconfirmed",
+  frozen: false, agent_booting: false, boot_stage: "provider_ready",
   pty_id: "own-pty", session_binding_nonce: "own-nonce",
   provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
     awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },

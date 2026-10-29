@@ -2,15 +2,15 @@ use crate::service::launch_input_gate::LaunchInputEvidence;
 use crate::service::launch_readiness::LaunchAttempt;
 use crate::service::{MuxEmitCause, ServiceContext};
 
-pub(super) fn awaiting_user_turn(lazy: bool, resuming: bool, first_turn_planned: bool) -> bool {
-    lazy && !resuming && !first_turn_planned
+pub(super) fn awaiting_user_turn(lazy: bool, first_turn_planned: bool) -> bool {
+    lazy && !first_turn_planned
 }
 
 pub(super) fn prepare(
     svc: &ServiceContext,
     attempt: &LaunchAttempt,
     provider: &str,
-    resuming: bool,
+    _resuming: bool,
     first_turn_planned: bool,
 ) -> bool {
     let lazy = svc
@@ -19,7 +19,7 @@ pub(super) fn prepare(
             provider.session_starts_on_first_user_turn()
         })
         .unwrap_or(false);
-    if !awaiting_user_turn(lazy, resuming, first_turn_planned) {
+    if !awaiting_user_turn(lazy, first_turn_planned) {
         return false;
     }
     if bound(svc, attempt) {

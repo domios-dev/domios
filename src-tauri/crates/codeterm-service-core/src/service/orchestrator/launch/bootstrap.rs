@@ -1,4 +1,3 @@
-use super::resume_binding;
 use crate::service::{
     launch_delivery::{FallbackDeliverySpec, LaunchConsumptionOutcome, LaunchDeliveryGate},
     launch_input_gate::LaunchInputEvidence,
@@ -13,7 +12,6 @@ pub(super) fn consume(
     spec: FallbackDeliverySpec,
     delivery_gate: &LaunchDeliveryGate,
     launch_input_readiness: Option<LaunchInputEvidence>,
-    binding_turn_planned: bool,
 ) -> Result<bool, String> {
     let tab_id = &attempt.tab_id;
     let pty_id = &attempt.pty_id;
@@ -24,9 +22,6 @@ pub(super) fn consume(
     {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(tab_id).expect("launch Tab exists");
-        if binding_turn_planned {
-            resume_binding::prepare_binding_turn(tab, &spec);
-        }
         tab.pending_delivery.get_or_insert_with(|| {
             crate::service::launch_delivery::pending_record_for_spec(spec.clone())
         });
