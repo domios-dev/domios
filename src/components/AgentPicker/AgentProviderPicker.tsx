@@ -3,7 +3,8 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 import type { ProviderDescriptor } from "../../lib/types";
 import logoUrl from "../../assets/logo.png";
 import { installSource, launchProviderInstaller } from "../../lib/providerInstall";
-import { ProviderCard } from "./ProviderCard";
+import { ProviderCard, PROVIDER_CARD_LAYOUT } from "./ProviderCard";
+import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { preselectProviderId, providerAvailability } from "./preselectProvider";
 import { useProviderAvailability } from "./useProviderAvailability";
 import { listen } from "../../lib/bridge";
@@ -15,6 +16,7 @@ interface AgentProviderPickerProps {
   headline: string;
   subhead: string;
   providers: ProviderDescriptor[];
+  providersLoading?: boolean;
   confirmLabel?: string;
   busy?: boolean;
   retry?: boolean;
@@ -22,7 +24,7 @@ interface AgentProviderPickerProps {
   onInstall?: (providerId: string) => void;
   progress?: string | null;
   children?: ReactNode;
-  belowProviders?: ReactNode;
+  belowConfirm?: ReactNode;
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
@@ -32,6 +34,7 @@ export function AgentProviderPicker({
   headline,
   subhead,
   providers,
+  providersLoading = false,
   confirmLabel = "Confirm",
   busy,
   retry,
@@ -39,7 +42,7 @@ export function AgentProviderPicker({
   onInstall: installOverride,
   progress,
   children,
-  belowProviders,
+  belowConfirm,
   navigation,
   home,
 }: AgentProviderPickerProps) {
@@ -126,10 +129,16 @@ export function AgentProviderPicker({
         <div
           role="group"
           aria-label="Agent providers"
+          aria-busy={providersLoading || undefined}
           className="flex max-w-full flex-wrap justify-center gap-3"
           data-testid="agent-picker-cards"
         >
-          {observed.map((provider) => (
+          {providersLoading ? <Skeleton className="flex max-w-full flex-wrap justify-center gap-3">
+            {[0, 1, 2].map(index => <div key={index} className={`ct-panel-card ${PROVIDER_CARD_LAYOUT}`}>
+              <SkeletonBlock shape="circle" width="1.5rem" height="1.5rem" />
+              <SkeletonBlock width="3.5rem" height="1rem" />
+            </div>)}
+          </Skeleton> : observed.map((provider) => (
             <ProviderCard
               key={provider.id}
               provider={provider}
@@ -138,7 +147,6 @@ export function AgentProviderPicker({
             />
           ))}
         </div>
-        {belowProviders}
 
         {/* The command line is out of flow so the row never changes height;
             Re-check unfurls in flow so the pair spreads apart in one motion. */}
@@ -148,7 +156,7 @@ export function AgentProviderPicker({
               variant="primary"
               size="lg"
               data-testid="agent-picker-confirm"
-              disabled={!selected || state === "checking" || (needsInstall && !selected.install_command)}
+              disabled={providersLoading || !selected || state === "checking" || (needsInstall && !selected.install_command)}
               loading={busy || installBusy}
               onClick={() => {
                 if (!selected) return;
@@ -180,6 +188,7 @@ export function AgentProviderPicker({
             </div>
           </div>
         </div>
+        {belowConfirm}
       </div>
     </div>
   );

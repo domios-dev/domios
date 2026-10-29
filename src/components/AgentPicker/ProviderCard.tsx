@@ -2,6 +2,8 @@ import { AgentIcon } from "../AgentIcon";
 import type { ProviderDescriptor } from "../../lib/types";
 import { providerAvailability } from "../../lib/providerAvailability";
 
+export const PROVIDER_CARD_LAYOUT = "flex min-h-[6.8rem] min-w-[7.2rem] flex-col items-center justify-center gap-2 px-4 py-3.5";
+
 interface ProviderCardProps {
   provider: ProviderDescriptor;
   selected: boolean;
@@ -18,7 +20,7 @@ export function ProviderCard({ provider, selected, onSelect }: ProviderCardProps
       data-selected={selected ? "yes" : "no"}
       aria-pressed={selected}
       onClick={onSelect}
-      className="agent-provider-card ct-liquid-interactive ct-panel-card relative flex min-h-[6.8rem] min-w-[7.2rem] cursor-pointer flex-col items-center justify-center gap-2 px-4 py-3.5"
+      className={`agent-provider-card ct-liquid-interactive ct-panel-card relative cursor-pointer ${PROVIDER_CARD_LAYOUT}`}
     >
       {provider.badge && <span className="agent-provider-card-badge">{provider.badge}</span>}
       <span className="agent-provider-card-selection" aria-hidden="true">
