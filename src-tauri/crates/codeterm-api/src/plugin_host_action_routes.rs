@@ -207,26 +207,21 @@ pub async fn host_input(
     else {
         return Ok(invalid("request"));
     };
-    // The body streams into ingestion, which enforces the declared size and type. The wait for each
-    // chunk is bounded here, by the absolute ingestion deadline and by the asking document staying
-    // live, so a stalled upload never pins the blocking thread, the partial file or the frame.
+    // The body streams into ingestion, which enforces the declared size and type and checks the
+    // asking document at every chunk. The wait for a chunk ends at the first of: the chunk, this
+    // request being dropped or finished (an explicit cancel signal, never polling), or the one
+    // absolute ingestion deadline. A document retired while the body stalls is therefore released
+    // by that deadline at the latest; there is no retirement event to wake the wait sooner.
     let stream = body
         .into_data_stream()
         .map(|chunk| chunk.map_err(std::io::Error::other));
-    let live = {
-        let (plugin_id, lease) = (plugin_id.clone(), stamp.lease.clone());
-        move || {
-            lease.as_deref().is_some_and(|lease| {
-                codeterm_plugin::media_delivery::view_frame(&plugin_id, lease).is_ok()
-            })
-        }
-    };
+    let (cancel, cancelled) = tokio::sync::watch::channel(false);
+    let _cancel_on_drop = UploadCancel(cancel);
     let reader = BodyReader::new(
         stream,
         tokio::runtime::Handle::current(),
         tokio::time::Instant::now() + INGEST_DEADLINE,
-        LIVENESS_SLICE,
-        live,
+        cancelled,
     );
     // A type the browser could not name is no hint at all: ingestion then sniffs the content.
     let hint = if content_type == "application/octet-stream" { String::new() } else { content_type };
@@ -239,48 +234,72 @@ pub async fn host_input(
 }
 
 /// The whole web upload must finish within this, matching media delivery's ingestion deadline.
+/// It bounds failure; it is not a coordination tick.
 const INGEST_DEADLINE: std::time::Duration = std::time::Duration::from_secs(120);
-/// How long one wait for the next chunk may last before the reader rechecks that the asking
-/// document is still live; a retired or reminted lease ends the upload within this.
-const LIVENESS_SLICE: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// A blocking reader over the request body for ingestion on a blocking thread. Every wait for the
-/// next chunk is bounded by the absolute `deadline` and by `live()`; an error here makes ingestion
-/// drop its partial file. Dropping the reader drops the body, which ends the upload.
-struct BodyReader<S, L> {
+/// Held by the request future: dropping it (the client went away, or the request finished) tells the
+/// blocking reader to stop waiting for body data.
+struct UploadCancel(tokio::sync::watch::Sender<bool>);
+
+impl Drop for UploadCancel {
+    fn drop(&mut self) {
+        let _ = self.0.send(true);
+    }
+}
+
+enum Wait {
+    Chunk(Option<Result<axum::body::Bytes, std::io::Error>>),
+    Cancelled,
+    Deadline,
+}
+
+/// A blocking reader over the request body for ingestion on a blocking thread. Each wait for the
+/// next chunk races the chunk against the request's cancel signal and the absolute deadline, inside
+/// the runtime (the timer is created there, never on the calling thread). An error here makes
+/// ingestion drop its partial file.
+struct BodyReader<S> {
     stream: S,
     handle: tokio::runtime::Handle,
     pending: axum::body::Bytes,
     deadline: tokio::time::Instant,
-    slice: std::time::Duration,
-    live: L,
+    cancelled: tokio::sync::watch::Receiver<bool>,
 }
 
-impl<S, L> BodyReader<S, L> {
-    fn new(stream: S, handle: tokio::runtime::Handle, deadline: tokio::time::Instant, slice: std::time::Duration, live: L) -> Self {
-        Self { stream, handle, pending: axum::body::Bytes::new(), deadline, slice, live }
+impl<S> BodyReader<S> {
+    fn new(
+        stream: S,
+        handle: tokio::runtime::Handle,
+        deadline: tokio::time::Instant,
+        cancelled: tokio::sync::watch::Receiver<bool>,
+    ) -> Self {
+        Self { stream, handle, pending: axum::body::Bytes::new(), deadline, cancelled }
     }
 }
 
-impl<S, L> std::io::Read for BodyReader<S, L>
+impl<S> std::io::Read for BodyReader<S>
 where
     S: futures_core::Stream<Item = Result<axum::body::Bytes, std::io::Error>> + Send + Unpin,
-    L: Fn() -> bool,
 {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         while self.pending.is_empty() {
-            if !(self.live)() {
-                return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "plugin view retired"));
-            }
-            let now = tokio::time::Instant::now();
-            if now >= self.deadline {
-                return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "upload deadline"));
-            }
-            let wake = self.deadline.min(now + self.slice);
-            match self.handle.block_on(tokio::time::timeout_at(wake, self.stream.next())) {
-                Ok(Some(chunk)) => self.pending = chunk?,
-                Ok(None) => return Ok(0),
-                Err(_) => continue,
+            let (stream, cancelled, deadline) = (&mut self.stream, &mut self.cancelled, self.deadline);
+            let wait = self.handle.block_on(async move {
+                tokio::select! {
+                    biased;
+                    _ = cancelled.wait_for(|cancelled| *cancelled) => Wait::Cancelled,
+                    _ = tokio::time::sleep_until(deadline) => Wait::Deadline,
+                    chunk = stream.next() => Wait::Chunk(chunk),
+                }
+            });
+            match wait {
+                Wait::Chunk(Some(chunk)) => self.pending = chunk?,
+                Wait::Chunk(None) => return Ok(0),
+                Wait::Cancelled => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "upload cancelled"))
+                }
+                Wait::Deadline => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "upload deadline"))
+                }
             }
         }
         let count = out.len().min(self.pending.len());
@@ -455,53 +474,77 @@ mod tests {
         }
     }
 
-    fn runtime() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap()
+    type Chunk = Result<axum::body::Bytes, std::io::Error>;
+    type BodyStream = std::pin::Pin<Box<dyn futures_core::Stream<Item = Chunk> + Send>>;
+
+    /// A body fed through a channel. Every time the reader parks waiting for the next chunk, the
+    /// stream reports it on `parked`, so a test acts on a read that is really waiting.
+    fn channel_body() -> (tokio::sync::mpsc::UnboundedSender<Chunk>, std::sync::mpsc::Receiver<()>, BodyStream) {
+        let (chunks, receiver) = tokio::sync::mpsc::unbounded_channel::<Chunk>();
+        let (parked, parks) = std::sync::mpsc::channel();
+        let stream = futures_util::stream::unfold((receiver, parked), |(mut receiver, parked)| async move {
+            let _ = parked.send(());
+            receiver.recv().await.map(|chunk| (chunk, (receiver, parked)))
+        });
+        (chunks, parks, Box::pin(stream))
     }
 
-    type Chunk = Result<axum::body::Bytes, std::io::Error>;
+    /// A runtime whose worker drives timers for `Handle::block_on` calls made from the reader's thread.
+    fn worker_runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_time().build().unwrap()
+    }
+
+    fn far_deadline() -> tokio::time::Instant {
+        tokio::time::Instant::now() + std::time::Duration::from_secs(3600)
+    }
 
     #[test]
     fn upload_reader_passes_chunks_through_and_ends_with_the_body() {
         use std::io::Read;
-        let runtime = runtime();
-        let stream = futures_util::stream::iter(vec![
-            Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"png")),
-            Ok(axum::body::Bytes::from_static(b"-bytes")),
-        ]);
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
-        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), deadline, super::LIVENESS_SLICE, || true);
+        let runtime = worker_runtime();
+        let (chunks, _parks, stream) = channel_body();
+        let (_cancel, cancelled) = tokio::sync::watch::channel(false);
+        chunks.send(Ok(axum::body::Bytes::from_static(b"png"))).unwrap();
+        chunks.send(Ok(axum::body::Bytes::from_static(b"-bytes"))).unwrap();
+        drop(chunks);
+        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), far_deadline(), cancelled);
         let mut body = Vec::new();
         reader.read_to_end(&mut body).unwrap();
         assert_eq!(body, b"png-bytes");
     }
 
     #[test]
-    fn upload_reader_never_waits_past_the_ingestion_deadline() {
+    fn upload_reader_parked_on_a_stalled_body_wakes_when_the_request_is_dropped() {
         use std::io::Read;
-        let runtime = runtime();
-        // A body that never sends another chunk, with the absolute deadline already reached.
-        let stream = futures_util::stream::pending::<Chunk>();
-        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), tokio::time::Instant::now(), super::LIVENESS_SLICE, || true);
-        let error = reader.read(&mut [0; 8]).expect_err("stalled upload");
-        assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
+        let runtime = worker_runtime();
+        let (_chunks, parks, stream) = channel_body();
+        let (cancel, cancelled) = tokio::sync::watch::channel(false);
+        let request = super::UploadCancel(cancel);
+        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), far_deadline(), cancelled);
+        let reading = std::thread::spawn(move || reader.read(&mut [0; 8]).map_err(|error| error.kind()));
+        parks.recv().unwrap(); // the read is parked on the stalled body
+        drop(request); // the request future went away
+        assert_eq!(reading.join().unwrap(), Err(std::io::ErrorKind::Interrupted));
     }
 
     #[test]
-    fn upload_reader_stops_waiting_once_the_document_is_retired() {
+    fn upload_reader_parked_on_a_stalled_body_ends_at_the_absolute_deadline() {
         use std::io::Read;
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        let runtime = runtime();
-        let stream = futures_util::stream::pending::<Chunk>();
-        let checks = std::sync::Arc::new(AtomicUsize::new(0));
-        let seen = checks.clone();
-        // Live for the first two checks, retired from the third; a zero slice makes each wait end at once.
-        let live = move || seen.fetch_add(1, Ordering::SeqCst) < 2;
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
-        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), deadline, std::time::Duration::ZERO, live);
-        let error = reader.read(&mut [0; 8]).expect_err("retired document");
-        assert_eq!(error.kind(), std::io::ErrorKind::Interrupted);
-        assert_eq!(checks.load(Ordering::SeqCst), 3);
+        // Paused time on a runtime driven by its own thread: the parked wait fires at the deadline
+        // the moment the runtime is otherwise idle, without real waiting.
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().unwrap();
+        let handle = runtime.handle().clone();
+        let deadline = runtime.block_on(async { tokio::time::Instant::now() + std::time::Duration::from_secs(120) });
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let driver = std::thread::spawn(move || runtime.block_on(async { let _ = stopped.await; }));
+        let (_chunks, parks, stream) = channel_body();
+        let (_cancel, cancelled) = tokio::sync::watch::channel(false);
+        let mut reader = super::BodyReader::new(stream, handle, deadline, cancelled);
+        let reading = std::thread::spawn(move || reader.read(&mut [0; 8]).map_err(|error| error.kind()));
+        parks.recv().unwrap();
+        assert_eq!(reading.join().unwrap(), Err(std::io::ErrorKind::TimedOut));
+        let _ = stop.send(());
+        driver.join().unwrap();
     }
 
     #[test]

@@ -314,6 +314,13 @@ pub fn view_host_input(
         accept: &inputs.accept,
         max_bytes: inputs.max_bytes,
     };
+    // The copy can take a while: ingestion asks this again after registering the handle and before
+    // keeping the file, the same live check media registration does (lease, registration, provider
+    // and the service scope: owner, workspace, Team). On `false` ingestion itself revokes that one
+    // handle and its own output removes the file, so cleanup never reopens through current authority.
+    let still_current = || {
+        leased_frame(svc, plugin_id, stamp).is_ok_and(|(current, now)| current == frame && now == context)
+    };
     let outcome = media_delivery::ingest_frame_input(
         plugin_id,
         &frame,
@@ -322,46 +329,17 @@ pub fn view_host_input(
         &picked_name(file_name),
         declared_mime,
         limits,
+        &still_current,
     );
-    // The copy can take a while: the asking document's service scope (owner, workspace, Team) is
-    // validated again afterwards, the same way media registration does, before the handle is offered.
-    settle_ingest(
-        outcome,
-        || {
-            leased_frame(svc, plugin_id, stamp)
-                .is_ok_and(|(current, now)| current == frame && now == context)
-        },
-        |handle| discard_input(plugin_id, &frame, &context, handle),
-    )
+    settle_ingest(outcome)
 }
 
-/// Removes exactly one input this request ingested: its handle in this document's registration
-/// (a no-op for a document reminted since, whose context differs) and its file.
-fn discard_input(plugin_id: &str, frame: &str, context: &ViewCallContext, handle: &str) {
-    let path = media_delivery::open_frame_media(plugin_id, frame, handle)
-        .ok()
-        .map(|opened| opened.path);
-    media_delivery::revoke_context_media(plugin_id, frame, context, handle);
-    if let Some(path) = path {
-        let _ = std::fs::remove_file(path);
-    }
-}
-
-/// The answer for one ingestion: the new handle only while the asking document is still current;
-/// otherwise that exact input is discarded and the answer is `denied / stale`.
-pub(super) fn settle_ingest(
-    outcome: Result<media_delivery::IngestedInput, IngestRefusal>,
-    still_current: impl FnOnce() -> bool,
-    discard: impl FnOnce(&str),
-) -> Value {
+/// The answer for one ingestion, narrowed to what the view may see: never a path or a digest.
+pub(super) fn settle_ingest(outcome: Result<media_delivery::IngestedInput, IngestRefusal>) -> Value {
     let input = match outcome {
         Ok(input) => input,
         Err(refusal) => return ingest_refusal(refusal),
     };
-    if !still_current() {
-        discard(&input.handle);
-        return refused("denied", "stale");
-    }
     json!({
         "ok": true,
         "input": {

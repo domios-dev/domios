@@ -194,42 +194,29 @@ fn ingested(handle: &str) -> codeterm_plugin::media_delivery::IngestedInput {
 }
 
 #[test]
-fn ingest_offers_the_handle_only_while_the_document_is_still_current() {
-    let discarded = std::cell::RefCell::new(Vec::<String>::new());
+fn ingest_answers_only_the_opaque_handle_and_its_display_fields() {
+    let answer = settle_ingest(Ok(ingested(HANDLE)));
     assert_eq!(
-        settle_ingest(Ok(ingested(HANDLE)), || true, |handle| discarded.borrow_mut().push(handle.into())),
+        answer,
         json!({ "ok": true, "input": { "handle": HANDLE, "fileName": "fox.png", "contentType": "image/png", "size": 3 } })
     );
-    assert!(discarded.borrow().is_empty());
+    assert!(!answer.to_string().contains(&"0".repeat(64)), "the digest stays host-side");
 }
 
 #[test]
-fn ingest_discards_exactly_its_own_input_when_the_scope_moved_during_the_copy() {
-    // The document's owner/workspace scope changed while the body was being copied.
-    let scope_moved = std::cell::Cell::new(true);
-    let other_document_handle = EXPIRED;
-    let discarded = std::cell::RefCell::new(Vec::<String>::new());
-    let answer = settle_ingest(
-        Ok(ingested(HANDLE)),
-        || !scope_moved.get(),
-        |handle| discarded.borrow_mut().push(handle.into()),
-    );
-    assert_eq!(answer, refusal("denied", "stale"));
-    assert_eq!(*discarded.borrow(), vec![HANDLE.to_string()]);
-    assert!(!discarded.borrow().iter().any(|handle| handle == other_document_handle));
-}
-
-#[test]
-fn ingest_refusals_keep_their_typed_reasons_and_discard_nothing() {
+fn ingest_refusals_keep_their_typed_reasons() {
     use codeterm_plugin::media_delivery::IngestRefusal;
+    // UnknownFrame includes a document that stopped being current during the copy, which
+    // ingestion itself cleaned up (media delivery's two-frame cleanup fixture covers that).
     for (refusal_kind, expected) in [
         (IngestRefusal::UnknownFrame, refusal("denied", "stale")),
         (IngestRefusal::TooLarge, refusal("invalid", "too_large")),
         (IngestRefusal::TypeNotAccepted, refusal("invalid", "type")),
+        (IngestRefusal::Unreadable, refusal("unavailable", "unreadable")),
+        (IngestRefusal::Storage, refusal("unavailable", "storage")),
         (IngestRefusal::Deadline, refusal("unavailable", "deadline")),
     ] {
-        let answer = settle_ingest(Err(refusal_kind), || panic!("not reached"), |_| panic!("nothing to discard"));
-        assert_eq!(answer, expected);
+        assert_eq!(settle_ingest(Err(refusal_kind)), expected);
     }
 }
 
