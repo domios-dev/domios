@@ -12,6 +12,10 @@ it("treats chat rows and non-empty terminal rows as painted content", () => {
   expect(hasPaintedContent(root)).toBe(true);
   root.innerHTML = '<div data-chat-window-row="m1"></div>';
   expect(hasPaintedContent(root)).toBe(true);
+  root.innerHTML = '<section data-chat-ready="false"><div data-chat-window-row="prior"></div></section>';
+  expect(hasPaintedContent(root)).toBe(false);
+  root.querySelector("section")!.setAttribute("data-chat-ready", "true");
+  expect(hasPaintedContent(root)).toBe(true);
 });
 
 it("reports painted once content appears after mount", async () => {

@@ -218,8 +218,8 @@ it("serializes held and newly arriving chat sends to one tab in their original o
   });
   const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
   const first = client.json("POST", "/api/tabs/opaque/chat-send", { text: "first" });
-  const second = client.localJson("POST", "/api/tabs/opaque/chat-send", { text: "second" });
   await subscribed.promise;
+  const second = client.localJson("POST", "/api/tabs/opaque/chat-send", { text: "second" });
   expect(requests).toEqual(["first"]);
   ready.resolve();
   await firstAccepted.promise;
@@ -231,19 +231,25 @@ it("serializes held and newly arriving chat sends to one tab in their original o
   expect(executions).toEqual(["first", "second", "third"]);
 });
 
-it("cancels a queued mutation without letting later requests overtake the queue head", async () => {
-  const started = deferred();
-  const finishFirst = deferred();
+it("cancels a queued mutation without letting later requests overtake a startup-held head", async () => {
+  const subscribed = deferred();
+  const ready = deferred();
   const requests: string[] = [];
-  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+    if (String(input).endsWith("/api/startup/events")) {
+      subscribed.resolve();
+      await ready.promise;
+      return new Response('event: startup-state\ndata: {"state":"ready"}\n\n', { headers: { "Content-Type": "text/event-stream" } });
+    }
     const { text } = JSON.parse(String(init?.body)) as { text: string };
     requests.push(text);
-    if (text === "first") { started.resolve(); await finishFirst.promise; }
-    return Response.json({ accepted: true });
+    return requests.length === 1
+      ? Response.json({ error: { code: "starting", subsystem: "service", request_executed: false } }, { status: 503 })
+      : Response.json({ accepted: true });
   });
   const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
   const first = client.json("POST", "/api/tabs/opaque/chat-send", { text: "first" });
-  await started.promise;
+  await subscribed.promise;
   const controller = new AbortController();
   const second = client.json("POST", "/api/tabs/opaque/chat-send", { text: "second" }, { signal: controller.signal });
   const rejected = expect(second).rejects.toThrow("fixture queued cancellation");
@@ -251,7 +257,123 @@ it("cancels a queued mutation without letting later requests overtake the queue 
   controller.abort(new Error("fixture queued cancellation"));
   await rejected;
   expect(requests).toEqual(["first"]);
-  finishFirst.resolve();
+  ready.resolve();
   await Promise.all([first, third]);
-  expect(requests).toEqual(["first", "third"]);
+  expect(requests).toEqual(["first", "first", "third"]);
+});
+
+it("runs ordinary same-tab mutations concurrently and never delays Stop behind a slow send", async () => {
+  const started = deferred();
+  const finishFirst = deferred();
+  const secondArrived = deferred();
+  const stopArrived = deferred();
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+    if (String(input).endsWith("/stop")) { stopArrived.resolve(); return Response.json({ stopped: true }); }
+    const { text } = JSON.parse(String(init?.body)) as { text: string };
+    if (text === "first") { started.resolve(); await finishFirst.promise; }
+    else secondArrived.resolve();
+    return Response.json({ accepted: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const first = client.json("POST", "/api/tabs/opaque/chat-send", { text: "first" });
+  await started.promise;
+  const second = client.json("POST", "/api/tabs/opaque/chat-send", { text: "second" });
+  const stop = client.json("POST", "/api/tabs/opaque/stop");
+  await Promise.all([secondArrived.promise, stopArrived.promise]);
+  expect(await second).toEqual({ accepted: true });
+  expect(await stop).toEqual({ stopped: true });
+  finishFirst.resolve();
+  await first;
+});
+
+it.each([
+  { held: "/api/tabs/opaque/chat-send", control: "/api/tabs/opaque/stop", body: {} },
+  { held: "/api/tabs/opaque/chat-send", control: "/api/tabs/opaque/close", body: {} },
+  { held: "/api/pty/opaque/write", control: "/api/pty/opaque/write", body: { data: "\x03", raw: true } },
+  { held: "/api/pty/opaque/write", control: "/api/pty/opaque/write", body: { data: "\x1b", raw: true } },
+])("lets control $control bypass a startup-held target", async ({ held, control, body }) => {
+  const subscribed = deferred();
+  const ready = deferred();
+  let requests = 0;
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async input => {
+    if (String(input).endsWith("/api/startup/events")) {
+      subscribed.resolve();
+      await ready.promise;
+      return new Response('event: startup-state\ndata: {"state":"ready"}\n\n', { headers: { "Content-Type": "text/event-stream" } });
+    }
+    return ++requests === 1
+      ? Response.json({ error: { code: "starting", subsystem: "service", request_executed: false } }, { status: 503 })
+      : Response.json({ accepted: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const pending = client.json("POST", held, { data: "opaque", text: "opaque" });
+  await subscribed.promise;
+  expect(await client.json("POST", control, body)).toEqual({ accepted: true });
+  expect(requests).toBe(2);
+  ready.resolve();
+  await pending;
+});
+
+it("does not let a startup-held relay to one peer block another peer", async () => {
+  const subscribed = deferred();
+  const ready = deferred();
+  const requests: string[] = [];
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+    if (String(input).endsWith("/api/startup/events")) {
+      subscribed.resolve();
+      await ready.promise;
+      return new Response('event: startup-state\ndata: {"state":"ready"}\n\n', { headers: { "Content-Type": "text/event-stream" } });
+    }
+    const relay = JSON.parse(String(init?.body)) as { target_peer_id: string };
+    requests.push(relay.target_peer_id);
+    return requests.length === 1
+      ? Response.json({ error: { code: "starting", subsystem: "mesh", request_executed: false } }, { status: 503 })
+      : Response.json({ ok: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const first = client.json("POST", "/api/mesh/relay-to", { target_peer_id: "first", method: "POST", path: "/api/tabs/opaque/chat-send", body: {} });
+  await subscribed.promise;
+  expect(await client.json("POST", "/api/mesh/relay-to", { target_peer_id: "second", method: "POST", path: "/api/tabs/opaque/chat-send", body: {} })).toEqual({ ok: true });
+  expect(requests).toEqual(["first", "second"]);
+  ready.resolve();
+  await first;
+  expect(requests).toEqual(["first", "second", "first"]);
+});
+
+it.each([
+  ["terminal", "/api/output/stream"],
+  ["chat", "/api/events/stream?events=chat-msg"],
+])("connects the %s stream after startup without reporting a connection error", async (_pane, path) => {
+  const subscribed = deferred();
+  const ready = deferred();
+  const delivered = deferred();
+  let attempts = 0;
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async input => {
+    if (String(input).endsWith("/api/startup/events")) {
+      subscribed.resolve(); await ready.promise;
+      return new Response('event: startup-state\ndata: {"state":"ready"}\n\n', { headers: { "Content-Type": "text/event-stream" } });
+    }
+    if (++attempts === 1) return Response.json({ error: { code: "starting", subsystem: "service" } }, { status: 503 });
+    return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+      controller.enqueue(new TextEncoder().encode('event: fixture\ndata: {"connected":true}\n\n'));
+    } }), { headers: { "Content-Type": "text/event-stream" } });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const connected = vi.fn();
+  const starting = vi.fn();
+  const ended = vi.fn();
+  const receive = vi.fn(() => { delivered.resolve(); });
+  const dispose = client.subscribe(path, receive, { requireEventStream: true, onStarting: starting, onReady: connected, onEnd: ended });
+  try {
+    await subscribed.promise;
+    expect(connected).not.toHaveBeenCalled();
+    expect(starting).toHaveBeenCalledOnce();
+    expect(ended).not.toHaveBeenCalled();
+    ready.resolve();
+    await delivered.promise;
+    expect(connected).toHaveBeenCalledOnce();
+    expect(ended).not.toHaveBeenCalled();
+    expect(receive).toHaveBeenCalledWith("fixture", { connected: true });
+    expect(attempts).toBe(2);
+  } finally { ready.resolve(); dispose(); }
 });

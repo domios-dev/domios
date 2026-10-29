@@ -1,6 +1,7 @@
 import { uid } from "./uid";
 import { withRestRequestSignal } from "./restTimeoutPolicy";
 import { createStartupLoading, startingSubsystem } from "./startupLoading";
+import { createStartupMutations, startupMutationKey } from "./startupMutations";
 
 export const streamClientId = uid();
 
@@ -36,7 +37,7 @@ export interface TransportClient {
   json<T>(method: HttpMethod, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number | null; callerTabId?: string }): Promise<T>;
   localJson<T>(method: string, path: string, body?: unknown, opts?: { signal?: AbortSignal; timeoutMs?: number | null; callerTabId?: string }): Promise<T>;
   upload<T>(path: string, form: FormData, opts?: { signal?: AbortSignal }): Promise<T>;
-  subscribe(stream: string, onEvent: (name: string, data: unknown) => void | Promise<void>, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; requireEventStream?: boolean; onActivity?: () => void; onReady?: () => void }): Unsubscribe;
+  subscribe(stream: string, onEvent: (name: string, data: unknown) => void | Promise<void>, opts?: { signal?: AbortSignal; onEnd?: (end: StreamEnd) => void; raw?: boolean; local?: boolean; requireEventStream?: boolean; onActivity?: () => void; onStarting?: () => void; onReady?: () => void }): Unsubscribe;
   currentToken(): string | null;
   origin(): string;
 }
@@ -162,6 +163,9 @@ export function parseSseFrame(frame: string): SseMessage | null {
 export function createTransportClient(options: TransportOptions): TransportClient {
   let client: TransportClient;
   const startup = createStartupLoading((...args) => client.subscribe(...args));
+  const localStartup = options.relayPeerId
+    ? createStartupLoading((path, handler, init) => client.subscribe(path, handler, { ...init, local: true }))
+    : startup;
   const url = new URL(options.origin);
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
     || url.pathname !== "/" || url.search || url.hash) throw new Error("Explicit daemon HTTP origin required");
@@ -213,7 +217,7 @@ export function createTransportClient(options: TransportOptions): TransportClien
     return response;
   };
 
-  const afterStartup = async (path: string, init: RequestInit = {}, local = false) => {
+  const afterStartup = async (path: string, init: RequestInit, local: boolean, hold: () => Promise<void>) => {
     const response = await perform(path, init, local);
     if (response.status !== 503) return response;
     if (typeof ReadableStream !== "undefined" && init.body instanceof ReadableStream) return response;
@@ -222,35 +226,19 @@ export function createTransportClient(options: TransportOptions): TransportClien
     // A mutation may proceed again only when the early router proves no handler ran.
     const area = startingSubsystem(response, value, !read);
     if (!area) return response;
+    const previous = hold();
     await response.body?.cancel();
-    await startup.wait(area, init.signal ?? undefined);
+    await previous;
+    await (local || area === "mesh" ? localStartup : startup).wait(area, init.signal ?? undefined);
     return perform(path, init, local);
   };
 
-  const mutations = new Map<string, Promise<void>>();
-  const tracked = (path: string, init: RequestInit = {}, local = false): Promise<Response> => {
-    if (["GET", "HEAD"].includes((init.method ?? "GET").toUpperCase())) return afterStartup(path, init, local);
-    const target = path.match(/^\/api\/(?:tabs|pty|workspaces)\/[^/?]+/)?.[0] ?? path;
-    const destination = local || !options.relayPeerId ? "local" : `peer:${options.relayPeerId}`;
-    const key = `${destination}:${target}`;
-    const previous = mutations.get(key) ?? Promise.resolve();
-    const result = previous.then(() => {
-      if (init.signal?.aborted) throw init.signal.reason ?? new DOMException("Request cancelled", "AbortError");
-      return afterStartup(path, init, local);
-    });
-    const settled = result.then(() => {}, () => {});
-    mutations.set(key, settled);
-    void settled.then(() => { if (mutations.get(key) === settled) mutations.delete(key); });
-    if (!init.signal) return result;
-    const signal = init.signal;
-    return new Promise<Response>((resolve, reject) => {
-      const abort = () => reject(signal.reason ?? new DOMException("Request cancelled", "AbortError"));
-      const release = () => signal.removeEventListener("abort", abort);
-      signal.addEventListener("abort", abort, { once: true });
-      result.then(value => { release(); resolve(value); }, error => { release(); reject(error); });
-      if (signal.aborted) { release(); abort(); }
-    });
-  };
+  const mutations = createStartupMutations();
+  const tracked = (path: string, init: RequestInit = {}, local = false): Promise<Response> => mutations.run(
+    startupMutationKey(path, init, options.relayPeerId, local),
+    hold => afterStartup(path, init, local, hold),
+    init.signal,
+  );
 
   const json = async <T>(method: string, path: string, body: unknown, init: RequestInit = {}, local = false) => {
     const response = await tracked(path, { ...init, method, body: body === undefined ? undefined : JSON.stringify(body) }, local);
@@ -285,9 +273,20 @@ export function createTransportClient(options: TransportOptions): TransportClien
         const cancelReader = () => { void reader?.cancel().catch(() => {}); };
         controller.signal.addEventListener("abort", cancelReader, { once: true });
         try {
-          const streamPath = options.relayPeerId
+          const streamPath = options.relayPeerId && !init.local
             ? `/api/mesh/relay-stream?${new URLSearchParams({ peer: options.relayPeerId, path })}` : path;
-          const response = await localFetch(streamPath, { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal });
+          const streamRequest = { headers: { Accept: "text/event-stream", "X-CodeTerm-Client-Id": streamClientId }, signal: controller.signal };
+          let response = await localFetch(streamPath, streamRequest);
+          if (response.status === 503 && path !== "/api/startup/events") {
+            const value: unknown = await response.clone().json().catch(() => null);
+            const area = startingSubsystem(response, value);
+            if (area) {
+              init.onStarting?.();
+              await response.body?.cancel();
+              await (area === "mesh" ? localStartup : startup).wait(area, controller.signal);
+              response = await localFetch(streamPath, streamRequest);
+            }
+          }
           if (!response.ok) throw new TransportError(response.status, path, await response.text());
           if (init.requireEventStream && response.headers.get("content-type")?.split(";")[0] !== "text/event-stream") {
             await response.body?.cancel();

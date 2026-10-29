@@ -858,6 +858,7 @@ function TabSessionChatBody({
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       data-snapshot-ready={snapshotReady}
+      data-chat-ready={snapshotReady && !chatChannelLoading && setupView.kind === "none"}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
       aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
