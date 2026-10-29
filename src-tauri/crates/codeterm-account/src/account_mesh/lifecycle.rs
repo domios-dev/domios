@@ -125,7 +125,7 @@ pub(super) struct Inner {
     awaiting_logout: bool,
     notice_epoch: Option<u64>,
     lease: u64,
-    retry: super::retry::Retry,
+    pub(super) retry: super::retry::Retry,
     store_unreadable: bool,
 }
 
