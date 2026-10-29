@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { BookOpen, Pencil, TriangleAlert } from "lucide-react";
 import { Button } from "../shared/Button";
 import { CornerResizeGrip, useVerticalResize } from "../shared/CornerResizeGrip";
 import { FormRow } from "../shared/FormRow";
@@ -14,6 +15,8 @@ import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";
 import { PERMISSION_WORKSPACES, type MachineAccess, type NeighborPermission } from "./neighborRuntimeClient";
 import { scopeConflicts } from "./neighborScopeConflicts";
+import { LiquidToggle } from "../shared/LiquidToggle";
+import "./neighborPermissions.css";
 
 const ACCESS_OPTIONS: { value: MachineAccess; label: string }[] = [
   { value: "read_only", label: "Read only" },
@@ -177,19 +180,24 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
     {PERMISSION_WORKSPACES && draft && <ChoiceMenu label="Workspaces" menuLabel="Workspaces" every="None" noun="workspaces" disabled={saving}
       options={workspaceOptions} chosen={draft.workspaces ?? []} onChange={chosen => edit({ workspaces: chosen.length > 0 ? chosen : null })} />}
     </SettingsSection>
-    <SettingsSection title="Access">
-    <SwitchTile label="Read my memory"
-      checked={draft !== null && draft.allow_memory !== false} onChange={allow_memory => { if (draft && !saving) edit({ allow_memory }); }} />
-    {draft && draft.allow_memory !== false && <MemoryAreas areas={areas} chosen={draft.memory_areas ?? []} disabled={saving}
-      onChange={chosen => edit({ memory_areas: chosen.length > 0 ? chosen : null })} />}
-    {draft && <ChoiceMenu label="Write memory in these areas" menuLabel="Memory write areas" every="None" noun="areas" disabled={saving}
+    <SettingsSection title="Memory">
+    <ChoiceMenu label="Read" icon={<BookOpen size={14} aria-hidden="true" />} hint="Read information from these memory areas."
+      menuLabel="Memory areas" every="All areas" noun="areas" disabled={!draft || saving || draft.allow_memory === false}
+      toggle={<LiquidToggle aria-label="Read my memory" checked={draft !== null && draft.allow_memory !== false}
+        disabled={!draft || saving} onCheckedChange={allow_memory => edit({ allow_memory })} />}
+      options={[...new Set([...(areas ?? []), ...(draft?.memory_areas ?? [])])].sort((a, b) => a.localeCompare(b)).map(area => ({ value: area, label: area }))}
+      chosen={draft?.memory_areas ?? []} onChange={chosen => edit({ memory_areas: chosen.length > 0 ? chosen : null })} />
+    {draft && <ChoiceMenu label="Write" icon={<Pencil size={14} aria-hidden="true" />} hint="Save or change memory only in these areas. Off until an area is selected."
+      menuLabel="Memory write areas" every="Off" noun="areas" disabled={saving}
       options={(areas ?? []).map(area => ({ value: area, label: area }))} chosen={draft.memory_write_areas ?? []}
       onChange={memory_write_areas => edit({ memory_write_areas })} />}
+    </SettingsSection>
+    <SettingsSection title="Access">
     <SwitchTile label="Read files"
       checked={draft !== null && draft.allow_files !== false} onChange={allow_files => { if (draft && !saving) edit({ allow_files }); }} />
     <div className="neighbor-access">
       <p id={accessLabel} className="neighbor-permissions__label">Machine access</p>
-      <Segmented<MachineAccess> aria-label="Machine access" value={access} height={26} options={ACCESS_OPTIONS}
+      <Segmented<MachineAccess> aria-label="Machine access" value={access} height={32} options={ACCESS_OPTIONS}
         onChange={next => {
           if (!draft || saving) return;
           setAwaitingFolder(false);
@@ -211,7 +219,7 @@ export function NeighborPermissionsEditor({ neighbor, name, permission, pending,
       {access === "read_only" && !awaitingFolder && (baseline?.machine_access === "read_only" && baseline.folder_enforcement?.writes === "pad_only"
         ? <EnforcementNote enforcement={baseline.folder_enforcement} />
         : <p className="neighbor-note">Looks things up; changes nothing on this machine.</p>)}
-      {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning">Their requests can change anything your agents on this machine can reach.</p>}
+      {access === "full" && <p role="note" className="neighbor-note neighbor-access__warning"><TriangleAlert size={14} aria-hidden="true" />Their requests can change anything your agents on this machine can reach.</p>}
       {access === "folder" && <div className="neighbor-folder">
         <div className="min-w-0">
           <p className="neighbor-folder__path" title={draft?.folder ?? undefined}>{draft?.folder ?? "No folder chosen"}</p>
@@ -312,25 +320,32 @@ const MIB = 1024 * 1024;
 /** The service default and its ceiling are the same 50 MiB a day. */
 const FILE_LIMIT_MIB = 50;
 
-/** Narrow what their agents may ask about to a few memory areas; nothing chosen shares every non-secret area. */
-function MemoryAreas({ areas, chosen, disabled, onChange }: { areas: string[] | null; chosen: string[]; disabled: boolean; onChange: (chosen: string[]) => void }) {
-  const known = [...new Set([...(areas ?? []), ...chosen])].sort((a, b) => a.localeCompare(b));
-  return <ChoiceMenu label="Only these areas" menuLabel="Memory areas" every="All areas" noun="areas" disabled={disabled}
-    options={known.map(area => ({ value: area, label: area }))} chosen={chosen} onChange={onChange} />;
+function areaChipLabel(label: string) {
+  return label.length > 28 ? `${label.slice(0, 13)}…${label.slice(-12)}` : label;
 }
 
-/** A labelled pill that opens the shared menu with one checkbox per choice; nothing chosen means every choice. */
-function ChoiceMenu({ label, menuLabel, every, noun, options, chosen, disabled, onChange }: {
+function ChoiceMenu({ label, menuLabel, every, noun, options, chosen, disabled, onChange, icon, hint, toggle }: {
   label: string; menuLabel: string; every: string; noun: string; options: { value: string; label: string }[];
   chosen: string[]; disabled: boolean; onChange: (chosen: string[]) => void;
+  icon?: ReactNode; hint?: string; toggle?: ReactNode;
 }) {
   const names = chosen.map(value => options.find(option => option.value === value)?.label ?? value);
-  const summary = chosen.length === 0 ? every : chosen.length <= 2 ? names.join(", ") : `${chosen.length} ${noun}`;
-  return <div className="neighbor-areas">
-    <span className="neighbor-permissions__label">{label}</span>
-    <DropdownMenu menuLabel={menuLabel} disabled={disabled || options.length === 0}
-      items={options.map(option => ({ label: option.label, checked: chosen.includes(option.value), keepOpen: true,
+  const summary = chosen.length === 0 ? every : chosen.length === 1 ? names[0] : `${chosen.length} ${noun}`;
+  return <div className="neighbor-areas" role="group" aria-label={`${label} ${noun}`}>
+    <div className="min-w-0">
+      <span className="neighbor-permissions__label flex items-center gap-2">{icon}{label}</span>
+      {hint && <p className="neighbor-note mt-1">{hint}</p>}
+    </div>
+    <div className="neighbor-areas__controls">
+    {toggle}
+    <DropdownMenu menuLabel={menuLabel} placement="bottom-end" maxHeight={180} maxWidth={288} disabled={disabled || options.length === 0}
+      header={<p className="px-2 py-1 text-[12px] font-normal tracking-normal text-[var(--ct-muted-fg)]">Choose one or more {noun}</p>}
+      items={options.map(option => ({ label: option.label, labelContent: <code className="neighbor-area-name">{areaChipLabel(option.label)}</code>, title: option.label,
+        checked: chosen.includes(option.value), keepOpen: true,
         onClick: () => onChange(chosen.includes(option.value) ? chosen.filter(entry => entry !== option.value) : [...chosen, option.value]) }))}
-      trigger={<button type="button" className="ct-bar-pill" aria-label={`${menuLabel}: ${summary}`}>{summary}</button>} />
+      trigger={<button type="button" className="ct-bar-pill" title={names.join(", ") || every} aria-label={`${menuLabel}: ${summary}`}>
+        {chosen.length === 1 ? <code className="neighbor-area-name">{areaChipLabel(summary)}</code> : summary}
+      </button>} />
+    </div>
   </div>;
 }
