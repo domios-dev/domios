@@ -91,6 +91,7 @@ import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
+import { firstTurnLocalSends, isFirstTurnLocalRow } from "./firstTurnLocalRows";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -303,6 +304,8 @@ function TabSessionChatBody({
     retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
+    localAttempt: lazyFirstTurnComposerIsLive(tab) && tab?.pty_id && tab.session_binding_nonce
+      ? { ptyId: tab.pty_id, bindingNonce: tab.session_binding_nonce } : undefined,
     followTailRef: chatFollowTailRef,
     history: runtime.state?.history,
     live: isActive || awaitsTranscriptEcho(deliverySends),
@@ -331,7 +334,10 @@ function TabSessionChatBody({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
-  const firstTurnReady = lazyFirstTurnComposerIsLive(tab) && !hasTranscript;
+  const localFirstTurnSends = useMemo(() => firstTurnLocalSends(deliverySends, tab?.pty_id, tab?.session_binding_nonce),
+    [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
+  const firstTurnReady = lazyFirstTurnComposerIsLive(tab) || (!snapshotReady && !tab?.frozen
+    && !tab?.agent_booting && tab?.boot_stage !== "spawn_failed" && localFirstTurnSends.length > 0);
   const forkableMessages = useMemo(() => forkableTurnEnds(
     allMessages,
     descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
@@ -366,8 +372,9 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg))),
-    [enrichedMessages, setupView.kind],
+    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) =>
+      !isSessionIntentOnlyMessage(msg) && (snapshotReady || !firstTurnReady || isFirstTurnLocalRow(msg, localFirstTurnSends)))),
+    [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends],
   );
   const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading;
   const chatTranscriptActivity = useMemo(
