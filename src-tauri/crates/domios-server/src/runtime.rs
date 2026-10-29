@@ -63,7 +63,8 @@ pub fn run(
 ) -> io::Result<()> {
     let boot_started = std::time::Instant::now();
     options.validate(cfg!(debug_assertions))?;
-    let development_owner = crate::launch_ownership::watch_owner(options.development_owner.as_ref())?;
+    let development_owner =
+        crate::launch_ownership::watch_owner(options.development_owner.as_ref())?;
     let job = if matches!(
         &options.instance,
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }

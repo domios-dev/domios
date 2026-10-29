@@ -11,7 +11,9 @@ pub(crate) fn watch_owner(
     };
     let owner = PinnedProcess::open(expected.pid)?;
     if owner.provenance()? != *expected {
-        return Err(io::Error::other("Development launch owner identity changed"));
+        return Err(io::Error::other(
+            "Development launch owner identity changed",
+        ));
     }
     let (sender, receiver) = oneshot::channel();
     std::thread::Builder::new()

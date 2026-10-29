@@ -707,12 +707,18 @@ fn bridge_rule_install_via_host_writes_file() {
 
     crate::agent_claude::provider::install_bridge_rule_at(&native_rules, payload)
         .expect("native install ok");
-    provider.install_bridge_rule(payload).expect("JS install ok");
+    provider
+        .install_bridge_rule(payload)
+        .expect("JS install ok");
     let native_written = std::fs::read_to_string(native_rules.join("domios.md"))
         .expect("native rule written at new path");
     let written = std::fs::read_to_string(&rule_path).expect("JS rule written at new path");
     assert_eq!(written, payload);
-    let channel = if cfg!(debug_assertions) { "dev" } else { "prod" };
+    let channel = if cfg!(debug_assertions) {
+        "dev"
+    } else {
+        "prod"
+    };
     assert_eq!(
         native_written,
         format!("{written}\n\n<!-- codeterm-owner -->\n<!-- codeterm-channel: {channel} -->\n")
