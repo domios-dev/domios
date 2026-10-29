@@ -73,7 +73,31 @@ pub(crate) fn open_instance_storage_at(root: impl AsRef<Path>) -> StorageAuthori
         Ok(storage) => storage,
         Err(error) => return unavailable(None, format!("storage open failed: {error}")),
     };
+    if let Err(reason) = seed_empty_desk(&storage) {
+        return unavailable(Some(storage), reason);
+    }
     StorageAuthority::Ready(storage)
+}
+
+// A fresh database has no desk row until its first snapshot, and startup readers require one.
+fn seed_empty_desk(storage: &Storage) -> Result<(), String> {
+    match storage.desk().snapshot().wait(STARTUP_DEADLINE) {
+        Ok(_) => Ok(()),
+        Err(crate::storage::StorageError::NotFound { .. }) => storage
+            .desk()
+            .import(crate::storage::DeskSnapshot {
+                version: "1".into(),
+                timestamp: 0,
+                active_workspace_id: None,
+                workspaces: Vec::new(),
+                teams: Vec::new(),
+                agent_session_identities: Vec::new(),
+            })
+            .wait(STARTUP_DEADLINE)
+            .map(|_| ())
+            .map_err(|error| format!("empty desk seed failed: {error}")),
+        Err(error) => Err(format!("desk read failed: {error}")),
+    }
 }
 
 fn unavailable(storage: Option<Storage>, reason: String) -> StorageAuthority {
