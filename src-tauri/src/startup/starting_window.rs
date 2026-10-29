@@ -1,17 +1,11 @@
 use codeterm_client_shell::app_runtime::AppHandle;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, WebviewWindowBuilder};
 
 pub(crate) fn show(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let mut config = app
-        .config()
-        .app
-        .windows
-        .first()
-        .cloned()
-        .ok_or("Main window configuration is missing")?;
+    let mut config = super::frontend_shell::initial_document::window_config(app.config())?;
     config.label = "starting".into();
-    config.url = WebviewUrl::CustomProtocol(super::frontend_shell::starting_url()?);
     config.visible = true;
+    let starting_url = super::frontend_shell::starting_url()?;
     let handle = app.clone();
     let window = WebviewWindowBuilder::from_config(app, &config)?
         .on_navigation(move |url| {
@@ -19,7 +13,7 @@ pub(crate) fn show(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                 super::frontend_shell::run_shell_action(&handle, url);
                 false
             } else {
-                url.scheme() == "data"
+                url == &starting_url || url.scheme() == "data"
             }
         })
         .build()?;

@@ -56,6 +56,9 @@ pub fn run(
     }
 
     let builder = builder
+        .register_uri_scheme_protocol(startup::frontend_shell::initial_document::SCHEME, |_, _| {
+            startup::frontend_shell::initial_document::protocol_response()
+        })
         .plugin(tauri_plugin_shell::init())
         .plugin(startup::native_notification())
         .plugin(tauri_plugin_dialog::init())
