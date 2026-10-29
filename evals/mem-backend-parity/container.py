@@ -1,4 +1,7 @@
 import json
+import os
+from pathlib import Path
+import sys
 import subprocess
 import threading
 
@@ -13,7 +16,8 @@ def verify_container():
     )
     record, = json.loads(inspected.stdout)
     if (
-        record["Name"] != "/" + NAME
+        record["Id"] != os.environ["MEM_PARITY_CONTAINER_ID"]
+        or record["Name"] != "/" + NAME
         or not record["State"]["Running"]
         or record["Config"]["Image"] != IMAGE
         or record["Config"]["Labels"].get("domios.bench") != "mem-backend-parity"
@@ -50,5 +54,22 @@ def verify_container():
         raise RuntimeError("no final TCP-ready Postgres event before the 30-second deadline")
 
 
+def check_artifacts(directory):
+    password = os.environ.get("POSTGRES_PASSWORD")
+    if not password:
+        raise RuntimeError("artifact password check requires POSTGRES_PASSWORD")
+    checked = 0
+    for name in ("run.log", "report.json", "inputs.json"):
+        path = Path(directory) / name
+        if path.exists():
+            checked += 1
+            if password.encode() in path.read_bytes():
+                raise RuntimeError("credential found in " + name)
+    print(f"CREDENTIAL_CHECK: password absent from {checked} artifacts", flush=True)
+
+
 if __name__ == "__main__":
-    verify_container()
+    if len(sys.argv) == 3 and sys.argv[1] == "--check-artifacts":
+        check_artifacts(sys.argv[2])
+    else:
+        verify_container()

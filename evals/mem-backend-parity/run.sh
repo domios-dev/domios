@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set +x
 set -euo pipefail
 
 echo 'Default vectors are synthetic (normalized hashed-token vectors): storage and ranking parity, not neural retrieval quality.'
@@ -26,6 +27,30 @@ MEM_PARITY_PYTHON="$( { python3 -c 'import sys; sys.stdout.write(sys.executable)
 export MEM_PARITY_PYTHON
 
 OUT_DIR="$(mktemp -d "$EVAL_LIB_OUT_BASE/mem-backend-parity.XXXXXX")"
+CONTAINER_ID=''
+cleanup() {
+  local result=$?
+  trap - EXIT
+  if ! "$MEM_PARITY_PYTHON" "$ROOT/evals/mem-backend-parity/container.py" --check-artifacts "$OUT_DIR"; then
+    result=2
+  fi
+  if [ -n "$CONTAINER_ID" ]; then
+    docker rm --force "$CONTAINER_ID" >/dev/null || result=2
+  fi
+  unset POSTGRES_PASSWORD MEM_PARITY_POSTGRES_URL
+  exit "$result"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+POSTGRES_PASSWORD="$("$MEM_PARITY_PYTHON" -c 'import secrets; print(secrets.token_urlsafe(24))')"
+export POSTGRES_PASSWORD
+export MEM_PARITY_POSTGRES_URL="$("$MEM_PARITY_PYTHON" -c 'import os; print("postgresql://" + "domios_parity:" + os.environ["POSTGRES_PASSWORD"] + "@127.0.0.1:55439/domios_parity")')"
+CONTAINER_ID="$(MSYS_NO_PATHCONV=1 docker run --detach --name domios-mem-backend-parity \
+  --label domios.bench=mem-backend-parity --env POSTGRES_DB=domios_parity \
+  --env POSTGRES_USER=domios_parity --env POSTGRES_PASSWORD \
+  --publish 127.0.0.1:55439:5432 --tmpfs /var/lib/postgresql/data pgvector/pgvector:pg17)"
+export MEM_PARITY_CONTAINER_ID="$CONTAINER_ID"
 CARGO_ARGS=(run --locked --manifest-path src-tauri/Cargo.toml -p codeterm-mem-postgres --example mem_backend_parity)
 if [ "$MODE" = local ]; then
   CARGO_ARGS+=(--features codeterm-mem/embeddings)
