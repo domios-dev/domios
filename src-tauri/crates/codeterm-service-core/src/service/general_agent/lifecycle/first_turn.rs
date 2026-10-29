@@ -7,7 +7,7 @@ pub(super) fn awaiting_user_turn(lazy: bool, resuming: bool, first_turn_planned:
 }
 
 pub(super) fn prepare(
-    svc: &crate::ServiceState,
+    svc: &ServiceContext,
     attempt: &LaunchAttempt,
     provider: &str,
     resuming: bool,
