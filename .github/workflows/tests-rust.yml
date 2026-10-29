@@ -75,9 +75,10 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ vars.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_AUTH_DOMAIN: ${{ vars.DOMIOS_FIREBASE_AUTH_DOMAIN }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ vars.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ vars.DOMIOS_FIREBASE_APP_ID }}
       DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
       DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
@@ -306,9 +307,10 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ vars.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_AUTH_DOMAIN: ${{ vars.DOMIOS_FIREBASE_AUTH_DOMAIN }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ vars.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ vars.DOMIOS_FIREBASE_APP_ID }}
       DOMIOS_ACCOUNT_REDEEM_URL: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
       DOMIOS_BILLING_FUNCTIONS_URL: ${{ !(matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
@@ -525,9 +527,10 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ vars.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_AUTH_DOMAIN: ${{ vars.DOMIOS_FIREBASE_AUTH_DOMAIN }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ vars.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ vars.DOMIOS_FIREBASE_APP_ID }}
       DOMIOS_ACCOUNT_REDEEM_URL: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
       DOMIOS_BILLING_FUNCTIONS_URL: ${{ !((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       # Warm per-workspace targets outside the checkout; the cleanup step sweeps them by age.
@@ -741,9 +744,10 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.SCCACHE_AWS_SECRET_ACCESS_KEY }}
       CI_STORE_LAN_ENDPOINT: ${{ secrets.CI_STORE_LAN_ENDPOINT }}
       CI_STORE_PUBLIC_ENDPOINT: ${{ secrets.CI_STORE_PUBLIC_ENDPOINT }}
-      DOMIOS_FIREBASE_API_KEY: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_API_KEY || '' }}
-      DOMIOS_FIREBASE_PROJECT_ID: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_PROJECT_ID || '' }}
-      DOMIOS_FIREBASE_APP_ID: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_FIREBASE_APP_ID || '' }}
+      DOMIOS_FIREBASE_API_KEY: ${{ vars.DOMIOS_FIREBASE_API_KEY }}
+      DOMIOS_FIREBASE_AUTH_DOMAIN: ${{ vars.DOMIOS_FIREBASE_AUTH_DOMAIN }}
+      DOMIOS_FIREBASE_PROJECT_ID: ${{ vars.DOMIOS_FIREBASE_PROJECT_ID }}
+      DOMIOS_FIREBASE_APP_ID: ${{ vars.DOMIOS_FIREBASE_APP_ID }}
       DOMIOS_ACCOUNT_REDEEM_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_ACCOUNT_REDEEM_URL || '' }}
       DOMIOS_BILLING_FUNCTIONS_URL: ${{ !((vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04') && secrets.DOMIOS_BILLING_FUNCTIONS_URL || '' }}
       CI_HOSTED: ${{ (vars.CI_LINUX_LIGHT_RUNNER || 'ubuntu-24.04') == 'ubuntu-24.04' }}
