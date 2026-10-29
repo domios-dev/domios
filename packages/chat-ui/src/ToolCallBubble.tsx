@@ -1,6 +1,7 @@
 import type { NormalizedChatMessage as ChatMessage, ToolEvent } from "@codeterm/chat-core";
 import { materializeToolEvent } from "@codeterm/chat-core";
 import { useState } from "react";
+import { retainStreamedCommandShell } from "./toolPresentationState";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import type { OpenPlan, ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { toolCommandShape } from "./codeterm/commandShape";
@@ -16,6 +17,7 @@ import { ReadCard } from "./toolcard/ReadCard";
 import { RichResultCard } from "./toolcard/RichResultCard";
 import { SearchCard } from "./toolcard/SearchCard";
 import { TaskCard } from "./toolcard/TaskCard";
+import { StreamedCommandDetail } from "./toolcard/StreamedCommandDetail";
 import { ToolActivityStream, type RenderStreamAction } from "./toolcard/ToolActivityStream";
 
 type PlanFocusKind = "plan" | "task" | "section";
@@ -37,13 +39,13 @@ interface ToolCallBubbleProps {
 
 export function ToolCallBubble(props: ToolCallBubbleProps) {
   const event = props.event ?? (props.message ? materializeToolEvent(props.message) : null);
-  const [retainCommandShell] = useState(() => event?.kind === "command" && event.status === "pending"
-    && !event.stream && !event.commandBatch);
+  const [retainCommandShell] = useState(() => event ? retainStreamedCommandShell(event) : false);
   if (!event) return null;
   if (retainCommandShell && event.kind === "command" && !event.stream && !event.commandBatch) {
-    const specialized = toolCommandShape(event).kind !== "single";
     return <CommandCard event={event} expanded={props.expanded} onToggle={() => props.onToggle(!props.expanded)}>
-      {specialized && props.expanded ? <ToolCallBubbleContent {...props} event={event} /> : undefined}
+      {props.expanded ? <StreamedCommandDetail event={event} resolveTabName={props.resolveTabName}
+        resolvePeerName={props.resolvePeerName} onFocusTab={props.onFocusTab} onOpenPlan={props.onOpenPlan}
+        resolvePlanRef={props.resolvePlanRef} fontScale={props.fontScale} /> : undefined}
     </CommandCard>;
   }
   return <ToolCallBubbleContent {...props} event={event} />;
