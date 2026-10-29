@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 
@@ -39,10 +39,22 @@ fn chat_admission_rejection(tab_id: &str, detail: String) -> SendRejection {
 pub async fn chat_send_text(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    caller: Option<Extension<crate::auth::CallerIdentity>>,
     Path(id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
+    if body.startup_override_nonce.is_some()
+        && !matches!(
+            caller.as_ref().map(|caller| &caller.0),
+            Some(crate::auth::CallerIdentity::Local)
+        )
+    {
+        return Err(SendRejection::from((
+            StatusCode::FORBIDDEN,
+            "Startup override requires authenticated owner authority",
+        )));
+    }
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;
@@ -211,6 +223,8 @@ async fn run_programmatic_delivery<T: Send + 'static>(
 
 #[cfg(test)]
 mod lock_tests;
+#[cfg(test)]
+mod startup_override_tests;
 #[cfg(test)]
 mod mesh_rpc_delivery_tests;
 
@@ -1178,27 +1192,4 @@ mod payload_preflight_tests {
 }
 
 #[cfg(test)]
-mod admission_tests {
-    use super::*;
-
-    #[test]
-    fn replay_mode_is_explicit_and_defaults_to_fresh_admission() {
-        let fresh: SendTextBody =
-            serde_json::from_value(serde_json::json!({"text": "opaque"})).unwrap();
-        assert!(!fresh.replay_only);
-        for field in ["replayOnly", "replay_only"] {
-            let replay: SendTextBody =
-                serde_json::from_value(serde_json::json!({(field): true})).unwrap();
-            assert!(replay.replay_only);
-        }
-    }
-
-    #[test]
-    fn unknown_replay_admission_is_never_reported_safe_to_resend() {
-        let rejection =
-            chat_admission_rejection("opaque-tab", "admission_unknown: opaque detail".into());
-        assert_eq!(rejection.status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(rejection.body["safe_to_resend"], false);
-        assert_eq!(rejection.body["error"]["code"], "admission_unknown");
-    }
-}
+mod admission_tests;

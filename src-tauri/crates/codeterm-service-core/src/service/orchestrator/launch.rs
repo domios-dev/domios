@@ -720,11 +720,12 @@ pub fn launch_agent_in_background_with_env(
             return;
         }
         // (#93 — keeps shell-level launch off the bracketed-paste path).
+        let mut dispatched_authority = svc.user_send_authority(&tab_id).ok();
         let first_launch = match launch.write_if_current(|| {
             if direct {
                 Ok(())
             } else {
-                svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
+                wrapped_launch_cmd.send(&svc, &pty_id)
             }
         }) {
             Some(result) => result,
@@ -835,8 +836,9 @@ pub fn launch_agent_in_background_with_env(
                         {
                             return;
                         }
+                        dispatched_authority = svc.user_send_authority(&tab_id).ok();
                         match launch.write_if_current(|| {
-                            svc.send_launch_command_to_pty_after_ready(&pty_id, &wrapped_launch_cmd)
+                            wrapped_launch_cmd.send(&svc, &pty_id)
                         }) {
                             Some(result) => result,
                             None => return,
@@ -870,6 +872,12 @@ pub fn launch_agent_in_background_with_env(
                 pty_id,
             );
             return;
+        }
+        if let Some(authority) = dispatched_authority.as_ref().filter(|authority| {
+            authority.binding_nonce == launch.binding_nonce.as_deref().unwrap_or_default()
+                && authority.pty_id.as_deref() == Some(launch.pty_id.as_str())
+        }) {
+            svc.note_user_launch_dispatched(authority);
         }
         if let Some(tree) = svc.observe_provider_process_tree(&tab_id, &pty_id) {
             log::info!(

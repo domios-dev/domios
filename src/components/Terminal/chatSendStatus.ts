@@ -130,6 +130,8 @@ export function isProvenAdmissionRefusal(error: unknown): boolean {
     "user admission sequence exhausted",
     "user token retention capacity reached",
     "user original exceeds 4 MiB storage bound",
+    "startup override ",
+    "Startup override ",
   ].some((refusal) => message.includes(refusal));
 }
 

@@ -646,6 +646,7 @@ impl ServiceContext {
                 })
         };
         if let Some(binding) = provisional {
+            self.finish_launch_credential_file(tab_id, &binding.pty_id, &binding.binding_nonce);
             self.retire_provisional_launch(tab_id, &binding);
         }
         let binding = {
