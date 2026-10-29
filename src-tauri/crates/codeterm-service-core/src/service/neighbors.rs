@@ -182,7 +182,7 @@ impl ServiceContext {
             }
         }
         if name == "claimReferralTrial" && referral::refresh_required(&result)? {
-            self.refresh_billing(codeterm_billing::RefreshEvent::Explicit)
+            self.refresh_billing(codeterm_billing::RefreshEvent::PlanChanged)
                 .await?;
             if !same_session(account.session().await.as_ref(), &session) {
                 return Err("Account changed while checking the referral".into());

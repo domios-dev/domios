@@ -110,7 +110,7 @@ impl ServiceContext {
             return Err("account_changed".into());
         }
         let result = receipt(body.get("result").cloned().ok_or("invalid_response")?)?;
-        self.refresh_billing(codeterm_billing::RefreshEvent::Explicit)
+        self.refresh_billing(codeterm_billing::RefreshEvent::PlanChanged)
             .await
             .map_err(|_| "refresh_unavailable")?;
         if !same_session(account.session().await.as_ref(), &session) {

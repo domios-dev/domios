@@ -5,6 +5,11 @@ import { useDesktopBilling } from "./useDesktopBilling";
 import { desktopCatalogFixture } from "./desktopBilling.testdata";
 
 const transport = vi.hoisted(() => ({ localFetch: vi.fn() }));
+const bridge = vi.hoisted(() => ({ handlers: new Set<() => void>() }));
+vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: () => void) => {
+  bridge.handlers.add(handler);
+  return () => { bridge.handlers.delete(handler); };
+} }));
 vi.mock("../../lib/webApi", () => transport);
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | null = null;
@@ -13,6 +18,7 @@ function Harness({ identity = "owner", enabled = true }: { identity?: string; en
 afterEach(async () => {
   if (mounted) { await act(async () => mounted!.root.unmount()); mounted.host.remove(); mounted = null; }
   transport.localFetch.mockReset();
+  bridge.handlers.clear();
   vi.restoreAllMocks();
 });
 async function mount() {
@@ -24,7 +30,7 @@ const readback = { billing_interval: "month", current_tier: "max", paid_subscrip
 const ok = (value: unknown) => new Response(JSON.stringify(value), { status: 200 });
 const setup = (change: () => Promise<Response>) => transport.localFetch.mockImplementation(async (_url: string, init: RequestInit) => {
   const { operation } = JSON.parse(String(init.body)) as { operation: string };
-  return operation === "catalog" ? ok(desktopCatalogFixture) : operation === "subscription" ? ok(readback) : change();
+  return ["catalog", "refresh_catalog"].includes(operation) ? ok(desktopCatalogFixture) : ["subscription", "refresh_subscription"].includes(operation) ? ok(readback) : change();
 });
 
 it("keeps an unconfirmed payable request from being submitted again", async () => {
@@ -62,7 +68,7 @@ it("does not publish an old identity's pending change into a new account", async
   expect(state.submitted).toBe(false);
 });
 
-it("defers closed consumers and shares catalog and account reads on open and focus", async () => {
+it("defers closed consumers, shares reads on open and never fetches on focus", async () => {
   let now = Date.now() + 120_000;
   vi.spyOn(Date, "now").mockImplementation(() => now);
   setup(async () => ok({}));
@@ -76,7 +82,47 @@ it("defers closed consumers and shares catalog and account reads on open and foc
   expect(transport.localFetch).toHaveBeenCalledTimes(2);
   now += 60_000;
   await act(async () => window.dispatchEvent(new Event("focus")));
-  expect(transport.localFetch).toHaveBeenCalledTimes(4);
+  expect(transport.localFetch).toHaveBeenCalledTimes(2);
   await act(async () => root.render(<><Harness identity="shared-owner" /><Harness identity="shared-other" /></>));
-  expect(transport.localFetch).toHaveBeenCalledTimes(5);
+  expect(transport.localFetch).toHaveBeenCalledTimes(4);
+});
+
+it("updates two mounted consumers from one entitlement event and replaces a stale pending answer", async () => {
+  const seen: ReturnType<typeof useDesktopBilling>[] = [];
+  function Consumer({ index }: { index: number }) {
+    seen[index] = useDesktopBilling("event-owner");
+    return null;
+  }
+  let finishOld!: (response: Response) => void;
+  let finishFresh!: (response: Response) => void;
+  let refreshed!: () => void;
+  const started = new Promise<void>(resolve => { refreshed = resolve; });
+  let subscriptionCalls = 0;
+  let catalogCalls = 0;
+  transport.localFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+    const { operation } = JSON.parse(String(init.body)) as { operation: string };
+    if (operation === "catalog") { catalogCalls++; return ok(desktopCatalogFixture); }
+    subscriptionCalls++;
+    if (subscriptionCalls === 1) return new Promise<Response>(resolve => { finishOld = resolve; });
+    refreshed();
+    return new Promise<Response>(resolve => { finishFresh = resolve; });
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); mounted = { root, host };
+  await act(async () => root.render(<><Consumer index={0} /><Consumer index={1} /></>));
+  expect(bridge.handlers.size).toBe(1);
+  await act(async () => { for (const handler of bridge.handlers) handler(); });
+  expect(subscriptionCalls).toBe(1);
+  await act(async () => {
+    finishOld(ok({ ...readback, current_tier: "old-tier" }));
+    await started;
+  });
+  expect(seen.map(value => value.subscription)).toEqual([null, null]);
+  await act(async () => finishFresh(ok(readback)));
+  expect(seen.map(value => value.subscription)).toEqual([readback, readback]);
+  expect(subscriptionCalls).toBe(2);
+  expect(catalogCalls).toBe(1);
+  await act(async () => window.dispatchEvent(new Event("focus")));
+  expect(subscriptionCalls).toBe(2);
+  expect(catalogCalls).toBe(1);
 });

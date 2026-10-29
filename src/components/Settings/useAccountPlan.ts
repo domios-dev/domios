@@ -7,6 +7,7 @@ import { freeLimitGate, upgradePlan } from "../billing/freeLimitGate";
 import { accountPlanModel, NoBillingCustomer, SubscriptionServiceUnavailable, type AccountPlan, type PlanModel } from "./accountPlanModel";
 
 const plans = new Map<string | null, SharedRead<PlanModel>>();
+const pendingBrowserReturns = new Set<string>();
 
 async function fetchPlan(focus: boolean): Promise<PlanModel> {
   const response = await localFetch(`/api/account/plan${focus ? "/refresh?focus=true" : ""}`, {method:focus ? "POST" : "GET"});
@@ -47,7 +48,10 @@ export function useAccountPlan(identityKey: string | null) {
   useEffect(() => {
     const generation = ++active.current;
     const controller = new AbortController();
-    if (identityKey === null) for (const key of plans.keys()) { if (key !== null) plans.delete(key); }
+    if (identityKey === null) {
+      pendingBrowserReturns.clear();
+      for (const key of plans.keys()) { if (key !== null) plans.delete(key); }
+    }
     let shared = plans.get(identityKey);
     if (!shared) { shared = new SharedRead<PlanModel>(); plans.set(identityKey, shared); }
     const resource = shared;
@@ -75,14 +79,24 @@ export function useAccountPlan(identityKey: string | null) {
       }
     }
     void refresh();
-    const onFocus = () => { void refresh(true); };
+    const onFocus = () => {
+      const returned = identityKey !== null && pendingBrowserReturns.delete(identityKey);
+      void refresh(true, returned);
+    };
     window.addEventListener("focus",onFocus);
     let unlisten: (() => void) | undefined;
+    let unlistenBrowser: (() => void) | undefined;
+    void listen<{ uid: string }>("billing-browser-opened", ({ payload }) => {
+      if (active.current === generation && payload.uid === identityKey) pendingBrowserReturns.add(payload.uid);
+    }).then(fn => {
+      if (active.current === generation) unlistenBrowser = fn;
+      else fn();
+    }).catch(() => undefined);
     void listen("entitlement-changed", () => { void refresh(false, true); }).then((fn) => {
       if (active.current === generation) unlisten = fn;
       else fn();
     });
-    return () => { unsubscribe(); controller.abort(); active.current++; window.removeEventListener("focus",onFocus); unlisten?.(); };
+    return () => { unsubscribe(); controller.abort(); active.current++; window.removeEventListener("focus",onFocus); unlisten?.(); unlistenBrowser?.(); };
   }, [identityKey]);
   async function run(action: () => Promise<void>): Promise<unknown | null> {
     if (busy.current) return null;

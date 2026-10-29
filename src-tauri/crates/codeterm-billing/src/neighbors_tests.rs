@@ -7,7 +7,7 @@ async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_up
     free.entitlements = Some(Entitlements::default());
     free.access.authority = Authority::Free;
     let provider = GrantReplies::new(vec![Ok(free), Err("offline".into()), Ok(paid_grant())]);
-    let (_, clock) = clock(1_700_000_060);
+    let (time, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
         activation("fixture-online-v1"),
         "fixture-installation",
@@ -24,6 +24,7 @@ async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_up
         .await;
     assert!(billing.neighbors_locked("fixture-user"));
     assert!(!billing.neighbors_locked("other-account"));
+    time.store(1_700_000_120, std::sync::atomic::Ordering::SeqCst);
     billing
         .refresh(
             Some(&user),
@@ -32,6 +33,7 @@ async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_up
         )
         .await;
     assert!(!billing.neighbors_locked("fixture-user"));
+    time.store(1_700_000_180, std::sync::atomic::Ordering::SeqCst);
     billing
         .refresh(
             Some(&user),
@@ -115,6 +117,7 @@ async fn paid_expiry_while_refresh_is_pending_does_not_stop_neighbors() {
     billing
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
+    time.store(1_700_000_120, std::sync::atomic::Ordering::SeqCst);
     let refresh = billing.refresh(
         Some(&user),
         RefreshEvent::Explicit,
