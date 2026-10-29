@@ -171,6 +171,102 @@ async fn startup_events_refuse_foreign_unauthenticated_callers() {
 }
 
 #[tokio::test]
+async fn published_listener_router_serves_authenticated_startup_events_instead_of_html() {
+    use axum::body::HttpBody;
+    for state in ["starting", "ready", "failed"] {
+        let api = EarlyApi::new(Some("fixture-token".into()));
+        let published = api.with_startup_events(
+            Router::new()
+                .fallback(|| async { axum::response::Html("<html>frontend shell</html>") }),
+        );
+        if state == "failed" {
+            api.fail("platform");
+        } else if state == "ready" {
+            complete_service(&api);
+            api.complete("integrity");
+            api.activate(published.clone()).unwrap();
+        }
+        for router in [api.router(), published.clone()] {
+            for method in [Method::GET, Method::HEAD, Method::POST] {
+                for token in [None, Some("wrong-token"), Some("fixture-token")] {
+                    let mut request = Request::builder()
+                        .method(method.clone())
+                        .uri("/api/startup/events")
+                        .extension(ConnectInfo(
+                            "100.64.0.2:40000".parse::<SocketAddr>().unwrap(),
+                        ));
+                    if let Some(token) = token {
+                        request = request.header("authorization", format!("Bearer {token}"));
+                    }
+                    let response = router
+                        .clone()
+                        .oneshot(request.body(Body::empty()).unwrap())
+                        .await
+                        .unwrap();
+                    if token != Some("fixture-token") {
+                        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+                        continue;
+                    }
+                    if method != Method::GET {
+                        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+                        assert!(to_bytes(response.into_body(), 1024)
+                            .await
+                            .unwrap()
+                            .is_empty());
+                        continue;
+                    }
+                    assert_eq!(response.status(), StatusCode::OK);
+                    assert_eq!(response.headers()["content-type"], "text/event-stream");
+                    let mut body = response.into_body();
+                    let frame =
+                        std::future::poll_fn(|cx| std::pin::Pin::new(&mut body).poll_frame(cx))
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .into_data()
+                            .unwrap();
+                    let event = std::str::from_utf8(&frame).unwrap();
+                    assert!(event.starts_with("event: startup-state\n"));
+                    let data = event
+                        .lines()
+                        .find_map(|line| line.strip_prefix("data: "))
+                        .unwrap();
+                    let snapshot: serde_json::Value = serde_json::from_str(data).unwrap();
+                    assert_eq!(snapshot["state"], state);
+                    if state != "starting" {
+                        assert!(std::future::poll_fn(
+                            |cx| std::pin::Pin::new(&mut body).poll_frame(cx)
+                        )
+                        .await
+                        .is_none());
+                    }
+                }
+            }
+        }
+        let response = published.oneshot(request(Method::GET, "/")).await.unwrap();
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/html; charset=utf-8"
+        );
+    }
+}
+
+#[test]
+fn activated_published_router_does_not_retain_the_readiness_gate() {
+    let api = EarlyApi::new(Some("fixture-token".into()));
+    let gate = Arc::downgrade(&api.gate);
+    let primary = api.router();
+    let published = api.with_startup_events(Router::new());
+    complete_service(&api);
+    api.complete("integrity");
+    api.activate(published.clone()).unwrap();
+    drop(api);
+    assert!(gate.upgrade().is_some());
+    drop(primary);
+    drop(published);
+    assert!(gate.upgrade().is_none());
+}
+#[tokio::test]
 async fn early_health_only_exempts_loopback_from_authentication() {
     let api = EarlyApi::new(Some("fixture-token".into()));
     for address in ["192.0.2.1:40000", "[2001:db8::1]:40000"] {

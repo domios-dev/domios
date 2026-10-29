@@ -184,6 +184,7 @@ pub(crate) fn start_servers(
     frontend_dev_url: Option<url::Url>,
     resources: Option<std::path::PathBuf>,
     quit_port: Option<codeterm_api::app_quit_routes::AppQuitPortHandle>,
+    startup_api: &super::early_api::EarlyApi,
 ) -> Result<Option<Arc<codeterm_frontend_bundle::FrontendBundles>>, String> {
     codeterm_commands::update::bind_status_emitter(service_state.ui.clone());
     super::state_incidents::install_notifier(service_state);
@@ -412,6 +413,7 @@ pub(crate) fn start_servers(
             Some(port) => codeterm_api::app_quit_routes::with_port(router, port),
             None => router,
         };
+        let router = startup_api.with_startup_events(router);
         assert!(service_state
             .set_ext(codeterm_service_core::ports::rest::LocalApiRouter(
                 router.clone(),

@@ -163,6 +163,16 @@ impl EarlyApi {
         Router::new().fallback(any(route)).with_state(self.clone())
     }
 
+    pub(super) fn with_startup_events(&self, router: Router) -> Router {
+        router.route(
+            "/api/startup/events",
+            any(startup_events).with_state(StartupEventState {
+                changes: self.changes.clone(),
+                token: self.token.clone(),
+            }),
+        )
+    }
+
     pub fn complete(&self, phase: &'static str) {
         let mut gate = self.gate.lock();
         gate.readiness.phases.insert(phase, PhaseState::Ready);
@@ -212,41 +222,63 @@ impl EarlyApi {
     }
 }
 
-async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
-    let path = request.uri().path();
-    let read = request.method() == Method::GET;
-    let local = request
+#[derive(Clone)]
+struct StartupEventState {
+    changes: watch::Sender<Readiness>,
+    token: Option<String>,
+}
+
+fn authenticated(request: &Request, token: Option<&str>) -> bool {
+    request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .is_some_and(|peer| peer.0.ip().is_loopback());
-    let authenticated = local
-        || api.token.as_ref().is_some_and(|token| {
+        .is_some_and(|peer| peer.0.ip().is_loopback())
+        || token.is_some_and(|token| {
             request
                 .headers()
                 .get(axum::http::header::AUTHORIZATION)
                 .is_some_and(|value| {
                     value.as_bytes().strip_prefix(b"Bearer ") == Some(token.as_bytes())
                 })
-        });
-    if read && path == "/api/startup/events" {
-        if !authenticated {
-            return StatusCode::FORBIDDEN.into_response();
-        }
-        let mut changes = api.changes.subscribe();
-        return Sse::new(async_stream::stream! {
-            loop {
-                let readiness = changes.borrow_and_update().clone();
-                let terminal = readiness.state != PhaseState::Starting;
-                let event = Event::default().event("startup-state").json_data(readiness);
-                match event {
-                    Ok(event) => yield Ok::<_, Infallible>(event),
-                    Err(_) => break,
-                }
-                if terminal || changes.changed().await.is_err() { break; }
-            }
         })
-        .into_response();
+}
+
+async fn startup_events(State(state): State<StartupEventState>, request: Request) -> Response {
+    if !authenticated(&request, state.token.as_deref()) {
+        return StatusCode::FORBIDDEN.into_response();
     }
+    if request.method() != Method::GET {
+        return StatusCode::METHOD_NOT_ALLOWED.into_response();
+    }
+    let mut changes = state.changes.subscribe();
+    Sse::new(async_stream::stream! {
+        loop {
+            let readiness = changes.borrow_and_update().clone();
+            let terminal = readiness.state != PhaseState::Starting;
+            let event = Event::default().event("startup-state").json_data(readiness);
+            match event {
+                Ok(event) => yield Ok::<_, Infallible>(event),
+                Err(_) => break,
+            }
+            if terminal || changes.changed().await.is_err() { break; }
+        }
+    })
+    .into_response()
+}
+async fn route(State(api): State<EarlyApi>, request: Request) -> Response {
+    let path = request.uri().path();
+    let read = request.method() == Method::GET;
+    if path == "/api/startup/events" {
+        return startup_events(
+            State(StartupEventState {
+                changes: api.changes.clone(),
+                token: api.token.clone(),
+            }),
+            request,
+        )
+        .await;
+    }
+    let authenticated = authenticated(&request, api.token.as_deref());
     let (router, readiness) = {
         let gate = api.gate.lock();
         (gate.router.clone(), gate.readiness.clone())
