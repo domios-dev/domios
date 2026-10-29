@@ -12,6 +12,9 @@ pub type RegistryResult<T> = std::result::Result<T, RegistryRefusal>;
 /// Server registry seam; the HTTP adapter binds the reviewed callable names.
 #[async_trait]
 pub trait MeshRegistry: Send + Sync {
+    fn handles_call_deadline(&self) -> bool {
+        false
+    }
     async fn revoke_prior_sessions(
         &self,
         session: &Session,

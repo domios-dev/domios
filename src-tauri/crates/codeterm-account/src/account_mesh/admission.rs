@@ -118,7 +118,7 @@ impl AccountMesh {
         operation: MeshOperation,
     ) -> Outcome<MeshResult> {
         let generation = self.generation(signed).await?;
-        let request = MeshAdmissionBody {
+        let mut request = MeshAdmissionBody {
             schema_version: MESH_SCHEMA_VERSION,
             installation_id: self.installation(),
             request_id: request_id(),
@@ -131,7 +131,21 @@ impl AccountMesh {
             .then_some(super::membership::MAX_MEMBERSHIP_SECONDS),
             operation,
         };
-        self.with(|inner| inner.last_request = Some(request.request_id.clone()));
+        self.with(|inner| {
+            if signed.epoch != 0 && !inner.is_current(signed.epoch) {
+                return Err(AccountMeshRefusal::Cancelled);
+            }
+            if matches!(request.operation, MeshOperation::Renew { .. }) {
+                if let Some(pending) = &inner.pending_renew {
+                    if pending.operation == request.operation {
+                        request = pending.clone();
+                    }
+                }
+                inner.pending_renew = Some(request.clone());
+            }
+            inner.last_request = Some(request.request_id.clone());
+            Ok(())
+        })?;
         let installation_proof = self
             .prove(signed, ProofEndpoint::MeshAdmission, &request, generation)
             .await?;
@@ -139,7 +153,23 @@ impl AccountMesh {
             request,
             installation_proof,
         };
-        self.call(self.ports.registry.admission(&signed.session, &envelope))
-            .await
+        let result = self
+            .call(self.ports.registry.admission(&signed.session, &envelope))
+            .await;
+        if !matches!(
+            result,
+            Err(AccountMeshRefusal::Offline
+                | AccountMeshRefusal::Unavailable
+                | AccountMeshRefusal::AuthorityUnavailable
+                | AccountMeshRefusal::RateLimited { .. }
+                | AccountMeshRefusal::Unauthenticated)
+        ) {
+            self.with(|inner| {
+                if inner.is_current(signed.epoch) {
+                    inner.pending_renew = None;
+                }
+            });
+        }
+        result
     }
 }

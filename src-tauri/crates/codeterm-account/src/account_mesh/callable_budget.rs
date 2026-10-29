@@ -33,16 +33,30 @@ impl Budget {
     }
 }
 
-pub(super) fn account(uid: &str) -> Arc<tokio::sync::Mutex<Budget>> {
-    static ACCOUNTS: OnceLock<
-        parking_lot::Mutex<HashMap<String, Arc<tokio::sync::Mutex<Budget>>>>,
-    > = OnceLock::new();
+struct AccountBudget {
+    state: Arc<tokio::sync::Mutex<Budget>>,
+    probe: Arc<tokio::sync::Semaphore>,
+}
+
+fn account_budget(uid: &str) -> Arc<AccountBudget> {
+    static ACCOUNTS: OnceLock<parking_lot::Mutex<HashMap<String, Arc<AccountBudget>>>> =
+        OnceLock::new();
     ACCOUNTS
         .get_or_init(Default::default)
         .lock()
         .entry(uid.to_owned())
-        .or_default()
+        .or_insert_with(|| {
+            Arc::new(AccountBudget {
+                state: Default::default(),
+                probe: Arc::new(tokio::sync::Semaphore::new(1)),
+            })
+        })
         .clone()
+}
+
+#[cfg(test)]
+pub(super) fn account(uid: &str) -> Arc<tokio::sync::Mutex<Budget>> {
+    account_budget(uid).state.clone()
 }
 
 #[async_trait::async_trait]
@@ -72,30 +86,43 @@ pub(super) async fn run<T: super::callable::CallableTransport + ?Sized>(
     clock: &dyn Clock,
 ) -> Result<serde_json::Value, super::callable::CallableFailure> {
     use super::callable::CallableFailure;
-    let budget = account(uid);
-    let mut budget = tokio::select! {
+    let admission = account_budget(uid);
+    let budget = &admission.state;
+    let _probe = tokio::select! {
         biased;
         _ = guard.retired() => return Err(CallableFailure::Retired),
-        budget = async {
-            let budget = budget.lock().await;
-            let delay = budget.remaining(clock.now());
-            if !delay.is_zero() { clock.wait(delay).await; }
-            budget
-        } => budget,
+        permit = admission.probe.acquire() => permit.map_err(|_| CallableFailure::Retired)?,
     };
+    tokio::select! {
+        biased;
+        _ = guard.retired() => return Err(CallableFailure::Retired),
+        _ = async {
+            loop {
+                let delay = budget.lock().await.remaining(clock.now());
+                if delay.is_zero() { break; }
+                clock.wait(delay).await;
+            }
+        } => {},
+    }
     if !guard.current().await {
         return Err(CallableFailure::Retired);
     }
-    let response = transport.call(route, id_token, data).await;
+    let response = tokio::select! {
+        biased;
+        _ = guard.retired() => return Err(CallableFailure::Retired),
+        response = tokio::time::timeout(Duration::from_secs(15), transport.call(route, id_token, data)) => {
+            response.unwrap_or(Err(CallableFailure::Offline))
+        },
+    };
     if let Err(failure @ CallableFailure::Status { status: 429, .. }) = &response {
-        budget.limited(
+        budget.lock().await.limited(
             route,
             clock.now(),
             failure.retry_after_seconds().unwrap_or(0),
         );
     }
     if response.is_ok() {
-        budget.success(route);
+        budget.lock().await.success(route);
     }
     response
 }

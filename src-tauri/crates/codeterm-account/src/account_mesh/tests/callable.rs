@@ -313,8 +313,8 @@ fn http_status_body_matrix_preserves_permanent_auth_transient_and_throttle_class
     for body in bodies {
         for (status, expected) in [
             (401, RegistryRefusal::Unauthenticated),
-            (403, RegistryRefusal::Forbidden),
-            (404, RegistryRefusal::Invalid),
+            (403, RegistryRefusal::Unavailable),
+            (404, RegistryRefusal::Unavailable),
             (500, RegistryRefusal::Unavailable),
             (503, RegistryRefusal::Unavailable),
         ] {

@@ -126,6 +126,8 @@ pub enum AccountMeshRefusal {
 impl From<RegistryRefusal> for AccountMeshRefusal {
     fn from(value: RegistryRefusal) -> Self {
         match value {
+            RegistryRefusal::Cancelled => Self::Cancelled,
+            RegistryRefusal::Revoked => Self::Revoked,
             RegistryRefusal::InstallationUnverified => Self::InstallationUnverified,
             RegistryRefusal::CutoffAfterCurrentSession => Self::CutoffAfterCurrentSession,
             RegistryRefusal::Invalid => Self::Invalid,
@@ -308,13 +310,13 @@ pub struct KeyBinding {
     pub generation: u64,
 }
 
-/// Durable lifecycle facts keyed by opaque account id.
+/// Durable lifecycle facts keyed by opaque account id; holds no token, uid or endpoint.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
     /// First account association; an account switch never rebinds saved pairs.
     pub owner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
     pub admission_cache: Option<super::cache::AdmissionCache>,
     pub signed_out: bool,
     pub cleanup_pending: bool,

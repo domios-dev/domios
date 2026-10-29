@@ -111,6 +111,7 @@ pub(super) struct Inner {
     pub(super) key: Option<Arc<InstallationKey>>,
     pub(super) rotation_attempt: Option<u64>,
     pub(super) last_request: Option<String>,
+    pub(super) pending_renew: Option<super::wire::MeshAdmissionBody>,
     pub(super) metadata_revision: Option<u64>,
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
@@ -125,7 +126,7 @@ pub(super) struct Inner {
     flight: Option<Flight>,
     awaiting_logout: bool,
     notice_epoch: Option<u64>,
-    lease: u64,
+    pub(super) lease: u64,
     pub(super) retry: super::retry::Retry,
     store_unreadable: bool,
 }
@@ -156,6 +157,7 @@ impl Inner {
     fn begin_epoch(&mut self) {
         self.cancel_flight();
         self.auth_parked = None;
+        self.pending_renew = None;
         self.refreshed_credentials = None;
         self.notice_epoch = None;
         self.registry_flight = None;
@@ -207,6 +209,7 @@ impl AccountMesh {
                 key: None,
                 rotation_attempt: None,
                 last_request: None,
+                pending_renew: None,
                 metadata_revision: None,
                 registry_presence: None,
                 registry_notices: Default::default(),
@@ -591,6 +594,9 @@ impl AccountMesh {
                 return None;
             }
             inner.retry.settle(self.now(), *result);
+            if inner.state.membership.is_some() {
+                inner.retry.keep_recovering(self.now());
+            }
             let retry_at = inner.retry.deadline;
             let rerun = if owned
                 && inner.auth_parked.is_none()
@@ -676,50 +682,5 @@ impl AccountMesh {
             self.push().await;
         }
         cleared
-    }
-
-    /// One live lease timer: renew at the server's refresh point, or after a transient renewal
-    /// failure with bounded backoff. A newer timer or epoch retires it; it never proves readiness.
-    fn schedule_lease(self: &Arc<Self>, epoch: u64, result: &Settled) {
-        if !self.config.schedule_leases {
-            return;
-        }
-        let now = self.now();
-        let Some((lease, delay)) = self.with(|inner| {
-            if !inner.is_current(epoch) {
-                return None;
-            }
-            let delay = match result {
-                Ok(()) => {
-                    let membership = inner.state.membership.as_ref()?;
-                    let mut due = membership.verified.refresh_after();
-                    if inner.published_endpoint.is_some() {
-                        due = due.min(inner.publication_refresh_after);
-                    }
-                    due.saturating_sub(now)
-                }
-                Err(_) => inner.retry.deadline?.saturating_sub(now),
-            };
-            inner.lease += 1;
-            Some((inner.lease, delay.max(1)))
-        }) else {
-            return;
-        };
-        let mesh = Arc::downgrade(self);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(delay)).await;
-            let Some(mesh) = mesh.upgrade() else {
-                return;
-            };
-            if mesh.with(|inner| {
-                if inner.lease != lease || !inner.is_current(epoch) {
-                    return false;
-                }
-                inner.retry.deadline = None;
-                true
-            }) {
-                let _ = mesh.refresh(EnrollTrigger::Lease).await;
-            }
-        });
     }
 }

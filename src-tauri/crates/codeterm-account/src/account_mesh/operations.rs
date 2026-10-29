@@ -92,6 +92,9 @@ impl AccountMesh {
         &self,
         call: impl Future<Output = RegistryResult<T>>,
     ) -> Outcome<T> {
+        if self.ports.registry.handles_call_deadline() {
+            return call.await.map_err(AccountMeshRefusal::from);
+        }
         tokio::time::timeout(self.config.call_deadline, call)
             .await
             .map_err(|_| AccountMeshRefusal::Offline)?
@@ -291,15 +294,18 @@ impl AccountMesh {
             .rows
             .iter()
             .find(|row| row.installation_id == self.installation())
-            .filter(|row| {
-                row.active
-                    && row.key_id == signed.key.key_id()
-                    && row.key_generation > 0
-                    && row.slot_revision > 0
-            })
         else {
             return Ok(None);
         };
+        if !row.active {
+            return Ok(None);
+        }
+        if row.key_id != signed.key.key_id() {
+            return Err(AccountMeshRefusal::KeyConflict);
+        }
+        if row.key_generation == 0 || row.slot_revision == 0 {
+            return Err(AccountMeshRefusal::Invalid);
+        }
         let key_id = row.key_id.clone();
         let generation = row.key_generation;
         let slot_revision = row.slot_revision;
@@ -361,32 +367,32 @@ impl AccountMesh {
             };
             match self.admission(&signed, operation).await {
                 Ok(result) => result,
-                Err(AccountMeshRefusal::Forbidden | AccountMeshRefusal::Revoked) => {
-                    self.rejoin(&mut signed).await?
+                Err(AccountMeshRefusal::Revoked) => self.rejoin(&mut signed).await?,
+                Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden) => {
+                    match self.reconcile_slot(&signed).await {
+                        Ok(Some(slot_revision)) => {
+                            self.admission(
+                                &signed,
+                                MeshOperation::Renew {
+                                    expected_slot_revision: slot_revision,
+                                },
+                            )
+                            .await?
+                        }
+                        Ok(None) if self.own_removed() => self.rejoin(&mut signed).await?,
+                        Err(AccountMeshRefusal::KeyConflict) => self.rejoin(&mut signed).await?,
+                        Ok(None) => {
+                            self.admission(
+                                &signed,
+                                MeshOperation::Enroll {
+                                    expected_slot_revision: 0,
+                                },
+                            )
+                            .await?
+                        }
+                        Err(refusal) => return Err(refusal),
+                    }
                 }
-                Err(AccountMeshRefusal::Conflict) => match self.reconcile_slot(&signed).await {
-                    Ok(Some(slot_revision)) => {
-                        self.admission(
-                            &signed,
-                            MeshOperation::Renew {
-                                expected_slot_revision: slot_revision,
-                            },
-                        )
-                        .await?
-                    }
-                    Ok(None) if self.own_removed() => self.rejoin(&mut signed).await?,
-                    Err(AccountMeshRefusal::Forbidden) => self.rejoin(&mut signed).await?,
-                    Ok(None) => {
-                        self.admission(
-                            &signed,
-                            MeshOperation::Enroll {
-                                expected_slot_revision: 0,
-                            },
-                        )
-                        .await?
-                    }
-                    Err(refusal) => return Err(refusal),
-                },
                 Err(refusal) => return Err(refusal),
             }
         };

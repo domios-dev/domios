@@ -7,7 +7,6 @@ use std::sync::Arc;
 
 pub const MEMBERSHIP_ISSUER: &str = "domios-mesh-membership";
 pub const MAX_MEMBERSHIP_SECONDS: u64 = 86400;
-pub const RENEW_AFTER_SECONDS: u64 = 3600 - 120;
 /// Not-before leeway for a desktop clock behind the issuer; expiry is never extended. It stays
 /// within one link-permit lifetime and far inside the renewal window.
 pub const NOT_BEFORE_SKEW_SECONDS: u64 = 120;
@@ -71,8 +70,8 @@ impl VerifiedMembership {
         self.issued_at <= now.saturating_add(NOT_BEFORE_SKEW_SECONDS) && now < self.expires_at
     }
     pub fn refresh_after(&self) -> u64 {
-        let margin =
-            (3600 - RENEW_AFTER_SECONDS).min(self.expires_at.saturating_sub(self.issued_at) / 2);
+        let duration = self.expires_at.saturating_sub(self.issued_at);
+        let margin = 120.max(duration / 4).min(duration / 2);
         self.expires_at.saturating_sub(margin)
     }
 }

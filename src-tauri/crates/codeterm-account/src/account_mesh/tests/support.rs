@@ -163,6 +163,8 @@ pub struct Script {
     pub challenge: Option<RegistryRefusal>,
     pub challenge_once: Option<RegistryRefusal>,
     pub membership_seconds: Option<u64>,
+    pub disable_renew_replay: bool,
+    pub renew_bodies: Vec<MeshAdmissionBody>,
     pub endpoint_seconds: Option<u64>,
     pub membership_registry_revision: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
@@ -194,6 +196,8 @@ struct Account {
     key_generation: u64,
     revoked_generation: u64,
     slot: Option<u64>,
+    slot_key: Option<(String, u64)>,
+    renew_receipt: Option<(MeshAdmissionBody, MeshResult)>,
     metadata_revision: u64,
     endpoint: Option<MeshEndpointObservation>,
     inactive: bool,
@@ -278,6 +282,10 @@ impl FakeRegistry {
         valid.then_some(()).ok_or(RegistryRefusal::Forbidden)
     }
 
+    pub fn replace_slot_key(&self, uid: &str, key_id: String, generation: u64) {
+        self.accounts.lock().unwrap().get_mut(uid).unwrap().slot_key = Some((key_id, generation));
+    }
+
     pub fn slot(&self, uid: &str) -> Option<u64> {
         self.accounts.lock().unwrap().get(uid).and_then(|a| a.slot)
     }
@@ -315,8 +323,12 @@ impl FakeRegistry {
             account.map_or(0, |a| a.metadata_revision),
             account.and_then(|a| a.display_name.as_deref()),
         );
-        own.key_id = key_id.to_owned();
-        own.key_generation = account.map_or(1, |a| a.key_generation.max(1));
+        own.key_id = account
+            .and_then(|a| a.slot_key.as_ref())
+            .map_or_else(|| key_id.to_owned(), |(key, _)| key.clone());
+        own.key_generation = account
+            .and_then(|a| a.slot_key.as_ref())
+            .map_or(1, |(_, generation)| *generation);
         own.slot_revision = account.and_then(|a| a.slot).unwrap_or(1);
         own.active = account.is_none_or(|account| !account.inactive);
         own.presence = account.map_or(RegistryPresence::Present, |account| account.presence);
@@ -472,7 +484,9 @@ impl MeshRegistry for FakeRegistry {
         }
         let membership_op = matches!(
             envelope.request.operation,
-            MeshOperation::Enroll { .. } | MeshOperation::Renew { .. }
+            MeshOperation::Enroll { .. }
+                | MeshOperation::Renew { .. }
+                | MeshOperation::Recover { .. }
         );
         if membership_op {
             self.entered.notify_one();
@@ -506,8 +520,21 @@ impl MeshRegistry for FakeRegistry {
         let now = self.clock.now() + script.3;
         let mut accounts = self.accounts.lock().unwrap();
         let account = accounts.entry(uid.clone()).or_default();
+        if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
+            let mut script = self.script.lock().unwrap();
+            script.renew_bodies.push(envelope.request.clone());
+            if !script.disable_renew_replay {
+                if let Some((body, result)) = &account.renew_receipt {
+                    if body == &envelope.request {
+                        return Ok(result.clone());
+                    }
+                }
+            }
+        }
         match &envelope.request.operation {
-            MeshOperation::Enroll { .. } | MeshOperation::Renew { .. } => {
+            MeshOperation::Enroll { .. }
+            | MeshOperation::Renew { .. }
+            | MeshOperation::Recover { .. } => {
                 if let Some(refusal) = script.0 {
                     return Err(refusal);
                 }
@@ -525,13 +552,26 @@ impl MeshRegistry for FakeRegistry {
                     MeshOperation::Enroll { .. } => return Err(RegistryRefusal::Conflict),
                     MeshOperation::Renew {
                         expected_slot_revision,
-                    } if account.slot == Some(*expected_slot_revision) => {
+                    } if account.slot == Some(*expected_slot_revision)
+                        && account.slot_key.as_ref()
+                            == Some(&(proof.key_id.clone(), proof.generation)) =>
+                    {
                         expected_slot_revision + 1
                     }
-                    MeshOperation::Renew { .. } => return Err(RegistryRefusal::Conflict),
+                    MeshOperation::Renew { .. } => return Err(RegistryRefusal::Forbidden),
+                    MeshOperation::Recover { target }
+                        if account.slot == Some(target.slot_revision)
+                            && !account.inactive
+                            && account.slot_key.as_ref()
+                                == Some(&(target.key_id.clone(), target.key_generation))
+                            && proof.generation > target.key_generation =>
+                    {
+                        target.slot_revision + 1
+                    }
                     _ => return Err(RegistryRefusal::Invalid),
                 };
                 account.slot = Some(slot);
+                account.slot_key = Some((proof.key_id.clone(), proof.generation));
                 account.inactive = false;
                 let mut payload =
                     Issuer::membership_payload(&uid, &proof.key_id, proof.generation, slot, now);
@@ -542,6 +582,7 @@ impl MeshRegistry for FakeRegistry {
                     operation: match &envelope.request.operation {
                         MeshOperation::Enroll { .. } => MembershipOperation::Enroll,
                         MeshOperation::Renew { .. } => MembershipOperation::Renew,
+                        MeshOperation::Recover { .. } => MembershipOperation::Recover,
                         _ => return Err(RegistryRefusal::Invalid),
                     },
                     installation_id: INSTALLATION.into(),
@@ -554,8 +595,23 @@ impl MeshRegistry for FakeRegistry {
                         .unwrap_or(slot),
                     membership: self.issuer.sign(&payload),
                 });
+                if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
+                    account.renew_receipt = Some((envelope.request.clone(), result.clone()));
+                }
                 if let Some(refusal) = lost_membership_reply {
                     return Err(refusal);
+                }
+                if let (MeshOperation::Recover { .. }, MeshResult::Membership(membership)) =
+                    (&envelope.request.operation, &result)
+                {
+                    return Ok(MeshResult::Recovered(RecoveredResult {
+                        installation_id: membership.installation_id.clone(),
+                        key_id: proof.key_id.clone(),
+                        key_generation: proof.generation,
+                        slot_revision: membership.slot_revision,
+                        registry_revision: membership.registry_revision,
+                        membership: Some(membership.membership.clone()),
+                    }));
                 }
                 Ok(result)
             }
@@ -781,7 +837,6 @@ impl MeshRegistry for FakeRegistry {
                     permit: self.issuer.sign(&payload),
                 }))
             }
-            MeshOperation::Recover { .. } => Err(RegistryRefusal::Invalid),
         }
     }
 }
