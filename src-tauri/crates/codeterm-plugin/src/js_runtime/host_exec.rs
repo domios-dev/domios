@@ -603,6 +603,9 @@ fn validate_detached_log(opts: &ExecOpts, sandbox: &PluginSandbox) -> Result<(),
 }
 
 pub(super) fn poll(plugin_id: &str, job_id: &str) -> String {
+    if !observation_wait_allowed(plugin_id, job_id) {
+        return err("effect job unavailable during observation");
+    }
     let plugin_id = normalize_plugin_id(plugin_id);
     let mut jobs = EXEC_JOBS.lock();
     let Some(job) = jobs
@@ -687,6 +690,9 @@ pub(super) fn wait_json_interruptible(
     cancellation: &crate::converter::ConversionCancellation,
     deadline: Instant,
 ) -> WaitResult {
+    if !observation_wait_allowed(plugin_id, job_id) {
+        return WaitResult::Completed(err("effect job unavailable during observation"));
+    }
     let plugin_id = normalize_plugin_id(plugin_id);
     {
         let mut jobs = EXEC_JOBS.lock();
@@ -725,6 +731,9 @@ pub(super) enum WaitResult {
 }
 
 pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
+    if !observation_wait_allowed(plugin_id, job_id) {
+        return WaitResult::Completed(err("effect job unavailable during observation"));
+    }
     let plugin_id = normalize_plugin_id(plugin_id);
     let event = {
         let jobs = EXEC_JOBS.lock();
@@ -742,6 +751,10 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
         return WaitResult::TimedOut;
     }
     WaitResult::Completed(poll(&plugin_id, job_id))
+}
+
+fn observation_wait_allowed(plugin_id: &str, job_id: &str) -> bool {
+    codeterm_decision::physical::effects_allowed() || retained_job_live(plugin_id, job_id)
 }
 
 /// A waiter that gives up leaves a retained job running for the next consumer.

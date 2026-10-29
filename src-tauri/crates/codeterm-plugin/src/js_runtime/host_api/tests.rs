@@ -1,4 +1,5 @@
 mod lock_cleanup;
+mod observation;
 
 use super::*;
 use crate::js_runtime::vm::PluginVm;
