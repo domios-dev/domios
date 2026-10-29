@@ -1,7 +1,6 @@
 //! Sentinel scenarios: stable identity, immutable definition versions behind a mutable head,
 //! mutable stage runtime, accepted transitions and independent handler claims/results.
 
-
 // Every relationship is an immediate NO ACTION foreign key; deletions are explicit and ordered.
 // Target identities are historical references, never keys into live tabs, crons or Teams.
 pub(super) const SCHEMA: &str = r#"

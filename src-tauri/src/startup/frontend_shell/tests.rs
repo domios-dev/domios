@@ -372,7 +372,11 @@ fn frontend_shell_contract_first_navigation_waits_for_starting_document_completi
     let starting = starting_url().unwrap();
     assert!(!starting_document_finished(Started, &starting));
     assert!(starting_document_finished(Finished, &starting));
-    for other in [unavailable_url().unwrap(), fallback_url().unwrap(), start_failure_url(None).unwrap()] {
+    for other in [
+        unavailable_url().unwrap(),
+        fallback_url().unwrap(),
+        start_failure_url(None).unwrap(),
+    ] {
         assert!(!starting_document_finished(Finished, &other));
     }
 }
@@ -384,16 +388,29 @@ fn stale_initial_document_event_cannot_retire_a_newer_root_render() {
         .unwrap();
     initialize(app.handle()).unwrap();
     let window = WebviewWindowBuilder::new(
-        app.handle(), "stale-main", WebviewUrl::External(starting_url().unwrap()),
-    ).build().unwrap();
+        app.handle(),
+        "stale-main",
+        WebviewUrl::External(starting_url().unwrap()),
+    )
+    .build()
+    .unwrap();
     let supervisor = app.state::<ShellSupervisor>();
-    supervisor.active_view_generation.store(2, Ordering::Release);
-    let generation = ClientViewGeneration { view: 2, navigation: 3 };
+    supervisor
+        .active_view_generation
+        .store(2, Ordering::Release);
+    let generation = ClientViewGeneration {
+        view: 2,
+        navigation: 3,
+    };
     let origin = "http://127.0.0.1:17686";
     supervisor.root_render.arm(generation, origin.into());
     observe_navigation(
-        window, starting_url().unwrap(), 1, None,
-        &unavailable_url().unwrap(), &fallback_url().unwrap(),
+        window,
+        starting_url().unwrap(),
+        1,
+        None,
+        &unavailable_url().unwrap(),
+        &fallback_url().unwrap(),
     );
     assert!(supervisor.root_render.is_armed(generation, origin));
 }
@@ -405,10 +422,32 @@ fn completed_root_acknowledgement_cannot_reveal_a_newer_navigation_or_view() {
         .unwrap();
     initialize(app.handle()).unwrap();
     let supervisor = app.state::<ShellSupervisor>();
-    supervisor.active_view_generation.store(2, Ordering::Release);
+    supervisor
+        .active_view_generation
+        .store(2, Ordering::Release);
     supervisor.navigation.store(4, Ordering::Release);
-    assert!(!active_root_matches(app.handle(), ClientViewGeneration { view: 2, navigation: 3 }));
-    assert!(active_root_matches(app.handle(), ClientViewGeneration { view: 2, navigation: 4 }));
-    supervisor.active_view_generation.store(3, Ordering::Release);
-    assert!(!active_root_matches(app.handle(), ClientViewGeneration { view: 2, navigation: 4 }));
+    assert!(!active_root_matches(
+        app.handle(),
+        ClientViewGeneration {
+            view: 2,
+            navigation: 3
+        }
+    ));
+    assert!(active_root_matches(
+        app.handle(),
+        ClientViewGeneration {
+            view: 2,
+            navigation: 4
+        }
+    ));
+    supervisor
+        .active_view_generation
+        .store(3, Ordering::Release);
+    assert!(!active_root_matches(
+        app.handle(),
+        ClientViewGeneration {
+            view: 2,
+            navigation: 4
+        }
+    ));
 }

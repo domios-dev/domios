@@ -30,7 +30,9 @@ impl Drop for Lease {
 
 impl RecoveryOwner {
     fn owns(&self, identity: &Arc<()>) -> bool {
-        self.current.borrow().as_ref()
+        self.current
+            .borrow()
+            .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, identity))
     }
 
@@ -143,10 +145,7 @@ impl Drop for Observations {
     }
 }
 
-fn observe(
-    origin: String,
-    process: Arc<codeterm_process_identity::PinnedProcess>,
-) -> Observations {
+fn observe(origin: String, process: Arc<codeterm_process_identity::PinnedProcess>) -> Observations {
     let (sender, events) = mpsc::channel(2);
     let ready = sender.clone();
     let readiness = tokio::spawn(async move {
@@ -161,8 +160,8 @@ fn observe(
         }
     });
     let exited = tokio::spawn(async move {
-        let result = tokio::task::spawn_blocking(move || process.wait_exit(Duration::from_secs(30)))
-            .await;
+        let result =
+            tokio::task::spawn_blocking(move || process.wait_exit(Duration::from_secs(30))).await;
         if matches!(result, Ok(Ok(()))) {
             let _ = sender.send(Availability::ExactProcessExited).await;
         }
@@ -193,7 +192,9 @@ pub(super) async fn cancel_and_wait(
             if *completed.borrow_and_update() {
                 return Ok(());
             }
-            completed.changed().await
+            completed
+                .changed()
+                .await
                 .map_err(|_| "Recovery owner completion unavailable".to_string())?;
         }
     })
@@ -277,14 +278,16 @@ pub(super) fn start(
                 if handle.state::<ShellSupervisor>().reconnect.owns(&identity)
                     && !crate::crash::exit::is_client_exit_pending()
                 {
-                    if let Some(window) = handle.get_webview_window("starting")
+                    if let Some(window) = handle
+                        .get_webview_window("starting")
                         .or_else(|| handle.get_webview_window("main"))
                     {
                         show_start_failure(&window, &reason);
                     }
                 }
                 Ok(())
-            }).await;
+            })
+            .await;
             if let Err(error) = result {
                 log::error!("[frontend-shell] recovery failure surface unavailable: {error}");
             }

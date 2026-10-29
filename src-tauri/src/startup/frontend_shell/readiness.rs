@@ -13,7 +13,9 @@ impl fmt::Display for ReadinessFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Transport(reason) | Self::Protocol(reason) => formatter.write_str(reason),
-            Self::EndOfStream => formatter.write_str("Server startup stream ended before readiness"),
+            Self::EndOfStream => {
+                formatter.write_str("Server startup stream ended before readiness")
+            }
             Self::Deadline => formatter.write_str("Server startup readiness deadline exceeded"),
         }
     }

@@ -49,7 +49,10 @@ pub(crate) fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = reconnect::cancel_and_wait(&app).await {
-            if let Some(window) = app.get_webview_window("starting").or_else(|| app.get_webview_window("main")) {
+            if let Some(window) = app
+                .get_webview_window("starting")
+                .or_else(|| app.get_webview_window("main"))
+            {
                 show_start_failure(&window, &error);
             }
             return;
@@ -68,9 +71,9 @@ pub(crate) fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
         };
         let initial_failed = {
             let supervisor = app.state::<ShellSupervisor>();
-            supervisor.initial_document.failed(
-                supervisor.active_view_generation.load(Ordering::Acquire),
-            )
+            supervisor
+                .initial_document
+                .failed(supervisor.active_view_generation.load(Ordering::Acquire))
         };
         if initial_failed {
             drop(attachment);
@@ -137,9 +140,9 @@ pub(crate) async fn recover_for_attachment(
     };
     let initial_failed = {
         let supervisor = app.state::<ShellSupervisor>();
-        supervisor.initial_document.failed(
-            supervisor.active_view_generation.load(Ordering::Acquire),
-        )
+        supervisor
+            .initial_document
+            .failed(supervisor.active_view_generation.load(Ordering::Acquire))
     };
     if can_reuse_window && !initial_failed {
         ensure_server_attachment(&app, expected)?;
@@ -213,4 +216,3 @@ pub(crate) async fn recover_for_attachment(
     start(app);
     Ok(())
 }
-

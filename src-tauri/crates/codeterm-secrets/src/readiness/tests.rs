@@ -160,14 +160,20 @@ async fn reloaded_registration_waits_for_its_own_init_and_pins_each_consumer() {
         .is_pending());
     new_started.await.unwrap();
     old.release.add_permits(1);
-    assert_eq!(old_read.await.unwrap().value.expose_secret(), "old-generation");
+    assert_eq!(
+        old_read.await.unwrap().value.expose_secret(),
+        "old-generation"
+    );
     assert!(poll_fn(|cx| Poll::Ready(new_read.as_mut().poll(cx)))
         .await
         .is_pending());
     assert_eq!(new.get_calls.load(Ordering::SeqCst), 0);
 
     new.release.add_permits(1);
-    assert_eq!(new_read.await.unwrap().value.expose_secret(), "new-generation");
+    assert_eq!(
+        new_read.await.unwrap().value.expose_secret(),
+        "new-generation"
+    );
     assert_eq!(old.init_calls.load(Ordering::SeqCst), 1);
     assert_eq!(new.init_calls.load(Ordering::SeqCst), 1);
 }
@@ -184,17 +190,22 @@ async fn failed_init_is_settled_and_does_not_block_explicit_unlock() {
     assert!(matches!(task.await.unwrap(), Err(SecretError::Locked)));
     assert!(matches!(active.status().await, StoreStatus::Locked { .. }));
     active
-        .unlock(UnlockCredentials::with_password(SecretString::from("inert")))
+        .unlock(UnlockCredentials::with_password(SecretString::from(
+            "inert",
+        )))
         .await
         .unwrap();
-    assert_eq!(active.get("key").await.unwrap().value.expose_secret(), "unlocked-value");
+    assert_eq!(
+        active.get("key").await.unwrap().value.expose_secret(),
+        "unlocked-value"
+    );
     assert_eq!(raw.init_calls.load(Ordering::SeqCst), 1);
 }
 
 #[tokio::test]
 async fn actual_js_registration_initializes_before_get_after_each_reload() {
-    use codeterm_plugin::SecretBackendRegistrar;
     use codeterm_plugin::js_runtime::PluginVm;
+    use codeterm_plugin::SecretBackendRegistrar;
 
     let registry = Arc::new(crate::SecretRegistry::new());
     let registrar = crate::js_backend::AppSecretBackendRegistrar::new(registry.clone());
@@ -213,7 +224,12 @@ async fn actual_js_registration_initializes_before_get_after_each_reload() {
         let vm = Arc::new(PluginVm::from_source("gated", source.into()).unwrap());
         registrar.register_secret_backend("gated".into(), vm, false);
         assert_eq!(
-            selected(&registry).get("key").await.unwrap().value.expose_secret(),
+            selected(&registry)
+                .get("key")
+                .await
+                .unwrap()
+                .value
+                .expose_secret(),
             "initialized-generation"
         );
     }

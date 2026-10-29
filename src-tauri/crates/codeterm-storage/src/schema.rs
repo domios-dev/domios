@@ -285,7 +285,8 @@ fn initialize_schema_transaction(conn: &mut Connection) -> Result<(), StorageErr
             detail: "schema initialization violates foreign keys".into(),
         });
     }
-    tx.commit().map_err(|e| sqlite_error("commit schema initialization", e))
+    tx.commit()
+        .map_err(|e| sqlite_error("commit schema initialization", e))
 }
 
 fn configure(

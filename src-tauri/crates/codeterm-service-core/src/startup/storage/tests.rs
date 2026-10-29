@@ -16,8 +16,17 @@ fn startup_uses_only_state_db_and_preserves_legacy_files() {
     for _ in 0..2 {
         let authority = open_instance_storage_at(root.path());
         let storage = authority.storage().expect("current storage is ready");
-        assert!(StorageDeskAdapter::from_storage(storage.clone()).snapshot().unwrap().workspaces.is_empty());
-        assert!(storage.legacy_import_marker().wait(STARTUP_DEADLINE).unwrap().value.is_none());
+        assert!(StorageDeskAdapter::from_storage(storage.clone())
+            .snapshot()
+            .unwrap()
+            .workspaces
+            .is_empty());
+        assert!(storage
+            .legacy_import_marker()
+            .wait(STARTUP_DEADLINE)
+            .unwrap()
+            .value
+            .is_none());
         assert_eq!(std::fs::read(&source).unwrap(), original);
         assert_eq!(std::fs::read(root.path().join("crons.json")).unwrap(), b"{");
         close(authority);
@@ -35,7 +44,10 @@ fn startup_refuses_a_second_owner_for_the_same_root() {
 
 #[test]
 fn unavailable_authority_returns_a_typed_error() {
-    let authority = StorageAuthority::Unavailable { storage: None, reason: "database failed".into() };
+    let authority = StorageAuthority::Unavailable {
+        storage: None,
+        reason: "database failed".into(),
+    };
     let error = authority.require_ready().err().unwrap();
     assert_eq!(error, StorageUnavailableError);
     assert_eq!(error.to_string(), STORAGE_UNAVAILABLE_MESSAGE);
@@ -53,7 +65,9 @@ fn current_db_restores_workspace_cwd_without_reading_stale_json() {
     std::fs::create_dir_all(source.parent().unwrap()).unwrap();
     std::fs::write(&source, br#"{"workspaces":[{"cwd":"stale-json-cwd"}]}"#).unwrap();
     let reopened = open_instance_storage_at(root.path());
-    let snapshot = StorageDeskAdapter::from_storage(reopened.storage().unwrap().clone()).snapshot().unwrap();
+    let snapshot = StorageDeskAdapter::from_storage(reopened.storage().unwrap().clone())
+        .snapshot()
+        .unwrap();
     assert_eq!(snapshot.workspaces[0].cwd.as_deref(), Some("database-cwd"));
     assert_eq!(snapshot.workspaces[0].name, "Current project");
     close(reopened);

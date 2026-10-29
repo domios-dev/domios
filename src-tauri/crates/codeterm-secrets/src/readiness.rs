@@ -40,9 +40,12 @@ impl InitializedStore {
             if let Some(result) = result {
                 return Ok(result);
             }
-            completed.changed().await.map_err(|_| SecretError::Backend {
-                message: "secret backend initialization was interrupted".into(),
-            })?;
+            completed
+                .changed()
+                .await
+                .map_err(|_| SecretError::Backend {
+                    message: "secret backend initialization was interrupted".into(),
+                })?;
         }
     }
 

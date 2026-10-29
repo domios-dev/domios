@@ -19,7 +19,8 @@ pub(crate) fn reveal_main(app: &codeterm_client_shell::app_runtime::AppHandle) {
     let shown = reveal_with(
         window.is_visible().map_err(|error| error.to_string()),
         || {
-            window.show()
+            window
+                .show()
                 .and_then(|()| window.unminimize())
                 .and_then(|()| window.set_focus())
                 .map_err(|error| error.to_string())

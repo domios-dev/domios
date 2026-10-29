@@ -32,7 +32,9 @@ async fn transient_attach_failure_recovers_on_later_actual_ready_without_a_click
                     let _ = signal.send(());
                 }
                 if index == 0 {
-                    Err(AttemptFailure::Transient("attach temporarily refused".into()))
+                    Err(AttemptFailure::Transient(
+                        "attach temporarily refused".into(),
+                    ))
                 } else {
                     Ok("replacement-generation")
                 }
@@ -43,7 +45,10 @@ async fn transient_attach_failure_recovers_on_later_actual_ready_without_a_click
     first_attempt.await.unwrap();
     assert_eq!(attempts.load(Ordering::SeqCst), 1);
     ready.send(Availability::ServerReady).await.unwrap();
-    assert!(matches!(operation.await.unwrap(), Outcome::Ready("replacement-generation")));
+    assert!(matches!(
+        operation.await.unwrap(),
+        Outcome::Ready("replacement-generation")
+    ));
     assert_eq!(attempts.load(Ordering::SeqCst), 2);
 }
 
@@ -105,7 +110,9 @@ async fn unsafe_refusal_stays_manual_even_with_a_ready_event() {
     let attempts = AtomicUsize::new(0);
     let result = recover(&mut events, std::future::pending(), || {
         attempts.fetch_add(1, Ordering::SeqCst);
-        std::future::ready(Err::<(), _>(AttemptFailure::Manual("incompatible identity".into())))
+        std::future::ready(Err::<(), _>(AttemptFailure::Manual(
+            "incompatible identity".into(),
+        )))
     })
     .await;
     assert!(matches!(result, Outcome::Failed(reason) if reason == "incompatible identity"));

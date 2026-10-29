@@ -269,7 +269,9 @@ impl ClientStartupFailure {
             retryable: matches!(
                 error,
                 HelperFailure::Exit {
-                    code: Some(3), request_forwarded: true, ..
+                    code: Some(3),
+                    request_forwarded: true,
+                    ..
                 }
             ),
         }
@@ -290,8 +292,10 @@ impl ClientStartupFailure {
     pub(super) fn native_connection(error: io::Error) -> Self {
         let retryable = matches!(
             error.kind(),
-            io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
-                | io::ErrorKind::ConnectionReset | io::ErrorKind::TimedOut
+            io::ErrorKind::NotFound
+                | io::ErrorKind::ConnectionRefused
+                | io::ErrorKind::ConnectionReset
+                | io::ErrorKind::TimedOut
         );
         Self {
             message: error.to_string(),

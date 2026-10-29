@@ -82,10 +82,7 @@ fn map_shell_result<T>(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum NativeClientStatus {
     Attached,
-    NativeHostUnavailable {
-        message: String,
-        retryable: bool,
-    },
+    NativeHostUnavailable { message: String, retryable: bool },
 }
 
 pub(crate) struct NativeClientInitialization {

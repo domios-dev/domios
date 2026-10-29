@@ -122,7 +122,10 @@ pub fn run(
                                 );
                                 log::error!("[client] frontend initialization refused: {error}");
                                 if let Some(window) = handle.get_webview_window("starting") {
-                                    startup::frontend_shell::show_start_failure(&window, &error.to_string());
+                                    startup::frontend_shell::show_start_failure(
+                                        &window,
+                                        &error.to_string(),
+                                    );
                                 }
                                 return;
                             }
@@ -136,7 +139,10 @@ pub fn run(
                             );
                             log::error!("[client] frontend scheduling refused: {error}");
                             if let Some(window) = app_handle.get_webview_window("starting") {
-                                startup::frontend_shell::show_start_failure(&window, &error.to_string());
+                                startup::frontend_shell::show_start_failure(
+                                    &window,
+                                    &error.to_string(),
+                                );
                             }
                         }
                     }

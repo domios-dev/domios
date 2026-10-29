@@ -14,11 +14,11 @@ pub enum BrandFallback {
 /// The native window is frameless; these links are handled by the client as `domios-shell://<action>`.
 const NATIVE_CHROME: &str = r#"<header><div class="drag" onmousedown="if(event.button===0)location.href='domios-shell://drag'"></div><a href="domios-shell://minimize" aria-label="Minimize">&#8212;</a><a href="domios-shell://maximize" aria-label="Maximize">&#9633;</a><a class="close" href="domios-shell://close" aria-label="Close">&#10005;</a></header>"#;
 
-const RETRY_ACTION: &str = r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now">Retry now</a>"#;
+const RETRY_ACTION: &str =
+    r#"<a class="retry" href="domios-shell://retry" aria-label="Retry now">Retry now</a>"#;
 
 /// A stated refusal repeats on every attempt, so this page retries only when asked.
-const START_FAILED_ACTION: &str =
-    r#"<p class="detail" hidden></p><a class="retry" href="domios-shell://retry">Retry</a><a class="retry" href="domios-shell://quit">Quit</a>"#;
+const START_FAILED_ACTION: &str = r#"<p class="detail" hidden></p><a class="retry" href="domios-shell://retry">Retry</a><a class="retry" href="domios-shell://quit">Quit</a>"#;
 
 /// The reason travels in the fragment so the document stays fixed for navigation checks; textContent keeps it inert.
 const START_FAILED_SCRIPT: &str = r#"<script>

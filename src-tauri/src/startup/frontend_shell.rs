@@ -421,8 +421,11 @@ pub fn create_window(
                 );
             } else {
                 if starting_document_finished(payload.event(), payload.url())
-                    && window.app_handle().state::<ShellSupervisor>()
-                        .initial_document.acknowledge(view_generation)
+                    && window
+                        .app_handle()
+                        .state::<ShellSupervisor>()
+                        .initial_document
+                        .acknowledge(view_generation)
                 {
                     window_created(window.app_handle());
                 }
@@ -556,8 +559,9 @@ pub(super) fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHand
             retry(app);
             Ok(())
         }
-        "quit" => crate::run::request_client_quit_exact(app, None)
-            .map_err(|error| format!("{error:?}")),
+        "quit" => {
+            crate::run::request_client_quit_exact(app, None).map_err(|error| format!("{error:?}"))
+        }
         other => Err(format!("unknown shell action {other}")),
     };
     if let Err(error) = outcome {
@@ -588,10 +592,11 @@ fn active_root_matches(
     app: &codeterm_client_shell::app_runtime::AppHandle,
     generation: ClientViewGeneration,
 ) -> bool {
-    app.try_state::<ShellSupervisor>().is_some_and(|supervisor| {
-        supervisor.active_view_generation.load(Ordering::Acquire) == generation.view
-            && supervisor.navigation.load(Ordering::Acquire) == generation.navigation
-    })
+    app.try_state::<ShellSupervisor>()
+        .is_some_and(|supervisor| {
+            supervisor.active_view_generation.load(Ordering::Acquire) == generation.view
+                && supervisor.navigation.load(Ordering::Acquire) == generation.navigation
+        })
 }
 
 fn prepare_root_navigation(

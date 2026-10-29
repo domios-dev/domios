@@ -63,7 +63,6 @@ impl InitialDocument {
     ) -> bool {
         result.await.is_err() && self.transition(view, Phase::Failed(view))
     }
-
 }
 
 pub(super) fn supervise(app: codeterm_client_shell::app_runtime::AppHandle, view: u64) {

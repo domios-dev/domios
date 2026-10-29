@@ -9,7 +9,9 @@ struct CancelQueued(Arc<AtomicU8>);
 
 impl Drop for CancelQueued {
     fn drop(&mut self) {
-        let _ = self.0.compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire);
+        let _ = self
+            .0
+            .compare_exchange(QUEUED, CANCELLED, Ordering::AcqRel, Ordering::Acquire);
     }
 }
 
