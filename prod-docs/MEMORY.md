@@ -21,20 +21,19 @@ These stores never share storage. Session API: `domios docs API-STATE`.
 
 ## Backend selection and migration
 
-Set `[memory] backend = "sqlite"` (default) or `"postgres"` in the instance configuration. A Postgres-enabled server reads its connection URL exclusively from the active secret store key `domios.mem:postgres_url`. Missing or empty credentials, unavailable secrets and a build without Postgres support refuse startup. The selected backend being empty while the other configured store has items also refuses startup and names the migration command.
+Set `memory.backend` to `"sqlite"` (default) or `"postgres"`. Postgres requires a compatible build and its URL in the active secret store as `domios.mem:postgres_url`, never config/env. Missing/empty/unavailable credentials refuse startup, with no fallback. Selecting an empty backend while the other configured store has items also refuses.
 
-Stop the daemon before switching. The local CLI pins its resolved instance data directory and delegates to the installed server, which holds the same instance ownership locks throughout the copy and refuses a running daemon:
-
-```bash
+Stop the daemon, then explicitly migrate:
+~~~bash
 domios mem backend migrate --to postgres
 domios mem backend migrate --to sqlite
-```
+~~~
 
-The source is always the backend opposite `--to`; this works whether configuration has already changed or still names the source. The command copies all 21 memory tables in bounded pages, including history, original authors, graph data, vectors and bodies. Source opens are read-only: no schema changes, cleanup or seeding. A source with an outdated schema must first be opened once with its own Domios. The source is retained after success or failure. The command never starts or stops a daemon and never changes configuration.
+The installed CLI pins the instance and verified server resource hint; missing/stale hints require reinstall, never PATH guessing. The server holds instance ownership locks and refuses a running daemon. Source is always opposite --to, read-only and retained; outdated sources must first be opened by their own Domios. Migration never starts/stops the daemon or changes config.
 
-A target containing data is refused unless `--into-nonempty` explicitly authorizes import. Conflicting row identities still fail; the command does not merge or replace unrelated target records. A populated target with a different embedding stamp is refused before import. Copy counts are verified for every table. When the target embedding stamp (or configured embedder for a new target) differs from the source, the command builds and publishes a shadow index on the target. The configured remote embedder requires its existing consent and credentials. Final counts verify the copied tables and the rebuilt vector projections separately, and the summary reports all counts. Embedding failure leaves the source intact and reports migration failure.
+All 21 tables (history/authors/graph/vectors/bodies) copy in bounded pages and verify per-table counts. Nonempty targets need explicit --into-nonempty; row identity conflicts still refuse. A populated target with a different embedding stamp refuses. A differing target/new configured embedder rebuilds a shadow index, verifies vectors separately and reports counts; remote embedding still requires consent/credentials. Embedding failure retains source and reports failure.
 
-Only after a verified success, set `memory.backend` to the destination and start Domios. An interrupted or failed migration may leave a partial target; retain the source, inspect the failure and use a fresh target before trying again. Offline migration needs the URL available through the configured secret store; a plugin-only vault unavailable outside daemon composition must be made available before migration can run. The installed CLI uses an owner-only resource hint written during installation. A missing, stale or unverifiable hint refuses migration and asks you to reinstall the CLI; it never searches PATH or guesses a server location.
+Only after verified success, select the destination backend and start Domios. Failed/interrupted imports can leave partial targets: retain source and retry with a fresh target. Offline migration needs the configured secret store available; provision plugin-only vault access before migrating.
 
 ## Storage layer
 
@@ -48,7 +47,7 @@ Only after a verified success, set `memory.backend` to the destination and start
 
 Memory items and history carry an author: owner, neighbor, or system. Neighbor authors carry the registered friend's account UID and friendship ID, resolved by the daemon from authenticated friendship data. Request fields cannot choose an author. Replacement re-signs the item while history retains the prior author and body.
 
-A concierge may save only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>` (also kind `note`, optional `--summary` and repeated `--tag`). The live `memory_write_areas` grant defaults to empty. The daemon forces global scope and unpinned content, clamps importance to 1–5, scans all content fields for credentials, and enforces byte caps of 200 title / 16384 body / 32752 total. Matching kind/title replacement requires a granted area and an unpinned target; conflict refuses without exposing the item. Revocation stops the next save and retains past authorship. These saves never schedule extraction; all other concierge memory mutations remain denied.
+A concierge may save only through `domios mem neighbor-save --kind fact --area <granted-area> --title "<title>" --from-pad <body.md>` (also kind `note`, optional `--summary` and repeated `--tag`). The live `memory_write_areas` grant defaults to empty. The daemon forces global scope and unpinned content, clamps importance to 1–5, scans all content fields for credentials, and enforces byte caps of 200 title / 16384 body / 32752 total. Matching kind/title replacement requires a granted area and an unpinned target; conflict refuses without exposing the item. Revocation stops the next save and retains past authorship. These saves never schedule extraction and are excluded from wake-up/promotion; all other concierge memory mutations remain denied.
 
 `mem save` uses kind plus title as its identity. An unchanged normalized body increments `recurrence_count` and schedules no extraction. A changed body updates the existing row in place and adds the prior body to history. `--replace` also updates in place and preserves the row's uid and creation time.
 
@@ -88,44 +87,39 @@ domios mem embedder use openai --model text-embedding-3-small --dimension 512
 
   Use `domios mem embedder key set <provider>` first: it reads piped stdin only, writes atomically with owner-only permissions, prints the path (never the key), follows the selected instance and refuses terminal input, argv keys and `--mesh`. Examples: `pbpaste | domios mem embedder key set openai` (macOS), `Get-Clipboard -Raw | domios mem embedder key set openai` (Windows), or pipe a password manager's stdout (Linux).
 
-  Manual fallbacks (selected instance's secrets dir):
-  - **Unix:** `umask 077; mkdir -p ~/.domios/secrets; cat > ~/.domios/secrets/openai-embedder.key && chmod 600 ~/.domios/secrets/openai-embedder.key` (paste, then Ctrl-D).
-  - **Windows PowerShell:** create an empty `<data_dir>/secrets/openai-embedder.key` as `$file`, set `$owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name`, run `icacls $file /inheritance:r /grant:r "${owner}:(F)"`, then write the key as UTF-8 without a BOM.
-  - **Secret store:** `domios mem secret save --name openai-embedder` (key on stdin).
-
-  Asked to set it up, an agent pipes the supplied value into `domios mem embedder key set <provider>` and runs `domios mem embedder use <provider>`; the key never goes into argv, output, logs or mem.
+  Alternatively use `domios mem secret save --name openai-embedder` with the key on stdin. For setup, pipe the supplied key into the dedicated key-set command, then select that embedder; never place it in argv, output, logs or mem.
 
 ### Supporter Agent memory re-rank
 
-A second stage over `mem search` that runs automatically when an adapter is connected. Stage 1 remains hybrid recall, widened to a candidate pool; the adapter grades candidates and sorts them by relevance. Without a connected adapter, search behaves as before. There are no feature switches. `domios mem search --supporter on|off` is a per-request diagnostic override; without it, the connection decides. The legacy `--rerank` is exclusive with `--supporter on` (the request is refused as invalid).
+A connected adapter automatically grades a widened hybrid candidate pool and orders hits by relevance. Disconnected search stays plain recall. Use `domios mem search --supporter on|off` for one diagnostic request; combining `--supporter on` with legacy `--rerank` refuses.
 
-- **Hits.** An applied search adds a `relevance` fraction (0..1) to each hit, shown as `rel 92%` next to the score in the human render.
-- **JSON.** CLI `--json` hits contain only an item `id` (or a doc pointer), `source`, optional `via`, baseline `score`, and Supporter `relevance`; titles, bodies, summaries and tags are omitted. The Supporter envelope retains its status, fallback reason and low-confidence fields. Use `domios mem get <id> --json` for a full memory record. The HTTP search response keeps item details for the Memory UI.
-- **Envelope.** The `supporter` object reports `applied` (with `adapter`, `low_confidence`, `max_relevance`), `fallback` (an adapter failure, deadline, missing adapter or exhausted budget; plain recall hits are returned with a `reason`, including `budget`), or `skipped` (`reason: legacy_rerank`). The human render prints one line for fallback/skipped with the reason. Without the key the output is exactly the plain recall render.
-- **Graph source.** `[supporter.memory_rerank.sources]` sets the pool: `recall` hits (default 30) plus up to `graph` extra candidates (default 3; `0` turns the graph source off). Graph candidates are live mem items linked by an active relation to an entity whose id contains a query keyword, ranked by how many matched entities they link to, then importance and recency; they are found by SQL alone, never by a model or embedding. Items already in the recall pool are not added twice. With `graph > 0` an applied search tags every hit `via: "recall"|"graph"` and the envelope adds `sources: {recall, graph}` (pool counts). With both `graph = 0` and `docs = 0`, applied output carries neither key; every fallback also carries neither and matches the plain recall contract.
-- **Docs source.** `[supporter.memory_rerank.sources].docs` adds 0..10 embedded doc sections (default 3), including CLI command headings. Keyword selection is default; `supporter.memory_rerank.docs_hybrid = true` adds semantic matching when vectors are ready, falling back to keyword order on missing vectors/errors. Applied hits contain `source: "doc"`, `doc`, `section`, `anchor`, `pointer`, `relevance`, `via: "docs"`; pointers run `domios docs <NAME>` or `domios <command> --help`. The envelope counts docs.
-- **Sessions source.** `[supporter.memory_rerank.sources].sessions` adds up to five recent matching snippets (default 0), through provider session search under the rerank deadline; errors, timeouts or saturation skip it. The adapter sees title, provider, date and a capped excerpt. Applied hits contain `source: "session"`, `session_id`, `provider`, `title`, `excerpt`, `pointer`, `relevance`, `via: "sessions"`, pointing to `domios sessions get <id>`. Docs and sessions never record mem access and appear only after successful re-ranking, never in off/fallback results.
-- **Access.** Pool candidates, recall or graph, record no access while they are graded. Only the hits the search returns count as accessed, once each.
-- **Low confidence.** `low_confidence: true` means even the best hit scored below `low_confidence_threshold`: nothing relevant was found. The human render says so in one line; treat the hits as weak leads, not answers.
-- **Tokens.** Adapters declare `required`, `optional` or `none` (`"decisionModel": true` means optional). Only required adapters need a usable stored token. Use `pbpaste | domios supporter token set --adapter <adapter>`; terminal input is refused. Tokens never enter config or argv. `token status` shows presence, path and `mode_ok`, never the value. Storage is `<data dir>/supporter/<adapter>.json`, owner-only: Unix 0600 in a 0700 directory; Windows restricts broad access while preserving explicit narrow runtime grants. Each instance keeps its own. Token commands use local bearer HTTP and refuse `--mesh`; none-mode adapters ignore writes.
+Applied hits show relevance 0..1 (human: rel 92%). CLI JSON returns id/doc pointer, source, optional via, baseline score and relevance, omitting item titles/bodies/summaries/tags; use `domios mem get <id> --json` for the full record. HTTP search retains item detail for the UI.
 
-Decision adapters target deterministic models such as [TypeSafe Jev](https://typesafe.ai). Fine-tunes and general LLMs may differ in accuracy and latency. Calibrated choice/noul probabilities describe decisions; sampled-text logprobs describe generated tokens and are not equivalent.
+The supporter envelope is applied (adapter, low_confidence, max_relevance), fallback (reason: missing adapter, failure, deadline, budget or credits), or skipped (legacy_rerank). Fallback returns unchanged recall hits; without the key the plain render is unchanged. low_confidence means the best grade is below the configured threshold: weak leads, not answers.
 
-The adapter, model and token are managed in **Settings > Agents > Supporter Agent** or with `domios supporter`. Keys and bounds: `domios docs RUNTIME-CONFIG`; routes: `domios docs API-MEMORY`.
+`[supporter.memory_rerank.sources]` controls:
+- recall: default 30 candidates;
+- graph: default 3 extra live items linked by active relations to keyword-matched entities; SQL ranks by matched entities, importance and recency, deduplicating recall hits;
+- docs: 0..10 sections, default 3; keyword order unless docs_hybrid enables available semantic vectors, with keyword fallback;
+- sessions: 0..5 recent snippets, default 0; provider errors, timeouts or saturation skip this source within the rerank deadline.
+
+Applied graph/docs sources add via and pool counts. Both graph=0 and docs=0 omit this metadata; fallback omits all additions. Doc hits expose doc/section/anchor/pointer/relevance and run whole-doc/help commands. Session hits expose session_id/provider/title/excerpt/pointer/relevance and point to `domios sessions get <id>`. Docs/sessions appear only after successful reranking and never record mem access. Pool grading records no access; only returned memory hits do, once each.
+
+Adapters declare required/optional/no token. Save required tokens through piped stdin with `domios supporter token set --adapter <adapter>`; never argv/config. Terminal input and --mesh refuse. `token status` returns presence/path/mode_ok, never values. Tokens live in each instance's owner-only supporter directory (Unix directory 0700/file 0600; Windows retains only narrow runtime grants). None-mode adapters ignore writes.
 
 ### Supporter Agent
 
-The Supporter re-ranks memory, observes tab lifecycle events and supports bounded General Agent recovery. Connecting enables it automatically; disconnected behavior is unchanged.
+The Supporter reranks memory, observes tab lifecycle events and supports bounded General Agent recovery. Connection enables it automatically; disconnection preserves deterministic behavior. Discover with `domios supporter models`, connect with `domios supporter use <adapter>`, inspect `domios supporter status` and disconnect with `domios supporter disconnect <adapter>`. Settings > Agents > Supporter Agent retains multiple connections/models; removing the active one selects no replacement.
 
-- **Connections.** Discover with `domios supporter models`, save any required token, then `domios supporter use <adapter> [--model <id>]`. Settings can keep several connections with remembered models and Make active actions. `domios supporter disconnect <adapter>` removes its connection and token; removing active stops the Supporter without selecting another. `domios supporter status` shows activity, verdicts and budget.
-- **Budget.** `supporter.calls_per_hour` is unlimited when absent or 0; positive values up to 100000 cap physical HTTP attempts. Local decisions cost no request. Batches count once, sequential calls separately. At the cap, search returns baseline hits with reason `budget`, observation skips, and status shows `budget_reached` plus the next free time. Unlimited status has `calls_per_hour: null`. Adapter failures also return baseline results; the default stage deadline is 3000 ms.
-- **Sent data.** Memory queries and candidate titles/bodies (default cap 2000 characters), plus configured docs/session excerpts; observations send recent screen/chat text and runtime context. Jev receives this at TypeSafe; local adapters use their configured server. Tokens remain local.
-- **Prompt answers.** On agent-, Team-, worker- and cron-owned tabs, a calibrated choice >=0.80 may answer folder-trust, tool-permission or update prompts through a provider-declared option. Failed, capped, `other` or low-confidence answers use the structural responder; unresolved cases notify the owner. Direct owner tabs retain prompts. Authentication, login, unavailable-model and quota prompts are never auto-answered. See `domios docs TAB-LIFECYCLE`.
-- **Recovery.** At most two General Agent automatic restarts per episode, then a failure notification until owner action. A crash resumes only a verified session whose provider is absent from the tab's process tree. Startup failure and error loops each allow one attempt within the overall cap. Model-authorized recovery stays notify-only pending qualification. See `domios docs AGENT-CONTROL`.
-- **Models and spend.** Jev remains the calibrated re-rank model, billed to TypeSafe. `domios model-provider` configures OpenCode local models; their optional decision adapter has no calibrated confidence. Estimates use response usage and declared prices; unpriced adapters have none. Credit exhaustion sends one failure alert and uses deterministic results until a later probe succeeds.
-- **Activity.** Mission Control shows recent verdicts. The bounded `<data dir>/supporter/journal.jsonl` records actions, budget transitions, answer distributions, model identities and criteria hashes, never raw inputs or tokens. `other` triggers no action or hint. `domios mem search --supporter off` skips re-rank once. Clearing a required token keeps the saved connection but makes it unusable.
+calls_per_hour is unlimited when absent/0; positive values up to 100000 count physical HTTP attempts (batches once, sequential calls separately; local decisions are free). At budget, search falls back and observation skips until capacity returns. Status shows budget_reached/next free time, calls_per_hour:null when unlimited, activity, verdicts and spend. Default stage deadline: 3000 ms. Missing prices yield no estimate; credit exhaustion emits one failure alert and deterministic fallback until a later successful probe.
 
-The Guide opens from a standalone `@ds-guide supporter-agent` paragraph. Jev: https://docs.typesafe.ai.
+Queries/candidate text (default cap 2000 characters), configured docs/session excerpts and recent screen/chat/runtime context may reach the adapter. Jev runs at TypeSafe; local adapters use their configured server. Tokens remain local. Jev's calibrated choice/noul probabilities differ from sampled-text logprobs; generic/local models have no calibrated confidence.
+
+On agent/Team/worker/cron tabs, a calibrated choice >=0.80 may answer only provider-declared folder-trust/tool-permission/update choices. Failed/capped/other/low-confidence decisions use the structural responder; unresolved cases notify the owner. Owner tabs retain prompts. Never auto-answer authentication/login/model-unavailable/quota prompts. See `domios docs TAB-LIFECYCLE`.
+
+General Agent recovery allows at most two restarts per episode, then owner action. Crash recovery requires a verified session and an absent provider process; startup failures/error loops each allow one attempt within that cap. Model-authorized recovery stays notify-only pending qualification. See `domios docs AGENT-CONTROL`.
+
+Mission Control shows verdicts. Bounded supporter/journal.jsonl stores action/budget/answer/model/criteria metadata, never raw inputs/tokens. other causes no action/hint. Clearing a required token preserves the connection but makes it unusable. The Guide opens from a standalone @ds-guide supporter-agent paragraph. Connection guidance: `domios docs SPINAL-CORD`; settings: `domios docs RUNTIME-CONFIG`; response fields/routes: `domios docs API-MEMORY`.
 
 ### Wake-up selection
 
@@ -167,11 +161,9 @@ Use the bounded graph commands and their dry runs; do not issue raw SQL.
 
 ### Hub report
 
-`mem graph hubs [--threshold 20] [--limit 5] [--sample 0]` is read-only and local. It returns at most `limit` nodes whose active degree is at or above `threshold`, highest degree first, as `{threshold, limit, sample, total_hubs, hubs, excluded, existing_anchors}`. `total_hubs` counts every hub before the limit; `excluded` lists the dreams anchor `project_dreams` (`{id, degree, reason}`), which is never a hub to decompose. Each hub is `{id, degree, rel_dist, popular_source, sub_anchors, outbound_only, unclustered, clusters, neighbors}`:
+`domios mem graph hubs --threshold 20 --limit 5 --sample 0` is local/read-only. It returns highest-degree active hubs, total_hubs before limiting, excluded dreams anchor project_dreams, and existing_anchors. Per-hub fields include id/degree/rel_dist/popular_source/sub_anchors/outbound_only/unclustered/clusters/neighbors.
 
-- `clusters` groups the hub's inbound neighbours (the edges `introduce-topic` can re-route) by shared area, then title keyword, then kind. A group must split the remaining neighbours and must not just repeat the hub's own name; existing `topic_*`/`role_*` neighbours count as `sub_anchors` instead. Each cluster is `{suggested_topic, entity_type, existing, basis, key, members}`: `suggested_topic` reuses an existing `topic_<key>` (`existing: true`) or names `topic_<hub-name>_<key>`, and the cluster feeds `introduce-topic --topic-id <suggested_topic> --type <entity_type> --sources <members> --anchor <hub>` directly.
-- `popular_source` is true when every edge is `extracted_from` (provenance, no clusters).
-- `neighbors` is the raw `{id, rel, dir, title}` sample, empty unless `--sample N`.
+Clusters split inbound neighbors by area, title keyword and kind, never repeat the hub's name, and reuse existing topic_/role_ sub-anchors. suggested_topic/entity_type/members feed introduce-topic --topic-id/--type/--sources/--anchor. popular_source means all edges are extracted_from provenance; no clusters. Raw neighbors {id,rel,dir,title} appear only with --sample N. Inspect command --help for field/option detail.
 
 ### Reversible hygiene
 
@@ -215,10 +207,10 @@ Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL check
 
 ## Memory backups
 
-`domios mem backup create --out DIR` creates a timestamped local archive while the daemon runs: an online consistent SQLite snapshot of `mem/knowledge.db`, plus copies of `mem/blobs/` and `storage/`, protected by a SHA-256 manifest. Output must be outside the instance data directory. Incomplete archives are not published. File copies are not a cross-store transaction; quiesce file writers when that consistency is required. The archive excludes credentials, configuration, Neighbor keys and model caches.
+`domios mem backup create --out DIR` publishes a timestamped local archive with an online-consistent SQLite knowledge.db snapshot, mem/blobs/ and storage/, protected by a SHA-256 manifest. Output must be outside the data directory; incomplete archives never publish. Copies are not cross-store transactions: quiesce file writers when required. Credentials/config/Neighbor keys/model caches need separate protected backups.
 
-Stop the daemon before `domios mem backup restore --from ARCHIVE`. Restore holds the daemon's filesystem ownership locks, verifies the manifest and SQLite integrity, replaces memory/storage and retains the previous trees in the printed private `.before-restore-*` directory. An active daemon refuses restore even if HTTP is down. Existing `domios mem restore ITEM_ID` restores one item's history.
+Stop the daemon before `domios mem backup restore --from ARCHIVE`. Restore holds the same ownership locks, verifies manifest/SQLite integrity, replaces memory/storage and retains the old trees in the printed private .before-restore-* directory. Active daemons refuse even with HTTP down. `domios mem restore ITEM_ID` remains single-item history restore.
 
-Schedule online creation with `domios cron create memory-backup --schedule "0 3 * * *" --task "Run domios mem backup create --out /absolute/backup-directory once and report its result. Never restore or delete archives."` Choose a private output directory and copy completed archives to encrypted off-machine storage. For a Postgres backend use `pg_dump --format=custom` and, with the daemon stopped, `pg_restore --single-transaction --exit-on-error`; back up storage separately with its writers quiesced. Use protected PostgreSQL service/password files rather than passwords in argv.
+Use a Domios cron for online creation and encrypted off-machine archive storage. Postgres needs pg_dump --format=custom and, with the daemon stopped, pg_restore --single-transaction --exit-on-error; back up storage with writers quiesced. Supply database credentials through protected service/password files, never argv.
 
-<!-- revision: 60 -->
+<!-- revision: 61 -->

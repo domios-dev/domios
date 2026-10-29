@@ -56,7 +56,7 @@ For a bind mount, provision the directory with `install -d -m 0700 -o 10001
 
 ```bash
 docker volume create domios-data
-docker run -d --name domios --restart unless-stopped \
+docker run -d --name domios --restart unless-stopped --stop-timeout 30 \
   -p 127.0.0.1:7685:7685 \
   --mount source=domios-data,target=/home/domios/.domios \
   domios-server:VERSION
@@ -86,8 +86,12 @@ credentials. Do not mount a host secret-service socket into this container.
 Provision any desired embedding-model cache under `.domios/models` with matching
 ownership. Initial local embedding can otherwise download its model at runtime;
 no model, provider credential, token or deployment connection URL is baked in.
-The supervisor tracks the readiness-confirmed daemon with a Linux pidfd, forwards
-SIGTERM/SIGINT and stays alive until that process exits. Docker's healthcheck
+The supervisor starts the daemon directly through its protected-stdio protocol
+in a new session and owns its pidfd before waiting for readiness. SIGTERM/SIGINT
+handling starts before setup/spawn; queued stop requests reach that exact child
+even while readiness is pending. Graceful cleanup is bounded to 20 seconds,
+then a hung child is killed and reaped within two seconds. Keep Docker's stop
+grace at 30 seconds (as in the run command and Compose). Docker's healthcheck
 uses a bounded standard-library HTTP request to `/api/health` every five seconds.
 
 ## Sign in without a browser in the container

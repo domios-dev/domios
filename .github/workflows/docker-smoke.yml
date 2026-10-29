@@ -51,7 +51,7 @@ jobs:
           rustup target add "$CARGO_BUILD_TARGET"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libdbus-1-dev minisign
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - name: Verify the pinned public updater key
         run: |
           python3 - <<'PY'
@@ -62,7 +62,9 @@ jobs:
       - name: Build production-profile headless archive from this checkout
         run: bash ./build.sh docker-smoke-inputs
       - name: Verify packaging models, archive guards and signed feed fixtures
-        run: node --test scripts/tests/docker-packaging.test.mjs
+        run: |
+          node --test scripts/tests/docker-packaging.test.mjs
+          python3 -m unittest discover -s scripts/docker -p test_container.py
       - name: Build, start, prove health and update refusal, clean up
         env:
           ARCH: ${{ matrix.arch }}

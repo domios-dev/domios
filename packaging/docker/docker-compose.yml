@@ -2,6 +2,7 @@ services:
   domios:
     image: ${DOMIOS_IMAGE:?Set DOMIOS_IMAGE to a verified versioned image tag}
     container_name: domios
+    stop_grace_period: 30s
     command: ["postgres"]
     ports:
       - "127.0.0.1:7685:7685"

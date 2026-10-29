@@ -11,6 +11,20 @@ use codeterm_update::single_flight;
 use codeterm_update::InstallMethod;
 use codeterm_update::UpdatePhase;
 
+#[derive(Clone)]
+pub struct InstalledExecutable(pub std::path::PathBuf);
+
+fn container_refusal(
+    installed: Option<axum::Extension<InstalledExecutable>>,
+) -> Option<codeterm_update::headless::Error> {
+    match installed {
+        Some(axum::Extension(installed)) => codeterm_update::container::marker_refusal(
+            codeterm_paths::container_install::marked_at(&installed.0),
+        ),
+        None => codeterm_update::container::refusal(),
+    }
+}
+
 #[derive(Deserialize)]
 pub struct CheckUpdateQuery {
     pub force: Option<bool>,
@@ -21,8 +35,13 @@ pub async fn check_update(
     headers: HeaderMap,
     Query(q): Query<CheckUpdateQuery>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    installed: Option<axum::Extension<InstalledExecutable>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| availability_error(status, error.to_string()))?;
+    if let Some(error) = container_refusal(installed) {
+        return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
+    }
 
     if super::auth::is_local_caller(&state, &headers) {
         if let Some(axum::Extension(bundles)) = bundles {
@@ -55,7 +74,10 @@ pub async fn check_update(
                 .update_state
                 .lock()
                 .set_error(format!("check failed: {}", e));
-            return Err((StatusCode::BAD_GATEWAY, "Failed to check for updates"));
+            return Err(availability_error(
+                StatusCode::BAD_GATEWAY,
+                "Failed to check for updates".into(),
+            ));
         }
     };
 
@@ -132,10 +154,11 @@ pub async fn install_update(
     state: AxumState<AppState>,
     headers: HeaderMap,
     query: Query<InstallUpdateQuery>,
+    installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
 
-    if let Some(error) = codeterm_update::container::refusal() {
+    if let Some(error) = container_refusal(installed) {
         if let Err(error) = check_auth(&state.0, &headers) {
             return error.into_response();
         }
@@ -423,13 +446,14 @@ pub async fn availability(
     headers: HeaderMap,
     query: Result<Query<CheckUpdateQuery>, axum::extract::rejection::QueryRejection>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
+    installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> Result<
     Json<codeterm_update::update_state::AvailabilitySnapshot>,
     (StatusCode, Json<serde_json::Value>),
 > {
     check_auth(&state, &headers)
         .map_err(|(status, error)| availability_error(status, error.to_string()))?;
-    if let Some(error) = codeterm_update::container::refusal() {
+    if let Some(error) = container_refusal(installed) {
         return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
     }
     let Query(q) =

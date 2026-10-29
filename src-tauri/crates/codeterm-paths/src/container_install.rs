@@ -8,7 +8,11 @@ pub fn marked_at(executable: &Path) -> bool {
     executable
         .parent()
         .and_then(Path::parent)
-        .is_some_and(|root| root.join(MARKER).symlink_metadata().is_ok())
+        .is_some_and(|root| {
+            root.join(MARKER)
+                .symlink_metadata()
+                .is_ok_and(|metadata| metadata.file_type().is_file())
+        })
 }
 
 pub fn marked() -> bool {

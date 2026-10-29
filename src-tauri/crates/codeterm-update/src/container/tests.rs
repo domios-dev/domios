@@ -33,3 +33,12 @@ fn container_marker_is_resolved_from_the_release_bundle_for_both_binaries() {
         &root.path().join("unrelated")
     ));
 }
+
+#[test]
+fn container_directory_is_not_an_installation_marker() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join(codeterm_paths::container_install::MARKER)).unwrap();
+    assert!(!codeterm_paths::container_install::marked_at(
+        &root.path().join("cli/codeterm")
+    ));
+}
