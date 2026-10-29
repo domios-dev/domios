@@ -56,7 +56,7 @@ impl AuthenticatedCall for Calls {
                     return Err(Error::ReceiverRevisionStale);
                 }
                 assert_eq!(data["takeover"], true);
-                assert_eq!(data["features"], json!(["files.v1"]));
+                assert_eq!(data["features"], json!(["files.v1", "receivers.friend.v1"]));
                 receiver.installation = data["installation_id"].as_str().unwrap().into();
                 receiver.key = key;
                 receiver.revision += 1;
@@ -123,6 +123,7 @@ async fn confirmed_takeover_key_matrix_preserves_active_keys_replaces_revoked_an
                 installation_id: "returning".into(),
                 machine_label: "Desk".into(),
                 enrollment: Some(Enrollment {
+                    installation_only: false,
                     expected_revision: if stale { 6 } else { 7 },
                     takeover: true,
                     operation_id: None,
@@ -199,6 +200,7 @@ async fn unconfirmed_takeover_or_unavailable_inventory_never_replaces_the_stored
         installation_id: "returning".into(),
         machine_label: "Desk".into(),
         enrollment: Some(Enrollment {
+            installation_only: false,
             expected_revision: 7,
             takeover: true,
             operation_id: None,

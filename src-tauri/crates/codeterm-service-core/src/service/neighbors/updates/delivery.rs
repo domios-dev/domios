@@ -125,7 +125,7 @@ impl ServiceContext {
             HistoryReceipt {
                 delivery: codeterm_neighbors::wire::DeliveryResult {
                     status: signal.status,
-                    reason: None,
+                    reason: signal.reason,
                     delivered_at: (signal.status == DeliveryStatus::Delivered).then_some(signal.at),
                     read_at: history.covered_read_at(uid, &signal.message_id),
                 },

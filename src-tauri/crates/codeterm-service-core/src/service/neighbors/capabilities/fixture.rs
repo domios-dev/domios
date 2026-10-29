@@ -67,7 +67,10 @@ impl crate::service::test_fixture::ServiceFixture {
             "id":id,"version":"1.0.0","displayName":"Fixture",
             "capabilities":{"agentProvider":true},
             "commands":{"autoApproveFlags":["opaque-full"]},
-            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}
+            "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},
+                "launchPermissions":{"allowRuleArgsFormat":["opaque-allow","{rule}"],"commandRuleFormat":"OpaqueShell({command}:*)",
+                    "scopedFilesystem":{"noPromptArgs":["opaque-mode","opaque-no-prompt"],"readAllRules":["OpaqueRead","OpaqueGlob","OpaqueGrep"],
+                        "readRootRule":"OpaqueRead({path}/**)","writeRootRule":"OpaqueEdit({path}/**)","additionalDirectoryArgs":["opaque-dir","{path}"]}}}
         }).to_string()).unwrap();
         let vm = Arc::new(
             codeterm_plugin::js_runtime::PluginVm::from_source(id, "module.exports={}".into())
@@ -78,6 +81,29 @@ impl crate::service::test_fixture::ServiceFixture {
         ));
     }
 
+    pub async fn pause_neighbor_fixture(&self, tab: &str) {
+        let authority = self
+            .service
+            .mux
+            .read()
+            .get_tab(tab)
+            .unwrap()
+            .neighbor_authority
+            .clone()
+            .unwrap();
+        let metadata = Metadata::new(self.service.account_data_root().unwrap(), &authority.uid);
+        let mut settings = metadata.settings().await.unwrap();
+        settings.paused.insert(authority.friendship_id);
+        metadata.save_settings(settings).await.unwrap();
+    }
+    pub fn seed_neighbor_author(&self, owner_uid: &str, friendship: &str, peer_uid: &str) {
+        self.service
+            .extensions
+            .get_or_init(crate::mem_ops::author::FixtureNeighborAuthors::default)
+            .0
+            .write()
+            .insert((owner_uid.into(), friendship.into()), peer_uid.into());
+    }
     pub async fn save_neighbor_restore_settings(
         &self,
         uid: &str,
@@ -95,6 +121,10 @@ impl crate::service::test_fixture::ServiceFixture {
     pub async fn load_neighbor_restore_settings(&self, uid: &str) {
         let metadata = Metadata::new(self.service.account_data_root().unwrap(), uid);
         let settings = metadata.settings().await.unwrap();
+        for friendship in settings.bindings.keys() {
+            self.service
+                .set_neighbor_friend_receiver_for_test(friendship, Some(true), 1);
+        }
         self.service
             .remember_neighbor_concierge_accounts(uid, &settings);
     }
@@ -138,6 +168,8 @@ impl crate::service::test_fixture::ServiceFixture {
         friendship: &str,
         permission: Permission,
     ) {
+        self.service
+            .set_neighbor_friend_receiver_for_test(friendship, Some(true), 1);
         let account = self
             .service
             .ext::<crate::service::account::AccountCell>()
@@ -153,6 +185,15 @@ impl crate::service::test_fixture::ServiceFixture {
             })
             .await;
         let session = account.session().await.unwrap();
+        self.service
+            .extensions
+            .get_or_init(crate::mem_ops::author::FixtureNeighborAuthors::default)
+            .0
+            .write()
+            .insert(
+                (session.identity.uid.clone(), friendship.into()),
+                "friend-account-uid".into(),
+            );
         let metadata = Metadata::new(
             self.service.account_data_root().unwrap(),
             &session.identity.uid,

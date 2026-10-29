@@ -49,7 +49,7 @@ async fn explicit_refresh_discovers_remote_environments_for_dual_registered_prov
         );
         let state = crate::test_support::app_state(&fixture);
         for expected_calls in [1, 2] {
-            refresh_agent_provider_models(
+            let _refreshed = refresh_agent_provider_models(
                 AxumState(state.clone()),
                 HeaderMap::new(),
                 Json(RefreshProviderModelsBody {

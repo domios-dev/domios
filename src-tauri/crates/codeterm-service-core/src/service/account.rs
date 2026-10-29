@@ -35,6 +35,10 @@ struct AccountIdentity(std::sync::Weak<super::ServiceContext>);
 impl codeterm_account::IdentityObserver for AccountIdentity {
     async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
         if let Some(service) = self.0.upgrade() {
+            *service
+                .ext::<crate::mem_ops::author::OwnerMemoryAuthor>()
+                .0
+                .write() = identity.map(|i| i.uid.clone());
             service.neighbor_identity_changed();
             if identity.is_some() {
                 service.restore_neighbor_updates_once();

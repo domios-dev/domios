@@ -17,6 +17,7 @@ pub mod graph;
 pub mod items;
 pub mod layout;
 pub mod mem_merge;
+pub mod neighbor_save;
 pub mod pinned;
 pub mod search;
 pub mod sync;
@@ -111,3 +112,23 @@ pub(super) fn emit_activity(state: &AppState, headers: &HeaderMap, op: &str, mem
         serde_json::to_value(&event).unwrap_or(serde_json::Value::Null),
     );
 }
+
+pub(super) async fn memory_author(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<codeterm_service_core::mem::store::MemAuthor, (axum::http::StatusCode, String)> {
+    let caller = if crate::auth::caller_peer_id(state, headers).is_some() {
+        None
+    } else {
+        crate::auth::tab_caller(state, headers)?
+    };
+    codeterm_service_core::mem_ops::author::mem_author_for_caller(
+        &state.svc,
+        caller.as_ref().map(|c| c.tab_id.as_str()),
+    )
+    .await
+    .map_err(|message| (axum::http::StatusCode::FORBIDDEN, message))
+}
+
+#[cfg(test)]
+mod tests;

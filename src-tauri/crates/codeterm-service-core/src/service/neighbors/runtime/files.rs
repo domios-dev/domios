@@ -93,7 +93,11 @@ impl ServiceContext {
             return self.neighbor_file_local(&command, concierge.as_ref()).await;
         }
         match self
-            .neighbor_operation(owner::Operation::Files(command))
+            .neighbor_operation(owner::Operation::Files {
+                command,
+                caller: caller.map(str::to_owned),
+                nonce: nonce.map(str::to_owned),
+            })
             .await?
         {
             owner::Outcome::Value(value) => Ok(value),
@@ -103,9 +107,14 @@ impl ServiceContext {
     pub(super) async fn neighbor_files_owned(
         &self,
         command: Command,
+        caller: Option<&str>,
+        nonce: Option<&str>,
         generation: u64,
     ) -> Result<Value, String> {
         self.require_neighbor_generation(generation)?;
+        if caller.is_some() {
+            self.require_neighbor_general(caller, nonce)?;
+        }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         self.require_neighbor_generation(generation)?;
         let friendship = command.friendship().to_owned();
@@ -118,8 +127,9 @@ impl ServiceContext {
                     }
                     codeterm_neighbors::wire::validate_message_size(&body)?;
                     let lifecycle = InstallationKeys { store: &self.neighbor_key_store()?, registry: registry.as_ref(), scope, uid: &transport.uid };
-                    let author = self.neighbor_author(None)?;
+                    let author = self.neighbor_author(caller)?;
                     let mut receipt = self.send_neighbor(transport.as_ref(), &lifecycle, &metadata, Outgoing {
+                        authority: authority::SendAuthority::Unrestricted,
                         friendship: friendship.clone(), kind, body: OutboundBody::Files { text: Zeroizing::new(body), paths }, in_reply_to, author,
                     }).await?;
                     let entries = metadata.file_entries(&friendship).await?;

@@ -33,6 +33,43 @@ pub async fn status(
             .await,
     ))
 }
+
+pub async fn backend(
+    caller: Option<Extension<CallerIdentity>>,
+) -> Result<(axum::http::HeaderMap, Json<serde_json::Value>), Error> {
+    admit(caller.as_ref())?;
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert(
+        axum::http::header::CACHE_CONTROL,
+        axum::http::HeaderValue::from_static("no-store"),
+    );
+    Ok((
+        headers,
+        Json(backend_view(codeterm_account::firebase_endpoints::current())),
+    ))
+}
+
+fn backend_view(endpoints: codeterm_account::firebase_endpoints::Endpoints) -> serde_json::Value {
+    let target = if endpoints.qa {
+        "qa"
+    } else if endpoints.emulator {
+        "emulator"
+    } else {
+        "production"
+    };
+    let (project, kind) = match endpoints.functions {
+        "https://us-central1-domios-signin-qa.cloudfunctions.net/" => {
+            (Some("domios-signin-qa"), "qa")
+        }
+        "https://us-central1-domios-d9357.cloudfunctions.net/" => {
+            (Some("domios-d9357"), "production")
+        }
+        "http://127.0.0.1:15001/demo-domios/us-central1/" => (Some("demo-domios"), "emulator"),
+        _ => (None, "unknown"),
+    };
+    serde_json::json!({"schema_version":1,"target":target,"project_id":project,"functions_endpoint_kind":kind})
+}
+
 pub(crate) fn debug_login_router() -> axum::Router<AppState> {
     let router = axum::Router::new().merge(login_paste::router());
     #[cfg(debug_assertions)]
@@ -382,6 +419,13 @@ fn neighbor_failure(message: String) -> Response {
             }
         }
     }
+    if let Some(detail) = message.strip_prefix("key_limit:") {
+        if let Ok(data) = serde_json::from_str::<serde_json::Value>(detail) {
+            if data["limit"].as_u64().is_some() && data["active"].as_u64().is_some() {
+                return (StatusCode::CONFLICT, Json(serde_json::json!({"code":"key_limit","reason":"key_limit","limit":data["limit"],"active":data["active"],"message":"All machine slots are in use"}))).into_response();
+            }
+        }
+    }
     let reason = message.split_once(':').map(|(reason, _)| reason);
     let status = match reason {
         Some("neighbor_forbidden") => StatusCode::FORBIDDEN,
@@ -390,6 +434,13 @@ fn neighbor_failure(message: String) -> Response {
             | "neighbor_permission_denied"
             | "neighbor_memory_not_allowed"
             | "neighbor_memory_read_only"
+            | "neighbor_memory_write_not_allowed"
+            | "neighbor_memory_area_not_granted"
+            | "neighbor_memory_kind_not_allowed"
+            | "neighbor_memory_contains_credentials"
+            | "neighbor_memory_too_large"
+            | "neighbor_memory_title_conflict"
+            | "neighbor_memory_author_unavailable"
             | "neighbor_secrets_not_allowed"
             | "neighbor_capability_denied"
             | "neighbor_paused"
@@ -397,21 +448,25 @@ fn neighbor_failure(message: String) -> Response {
             | "neighbor_files_not_allowed",
         ) => StatusCode::FORBIDDEN,
         Some("session_revoked") => StatusCode::UNAUTHORIZED,
-        Some("neighbors_disabled") => StatusCode::SERVICE_UNAVAILABLE,
+        Some("neighbors_disabled" | "entitlements_unavailable") => StatusCode::SERVICE_UNAVAILABLE,
         Some("limit_out_of_range" | "reply_target_unknown" | "empty_body") => {
             StatusCode::BAD_REQUEST
         }
         Some(
             "invalid_request"
+            | "invalid_key"
             | "neighbor_machine_access_unsupported"
             | "neighbor_memory_area_unknown",
         ) => StatusCode::BAD_REQUEST,
         Some("invalid_flag") => StatusCode::BAD_REQUEST,
         Some("neighbor_flag_limit") => StatusCode::CONFLICT,
-        Some("friendship_not_found") => StatusCode::NOT_FOUND,
+        Some("friendship_not_found" | "key_not_found") => StatusCode::NOT_FOUND,
         Some("friends_locked" | "recipient_locked") => StatusCode::FORBIDDEN,
         Some(
             "receiver_elsewhere"
+            | "receiving_elsewhere"
+            | "feature_unsupported"
+            | "key_revoked"
             | "friendship_ended"
             | "reply_target_stopped"
             | "receiver_revision_stale"

@@ -1,9 +1,11 @@
 use super::*;
 use codeterm_neighbors::adapter::ReceiverStatus;
 
+#[cfg(not(any(test, feature = "test-support")))]
 type WatchStartup<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, String>> + Send + 'a>>;
 
+#[cfg(any(test, not(feature = "test-support")))]
 fn needs_key_recovery(
     status: &ReceiverStatus,
     local_key: Option<&str>,
@@ -54,6 +56,7 @@ impl ServiceContext {
         }
     }
 
+    #[cfg(not(any(test, feature = "test-support")))]
     pub(super) fn restore_neighbor_watches(&self, generation: u64) -> WatchStartup<'_> {
         Box::pin(async move {
             self.require_neighbors_enabled()
@@ -98,10 +101,8 @@ impl ServiceContext {
                 );
                 return Ok(false);
             }
-            self.start_neighbor_listeners_mode(
-                transport, registry, scope, metadata, generation, false,
-            )
-            .await?;
+            self.neighbor_operation(owner::Operation::ReceiverChanged)
+                .await?;
             Ok(true)
         })
     }

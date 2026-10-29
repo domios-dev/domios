@@ -1,3 +1,4 @@
+use super::authority::SendAuthority;
 use super::*;
 
 impl ServiceContext {
@@ -42,6 +43,7 @@ impl ServiceContext {
         self.require_neighbors_enabled()?;
         let generation = self.neighbor_history_generation();
         let Outgoing {
+            authority,
             friendship,
             kind,
             body,
@@ -62,6 +64,7 @@ impl ServiceContext {
             metadata,
             &friendship,
             &permission,
+            authority,
             kind,
             body,
             in_reply_to.as_deref(),
@@ -77,17 +80,14 @@ impl ServiceContext {
             return Err(Error::Revoked);
         }
         let peers = transport.peer_keys(&friendship).await?;
-        let peer = peers
-            .keys
-            .iter()
-            .max_by_key(|key| key.created_at)
-            .ok_or(Error::InvalidKey)?;
+        peers.require_sender_receiver(&transport.installation_id)?;
+        let peer = peers.receiver_key()?;
         let mut envelope = Envelope {
             schema: SCHEMA.into(),
             friendship_id: friendship.clone(),
             message_id: uuid::Uuid::new_v4().simple().to_string(),
             sender_uid: transport.uid.clone(),
-            recipient_uid: peers.peer_uid,
+            recipient_uid: peers.peer_uid.clone(),
             kind,
             in_reply_to: in_reply_to.clone(),
             ciphertext: String::new(),
@@ -209,6 +209,7 @@ async fn prepare_outgoing_body(
     metadata: &Metadata,
     friendship: &str,
     permission: &Permission,
+    authority: SendAuthority,
     kind: Kind,
     body: OutboundBody,
     in_reply_to: Option<&str>,
@@ -261,7 +262,7 @@ async fn prepare_outgoing_body(
         }
         return Ok((body, vec![]));
     }
-    permission.require(kind)?;
+    authority.require(permission, kind)?;
     match body {
         OutboundBody::Granted(body) => Ok((body, vec![])),
         OutboundBody::Files { text, paths } => Ok((text, paths)),

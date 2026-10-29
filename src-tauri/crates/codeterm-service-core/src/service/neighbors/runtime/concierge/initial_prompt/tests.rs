@@ -63,6 +63,7 @@ fn restored_initial_context_must_match_the_applied_grant() {
     assert!(!prompt_matches(target, &friend, &permission));
     target.restorable_launch.identity_instructions = Some(initial_prompt(&friend, &permission));
     assert!(prompt_matches(target, &friend, &permission));
+    assert!(!prompt_matches(target, &"b".repeat(64), &permission));
     let mut changed = permission.clone();
     changed.scope = "opaque-applied-scope".into();
     assert!(!prompt_matches(target, &friend, &changed));
@@ -279,4 +280,47 @@ fn disabled_grants_have_no_read_or_spawn_commands_and_area_defaults_stay_distinc
             }
         }
     }
+}
+
+#[test]
+fn write_commands_follow_exact_grants_and_change_the_prompt_digest() {
+    let mut permission = Permission {
+        allowed: true,
+        scope: "opaque-scope-871".into(),
+        ..Default::default()
+    };
+    let friendship = "a".repeat(64);
+    let before = digest(&friendship, &permission);
+    let empty = grants::capability_grants(&friendship, &permission);
+    assert_eq!(empty["commands"]["memory_neighbor_save"], json!([]));
+    permission.memory_write_areas = vec!["opaque-area-71".into(), "opaque-area-83".into()];
+    let grant = grants::capability_grants(&friendship, &permission);
+    let commands = grant["commands"]["memory_neighbor_save"]
+        .as_array()
+        .unwrap();
+    assert_eq!(commands.len(), 2);
+    for (command, area) in commands.iter().zip(&permission.memory_write_areas) {
+        assert_eq!(
+            command,
+            &json!([
+                "domios",
+                "mem",
+                "neighbor-save",
+                "--kind",
+                "fact",
+                "--title",
+                "<title>",
+                "--from-pad",
+                "<body.md>",
+                "--area",
+                area
+            ])
+        );
+    }
+    assert_ne!(before, digest(&friendship, &permission));
+    permission.allowed = false;
+    assert_eq!(
+        grants::capability_grants(&friendship, &permission)["commands"]["memory_neighbor_save"],
+        json!([])
+    );
 }

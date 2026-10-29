@@ -69,21 +69,16 @@ impl DocumentSession for ControlWatch {
             listener.changed().await?.ok_or(Error::Transport)?;
             self.current()?;
             self.service.neighbor_cell().receiver.lock().take();
-            self.service.stop_neighbor_listeners();
-            match self.service.restore_neighbor_watches(self.generation).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    self.service
-                        .neighbor_operation(owner::Operation::ReceiverChanged)
-                        .await
-                        .map_err(|_| Error::Transport)?;
-                }
-                Err(error) => {
-                    log::debug!("[neighbors] receiver watch restoration failed: {error}");
-                    self.current()?;
-                    return Err(Error::Transport);
-                }
-            }
+            let version = self.service.forget_neighbor_friend_receivers();
+            self.service.ui.emit(
+                "neighbor-runtime-status",
+                json!({"receiver_unavailable":true,"friend_receivers_version":version}),
+            );
+            self.service.forget_neighbor_registry();
+            self.service
+                .neighbor_operation(owner::Operation::ReceiverChanged)
+                .await
+                .map_err(|_| Error::Transport)?;
             self.current()?;
             self.state(ListenerState::Receiving);
         }

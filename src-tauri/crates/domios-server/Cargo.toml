@@ -22,6 +22,7 @@ codeterm-plugin = { path = "../codeterm-plugin" }
 codeterm-plugins = { path = "../codeterm-plugins" }
 codeterm-events = { path = "../codeterm-events" }
 codeterm-types = { path = "../codeterm-types" }
+codeterm-mem-postgres = { path = "../codeterm-mem-postgres", optional = true }
 codeterm-util = { path = "../codeterm-util" }
 codeterm-update = { path = "../codeterm-update" }
 codeterm-frontend-shell = { path = "../codeterm-frontend-shell" }
@@ -30,6 +31,7 @@ codeterm-frontend-bundle = { path = "../codeterm-frontend-bundle" }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 axum = "0.8"
 tower = { version = "0.5", features = ["util"] }
 async-stream = "0.3"
@@ -63,9 +65,11 @@ serde_json = "1"
 sha2 = "0.10"
 
 [dev-dependencies]
+codeterm-mem-postgres = { path = "../codeterm-mem-postgres", features = ["test-support"] }
 codeterm-mem = { path = "../codeterm-mem", default-features = false }
 codeterm-service-core = { path = "../codeterm-service-core", default-features = false, features = ["test-support"] }
 
 [features]
-default = ["embeddings"]
+default = ["embeddings", "mem-postgres"]
 embeddings = ["codeterm-service-core/embeddings"]
+mem-postgres = ["dep:codeterm-mem-postgres"]

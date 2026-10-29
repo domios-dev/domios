@@ -41,7 +41,7 @@ Readback `api_listener.active`, `.configured`, `.restart_required` expose actual
 
 ### Endpoints
 
-Additional route inventories: API-PLAN (plans/specs/tasks), API-TEAMS (execution authority), API-LIFECYCLE (host/frontend/account), API-EVENTS (Blueprints/notifications), API-SERVICES (Mesh/plugins). Hook routes are enumerated in API-LIFECYCLE.
+Route inventories: API-PLAN (plans/tasks), API-TEAMS (authority), API-LIFECYCLE (host/hooks/account/per-friend Neighbor receiving), API-EVENTS (Blueprints/notifications), API-SERVICES (Mesh/plugins).
 
 #### CI failure events
 
@@ -199,4 +199,4 @@ Live authenticated Plan owners may recover `update`/`assign`/`respawn`/`close` a
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 236 -->
+<!-- revision: 239 -->

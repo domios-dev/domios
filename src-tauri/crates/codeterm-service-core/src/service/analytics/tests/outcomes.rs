@@ -133,9 +133,14 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
     billing.checkout_browser_opened(&session, codeterm_billing::Plan::Pro);
     assert_eq!(
         sink.events().await,
-        vec![Event::CheckoutStarted {
-            plan: codeterm_analytics::PlanKey::Pro
-        }]
+        vec![
+            Event::CheckoutOpened {
+                outcome: codeterm_analytics::CheckoutOutcome::Opened
+            },
+            Event::CheckoutStarted {
+                plan: codeterm_analytics::PlanKey::Pro
+            }
+        ]
     );
 }
 #[test]
@@ -432,4 +437,43 @@ async fn product_feature_boundary_uses_fake_sink_and_consent_gate() {
         };
         assert_eq!(sink.events().await, expected);
     }
+}
+
+#[tokio::test]
+async fn product_consent_is_local_and_never_initializes_the_account() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let sink = Sink::new(Consent::On).await;
+    assert!(service
+        .ext::<AnalyticsCell>()
+        .0
+        .set(sink.worker.clone())
+        .is_ok());
+    assert!(service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .get()
+        .is_none());
+    let status = service
+        .set_product_analytics_consent(Consent::Off)
+        .await
+        .unwrap();
+    assert_eq!(status.consent, Consent::Off);
+    service.record_product_event(Event::PlanViewed {});
+    assert!(sink.events().await.is_empty());
+    service
+        .set_product_analytics_consent(Consent::On)
+        .await
+        .unwrap();
+    service.record_product_event(Event::PlanViewed {});
+    assert_eq!(
+        sink.events().await,
+        vec![Event::AnalyticsOptedIn {}, Event::PlanViewed {}]
+    );
+    assert!(service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .get()
+        .is_none());
 }

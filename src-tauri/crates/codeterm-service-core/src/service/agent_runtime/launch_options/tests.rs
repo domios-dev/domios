@@ -106,6 +106,9 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
             });
             let data_dir = tempfile::tempdir().unwrap();
             let fixture = ServiceFixture::new_at(mux, data_dir.path());
+            fixture
+                .service
+                .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
             let svc = &fixture.service;
             register_neighbor_runtime(svc);
             let cwd = data_dir.path().join("friend");
@@ -176,6 +179,7 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
             let svc = &fixture.service;
             register_neighbor_runtime(svc);
             fixture.install_seeded_storage_desk();
+            svc.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
             assert_eq!(
                 super::restore(svc, &tab_id).unwrap_err(),
                 codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
@@ -235,6 +239,9 @@ fn contradictory_neighbor_bypass_records_require_current_root_grant_for_both_res
                 tab.restorable_launch.permission_bypass_requested = true;
             }
             let fixture = ServiceFixture::new(mux);
+            fixture
+                .service
+                .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
             fixture.set_agent_full_access(global);
             register_neighbor_runtime(&fixture.service);
             let svc = &fixture.service;

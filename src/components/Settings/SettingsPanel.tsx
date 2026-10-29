@@ -30,7 +30,7 @@ import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import { AccountTab } from "./AccountTab";
-import { PrivacyTab } from "./PrivacyTab";
+import { AnalyticsToggle } from "./AnalyticsToggle";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { JobsView } from "../Jobs/JobsView";
@@ -227,6 +227,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">
+                <AnalyticsToggle />
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
 
                 <SettingsCard
@@ -440,10 +441,6 @@ export function SettingsPanel({
                   onProviderGone={pop}
                 />
               </div>
-            )}
-
-            {top.kind === "section" && top.id === "privacy" && (
-              <SettingsPage title="Privacy"><PrivacyTab /></SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "secrets" && (

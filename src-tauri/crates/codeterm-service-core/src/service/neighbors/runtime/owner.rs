@@ -3,12 +3,19 @@ use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 
 pub(super) enum Operation {
+    StopLocal {
+        expected_generation: u64,
+    },
     Read {
         friendship_id: String,
         through_message_id: String,
         expected_generation: u64,
     },
-    Files(super::files::Command),
+    Files {
+        command: super::files::Command,
+        caller: Option<String>,
+        nonce: Option<String>,
+    },
     Command {
         command: NeighborRuntimeCommand,
         caller: Option<String>,
@@ -77,6 +84,13 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
+            Operation::StopLocal {
+                expected_generation,
+            } => {
+                self.require_neighbor_generation(expected_generation)?;
+                self.drain_neighbor_stop_local(generation).await?;
+                Ok(Outcome::Value(Value::Null))
+            }
             Operation::Read {
                 friendship_id,
                 through_message_id,
@@ -87,8 +101,12 @@ impl ServiceContext {
                     .await
                     .map(Outcome::Value)
             }
-            Operation::Files(command) => self
-                .neighbor_files_owned(command, generation)
+            Operation::Files {
+                command,
+                caller,
+                nonce,
+            } => self
+                .neighbor_files_owned(command, caller.as_deref(), nonce.as_deref(), generation)
                 .await
                 .map(Outcome::Value),
             Operation::ReceiverChanged | Operation::RegistryChanged => {
@@ -148,6 +166,7 @@ impl ServiceContext {
                     &lifecycle,
                     &metadata,
                     Outgoing {
+                        authority: authority::SendAuthority::FriendshipGrant,
                         friendship,
                         kind: Kind::Refusal,
                         body: OutboundBody::Refusal,

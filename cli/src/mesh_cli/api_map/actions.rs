@@ -210,6 +210,7 @@ pub(super) fn now_ms() -> u64 {
 pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>) {
     let enc = urlencoding::encode;
     match action {
+        MemAction::NeighborSave { .. } => unsupported("mem neighbor-save requires its local Neighbor tab credential and cannot run over --mesh"),
         MemAction::Search { query, kind, area, scope, project, limit, supporter, .. } => {
             let mut path = format!("/api/mem/search?q={}&limit={}", enc(query), limit);
             if let Some(k) = kind { path.push_str(&format!("&kind={}", enc(k))); }
@@ -519,6 +520,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         // Local-only subcommands (PTY/subprocess/folders/keychain) never relay.
         // Return explicit errors; `Secret` is rejected upstream.
         MemAction::RunWorker { .. }
+        | MemAction::Backend { .. }
         | MemAction::Backup { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }

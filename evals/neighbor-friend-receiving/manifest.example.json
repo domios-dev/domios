@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "candidate_sha": "REPLACE_WITH_FULL_CANDIDATE_SHA",
+  "qa_backend": {
+    "target": "qa",
+    "project_id": "domios-signin-qa",
+    "functions_sha": "REPLACE_WITH_FULL_QA_BACKEND_SHA"
+  },
+  "control_settled": false,
+  "friend_x": "REPLACE_WITH_BUYER_PEER_FRIENDSHIP_64_HEX",
+  "friend_y": "REPLACE_WITH_THIRD_PEER_FRIENDSHIP_64_HEX",
+  "qa_identity_sha256": {
+    "A": "REPLACE_WITH_QA_BUYER_UID_SHA256",
+    "B": "REPLACE_WITH_QA_PEER_UID_SHA256",
+    "C": "REPLACE_WITH_THE_SAME_QA_PEER_UID_SHA256",
+    "D": "REPLACE_WITH_QA_THIRD_UID_SHA256"
+  },
+  "deadline_seconds": 180
+}

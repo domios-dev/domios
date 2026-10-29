@@ -1,10 +1,26 @@
 import { expect, it, vi } from "vitest";
 import { localFetch } from "../../lib/webApi";
-import { runtimeCall } from "./neighborRuntimeClient";
+import { neighborRuntimeClient, runtimeCall } from "./neighborRuntimeClient";
 
 vi.mock("../../lib/webApi", () => ({ localFetch: vi.fn() }));
 vi.mock("../../lib/bridge", () => ({ listen: vi.fn() }));
 vi.mock("../../lib/nativeBridge", () => ({ nativeBridge: { window: undefined, openFolder: vi.fn() } }));
+
+it.each(["set", "reset"] as const)("moves only the requested friend for %s", async operation => {
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+  await neighborRuntimeClient.receiveFriend("f".repeat(64), 9, operation);
+  const calls = vi.mocked(localFetch).mock.calls;
+  const [, init] = calls[calls.length - 1]!;
+  expect(JSON.parse(String(init?.body))).toEqual({ operation: "set_friend_receiver", friendship_id: "f".repeat(64),
+    receiver_operation: operation, takeover_confirmed: true, expected_receiver_revision: 9 });
+});
+
+it("keeps machine quota metadata and new receiver refusals typed", async () => {
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "key_limit", limit: 5, active: 5, message: "All machine slots are in use" }), { status: 409 }));
+  await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "key_limit", limit: 5, active: 5 });
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "feature_unsupported", message: "Update the account receiver" }), { status: 409 }));
+  await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "feature_unsupported" });
+});
 
 it("opens a saved file from the desktop app so it comes to the front, and falls back to the daemon open", async () => {
   const { openSavedFile } = await import("./neighborFilesClient");
@@ -46,4 +62,14 @@ it("keeps size and tab-request refusals typed", async () => {
   await expect(runtimeCall({ operation: "send" })).rejects.toMatchObject({ reason: "reply_target_stopped", message: "The owner stopped this request; nothing was sent" });
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiving_elsewhere", message: "Another machine receives for this account" }), { status: 409 }));
   await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere", message: "This machine is not receiving this friend's messages." });
+});
+
+it("sends write areas explicitly and defaults them to an empty grant", async () => {
+  const { neighborConciergeClient } = await import("./neighborConciergeClient");
+  for (const memory_write_areas of [undefined, ["project"]]) {
+    vi.mocked(localFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    await neighborConciergeClient.setPermission("pair", { allowed: true, scope: "opaque", allow_tab_requests: false, memory_write_areas });
+    const request = vi.mocked(localFetch).mock.lastCall![1]!;
+    expect(JSON.parse(String(request.body)).permission.memory_write_areas).toEqual(memory_write_areas ?? []);
+  }
 });

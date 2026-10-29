@@ -114,7 +114,11 @@ fn code_for_http_status(status: u64) -> Option<ErrorCode> {
 pub(crate) fn is_neighbor_reason(reason: &str) -> bool {
     matches!(
         reason,
-        "refusal_too_long" | "reply_target_unknown" | "reply_target_stopped" | "empty_body"
+        "refusal_too_long"
+            | "reply_target_unknown"
+            | "reply_target_stopped"
+            | "empty_body"
+            | "receiving_elsewhere"
     ) || reason.starts_with("neighbor_")
         && reason.len() > "neighbor_".len()
         && reason.len() <= 80

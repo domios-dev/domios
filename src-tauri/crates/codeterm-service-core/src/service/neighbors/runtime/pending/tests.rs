@@ -115,6 +115,7 @@ async fn missing_concierge_never_admits_acknowledges_or_advances_a_cursor() {
     *service.neighbor_cell().receiver.lock() = Some(receiving());
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
+    service.set_neighbor_friend_receiver_for_test(&friendship, Some(true), 1);
     let (_, stopped) = tokio::sync::watch::channel(false);
     let session = listener::Session {
         service: service.clone(),

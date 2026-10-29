@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::Connection;
 
 fn folder_skill_item(source_path: &std::path::Path, tags: Vec<String>) -> NewMemItem {
     let source = format!("file:{}", source_path.display());
@@ -403,7 +404,7 @@ fn try_conn_for_times_out_when_held_by_another_thread() {
     let holder = {
         let mem = mem.clone();
         std::thread::spawn(move || {
-            let _guard = mem.conn().lock();
+            let _guard = mem.fixture_conn().lock();
             held_tx.send(()).unwrap();
             block_rx.recv().unwrap();
         })

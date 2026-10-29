@@ -8,10 +8,12 @@ import { RuntimeLoginActions } from "../Terminal/RuntimeLoginActions";
 import { useFirstRunLogin } from "./useFirstRunLogin";
 import { useFirstRunStart } from "./useFirstRunStart";
 import { FirstRunSetupProgress } from "./FirstRunSetupProgress";
+import { useAnalyticsConsent } from "../Settings/useAnalyticsConsent";
 
 export function FirstRunGeneralPicker({ providers, home }: { providers: ProviderDescriptor[]; home?: TabRef }) {
   const eligibleProviders = useMemo(() => generalAgentProviders(providers), [providers]);
   const navigation = usePickerNavigation();
+  const { enabled: analyticsOn } = useAnalyticsConsent();
 
   const { login, beforeStart } = useFirstRunLogin(home, eligibleProviders);
   const { busy, phase, error, progress, onConfirm, onInstall } = useFirstRunStart(navigation.show, beforeStart);
@@ -30,6 +32,10 @@ export function FirstRunGeneralPicker({ providers, home }: { providers: Provider
         progress={login ? "Sign in to continue" : progress}
         navigation={navigation}
         home={home}
+        belowProviders={analyticsOn && <p className="text-xs text-[var(--ct-muted-fg)]">Product analytics is on. Turn off in <a href="#settings/general" onClick={event => {
+          event.preventDefault();
+          window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:general" } }));
+        }}>Settings</a>.</p>}
       >
         <FirstRunSetupProgress phase={phase} />
         {login && home && <RuntimeLoginActions tabId={home.tabId} providerId={login.providerId} state={login.state} />}

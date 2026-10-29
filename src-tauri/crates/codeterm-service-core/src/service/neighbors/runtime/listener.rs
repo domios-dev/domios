@@ -41,7 +41,7 @@ impl Session {
         }
         self.service.require_neighbors_enabled()?;
         self.service
-            .require_neighbor_receiver(Some(self.receiver_revision))?;
+            .require_neighbor_friend_receiver(&self.friendship, Some(self.receiver_revision))?;
         if self
             .service
             .neighbor_cell()

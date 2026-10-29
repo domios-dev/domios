@@ -279,3 +279,159 @@ async fn loopback_secret_preflight_refuses_concierge_before_rpc_or_secret_dispat
         "neighbor_capability_denied"
     );
 }
+
+async fn neighbor_save_matrix(case: &str) {
+    let (fixture, state, concierge, token) = fixture().await;
+    codeterm_service_core::ports::socket::register_test_stub();
+    codeterm_service_core::mem_ops::neighbor_save::matrix::run(
+        case,
+        &fixture,
+        &concierge,
+        |method, body| {
+            let state = state.clone();
+            let token = token.clone();
+            async move {
+                let (method, token) = if method == "owner" {
+                    ("mem.neighbor_save".to_string(), "owner-secret".to_string())
+                } else {
+                    (method, token)
+                };
+                call(state, &token, &method, Some(body))
+                    .await
+                    .map(|Json(value)| value["result"].clone())
+                    .map_err(|(status, Json(error))| {
+                        (
+                            status.as_u16(),
+                            error["error"]["message"].as_str().unwrap().to_string(),
+                        )
+                    })
+            }
+        },
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn neighbor_save_saved_in_granted_area() {
+    neighbor_save_matrix("saved_in_granted_area").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_area_b_refused() {
+    neighbor_save_matrix("area_b_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_empty_write_list() {
+    neighbor_save_matrix("empty_write_list").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_mem_save_denied() {
+    neighbor_save_matrix("mem_save_denied").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_forged_author_ignored() {
+    neighbor_save_matrix("forged_author_ignored").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_rule_refused() {
+    neighbor_save_matrix("rule_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_preference_refused() {
+    neighbor_save_matrix("preference_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_skill_refused() {
+    neighbor_save_matrix("skill_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_script_refused() {
+    neighbor_save_matrix("script_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_forced_fields() {
+    neighbor_save_matrix("forced_fields").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_title() {
+    neighbor_save_matrix("credentials_title").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_body() {
+    neighbor_save_matrix("credentials_body").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_summary() {
+    neighbor_save_matrix("credentials_summary").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_credentials_tags() {
+    neighbor_save_matrix("credentials_tags").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_over_cap_body() {
+    neighbor_save_matrix("over_cap_body").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_over_cap_title() {
+    neighbor_save_matrix("over_cap_title").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_over_cap_total() {
+    neighbor_save_matrix("over_cap_total").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_revoked_area() {
+    neighbor_save_matrix("revoked_area").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_paused_friend() {
+    neighbor_save_matrix("paused_friend").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_owner_refused() {
+    neighbor_save_matrix("owner_refused").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_never_extracts() {
+    neighbor_save_matrix("never_extracts").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_missing_friend_author() {
+    neighbor_save_matrix("missing_friend_author").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_replace_inside_grant() {
+    neighbor_save_matrix("replace_inside_grant").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_replace_outside_grant() {
+    neighbor_save_matrix("replace_outside_grant").await;
+}
+
+#[tokio::test]
+async fn neighbor_save_replace_pinned() {
+    neighbor_save_matrix("replace_pinned").await;
+}

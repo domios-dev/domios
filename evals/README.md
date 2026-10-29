@@ -15,6 +15,7 @@ portable across mac, linux, and Windows-bash.
 | `browser-discovery/` | a fresh agent with a plain web task picks the built-in browser plugin, not a provider browser extension | `bash browser-discovery/run.sh [provider[:model]...]` |
 | `session-restore/` | kill+restart preserves workspaces / tabs / agent_type / titles | `bash session-restore/run.sh` |
 | `core-journeys/` | release blocker: per-provider spawn/send/reply/stop, Team start from the dialog with agent tabs selected, chat_backend dispatch/ACK/report/review, DEV restart restore | `bash core-journeys/run.sh all` |
+| `neighbor-friend-receiving/` | Opt-in named QA peers: move one friend, preserve another, reset and cold-restart the nonreceiver; requires four provisioned peers and a private manifest | `bash neighbor-friend-receiving/run.sh --help` |
 
 ### mem-recall baseline protocol
 

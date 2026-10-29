@@ -532,6 +532,7 @@ impl ServiceContext {
             entry.reason = Some(
                 match reason {
                     codeterm_neighbors::wire::DeliveryReason::KeyRevoked => "key_revoked",
+                    codeterm_neighbors::wire::DeliveryReason::ReceiverMoved => "receiver_moved",
                 }
                 .into(),
             );

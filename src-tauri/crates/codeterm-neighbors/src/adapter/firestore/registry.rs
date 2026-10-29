@@ -166,7 +166,12 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         return Err(Error::InvalidEnvelope);
     }
     let revision = field("revision")?;
-    let revision = Some(revision.as_u64().ok_or(Error::InvalidEnvelope)?);
+    let revision = Some(
+        revision
+            .as_u64()
+            .filter(|revision| *revision <= crate::wire::MAX_SAFE_INTEGER)
+            .ok_or(Error::InvalidEnvelope)?,
+    );
     let event = field("event_id")?;
     let event_id = event
         .as_str()
@@ -212,9 +217,18 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         vec![]
     };
     let receiver_revision = if kind == "receiver_changed" {
+        if field_count != 8
+            || !request.is_null()
+            || !field("at")?
+                .as_u64()
+                .is_some_and(|at| at <= crate::wire::MAX_SAFE_INTEGER)
+        {
+            return Err(Error::InvalidEnvelope);
+        }
         Some(
             field("receiver_revision")?
                 .as_u64()
+                .filter(|revision| *revision <= crate::wire::MAX_SAFE_INTEGER)
                 .ok_or(Error::InvalidEnvelope)?,
         )
     } else {
@@ -222,12 +236,24 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
     };
     let delivery = match kind.as_str() {
         Some(kind @ ("message_delivered" | "message_expired")) => {
+            let reason = if kind == "message_expired" && field_count == 9 {
+                if field("reason")? != "receiver_moved" {
+                    return Err(Error::InvalidEnvelope);
+                }
+                Some(crate::wire::DeliveryReason::ReceiverMoved)
+            } else {
+                if field_count != 8 {
+                    return Err(Error::InvalidEnvelope);
+                }
+                None
+            };
             let at = field("at")?.as_u64().ok_or(Error::InvalidEnvelope)?;
             if !request.is_null() {
                 return Err(Error::InvalidEnvelope);
             }
             let message_id = field("message_id")?;
             Some(DeliverySignal {
+                reason,
                 at,
                 friendship_id: friendship.as_str().ok_or(Error::InvalidEnvelope)?.into(),
                 message_id: message_id
@@ -287,6 +313,11 @@ fn parse_signal(document: fs::Document) -> Result<RegistrySignal> {
         ignored: false,
         accepted,
         receiver_revision,
+        receiver_friendship: if kind == "receiver_changed" {
+            friendship.as_str().map(str::to_owned)
+        } else {
+            None
+        },
         removed: if kind == "friend_removed" {
             vec![friendship
                 .as_str()

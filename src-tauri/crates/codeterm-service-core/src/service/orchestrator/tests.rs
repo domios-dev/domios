@@ -244,6 +244,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         execution_mode: None,
         context_files: None,
         neighbor_authority: None,
+        neighbor_machine_access: None,
         context_skills: None,
         agent: Some(agent.to_string()),
         task: task.map(|t| t.to_string()),

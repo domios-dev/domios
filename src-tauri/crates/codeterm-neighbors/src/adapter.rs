@@ -126,6 +126,7 @@ impl KeyRegistry for FirebaseRegistry {
         let enrollment = match &self.enrollment {
             Some(enrollment) => enrollment.clone(),
             None if status.receiving_here() => Enrollment {
+                installation_only: false,
                 expected_revision: status.receiver_revision,
                 takeover: false,
                 operation_id: None,
@@ -193,7 +194,7 @@ impl FirebaseRegistry {
         enrollment: &Enrollment,
         replace_others: bool,
     ) -> Value {
-        json!({
+        let mut data = json!({
             "public_key_spki_b64":signing_spki,
             "encryption_public_key_spki_b64":encryption_spki,
             "installation_id":self.installation_id,
@@ -201,7 +202,11 @@ impl FirebaseRegistry {
             "expected_receiver_revision":enrollment.expected_revision,
             "operation_id":enrollment.operation_id.clone().unwrap_or_else(receiver::operation_id),
             "takeover":enrollment.takeover && replace_others,
-            "features":["files.v1"],
-        })
+            "features":["files.v1", "receivers.friend.v1"],
+        });
+        if enrollment.installation_only {
+            data["receiver_scope"] = json!("installation");
+        }
+        data
     }
 }

@@ -167,6 +167,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `eval-upgrade-restore` | eval | mixed | manual | yes | yes | 1800 | single | `bash evals/upgrade-restore/run.sh` | `evals/upgrade-restore/README.md` |
 | `eval-watcher-health` | eval | mixed | manual | yes | yes | 1800 | single | `bash evals/watcher-health/run.sh` | `evals/watcher-health/README.md` |
 | `eval-web-mirror-switch-sync` | eval | mixed | manual | yes | no | 1800 | single | `bash evals/web-mirror-switch-sync/run.sh` | `evals/web-mirror-switch-sync/README.md` |
+| `eval-neighbor-friend-receiving` | eval | mixed | manual | yes | yes | 1800 | single | `bash evals/neighbor-friend-receiving/run.sh` | `evals/neighbor-friend-receiving/README.md` |
 
 ## Test-looking files
 

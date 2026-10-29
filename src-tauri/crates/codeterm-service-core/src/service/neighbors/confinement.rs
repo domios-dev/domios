@@ -8,13 +8,14 @@ use codeterm_neighbors::{
 };
 use codeterm_types::plan::ExecutionIntent;
 use serde_json::{json, Value};
+mod tools;
 
 pub(super) struct RestoreGrant {
     generation: u64,
     uid: String,
     friendship: String,
     nonce: String,
-    full: bool,
+    access: MachineAccess,
 }
 
 pub(super) async fn prepare_folder(
@@ -69,6 +70,12 @@ fn sandbox_label(
 }
 
 impl ServiceContext {
+    pub(super) fn clear_neighbor_friend_restore_grants(&self, uid: &str, friendship: &str) {
+        self.neighbor_cell()
+            .restore_grants
+            .lock()
+            .retain(|_, grant| grant.uid != uid || grant.friendship != friendship);
+    }
     pub(super) fn clear_neighbor_restore_grants(&self, uid: &str) {
         self.neighbor_cell()
             .restore_grants
@@ -76,7 +83,7 @@ impl ServiceContext {
             .retain(|_, grant| grant.uid != uid);
     }
 
-    pub(super) fn remember_neighbor_restore_grant(&self, tab_id: &str, full: bool) {
+    pub(super) fn remember_neighbor_restore_grant(&self, tab_id: &str, access: MachineAccess) {
         let grant = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
@@ -96,7 +103,7 @@ impl ServiceContext {
                 uid: authority.uid.clone(),
                 friendship: authority.friendship_id.clone(),
                 nonce: nonce.clone(),
-                full,
+                access,
             }
         };
         self.neighbor_cell()
@@ -114,6 +121,10 @@ impl ServiceContext {
         if params.neighbor_authority.is_none() {
             return Ok(());
         }
+        self.require_neighbor_concierge_receiver(
+            &params.neighbor_authority.as_ref().unwrap().friendship_id,
+        )
+        .map_err(|error| error.to_string())?;
         let matches = self
             .mux
             .read()
@@ -126,7 +137,14 @@ impl ServiceContext {
         {
             return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
         }
-        self.remember_neighbor_restore_grant(tab_id, params.permission_bypass_requested(provider));
+        let access = params
+            .neighbor_machine_access
+            .or_else(|| self.neighbor_restore_access(tab_id).ok())
+            .ok_or_else(|| codeterm_neighbors::Error::MachineAccessUnsupported.to_string())?;
+        if (access == MachineAccess::Full) != params.permission_bypass_requested(provider) {
+            return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
+        }
+        self.remember_neighbor_restore_grant(tab_id, access);
         Ok(())
     }
 
@@ -142,6 +160,8 @@ impl ServiceContext {
         let Some(authority) = &tab.neighbor_authority else {
             return Ok(());
         };
+        self.require_neighbor_concierge_receiver(&authority.friendship_id)
+            .map_err(|error| error.to_string())?;
         let root = authority.root_tab_id.as_deref().unwrap_or(tab_id);
         let nonce = mux
             .get_tab(root)
@@ -152,7 +172,7 @@ impl ServiceContext {
                 && grant.uid == authority.uid
                 && grant.friendship == authority.friendship_id
                 && Some(grant.nonce.as_str()) == nonce
-                && grant.full == bypass
+                && (grant.access == MachineAccess::Full) == bypass
         }) {
             Ok(())
         } else {
@@ -174,6 +194,7 @@ impl ServiceContext {
         if access == MachineAccess::Full && authorization.is_none() {
             return Err(codeterm_neighbors::Error::MachineAccessUnsupported.to_string());
         }
+        params.neighbor_machine_access = Some(access);
         params.skip_permissions = Some(authorization.is_some());
         params.permission_bypass_authorization = authorization;
         Ok(())
@@ -300,7 +321,7 @@ impl ServiceContext {
                     else { "Writes are limited to the folder by the provider sandbox." };
                 (if pad_only { "pad_only" } else { "provider_sandbox" }, format!("{writes}{roots} Reads are not confined on {}.", std::env::consts::OS))
             }
-            None => (if permission.machine_access == MachineAccess::Full { "unrestricted" } else { "advisory" }, format!("This provider has no active OS filesystem sandbox on {}. The working folder is advisory; reads and writes are not confined.", std::env::consts::OS)),
+            None => (if permission.machine_access == MachineAccess::Full { "unrestricted" } else { "advisory" }, format!("This provider has no active OS filesystem sandbox on {}. Non-Full native file tools use launch-scoped grants (own pad for read-only; folder plus pad for folder access). OS reads and writes are not confined.", std::env::consts::OS)),
         };
         let mut value = json!(permission);
         value["initial_context_digest"] = json!(settings.initial_context_digest(friendship));

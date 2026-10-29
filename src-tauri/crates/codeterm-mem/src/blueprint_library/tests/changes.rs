@@ -10,7 +10,7 @@ fn blueprint_library_changes_follow_commits_without_connection_or_listener_locks
     let observed = events.clone();
     mem.set_blueprint_library_listener(Arc::new(move |area, revision| {
         let mem = weak.upgrade().unwrap();
-        assert!(mem.conn.try_lock().is_some());
+        assert!(mem.fixture_conn().try_lock().is_some());
         assert!(mem.blueprint.changes.try_write().is_some());
         observed.lock().push((area.to_owned(), revision));
     }));

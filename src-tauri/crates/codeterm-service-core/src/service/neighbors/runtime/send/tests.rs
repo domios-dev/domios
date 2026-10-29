@@ -1,4 +1,6 @@
 use super::*;
+
+mod outbound_authority;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 
 #[tokio::test]
@@ -27,6 +29,7 @@ async fn refusal_preflight_accepts_cyrillic_and_rejects_oversize_without_writing
                 &metadata,
                 &friendship,
                 &permission,
+                SendAuthority::FriendshipGrant,
                 Kind::Refusal,
                 OutboundBody::Granted(Zeroizing::new(text.into())),
                 Some(&target)
@@ -42,6 +45,7 @@ async fn refusal_preflight_accepts_cyrillic_and_rejects_oversize_without_writing
         &metadata,
         &friendship,
         &permission,
+        SendAuthority::FriendshipGrant,
         Kind::Refusal,
         OutboundBody::Granted(Zeroizing::new(cyrillic.clone())),
         Some(&target),
@@ -55,6 +59,7 @@ async fn refusal_preflight_accepts_cyrillic_and_rejects_oversize_without_writing
             &metadata,
             &friendship,
             &permission,
+            SendAuthority::FriendshipGrant,
             Kind::Refusal,
             OutboundBody::Granted(Zeroizing::new("x".repeat(size))),
             Some(&target),
@@ -78,6 +83,7 @@ async fn refusal_preflight_accepts_cyrillic_and_rejects_oversize_without_writing
                 &metadata,
                 &friendship,
                 &permission,
+                SendAuthority::FriendshipGrant,
                 Kind::Refusal,
                 OutboundBody::Granted(Zeroizing::new("opaque refusal".into())),
                 target
@@ -199,6 +205,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
                     &lifecycle,
                     &metadata,
                     Outgoing {
+                        authority: SendAuthority::FriendshipGrant,
                         friendship: friend.clone(),
                         kind,
                         body: OutboundBody::Granted(Zeroizing::new(text)),
@@ -227,6 +234,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
                 &lifecycle,
                 &metadata,
                 Outgoing {
+                    authority: SendAuthority::FriendshipGrant,
                     friendship: friend.clone(),
                     kind: Kind::Question,
                     body: OutboundBody::Files {
@@ -257,6 +265,7 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
             &lifecycle,
             &metadata,
             Outgoing {
+                authority: SendAuthority::FriendshipGrant,
                 friendship: friend.clone(),
                 kind: Kind::Answer,
                 body: OutboundBody::Granted(Zeroizing::new(piped)),
@@ -350,6 +359,7 @@ async fn stopped_requests_reject_later_answers_and_refusals_before_keys_network_
                     &lifecycle,
                     &metadata,
                     Outgoing {
+                        authority: SendAuthority::FriendshipGrant,
                         friendship: friend.clone(),
                         kind,
                         body: OutboundBody::Granted(Zeroizing::new("opaque later reply".into())),

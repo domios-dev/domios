@@ -6,6 +6,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs BLUEPRINT-RECIPES` — Blueprint graph use-case patterns and built-in recipe skeletons.
 - `domios docs CONFIG` — Application configuration reference.
 - `domios docs ACCOUNT` — Domios account sign-in and opt-in product analytics settings.
+- `domios docs NEIGHBORS` — Per-friend receiving, local concierge grants, messages and files. A friend uses its override or the account default; configuring one never authorizes moving all friends.
 - `domios docs NOTIFICATIONS` — Notification levels, per-level surfaces, sound, and push channels.
 - `domios docs INTEGRATIONS` — Messaging, hooks, transcription, and secret-backed integration settings.
 - `domios docs RUNTIME-CONFIG` — Runtime, UI, session, cron, and memory settings.
@@ -54,4 +55,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs TEST-AUTHORING` — Focused test authoring rules.
 - `domios docs ESSENCE-MAP` — Source-backed essence map generation and validation.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

@@ -17,6 +17,7 @@ pub use model::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProductEvent {
+    CheckoutReturned,
     CheckoutStarted { plan: Plan },
     SubscriptionChanged { plan: Plan, status: Status },
 }

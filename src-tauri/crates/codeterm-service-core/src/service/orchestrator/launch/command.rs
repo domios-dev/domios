@@ -134,6 +134,18 @@ fn build_agent_command_inner(
             return Default::default();
         }
     };
+    let neighbor_tool_args = match notice_context {
+        Some((service, tab_id)) => {
+            match service.neighbor_scoped_tool_launch_args(tab_id, agent_cmd, params) {
+                Ok(args) => args,
+                Err(error) => {
+                    log::error!("[neighbor-launch] scoped tool policy refused: {error}");
+                    return Default::default();
+                }
+            }
+        }
+        None => Vec::new(),
+    };
     if let Some((service, tab_id)) = notice_context {
         crate::service::directory_pre_trust::for_tab(
             service,
@@ -303,6 +315,7 @@ fn build_agent_command_inner(
             );
         }
     }
+    args.extend(neighbor_tool_args);
     if let Some(policy) = &execution_policy {
         args.extend(policy.launch_args.clone());
         if !policy.writable_roots.is_empty() {

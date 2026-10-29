@@ -1,27 +1,12 @@
 use super::*;
 use codeterm_neighbors::adapter::ReceiverStatus;
+pub(super) mod friends;
+pub(super) mod selection;
+mod startup;
+mod stop;
 mod watch;
 
 impl ServiceContext {
-    pub(super) fn require_neighbor_receiver(
-        &self,
-        revision: Option<u64>,
-    ) -> codeterm_neighbors::Result<()> {
-        if !self
-            .neighbor_cell()
-            .receiver
-            .lock()
-            .as_ref()
-            .is_some_and(|status| {
-                status.receiving_here()
-                    && revision.is_none_or(|revision| revision == status.receiver_revision)
-            })
-        {
-            return Err(Error::NotReceiver);
-        }
-        Ok(())
-    }
-
     pub(super) fn receiver_view(status: &ReceiverStatus) -> Value {
         json!({"receiving_here":status.receiving_here(), "receiver_machine_label":status.receiver_machine_label,
             "receiving_enabled":status.receiving_enabled,"revision":status.receiver_revision})
@@ -73,18 +58,18 @@ impl ServiceContext {
         let status = match result {
             Ok(status) => status,
             Err(error) => {
+                let version = self.forget_neighbor_friend_receivers();
                 self.neighbor_cell().receiver.lock().take();
                 self.stop_neighbor_listeners();
                 self.ui.emit(
                     "neighbor-runtime-status",
-                    json!({"receiver_unavailable":true}),
+                    json!({"receiver_unavailable":true,"friend_receivers_version":version}),
                 );
                 return Err(error.to_string());
             }
         };
         let changed = self.neighbor_cell().receiver.lock().as_ref() != Some(&status);
         if changed {
-            self.stop_neighbor_listeners();
             *self.neighbor_cell().receiver.lock() = Some(status.clone());
             self.ui
                 .emit("neighbor-runtime-status", Self::receiver_view(&status));

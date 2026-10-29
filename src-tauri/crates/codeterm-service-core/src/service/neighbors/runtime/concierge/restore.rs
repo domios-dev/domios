@@ -20,7 +20,7 @@ impl ServiceContext {
         .await
     }
 
-    async fn restore_neighbor_concierge_with<F, Fut>(
+    pub(super) async fn restore_neighbor_concierge_with<F, Fut>(
         &self,
         metadata: &Metadata,
         uid: &str,
@@ -38,12 +38,39 @@ impl ServiceContext {
         ) -> Fut,
         Fut: std::future::Future<Output = Result<String, String>>,
     {
+        self.require_neighbor_concierge_receiver(friendship)
+            .map_err(|error| error.to_string())?;
         let generation = self.neighbor_history_generation();
         let settings = metadata
             .settings()
             .await
             .map_err(|error| error.to_string())?;
         let Some(tab_id) = settings.bindings.get(friendship) else {
+            if let Some(saved) = settings.dormant_concierges.get(friendship) {
+                let options = saved.options.clone();
+                self.replace_neighbor_concierge_with(
+                    metadata,
+                    friendship,
+                    false,
+                    options.clone(),
+                    |cwd, permission| {
+                        create(
+                            saved.provider.clone(),
+                            saved.model.clone(),
+                            cwd,
+                            permission,
+                            None,
+                            options,
+                        )
+                    },
+                )
+                .await?;
+                let settings = metadata
+                    .settings()
+                    .await
+                    .map_err(|error| error.to_string())?;
+                self.remember_neighbor_concierge_accounts(uid, &settings);
+            }
             return Ok(());
         };
         self.retire_superseded_neighbor_concierges(metadata, uid, friendship, tab_id)
@@ -56,10 +83,7 @@ impl ServiceContext {
             .get(friendship)
             .cloned()
             .unwrap_or_default();
-        self.remember_neighbor_restore_grant(
-            tab_id,
-            permission.machine_access == codeterm_neighbors::permissions::MachineAccess::Full,
-        );
+        self.remember_neighbor_restore_grant(tab_id, permission.machine_access);
         let cwd = crate::service::neighbors::confinement::prepare_folder(
             metadata,
             friendship,

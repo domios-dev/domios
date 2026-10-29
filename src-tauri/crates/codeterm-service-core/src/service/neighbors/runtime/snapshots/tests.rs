@@ -2,6 +2,26 @@ use super::*;
 use crate::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
 use async_trait::async_trait;
 
+#[test]
+fn registry_cache_retains_explicit_receiver_authority_including_malformed_projection() {
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let friendship = "a".repeat(64);
+    let projection = json!({"source":"friend","installation_id":"elsewhere","revision":9});
+    fixture.service.remember_neighbor_registry(&json!({"access":"paid","friends":[{"friendship_id":friendship,"my_receiver":projection,"peer_receiver":{"enc_key_id":"opaque-key","revision":2,"receiving":true}}]}));
+    let cached = fixture
+        .service
+        .neighbor_cell()
+        .registry_snapshot
+        .lock()
+        .clone()
+        .unwrap();
+    assert_eq!(cached["friends"][0]["my_receiver"], projection);
+    assert_eq!(
+        cached["friends"][0]["peer_receiver"]["enc_key_id"],
+        "opaque-key"
+    );
+}
+
 struct NoCalls;
 #[async_trait]
 impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {

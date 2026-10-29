@@ -3,6 +3,28 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum MemAction {
+    /// Save a fact or note through this friendship's live memory write grant.
+    NeighborSave {
+        #[arg(long, value_parser = ["fact", "note"])]
+        kind: String,
+        #[arg(long)]
+        area: String,
+        #[arg(long)]
+        title: String,
+        /// Body from your AgentPad; use - for UTF-8 stdin.
+        #[arg(long)]
+        from_pad: String,
+        #[arg(long)]
+        summary: Option<String>,
+        /// Repeat for each tag.
+        #[arg(long = "tag")]
+        tags: Vec<String>,
+    },
+    /// Select and migrate memory storage backends.
+    Backend {
+        #[command(subcommand)]
+        action: MemBackendAction,
+    },
     /// Create an online SQLite archive or restore a stopped instance
     Backup {
         #[command(subcommand)]
@@ -1037,5 +1059,17 @@ pub enum MemAreaAction {
         into: String,
         #[arg(long)]
         dry_run: bool,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MemBackendAction {
+    /// Copy every memory table while the daemon is stopped; preserve the source.
+    Migrate {
+        #[arg(long, value_parser = ["postgres", "sqlite"])]
+        to: String,
+        /// Authorize importing into a target that already contains data.
+        #[arg(long)]
+        into_nonempty: bool,
     },
 }

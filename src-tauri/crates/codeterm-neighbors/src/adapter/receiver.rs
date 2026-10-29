@@ -14,6 +14,17 @@ pub struct ReceiverStatus {
 }
 
 impl ReceiverStatus {
+    pub fn effective(receiver: &crate::wire::EffectiveReceiver, installation: &str) -> Self {
+        Self {
+            receiver_revision: receiver.revision,
+            receiver_installation_id: receiver.installation_id.clone(),
+            receiver_key_id: receiver.key_id.clone(),
+            receiver_machine_label: receiver.machine_label.clone(),
+            receiving_enabled: receiver.receiving,
+            is_me: receiver.installation_id.as_deref() == Some(installation),
+            legacy_active: false,
+        }
+    }
     pub fn receiving_here(&self) -> bool {
         self.is_me && self.receiving_enabled
     }
@@ -28,6 +39,7 @@ pub struct Enrollment {
     pub expected_revision: u64,
     pub takeover: bool,
     pub operation_id: Option<String>,
+    pub installation_only: bool,
 }
 
 impl FirebaseRegistry {
@@ -59,12 +71,18 @@ impl FirebaseRegistry {
         }
         if current["receiver_features"]
             .as_array()
-            .is_some_and(|features| features.iter().any(|feature| feature == "files.v1"))
+            .is_some_and(|features| {
+                ["files.v1", "receivers.friend.v1"].iter().all(|required| {
+                    features
+                        .iter()
+                        .any(|feature| feature.as_str() == Some(*required))
+                })
+            })
         {
             return Ok(false);
         }
         let operation = serde_json::to_vec(&json!([
-            "receiver-files.v1",
+            "receiver-features.v1",
             self.uid,
             self.installation_id,
             status.receiver_revision,
@@ -73,6 +91,7 @@ impl FirebaseRegistry {
         ]))
         .map_err(|_| Error::InvalidEnvelope)?;
         let enrollment = Enrollment {
+            installation_only: false,
             expected_revision: status.receiver_revision,
             takeover: false,
             operation_id: Some(crate::crypto::sha256_hex(&operation)),
@@ -111,6 +130,7 @@ impl FirebaseRegistry {
         if adopt {
             let registry = FirebaseRegistry {
                 enrollment: Some(Enrollment {
+                    installation_only: false,
                     expected_revision: 0,
                     takeover: false,
                     operation_id: Some(crate::crypto::sha256_hex(

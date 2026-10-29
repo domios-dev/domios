@@ -55,7 +55,7 @@ fn reindex_existing_blueprint_uses_saved_intent_in_canonical_description() {
         )
         .unwrap()
         .id;
-    let conn = mem.conn.lock();
+    let conn = mem.fixture_conn().lock();
     crate::embeddings::init_extension(&conn).unwrap();
     let accesses = |conn: &rusqlite::Connection| {
         conn.query_row(
@@ -66,7 +66,8 @@ fn reindex_existing_blueprint_uses_saved_intent_in_canonical_description() {
         .unwrap()
     };
     let before = accesses(&conn);
-    let missing = query_missing_vectors(&conn, &mem.blobs_dir);
+    let missing =
+        crate::backend::sqlite::engines::missing::query_missing_vectors(&conn, &mem.blobs_dir);
     assert_eq!(accesses(&conn), before);
     let (_, text) = missing.iter().find(|(saved, _)| saved == &id).unwrap();
     assert_eq!(

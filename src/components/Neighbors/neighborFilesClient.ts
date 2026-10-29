@@ -1,5 +1,6 @@
 import { listen } from "../../lib/bridge";
 import { localFetch } from "../../lib/webApi";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { nativeBridge, type NativeBridge } from "../../lib/nativeBridge";
 import { receipt, type NeighborReceipt } from "./neighborRuntimeClient";
 
@@ -89,8 +90,14 @@ export async function openSavedFile(friendship: string, fileId: string,
 }
 
 export const neighborFilesClient: NeighborFilesClient = {
-  send: async (friendship, body, paths, inReplyTo = null) =>
-    receipt(await call({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: inReplyTo, paths })),
+  send: async (friendship, body, paths, inReplyTo = null) => {
+    const result = receipt(await call({ operation: "send", friendship_id: friendship, kind: "question", body, in_reply_to: inReplyTo, paths }));
+    if (result.status !== "not_delivered" && result.submission !== "unconfirmed") {
+      void recordProductEvent({ event_type: "file_shared", event_properties: { count: paths.length } });
+      void recordProductEvent({ event_type: "neighbor_message_sent", event_properties: { count: 1 } });
+    }
+    return result;
+  },
   list: async (friendship, signal) => {
     const value = await call({ operation: "list", friendship_id: friendship }, signal);
     if (!record(value) || typeof value.folder !== "string" || !Array.isArray(value.files)) throw new Error("Invalid Neighbor files");

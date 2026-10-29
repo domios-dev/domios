@@ -759,6 +759,16 @@
   font-weight: 500;
 }
 
+/* One friend's receive confirmation opens under its row, in the sidebar's own width. */
+.sidebar-neighbor-receive {
+  padding: 2px 8px 8px 16px;
+}
+
+.sidebar-neighbor-receive .neighbors-receive {
+  max-width: none;
+  margin-top: 0;
+}
+
 .sidebar-neighbors-off {
   padding: 4px 16px 0;
   color: var(--ct-muted-fg);
@@ -1083,8 +1093,13 @@
 }
 
 .neighbor-chat__moved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem 0.75rem;
   margin: 0;
-  padding: 0.45rem 1rem;
+  padding: 0.35rem 1rem;
   border-bottom: 1px solid color-mix(in srgb, var(--ct-fg) 7%, transparent);
   color: var(--ct-muted-fg);
   font-size: 12px;
@@ -1698,6 +1713,22 @@ button.neighbor-file:hover {
 
 .neighbor-apply__note {
   text-align: right;
+}
+
+/* Where the written scope promises more than the switches grant: a warm aside, never a blocker. */
+.neighbor-scope-conflicts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.5rem 0.7rem;
+  border-left: 2px solid color-mix(in srgb, var(--ct-yellow) 70%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--ct-yellow) 8%, transparent);
+}
+
+.neighbor-scope-conflicts .neighbor-note {
+  margin: 0;
+  color: var(--ct-fg);
 }
 
 .neighbor-apply__actions {

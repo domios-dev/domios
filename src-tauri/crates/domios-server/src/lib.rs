@@ -1,4 +1,5 @@
 mod composition;
+pub mod mem_backend;
 pub mod startup;
 pub use composition::ComposedService;
 pub mod bootstrap;

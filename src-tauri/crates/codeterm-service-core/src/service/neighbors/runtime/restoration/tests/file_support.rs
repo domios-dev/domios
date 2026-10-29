@@ -36,7 +36,7 @@ fn fixture(
     let keys = PrivateKeys::generate(&mut rand::rngs::OsRng);
     let value = json!({"receiver_revision":7,"receiver_installation_id":"machine",
         "receiver_key_id":keys.verifier_key_id("owner"),"receiver_machine_label":"Here",
-        "receiving_enabled":true,"is_me":true,"receiver_features":if advertised { vec!["files.v1"] } else { vec![] }});
+        "receiving_enabled":true,"is_me":true,"receiver_features":if advertised { vec!["files.v1","receivers.friend.v1"] } else { vec![] }});
     let status = serde_json::from_value(value.clone()).unwrap();
     let calls = Arc::new(Calls {
         status: value,
@@ -80,7 +80,7 @@ async fn startup_advertises_files_once_with_the_current_revision_and_no_takeover
     assert_eq!(data["installation_id"], "machine");
     assert_eq!(data["expected_receiver_revision"], 7);
     assert_eq!(data["takeover"], false);
-    assert_eq!(data["features"], json!(["files.v1"]));
+    assert_eq!(data["features"], json!(["files.v1", "receivers.friend.v1"]));
     assert_eq!(data["public_key_spki_b64"], keys.signing_spki());
     assert_eq!(
         data["encryption_public_key_spki_b64"],

@@ -12,6 +12,8 @@ use std::{collections::BTreeMap, path::PathBuf};
 #[derive(Clone)]
 pub(super) struct Metadata {
     root: PathBuf,
+    #[cfg(test)]
+    fail_settings_save: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -30,6 +32,21 @@ pub(super) struct ConciergeOptions {
     pub service_tier: Option<String>,
 }
 
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct DormantConcierge {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub options: ConciergeOptions,
+}
+
+#[derive(Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ConciergeReceiver {
+    pub binding: String,
+    pub revision: u64,
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Settings {
@@ -41,6 +58,10 @@ pub(super) struct Settings {
     pub permissions: BTreeMap<String, Permission>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub initial_contexts: BTreeMap<String, InitialContext>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub dormant_concierges: BTreeMap<String, DormantConcierge>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub concierge_receivers: BTreeMap<String, ConciergeReceiver>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub notifications: BTreeMap<String, super::NeighborNotify>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
@@ -75,6 +96,8 @@ impl Metadata {
     pub fn new(root: PathBuf, uid: &str) -> Self {
         Self {
             root: root.join("neighbors").join(sha256_hex(uid.as_bytes())),
+            #[cfg(test)]
+            fail_settings_save: false,
         }
     }
 
@@ -127,7 +150,17 @@ impl Metadata {
         Ok(self.read("settings.json".into()).await?.unwrap_or_default())
     }
 
+    #[cfg(test)]
+    pub(super) fn with_failed_settings_save_for_test(mut self) -> Self {
+        self.fail_settings_save = true;
+        self
+    }
+
     pub async fn save_settings(&self, settings: Settings) -> Result<()> {
+        #[cfg(test)]
+        if self.fail_settings_save {
+            return Err(Error::CursorStore);
+        }
         self.write("settings.json".into(), settings).await
     }
 }
