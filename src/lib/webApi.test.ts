@@ -136,7 +136,7 @@ describe("browser attachment upload transport", () => {
       expect(field.type).toBe("audio/webm");
       expect(await field.text()).toBe("voice");
       return new Promise<Response>((_resolve, reject) => {
-        init.signal!.addEventListener("abort", () => reject(new DOMException("Interrupted", "AbortError")), { once: true });
+        init.signal!.addEventListener("abort", () => reject(init.signal!.reason), { once: true });
         started();
       });
     });

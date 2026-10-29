@@ -121,17 +121,17 @@ export const TerminalTab = memo(function TerminalTab({
         : agentDescriptor
           ? agentDescriptor.supports_chat_ui === true
           : true;
-  const userModeOverrideRef = useRef<TabUiMode | null>(null);
+  const [userModeOverride, setUserModeOverride] = useState<TabUiMode | null>(null);
   const computeMode = useCallback((): TabUiMode => {
-    if (userModeOverrideRef.current) {
-      return userModeOverrideRef.current === "chat" && chatCapable ? "chat" : "terminal";
+    if (userModeOverride) {
+      return userModeOverride === "chat" && chatCapable ? "chat" : "terminal";
     }
     return resolveInitialTabUiMode(tabId, {
       chatCapable,
     });
-  }, [tabId, chatCapable]);
+  }, [tabId, chatCapable, userModeOverride]);
   const [preferredUiMode, setUiMode] = useState<TabUiMode>(computeMode);
-  const uiMode = wakingTranscript ? "chat" : preferredUiMode;
+  const uiMode = wakingTranscript && userModeOverride === null ? "chat" : preferredUiMode;
   const chatActivated = useRef(false);
   if (uiMode === "chat") chatActivated.current = true;
   const [keptFailureKey, setKeptFailureKey] = useState<string | null>(null);
@@ -274,7 +274,7 @@ export const TerminalTab = memo(function TerminalTab({
   }, [computeMode]);
 
   useEffect(() => listenClientTabUiMode(tabId, (mode) => {
-    userModeOverrideRef.current = mode;
+    setUserModeOverride(mode);
     setUiMode(mode === "chat" && !chatCapable ? "terminal" : mode);
   }), [tabId, chatCapable]);
 
@@ -306,7 +306,7 @@ export const TerminalTab = memo(function TerminalTab({
       if (event.detail.tabId !== tabId) return;
       setTerminalFallbackOpen(false);
       const requested = event.detail.mode;
-      userModeOverrideRef.current = requested;
+      setUserModeOverride(requested);
       setClientTabUiMode(tabId, requested);
       if (requested === "chat" && !chatCapable) {
         setUiMode("terminal");
