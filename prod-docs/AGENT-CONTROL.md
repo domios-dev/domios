@@ -46,6 +46,8 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 
 **Placement rules.** The backend refuses a parent for an Orchestrator (`Orchestrator cannot have a parent`), requires a Worker's `--parent-tab` to be a spawning parent such as its Orchestrator, and refuses to make a tab that already has a parent an Orchestrator (`already in a hierarchy`). There is no middle coordinator: a sub-task that needs its own tree goes to a fresh Orchestrator spawned with `--workspace` in its own workspace, which owns the whole sub-request; a concrete leaf goes to a Worker under you. Workers fan out in parallel, one task each.
 
+A live roleless agent outside any Team can promote itself with `domios agent set-orchestrator`. Its own authenticated tab credential is required. Workers, Planners, concierges, Neighbor agents, remote-controlled tabs, and Team members cannot use this self-promotion path; targeting another tab is refused. Success uses the same promotion and onboarding as the tab menu's Make Orchestrator action.
+
 **Briefs.** Pass a brief with `--task-file PATH` or `--task-file -` fed by a single-quoted heredoc. The CLI refuses a multiline or over-240-character inline `--task`, because the shell has already expanded its backticks, `$`, quotes and newlines; a short scalar such as `--task "run tests"` stays fine. Every Worker brief names its report command, or the Worker finishes without reporting.
 
 **Worker discipline.** A task-bound Worker executes its one task, reports with `domios agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
@@ -169,4 +171,4 @@ Domios tracks and restores terminal state across sessions:
 - **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `domios agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 30 -->
+<!-- revision: 31 -->
