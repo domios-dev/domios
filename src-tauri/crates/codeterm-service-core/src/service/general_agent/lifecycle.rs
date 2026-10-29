@@ -16,6 +16,8 @@ use readiness::{await_agent_output_with_signal, ScreenChangeSubscription};
 struct AutomaticLaunchClaim<'a> {
     mux: &'a crate::MuxState,
     tab_id: String,
+    pty_id: Option<String>,
+    binding_nonce: Option<String>,
 }
 
 impl<'a> AutomaticLaunchClaim<'a> {
@@ -28,6 +30,8 @@ impl<'a> AutomaticLaunchClaim<'a> {
         Ok(Self {
             mux,
             tab_id: tab_id.to_string(),
+            pty_id: tab.pty_id.clone(),
+            binding_nonce: tab.session_binding_nonce.clone(),
         })
     }
 }
@@ -35,7 +39,9 @@ impl<'a> AutomaticLaunchClaim<'a> {
 impl Drop for AutomaticLaunchClaim<'_> {
     fn drop(&mut self) {
         if let Some(tab) = self.mux.write().get_tab_mut(&self.tab_id) {
-            tab.agent_booting = false;
+            if tab.pty_id == self.pty_id && tab.session_binding_nonce == self.binding_nonce {
+                tab.agent_booting = false;
+            }
         }
     }
 }
@@ -423,6 +429,7 @@ pub fn start_general_agent(
         force_fresh_session,
         snapshot_session_id.clone(),
     );
+    let mut durable_session = None;
     let session_id = match session_plan {
         GeneralAgentSessionPlan::FirstRunFresh => {
             svc.set_agent_session_id(&tab_id, None);
@@ -439,12 +446,18 @@ pub fn start_general_agent(
         }
         GeneralAgentSessionPlan::Restore(session_id) => Some(session_id),
         GeneralAgentSessionPlan::Discover => {
-            if let Some(stored) =
-                state::load_session_id(&svc.agent_registry, provider_name, &general_cwd)
-            {
-                svc.set_agent_session_id(&tab_id, Some(stored.clone()));
-                log::info!("[general-agent] Loaded durable session id: {}", stored);
-                Some(stored)
+            let exclude = mux.read().other_session_ids(&tab_id);
+            if let Some(stored) = state::load_session_record(
+                &svc.agent_registry,
+                provider_name,
+                &general_cwd,
+                &exclude,
+            ) {
+                let id = stored.session_id.clone();
+                svc.set_agent_session_id(&tab_id, Some(id.clone()));
+                log::info!("[general-agent] Loaded durable session id: {}", id);
+                durable_session = Some(stored);
+                Some(id)
             } else {
                 let exclude = mux.write().other_session_ids(&tab_id);
                 let detected = state::detect_owned_session_id(
@@ -482,7 +495,8 @@ pub fn start_general_agent(
             &general_cwd,
             id,
             (binding.0.as_deref(), binding.1.as_deref()),
-        );
+            durable_session.as_ref(),
+        ) && !mux.read().other_session_ids(&tab_id).contains(id);
         if !owned {
             log::info!(
                 "[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh",
@@ -774,10 +788,6 @@ fn is_launch_stage(stage: BootStage) -> bool {
             | BootStage::PreparingRoleInstructions
             | BootStage::DeliveringInstructions
     )
-}
-
-fn tab_still_owns_pty(mux: &crate::MuxState, tab_id: &str, pty_id: &str) -> bool {
-    mux.read().get_tab(tab_id).and_then(|p| p.pty_id.as_deref()) == Some(pty_id)
 }
 
 fn terminate_pty_before_relaunch(

@@ -373,6 +373,11 @@ pub(super) fn start(
         return;
     }
 
+    let Some(readiness_attempt) =
+        crate::service::launch_readiness::LaunchAttempt::current(mux, &tab_id, &pty_id)
+    else {
+        return;
+    };
     let launched = await_agent_launch_evidence(
         screen_state,
         &svc.agent_registry,
@@ -381,7 +386,9 @@ pub(super) fn start(
         &pty_id,
         std::time::Duration::from_secs(15),
     );
-    if !tab_still_owns_pty(mux, &tab_id, &pty_id) {
+    if crate::service::launch_readiness::LaunchAttempt::current(mux, &tab_id, &pty_id).as_ref()
+        != Some(&readiness_attempt)
+    {
         log::info!(
             "[general-agent] Launch on stale PTY {} for Tab {} ignored; Tab moved on",
             pty_id,
@@ -394,15 +401,13 @@ pub(super) fn start(
         return;
     }
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
-    let lazy_session = svc
-        .agent_registry
-        .with_provider(provider_name, |provider| {
-            provider.session_starts_on_first_user_turn()
-        })
-        .unwrap_or(false);
-    if super::first_turn::awaiting_user_turn(lazy_session, use_resume, first_turn_planned)
-        && super::first_turn::prepare(svc, &tab_id, &pty_id, provider_name)
-    {
+    if super::first_turn::prepare(
+        svc,
+        &readiness_attempt,
+        provider_name,
+        use_resume,
+        first_turn_planned,
+    ) {
         return;
     }
     let bound_session = match deliver_before_binding(
