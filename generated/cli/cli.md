@@ -350,7 +350,7 @@ Restart a live agent, or resume an exited provider's verified session in its she
 
 #### `domios agent set-orchestrator`
 
-Mark a tab as orchestrator (top-level, can spawn workers)
+Promote your own live roleless, team-less agent to Orchestrator (can spawn workers)
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 

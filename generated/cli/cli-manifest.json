@@ -1352,7 +1352,7 @@
         },
         {
           "name": "set-orchestrator",
-          "about": "Mark a tab as orchestrator (top-level, can spawn workers)",
+          "about": "Promote your own live roleless, team-less agent to Orchestrator (can spawn workers)",
           "aliases": [],
           "args": [
             {
