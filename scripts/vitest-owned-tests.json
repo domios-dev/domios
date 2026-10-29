@@ -358,6 +358,7 @@
   "src/components/Terminal/ChatComposer.attachments.test.tsx",
   "src/components/Terminal/composerAttachmentAdmission.test.ts",
   "src/components/MeshPanel/networkTransport.test.ts",
+  "src/components/MeshPanel/enrollmentRefusal.test.ts",
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
   "src/hooks/terminal/useXterm.composition.test.tsx"

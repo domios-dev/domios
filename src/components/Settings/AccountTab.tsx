@@ -125,7 +125,8 @@ export function AccountTab({ focusCard }: { focusCard?: SettingsCardAnchorId }) 
         <AccountLimits limits={billing.plan?.limits ?? null} usage={usage} />
         {identity && <GiftRedemption key={identity} identity={identity} verifiedPlan={billing.plan?.stale || billing.plan?.verifying ? null : billing.plan?.plan ?? null} />}
         {desktopBilling.subscription && <p role="status">{scheduledPlanCopy(desktopBilling.subscription, seconds => new Date(seconds * 1000).toLocaleDateString())}</p>}
-        {desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
+        {signedIn && !desktopBilling.subscription && <p role="status" className={MUTED}>Verifying your subscription status. Refresh plan offers to check again.</p>}
+        {offersReady && desktopBilling.error && <InlineErrorNotice error={desktopBilling.error} operation="managing your plan" />}
         {signedIn && <Button type="button" size="sm" variant="ghost" onClick={desktopBilling.refresh}>Refresh plan offers</Button>}
         {!signedIn && <p className={MUTED}>You’ll sign in when you choose a plan.</p>}
         <div className="mt-3 w-full">
