@@ -24,7 +24,7 @@ impl Fixture {
             ..Default::default()
         };
         let store = PostgresMemStore::connect(&url, options.clone())
-            .unwrap_or_else(|_| panic!("cannot open disposable Postgres fixture"));
+            .unwrap_or_else(|error| panic!("cannot open disposable Postgres fixture: {error:?}"));
         Self {
             url,
             options,

@@ -3,6 +3,8 @@ use codeterm_mem::backend::{engines::EngineStore, StoreValue};
 
 fn seed(source: &SqliteMemStore, target: &PostgresMemStore) {
     let ctx = WriteContext::system("maintenance-fixture");
+    let staging_dir = tempfile::tempdir().unwrap();
+    let staging = SqliteMemStore::open_in_memory(staging_dir.path()).unwrap();
     for (title, kind, importance) in [
         ("promote", codeterm_mem::MemKind::Learning, 4.0),
         ("expire", codeterm_mem::MemKind::Note, 3.0),
@@ -12,12 +14,12 @@ fn seed(source: &SqliteMemStore, target: &PostgresMemStore) {
         let mut item = contract::item(title);
         item.kind = kind;
         item.importance = importance;
-        source.save(&ctx, &item, false).unwrap();
+        staging.save(&ctx, &item, false).unwrap();
     }
     let now = chrono::Utc::now();
     let old = (now - chrono::Duration::days(500)).to_rfc3339();
     let recent = (now - chrono::Duration::hours(1)).to_rfc3339();
-    for mut page in export_all(source) {
+    for mut page in export_all(&staging) {
         for row in &mut page.rows {
             if page.table == StoreTable::Items {
                 row.values
