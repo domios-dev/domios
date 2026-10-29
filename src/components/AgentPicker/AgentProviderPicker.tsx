@@ -1,7 +1,10 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
-import logoUrl from "../../assets/logo.png";
+import { BrandMark } from "../brand/BrandMark";
+import { DotMatrixCanvas } from "../brand/DotMatrixCanvas";
+import { useBusyWaves } from "../brand/useBusyWaves";
+import { usePrefersReducedMotion } from "../brand/usePrefersReducedMotion";
 import { installSource, launchProviderInstaller } from "../../lib/providerInstall";
 import { ProviderCard, PROVIDER_CARD_LAYOUT } from "./ProviderCard";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
@@ -62,6 +65,9 @@ export function AgentProviderPicker({
     [observed, selectedId],
   );
   const needsInstall = selected ? providerAvailability(selected) === "unavailable" : false;
+  const reducedMotion = usePrefersReducedMotion();
+  const working = Boolean(busy || installBusy);
+  const { matrix, emitWave } = useBusyWaves(working, Boolean(retry));
 
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
@@ -105,21 +111,23 @@ export function AgentProviderPicker({
       role="region"
       aria-labelledby={headlineId}
       data-testid="agent-provider-picker"
-      className="flex h-full w-full items-center justify-center p-6 overflow-auto"
+      className="brand-dot-stage flex h-full w-full items-center justify-center overflow-auto p-6"
     >
+      {/* The boot cover's dot field carries on here: the mark opens, then each beat sends a ring of dots out; starting the agent turns them up. */}
+      <DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={working ? 3.5 : 2.5} restIntensity={5} />
       {/* One centred column: the header, the cards and the confirm share an axis however many providers are shown. */}
-      <div className="flex w-fit max-w-full flex-col items-center gap-6" data-testid="agent-picker-group">
+      <div className="flex w-fit max-w-full flex-col items-center gap-7" data-testid="agent-picker-group">
         {installError && <InlineErrorNotice error={installError} operation="installing this provider" blocking />}
-        <div className="flex max-w-full items-center gap-3">
-          <img src={logoUrl} alt="" className="h-8 w-8 flex-none rounded-lg" />
+        <div className="flex max-w-full flex-col items-center gap-4 text-center">
+          <BrandMark motion="load" size={72} onRelease={emitWave} />
           <div className="min-w-0">
             <h1
               id={headlineId}
-              className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--ct-fg)]"
+              className="agent-picker-headline font-semibold text-[var(--ct-fg)]"
             >
               {headline}
             </h1>
-            <p className="mt-0.5 text-[13px] leading-snug text-[var(--ct-muted-fg)]">{subhead}</p>
+            <p className="mx-auto mt-2 max-w-[34rem] text-sm leading-relaxed text-[var(--ct-muted-fg)]">{subhead}</p>
           </div>
         </div>
 
@@ -130,13 +138,13 @@ export function AgentProviderPicker({
           role="group"
           aria-label="Agent providers"
           aria-busy={providersLoading || undefined}
-          className="flex max-w-full flex-wrap justify-center gap-3"
+          className="flex max-w-full flex-wrap justify-center gap-4"
           data-testid="agent-picker-cards"
         >
-          {providersLoading ? <Skeleton className="flex max-w-full flex-wrap justify-center gap-3">
+          {providersLoading ? <Skeleton className="flex max-w-full flex-wrap justify-center gap-4">
             {[0, 1, 2].map(index => <div key={index} className={`ct-panel-card ${PROVIDER_CARD_LAYOUT}`}>
-              <SkeletonBlock shape="circle" width="1.5rem" height="1.5rem" />
-              <SkeletonBlock width="3.5rem" height="1rem" />
+              <SkeletonBlock shape="circle" width="2rem" height="2rem" />
+              <SkeletonBlock width="4.5rem" height="1rem" />
             </div>)}
           </Skeleton> : observed.map((provider) => (
             <ProviderCard
@@ -188,7 +196,7 @@ export function AgentProviderPicker({
             </div>
           </div>
         </div>
-        {belowConfirm}
+        {belowConfirm && <div className="pt-2">{belowConfirm}</div>}
       </div>
     </div>
   );
