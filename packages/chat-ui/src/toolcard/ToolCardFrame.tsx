@@ -16,6 +16,7 @@ interface ToolCardFrameProps {
   expanded: boolean;
   onToggle: () => void;
   children: ReactNode;
+  primaryContent?: ReactNode;
   title?: ReactNode;
   summary?: ReactNode;
   metric?: ReactNode;
@@ -64,7 +65,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
@@ -117,6 +118,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
+      {primaryContent && <div className="px-3 pb-2">{primaryContent}</div>}
       <BoundedMessageContent collapsedHeight={"600px"}
         id={detailsId}
         role="region"

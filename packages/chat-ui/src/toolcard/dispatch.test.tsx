@@ -3,8 +3,12 @@ import { ToolCallBubble } from "../ToolCallBubble";
 import type { ToolEvent, ToolEventKind } from "@codeterm/chat-core";
 import { act, event, render } from "./cardTestSetup";
 
+let toolSequence = 0;
+
 function tool(kind: ToolEventKind, detail = `${kind} detail`): ToolEvent {
-  return event({ kind, summary: `${kind} summary`, detail });
+  const id = `settled-tool-${++toolSequence}`;
+  return event({ id, status: "success", kind, summary: `${kind} summary`, detail,
+    message: { id, type: "tool_call", content: "" } });
 }
 
 const expectedLabels: Record<ToolEventKind, string> = {
