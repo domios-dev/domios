@@ -113,6 +113,13 @@ impl ReportRefusal {
     }
 
     pub fn message(&self) -> String {
+        if self.reason.starts_with(UNRESOLVED_LANE_REFUSAL_PREFIX) {
+            return format!(
+                "{}\nNext command for current progress (write the report body in your pad first):\n\
+                 domios agent report --status partial --from-pad report.md",
+                self.reason
+            );
+        }
         let mut lines = vec![self.reason.clone(), "Next commands:".to_string()];
         lines.extend(REPORT_NEXT_COMMANDS.iter().copied().map(str::to_string));
         lines.push(
@@ -137,6 +144,7 @@ pub struct ReadinessScope<'a> {
     pub pane_cwd: &'a Path,
     pub lane_worktree: Option<&'a Path>,
     pub canonical_writer: bool,
+    pub recorded_checkout: bool,
 }
 
 impl<'a> ReadinessScope<'a> {
@@ -146,6 +154,7 @@ impl<'a> ReadinessScope<'a> {
             pane_cwd,
             lane_worktree: None,
             canonical_writer: false,
+            recorded_checkout: false,
         }
     }
 
@@ -185,33 +194,23 @@ pub fn enrich_ready_report(
             scope.worktree_path.as_deref()
         }
     });
-    // Refuse loudly so the worker rebinds its lane instead.
     if task_scope.is_some()
         && is_readiness_status(status)
         && !canonical_writer
         && validation_worktree.is_none()
-        && sha
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty())
     {
         return Err(unresolved_lane_refusal());
     }
     if canonical_writer && is_readiness_status(status) && validation_worktree.is_none() {
         return Err(canonical_checkout_refusal());
     }
-    let acknowledge_dirty = acknowledge_dirty && !canonical_writer;
-    // The live attempt base is what this tab is working from now; the dispatch environment is a snapshot of the attempt that launched the shell and does not move with a re-dispatch.
-    let base = if canonical_writer {
-        None
-    } else {
-        base.resolve(task_scope.and_then(|scope| scope.base.clone()))
-    };
+    let (base, acknowledge_dirty) = readiness_validation_options(task_scope, base, acknowledge_dirty);
     enrich_ready_report_in_scope(
         ReadinessScope {
             pane_cwd: Path::new("."),
             lane_worktree: validation_worktree,
             canonical_writer,
+            recorded_checkout: task_scope.is_some_and(|scope| scope.recorded_checkout),
         },
         status,
         branch,
@@ -220,6 +219,21 @@ pub fn enrich_ready_report(
         changed_files,
         acknowledge_dirty,
     )
+}
+
+fn readiness_validation_options(
+    task_scope: Option<&crate::cmd::report_lane::TaskReadinessScope>,
+    base: crate::cmd::report_attribution::ReportBase,
+    acknowledge_dirty: bool,
+) -> (Option<String>, bool) {
+    if task_scope.is_some_and(|scope| scope.canonical_writer || scope.recorded_checkout) {
+        (None, false)
+    } else {
+        (
+            base.resolve(task_scope.and_then(|scope| scope.base.clone())),
+            acknowledge_dirty,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -264,7 +278,7 @@ fn enrich_ready_report_in_scope(
     let metadata = inspection.metadata;
     if let (Some(given), Some(head)) = (sha.as_deref(), metadata.sha.as_deref()) {
         let resolved_given = resolve_commit(cwd, given);
-        if lane_report_sha_is_stale(resolved_given.as_deref(), Some(head)) {
+        if report_sha_mismatches_head(resolved_given.as_deref(), head, scope.recorded_checkout) {
             return Err(ReportRefusal {
                 reason: format!(
                     "readiness report refused: provided --sha {given} does not match HEAD {head}."
@@ -329,6 +343,14 @@ pub fn is_readiness_status(status: Option<ReportStatusArg>) -> bool {
 struct GitWorktreeInspection {
     metadata: ReportGitMetadata,
     base: Option<String>,
+}
+
+fn report_sha_mismatches_head(resolved_sha: Option<&str>, head: &str, recorded_checkout: bool) -> bool {
+    if recorded_checkout {
+        resolved_sha != Some(head)
+    } else {
+        lane_report_sha_is_stale(resolved_sha, Some(head))
+    }
 }
 
 fn lane_report_sha_is_stale(resolved_sha: Option<&str>, lane_head: Option<&str>) -> bool {
@@ -422,10 +444,9 @@ fn unresolved_lane_refusal() -> ReportRefusal {
     ReportRefusal {
         reason: format!(
             "{UNRESOLVED_LANE_REFUSAL_PREFIX}. This task requires a \
-                 repository but no lane worktree is bound to your report, so the provided --sha \
-                 cannot be validated against your own lane HEAD (never against the canonical \
-                 checkout). Re-dispatch this task with `domios plan task dispatch`, or report \
-                 with explicit `--plan <plan> --task <task>` so your lane is resolved."
+                 repository but neither a lane worktree nor a launch checkout is recorded for your report, \
+                 so --sha cannot be validated against your own HEAD. Ask the Orchestrator to \
+                 re-dispatch the task with a worktree. Use a partial report for current progress."
         ),
         dirty_files: Vec::new(),
     }

@@ -611,6 +611,7 @@ fn lane_owned_sha_validates_against_the_lane_worktree_not_the_pane_cwd() {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&lane),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -648,6 +649,7 @@ fn dev_bound_lane_worktree_ignores_foreign_vision_outside_owned_interval() {
             pane_cwd: dir.path(),
             lane_worktree: Some(&lane),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -675,6 +677,7 @@ fn another_repository_sha_is_preserved_for_lane_readiness() {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&lane),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -703,6 +706,7 @@ fn lane_anchor_resolves_through_a_symlinked_recorded_path() {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&link),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -727,6 +731,7 @@ fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane()
             pane_cwd: foreign.path(),
             lane_worktree: Some(&absent),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -888,4 +893,73 @@ fn caller_not_the_plans_bound_planner_is_still_refused() {
         "a plan with no Planner bound must refuse every caller"
     );
     assert!(!worker_binding_resolved(false, true, bound));
+}
+
+#[test]
+fn recorded_checkout_requires_a_resolved_matching_sha() {
+    assert!(!report_sha_mismatches_head(
+        Some("own-head"),
+        "own-head",
+        true
+    ));
+    assert!(report_sha_mismatches_head(
+        Some("foreign-head"),
+        "own-head",
+        true
+    ));
+    assert!(report_sha_mismatches_head(None, "own-head", true));
+    assert!(!report_sha_mismatches_head(None, "own-head", false));
+}
+
+#[test]
+fn missing_checkout_refusal_only_offers_applicable_recovery() {
+    let error = unresolved_lane_refusal();
+    let message = error.message();
+    assert!(message.contains("Ask the Orchestrator"));
+    assert!(message.contains("--status partial"));
+    assert!(!message.contains("--status in_review"));
+    assert!(!message.contains("--plan"));
+    assert!(!message.contains("--task"));
+}
+
+#[test]
+fn recorded_checkout_never_scopes_or_acknowledges_dirt() {
+    let checkout = crate::cmd::report_lane::TaskReadinessScope {
+        worktree_path: Some("/integration".into()),
+        recorded_checkout: true,
+        base: Some("stale-lane-base".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        readiness_validation_options(
+            Some(&checkout),
+            ReportBase::typed("explicit-base"),
+            true
+        ),
+        (None, false)
+    );
+    let lane = crate::cmd::report_lane::TaskReadinessScope {
+        recorded_checkout: false,
+        ..checkout
+    };
+    assert_eq!(
+        readiness_validation_options(Some(&lane), ReportBase::typed("explicit-base"), true),
+        (Some("explicit-base".into()), true)
+    );
+}
+
+#[test]
+fn repository_scope_without_any_binding_refuses_even_without_sha() {
+    let scope = crate::cmd::report_lane::TaskReadinessScope::default();
+    let error = enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(error, unresolved_lane_refusal());
 }

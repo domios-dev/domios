@@ -48,7 +48,12 @@ integration branch, and reports with a clean tree. The report CLI uses the
 attempt's explicit placement to validate the SHA against the plan's canonical
 checkout, even if that attempt has no worktree path; any dirt refuses the report,
 even with `--acknowledge-dirty`.
-Other attempts with an unresolved lane still receive the lane worktree refusal.
+Task-bound direct spawns on an existing git checkout record that checkout on the
+attempt, including across restore. Their readiness reports validate the reported
+SHA against that checkout HEAD and require a clean tree, even with an explicit
+base or `--acknowledge-dirty`. They never use the canonical checkout as a fallback.
+Attempts with neither a lane nor a recorded checkout still receive the worktree
+refusal; ask the Orchestrator to dispatch with a worktree and report partial progress.
 Without the flag every rule above is unchanged.
 For this canonical dispatch, add `--kind qa` or `--kind release_manager` to
 select the built-in prompt profile without changing `task.executor_role`; the
@@ -128,4 +133,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->
