@@ -44,6 +44,7 @@ pub struct MeshManager {
     links: LinkLedger,
     account: account_mesh::AccountMeshState,
     account_authority: Option<Arc<dyn account_mesh::AccountMeshAuthority>>,
+    pub registry_revision: Option<types::RegistryRevision>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     gate_generation: tokio::sync::watch::Sender<u64>,
     pending_links: HashMap<String, account_admission::PendingLink>,
@@ -127,6 +128,7 @@ impl MeshManager {
             links: LinkLedger::default(),
             account: account_mesh::AccountMeshState::default(),
             account_authority: None,
+            registry_revision: None,
             clock: Arc::new(account_gate::system_now),
             gate_generation: tokio::sync::watch::channel(0).0,
             pending_links: HashMap::new(),
@@ -525,6 +527,7 @@ mod liveness_tests {
             .apply_announce(
                 "peer-1",
                 &types::PeerAnnounce {
+                    registry: None,
                     instance_id: "peer-1".into(),
                     instance_name: "peer".into(),
                     addresses: Vec::new(),
@@ -555,6 +558,7 @@ mod liveness_tests {
             .apply_announce(
                 "peer-1",
                 &types::PeerAnnounce {
+                    registry: None,
                     instance_id: "peer-1".into(),
                     instance_name: "peer".into(),
                     addresses: Vec::new(),
@@ -584,6 +588,7 @@ mod liveness_tests {
             .apply_announce(
                 "peer-1",
                 &types::PeerAnnounce {
+                    registry: None,
                     instance_id: "peer-1".into(),
                     instance_name: "peer".into(),
                     addresses: Vec::new(),

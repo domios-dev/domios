@@ -442,8 +442,29 @@ async fn offer_adoption(
         &reply.installation_signature,
         &reply.mesh_signature,
     )?;
+    let permit = context
+        .authority
+        .authorize_link(LinkAuthorizationRequest {
+            transcript: digest,
+            local_installation_id: context.party.installation_id.clone(),
+            peer_installation_id: reply.installation_id.clone(),
+            account_id: context.account_id.clone(),
+            link_nonce: adoption_id.clone(),
+        })
+        .await?;
+    fence(mesh, &context)?;
+    let expected = LinkPermitExpectation {
+        transcript: digest,
+        holder_installation_id: context.party.installation_id.clone(),
+        peer_installation_id: reply.installation_id.clone(),
+        account_id: context.account_id.clone(),
+    };
+    context
+        .authority
+        .verify_link_permit(&permit, &expected, mesh.lock().now())?;
     let commit = AdoptCommit {
         adoption_id,
+        permit: permit.clone(),
         installation_signature: context
             .authority
             .sign_possession(&possession_digest(&digest, INITIATOR_ROLE))?,
@@ -462,8 +483,13 @@ async fn offer_adoption(
     if !committed.adopted {
         return Err(AdmissionRefusal::handshake("peer did not adopt"));
     }
-    mesh.lock()
-        .commit_local_adoption(peer_id, &context, &reply.installation_id, remote)
+    mesh.lock().commit_local_adoption(
+        peer_id,
+        &context,
+        &reply.installation_id,
+        remote,
+        (&permit, &expected),
+    )
 }
 
 /// Run after every applied account transition: renew peers' view of our membership,

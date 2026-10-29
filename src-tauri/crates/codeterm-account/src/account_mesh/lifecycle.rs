@@ -115,6 +115,7 @@ pub(super) struct Inner {
     pub(super) metadata_revision: Option<u64>,
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
+    pub(super) registry_hints: super::registry_hint::RegistryHints,
     pub(super) registry_flight: Option<super::registry_read::RegistryFlight>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
@@ -139,6 +140,32 @@ impl Inner {
     ) {
         let mut next = (*self.state).clone();
         change(&mut next);
+        next.unavailable_installations = self
+            .record
+            .peer_presence
+            .iter()
+            .filter(|(installation, presence)| {
+                presence.presence == RegistryPresence::SignedOut
+                    && !self.record.revoked_installations.contains(*installation)
+            })
+            .map(|(installation, _)| installation.clone())
+            .collect();
+        if next.registry != self.state.registry {
+            match next.registry.as_ref() {
+                Some(registry) => {
+                    if let Some(security) = registry.security_view() {
+                        if next
+                            .registry_security
+                            .as_ref()
+                            .is_none_or(|known| security.revision >= known.revision)
+                        {
+                            next.registry_security = Some(security);
+                        }
+                    }
+                }
+                None => next.registry_security = None,
+            }
+        }
         self.state = Arc::new(next);
         watch.send_replace(self.state.clone());
     }
@@ -213,6 +240,7 @@ impl AccountMesh {
                 metadata_revision: None,
                 registry_presence: None,
                 registry_notices: Default::default(),
+                registry_hints: Default::default(),
                 registry_flight: None,
                 resolved: HashMap::new(),
                 published_endpoint: None,
@@ -295,10 +323,20 @@ impl AccountMesh {
         self.with(|inner| {
             let unreadable = loaded.is_err();
             inner.store_unreadable = unreadable;
-            let record = loaded.unwrap_or_else(|_| AccountMeshRecord {
+            let mut record = loaded.unwrap_or_else(|_| AccountMeshRecord {
                 signed_out: true,
                 ..AccountMeshRecord::default()
             });
+            let own = self.installation();
+            record.peer_presence.remove(&own);
+            if !record.revoked_generations.contains_key(&own) {
+                record.revoked_installations.remove(&own);
+            }
+            for installation in record.peer_presence.keys() {
+                if !record.revoked_generations.contains_key(installation) {
+                    record.revoked_installations.remove(installation);
+                }
+            }
             inner.record = record.clone();
             inner.update(&self.watch, |state| {
                 state.presence = if record.signed_out {

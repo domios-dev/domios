@@ -129,7 +129,17 @@ impl MeshTransport for TransportBridge {
         let projected = mesh_state(state);
         if let Some(service) = self.service.upgrade() {
             if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
-                mesh.lock().apply_account_state(projected.clone());
+                let mut manager = mesh.lock();
+                manager.apply_account_state(projected.clone());
+                manager.registry_revision = state.signed_in_account().and_then(|account| {
+                    state.registry_security.as_ref().map(|registry| {
+                        codeterm_mesh::types::RegistryRevision {
+                            account_id: account.to_owned(),
+                            revision: registry.revision,
+                            security_digest: registry.digest.clone(),
+                        }
+                    })
+                });
             }
             service.ui.emit(
                 ACCOUNT_MESH_CHANGED,
@@ -138,8 +148,9 @@ impl MeshTransport for TransportBridge {
         }
         publish_mesh_state(&self.mesh_state, projected);
     }
-    // Revocations reach the gate through `revoked_installations` in the pushed state.
-    async fn installation_revoked(&self, _installation_id: &str) {}
+    async fn installation_revoked(&self, _installation_id: &str) {
+        presence::notify_registry(&self.service).await;
+    }
 }
 
 /// `account_mesh_state`: account-owned fields plus the transport's saved pairs.

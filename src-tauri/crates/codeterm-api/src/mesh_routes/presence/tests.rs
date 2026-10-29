@@ -80,3 +80,76 @@ fn presence_notice_cannot_carry_state_or_traffic_instructions() {
         assert!(serde_json::from_value::<PresenceNotice>(value).is_err());
     }
 }
+
+#[test]
+fn account_registry_block_allows_signed_notice_then_reopens_only_after_observation() {
+    use codeterm_service_core::mesh::account_mesh::{
+        protocol::PartyDescriptor, transcript::Party, SignedMembership, VerifiedMembership,
+    };
+    use codeterm_service_core::mesh::manager::LinkOrigin;
+    let (private, public) = crown::generate_peer_keypair();
+    let sender = "00000000-0000-4000-8000-000000000001";
+    let mut mesh = MeshManager::in_memory(
+        MeshIdentity {
+            instance_id: "receiver".into(),
+            private_key: None,
+            public_key: None,
+        },
+        "Receiver".into(),
+        7685,
+    );
+    mesh.set_clock(std::sync::Arc::new(|| 100));
+    let membership = |installation: &str| SignedMembership {
+        token: "fixture".into(),
+        verified: VerifiedMembership {
+            account_id: "account".into(),
+            installation_id: installation.into(),
+            key_id: "key".into(),
+            key_generation: 1,
+            slot_revision: 1,
+            issued_at: 100,
+            expires_at: 3700,
+        },
+    };
+    let mut state = AccountMeshState {
+        account_epoch: 1,
+        presence: AccountPresence::SignedIn {
+            account_id: "account".into(),
+        },
+        membership: Some(membership("receiver-installation")),
+        ..Default::default()
+    };
+    mesh.apply_account_state(state.clone());
+    mesh.admit_new_link(
+        &PartyDescriptor {
+            party: Party {
+                instance_id: sender.into(),
+                mesh_public_key: public,
+                installation_id: "sender-installation".into(),
+            },
+            instance_name: "Sender".into(),
+            api_port: 7685,
+            addresses: vec![],
+        },
+        &[],
+        membership("sender-installation"),
+        "account",
+        LinkOrigin::Remote,
+        "fixture",
+    )
+    .unwrap();
+    assert!(mesh.traffic_open(sender));
+    state
+        .unavailable_installations
+        .insert("sender-installation".into());
+    mesh.apply_account_state(state.clone());
+    assert!(!mesh.traffic_open(sender));
+    assert!(!mesh.is_revoked(sender));
+    assert!(!mesh.is_blocked(sender));
+    let notice = crown::sign_request(&private, sender).unwrap();
+    assert_eq!(authorize_notice(&mut mesh, &notice).unwrap(), sender);
+    assert!(!mesh.traffic_open(sender));
+    state.unavailable_installations.clear();
+    mesh.apply_account_state(state);
+    assert!(mesh.traffic_open(sender));
+}

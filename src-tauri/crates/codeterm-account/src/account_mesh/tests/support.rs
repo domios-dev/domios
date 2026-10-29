@@ -167,6 +167,7 @@ pub struct Script {
     pub renew_bodies: Vec<MeshAdmissionBody>,
     pub endpoint_seconds: Option<u64>,
     pub membership_registry_revision: Option<u64>,
+    pub registry_revision: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
     pub membership_once: Option<RegistryRefusal>,
@@ -178,6 +179,7 @@ pub struct Script {
     pub permit: Option<RegistryRefusal>,
     pub gate: Option<Arc<Notify>>,
     pub list_gate: Option<Arc<Notify>>,
+    pub sync_gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
     pub peer_key: Option<(String, u64)>,
     pub peer_active: Option<bool>,
@@ -213,6 +215,7 @@ pub struct FakeRegistry {
     pub script: Mutex<Script>,
     pub entered: Notify,
     pub list_entered: Notify,
+    pub sync_entered: Notify,
     accounts: Mutex<HashMap<String, Account>>,
     challenged: Mutex<Option<serde_json::Value>>,
 }
@@ -226,6 +229,7 @@ impl FakeRegistry {
             script: Mutex::new(Script::default()),
             entered: Notify::new(),
             list_entered: Notify::new(),
+            sync_entered: Notify::new(),
             accounts: Mutex::new(HashMap::new()),
             challenged: Mutex::new(None),
         }
@@ -493,6 +497,13 @@ impl MeshRegistry for FakeRegistry {
         }
         let proof = &envelope.installation_proof;
         self.verify(session, "meshAdmission", &envelope.request, proof, None)?;
+        if matches!(envelope.request.operation, MeshOperation::Sync { .. }) {
+            let gate = self.script.lock().unwrap().sync_gate.clone();
+            if let Some(gate) = gate {
+                self.sync_entered.notify_one();
+                gate.notified().await;
+            }
+        }
         let script = {
             let mut script = self.script.lock().unwrap();
             let membership = if membership_op {
@@ -669,9 +680,14 @@ impl MeshRegistry for FakeRegistry {
                     previous_metadata_revision: previous,
                     metadata_revision: account.metadata_revision,
                     slot_revision: account.slot.unwrap(),
-                    registry_revision: 9,
+                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(9),
                     registry: PageResult {
-                        registry_revision: 9,
+                        registry_revision: self
+                            .script
+                            .lock()
+                            .unwrap()
+                            .registry_revision
+                            .unwrap_or(9),
                         rows: Vec::new(),
                         cursor: self.script.lock().unwrap().sync_cursor.clone(),
                     },
@@ -704,7 +720,7 @@ impl MeshRegistry for FakeRegistry {
                     previous_metadata_revision: *expected_metadata_revision,
                     metadata_revision: account.metadata_revision,
                     slot_revision: account.slot.unwrap_or(1),
-                    registry_revision: 9,
+                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(9),
                 }))
             }
             MeshOperation::Presence {
@@ -762,7 +778,7 @@ impl MeshRegistry for FakeRegistry {
                 }
                 drop(accounts);
                 Ok(MeshResult::Page(PageResult {
-                    registry_revision: 7,
+                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(7),
                     rows: self.rows(&uid, &proof.key_id),
                     cursor: None,
                 }))

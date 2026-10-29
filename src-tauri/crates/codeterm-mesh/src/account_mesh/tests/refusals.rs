@@ -13,6 +13,7 @@ fn signed_in(locked: bool, enrolled: bool) -> AccountMeshState {
         },
         membership: enrolled.then(|| super::support::membership(ACCOUNT, "self", START + 60)),
         revoked_installations: Default::default(),
+        unavailable_installations: Default::default(),
         plan_limit_locked: locked,
     }
 }
