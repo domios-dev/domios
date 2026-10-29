@@ -55,6 +55,8 @@ async function mount(node: React.ReactNode) {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(node));
+  const toggle = host.querySelector<HTMLButtonElement>('section[aria-label="Neighbors"] button[aria-expanded="false"]');
+  if (toggle) await act(async () => toggle.click());
 }
 /** Opens a row's menu and returns its item labels; `choose` then picks one from the open menu. */
 async function openMenu(menu: string): Promise<(string | null)[]> {

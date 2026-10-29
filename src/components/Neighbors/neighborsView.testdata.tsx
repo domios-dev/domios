@@ -68,6 +68,7 @@ async function renderSection(friends: NeighborList["friends"], bindings: Record<
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime(bindings)} />));
+  if (friends.length > 0) await act(async () => button("Neighbors").click());
 }
 
 function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed: (friendship: string) => void } {
