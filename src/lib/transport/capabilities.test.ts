@@ -19,9 +19,9 @@ function fixture(result: unknown = {}) {
 }
 
 describe("capabilities HTTP transport", () => {
-  it("has all 96 lane commands and rejects unregistered schema commands", async () => {
+  it("has all 98 lane commands and rejects unregistered schema commands", async () => {
     const { transport, calls } = fixture();
-    expect(Object.keys(transport)).toHaveLength(96);
+    expect(Object.keys(transport)).toHaveLength(98);
     await expect(invokeCapability(transport, "arbitrary_rust_command")).rejects.toThrow("No audited HTTP route");
     await expect(invokeCapability(transport, "toString")).rejects.toThrow("No audited HTTP route");
     expect(calls).toEqual([]);
