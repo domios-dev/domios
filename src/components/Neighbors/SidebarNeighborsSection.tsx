@@ -146,12 +146,6 @@ export function SidebarNeighborsSection({ uiFontScale, touchMode, onNavigateToTa
                 </span>
               </span>
             </button>
-            {concierge && <button type="button"
-              className="min-w-0 max-w-[45%] truncate rounded border-0 bg-transparent px-1 text-[10px] text-[var(--ct-muted-fg)] hover:bg-[var(--ct-hover)] cursor-pointer"
-              aria-label={`Open concierge ${concierge.title} for ${name}`} title={concierge.title}
-              onClick={() => { focusTab(concierge.id, workspaceOfTab({ workspaces, tabs }, concierge.id)); onNavigateToTab?.(); }}>
-              → {concierge.title}
-            </button>}
             <DropdownMenu className={touchMode ? "sr-only" : "sidebar-tab-kebab"} contextMenuTargetRef={rowRef(friend.friendship_id)} menuLabel={`${name} actions`}
               items={[pauseItem, ...receiveItems, { label: `${name}'s settings`, onClick: () => openNeighborPage(friend.friendship_id) }]}
               trigger={<RowMenuButton label={`Actions for ${name}`} title="Friend actions" touchMode={touchMode} />} />

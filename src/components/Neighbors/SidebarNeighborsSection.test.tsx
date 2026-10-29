@@ -64,13 +64,6 @@ it("nests each concierge under its Neighbor; the Neighbor opens your conversatio
   window.addEventListener("codeterm:open-panel", panels);
   try {
     expect(hasButton("Open Lin's concierge")).toBe(false);
-    expect(hasButton("Open concierge Concierge for Lin")).toBe(false);
-    const shortcut = button("Open concierge Concierge for Ada");
-    expect(shortcut.textContent?.trim()).toBe("→ Concierge");
-    expect(button("Open Ada").closest("li")?.contains(shortcut)).toBe(true);
-    await act(async () => shortcut.click());
-    expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
-    focused.mockClear();
     await act(async () => button("Open Ada's concierge").click());
     expect((focused.mock.calls[0][0] as CustomEvent).detail).toEqual({ tabId: "tab-gateway", workspaceId: "ws-work" });
     await act(async () => button("Open Lin").click());
