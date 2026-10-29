@@ -54,7 +54,10 @@ jobs:
           rustup target add "$CARGO_BUILD_TARGET"
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential pkg-config libssl-dev libdbus-1-dev minisign
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Prepare runner Buildx
+        run: |
+          docker buildx version
+          docker buildx create --use --name domios-smoke --driver docker-container
       - name: Verify the pinned public updater key
         run: |
           python3 - <<'PY'
@@ -77,3 +80,6 @@ jobs:
           archive="target/docker-smoke/archives/domios-headless-v$version-linux-$RELEASE_ARCH.tar.gz"
           read -r checksum filename < "$archive.sha256"
           bash scripts/docker/smoke.sh "$version" "$ARCH" "$archive" "$checksum"
+      - name: Remove smoke builder
+        if: always()
+        run: docker buildx rm --force domios-smoke
