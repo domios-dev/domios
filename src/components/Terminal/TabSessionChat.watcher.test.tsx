@@ -3,7 +3,7 @@
 import { mock } from "node:test";
 import { act } from "react";
 import { Window } from "happy-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import type { Tab } from "../../lib/types";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -204,6 +204,7 @@ async function renderTabSessionChat(
 }
 
 const testWindow = setupDom();
+let createRoot: typeof import("react-dom/client").createRoot;
 
 test("fresh ordinary and General lazy PTY chats are usable before their first session exists", async () => {
   for (const protectedTab of [false, true]) {
@@ -275,7 +276,9 @@ test("first local send stays visible across pending binding, snapshot, and echo"
       setter?.call(composer, text);
       composer.dispatchEvent(new testWindow.Event("input", { bubbles: true }) as unknown as Event);
     });
-    await act(async () => composer.dispatchEvent(new testWindow.KeyboardEvent("keydown", { bubbles: true, key: "Enter", code: "Enter", keyCode: 13 }) as unknown as KeyboardEvent));
+    const sendButton = host.querySelector<HTMLButtonElement>('[data-testid="composer-send-button"]');
+    assert(sendButton && !sendButton.disabled, "typed draft enables the first user send");
+    await act(async () => sendButton.dispatchEvent(new testWindow.PointerEvent("pointerup", { bubbles: true, button: 0, pointerType: "mouse" }) as unknown as PointerEvent));
     assert(composer.value === "", "composer clears on the first user send");
     assert(commands.filter(name => name === "chat_send_text").length === 1, "one send reached the mocked admission port");
     assert(bubbleCount() === 1, "one local bubble remains visible before any session or snapshot");
@@ -895,6 +898,8 @@ test("a held window from an older binding stays hidden during attach", async () 
 });
 
 async function main() {
+  // React DOM captures input-event support at import time, after the DOM must exist.
+  ({ createRoot } = await import("react-dom/client"));
   let failed = 0;
   for (const [name, fn] of tests) {
     try {
