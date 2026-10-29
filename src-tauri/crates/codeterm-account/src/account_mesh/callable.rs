@@ -49,6 +49,9 @@ impl CallableFailure {
 
 #[async_trait]
 pub trait CallableGuard: Send + Sync {
+    fn closing_session(&self) -> bool {
+        false
+    }
     async fn current(&self) -> bool;
     async fn retired(&self) {
         std::future::pending::<()>().await;
@@ -71,6 +74,9 @@ struct RegistryGuard<'a> {
 
 #[async_trait]
 impl CallableGuard for RegistryGuard<'_> {
+    fn closing_session(&self) -> bool {
+        self.captured_cleanup
+    }
     async fn retired(&self) {
         if !self.captured_cleanup {
             if let Some(validator) = self.validator {

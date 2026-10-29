@@ -15,6 +15,8 @@ dev-updater-allowlocal = []
 base64 = "0.23"
 minisign-verify = "0.2"
 tempfile = "3"
+sha2 = "0.10"
+codeterm-process-identity = { path = "../codeterm-process-identity" }
 codeterm-build-info = { path = "../codeterm-build-info" }
 codeterm-paths = { path = "../codeterm-paths" }
 codeterm-plugins = { path = "../codeterm-plugins" }
@@ -30,7 +32,7 @@ tokio = { version = "1", features = ["rt", "sync", "macros"] }
 uuid = { version = "1", features = ["v4"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
 [dev-dependencies]

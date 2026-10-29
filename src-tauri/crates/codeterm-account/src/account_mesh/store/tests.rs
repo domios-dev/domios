@@ -80,3 +80,40 @@ async fn admission_cache_is_separate_and_mesh_json_remains_rollback_readable() {
     assert!(!cache_path.exists());
     fs::remove_dir_all(directory).unwrap();
 }
+
+#[tokio::test]
+async fn candidate_inline_admission_cache_is_accepted_then_removed_on_save() {
+    use super::super::{tests::support::Harness, EnrollTrigger};
+    let directory = std::env::temp_dir().join(format!(
+        "codeterm-mesh-inline-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let harness = Harness::new().await;
+    harness.sign_in("candidate-owner").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let record = harness.store.record.lock().unwrap().clone();
+    let mut candidate = serde_json::to_value(&record).unwrap();
+    candidate["admission_cache"] =
+        serde_json::to_value(record.admission_cache.as_ref().unwrap()).unwrap();
+    let store = FileAccountMeshStore::new(directory.clone());
+    let path = directory.join("state/account/mesh.json");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, serde_json::to_vec(&candidate).unwrap()).unwrap();
+    let accepted: AccountMeshRecord = serde_json::from_value(candidate).unwrap();
+    assert!(accepted.admission_cache.is_some());
+    let loaded = store.load().await.unwrap();
+    assert_eq!(loaded.owner, record.owner);
+    assert_eq!(loaded.keys, record.keys);
+    assert_eq!(loaded.slots, record.slots);
+    assert!(!loaded.signed_out);
+    store.save(&loaded).await.unwrap();
+    let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert!(saved.get("admission_cache").is_none());
+    assert_eq!(store.load().await.unwrap(), loaded);
+    fs::remove_dir_all(directory).unwrap();
+}

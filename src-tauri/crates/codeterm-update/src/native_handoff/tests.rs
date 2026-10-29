@@ -161,10 +161,10 @@ fn native_pair_decision_requires_restart_authority_and_exact_current_server() {
 #[test]
 fn package_managed_methods_never_select_native_apply() {
     use crate::InstallMethod::*;
-    for method in [Brew, Scoop, Deb, Rpm, Unknown] {
+    for method in [Brew, Scoop, Rpm, Unknown] {
         assert!(!supports_native_apply(&method));
     }
-    for method in [Dmg, Nsis, Msi, AppImage] {
+    for method in [Dmg, Nsis, Msi, AppImage, Deb] {
         assert!(supports_native_apply(&method));
     }
 }

@@ -24,26 +24,35 @@ impl AccountMesh {
         &self,
         signed: &mut Signed,
     ) -> Result<MeshResult, AccountMeshRefusal> {
-        let active_target = self.state().registry.as_ref().and_then(|registry| {
-            registry
-                .rows
-                .iter()
-                .find(|row| row.installation_id == self.installation() && row.active)
-                .map(|row| row.target())
-        });
+        let mut active_target = self
+            .state()
+            .registry
+            .as_ref()
+            .and_then(|registry| {
+                registry
+                    .rows
+                    .iter()
+                    .find(|row| row.installation_id == self.installation() && row.active)
+                    .map(|row| row.target())
+            })
+            .or_else(|| self.cached_active_target(signed));
         let generation = self.generation(signed).await?;
         if let Some(target) = active_target
             .as_ref()
             .filter(|target| generation > target.key_generation)
         {
-            return self
+            match self
                 .rejoin_admission(
                     signed,
                     MeshOperation::Recover {
                         target: target.clone(),
                     },
                 )
-                .await;
+                .await
+            {
+                Err(AccountMeshRefusal::Forbidden) => active_target = None,
+                result => return result,
+            }
         }
         self.with(|inner| {
             if !inner.is_current(signed.epoch) {
@@ -115,13 +124,22 @@ impl AccountMesh {
         })?;
         self.persist().await;
         drop(_guard);
-        let operation = match active_target {
-            Some(target) => MeshOperation::Recover { target },
-            None => MeshOperation::Enroll {
+        if let Some(target) = active_target {
+            match self
+                .rejoin_admission(signed, MeshOperation::Recover { target })
+                .await
+            {
+                Err(AccountMeshRefusal::Forbidden) => {}
+                result => return result,
+            }
+        }
+        self.rejoin_admission(
+            signed,
+            MeshOperation::Enroll {
                 expected_slot_revision: 0,
             },
-        };
-        self.rejoin_admission(signed, operation).await
+        )
+        .await
     }
 
     async fn rejoin_admission(

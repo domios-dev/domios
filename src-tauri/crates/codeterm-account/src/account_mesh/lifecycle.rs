@@ -481,6 +481,7 @@ impl AccountMesh {
         self.with(|inner| {
             inner.auth_parked = None;
             inner.rotation_attempt = None;
+            inner.retry.resume();
             if inner.state.last_refusal != Some(AccountMeshRefusal::ReauthRequired) {
                 return;
             }

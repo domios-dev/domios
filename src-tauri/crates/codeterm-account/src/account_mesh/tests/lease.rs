@@ -24,7 +24,13 @@ async fn account_mesh_lease_accepts_hour_and_day_and_reuses_after_restart() {
         assert_eq!(original.verified.expires_at, START + seconds);
         assert_eq!(
             original.verified.refresh_after(),
-            START + seconds - (seconds / 4).max(120)
+            START + seconds
+                - (if seconds <= 3600 {
+                    (seconds / 4).min(600)
+                } else {
+                    seconds / 4
+                })
+                .max(120)
         );
         assert_eq!(
             harness.mesh.verify_peer_membership(&original.token, START),

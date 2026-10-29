@@ -5,6 +5,7 @@ use crate::{
     },
     launch::LaunchOptions,
 };
+use codeterm_paths::instance_identity::ownership_registry;
 use codeterm_service_core::{
     ports::host::{NoShell, ProcessPaths, ProcessShell, UiEvents},
     PathOwnership, ResolvedInstancePaths,
@@ -40,13 +41,6 @@ impl UiEvents for ServerEvents {
             endpoint.emit_to(target, event, payload);
         }
     }
-}
-
-pub fn ownership_registry() -> io::Result<std::path::PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| io::Error::other("Home directory unavailable"))?;
-    let root = home.join(".codeterm-instance-lifetimes");
-    std::fs::create_dir_all(&root)?;
-    Ok(root.join("path-owners"))
 }
 
 fn ownership_registry_for(

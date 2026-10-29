@@ -485,6 +485,10 @@ pub(crate) async fn retry_client_installation(
 fn client_resource_root(
     app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> io::Result<PathBuf> {
+    #[cfg(target_os = "linux")]
+    if let Some(directory) = std::env::var_os("DOMIOS_UPDATE_ROLLBACK") {
+        return Ok(std::path::PathBuf::from(directory).join("rollback/resources"));
+    }
     app.path().resource_dir().map_err(io::Error::other)
 }
 

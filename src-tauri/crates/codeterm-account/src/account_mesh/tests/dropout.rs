@@ -65,11 +65,11 @@ async fn account_mesh_lost_renew_reply_with_legacy_forbidden_reconciles_without_
 
 #[tokio::test]
 async fn account_mesh_active_slot_with_different_key_uses_recover_after_rotation() {
-    let harness = enrolled().await;
-    harness
-        .registry
-        .replace_slot_key("owner", "f".repeat(64), 1);
+    let mut harness = enrolled().await;
+    *harness.keys.0.lock().unwrap() = Some(InstallationKey::generate().to_secret());
     harness.clock.set(START + 86400);
+    harness.restart().await;
+    harness.sign_in("owner").await;
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("recover"), 1);
@@ -240,20 +240,15 @@ async fn account_mesh_untyped_403_and_404_retry_without_rejoining() {
 }
 
 #[tokio::test]
-async fn account_mesh_forbidden_registry_read_never_rotates_a_key() {
+async fn account_mesh_forbidden_own_registry_read_rejoins_revoked_slot() {
     let harness = enrolled().await;
+    harness.registry.revoke_self("owner");
     harness.clock.set(START + 64800);
-    {
-        let mut script = harness.registry.script.lock().unwrap();
-        script.membership_once = Some(RegistryRefusal::Forbidden);
-        script.list = Some(RegistryRefusal::Forbidden);
-    }
-    assert_eq!(
-        harness.mesh.refresh(EnrollTrigger::Lease).await,
-        Err(AccountMeshRefusal::Forbidden)
-    );
-    assert_eq!(harness.calls("recover_key"), 0);
-    assert_eq!(harness.calls("enroll"), 1);
+    harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
+    assert_eq!(harness.calls("list"), 1);
+    assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.calls("enroll"), 2);
+    assert!(harness.state().current_membership(START + 64800).is_some());
 }
 
 #[tokio::test(start_paused = true)]
