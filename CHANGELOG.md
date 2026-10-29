@@ -11,7 +11,7 @@ lives in `git log` with no aggregated narrative.
 
 ### Fixed
 
-- Enter submits again in Terminal view on macOS with inline predictive text. Fixes rollacode/codeterm-releases#99.
+- Restore Enter submission in Terminal view on Windows and macOS by retaining the xterm input textarea after each Enter; disable inline predictive text on macOS. Fixes rollacode/codeterm-releases#99.
 - Added update-restart cleanup regression tests. The main-thread cleanup fix already shipped in 1.17.0; this release adds coverage (Refs rollacode/codeterm-releases#98).
 
 ## [Unreleased]
