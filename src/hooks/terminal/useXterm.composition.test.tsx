@@ -14,6 +14,9 @@ vi.mock("@xterm/addon-fit", () => ({
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    clearRect() {}, fillRect() {},
+  } as unknown as CanvasRenderingContext2D);
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   setXtermFrameScheduler(callback => callback());
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
