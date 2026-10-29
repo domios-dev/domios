@@ -56,7 +56,8 @@ fn unavailable_authority_returns_a_typed_error() {
 #[test]
 fn current_db_restores_workspace_cwd_without_reading_stale_json() {
     let root = tempfile::tempdir().unwrap();
-    let first = StorageAuthority::Ready(Storage::open(root.path(), StorageConfig::default()).unwrap());
+    let first =
+        StorageAuthority::Ready(Storage::open(root.path(), StorageConfig::default()).unwrap());
     let adapter = StorageDeskAdapter::from_storage(first.storage().unwrap().clone());
     adapter.import_legacy(r#"{"version":"1","timestamp":1,"active_workspace_id":"ws-current","teams":[],"workspaces":[{"id":"ws-current","name":"Current project","tabs":[],"active_tab_id":null,"cwd":"database-cwd","provisioned_cwd":null}]}"#, None).unwrap();
     drop(adapter);
