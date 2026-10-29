@@ -305,7 +305,8 @@ function TabItemInner({
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const meshLabel = meshBadgeLabel(tab);
-  const rowText = tabRowText({ title: displayTitle, description, typeLabel: roleShield });
+  const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : description;
+  const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -480,9 +481,6 @@ function TabItemInner({
           </span>
           {hasAgent && (
             <TabWorkingActivity activity={tabState} label={tabState.label} />
-          )}
-          {hasAgent && tabState.phase === "compacting" && (
-            <span className="truncate text-[10px] text-[var(--ct-muted-fg)]">{tabState.label}</span>
           )}
           {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
