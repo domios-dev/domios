@@ -263,7 +263,7 @@ describe("pickFile", () => {
 
   it("reports files the host refused next to the ones it took", async () => {
     const { fake } = picker([DECLARED], [pngPath("fox.png"), pngPath("notes.png")]);
-    fake.ingest.mockResolvedValueOnce({ ok: true, input: input(1) }).mockResolvedValueOnce({ ok: false, code: "invalid", reason: "type" });
+    fake.ingest.mockResolvedValueOnce({ ok: true, input: input(1) }).mockResolvedValueOnce({ ok: false, code: "invalid", reason: "type" } as never);
     expect(await run(fake, "pickFile", { multiple: true })).toEqual({
       ok: true, inputs: [input(1)], skipped: [{ fileName: "notes.png", code: "invalid", reason: "type" }],
     });
