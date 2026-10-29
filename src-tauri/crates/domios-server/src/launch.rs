@@ -9,6 +9,7 @@ use codeterm_types::server_bootstrap::{AttachRequest, BootstrapOperation, Server
 pub use codeterm_types::server_bootstrap::{InstanceSelector, LaunchOptions};
 
 mod detached;
+pub mod pid_file;
 #[cfg(windows)]
 use detached::retry_without_breakaway;
 pub use detached::{ensure_detached, release_launch_stderr, JobMembership};
@@ -16,7 +17,7 @@ use detached::{with_stderr_detail, StderrTail};
 
 const STDERR_CLOSE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
-pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nIsolated verification: domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
+pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--pid-file ABS_PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nIsolated verification: domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HumanStartMode {
@@ -28,6 +29,7 @@ pub struct HumanStart {
     pub options: LaunchOptions,
     pub json: bool,
     pub mode: HumanStartMode,
+    pub pid_file: Option<PathBuf>,
 }
 
 pub fn human_start_options(
@@ -43,6 +45,7 @@ pub fn human_start_options(
     let mut port = None;
     let mut resources = None;
     let mut json = false;
+    let mut pid_file = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -62,6 +65,13 @@ pub fn human_start_options(
                     })?);
             }
             "--json" if !json => json = true,
+            "--pid-file" if pid_file.is_none() => {
+                let path = PathBuf::from(human_value(&mut args)?);
+                if !path.is_absolute() {
+                    return Err(io::Error::other("PID file path must be absolute"));
+                }
+                pid_file = Some(path);
+            }
             _ => return Err(io::Error::other("Unknown or repeated headless option")),
         }
     }
@@ -92,6 +102,7 @@ pub fn human_start_options(
         options,
         json,
         mode: HumanStartMode::Detached,
+        pid_file,
     })
 }
 
@@ -152,6 +163,7 @@ fn isolated_verification_options(
         options,
         json: false,
         mode: HumanStartMode::IsolatedVerification,
+        pid_file: None,
     })
 }
 

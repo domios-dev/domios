@@ -1,15 +1,14 @@
 use super::{index, Entry};
 use crate::{embedder::EmbedderIdentity, MemManager};
 use codeterm_blueprint_types::blueprint_document::Document;
-use rusqlite::Connection;
 
-pub(super) const MIN_PURPOSE_COSINE: f64 = 0.92;
+pub const MIN_PURPOSE_COSINE: f64 = 0.92;
 
-pub(super) fn callable(document: &Document) -> bool {
+pub fn callable(document: &Document) -> bool {
     document.trigger.is_none() && document.result.port.is_some()
 }
 
-pub(super) fn check_name(
+pub fn check_name(
     library: &[Entry],
     document: &Document,
     intents: &[String],
@@ -43,14 +42,14 @@ pub(super) fn check_name(
     Ok(())
 }
 
-pub(super) struct Purpose {
-    pub(super) identity: EmbedderIdentity,
-    texts: Vec<String>,
-    vectors: Vec<Vec<f32>>,
+pub struct Purpose {
+    pub identity: EmbedderIdentity,
+    pub texts: Vec<String>,
+    pub vectors: Vec<Vec<f32>>,
 }
 
 impl Purpose {
-    pub(super) fn candidate(mem: &MemManager, intents: &[String]) -> Self {
+    pub fn candidate(mem: &MemManager, intents: &[String]) -> Self {
         let identity = mem.embedder.identity();
         let vectors = intents
             .iter()
@@ -72,12 +71,11 @@ impl Purpose {
         }
     }
 
-    pub(super) fn stored(
-        conn: &Connection,
+    pub fn stored(
+        stored: &index::Vectors,
         identity: &EmbedderIdentity,
         entry: &Entry,
     ) -> Result<Self, String> {
-        let stored = index::read_vectors(conn, &entry.id, identity)?;
         let vectors = stored
             .slot(index::Slot::Intent)
             .filter(|(text, _)| entry.intents.iter().any(|intent| intent == text))
@@ -90,7 +88,7 @@ impl Purpose {
         })
     }
 
-    pub(super) fn agrees(&self, other: &Self) -> bool {
+    pub fn agrees(&self, other: &Self) -> bool {
         if self.identity != other.identity {
             return false;
         }

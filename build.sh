@@ -473,7 +473,7 @@ run_nextest_scope() {
   local manifest="src-tauri/Cargo.toml"
   local package=""
   local targets=(--no-default-features)
-  local filter_args=()
+  local filter_args=() run_ignored_args=()
 
   case "$scope:$filterset" in
     workspace:*|app:*|codeterm:*|service-core:*|codeterm-service-core:*|shell:*|*rdeps\(*)
@@ -529,6 +529,15 @@ run_nextest_scope() {
     decision|codeterm-decision) package="codeterm-decision"; targets+=(--all-targets) ;;
     provider-signals|codeterm-provider-signals) package="codeterm-provider-signals"; targets+=(--all-targets) ;;
     mem|codeterm-mem) package="codeterm-mem"; targets+=(--lib) ;;
+    mem-postgres|codeterm-mem-postgres)
+      package="codeterm-mem-postgres"; targets+=(--lib)
+      filter_args+=(--status-level all --final-status-level all)
+      if [ -n "${DOMIOS_TEST_POSTGRES_URL:-}" ]; then
+        run_ignored_args=(--run-ignored all)
+      else
+        echo "Postgres contracts are ignored: DOMIOS_TEST_POSTGRES_URL is unset."
+      fi
+      ;;
     mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
     plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
     plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
@@ -599,7 +608,7 @@ run_nextest_scope() {
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass TEST_RAW_OUTPUT=1 \
     scripts/test-capped.sh \
     "${reuse_args[@]}" \
-    "${filter_args[@]}" --no-fail-fast --no-tests="${NEXTEST_NO_TESTS_MODE:-fail}" > "$timing_dir/parallel.log" 2>&1; then
+    "${filter_args[@]}" "${run_ignored_args[@]}" --no-fail-fast --no-tests="${NEXTEST_NO_TESTS_MODE:-fail}" > "$timing_dir/parallel.log" 2>&1; then
     run_exit=0
   else
     run_exit=$?
@@ -1565,7 +1574,7 @@ validate_dev_provenance() {
 build_dev_server() {
   dev_build_phase cargo-server.begin
   cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings \
+    --profile "$CT_DEV_CARGO_PROFILE" --no-default-features --features domios-server/embeddings,domios-server/mem-postgres \
     --message-format=json-render-diagnostics > "$1"
   dev_build_phase cargo-server.end
 }
@@ -1596,7 +1605,7 @@ reload_dev_server() {
   export CODETERM_SERVER_CLI_SHA256="$built_cli_hash"
   ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
-    --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
+    --features domios-server/embeddings,domios-server/mem-postgres --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   # Refuse edits made during compilation before touching the running instance.
   [ "$plan" = "$(CT_DEV_PROVENANCE_OPERATION=--check-server-reload validate_dev_provenance)" ] || {
     echo 'Build inputs changed during compilation; rerun ./build.sh dev-server.' >&2
@@ -1867,18 +1876,20 @@ configure_app_test_cargo() {
 configure_dev_cargo() {
   CT_DEV_CARGO_PROFILE=dev
   CT_DEV_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" --guard src-tauri/crates/domios-server/Cargo.toml src-tauri/crates/codeterm-service-core/Cargo.toml)" || return $?
-  # The native client carries no server features; CT_DEV_CARGO_FEATURES applies to server packages only.
+  CT_SERVER_CARGO_FEATURES="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/dev-build-configuration.mjs" src-tauri/crates/domios-server/Cargo.toml)" || return $?
   CT_DEV_CHECK_ARGS=(--manifest-path src-tauri/Cargo.toml -p codeterm --lib --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
   CT_DEV_TAURI_ARGS=(-- --profile "$CT_DEV_CARGO_PROFILE")
 }
 
 configure_product_cargo() {
-  local package feature features=()
+  local package feature package_features features=()
   CT_PRODUCT_CARGO_ARGS=(--no-default-features)
-  IFS=, read -r -a features <<< "$CT_DEV_CARGO_FEATURES"
   for package in domios-server codeterm-service-core codeterm-mem; do
     case " $* " in
       *" --workspace "*|*" -p $package "*)
+        package_features="$CT_DEV_CARGO_FEATURES"
+        if [ "$package" = domios-server ]; then package_features="${CT_SERVER_CARGO_FEATURES-$CT_DEV_CARGO_FEATURES}"; fi
+        IFS=, read -r -a features <<< "$package_features"
         for feature in "${features[@]}"; do CT_PRODUCT_CARGO_ARGS+=(--features "$package/$feature"); done
         ;;
     esac
@@ -2224,7 +2235,7 @@ build_and_launch_dev() {
   ct_with_firebase_build_config build_dev_server "$split_logs/server.jsonl"
   dev_build_phase firebase-server.end
   cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --no-default-features \
-    --features domios-server/embeddings --edges normal,build --prefix none > "$split_logs/server-tree.txt"
+    --features domios-server/embeddings,domios-server/mem-postgres --edges normal,build --prefix none > "$split_logs/server-tree.txt"
   dev_build_phase server-tree.end
   local build_args=(--manifest-path src-tauri/Cargo.toml -p codeterm --bin domios-app
     --profile "$CT_DEV_CARGO_PROFILE" --no-default-features)
@@ -2621,10 +2632,10 @@ prepare_release_bundle_inputs() {
     CODETERM_SERVER_CLI_SHA256="$(node scripts/release-stage.mjs cli-digest --target "$release_target")"
     export CODETERM_SERVER_CLI_SHA256
     cargo build --release --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-      --no-default-features --features domios-server/embeddings --target "$release_target" \
+      --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --target "$release_target" \
       --message-format=json > "$release_logs/server.jsonl"
     cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --target "$release_target" \
-      --no-default-features --features domios-server/embeddings --edges normal,build --prefix none \
+      --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --edges normal,build --prefix none \
       --format '{p}' > "$release_logs/closure.txt"
     node scripts/release-stage.mjs prepare --target "$release_target" --source-sha "$release_sha" \
       --cargo-log "$release_logs/server.jsonl" --tree-log "$release_logs/closure.txt" \
@@ -3229,10 +3240,10 @@ EOF
       "$process_probe_dir/cli.jsonl" "$(pwd -P)" "$process_probe_dir/resources")"
     export CODETERM_SERVER_CLI_SHA256
     cargo build --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
-      --no-default-features --features domios-server/embeddings --target "$process_probe_target" \
+      --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --target "$process_probe_target" \
       --message-format=json > "$process_probe_dir/cargo.jsonl"
     cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --target "$process_probe_target" \
-      --no-default-features --features domios-server/embeddings --edges normal,build --prefix none \
+      --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --edges normal,build --prefix none \
       --format '{p}' > "$process_probe_dir/closure.txt"
     node scripts/server-artifact.mjs "$process_probe_dir/cargo.jsonl" "$process_probe_dir/closure.txt" \
       "$(git rev-parse HEAD)" "$process_probe_target" "$process_probe_dir/resources" "$process_probe_dir/artifact.json"
