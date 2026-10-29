@@ -1,4 +1,4 @@
-use super::{is_owned_descendant, same_windows_path, ProcessRecord};
+use super::{is_owned_descendant, same_windows_path, terminate_and_wait, ProcessRecord};
 use std::collections::HashMap;
 use std::io;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -154,26 +154,29 @@ impl OwnedProcessTree {
 
     pub fn terminate_remaining(self, timeout: Duration) -> io::Result<()> {
         let deadline = Instant::now() + timeout;
-        for handle in &self.0 {
-            if unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } != WAIT_OBJECT_0
-                && unsafe { TerminateProcess(handle.as_raw_handle(), 1) } == 0
-                && unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } != WAIT_OBJECT_0
-            {
-                return Err(io::Error::last_os_error());
-            }
-        }
-        for handle in self.0 {
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if unsafe {
-                WaitForSingleObject(
-                    handle.as_raw_handle(),
-                    remaining.as_millis().min(u128::from(u32::MAX - 1)) as u32,
-                )
-            } != WAIT_OBJECT_0
-            {
-                return Err(io::Error::other("Owned install process tree exit deadline"));
-            }
-        }
-        Ok(())
+        terminate_and_wait(
+            &self.0,
+            |handle| {
+                if unsafe { WaitForSingleObject(handle.as_raw_handle(), 0) } != WAIT_OBJECT_0
+                    && unsafe { TerminateProcess(handle.as_raw_handle(), 1) } == 0
+                {
+                    return Err(io::Error::last_os_error());
+                }
+                Ok(())
+            },
+            |handle| {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if unsafe {
+                    WaitForSingleObject(
+                        handle.as_raw_handle(),
+                        remaining.as_millis().min(u128::from(u32::MAX - 1)) as u32,
+                    )
+                } != WAIT_OBJECT_0
+                {
+                    return Err(io::Error::other("Owned install process tree exit deadline"));
+                }
+                Ok(())
+            },
+        )
     }
 }
