@@ -41,6 +41,7 @@ impl SqliteMemStore {
                 .map_err(|error| format!("find existing mem item: {error}"))?;
             if let Some((existing_id, current_body)) = existing {
                 if let Some(guard) = &ctx.replace_guard {
+                    guard.check_insert(item.area.as_deref().unwrap_or(""))?;
                     let (area, pinned): (Option<String>, bool) = conn
                         .query_row(
                             "SELECT area, is_pinned_wakeup!=0 FROM mem_items WHERE id=?1",

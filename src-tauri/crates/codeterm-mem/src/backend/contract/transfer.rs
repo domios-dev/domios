@@ -187,5 +187,23 @@ fn transfer_same_stamp_import_preserves_existing_target_vectors() {
         .find(|page| page.table == StoreTable::Embedder)
         .unwrap();
     target.import_page(&ctx, &page).unwrap();
-    assert_eq!(export_all(target.as_ref()), before);
+    let after = export_all(target.as_ref());
+    assert_eq!(
+        after
+            .iter()
+            .filter(|page| page.table != StoreTable::Embedder)
+            .collect::<Vec<_>>(),
+        before
+            .iter()
+            .filter(|page| page.table != StoreTable::Embedder)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        after
+            .into_iter()
+            .find(|page| page.table == StoreTable::Embedder)
+            .unwrap()
+            .rows,
+        page.rows
+    );
 }

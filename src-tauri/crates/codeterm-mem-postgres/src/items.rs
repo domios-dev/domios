@@ -478,6 +478,7 @@ pub(crate) fn save_in(
     if let Some(id) = existing {
         let previous = get_in(tx, &id)?.ok_or_else(|| "mem item disappeared".to_owned())?;
         if let Some(guard) = &ctx.replace_guard {
+            guard.check_insert(item.area.as_deref().unwrap_or(""))?;
             let pinned: i64 = tx
                 .query_one("SELECT is_pinned_wakeup FROM mem_items WHERE id=$1", &[&id])
                 .map_err(db_error)?

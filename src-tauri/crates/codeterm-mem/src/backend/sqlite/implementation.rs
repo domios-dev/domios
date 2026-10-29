@@ -13,6 +13,13 @@ use crate::{
     SearchHit, SearchQuery, WakeUpOptions,
 };
 impl MemStore for SqliteMemStore {
+    fn with_export_snapshot(
+        &self,
+        visitor: &mut dyn FnMut(&dyn crate::backend::ExportSnapshot) -> Result<(), String>,
+    ) -> Result<(), String> {
+        self.snapshot(visitor)
+    }
+
     fn seed_graph(
         &self,
         _ctx: &WriteContext,

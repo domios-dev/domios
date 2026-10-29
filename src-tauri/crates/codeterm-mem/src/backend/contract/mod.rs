@@ -3,6 +3,8 @@ use crate::embedder::{EmbedderIdentity, StampedVector};
 use crate::store::{MemAuthor, ReplaceGuard, ReplaceGuardError};
 use crate::{MemKind, MemScope, NewMemItem, Relation, SearchQuery};
 pub mod blueprint;
+#[cfg(test)]
+mod consistency;
 pub mod recall;
 #[cfg(test)]
 mod transfer;
@@ -262,6 +264,23 @@ pub fn guarded_replace_is_atomic(store: &dyn MemStore) {
     assert_eq!(got.body, "contract astrolabe observations");
     assert_eq!(got.area.as_deref(), Some("contract-source"));
     assert_eq!(got.author, ctx.author);
+    assert_eq!(store.get_item_history(&id).unwrap().len(), 1);
+}
+
+pub fn guarded_replace_refuses_new_area(store: &dyn MemStore) {
+    let ctx = WriteContext::system("guard-new-area");
+    let original = item("guard destination area");
+    let id = store.save(&ctx, &original, false).unwrap().id;
+    let mut guarded = ctx.clone();
+    guarded.replace_guard = Some(ReplaceGuard::new(vec!["contract-source".into()]));
+    let mut replacement = original.clone();
+    replacement.area = Some("not-granted".into());
+    replacement.body = "must not be written".into();
+    assert!(matches!(
+        store.save(&guarded, &replacement, true),
+        Err(SaveError::Guard(ReplaceGuardError::AreaNotAllowed))
+    ));
+    assert_eq!(store.get(&id).unwrap().unwrap().area, original.area);
     assert_eq!(store.get_item_history(&id).unwrap().len(), 1);
 }
 
