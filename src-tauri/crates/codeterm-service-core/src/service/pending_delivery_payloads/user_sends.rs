@@ -46,6 +46,16 @@ pub struct UserSendAuthority {
     pub(crate) prelaunch: bool,
 }
 
+impl UserSendAuthority {
+    pub fn pty_id(&self) -> Option<&str> {
+        self.pty_id.as_deref()
+    }
+
+    pub fn binding_nonce(&self) -> &str {
+        &self.binding_nonce
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UserSendState {

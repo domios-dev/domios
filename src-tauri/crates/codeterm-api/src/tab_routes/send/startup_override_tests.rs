@@ -86,7 +86,7 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
         .service
         .pty
         .lock()
-        .invalidate_guarded_input(authority.pty_id.as_deref().unwrap());
+        .invalidate_guarded_input(authority.pty_id().unwrap());
     let bare = Router::new()
         .route("/api/tabs/{id}/chat-send", post(chat_send_text))
         .with_state(state.clone());
@@ -103,7 +103,7 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
     ] {
         let response = router
             .clone()
-            .oneshot(request(&tab, token, Some(&authority.binding_nonce)))
+            .oneshot(request(&tab, token, Some(authority.binding_nonce())))
             .await
             .unwrap();
         assert_eq!(response.status(), expected, "{label}");
@@ -113,7 +113,7 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
             .service
             .pty
             .lock()
-            .issue_guarded_input_permit(authority.pty_id.as_deref().unwrap())
+            .issue_guarded_input_permit(authority.pty_id().unwrap())
             .is_err());
         assert!(fixture
             .service
@@ -126,7 +126,7 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
         .oneshot(request(
             &tab,
             "preview-test-token",
-            Some(&authority.binding_nonce),
+            Some(authority.binding_nonce()),
         ))
         .await
         .unwrap();
@@ -141,7 +141,7 @@ async fn startup_override_route_requires_authenticated_owner_and_rejected_caller
         .oneshot(request(
             &tab,
             "preview-test-token",
-            Some(&authority.binding_nonce),
+            Some(authority.binding_nonce()),
         ))
         .await
         .unwrap();
