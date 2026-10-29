@@ -223,6 +223,9 @@ impl PluginHostCtx for AnalyticsHost {
                 Err(_) => json!({"error":"surface invocation unavailable"}).to_string(),
             };
         }
+        if verb == "headless-probe" {
+            return json!({"view_dispatch":{"context":{"surface":"studio","instance":"logical-context","jobContext":"logical-context","tab":caller,"owner":caller,"actor":caller,"actorLabel":"agent","workspace":"workspace","team":"team","headless":true},"verb":verb,"args":serde_json::from_str::<Value>(args).unwrap()}}).to_string();
+        }
         if verb == "view-probe" {
             return json!({"view_dispatch":{"context":{"surface":"board","instance":"instance-one",
                 "tab":"surface-tab","owner":"owner-tab","actor":caller,"actorLabel":"Visitor"},

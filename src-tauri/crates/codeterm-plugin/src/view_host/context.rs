@@ -30,6 +30,8 @@ pub struct ViewCallContext {
     pub actor: ViewActor,
     /// Non-secret document identity, distinct from the private authorization lease.
     pub frame: Option<String>,
+    #[serde(rename = "jobContext", skip_serializing_if = "Option::is_none")]
+    pub job_context: Option<String>,
 }
 
 impl ViewCallContext {
@@ -45,6 +47,7 @@ impl ViewCallContext {
             team: None,
             actor: ViewActor::Local,
             frame: None,
+            job_context: None,
         }
     }
 }

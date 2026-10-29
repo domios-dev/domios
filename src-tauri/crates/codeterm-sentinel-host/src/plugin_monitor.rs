@@ -470,3 +470,6 @@ mod tests;
 
 #[cfg(test)]
 mod spend_tests;
+
+#[cfg(test)]
+mod headless_tests;

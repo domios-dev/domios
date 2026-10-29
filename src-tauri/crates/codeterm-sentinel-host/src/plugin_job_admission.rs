@@ -46,6 +46,25 @@ enum Request {
     },
 }
 
+fn agent_origin(
+    context: codeterm_plugin::surface_invocation::SurfaceInvocationContext,
+) -> (PluginJobScope, PluginJobOrigin) {
+    (
+        PluginJobScope {
+            plugin: context.plugin,
+            workspace: context.workspace,
+            team: context.team,
+            owner: context.owner,
+        },
+        PluginJobOrigin::AgentCommand {
+            surface: context.surface,
+            context: context.instance,
+            tab: context.actor,
+            registration: context.registration,
+        },
+    )
+}
+
 fn origin(
     service: &ServiceContext,
     plugin: &str,
@@ -58,6 +77,14 @@ fn origin(
             != Some(context.registration.as_str())
         {
             return Err("surface provider registration changed".into());
+        }
+        if context.tab == context.owner && context.owner == context.actor {
+            let current =
+                service.plugin_agent_invocation(plugin, &context.surface, &context.actor)?;
+            if current != context {
+                return Err("agent invocation scope changed".into());
+            }
+            return Ok(agent_origin(current));
         }
         let mux = service.mux.read();
         let tab = mux
@@ -84,6 +111,14 @@ fn origin(
         {
             return Err("surface invocation scope changed".into());
         }
+        drop(mux);
+        if context.actor == context.owner {
+            if let Ok(current) =
+                service.plugin_agent_invocation(plugin, &context.surface, &context.actor)
+            {
+                return Ok(agent_origin(current));
+            }
+        }
         return Ok((
             PluginJobScope {
                 plugin: plugin.into(),
@@ -102,6 +137,15 @@ fn origin(
     let context =
         current_view_call_context(plugin).ok_or("registered document context required")?;
     service.validate_plugin_view_context(&context)?;
+    if let (Some(job_context), Some(surface), Some(owner)) =
+        (&context.job_context, &context.surface, &context.owner)
+    {
+        let current = service.plugin_agent_invocation(plugin, surface, owner)?;
+        if current.instance != *job_context {
+            return Err("agent view attachment changed".into());
+        }
+        return Ok(agent_origin(current));
+    }
     let scope = PluginJobScope {
         plugin: plugin.into(),
         workspace: context
@@ -168,6 +212,14 @@ impl PluginJobAdmission for JobAdmission {
             return Err("invalid plugin receipt".into());
         }
         let receipt = ledger.job_origin(plugin_id, operation)?;
+        if matches!(receipt.origin, PluginJobOrigin::AgentCommand { .. }) {
+            let (scope, projection) = origin(&service, plugin_id)?;
+            if scope != receipt.scope
+                || !matches!(projection, PluginJobOrigin::AgentCommand { ref tab, .. } if *tab == receipt.scope.owner)
+            {
+                return Err("agent job owner scope refused".into());
+            }
+        }
         if matches!(&request, Request::Prepare { .. } | Request::Enter { .. }) {
             let (scope, projection) = origin(&service, plugin_id)?;
             if receipt.scope != scope || receipt.origin != projection {
