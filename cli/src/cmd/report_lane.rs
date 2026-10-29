@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 
-use crate::client::SocketClient;
+use crate::client::RpcClient;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskReadinessScope {
@@ -15,20 +15,25 @@ pub struct TaskReadinessScope {
 }
 
 pub fn task_readiness_scope(
-    client: &mut SocketClient,
+    client: &mut dyn RpcClient,
     plan_id: Option<&str>,
     task_id: Option<&str>,
     tab_id: &str,
-) -> Option<TaskReadinessScope> {
-    let plan_id = plan_id?;
-    let task_id = task_id?;
+) -> Result<Option<TaskReadinessScope>, crate::cmd::report_guard::ReportRefusal> {
+    let Some(task_id) = task_id else {
+        return Ok(None);
+    };
+    let unavailable = |detail: &str| crate::cmd::report_guard::unavailable_scope_refusal(detail);
+    let plan_id = plan_id.ok_or_else(|| unavailable("task has no plan binding"))?;
     let plan = crate::cmd::plan::call_plan_rpc(
         client,
         "plan.get",
         serde_json::json!({ "plan_id": plan_id }),
     )
-    .ok()?;
+    .map_err(|_| unavailable("plan lookup failed"))?;
     task_readiness_scope_from_plan(&plan, task_id, tab_id)
+        .map(Some)
+        .ok_or_else(|| unavailable("task lookup was missing or malformed"))
 }
 
 fn task_readiness_scope_from_plan(
@@ -37,6 +42,20 @@ fn task_readiness_scope_from_plan(
     tab_id: &str,
 ) -> Option<TaskReadinessScope> {
     let task = find_task(plan, task_id)?;
+    if task.get("execution_intent").is_some_and(|intent| {
+        !matches!(
+            intent.as_str(),
+            Some("unspecified" | "read_only" | "mutating" | "non_repository")
+        )
+    }) || task
+        .get("lane")
+        .is_some_and(|lane| !lane.is_null() && !lane.is_object())
+        || task
+            .get("execution_attempts")
+            .is_some_and(|attempts| !attempts.is_array())
+    {
+        return None;
+    }
     let canonical_project_path = plan
         .get("canonical_project_path")
         .and_then(Value::as_str)

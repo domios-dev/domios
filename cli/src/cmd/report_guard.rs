@@ -71,8 +71,9 @@ pub struct ReportRefusal {
 
 const UNRESOLVED_LANE_REFUSAL_PREFIX: &str =
     "readiness report refused: cannot locate your lane worktree";
-#[cfg(test)]
-const MISSING_LANE_WORKTREE_REFUSAL_PREFIX: &str = "readiness report refused: lane worktree";
+const UNAVAILABLE_SCOPE_REFUSAL_PREFIX: &str =
+    "readiness report refused: task checkout binding is unavailable";
+const UNUSABLE_ANCHOR_REFUSAL_PREFIX: &str = "readiness report refused: lane worktree";
 const CANONICAL_DIRTY_REFUSAL_PREFIX: &str =
     "readiness report refused: this canonical checkout has uncommitted changes.";
 
@@ -105,15 +106,30 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
 impl ReportRefusal {
     #[cfg(test)]
     pub fn report_outcome(&self) -> Option<ReportOutcomeClass> {
-        (self.reason.starts_with(UNRESOLVED_LANE_REFUSAL_PREFIX)
-            || self
-                .reason
-                .starts_with(MISSING_LANE_WORKTREE_REFUSAL_PREFIX))
-        .then_some(ReportOutcomeClass::DeliveredUnattached)
+        self.requires_binding_repair()
+            .then_some(ReportOutcomeClass::DeliveredUnattached)
+    }
+
+    fn requires_binding_repair(&self) -> bool {
+        [
+            UNRESOLVED_LANE_REFUSAL_PREFIX,
+            UNAVAILABLE_SCOPE_REFUSAL_PREFIX,
+            UNUSABLE_ANCHOR_REFUSAL_PREFIX,
+        ]
+        .iter()
+        .any(|prefix| self.reason.starts_with(prefix))
+    }
+
+    pub fn next_commands(&self) -> Vec<&'static str> {
+        if self.requires_binding_repair() {
+            vec!["domios agent report --status partial --from-pad report.md"]
+        } else {
+            REPORT_NEXT_COMMANDS.to_vec()
+        }
     }
 
     pub fn message(&self) -> String {
-        if self.reason.starts_with(UNRESOLVED_LANE_REFUSAL_PREFIX) {
+        if self.requires_binding_repair() {
             return format!(
                 "{}\nNext command for current progress (write the report body in your pad first):\n\
                  domios agent report --status partial --from-pad report.md",
@@ -162,12 +178,27 @@ impl<'a> ReadinessScope<'a> {
         let Some(lane) = self.lane_worktree else {
             return Ok(self.pane_cwd);
         };
-        if !git_success(lane, &["rev-parse", "--is-inside-work-tree"]) {
-            return Err(git_refusal(format!(
-                "lane worktree '{}' is not a git worktree on this host, so --sha/--base cannot be \
-                 validated where the lane's commits live.",
-                lane.display()
-            )));
+        let top_level = git_one(lane, &["rev-parse", "--show-toplevel"])
+            .ok()
+            .and_then(|root| std::fs::canonicalize(root).ok());
+        let anchor = std::fs::canonicalize(lane).ok();
+        let matches_anchor = match (anchor, top_level) {
+            (Some(anchor), Some(root)) => codeterm_paths::paths_equal(
+                &anchor.to_string_lossy(),
+                &root.to_string_lossy(),
+            ),
+            _ => false,
+        };
+        if !matches_anchor {
+            return Err(ReportRefusal {
+                reason: format!(
+                    "{UNUSABLE_ANCHOR_REFUSAL_PREFIX} '{}' is not a git worktree root on this host. \
+                     Ask the Orchestrator to repair the recorded checkout or re-dispatch with a worktree; \
+                     report partial progress meanwhile.",
+                    lane.display()
+                ),
+                dirty_files: Vec::new(),
+            });
         }
         Ok(lane)
     }
@@ -440,6 +471,16 @@ fn git_refusal(reason: String) -> ReportRefusal {
     }
 }
 
+pub fn unavailable_scope_refusal(detail: &str) -> ReportRefusal {
+    ReportRefusal {
+        reason: format!(
+            "{UNAVAILABLE_SCOPE_REFUSAL_PREFIX}: {detail}. Ask the Orchestrator to repair the task binding \
+             or re-dispatch; report partial progress meanwhile. No caller checkout was inspected."
+        ),
+        dirty_files: Vec::new(),
+    }
+}
+
 fn unresolved_lane_refusal() -> ReportRefusal {
     ReportRefusal {
         reason: format!(
@@ -497,10 +538,31 @@ fn is_tool_owned_path(path: &str) -> bool {
     path == ".domios/plans" || path.starts_with(".domios/plans/")
 }
 
+fn git_command(cwd: &Path) -> Command {
+    let mut command = Command::new("git");
+    command.current_dir(cwd);
+    sanitize_git_environment(&mut command);
+    command
+}
+
+fn sanitize_git_environment(command: &mut Command) {
+    let keys: BTreeSet<_> = std::env::vars_os()
+        .map(|(key, _)| key)
+        .chain(command.get_envs().map(|(key, _)| key.to_os_string()))
+        .filter(|key| {
+            key.to_string_lossy()
+                .to_ascii_uppercase()
+                .starts_with("GIT_")
+        })
+        .collect();
+    for key in keys {
+        command.env_remove(key);
+    }
+}
+
 fn git_success(cwd: &Path, args: &[&str]) -> bool {
-    Command::new("git")
+    git_command(cwd)
         .args(args)
-        .current_dir(cwd)
         .output()
         .map(|out| out.status.success())
         .unwrap_or(false)
@@ -516,9 +578,8 @@ fn git_one(cwd: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 fn git_lines(cwd: &Path, args: &[&str]) -> Result<Vec<String>, String> {
-    let out = Command::new("git")
+    let out = git_command(cwd)
         .args(args)
-        .current_dir(cwd)
         .output()
         .map_err(|e| format!("git {} failed to start: {}", args.join(" "), e))?;
     if !out.status.success() {

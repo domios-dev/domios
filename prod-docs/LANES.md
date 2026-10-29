@@ -52,6 +52,8 @@ Task-bound direct spawns on an existing git checkout record that checkout on the
 attempt, including across restore. Their readiness reports validate the reported
 SHA against that checkout HEAD and require a clean tree, even with an explicit
 base or `--acknowledge-dirty`. They never use the canonical checkout as a fallback.
+A failed task lookup or unusable checkout root refuses readiness reporting instead
+of falling back to the caller's directory; repair the binding or report partial progress.
 Attempts with neither a lane nor a recorded checkout still receive the worktree
 refusal; ask the Orchestrator to dispatch with a worktree and report partial progress.
 Without the flag every rule above is unchanged.
@@ -133,4 +135,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

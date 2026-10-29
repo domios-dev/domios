@@ -639,12 +639,15 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 body["status"] = serde_json::json!(s.as_str());
             }
             let task_scope = if crate::cmd::report_guard::is_readiness_status(status) {
-                crate::cmd::report_lane::task_readiness_scope(
+                match crate::cmd::report_lane::task_readiness_scope(
                     client,
                     plan.as_deref(),
                     task.as_deref(),
                     &tab_id,
-                )
+                ) {
+                    Ok(scope) => scope,
+                    Err(refusal) => handle_report_refusal(client, json, body, refusal),
+                }
             } else {
                 None
             };

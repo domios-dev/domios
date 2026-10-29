@@ -518,3 +518,84 @@ fn serialized_attempt_retains_checkout_report_binding() {
     );
     assert!(scope.recorded_checkout);
 }
+
+struct ScopeLookupRpc {
+    reply: Option<Result<Value, String>>,
+}
+
+impl RpcClient for ScopeLookupRpc {
+    fn call_detailed(
+        &mut self,
+        method: &str,
+        params: Option<Value>,
+    ) -> Result<Value, crate::client::SocketCallError> {
+        assert_eq!(method, "plan.get");
+        assert_eq!(params.unwrap()["plan_id"], "plan-a");
+        self.reply
+            .take()
+            .expect("unexpected scope lookup")
+            .map_err(crate::client::SocketCallError::Transport)
+    }
+}
+
+#[test]
+fn unavailable_bound_scope_never_enters_checkout_inspection() {
+    let lookups = [
+        Err("transport unavailable".to_string()),
+        Ok(json!(null)),
+        Ok(json!({"tasks": {}})),
+        Ok(json!({"tasks": []})),
+        Ok(json!({"tasks": [{"id": "foreign", "execution_intent": "non_repository"}]})),
+        Ok(json!({"tasks": [{"id": "task-a", "execution_intent": {}}]})),
+        Ok(json!({"tasks": [{"id": "task-a", "execution_attempts": {}}]})),
+    ];
+    for lookup in lookups {
+        let mut rpc = ScopeLookupRpc { reply: Some(lookup) };
+        let scope = task_readiness_scope(&mut rpc, Some("plan-a"), Some("task-a"), "tab-a");
+        let mut entered_guard = false;
+        let result = scope.and_then(|scope| {
+            entered_guard = true;
+            crate::cmd::report_guard::enrich_ready_report(
+                scope.as_ref(),
+                Some(ReportStatusArg::InReview),
+                None,
+                None,
+                ReportBase::default(),
+                None,
+                false,
+            )
+        });
+        assert!(!entered_guard);
+        let refusal = result.unwrap_err();
+        assert!(refusal.reason.contains("binding is unavailable"));
+        assert!(!refusal.message().contains("--status in_review"));
+    }
+    let mut rpc = ScopeLookupRpc { reply: None };
+    assert!(task_readiness_scope(&mut rpc, None, Some("task-a"), "tab-a").is_err());
+}
+
+#[test]
+fn taskless_and_authoritative_nonrepository_scopes_are_deliberate() {
+    let mut rpc = ScopeLookupRpc { reply: None };
+    assert_eq!(
+        task_readiness_scope(&mut rpc, Some("plan-a"), None, "tab-a").unwrap(),
+        None
+    );
+    rpc.reply = Some(Ok(json!({
+        "tasks": [{"id": "task-a", "execution_intent": "non_repository"}]
+    })));
+    let scope = task_readiness_scope(&mut rpc, Some("plan-a"), Some("task-a"), "tab-a")
+        .unwrap()
+        .unwrap();
+    let fields = crate::cmd::report_guard::enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        Some("opaque-nonrepository-result".into()),
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(fields.1.as_deref(), Some("opaque-nonrepository-result"));
+}
