@@ -17,7 +17,7 @@ vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ pr
 vi.mock("../../hooks/useTouchOptimizedUi", () => ({ useTouchOptimizedUi: () => false }));
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn().mockResolvedValue([]), listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: { kind: "signed_in", identity: { uid: "owner" } } }) }));
-vi.mock("../Neighbors/useNeighbors", () => ({ useNeighbors: () => ({ list: { access: "paid", friends: data.friends } }) }));
+vi.mock("../Neighbors/useNeighbors", () => ({ useNeighbors: () => ({ list: { access: "paid", friends: data.friends, incoming: [], outgoing: [] } }) }));
 vi.mock("../Neighbors/useConciergeStatus", () => ({ useConciergeStatus: () => ({}) }));
 vi.mock("../Neighbors/neighborStatusStore", () => ({ useNeighborStatus: () => null, resetNeighborStatus: vi.fn() }));
 
