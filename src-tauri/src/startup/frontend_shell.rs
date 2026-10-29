@@ -45,12 +45,53 @@ use std::time::Duration;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use url::Url;
 
-fn external_link(url: &Url, origin: Option<&str>) -> Option<Url> {
+fn same_origin(url: &Url, origin: Option<&str>) -> bool {
+    origin
+        .and_then(|origin| Url::parse(origin).ok())
+        .is_some_and(|origin| url.origin() == origin.origin())
+}
+
+fn local_api_origin(url: &Url, api_origin: Option<&str>) -> bool {
+    fn loopback(url: &Url) -> bool {
+        match url.host() {
+            Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+            Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+            Some(url::Host::Domain(host)) => host == "localhost",
+            None => false,
+        }
+    }
+
+    api_origin
+        .and_then(|origin| Url::parse(origin).ok())
+        .is_some_and(|origin| {
+            matches!(url.scheme(), "http" | "https")
+                && url.scheme() == origin.scheme()
+                && url.port_or_known_default() == origin.port_or_known_default()
+                && loopback(url)
+                && loopback(&origin)
+        })
+}
+
+fn current_api_origin(app: &codeterm_client_shell::app_runtime::AppHandle) -> Option<String> {
+    app.try_state::<ServerApiAttachmentSlot>()
+        .and_then(|slot| slot.current())
+        .map(|attachment| attachment.api_origin())
+        .or_else(|| {
+            app.state::<ShellSupervisor>()
+                .view_bootstrap
+                .lock()
+                .as_ref()
+                .map(|bootstrap| bootstrap.origin.clone())
+        })
+}
+
+fn external_link(url: &Url, origin: Option<&str>, api_origin: Option<&str>) -> Option<Url> {
     if !matches!(url.scheme(), "http" | "https" | "mailto")
         || !url.username().is_empty()
         || url.password().is_some()
         || url.host_str() == Some("tauri.localhost")
-        || origin.is_some_and(|origin| url.origin().ascii_serialization() == origin)
+        || same_origin(url, origin)
+        || local_api_origin(url, api_origin)
     {
         return None;
     }
@@ -158,20 +199,24 @@ fn component_encode(text: &str) -> String {
         .replace('+', "%20")
 }
 
-fn navigation_allowed(url: &Url, origin: Option<&str>, unavailable: &Url, fallback: &Url) -> bool {
+fn navigation_allowed(
+    url: &Url,
+    origin: Option<&str>,
+    api_origin: Option<&str>,
+    unavailable: &Url,
+    fallback: &Url,
+) -> bool {
     same_navigation_document(url, unavailable)
         || starting_url().is_ok_and(|starting| same_navigation_document(url, &starting))
         || start_failure_url(None).is_ok_and(|failed| same_navigation_document(url, &failed))
         || same_navigation_document(url, fallback)
-        || origin.is_some_and(|origin| {
-            url.origin().ascii_serialization() == origin
-                && url.username().is_empty()
-                && url.password().is_none()
-        })
+        || ((same_origin(url, origin) || local_api_origin(url, api_origin))
+            && url.username().is_empty()
+            && url.password().is_none())
 }
 
-fn open_external_link(url: &Url, origin: Option<&str>) {
-    let Some(url) = external_link(url, origin) else {
+fn open_external_link(url: &Url, origin: Option<&str>, api_origin: Option<&str>) {
+    let Some(url) = external_link(url, origin, api_origin) else {
         return;
     };
     log::debug!(
@@ -350,6 +395,7 @@ pub fn create_window(
         builder = builder.initialization_script(bootstrap_script(&bootstrap)?);
     }
     let new_window_origin = origin.clone();
+    let new_window_app = app.clone();
     let page_origin = origin.clone();
     let page_fallback = fallback.clone();
     let page_unavailable = unavailable.clone();
@@ -358,7 +404,8 @@ pub fn create_window(
         .store(view_generation, Ordering::Release);
     match builder
         .on_new_window(move |url, _features| {
-            open_external_link(&url, new_window_origin.as_deref());
+            let api_origin = current_api_origin(&new_window_app);
+            open_external_link(&url, new_window_origin.as_deref(), api_origin.as_deref());
             tauri::webview::NewWindowResponse::Deny
         })
         .on_page_load(move |window, payload| {
@@ -385,13 +432,20 @@ pub fn create_window(
                 run_shell_action(&shell_app, url);
                 return false;
             }
-            let allowed = navigation_allowed(url, origin.as_deref(), &unavailable, &fallback);
+            let api_origin = current_api_origin(&shell_app);
+            let allowed = navigation_allowed(
+                url,
+                origin.as_deref(),
+                api_origin.as_deref(),
+                &unavailable,
+                &fallback,
+            );
             log::debug!(
                 "[frontend-shell] navigation allowed={allowed}: {}",
                 navigation_identity(url)
             );
             if !allowed {
-                open_external_link(url, origin.as_deref());
+                open_external_link(url, origin.as_deref(), api_origin.as_deref());
             }
             allowed
         })
@@ -616,7 +670,16 @@ fn observe_navigation(
     let supervisor = app.state::<ShellSupervisor>();
     let navigation = supervisor.navigation.clone();
     let root_render = supervisor.root_render.clone();
-    if url.scheme() == "data" || !navigation_allowed(&url, allowed_origin, unavailable, fallback) {
+    let api_origin = current_api_origin(app);
+    if url.scheme() == "data"
+        || !navigation_allowed(
+            &url,
+            allowed_origin,
+            api_origin.as_deref(),
+            unavailable,
+            fallback,
+        )
+    {
         root_render.retire();
         if let Some(client) =
             app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()

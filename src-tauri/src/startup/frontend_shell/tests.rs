@@ -29,23 +29,26 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
     let origin = "http://127.0.0.1:7686";
     let unavailable = unavailable_url().unwrap();
     let fallback = fallback_url().unwrap();
-    assert_eq!(external_link(&unavailable, Some(origin)), None);
-    assert_eq!(external_link(&fallback, Some(origin)), None);
+    assert_eq!(external_link(&unavailable, Some(origin), None), None);
+    assert_eq!(external_link(&fallback, Some(origin), None), None);
     assert!(navigation_allowed(
         &unavailable,
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
     assert!(navigation_allowed(
         &fallback,
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
     assert!(navigation_allowed(
         &Url::parse(&format!("{origin}/bundled/index.html")).unwrap(),
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
@@ -58,6 +61,7 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
         assert!(!navigation_allowed(
             &Url::parse(target).unwrap(),
             Some(origin),
+            None,
             &unavailable,
             &fallback
         ));
@@ -93,6 +97,7 @@ fn frontend_shell_contract_binds_root_acknowledgement_to_document_generation() {
     assert!(navigation_allowed(
         &prepared,
         Some("http://127.0.0.1:7686"),
+        None,
         &unavailable_url().unwrap(),
         &fallback_url().unwrap()
     ));
@@ -178,6 +183,7 @@ fn start_failure_page_carries_its_reason_without_changing_the_permitted_document
     assert!(navigation_allowed(
         &failed,
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
@@ -236,12 +242,114 @@ fn external_link_decision_table() {
     ] {
         let url = Url::parse(target).unwrap();
         assert_eq!(
-            external_link(&url, origin).as_ref().map(Url::as_str),
+            external_link(&url, origin, None).as_ref().map(Url::as_str),
             expected,
             "{target}"
         );
     }
     let external = Url::parse("https://example.com/").unwrap();
-    assert_eq!(external_link(&external, None), Some(external.clone()));
-    assert_eq!(external_link(&external, Some("https://example.com")), None);
+    assert_eq!(external_link(&external, None, None), Some(external.clone()));
+    assert_eq!(
+        external_link(&external, Some("https://example.com"), None),
+        None
+    );
+}
+
+#[test]
+fn frontend_shell_contract_own_api_navigation_never_opens_externally() {
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    for api in ["http://127.0.0.1:7685", "http://127.0.0.1:17901/"] {
+        for captured in [
+            None,
+            Some("http://127.0.0.1:1420/"),
+            Some("http://localhost:7686"),
+        ] {
+            for path in ["/", "/bundled/index.html"] {
+                let url = Url::parse(api).unwrap().join(path).unwrap();
+                let prepared = with_root_generation(
+                    &url,
+                    ClientViewGeneration {
+                        view: 2,
+                        navigation: 7,
+                    },
+                );
+                for target in [&url, &prepared, &fallback] {
+                    assert!(navigation_allowed(
+                        target,
+                        captured,
+                        Some(api),
+                        &unavailable,
+                        &fallback,
+                    ));
+                    assert_eq!(external_link(target, captured, Some(api)), None);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn frontend_shell_contract_canonicalizes_frontend_and_loopback_api_origins() {
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    for (target, frontend, api) in [
+        (
+            "http://127.0.0.1:7685/",
+            None,
+            Some("HTTP://LOCALHOST:7685/bundled/index.html"),
+        ),
+        (
+            "http://localhost:7685/",
+            None,
+            Some("http://127.0.0.1:7685/"),
+        ),
+        (
+            "http://[::1]:7685/",
+            None,
+            Some("http://127.0.0.1:7685/"),
+        ),
+        ("http://localhost/", None, Some("http://127.0.0.1:80/")),
+        (
+            "http://127.0.0.1:1420/",
+            Some("HTTP://127.0.0.1:1420/index.html"),
+            None,
+        ),
+    ] {
+        let target = Url::parse(target).unwrap();
+        assert!(navigation_allowed(
+            &target,
+            frontend,
+            api,
+            &unavailable,
+            &fallback
+        ));
+        assert_eq!(external_link(&target, frontend, api), None);
+    }
+}
+
+#[test]
+fn frontend_shell_contract_keeps_genuine_external_links_and_rejects_credentials() {
+    let api = Some("http://127.0.0.1:7685");
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    for raw in [
+        "https://example.com/path?query=fixture#fragment",
+        "mailto:owner@example.com",
+        "http://127.0.0.1:4180/",
+        "https://localhost:7685/",
+        "http://localhost.example:7685/",
+    ] {
+        let target = Url::parse(raw).unwrap();
+        assert!(!navigation_allowed(&target, None, api, &unavailable, &fallback));
+        assert_eq!(external_link(&target, None, api), Some(target));
+    }
+    for raw in [
+        "http://user@localhost:7685/",
+        "http://user:pass@127.0.0.1:7685/",
+    ] {
+        let target = Url::parse(raw).unwrap();
+        assert!(!navigation_allowed(&target, None, api, &unavailable, &fallback));
+        assert_eq!(external_link(&target, None, api), None);
+    }
 }
