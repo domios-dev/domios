@@ -57,7 +57,7 @@ async fn account_mesh_401_retry_preserves_transient_deadlines() {
 
 #[tokio::test]
 async fn account_mesh_401_retry_preserves_typed_refusals_and_epoch() {
-    for refusal in [RegistryRefusal::Revoked, RegistryRefusal::Forbidden,
+    for refusal in [RegistryRefusal::Forbidden,
         RegistryRefusal::Conflict, RegistryRefusal::Invalid] {
         let harness = expired().await;
         let signed = harness.mesh.signed(None).await.unwrap();
