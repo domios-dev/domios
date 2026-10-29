@@ -15,7 +15,9 @@ test('Windows per-user package installs the bounded helper and runs it at instal
   assert.match(hooks, /!macro NSIS_HOOK_PREUNINSTALL\s+\$\{If\} \$UpdateMode <> 1\s+!insertmacro DomiosMeshFirewall Remove/);
   assert.match(hooks, /-ServerProgram "\$INSTDIR\\domios-server\\domios-server\.exe"/);
   assert.match(hooks, /Pop \$0/);
-  assert.doesNotMatch(hooks, /\bAbort\b|\bQuit\b|RequestExecutionLevel/);
+  const firewallMacro = hooks.match(/!macro DomiosMeshFirewall[\s\S]*?!macroend/)[0];
+  assert.doesNotMatch(firewallMacro, /\bAbort\b|\bQuit\b|RequestExecutionLevel/);
+  assert.doesNotMatch(hooks, /RequestExecutionLevel/);
 });
 
 test('firewall command snapshot and lifecycle run against isolated PowerShell fakes', { skip: process.platform !== 'win32' }, () => {

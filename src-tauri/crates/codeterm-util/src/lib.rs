@@ -15,6 +15,7 @@ pub mod plugin_agent_guide;
 pub mod plugin_config;
 pub mod plugin_grants;
 pub mod private_file;
+pub mod process_tree;
 pub mod process_util;
 pub mod project_roots;
 pub mod pty_frame_timing;

@@ -126,7 +126,6 @@ async fn check_and_apply_plugin(
     update_state.lock().set_phase(UpdatePhase::Downloading);
     log::info!("[updater] downloading and verifying v{}", update.version);
     let chunk_state = update_state.clone();
-    let finish_state = update_state.clone();
     let bytes = match update
         .download(
             move |chunk_len, content_length| {
@@ -134,9 +133,7 @@ async fn check_and_apply_plugin(
                     .lock()
                     .record_download_chunk(chunk_len as u64, content_length);
             },
-            move || {
-                finish_state.lock().set_phase(UpdatePhase::Applying);
-            },
+            || {},
         )
         .await
     {
@@ -148,14 +145,12 @@ async fn check_and_apply_plugin(
         }
     };
 
-    update_state.lock().set_phase(UpdatePhase::Applying);
-
     let verified_len = bytes.len();
     let sink = super::failure_report::AppFailureSink {
         update_state: update_state.clone(),
     };
 
-    server_stop.prepare_update(&update.version).await?;
+    let target_version = update.version.clone();
     let server_identity = server_stop.install_identity()?;
     let server_stopped = std::sync::atomic::AtomicBool::new(false);
     let outcome = super::orchestrate::install_after_shutdown(
@@ -169,8 +164,10 @@ async fn check_and_apply_plugin(
             .map_err(|e| format!("viability probe task failed: {e}"))??;
             super::install_holders::preflight(server_identity).await
         },
-        || async {
-            stop_pair_server(server_stop.as_ref(), &server_stopped).await?;
+        |holders| async {
+            server_stop.prepare_update(&target_version).await?;
+            update_state.lock().set_phase(UpdatePhase::Applying);
+            stop_pair_server(server_stop.as_ref(), &server_stopped, holders).await?;
             Ok(Vec::new())
         },
         move |verified_bytes| async move {
@@ -209,6 +206,7 @@ fn server_stop_owes_relaunch(result: &Result<(), ServerStopError>) -> bool {
 async fn stop_pair_server(
     stop: &dyn ServerStop,
     stopped: &std::sync::atomic::AtomicBool,
+    holders: super::install_holders::PreparedHolders,
 ) -> Result<(), String> {
     log::info!("[updater] stopping the attached server before installing the pair");
     let result = stop.stop_server().await;
@@ -221,6 +219,7 @@ async fn stop_pair_server(
             e.reason
         )
     })?;
+    holders.confirm_exited().await?;
     super::install_holders::release_before_installer().await
 }
 

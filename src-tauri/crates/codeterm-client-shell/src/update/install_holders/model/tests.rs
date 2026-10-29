@@ -166,3 +166,174 @@ fn only_exact_attached_server_is_exempt_from_preflight() {
     );
     assert!(foreign_notice(&[foreign]).contains("PID 43"));
 }
+
+fn server_processes() -> HashMap<u32, ProcessRecord> {
+    [
+        (
+            42,
+            ProcessRecord {
+                created: 100,
+                parent_pid: 1,
+                executable: Some(PathBuf::from(r"C:\Domios\domios-server\domios-server.exe")),
+            },
+        ),
+        (
+            43,
+            ProcessRecord {
+                created: 200,
+                parent_pid: 42,
+                executable: Some(PathBuf::from(r"C:\Domios\domios-server\domios-server.exe")),
+            },
+        ),
+        (
+            44,
+            ProcessRecord {
+                created: 300,
+                parent_pid: 43,
+                executable: Some(PathBuf::from(r"C:\Domios\conpty\x64\OpenConsole.exe")),
+            },
+        ),
+    ]
+    .into()
+}
+
+fn server_owns(
+    pid: u32,
+    created: u64,
+    image: Option<&str>,
+    processes: &HashMap<u32, ProcessRecord>,
+) -> bool {
+    let server = crate::application_host::AttachedServerIdentity {
+        pid: 42,
+        created: "100".into(),
+    };
+    let images = [
+        PathBuf::from(r"C:\Domios\domios-server\domios-server.exe"),
+        PathBuf::from(r"C:\Domios\conpty\x64\OpenConsole.exe"),
+        PathBuf::from(r"C:\Domios\conpty\arm64\OpenConsole.exe"),
+    ];
+    is_owned_server_holder(
+        &server,
+        pid,
+        created,
+        image.map(Path::new),
+        &images,
+        processes,
+    )
+}
+
+#[test]
+fn exact_server_owns_pty_shims_and_conpty_descendants() {
+    let processes = server_processes();
+    assert!(server_owns(
+        42,
+        100,
+        Some(r"C:\Domios\domios-server\domios-server.exe"),
+        &processes
+    ));
+    assert!(server_owns(
+        43,
+        200,
+        Some(r"C:\Domios\domios-server\domios-server.exe"),
+        &processes
+    ));
+    for arch in ["x64", "arm64"] {
+        assert!(server_owns(
+            44,
+            300,
+            Some(&format!(r"\\?\c:\DOMIOS\conpty\{arch}\OpenConsole.exe")),
+            &processes
+        ));
+    }
+}
+
+#[test]
+fn foreign_install_server_still_blocks_even_under_an_owned_tab() {
+    assert!(!server_owns(
+        43,
+        200,
+        Some(r"C:\Developer\Domios\target\debug\domios-server.exe"),
+        &server_processes()
+    ));
+    assert!(!server_owns(
+        44,
+        300,
+        Some(r"C:\Other\conpty\x64\OpenConsole.exe"),
+        &server_processes()
+    ));
+    let mut processes = server_processes();
+    processes.get_mut(&43).unwrap().executable = Some(PathBuf::from(
+        r"C:\Developer\Domios\target\debug\domios-server.exe",
+    ));
+    assert!(!server_owns(
+        44,
+        300,
+        Some(r"C:\Domios\conpty\x64\OpenConsole.exe"),
+        &processes
+    ));
+}
+
+#[test]
+fn same_image_without_proven_ancestry_is_foreign() {
+    for pid in [43, 44] {
+        let mut processes = server_processes();
+        processes.remove(&42);
+        assert!(!server_owns(
+            pid,
+            if pid == 43 { 200 } else { 300 },
+            Some(r"C:\Domios\domios-server\domios-server.exe"),
+            &processes
+        ));
+    }
+    let mut processes = server_processes();
+    processes.get_mut(&43).unwrap().parent_pid = 99;
+    assert!(!server_owns(
+        44,
+        300,
+        Some(r"C:\Domios\conpty\x64\OpenConsole.exe"),
+        &processes
+    ));
+    assert!(!server_owns(43, 200, None, &server_processes()));
+}
+
+#[test]
+fn reused_server_or_intermediate_or_holder_pid_never_proves_ownership() {
+    for (pid, replacement_created) in [(42, 101), (43, 400), (44, 301)] {
+        let mut processes = server_processes();
+        processes.get_mut(&pid).unwrap().created = replacement_created;
+        assert!(!server_owns(
+            44,
+            300,
+            Some(r"C:\Domios\conpty\x64\OpenConsole.exe"),
+            &processes
+        ));
+    }
+    assert!(!server_owns(
+        44,
+        301,
+        Some(r"C:\Domios\conpty\x64\OpenConsole.exe"),
+        &server_processes()
+    ));
+}
+
+#[test]
+fn foreign_tree_and_cyclic_or_incomplete_ancestry_remain_blockers() {
+    for parent_pid in [1, 44, 99] {
+        let mut processes = server_processes();
+        processes.get_mut(&43).unwrap().parent_pid = parent_pid;
+        assert!(!server_owns(
+            44,
+            300,
+            Some(r"C:\Domios\conpty\x64\OpenConsole.exe"),
+            &processes
+        ));
+    }
+    let mut processes = server_processes();
+    processes.remove(&43);
+    assert!(!server_owns(
+        44,
+        300,
+        Some(r"C:\Domios\conpty\x64\OpenConsole.exe"),
+        &processes
+    ));
+}
