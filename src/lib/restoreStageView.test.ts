@@ -14,6 +14,21 @@ assert.equal(queued.phase, "restoring");
 assert.equal(queued.current, -1);
 assert(queued.steps.every(step => step.state === "pending"));
 const awake = { ...tab, frozen: false };
+const firstTurnTab: Partial<Tab> = {
+  agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
+  frozen: false, agent_booting: false, boot_stage: "launch_binding_unconfirmed",
+  pty_id: "own-pty", session_binding_nonce: "own-nonce",
+  provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
+    awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
+};
+assert.equal(restoreStageView(firstTurnTab).phase, "ready");
+assert.equal(restorePanelOwnsBody(firstTurnTab, { requested: true }, restoreStageView(firstTurnTab)), false);
+for (const changed of [
+  { ...firstTurnTab, session_binding_nonce: "foreign-nonce" },
+  { ...firstTurnTab, pty_id: "foreign-pty" },
+  { ...firstTurnTab, agent_booting: true },
+]) assert.equal(restoreStageView(changed).phase, "restoring");
+assert.equal(restoreStageView({ ...firstTurnTab, frozen: true }).phase, "sleeping");
 for (const [boot_stage, current] of [["pty_starting", 0], ["reader_ready", 0], ["agent_launching", 1], ["launch_written", 1], ["provider_ready", 2], ["launch_binding_unconfirmed", 2]] as const) {
   const view = restoreStageView({ ...awake, boot_stage });
   assert.equal(view.phase, "restoring");

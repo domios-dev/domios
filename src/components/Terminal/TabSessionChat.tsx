@@ -90,6 +90,7 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -330,6 +331,7 @@ function TabSessionChatBody({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
+  const firstTurnReady = lazyFirstTurnComposerIsLive(tab) && !hasTranscript;
   const forkableMessages = useMemo(() => forkableTurnEnds(
     allMessages,
     descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
@@ -349,9 +351,10 @@ function TabSessionChatBody({
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
+  const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading;
   const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
+    firstTurnReady,
     hasTranscript,
     hasHeldWindow,
     snapshotReady,
@@ -860,7 +863,7 @@ function TabSessionChatBody({
       data-snapshot-ready={snapshotReady}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
+      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && ((!snapshotReady && !firstTurnReady) || chatChannelLoading)}
       style={{
         ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",
