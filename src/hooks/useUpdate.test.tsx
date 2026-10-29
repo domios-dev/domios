@@ -122,7 +122,8 @@ async function main() {
       await Promise.resolve();
     });
     assert.equal(state().installing, true);
-    assert.equal(state().toastOpen, false);
+    assert.equal(state().toastOpen, true);
+    assert.equal(state().blocking, false);
     assert.equal(state().status, "checking");
 
     resolveInstall({ status: "already_in_flight", message: "opaque" });
@@ -135,7 +136,17 @@ async function main() {
       ...runtimeStatus("downloading"), downloaded_bytes: 25, download_total_bytes: 100,
     }));
     assert.equal(state().status, "downloading");
+    assert.equal(state().blocking, false);
     assert.equal(state().downloadedBytes, 25);
+    await act(async () => state().dismissUpdateToast());
+    assert.equal(state().toastOpen, false);
+    await act(async () => events.get("update-status-changed")?.(runtimeStatus("downloading")));
+    assert.equal(state().toastOpen, false);
+    await act(async () => events.get("update-status-changed")?.(runtimeStatus("applying")));
+    assert.equal(state().blocking, true);
+    await act(async () => events.get("update-status-changed")?.({ ...runtimeStatus("error"), last_error: "opaque preparation failure" }));
+    assert.equal(state().blocking, false);
+    assert.equal(state().toastOpen, true);
     await act(async () => events.get("update-status-changed")?.(runtimeStatus("idle")));
     assert.equal(state().installing, false);
 
