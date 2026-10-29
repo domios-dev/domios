@@ -163,6 +163,8 @@ pub struct Script {
     pub challenge: Option<RegistryRefusal>,
     pub challenge_once: Option<RegistryRefusal>,
     pub membership_seconds: Option<u64>,
+    pub endpoint_seconds: Option<u64>,
+    pub membership_registry_revision: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
     pub membership_once: Option<RegistryRefusal>,
@@ -367,6 +369,16 @@ impl MeshRegistry for FakeRegistry {
         if let Some(refusal) = refusal {
             return Err(refusal);
         }
+        if request.endpoint == ProofEndpoint::MeshAdmission {
+            if matches!(
+                request.body["operation"].as_str(),
+                Some("enroll" | "renew" | "recover")
+            ) {
+                assert_eq!(request.body["requested_membership_seconds"], 86400);
+            } else {
+                assert!(request.body.get("requested_membership_seconds").is_none());
+            }
+        }
         *self.challenged.lock().unwrap() = Some(request.body.clone());
         Ok(format!(
             "{}.{}.{}",
@@ -534,7 +546,12 @@ impl MeshRegistry for FakeRegistry {
                     },
                     installation_id: INSTALLATION.into(),
                     slot_revision: slot,
-                    registry_revision: slot,
+                    registry_revision: self
+                        .script
+                        .lock()
+                        .unwrap()
+                        .membership_registry_revision
+                        .unwrap_or(slot),
                     membership: self.issuer.sign(&payload),
                 });
                 if let Some(refusal) = lost_membership_reply {
@@ -574,7 +591,8 @@ impl MeshRegistry for FakeRegistry {
                         transport: endpoint.transport.clone(),
                         tailnet_ip: endpoint.tailnet_ip.clone(),
                         api_port: endpoint.api_port,
-                        expires_at: now + 3600,
+                        expires_at: now
+                            + self.script.lock().unwrap().endpoint_seconds.unwrap_or(3600),
                     };
                     changed |= account.endpoint.as_ref() != Some(&observation);
                     account.endpoint = Some(observation);
@@ -623,7 +641,7 @@ impl MeshRegistry for FakeRegistry {
                     transport: endpoint.transport.clone(),
                     tailnet_ip: endpoint.tailnet_ip.clone(),
                     api_port: endpoint.api_port,
-                    expires_at: now + 3600,
+                    expires_at: now + self.script.lock().unwrap().endpoint_seconds.unwrap_or(3600),
                 };
                 account.metadata_revision += 1;
                 account.endpoint = Some(observation.clone());
@@ -744,6 +762,9 @@ impl MeshRegistry for FakeRegistry {
             } => {
                 if let Some(refusal) = script.2 {
                     return Err(refusal);
+                }
+                if account.slot != Some(*expected_slot_revision) {
+                    return Err(RegistryRefusal::Conflict);
                 }
                 let holder = MeshTarget {
                     installation_id: INSTALLATION.into(),

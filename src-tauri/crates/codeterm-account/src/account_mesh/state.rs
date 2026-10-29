@@ -177,7 +177,7 @@ pub struct LimitNotice {
     pub trigger: EnrollTrigger,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelfInstallation {
     pub installation_id: String,
     pub key_id: String,
@@ -188,7 +188,7 @@ pub struct SelfInstallation {
 }
 
 /// A registry read is a stale observation for display, never link authority.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryObservation {
     pub observed_at: u64,
     pub registry_revision: u64,
@@ -308,12 +308,14 @@ pub struct KeyBinding {
     pub generation: u64,
 }
 
-/// Durable lifecycle facts keyed by opaque account id. Holds no token, uid or endpoint.
+/// Durable lifecycle facts keyed by opaque account id.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
     /// First account association; an account switch never rebinds saved pairs.
     pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admission_cache: Option<super::cache::AdmissionCache>,
     pub signed_out: bool,
     pub cleanup_pending: bool,
     pub published: bool,

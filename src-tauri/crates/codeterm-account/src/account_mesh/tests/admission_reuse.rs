@@ -14,6 +14,12 @@ async fn admitted() -> Harness {
         .await
         .unwrap();
     harness.registry.entered.notified().await;
+    harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .membership_registry_revision = Some(9);
     harness.log.lock().unwrap().clear();
     harness
 }
@@ -46,8 +52,8 @@ async fn account_mesh_admission_reuse_expiry_runs_one_handshake() {
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
         assert_eq!(harness.calls("renew"), 1);
-        assert_eq!(harness.calls("sync"), 1);
-        assert_eq!(harness.calls("challenge"), 2);
+        assert_eq!(harness.calls("sync"), 0);
+        assert_eq!(harness.calls("challenge"), 1);
         assert_eq!(
             harness
                 .state()
@@ -162,6 +168,6 @@ async fn account_mesh_admission_reuse_concurrent_callers_share_one_handshake() {
     assert_eq!(owner, Ok(()));
     assert_eq!(joined, Ok(()));
     assert_eq!(harness.calls("renew"), 1);
-    assert_eq!(harness.calls("sync"), 1);
-    assert_eq!(harness.calls("challenge"), 2);
+    assert_eq!(harness.calls("sync"), 0);
+    assert_eq!(harness.calls("challenge"), 1);
 }

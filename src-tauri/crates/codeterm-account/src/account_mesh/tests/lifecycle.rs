@@ -139,6 +139,14 @@ async fn account_mesh_reconciles_lost_enroll_and_renew_replies_from_the_registry
         .lock()
         .unwrap()
         .lose_membership_reply = Some(RegistryRefusal::Offline);
+    let due = harness
+        .state()
+        .membership
+        .as_ref()
+        .unwrap()
+        .verified
+        .refresh_after();
+    harness.clock.set(due);
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
         Err(AccountMeshRefusal::Offline)

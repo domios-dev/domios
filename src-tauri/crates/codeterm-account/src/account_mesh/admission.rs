@@ -122,6 +122,13 @@ impl AccountMesh {
             schema_version: MESH_SCHEMA_VERSION,
             installation_id: self.installation(),
             request_id: request_id(),
+            requested_membership_seconds: matches!(
+                operation,
+                MeshOperation::Enroll { .. }
+                    | MeshOperation::Renew { .. }
+                    | MeshOperation::Recover { .. }
+            )
+            .then_some(super::membership::MAX_MEMBERSHIP_SECONDS),
             operation,
         };
         self.with(|inner| inner.last_request = Some(request.request_id.clone()));

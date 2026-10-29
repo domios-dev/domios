@@ -3,6 +3,10 @@ use super::operations::Signed;
 use super::state::{AccountMeshRefusal, Cleanup, Publication, RegistryObservation};
 use super::wire::{MeshOperation, MeshResult, PublicationState, RegistryPresence};
 
+pub(super) fn publication_refresh_after(now: u64, expires_at: u64) -> u64 {
+    expires_at.saturating_sub(120.min(expires_at.saturating_sub(now) / 2))
+}
+
 impl AccountMesh {
     pub(super) async fn sync_registry(&self, signed: &Signed) -> Result<(), AccountMeshRefusal> {
         let ready = self.ports.endpoint.ready_endpoint();
@@ -73,6 +77,7 @@ impl AccountMesh {
             inner.sync_pending = false;
             inner.published_endpoint = endpoint;
             inner.published_until = expires_at;
+            inner.publication_refresh_after = publication_refresh_after(self.now(), expires_at);
             inner.record.published = result.publication != PublicationState::None;
             inner.observe_registry_keys(&result.registry.rows);
             let revoked = inner.record.revoked_installations.clone();

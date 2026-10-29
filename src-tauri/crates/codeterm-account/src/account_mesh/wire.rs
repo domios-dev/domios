@@ -83,6 +83,8 @@ pub struct MeshAdmissionBody {
     pub schema_version: u8,
     pub installation_id: String,
     pub request_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_membership_seconds: Option<u64>,
     #[serde(flatten)]
     pub operation: MeshOperation,
 }
