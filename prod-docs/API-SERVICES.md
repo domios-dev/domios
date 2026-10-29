@@ -90,7 +90,7 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | POST | `/api/plugins/view-input` | Ingest a file the user picked for a plugin view; answers an opaque frame handle. |
 | DELETE | `/api/plugins/{plugin}/media-frame/{frame}` | Local owner only: retire this presentation frame and all its media handles; returns 204. |
 | GET, HEAD | `/api/plugins/{plugin}/media/{frame}/{handle}` | Scoped media URL: the opaque live frame/handle pair authorizes passive image/audio/video delivery. Supports one byte Range (206; invalid ranges 416), `no-store` and `nosniff`; unknown, expired or revoked authority returns 404. No filesystem paths. |
-| POST | `/api/plugins/{plugin}/media-register/{frame}` | Local owner only: `{id,viewFrame}` resolves a declared plugin media ID with the private current document lease. Returns `{handle,url,fileName,contentType,expiresInSeconds}`; `url` may be null for gesture-only files. The lease and live owner/workspace/Team/provider registration must match this exact frame; unavailable media returns 404. |
+| POST | `/api/plugins/{plugin}/media-register/{frame}` | Local owner only: `{id,viewFrame}` resolves a declared plugin media ID with the private current document lease. Returns `{handle,url,file_name,content_type,expires_in_seconds}`; `url` may be null for gesture-only files. The lease and live owner/workspace/Team/provider registration must match this exact frame; unavailable media returns 404. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
