@@ -1,6 +1,58 @@
 use super::*;
 use crate::types::{PairedPeer, PeerAddress, PeerAnnounce, WebUiAnnouncement, WebUiEndpoint};
 
+#[test]
+fn mesh_status_exposes_local_transport_and_web_ui_while_signed_out_without_peers() {
+    use crate::network_transport::{TransportState, TransportStatus};
+    let mut manager = MeshManager::in_memory(
+        types::MeshIdentity {
+            instance_id: "local".into(),
+            private_key: None,
+            public_key: None,
+        },
+        "Local".into(),
+        7685,
+    );
+    assert!(manager.account.signed_in_account().is_none());
+    let empty = serde_json::to_value(manager.status()).unwrap();
+    assert_eq!(empty["paired_count"], 0);
+    assert_eq!(empty.get("transport"), Some(&serde_json::Value::Null));
+    assert_eq!(empty.get("web_ui"), Some(&serde_json::Value::Null));
+    manager.set_network_transport(TransportStatus {
+        display_name: "Tailscale".into(),
+        state: TransportState::Connected,
+        identity: None,
+        network_name: None,
+        user: Some("private-login".into()),
+        addresses: vec!["100.96.252.97".parse().unwrap()],
+        peer_listener: true,
+        encrypted: true,
+        setup_actions: vec![],
+    });
+    manager.local_web_ui = Some(WebUiAnnouncement {
+        protocol_version: types::RELAY_PROTOCOL_VERSION,
+        endpoints: vec![WebUiEndpoint::TailscaleHttps {
+            host: "air.tail0e459c.ts.net".into(),
+            port: 443,
+        }],
+    });
+    let value = serde_json::to_value(manager.status()).unwrap();
+    assert_eq!(value["paired_count"], 0);
+    assert_eq!(value["transport"]["state"], "connected");
+    assert_eq!(
+        value["transport"]["addresses"],
+        serde_json::json!(["100.96.252.97"])
+    );
+    assert_eq!(
+        value["web_ui"]["endpoints"],
+        serde_json::json!([
+            {"transport": "tailscale_https", "host": "air.tail0e459c.ts.net", "port": 443}
+        ])
+    );
+    assert!(value["transport"].get("user").is_none());
+    assert!(manager.account.signed_in_account().is_none());
+}
+
 fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
     let mut m = MeshManager::new("test-host".into(), 7685);
     m.disk_persist = false;

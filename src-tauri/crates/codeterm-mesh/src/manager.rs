@@ -232,6 +232,8 @@ impl MeshManager {
             local_ip: self.local_ip.clone(),
             api_port: self.api_port,
             paired_count: self.paired_peers.len(),
+            transport: self.network_transport.clone(),
+            web_ui: self.local_web_ui.clone(),
         }
     }
 
