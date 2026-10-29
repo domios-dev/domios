@@ -7,14 +7,14 @@
 
 use std::path::{Path, PathBuf};
 
-use codeterm_service_core::plugin::js_runtime::ViewHostAction;
-use codeterm_service_core::plugin_media::{
-    valid_media_handle, FrameMedia, MediaRefusal, OpenedMedia, PluginMediaResolver,
-};
 use codeterm_plugin::media_delivery::{
     self, IngestLimits, IngestRefusal, IngestSource, ViewInputDescriptor,
 };
 use codeterm_plugin::view_host::ViewCallContext;
+use codeterm_service_core::plugin::js_runtime::ViewHostAction;
+use codeterm_service_core::plugin_media::{
+    valid_media_handle, FrameMedia, MediaRefusal, OpenedMedia, PluginMediaResolver,
+};
 use codeterm_service_core::view_host::{ViewRegistry, ViewRegistryHandle};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -211,9 +211,12 @@ fn leased_frame(
         .registration
         .filter(|key| valid_media_handle(key))
         .ok_or_else(stale)?;
-    let (provider, context) =
-        media_delivery::view_frame(plugin_id, stamp.lease.ok_or_else(stale)?).map_err(|_| stale())?;
-    let current = svc.ext::<ViewRegistryHandle>().get(plugin_id).ok_or_else(stale)?;
+    let (provider, context) = media_delivery::view_frame(plugin_id, stamp.lease.ok_or_else(stale)?)
+        .map_err(|_| stale())?;
+    let current = svc
+        .ext::<ViewRegistryHandle>()
+        .get(plugin_id)
+        .ok_or_else(stale)?;
     if !std::sync::Arc::ptr_eq(&provider, &current)
         || media_delivery::frame_context(plugin_id, key).map_err(|_| stale())? != context
         || svc.validate_plugin_view_context(&context).is_err()
@@ -274,11 +277,17 @@ fn ingest_refusal(refusal: IngestRefusal) -> Value {
 fn picked_name(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
-        .filter(|c| !c.is_control() && !matches!(c, '/' | '\\' | '"' | ':' | '*' | '?' | '<' | '>' | '|'))
+        .filter(|c| {
+            !c.is_control() && !matches!(c, '/' | '\\' | '"' | ':' | '*' | '?' | '<' | '>' | '|')
+        })
         .take(120)
         .collect();
     let trimmed = cleaned.trim().trim_start_matches('.');
-    if trimmed.is_empty() { "file".into() } else { trimmed.into() }
+    if trimmed.is_empty() {
+        "file".into()
+    } else {
+        trimmed.into()
+    }
 }
 
 /// Backs `POST /api/plugins/view-input`: ingest one file the user picked into the plugin's own
@@ -319,7 +328,8 @@ pub fn view_host_input(
     // and the service scope: owner, workspace, Team). On `false` ingestion itself revokes that one
     // handle and its own output removes the file, so cleanup never reopens through current authority.
     let still_current = || {
-        leased_frame(svc, plugin_id, stamp).is_ok_and(|(current, now)| current == frame && now == context)
+        leased_frame(svc, plugin_id, stamp)
+            .is_ok_and(|(current, now)| current == frame && now == context)
     };
     let outcome = media_delivery::ingest_frame_input(
         plugin_id,
@@ -335,7 +345,9 @@ pub fn view_host_input(
 }
 
 /// The answer for one ingestion, narrowed to what the view may see: never a path or a digest.
-pub(super) fn settle_ingest(outcome: Result<media_delivery::IngestedInput, IngestRefusal>) -> Value {
+pub(super) fn settle_ingest(
+    outcome: Result<media_delivery::IngestedInput, IngestRefusal>,
+) -> Value {
     let input = match outcome {
         Ok(input) => input,
         Err(refusal) => return ingest_refusal(refusal),

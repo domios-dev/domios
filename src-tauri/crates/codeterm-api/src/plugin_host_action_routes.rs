@@ -43,7 +43,12 @@ struct Stamp {
 
 impl Stamp {
     fn of(headers: &HeaderMap) -> Self {
-        let value = |name: &str| headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_owned);
+        let value = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
         Self {
             lease: value(VIEW_LEASE_HEADER),
             registration: value(REGISTRATION_HEADER),
@@ -176,9 +181,18 @@ pub async fn host_input(
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
-        .map(|value| value.split(';').next().unwrap_or_default().trim().to_ascii_lowercase())
+        .map(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase()
+        })
         .unwrap_or_default();
-    let invalid = |reason: &str| Json(serde_json::json!({ "ok": false, "code": "invalid", "reason": reason }));
+    let invalid = |reason: &str| {
+        Json(serde_json::json!({ "ok": false, "code": "invalid", "reason": reason }))
+    };
     if content_type == "application/json" {
         let bytes = axum::body::to_bytes(body, 8 * 1024)
             .await
@@ -191,7 +205,14 @@ pub async fn host_input(
                 Ok(file) => file,
                 Err(refusal) => return refusal,
             };
-            view_host_input(&svc, &input.plugin_id, stamp.borrow(), PickedSource::Opened(file), &input.file_name, "")
+            view_host_input(
+                &svc,
+                &input.plugin_id,
+                stamp.borrow(),
+                PickedSource::Opened(file),
+                &input.file_name,
+                "",
+            )
         })
         .await
         .map(Json)
@@ -224,9 +245,20 @@ pub async fn host_input(
         cancelled,
     );
     // A type the browser could not name is no hint at all: ingestion then sniffs the content.
-    let hint = if content_type == "application/octet-stream" { String::new() } else { content_type };
+    let hint = if content_type == "application/octet-stream" {
+        String::new()
+    } else {
+        content_type
+    };
     tokio::task::spawn_blocking(move || {
-        view_host_input(&svc, &plugin_id, stamp.borrow(), PickedSource::Body(Box::new(reader)), &name, &hint)
+        view_host_input(
+            &svc,
+            &plugin_id,
+            stamp.borrow(),
+            PickedSource::Body(Box::new(reader)),
+            &name,
+            &hint,
+        )
     })
     .await
     .map(Json)
@@ -272,7 +304,13 @@ impl<S> BodyReader<S> {
         deadline: tokio::time::Instant,
         cancelled: tokio::sync::watch::Receiver<bool>,
     ) -> Self {
-        Self { stream, handle, pending: axum::body::Bytes::new(), deadline, cancelled }
+        Self {
+            stream,
+            handle,
+            pending: axum::body::Bytes::new(),
+            deadline,
+            cancelled,
+        }
     }
 }
 
@@ -282,7 +320,8 @@ where
 {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
         while self.pending.is_empty() {
-            let (stream, cancelled, deadline) = (&mut self.stream, &mut self.cancelled, self.deadline);
+            let (stream, cancelled, deadline) =
+                (&mut self.stream, &mut self.cancelled, self.deadline);
             let wait = self.handle.block_on(async move {
                 tokio::select! {
                     biased;
@@ -295,10 +334,16 @@ where
                 Wait::Chunk(Some(chunk)) => self.pending = chunk?,
                 Wait::Chunk(None) => return Ok(0),
                 Wait::Cancelled => {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "upload cancelled"))
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Interrupted,
+                        "upload cancelled",
+                    ))
                 }
                 Wait::Deadline => {
-                    return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "upload deadline"))
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "upload deadline",
+                    ))
                 }
             }
         }
@@ -372,7 +417,10 @@ pub async fn host_action_download(
         let mut chunk = vec![0u8; DOWNLOAD_CHUNK.min(remaining as usize)];
         match file.read(&mut chunk).await {
             Ok(0) => Some((
-                Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "media changed")),
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "media changed",
+                )),
                 (file, 0),
             )),
             Ok(n) => {
@@ -479,19 +527,31 @@ mod tests {
 
     /// A body fed through a channel. Every time the reader parks waiting for the next chunk, the
     /// stream reports it on `parked`, so a test acts on a read that is really waiting.
-    fn channel_body() -> (tokio::sync::mpsc::UnboundedSender<Chunk>, std::sync::mpsc::Receiver<()>, BodyStream) {
+    fn channel_body() -> (
+        tokio::sync::mpsc::UnboundedSender<Chunk>,
+        std::sync::mpsc::Receiver<()>,
+        BodyStream,
+    ) {
         let (chunks, receiver) = tokio::sync::mpsc::unbounded_channel::<Chunk>();
         let (parked, parks) = std::sync::mpsc::channel();
-        let stream = futures_util::stream::unfold((receiver, parked), |(mut receiver, parked)| async move {
-            let _ = parked.send(());
-            receiver.recv().await.map(|chunk| (chunk, (receiver, parked)))
-        });
+        let stream =
+            futures_util::stream::unfold((receiver, parked), |(mut receiver, parked)| async move {
+                let _ = parked.send(());
+                receiver
+                    .recv()
+                    .await
+                    .map(|chunk| (chunk, (receiver, parked)))
+            });
         (chunks, parks, Box::pin(stream))
     }
 
     /// A runtime whose worker drives timers for `Handle::block_on` calls made from the reader's thread.
     fn worker_runtime() -> tokio::runtime::Runtime {
-        tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_time().build().unwrap()
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_time()
+            .build()
+            .unwrap()
     }
 
     fn far_deadline() -> tokio::time::Instant {
@@ -504,10 +564,15 @@ mod tests {
         let runtime = worker_runtime();
         let (chunks, _parks, stream) = channel_body();
         let (_cancel, cancelled) = tokio::sync::watch::channel(false);
-        chunks.send(Ok(axum::body::Bytes::from_static(b"png"))).unwrap();
-        chunks.send(Ok(axum::body::Bytes::from_static(b"-bytes"))).unwrap();
+        chunks
+            .send(Ok(axum::body::Bytes::from_static(b"png")))
+            .unwrap();
+        chunks
+            .send(Ok(axum::body::Bytes::from_static(b"-bytes")))
+            .unwrap();
         drop(chunks);
-        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), far_deadline(), cancelled);
+        let mut reader =
+            super::BodyReader::new(stream, runtime.handle().clone(), far_deadline(), cancelled);
         let mut body = Vec::new();
         reader.read_to_end(&mut body).unwrap();
         assert_eq!(body, b"png-bytes");
@@ -520,14 +585,21 @@ mod tests {
         let (_chunks, parks, stream) = channel_body();
         let (cancel, cancelled) = tokio::sync::watch::channel(false);
         let request = super::UploadCancel(cancel);
-        let mut reader = super::BodyReader::new(stream, runtime.handle().clone(), far_deadline(), cancelled);
+        let mut reader =
+            super::BodyReader::new(stream, runtime.handle().clone(), far_deadline(), cancelled);
         let (done, finished) = std::sync::mpsc::channel();
-        std::thread::spawn(move || done.send(reader.read(&mut [0; 8]).map_err(|error| error.kind())));
+        std::thread::spawn(move || {
+            done.send(reader.read(&mut [0; 8]).map_err(|error| error.kind()))
+        });
         // Failure bounds only: these waits end as soon as the event arrives.
-        parks.recv_timeout(FAILURE_BOUND).expect("the read parks on the stalled body");
+        parks
+            .recv_timeout(FAILURE_BOUND)
+            .expect("the read parks on the stalled body");
         drop(request); // the request future went away
         assert_eq!(
-            finished.recv_timeout(FAILURE_BOUND).expect("the parked read wakes"),
+            finished
+                .recv_timeout(FAILURE_BOUND)
+                .expect("the parked read wakes"),
             Err(std::io::ErrorKind::Interrupted)
         );
     }
@@ -543,16 +615,28 @@ mod tests {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
         let (_chunks, parks, stream) = channel_body();
         let (_cancel, cancelled) = tokio::sync::watch::channel(false);
-        let mut reader = super::BodyReader::new(stream, tokio::runtime::Handle::current(), deadline, cancelled);
+        let mut reader = super::BodyReader::new(
+            stream,
+            tokio::runtime::Handle::current(),
+            deadline,
+            cancelled,
+        );
         let (done, finished) = std::sync::mpsc::channel();
         let _reading = tokio::task::spawn_blocking(move || {
             let _ = done.send(reader.read(&mut [0; 8]).map_err(|error| error.kind()));
         });
-        let parked = tokio::task::spawn_blocking(move || parks.recv_timeout(FAILURE_BOUND)).await.unwrap();
+        let parked = tokio::task::spawn_blocking(move || parks.recv_timeout(FAILURE_BOUND))
+            .await
+            .unwrap();
         parked.expect("the read parks on the stalled body before the clock moves");
         tokio::time::advance(std::time::Duration::from_secs(120)).await;
-        let result = tokio::task::spawn_blocking(move || finished.recv_timeout(FAILURE_BOUND)).await.unwrap();
-        assert_eq!(result.expect("the parked read ends at the deadline"), Err(std::io::ErrorKind::TimedOut));
+        let result = tokio::task::spawn_blocking(move || finished.recv_timeout(FAILURE_BOUND))
+            .await
+            .unwrap();
+        assert_eq!(
+            result.expect("the parked read ends at the deadline"),
+            Err(std::io::ErrorKind::TimedOut)
+        );
     }
 
     #[test]
@@ -562,12 +646,23 @@ mod tests {
             headers.insert(super::INPUT_NAME_HEADER, value.parse().unwrap());
             super::input_name(&headers)
         };
-        assert_eq!(named("%D0%BB%D0%B8%D1%81%D0%B0.png").as_deref(), Some("лиса.png"));
+        assert_eq!(
+            named("%D0%BB%D0%B8%D1%81%D0%B0.png").as_deref(),
+            Some("лиса.png")
+        );
         assert_eq!(named("fox.png").as_deref(), Some("fox.png"));
         assert_eq!(named("%ZZ"), None);
         assert_eq!(named("%D0"), None, "a cut multibyte character is refused");
-        assert_eq!(named(&"a".repeat(121)), None, "more than 120 decoded characters");
-        assert_eq!(named(&"%41".repeat(121)), None, "more than the encoded byte cap");
+        assert_eq!(
+            named(&"a".repeat(121)),
+            None,
+            "more than 120 decoded characters"
+        );
+        assert_eq!(
+            named(&"%41".repeat(121)),
+            None,
+            "more than the encoded byte cap"
+        );
         assert_eq!(super::input_name(&axum::http::HeaderMap::new()), None);
     }
 
@@ -580,7 +675,10 @@ mod tests {
         std::fs::write(&file, b"png").unwrap();
         assert!(super::open_dialog_path(&file.to_string_lossy()).is_ok());
         assert!(super::open_dialog_path("fox.png").is_err(), "relative");
-        assert!(super::open_dialog_path(&dir.to_string_lossy()).is_err(), "a folder");
+        assert!(
+            super::open_dialog_path(&dir.to_string_lossy()).is_err(),
+            "a folder"
+        );
         assert!(super::open_dialog_path(&dir.join("missing.png").to_string_lossy()).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }

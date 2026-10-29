@@ -13,7 +13,9 @@ use std::{
 
 mod format;
 mod image_preview;
-pub use image_preview::{MAX_IMAGE_PREVIEW_BYTES,MAX_IMAGE_PREVIEW_EDGE,MAX_IMAGE_PREVIEW_PIXELS};
+pub use image_preview::{
+    MAX_IMAGE_PREVIEW_BYTES, MAX_IMAGE_PREVIEW_EDGE, MAX_IMAGE_PREVIEW_PIXELS,
+};
 mod input;
 mod run_lookup;
 pub use format::{MediaDeliveryDescriptor, MediaFile, MediaType};
@@ -439,7 +441,9 @@ fn register_with_descriptor(
     let file_name = opened.file_name;
     let content_type = opened.content_type;
     let mut file = opened.file;
-    let previewable=source.content_type.playback()||(source.content_type.image()&&image_preview::allowed(&mut file,size,source.content_type));
+    let previewable = source.content_type.playback()
+        || (source.content_type.image()
+            && image_preview::allowed(&mut file, size, source.content_type));
     let path = opened.path;
     let handle = token();
     let expires = (now + HANDLE_TTL).min(owner.expires);
@@ -615,12 +619,21 @@ pub struct Playback {
     pub size: u64,
     pub content_type: String,
     file: Arc<Mutex<File>>,
-    image_header:Option<Arc<Vec<u8>>>,
+    image_header: Option<Arc<Vec<u8>>>,
 }
 pub fn playback(plugin: &str, frame: &str, handle: &str) -> Result<Playback, MediaRefusal> {
     let store = STORE.lock();
     let entry = store.entry(plugin, frame, handle, Instant::now())?;
-    let image_header=if entry.kind.image(){Some(Arc::new(image_preview::snapshot(&mut entry.file.lock(),entry.size,entry.kind).ok_or(MediaRefusal::Unknown)?))}else if entry.kind.playback(){None}else{return Err(MediaRefusal::Unknown);};
+    let image_header = if entry.kind.image() {
+        Some(Arc::new(
+            image_preview::snapshot(&mut entry.file.lock(), entry.size, entry.kind)
+                .ok_or(MediaRefusal::Unknown)?,
+        ))
+    } else if entry.kind.playback() {
+        None
+    } else {
+        return Err(MediaRefusal::Unknown);
+    };
     Ok(Playback {
         plugin: plugin.into(),
         frame: frame.into(),
@@ -643,8 +656,22 @@ impl Playback {
         }
         let mut file = self.file.lock();
         let mut bytes = vec![0; length.min(self.size.saturating_sub(offset) as usize)];
-        let copied=if let Some(header)=self.image_header.as_ref().filter(|header|offset<header.len()as u64){let start=offset as usize;let count=bytes.len().min(header.len()-start);bytes[..count].copy_from_slice(&header[start..start+count]);count}else{0};
-        if copied<bytes.len(){file.seek(SeekFrom::Start(offset+copied as u64))?;file.read_exact(&mut bytes[copied..])?;}
+        let copied = if let Some(header) = self
+            .image_header
+            .as_ref()
+            .filter(|header| offset < header.len() as u64)
+        {
+            let start = offset as usize;
+            let count = bytes.len().min(header.len() - start);
+            bytes[..count].copy_from_slice(&header[start..start + count]);
+            count
+        } else {
+            0
+        };
+        if copied < bytes.len() {
+            file.seek(SeekFrom::Start(offset + copied as u64))?;
+            file.read_exact(&mut bytes[copied..])?;
+        }
         Ok(bytes)
     }
 }

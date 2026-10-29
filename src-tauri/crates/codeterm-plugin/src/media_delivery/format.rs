@@ -62,7 +62,9 @@ impl MediaType {
             Self::Gif => "image/gif",
         }
     }
-    pub fn image(self)->bool {matches!(self,Self::Png|Self::Jpeg|Self::Webp|Self::Gif)}
+    pub fn image(self) -> bool {
+        matches!(self, Self::Png | Self::Jpeg | Self::Webp | Self::Gif)
+    }
     pub fn playback(self) -> bool {
         self.as_str().starts_with("audio/") || self.as_str().starts_with("video/")
     }

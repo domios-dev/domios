@@ -59,7 +59,11 @@ impl JsViewProvider {
     /// The manifest's `viewInputs`: what `pickFile` may ingest, as media delivery's descriptor.
     pub fn with_view_inputs(mut self, inputs: Option<&crate::js_runtime::ViewInputs>) -> Self {
         self.view_inputs = inputs.map(|inputs| crate::media_delivery::ViewInputDescriptor {
-            accept: inputs.accept.iter().map(|kind| kind.as_str().to_owned()).collect(),
+            accept: inputs
+                .accept
+                .iter()
+                .map(|kind| kind.as_str().to_owned())
+                .collect(),
             max_bytes: inputs.max_bytes,
             max_files: inputs.max_files,
         });

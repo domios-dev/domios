@@ -71,7 +71,9 @@ impl ViewInputs {
             ));
         }
         if self.max_files == 0 || self.max_files > MAX_VIEW_INPUT_FILES {
-            return Err(format!("viewInputs.maxFiles must be 1-{MAX_VIEW_INPUT_FILES}"));
+            return Err(format!(
+                "viewInputs.maxFiles must be 1-{MAX_VIEW_INPUT_FILES}"
+            ));
         }
         Ok(())
     }
@@ -142,7 +144,9 @@ mod tests {
     }
 
     fn picking(inputs: serde_json::Value) -> Result<PluginManifest, String> {
-        manifest(serde_json::json!({ "view": true, "viewHostActions": ["pickFile"], "viewInputs": inputs }))
+        manifest(
+            serde_json::json!({ "view": true, "viewHostActions": ["pickFile"], "viewInputs": inputs }),
+        )
     }
 
     #[test]
@@ -178,17 +182,38 @@ mod tests {
     #[test]
     fn view_inputs_refuse_active_unbounded_or_repeated_kinds() {
         for (inputs, needle) in [
-            (serde_json::json!({ "accept": ["image/svg+xml"], "maxBytes": 1, "maxFiles": 1 }), "image/svg+xml"),
-            (serde_json::json!({ "accept": ["text/html"], "maxBytes": 1, "maxFiles": 1 }), "text/html"),
-            (serde_json::json!({ "accept": [], "maxBytes": 1, "maxFiles": 1 }), "each media type once"),
-            (serde_json::json!({ "accept": ["image/png", "image/png"], "maxBytes": 1, "maxFiles": 1 }), "each media type once"),
-            (serde_json::json!({ "accept": ["image/png"], "maxBytes": 0, "maxFiles": 1 }), "maxBytes"),
+            (
+                serde_json::json!({ "accept": ["image/svg+xml"], "maxBytes": 1, "maxFiles": 1 }),
+                "image/svg+xml",
+            ),
+            (
+                serde_json::json!({ "accept": ["text/html"], "maxBytes": 1, "maxFiles": 1 }),
+                "text/html",
+            ),
+            (
+                serde_json::json!({ "accept": [], "maxBytes": 1, "maxFiles": 1 }),
+                "each media type once",
+            ),
+            (
+                serde_json::json!({ "accept": ["image/png", "image/png"], "maxBytes": 1, "maxFiles": 1 }),
+                "each media type once",
+            ),
+            (
+                serde_json::json!({ "accept": ["image/png"], "maxBytes": 0, "maxFiles": 1 }),
+                "maxBytes",
+            ),
             (
                 serde_json::json!({ "accept": ["image/png"], "maxBytes": crate::media_delivery::MAX_MEDIA_BYTES + 1, "maxFiles": 1 }),
                 "maxBytes",
             ),
-            (serde_json::json!({ "accept": ["image/png"], "maxBytes": 1, "maxFiles": 9 }), "maxFiles"),
-            (serde_json::json!({ "accept": ["image/png"], "maxBytes": 1, "maxFiles": 1, "path": "/tmp" }), "path"),
+            (
+                serde_json::json!({ "accept": ["image/png"], "maxBytes": 1, "maxFiles": 9 }),
+                "maxFiles",
+            ),
+            (
+                serde_json::json!({ "accept": ["image/png"], "maxBytes": 1, "maxFiles": 1, "path": "/tmp" }),
+                "path",
+            ),
         ] {
             let error = picking(inputs).expect_err("bounded passive inputs only");
             assert!(error.contains(needle), "{needle}: {error}");

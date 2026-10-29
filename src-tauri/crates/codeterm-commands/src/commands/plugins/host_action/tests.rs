@@ -153,7 +153,10 @@ fn host_action_request_refuses_unknown_actions_and_fields() {
         parse(json!({ "pluginId": "studio", "action": "reveal", "path": "/etc/hosts" })).is_err()
     );
     // The frame comes from the verified lease; a body naming one is refused, not trusted.
-    assert!(parse(json!({ "pluginId": "studio", "action": "reveal", "frame": "1".repeat(64) })).is_err());
+    assert!(
+        parse(json!({ "pluginId": "studio", "action": "reveal", "frame": "1".repeat(64) }))
+            .is_err()
+    );
 }
 
 /// A view that declared pickFile, with or without (valid) inputs.
@@ -200,7 +203,10 @@ fn ingest_answers_only_the_opaque_handle_and_its_display_fields() {
         answer,
         json!({ "ok": true, "input": { "handle": HANDLE, "fileName": "fox.png", "contentType": "image/png", "size": 3 } })
     );
-    assert!(!answer.to_string().contains(&"0".repeat(64)), "the digest stays host-side");
+    assert!(
+        !answer.to_string().contains(&"0".repeat(64)),
+        "the digest stays host-side"
+    );
 }
 
 #[test]
@@ -212,7 +218,10 @@ fn ingest_refusals_keep_their_typed_reasons() {
         (IngestRefusal::UnknownFrame, refusal("denied", "stale")),
         (IngestRefusal::TooLarge, refusal("invalid", "too_large")),
         (IngestRefusal::TypeNotAccepted, refusal("invalid", "type")),
-        (IngestRefusal::Unreadable, refusal("unavailable", "unreadable")),
+        (
+            IngestRefusal::Unreadable,
+            refusal("unavailable", "unreadable"),
+        ),
         (IngestRefusal::Storage, refusal("unavailable", "storage")),
         (IngestRefusal::Deadline, refusal("unavailable", "deadline")),
     ] {
@@ -249,7 +258,10 @@ fn save_as_copies_only_the_registered_length_of_a_file_that_grew() {
     let destination = dir.join("picked.png");
     let mut save = request("studio", ViewHostAction::SaveAs);
     save.destination = Some(destination.to_string_lossy().into_owned());
-    assert_eq!(perform(&registry(), Some(&resolver), save), json!({ "ok": true }));
+    assert_eq!(
+        perform(&registry(), Some(&resolver), save),
+        json!({ "ok": true })
+    );
     assert_eq!(std::fs::read(&destination).unwrap(), b"png");
     let _ = std::fs::remove_dir_all(dir);
 }

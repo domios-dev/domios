@@ -377,7 +377,8 @@ fn scope_loss_after_registration_removes_only_the_attempt_file_and_handle() {
             .frames
             .get(&attempt.frame)
             .is_none_or(|frame| !frame.handles.contains_key(&handle)));
-        let mut saved_file = open_frame_media(provider.id(), &survivor.frame, &saved.handle).unwrap();
+        let mut saved_file =
+            open_frame_media(provider.id(), &survivor.frame, &saved.handle).unwrap();
         let mut bytes = Vec::new();
         saved_file.file.read_to_end(&mut bytes).unwrap();
         assert_eq!(bytes, png());
