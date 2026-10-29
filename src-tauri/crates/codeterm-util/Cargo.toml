@@ -15,7 +15,7 @@ log = "0.4"
 uuid = { version = "1", features = ["v4"] }
 vt100 = "0.16"
 socket2 = "0.6"
-tokio = { version = "1", features = ["process"] }
+tokio = { version = "1", features = ["process", "rt", "time", "io-util", "macros"] }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]

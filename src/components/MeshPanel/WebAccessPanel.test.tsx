@@ -55,7 +55,7 @@ for (const state of ["ready", "setup_required", "conflict"] as const) {
   if (state !== "ready") assert.equal(host.querySelector('[data-testid="web-access-status"]')?.textContent, deriveWebUiView(snapshot, false).label);
   if (state === "ready") {
     assert.equal(Array.from(host.querySelectorAll("button")).some((entry) => entry.textContent === "Disable Web UI"), false);
-    assert.ok(host.querySelector('img[alt="Open Domios Web on 100.64.1.2:7686"]'));
+    assert.ok(host.querySelector('img[alt="Open Domios Web on host.tail.ts.net"]'));
   } else {
     assert.equal(host.querySelector('img[alt^="Open Domios Web"]'), null);
     assert.equal(host.querySelector('input[aria-label="Web address"]'), null);
@@ -66,8 +66,15 @@ for (const state of ["ready", "setup_required", "conflict"] as const) {
 }
 assert.deepEqual(mutations, ["setup", "repair"]);
 await act(async () => root.render(<WebAccessPanel config={config} network={{ transport: { display_name: "Tailscale", state: "not_running", identity: null, network_name: null, addresses: [], peer_listener: false, encrypted: true, setup_actions: [] } }} serve={{ installed: true, active: true, snapshot: webUiSnapshot("ready") }} loading={false} actions={actions} onAction={async () => {}} onSetup={async () => {}} onClose={() => {}} />));
+assert.ok(host.querySelector('img[alt^="Open Domios Web"]'));
+expect(Array.from(host.querySelectorAll("button")).map(entry => entry.textContent)).toContain("Open");
+const qrCount = encoded.length;
+await act(async () => root.render(<WebAccessPanel config={config} network={{ web_listener: "127.0.0.1:7686" }} serve={null} loading={false} actions={actions} onAction={async () => {}} onSetup={async () => {}} onClose={() => {}} />));
 assert.equal(host.querySelector('img[alt^="Open Domios Web"]'), null);
-expect(Array.from(host.querySelectorAll("button")).map(entry => entry.textContent)).not.toContain("Open");
+expect(Array.from(host.querySelectorAll("button")).map(entry => entry.textContent)).not.toContain("Copy link");
+expect(Array.from(host.querySelectorAll("button")).map(entry => entry.textContent)).toContain("Open on this machine");
+assert.equal(encoded.length, qrCount);
+
 
 await act(async () => root.render(<WebAccessPanel config={config} network={null} serve={null} loading actions={actions} onAction={async () => {}} onSetup={async () => {}} onClose={() => {}} />));
 assert.ok(host.querySelector('[role="status"][aria-label="Loading"]'));
