@@ -81,14 +81,40 @@ pub async fn mesh_announce_inbound(
         .get(codeterm_service_core::mesh::account_mesh::protocol::MEMBERSHIP_HEADER)
         .and_then(|value| value.to_str().ok())
         .map(str::to_string);
-    let mesh = state.mesh.lock();
-    let identity_keys = mesh.paired_identity_keys();
-    drop(mesh);
+    let identity_keys = state.mesh.lock().paired_identity_keys();
 
     let sender_id =
         codeterm_service_core::mesh::crown::verify_signed_request(token, &identity_keys)
             .map_err(|e| (StatusCode::UNAUTHORIZED, format!("Unauthorized: {}", e)))?;
 
+    if sender_id != ann.instance_id {
+        return Err((StatusCode::FORBIDDEN, "Announce sender mismatch".into()));
+    }
+    if let Some(registry) = ann.registry.as_ref().filter(|registry| {
+        state.mesh.lock().account_state().signed_in_account() == Some(registry.account_id.as_str())
+    }) {
+        {
+            let mut mesh = state.mesh.lock();
+            if mesh.is_revoked(&sender_id) || mesh.is_blocked(&sender_id) {
+                return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
+            }
+            mesh.check_and_record_nonce(token)
+                .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
+        }
+        let nonce = codeterm_service_core::mesh::crown::nonce_from_token(token)
+            .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
+        state
+            .svc
+            .account_mesh_registry_hint(
+                &sender_id,
+                &nonce,
+                &registry.account_id,
+                Some(registry.revision),
+                Some(&registry.security_digest),
+            )
+            .await
+            .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
+    }
     let mut mesh = state.mesh.lock();
     if let Some(membership) = membership.as_deref() {
         mesh.note_advertised_membership(&sender_id, membership);

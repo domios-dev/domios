@@ -605,11 +605,18 @@ impl MeshManager {
             .verified
             .installation_id
             .clone();
+        let expected = LinkPermitExpectation {
+            transcript: pending.transcript,
+            holder_installation_id: installation_id.clone(),
+            peer_installation_id: context.party.installation_id.clone(),
+            account_id: context.account_id.clone(),
+        };
         self.commit_local_adoption(
             peer_id,
             &context,
             &installation_id,
             pending.initiator_membership,
+            (&commit.permit, &expected),
         )?;
         Ok(AdoptCommitReply { adopted: true })
     }
@@ -647,14 +654,19 @@ impl MeshManager {
     }
 
     /// Monotonic in-place adoption: keys, record and access policy stay as they are.
-    pub fn commit_local_adoption(
+    pub(crate) fn commit_local_adoption(
         &mut self,
         peer_id: &str,
         context: &AdmissionContext,
         installation_id: &str,
         remote: SignedMembership,
+        permit: (&str, &LinkPermitExpectation),
     ) -> Result<(), AdmissionRefusal> {
         self.fence_admission(context)?;
+        context
+            .authority
+            .verify_link_permit(permit.0, permit.1, self.now())?;
+        self.verify_peer_membership(context, &remote.token, installation_id)?;
         let peer_key = self
             .paired_peers
             .get(peer_id)

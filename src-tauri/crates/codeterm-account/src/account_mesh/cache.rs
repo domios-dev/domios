@@ -73,7 +73,10 @@ impl AccountMesh {
             .map(|row| row.target())
     }
 
-    pub(super) fn restore_admission(&self, signed: &Signed) {
+    pub(super) async fn restore_admission(
+        &self,
+        signed: &Signed,
+    ) -> Result<(), super::AccountMeshRefusal> {
         let candidate = self.with(|inner| {
             if inner.state.membership.is_some() || inner.record.signed_out {
                 return None;
@@ -85,13 +88,13 @@ impl AccountMesh {
             ))
         });
         let Some((cache, binding, slot)) = candidate else {
-            return;
+            return Ok(());
         };
         if binding.key_id != signed.key.key_id() {
-            return;
+            return Ok(());
         }
         let Ok(grant) = parse_membership_token(&cache.token) else {
-            return;
+            return Ok(());
         };
         let Ok(verified) = verify_membership(
             &grant,
@@ -105,16 +108,18 @@ impl AccountMesh {
             },
             cache.issued_at,
         ) else {
-            return;
+            return Ok(());
         };
-        self.with(|inner| {
+        let long_lease = verified.is_current(self.now())
+            && verified.expires_at.saturating_sub(verified.issued_at) > 3600;
+        let restored = self.with(|inner| {
             if !inner.is_current(signed.epoch)
                 || inner
                     .record
                     .revoked_installations
                     .contains(&verified.installation_id)
             {
-                return;
+                return false;
             }
             inner.metadata_revision = Some(cache.own.metadata_revision);
             inner.registry_presence = cache.presence;
@@ -148,6 +153,27 @@ impl AccountMesh {
                 state.registry = cache.registry;
                 state.publication = publication;
             });
+            true
         });
+        if restored && long_lease {
+            if let Err(refusal) = self.read_registry(signed).await {
+                let authoritative = matches!(
+                    refusal,
+                    super::AccountMeshRefusal::Forbidden
+                        | super::AccountMeshRefusal::Revoked
+                        | super::AccountMeshRefusal::KeyConflict
+                );
+                if authoritative {
+                    self.with(|inner| {
+                        if inner.is_current(signed.epoch) {
+                            inner.update(&self.watch, |state| state.membership = None);
+                        }
+                    });
+                    return Ok(());
+                }
+                return Err(refusal);
+            }
+        }
+        Ok(())
     }
 }

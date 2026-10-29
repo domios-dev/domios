@@ -65,7 +65,7 @@ impl FakeAuthority {
         })
     }
 
-    fn permit(holder: &str, peer: &str, account: &str, transcript: &[u8; 32]) -> String {
+    pub(super) fn permit(holder: &str, peer: &str, account: &str, transcript: &[u8; 32]) -> String {
         format!("permit|{holder}|{peer}|{account}|{}", hex(transcript))
     }
 }

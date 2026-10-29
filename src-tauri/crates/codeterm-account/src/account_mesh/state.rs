@@ -205,6 +205,35 @@ pub struct RegistryObservation {
     pub cursor: Option<super::wire::MeshCursor>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegistrySecurity {
+    pub revision: u64,
+    pub digest: String,
+}
+
+impl RegistryObservation {
+    pub fn security_view(&self) -> Option<RegistrySecurity> {
+        if self.cursor.is_some() {
+            return None;
+        }
+        let rows: BTreeMap<_, _> = self
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    &row.installation_id,
+                    (row.active, &row.key_id, row.key_generation, row.presence),
+                )
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&rows).ok()?;
+        Some(RegistrySecurity {
+            revision: self.registry_revision,
+            digest: super::key::sha256_hex(&bytes),
+        })
+    }
+}
+
 /// Immutable lifecycle snapshot; every change is a new value with explicit epochs.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize)]
 pub struct LifecycleState {
@@ -225,6 +254,8 @@ pub struct LifecycleState {
     pub limit_notice: Option<LimitNotice>,
     pub self_installation: Option<SelfInstallation>,
     pub registry: Option<RegistryObservation>,
+    #[serde(skip)]
+    pub registry_security: Option<RegistrySecurity>,
     pub registry_failure: Option<AccountMeshRefusal>,
 }
 
@@ -317,6 +348,14 @@ pub struct KeyBinding {
     pub generation: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistryPresenceBinding {
+    pub generation: u64,
+    pub metadata_revision: u64,
+    pub presence: super::wire::RegistryPresence,
+}
+
 /// Durable lifecycle facts keyed by opaque account id; holds no token, uid or endpoint.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -336,4 +375,6 @@ pub struct AccountMeshRecord {
     pub revoked_generations: BTreeMap<String, u64>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub peer_keys: BTreeMap<String, KeyBinding>,
+    #[serde(default, skip_serializing)]
+    pub peer_presence: BTreeMap<String, RegistryPresenceBinding>,
 }

@@ -167,6 +167,7 @@ pub struct Script {
     pub renew_bodies: Vec<MeshAdmissionBody>,
     pub endpoint_seconds: Option<u64>,
     pub membership_registry_revision: Option<u64>,
+    pub registry_revision: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
     pub membership_once: Option<RegistryRefusal>,
@@ -669,9 +670,14 @@ impl MeshRegistry for FakeRegistry {
                     previous_metadata_revision: previous,
                     metadata_revision: account.metadata_revision,
                     slot_revision: account.slot.unwrap(),
-                    registry_revision: 9,
+                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(9),
                     registry: PageResult {
-                        registry_revision: 9,
+                        registry_revision: self
+                            .script
+                            .lock()
+                            .unwrap()
+                            .registry_revision
+                            .unwrap_or(9),
                         rows: Vec::new(),
                         cursor: self.script.lock().unwrap().sync_cursor.clone(),
                     },
@@ -704,7 +710,7 @@ impl MeshRegistry for FakeRegistry {
                     previous_metadata_revision: *expected_metadata_revision,
                     metadata_revision: account.metadata_revision,
                     slot_revision: account.slot.unwrap_or(1),
-                    registry_revision: 9,
+                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(9),
                 }))
             }
             MeshOperation::Presence {
@@ -762,7 +768,7 @@ impl MeshRegistry for FakeRegistry {
                 }
                 drop(accounts);
                 Ok(MeshResult::Page(PageResult {
-                    registry_revision: 7,
+                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(7),
                     rows: self.rows(&uid, &proof.key_id),
                     cursor: None,
                 }))

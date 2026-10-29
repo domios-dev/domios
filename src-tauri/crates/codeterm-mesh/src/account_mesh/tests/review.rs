@@ -197,3 +197,85 @@ fn account_mesh_membership_tolerates_issuer_skew_but_never_extends_expiry() {
     issued_ahead.issued_at = 0;
     assert!(!issued_ahead.is_current(START + 600), "no grace at expiry");
 }
+
+#[tokio::test]
+async fn account_mesh_adoption_requires_online_authorization() {
+    let (a, b) = linked_pair();
+    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
+    b.mesh.lock().insert_legacy_pair_for_test(a.as_peer());
+    a.authority.online.store(false, Ordering::SeqCst);
+    let transport = Loopback::new(&[&a, &b]);
+    assert_eq!(
+        adopt_peer_with(&a.mesh, &transport, &b.id())
+            .await
+            .unwrap_err(),
+        AdmissionRefusal::Offline
+    );
+    for (side, peer) in [(&a, &b), (&b, &a)] {
+        assert!(matches!(
+            side.mesh.lock().link_record(&peer.id()).unwrap().admission,
+            crate::account_mesh::ledger::LinkAdmission::Legacy { .. }
+        ));
+    }
+}
+
+struct CorruptAdoptionPermit(Loopback);
+
+impl LinkTransport for CorruptAdoptionPermit {
+    fn post(
+        &self,
+        ip: &str,
+        port: u16,
+        path: &'static str,
+        bearer: Option<String>,
+        mut body: serde_json::Value,
+    ) -> BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
+        if path == crate::account_mesh::protocol::ADOPT_COMMIT_PATH {
+            body["permit"] = serde_json::json!("");
+        }
+        self.0.post(ip, port, path, bearer, body)
+    }
+}
+
+#[tokio::test]
+async fn account_mesh_adoption_responder_refuses_commit_without_permit() {
+    let (a, b) = linked_pair();
+    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
+    b.mesh.lock().insert_legacy_pair_for_test(a.as_peer());
+    let transport = CorruptAdoptionPermit(Loopback::new(&[&a, &b]));
+    assert!(adopt_peer_with(&a.mesh, &transport, &b.id()).await.is_err());
+    for (side, peer) in [(&a, &b), (&b, &a)] {
+        assert!(matches!(
+            side.mesh.lock().link_record(&peer.id()).unwrap().admission,
+            crate::account_mesh::ledger::LinkAdmission::Legacy { .. }
+        ));
+    }
+}
+
+#[tokio::test]
+async fn account_mesh_registry_revocation_closes_an_open_adopted_stream() {
+    let (a, b) = linked_pair();
+    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
+    b.mesh.lock().insert_legacy_pair_for_test(a.as_peer());
+    let transport = Loopback::new(&[&a, &b]);
+    adopt_peer_with(&a.mesh, &transport, &b.id()).await.unwrap();
+    assert!(a.mesh.lock().traffic_open(&b.id()));
+    let blocked = crate::account_mesh::wait_until_blocked(a.mesh.clone(), b.id());
+    tokio::pin!(blocked);
+    std::future::poll_fn(|cx| {
+        assert!(std::future::Future::poll(blocked.as_mut(), cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    let mut state = a.mesh.lock().account_state().clone();
+    state
+        .revoked_installations
+        .insert(b.installation_id.clone());
+    a.mesh.lock().apply_account_state(state);
+    blocked.await;
+    assert!(!a.mesh.lock().traffic_open(&b.id()));
+    assert!(matches!(
+        a.mesh.lock().link_record(&b.id()).unwrap().admission,
+        crate::account_mesh::ledger::LinkAdmission::Adopted { .. }
+    ));
+}

@@ -592,7 +592,10 @@ async fn account_mesh_session_revoke_uses_a_signed_request_and_keeps_the_pairing
     assert_eq!(revoked.target_installation_id, PEER);
     assert_eq!(revoked.revoked_at, START);
     assert_eq!(harness.calls("session_revoke"), 1);
-    assert!(harness.transport.revoked.lock().unwrap().is_empty());
+    assert_eq!(
+        *harness.transport.revoked.lock().unwrap(),
+        vec![PEER.to_owned()]
+    );
     assert_eq!(harness.state().self_installation, before.self_installation);
     assert!(harness.state().current_membership(START).is_some());
 }

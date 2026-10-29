@@ -45,6 +45,9 @@ impl MeshManager {
         if matches!(state.presence, AccountPresence::SignedOut) {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
         }
+        if state.signed_in_account() != self.account.signed_in_account() {
+            self.registry_revision = None;
+        }
         self.account = state;
         self.account_ready = true;
         if bound {

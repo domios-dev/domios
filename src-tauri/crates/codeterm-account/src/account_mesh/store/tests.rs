@@ -64,7 +64,11 @@ async fn admission_cache_is_separate_and_mesh_json_remains_rollback_readable() {
     }
     let rollback: RollbackRecord = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(serde_json::to_value(rollback).unwrap(), value);
-    let old: AccountMeshRecord = serde_json::from_slice(&bytes).unwrap();
+    let mut old: AccountMeshRecord = serde_json::from_slice(&bytes).unwrap();
+    assert!(old.peer_presence.is_empty());
+    old.peer_presence = record.peer_presence.clone();
+    assert!(value.get("peer_presence").is_none());
+    assert!(path.with_file_name("mesh-peer-presence.json").exists());
     assert!(old.admission_cache.is_none());
     assert_eq!(old.keys, record.keys);
     assert_eq!(old.slots, record.slots);
@@ -116,4 +120,18 @@ async fn candidate_inline_admission_cache_is_accepted_then_removed_on_save() {
     assert!(saved.get("admission_cache").is_none());
     assert_eq!(store.load().await.unwrap(), loaded);
     fs::remove_dir_all(directory).unwrap();
+}
+
+#[tokio::test]
+async fn unreadable_peer_presence_is_preserved_and_blocks_store_writes() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = FileAccountMeshStore::new(directory.path().into());
+    store.save(&AccountMeshRecord::default()).await.unwrap();
+    let path = directory
+        .path()
+        .join("state/account/mesh-peer-presence.json");
+    fs::write(&path, b"corrupt-presence").unwrap();
+    assert!(store.load().await.is_err());
+    assert!(store.save(&AccountMeshRecord::default()).await.is_err());
+    assert_eq!(fs::read(path).unwrap(), b"corrupt-presence");
 }

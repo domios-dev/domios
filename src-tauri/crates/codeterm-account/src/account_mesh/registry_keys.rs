@@ -1,6 +1,6 @@
 use super::lifecycle::Inner;
-use super::state::KeyBinding;
-use super::wire::MeshManagementRow;
+use super::state::{KeyBinding, RegistryPresenceBinding};
+use super::wire::{MeshManagementRow, RegistryPresence};
 
 impl Inner {
     pub(super) fn observe_registry_keys(&mut self, rows: &[MeshManagementRow]) -> bool {
@@ -26,21 +26,57 @@ impl Inner {
                 );
                 changed = true;
             }
-            if row.active
-                && self
-                    .record
-                    .revoked_installations
-                    .contains(&row.installation_id)
-                && self
+            let presence = self.record.peer_presence.get(&row.installation_id);
+            if presence.is_none_or(|known| {
+                row.key_generation > known.generation
+                    || (row.key_generation == known.generation
+                        && (row.metadata_revision > known.metadata_revision
+                            || (row.metadata_revision == known.metadata_revision
+                                && row.presence == RegistryPresence::SignedOut)))
+            }) {
+                let observation = RegistryPresenceBinding {
+                    generation: row.key_generation,
+                    metadata_revision: row.metadata_revision,
+                    presence: row.presence,
+                };
+                if presence != Some(&observation) {
+                    self.record
+                        .peer_presence
+                        .insert(row.installation_id.clone(), observation);
+                    changed = true;
+                }
+            }
+            if !row.active {
+                let generation = self
                     .record
                     .revoked_generations
+                    .entry(row.installation_id.clone())
+                    .or_default();
+                if *generation < row.key_generation {
+                    *generation = row.key_generation;
+                    changed = true;
+                }
+            }
+            let blocked = self
+                .record
+                .revoked_generations
+                .get(&row.installation_id)
+                .is_some_and(|generation| row.key_generation <= *generation)
+                || self
+                    .record
+                    .peer_presence
                     .get(&row.installation_id)
-                    .is_none_or(|revoked| row.key_generation > *revoked)
-            {
-                self.record
+                    .is_some_and(|known| known.presence == RegistryPresence::SignedOut);
+            if blocked {
+                changed |= self
+                    .record
+                    .revoked_installations
+                    .insert(row.installation_id.clone());
+            } else if row.active {
+                changed |= self
+                    .record
                     .revoked_installations
                     .remove(&row.installation_id);
-                changed = true;
             }
         }
         changed

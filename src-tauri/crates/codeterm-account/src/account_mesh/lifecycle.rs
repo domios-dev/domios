@@ -115,6 +115,7 @@ pub(super) struct Inner {
     pub(super) metadata_revision: Option<u64>,
     pub(super) registry_presence: Option<RegistryPresence>,
     pub(super) registry_notices: super::notice::RegistryNotices,
+    pub(super) registry_hints: super::registry_hint::RegistryHints,
     pub(super) registry_flight: Option<super::registry_read::RegistryFlight>,
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
@@ -139,6 +140,22 @@ impl Inner {
     ) {
         let mut next = (*self.state).clone();
         change(&mut next);
+        if next.registry != self.state.registry {
+            match next.registry.as_ref() {
+                Some(registry) => {
+                    if let Some(security) = registry.security_view() {
+                        if next
+                            .registry_security
+                            .as_ref()
+                            .is_none_or(|known| security.revision >= known.revision)
+                        {
+                            next.registry_security = Some(security);
+                        }
+                    }
+                }
+                None => next.registry_security = None,
+            }
+        }
         self.state = Arc::new(next);
         watch.send_replace(self.state.clone());
     }
@@ -213,6 +230,7 @@ impl AccountMesh {
                 metadata_revision: None,
                 registry_presence: None,
                 registry_notices: Default::default(),
+                registry_hints: Default::default(),
                 registry_flight: None,
                 resolved: HashMap::new(),
                 published_endpoint: None,

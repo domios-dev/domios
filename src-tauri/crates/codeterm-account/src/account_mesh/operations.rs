@@ -332,7 +332,7 @@ impl AccountMesh {
 
     pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
-        self.restore_admission(&signed);
+        self.restore_admission(&signed).await?;
         let now = self.now();
         let current = self.with(|inner| {
             inner
@@ -736,8 +736,24 @@ impl AccountMesh {
             if inner.is_current(signed.epoch) || signed.epoch == 0 {
                 let changed = inner.observe_registry_keys(&observation.rows);
                 let revoked = inner.record.revoked_installations.clone();
+                let own_invalid = inner.state.membership.as_ref().is_some_and(|membership| {
+                    let own = &membership.verified;
+                    revoked.contains(&own.installation_id)
+                        || inner
+                            .record
+                            .peer_keys
+                            .get(&own.installation_id)
+                            .is_some_and(|known| {
+                                known.generation > own.key_generation
+                                    || (known.generation == own.key_generation
+                                        && known.key_id != own.key_id)
+                            })
+                });
                 inner.update(&self.watch, |state| {
                     state.revoked_installations = revoked;
+                    if own_invalid {
+                        state.membership = None;
+                    }
                     state.registry = Some(observation.clone());
                     state.registry_failure = None;
                 });
@@ -745,9 +761,9 @@ impl AccountMesh {
             }
             false
         });
+        self.push().await;
         if keys_changed {
             self.persist().await;
-            self.push().await;
         }
         Ok(observation)
     }
@@ -825,6 +841,11 @@ impl AccountMesh {
         if !self.with(|inner| inner.is_current(signed.epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
         }
+        let _ = self.read_registry(&signed).await;
+        self.ports
+            .transport
+            .installation_revoked(&result.target_installation_id)
+            .await;
         Ok(result)
     }
 
@@ -912,6 +933,7 @@ impl AccountMesh {
         });
         self.persist().await;
         self.push().await;
+        let _ = self.read_registry(&signed).await;
         self.ports
             .transport
             .installation_revoked(&revoked.target_installation_id)

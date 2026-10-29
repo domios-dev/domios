@@ -110,8 +110,8 @@ impl AccountMesh {
             });
             Ok(())
         })?;
-        self.persist().await;
         self.push().await;
+        self.persist().await;
         self.ports
             .transport
             .presence_changed(result.metadata_revision)

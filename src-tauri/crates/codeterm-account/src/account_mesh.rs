@@ -12,6 +12,7 @@ mod membership;
 mod notice;
 mod operations;
 mod ports;
+mod registry_hint;
 mod registry_keys;
 mod registry_presence;
 mod registry_read;

@@ -44,7 +44,8 @@ async fn account_mesh_lease_accepts_hour_and_day_and_reuses_after_restart() {
             .refresh(EnrollTrigger::Automatic)
             .await
             .unwrap();
-        assert_eq!(count(&harness.log, "registry:"), 0);
+        assert_eq!(harness.calls("list"), usize::from(seconds > 3600));
+        assert_eq!(harness.calls("renew"), 0);
         assert_eq!(
             harness.state().membership.as_ref().unwrap().verified,
             original.verified
@@ -349,7 +350,8 @@ async fn account_mesh_lease_restore_rejects_changed_authority_and_tampered_signa
         let result = harness.mesh.refresh(EnrollTrigger::Automatic).await;
         if case == "valid" {
             assert_eq!(result, Ok(()));
-            assert_eq!(count(&harness.log, "registry:"), 0);
+            assert_eq!(harness.calls("list"), 1);
+            assert_eq!(harness.calls("renew"), 0);
             assert_eq!(
                 harness.state().membership.as_ref().unwrap().verified,
                 original.verified
