@@ -362,15 +362,29 @@ fn pool_is_bounded_per_plugin_with_lru_eviction() {
 }
 
 #[test]
-fn open_transaction_is_never_returned_to_the_pool() {
+fn plugin_transaction_is_refused_before_it_can_enter_the_pool() {
     let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
     let pool = ConnectionPool::new();
     let _lease = pool.lease("p");
     assert_eq!(
-        pool_rows(&pool, "p", &db, "BEGIN"),
-        Vec::<serde_json::Value>::new()
+        pool.query("p", &db, "BEGIN", None, SQLITE_RESULT_MAX_BYTES)
+            .unwrap(),
+        None
     );
     assert_eq!(pool.pooled("p"), 0);
+}
+
+#[test]
+fn host_transaction_is_never_returned_to_the_pool() {
+    let (_dir, db) = fixture_db("CREATE TABLE t(v INTEGER);");
+    let pool = ConnectionPool::new();
+    let _lease = pool.lease("host-transaction");
+    let mut entry = pool.acquire("host-transaction", &db).unwrap();
+    entry.conn = rusqlite::Connection::open(&db).unwrap();
+    entry.conn.execute_batch("BEGIN").unwrap();
+    assert!(!entry.conn.is_autocommit());
+    pool.checkin("host-transaction", entry, false);
+    assert_eq!(pool.pooled("host-transaction"), 0);
 }
 
 #[test]
