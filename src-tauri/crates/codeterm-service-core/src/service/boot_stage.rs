@@ -56,12 +56,7 @@ pub(crate) fn wait_for_restart_readiness(
     let inspect = || {
         let mux = mux.read();
         match mux.get_tab(tab_id) {
-            Some(tab) => classify_restart_readiness(
-                tab.pty_id.as_deref(),
-                tab.boot_stage,
-                tab.boot_failure_reason.as_deref(),
-                replaced_pty_id,
-            ),
+            Some(tab) => classify_tab_restart_readiness(tab, replaced_pty_id),
             None => Some(RestartReadiness::Failed {
                 pty_id: None,
                 reason: format!("Tab {tab_id} disappeared during restart"),
@@ -82,6 +77,42 @@ pub(crate) fn wait_for_restart_readiness(
         .and_then(|tab| tab.pty_id.clone())
         .filter(|pty_id| Some(pty_id.as_str()) != replaced_pty_id);
     RestartReadiness::TimedOut { pty_id }
+}
+
+pub(crate) fn first_turn_input_is_ready(tab: &Tab) -> bool {
+    tab.boot_stage == Some(BootStage::ProviderReady)
+        && !tab.agent_booting
+        && !tab.frozen
+        && tab.exit_suspected_at.is_none()
+        && tab.provisional_launch.as_ref().is_some_and(|launch| {
+            tab.pty_id.as_deref() == Some(launch.pty_id.as_str())
+                && tab.session_binding_nonce.as_deref() == Some(launch.binding_nonce.as_str())
+                && launch.awaiting_binding_ack
+                && launch.first_turn_input_ready
+        })
+}
+
+pub(crate) fn classify_tab_restart_readiness(
+    tab: &Tab,
+    replaced_pty_id: Option<&str>,
+) -> Option<RestartReadiness> {
+    if first_turn_input_is_ready(tab) {
+        if let Some(pty_id) = tab
+            .pty_id
+            .as_deref()
+            .filter(|id| Some(*id) != replaced_pty_id)
+        {
+            return Some(RestartReadiness::Ready {
+                pty_id: pty_id.to_string(),
+            });
+        }
+    }
+    classify_restart_readiness(
+        tab.pty_id.as_deref(),
+        tab.boot_stage,
+        tab.boot_failure_reason.as_deref(),
+        replaced_pty_id,
+    )
 }
 
 /// A spawn failure cannot describe a tab whose provider is already up — its own
@@ -277,7 +308,13 @@ pub(crate) fn late_readiness_retires_provisional_launch(
     tab: &Tab,
     evidence: &crate::service::ProviderSessionBinding,
 ) -> bool {
-    if !tab.boot_stage.is_some_and(|stage| stage.is_provisional()) {
+    if !tab.boot_stage.is_some_and(|stage| stage.is_provisional())
+        && !(tab.boot_stage == Some(BootStage::ProviderReady)
+            && tab
+                .provisional_launch
+                .as_ref()
+                .is_some_and(|launch| launch.first_turn_input_ready))
+    {
         return false;
     }
     let Some(latch) = tab.provisional_launch.as_ref() else {
@@ -541,7 +578,7 @@ impl ServiceContext {
     ) {
         self.record_provisional_launch_with_binding_wait(
             attempt,
-            BootStage::LaunchBindingUnconfirmed,
+            BootStage::ProviderReady,
             reason,
             true,
             true,
@@ -556,9 +593,17 @@ impl ServiceContext {
         awaiting_binding_ack: bool,
         first_turn_input_ready: bool,
     ) {
-        debug_assert!(stage.is_provisional());
+        debug_assert!(
+            stage.is_provisional() || (stage == BootStage::ProviderReady && first_turn_input_ready)
+        );
         let recorded =
             self.record_boot_stage_transition(&attempt.tab_id, stage, Some(reason), |tab| {
+                if !first_turn_input_ready
+                    && first_turn_input_is_ready(tab)
+                    && crate::service::launch_readiness::attempt_owns_tab(tab, attempt)
+                {
+                    return false;
+                }
                 if !apply_provisional_launch(
                     tab,
                     &attempt.pty_id,
@@ -733,6 +778,8 @@ impl ServiceContext {
 #[path = "boot_stage/in_tab_launch_tests.rs"]
 mod in_tab_launch_tests;
 
+#[cfg(test)]
+mod first_turn_tests;
 #[cfg(test)]
 mod late_binding_tests;
 #[cfg(test)]

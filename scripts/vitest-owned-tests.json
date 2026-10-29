@@ -1,4 +1,6 @@
 [
+  "src/components/Sidebar/TabItem.activity.test.tsx",
+  "src/components/Terminal/ChatWindowRow.streamingTools.test.tsx",
   "src/components/Sidebar/Sidebar.neighbors.test.tsx",
   "src/lib/updatePresentation.test.ts",
   "src/components/Neighbors/neighborNotify.test.tsx",
@@ -335,6 +337,7 @@
   "src/lib/serverReadiness.test.ts",
   "src/lib/startupLoading.test.ts",
   "src/components/Terminal/useWakeOnOpen.startup.test.tsx",
+  "src/components/Terminal/TabContent.readiness.test.tsx",
   "src/lib/appShortcuts.test.ts",
   "src/components/CommandPalette/CommandPalette.dialog.test.tsx",
   "src/store/multiplexer/createdSelection.test.tsx",
@@ -357,6 +360,7 @@
   "src/components/Terminal/ChatComposer.attachments.test.tsx",
   "src/components/Terminal/composerAttachmentAdmission.test.ts",
   "src/components/MeshPanel/networkTransport.test.ts",
+  "src/components/MeshPanel/enrollmentRefusal.test.ts",
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
   "src/hooks/terminal/useXterm.composition.test.tsx"

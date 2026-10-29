@@ -3,7 +3,7 @@
 import { mock } from "node:test";
 import { act } from "react";
 import { Window } from "happy-dom";
-import { createRoot, type Root } from "react-dom/client";
+import type { Root } from "react-dom/client";
 import type { Tab } from "../../lib/types";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -134,19 +134,23 @@ async function renderTabSessionChat(
   tabId: string,
   state: ExtendedState,
   chatStart: () => unknown = () => ({ text: "", offset: 0, messages: [] }),
+  command?: (name: string, args?: Record<string, unknown>) => unknown,
 ): Promise<{
   host: HTMLDivElement;
   root: Root;
   commands: string[];
-  emitChat: (payload: { tab_id: string; messages: Array<{ id: string; type: "assistant"; content: string; timestamp: string }>; source_session_id: string | null; session_binding_nonce: string | null }) => void;
+  updateTab: (patch: Partial<Tab>) => void;
+  emitChat: (payload: { tab_id: string; messages: Array<{ id: string; type: "assistant" | "user"; content: string; timestamp: string; correlationId?: string }>; source_session_id: string | null; session_binding_nonce: string | null }) => void;
 }> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
 
   const commands: string[] = [];
   let chatListener: ((event: { payload: unknown }) => void) | null = null;
-  __setInvokeForTest((async (cmd: string) => {
+  __setInvokeForTest((async (cmd: string, args?: Record<string, unknown>) => {
     commands.push(cmd);
+    const overridden = await command?.(cmd, args);
+    if (overridden !== undefined) return overridden;
     if (cmd === "chat_start") {
       return {
         source_session_id: state.tabs[tabId]?.agent_session_id ?? null,
@@ -191,11 +195,141 @@ async function renderTabSessionChat(
     host,
     root,
     commands,
+    updateTab: patch => {
+      state = { ...state, tabs: { ...state.tabs, [tabId]: { ...state.tabs[tabId], ...patch } } };
+      store.notify();
+    },
     emitChat: (payload) => chatListener?.({ payload }),
   };
 }
 
 const testWindow = setupDom();
+let createRoot: typeof import("react-dom/client").createRoot;
+
+test("fresh and resumed ordinary and General lazy PTY chats accept input before binding", async () => {
+  for (const [protectedTab, sessionId] of [[false, null], [true, null], [false, "own-resume-session"], [true, "own-resume-session"]] as const) {
+    const tabId = `${protectedTab ? "lazy-general" : "lazy-ordinary"}-${sessionId ?? "fresh"}`;
+    const state = muxStateFor({ [tabId]: tabBase(tabId, {
+      agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: sessionId,
+      protected: protectedTab, agent_booting: false, frozen: false,
+      pty_id: "own-pty", session_binding_nonce: "own-nonce", boot_stage: "provider_ready",
+      provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
+        awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
+    }) });
+    const { host, root, commands, emitChat } = await renderTabSessionChat(tabId, state,
+      () => ({ text: "", offset: 0, pending: true, messages: [] }));
+    const chat = host.querySelector('[data-testid="tab-session-chat"]');
+    assert(chat, "chat region is mounted");
+    assert(chat.getAttribute("data-snapshot-ready") === "false", "readiness never fabricates transcript authority");
+    assert(chat.getAttribute("aria-busy") === "false", "idle first-turn input is not announced as connecting");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "ready composer removes Starting");
+    assert(host.querySelector('[data-testid="chat-composer"]'), "composer is available before the first turn");
+    await act(async () => emitChat({ tab_id: tabId, source_session_id: "foreign-session",
+      session_binding_nonce: "own-nonce", messages: [{ id: "foreign", type: "assistant", content: "foreign-session-row", timestamp: "1" }] }));
+    await act(async () => emitChat({ tab_id: tabId, source_session_id: null,
+      session_binding_nonce: "own-nonce", messages: [{ id: "unbound", type: "assistant", content: "unbound-transcript-row", timestamp: "2" }] }));
+    assert(!host.textContent?.includes("foreign-session-row"), "foreign history is never adopted");
+    assert(!host.textContent?.includes("unbound-transcript-row"), "unbound transcript rows remain unauthoritative");
+    assert(!commands.includes("restart_agent_tab") && !commands.includes("chat_send"), "readiness performs no restart or synthetic turn");
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("first local send stays visible across pending binding, snapshot, and echo", async () => {
+  for (const sessionId of [null, "own-session"]) await firstSendTransition(sessionId);
+});
+
+async function firstSendTransition(sessionId: string | null) {
+  const sends = await import("./chatSendStore");
+  const { MemoryChatSendRepository } = await import("./chatSendRepository.testSupport");
+  sends.__setChatSendRepositoryForTest(new MemoryChatSendRepository());
+  const tabId = `first-turn-send-transition-${sessionId ?? "fresh"}`;
+  const state = muxStateFor({ [tabId]: tabBase(tabId, {
+    agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: sessionId,
+    agent_booting: false, frozen: false, pty_id: "own-pty", session_binding_nonce: "own-nonce",
+    boot_stage: "provider_ready",
+    provisional_launch: { pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
+      awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
+  }) });
+  await sends.ensureChatSendTabHydrated(tabId);
+  sends.addChatSend(tabId, { id: "cached-send", content: "cached-prior-send", sentAtMs: 1,
+    localAttempt: { ptyId: "prior-pty", bindingNonce: "prior-nonce" } });
+  let bound = false;
+  let resolveSnapshot!: (value: unknown) => void;
+  let token = "";
+  const text = "opaque-first-user-value";
+  const { host, root, updateTab, commands, emitChat } = await renderTabSessionChat(tabId, state,
+    () => bound ? new Promise(resolve => { resolveSnapshot = resolve; }) : ({ text: "", offset: 0, pending: true, messages: [] }),
+    (name, args) => {
+      if (name === "chat_send_status" || name === "chat_send_dismissals" || name === "chat_send_admissions") return [];
+      if (name === "chat_send_text") {
+        token = String(args?.clientToken);
+        return { send_id: token, correlationId: token, tab_id: tabId, state: "written",
+          error: null, ledger_id: "ledger", sequence: 1, retained_from: 0 };
+      }
+      return undefined;
+    });
+  const bubbleCount = () => [...host.querySelectorAll("[data-chat-window-row]")].filter(row => row.textContent?.includes(text)).length;
+  try {
+    assert(!host.textContent?.includes("cached-prior-send"), "cached prior-attempt send is hidden");
+    const composer = host.querySelector<HTMLTextAreaElement>('[data-testid="chat-composer"]');
+    assert(composer, "empty-ready composer is usable");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(composer, text);
+      composer.dispatchEvent(new testWindow.Event("input", { bubbles: true }) as unknown as Event);
+    });
+    const sendButton = host.querySelector<HTMLButtonElement>('[data-testid="composer-send-button"]');
+    assert(sendButton && !sendButton.disabled, "typed draft enables the first user send");
+    await act(async () => sendButton.dispatchEvent(new testWindow.PointerEvent("pointerup", { bubbles: true, button: 0, pointerType: "mouse" }) as unknown as PointerEvent));
+    assert(composer.value === "", "composer clears on the first user send");
+    assert(commands.filter(name => name === "chat_send_text").length === 1, "one send reached the mocked admission port");
+    assert(bubbleCount() === 1, "one local bubble remains visible before any session or snapshot");
+    assert(!host.querySelector('[data-testid="chat-setup-state"]'), "first send never restores Starting");
+    assert(host.querySelector('[data-testid="tab-session-chat"]')?.getAttribute("aria-busy") === "false", "pending binding remains interactive");
+    assert(host.querySelector('[data-testid="tab-session-chat"]')?.getAttribute("data-snapshot-ready") === "false", "local send never fabricates snapshot authority");
+    await act(async () => emitChat({ tab_id: tabId, source_session_id: "foreign-session", session_binding_nonce: "own-nonce",
+      messages: [{ id: "foreign", type: "assistant", content: "foreign-first-turn-row", timestamp: "2" }] }));
+    assert(!host.textContent?.includes("foreign-first-turn-row"), "foreign event is not rendered");
+    await act(async () => updateTab({ session_binding_nonce: "replacement-nonce" }));
+    assert(bubbleCount() === 0, "nonce replacement ends the local projection bypass");
+    await act(async () => updateTab({ session_binding_nonce: "own-nonce" }));
+    assert(bubbleCount() === 1, "the original attempt retains its single local send");
+    bound = true;
+    await act(async () => updateTab({ agent_session_id: "own-session", reported_session_binding_nonce: "own-nonce",
+      boot_stage: "agent_ready", provisional_launch: null }));
+    assert(bubbleCount() === 1, "binding does not hide the bubble while the snapshot is pending");
+    const local = sends.readChatSends(tabId).find(send => send.correlationId === token);
+    assert(local, "own local record remains retained");
+    const echo = { id: "provider-user-row", type: "user" as const, content: text, timestamp: String(local.sentAtMs + 1), correlationId: token };
+    await act(async () => resolveSnapshot({ text: "", offset: 1, messages: [echo] }));
+    assert(bubbleCount() === 1, "snapshot echo replaces the local projection without a duplicate");
+    await act(async () => emitChat({ tab_id: tabId, source_session_id: "own-session", session_binding_nonce: "own-nonce", messages: [echo] }));
+    assert(bubbleCount() === 1, "live echo keeps the same logical send once");
+    assert(commands.filter(name => name === "chat_send_text").length === 1, "binding and echo never replay the payload");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    sends.__setChatSendRepositoryForTest(null);
+  }
+}
+
+test("lazy PTY chat with stale composer authority still waits for its own launch", async () => {
+  const tabId = "stale-lazy-composer";
+  const state = muxStateFor({ [tabId]: tabBase(tabId, {
+    agent_type: "lazy-fixture", backing: { kind: "pty" }, agent_session_id: null,
+    agent_booting: false, pty_id: "current-pty", session_binding_nonce: "current-nonce",
+    boot_stage: "provider_ready",
+    provisional_launch: { pty_id: "old-pty", binding_nonce: "old-nonce", reason: "opaque",
+      awaiting_binding_ack: true, first_turn_input_ready: true, first_turn_payload_written: false },
+  }) });
+  const { host, root } = await renderTabSessionChat(tabId, state,
+    () => ({ text: "", offset: 0, pending: true, messages: [] }));
+  assert(host.querySelector('[data-testid="chat-setup-state"]'), "foreign readiness cannot remove the setup overlay");
+  await act(async () => root.unmount());
+  host.remove();
+});
 
 test("store Tab action doubles preserve invocation contracts", async () => {
   const activations: Array<[string, string]> = [];
@@ -768,6 +902,8 @@ test("a held window from an older binding stays hidden during attach", async () 
 });
 
 async function main() {
+  // React DOM captures input-event support at import time, after the DOM must exist.
+  ({ createRoot } = await import("react-dom/client"));
   let failed = 0;
   for (const [name, fn] of tests) {
     try {

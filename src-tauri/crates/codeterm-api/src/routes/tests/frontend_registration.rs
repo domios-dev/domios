@@ -190,7 +190,10 @@ async fn root_frontend_resolves_and_legacy_web_is_gone_in_full_router() {
                     .await
                     .unwrap();
                 assert_eq!(response.status(), StatusCode::NOT_FOUND);
-                assert!(to_bytes(response.into_body(), 4096).await.unwrap().is_empty());
+                assert!(to_bytes(response.into_body(), 4096)
+                    .await
+                    .unwrap()
+                    .is_empty());
             }
         }
     }

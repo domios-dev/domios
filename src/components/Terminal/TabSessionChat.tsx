@@ -90,6 +90,8 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
+import { firstTurnLocalSends, isFirstTurnLocalRow } from "./firstTurnLocalRows";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -302,6 +304,8 @@ function TabSessionChatBody({
     retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
+    localAttempt: lazyFirstTurnComposerIsLive(tab) && tab?.pty_id && tab.session_binding_nonce
+      ? { ptyId: tab.pty_id, bindingNonce: tab.session_binding_nonce } : undefined,
     followTailRef: chatFollowTailRef,
     history: runtime.state?.history,
     live: isActive || awaitsTranscriptEcho(deliverySends),
@@ -330,6 +334,10 @@ function TabSessionChatBody({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
+  const localFirstTurnSends = useMemo(() => firstTurnLocalSends(deliverySends, tab?.pty_id, tab?.session_binding_nonce),
+    [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
+  const firstTurnReady = lazyFirstTurnComposerIsLive(tab) || (!snapshotReady && !tab?.frozen
+    && !tab?.agent_booting && tab?.boot_stage !== "spawn_failed" && localFirstTurnSends.length > 0);
   const forkableMessages = useMemo(() => forkableTurnEnds(
     allMessages,
     descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
@@ -349,9 +357,10 @@ function TabSessionChatBody({
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
+  const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading;
   const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
+    firstTurnReady,
     hasTranscript,
     hasHeldWindow,
     snapshotReady,
@@ -363,8 +372,9 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg))),
-    [enrichedMessages, setupView.kind],
+    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) =>
+      !isSessionIntentOnlyMessage(msg) && (snapshotReady || !firstTurnReady || isFirstTurnLocalRow(msg, localFirstTurnSends)))),
+    [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends],
   );
   const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading;
   const chatTranscriptActivity = useMemo(
@@ -858,10 +868,10 @@ function TabSessionChatBody({
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       data-snapshot-ready={snapshotReady}
-      data-chat-ready={snapshotReady && !chatChannelLoading && setupView.kind === "none"}
+      data-chat-ready={!tabLock.locked && (snapshotReady || firstTurnReady) && !chatChannelLoading && setupView.kind === "none"}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
+      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && ((!snapshotReady && !firstTurnReady) || chatChannelLoading)}
       style={{
         ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",

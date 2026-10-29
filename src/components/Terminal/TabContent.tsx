@@ -79,7 +79,7 @@ export function TabContent({
     && cached.segments.some(segment => segment.rows.length > 0);
   const restore = restoreStageView(tab ?? {}, wake);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const bodyPainted = useBodyPainted(bodyRef, tab?.id ?? "", restore.phase === "ready" || Boolean(tab && hasSleepingTranscript(tab)));
+  const bodyPainted = useBodyPainted(bodyRef, tab?.id ?? "");
   const initialBody = useRef({ tabId: tab?.id, waiting: Boolean(tab?.frozen && !tab.slept_at_ms && (tab.agent_type || tab.backing?.kind === "chat_backend")) });
   if (initialBody.current.tabId !== tab?.id) initialBody.current = {
     tabId: tab?.id, waiting: Boolean(tab?.frozen && !tab.slept_at_ms && (tab.agent_type || tab.backing?.kind === "chat_backend")),

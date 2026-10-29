@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { createStartupLoading } from "./startupLoading";
+import { startupMutationKey } from "./startupMutations";
 import { createTransportClient, type TransportClient } from "./transportClient";
 
 it("shares readiness events while areas independently remain loading", async () => {
@@ -376,4 +377,45 @@ it.each([
     expect(receive).toHaveBeenCalledWith("fixture", { connected: true });
     expect(attempts).toBe(2);
   } finally { ready.resolve(); dispose(); }
+});
+
+it("clears the startup barrier when its last holder settles even while other work remains busy", async () => {
+  const heldAdmitted = deferred();
+  const finishHeld = deferred();
+  const ordinaryStarted = deferred();
+  const finishOrdinary = deferred();
+  let attempts = 0;
+  const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input, init) => {
+    if (String(input).endsWith("/api/startup/events")) return new Response(
+      'event: startup-state\ndata: {"state":"ready"}\n\n', { headers: { "Content-Type": "text/event-stream" } },
+    );
+    const { text } = JSON.parse(String(init?.body)) as { text: string };
+    if (++attempts === 1) return Response.json({ error: { code: "starting", subsystem: "service", request_executed: false } }, { status: 503 });
+    if (text === "held") { heldAdmitted.resolve(); await finishHeld.promise; }
+    if (text === "ordinary") { ordinaryStarted.resolve(); await finishOrdinary.promise; }
+    return Response.json({ accepted: true });
+  });
+  const client = createTransportClient({ origin: "http://127.0.0.1:17786", token: "fixture-token", fetch });
+  const held = client.json("POST", "/api/tabs/opaque/chat-send", { text: "held" });
+  await heldAdmitted.promise;
+  const ordinary = client.json("POST", "/api/tabs/opaque/chat-send", { text: "ordinary" });
+  finishHeld.resolve();
+  await held;
+  await ordinaryStarted.promise;
+  expect(await client.json("POST", "/api/tabs/opaque/chat-send", { text: "fresh" })).toEqual({ accepted: true });
+  finishOrdinary.resolve();
+  await ordinary;
+});
+
+it("never parses a large ordinary chat-send body to identify its startup target", () => {
+  const body = JSON.stringify({ text: "opaque paste ".repeat(200_000) });
+  const parse = vi.spyOn(JSON, "parse");
+  let key: string | null = null;
+  let calls = -1;
+  try {
+    key = startupMutationKey("/api/tabs/opaque/chat-send", { method: "POST", body });
+    calls = parse.mock.calls.length;
+  } finally { parse.mockRestore(); }
+  expect(key).toBe("local:/api/tabs/opaque");
+  expect(calls).toBe(0);
 });

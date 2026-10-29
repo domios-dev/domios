@@ -67,6 +67,7 @@ struct RestoreFacts {
     evidence: LivenessEvidence,
     snapshot_pending: bool,
     authenticated: bool,
+    first_turn_ready: bool,
     /// The existing startup binding deadline for this boot's launch has passed,
     /// or that launch already latched its bounded deadline stage.
     binding_deadline_elapsed: bool,
@@ -115,6 +116,16 @@ fn classify_restore_facts(facts: RestoreFacts) -> RestoreVerdict {
             ));
     if terminal || matches!(evidence.backing, AgentBacking::ChatBackend { .. }) {
         return RestoreVerdict::Observed(classify_agent_liveness(evidence));
+    }
+    if facts.first_turn_ready
+        && matches!(
+            evidence.backing,
+            AgentBacking::Pty {
+                pty_live: Some(true)
+            }
+        )
+    {
+        return RestoreVerdict::Observed(AgentLiveness::Live);
     }
     if !facts.snapshot_pending
         && !evidence.boot_in_flight
@@ -176,6 +187,7 @@ fn restore_facts_from(
         evidence,
         snapshot_pending: tab.restored_from_snapshot,
         authenticated: tab.launch_session_authenticated(),
+        first_turn_ready: crate::service::boot_stage::first_turn_input_is_ready(tab),
         binding_deadline_elapsed,
     }
 }

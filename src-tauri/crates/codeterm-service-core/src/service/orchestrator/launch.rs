@@ -509,25 +509,12 @@ pub fn launch_agent_in_background_with_env(
             return;
         }
 
-        let binding_turn = resume_binding::for_launch(
-            &svc,
-            &tab_id,
-            &agent_cmd,
-            origin,
-            has_startup_task_turn || fallback_spec.is_some(),
-            resume_session_id.as_deref(),
-        );
-        let binding_turn_planned = binding_turn.is_some();
-        let fallback_spec = fallback_spec.or(binding_turn);
         let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
-        let session_starts_on_first_turn = binding_turn_planned
-            || startup_readiness::launch_waits_for_first_turn_binding_with_resume_session(
-                &svc,
-                &agent_cmd,
-                has_startup_task_turn,
-                origin,
-                resume_session_id.as_deref(),
-            );
+        let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_input(
+            &svc,
+            &agent_cmd,
+            has_startup_task_turn,
+        );
 
         let (tab_agent_type, existing_binding_nonce) = {
             let mux = svc.mux.read();
@@ -914,7 +901,6 @@ pub fn launch_agent_in_background_with_env(
             );
         }
         let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
-        let binding_deadline = std::time::Instant::now() + startup_binding_deadline;
         let readiness_receiver = svc.observe_launch_readiness(
             readiness_attempt.clone(),
             startup_binding_deadline,
@@ -1017,9 +1003,6 @@ pub fn launch_agent_in_background_with_env(
         }
         delivery_gate.mark_provider_ready();
 
-        let fallback_spec = fallback_spec.filter(|_| {
-            resume_binding::await_fallback_required(&launch, binding_turn_planned, binding_deadline)
-        });
         let mut bootstrap_consumed = fallback_spec.is_none();
         let bootstrap_draft = fallback_spec.as_ref().map(|spec| spec.payload.clone());
         if let Some(spec) = fallback_spec {
@@ -1031,7 +1014,6 @@ pub fn launch_agent_in_background_with_env(
                 spec,
                 &delivery_gate,
                 launch_input_readiness,
-                binding_turn_planned,
             ) {
                 Ok(consumed) => {
                     bootstrap_consumed = consumed;

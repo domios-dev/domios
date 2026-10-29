@@ -824,6 +824,38 @@ fn genuine_pty_turnover_reports_new_agent_ready() {
     );
 }
 
+#[test]
+fn restart_result_reports_composer_ready_for_fresh_and_resumed_lazy_launches() {
+    for session in [None, Some("own-resume-session")] {
+        let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.pty_id = Some("pty-new".into());
+        tab.session_binding_nonce = Some("nonce-new".into());
+        tab.agent_session_id = session.map(str::to_string);
+        tab.boot_stage = Some(crate::service::boot_stage::BootStage::ProviderReady);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let attempt = crate::service::launch_readiness::LaunchAttempt::current(
+            &fixture.service.mux,
+            &tab_id,
+            "pty-new",
+        )
+        .unwrap();
+        fixture
+            .service
+            .record_first_turn_input_ready(&attempt, "opaque composer evidence");
+        let (_, mut accepted) = settle_snapshot_and_outcome(&tab_id);
+        accepted.session_id = session.map(str::to_string);
+        accepted.agent_ready = false;
+        let ready = fixture
+            .service
+            .finish_observed_restart(accepted, Some("pty-old"), Duration::ZERO)
+            .unwrap();
+        assert!(ready.agent_ready);
+        assert_eq!(ready.new_pty_id.as_deref(), Some("pty-new"));
+        assert_eq!(ready.session_id.as_deref(), session);
+    }
+}
+
 fn settle_snapshot_and_outcome(tab_id: &str) -> (TabRestartSnapshot, RestartOutcome) {
     let snap = TabRestartSnapshot {
         tab_id: tab_id.into(),

@@ -1,19 +1,24 @@
 interface Flight {
   tail: Promise<void>;
-  held: boolean;
+  holders: number;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+function parsedBody(body: RequestInit["body"]): unknown {
+  if (typeof body === "string") { try { return JSON.parse(body); } catch {} }
+  return undefined;
+}
+
 export function startupMutationKey(path: string, init: RequestInit, peerId?: string, local = false): string | null {
   let method = (init.method ?? "GET").toUpperCase();
   let destination = local || !peerId ? "local" : `peer:${peerId}`;
   let body: unknown;
-  if (typeof init.body === "string") { try { body = JSON.parse(init.body); } catch {} }
-  if (path === "/api/mesh/relay-to") {
-    const relay = record(body);
+  const relayed = path === "/api/mesh/relay-to";
+  if (relayed) {
+    const relay = record(parsedBody(init.body));
     if (!relay || typeof relay.target_peer_id !== "string" || typeof relay.path !== "string" || typeof relay.method !== "string") return null;
     destination = `peer:${relay.target_peer_id}`;
     path = relay.path;
@@ -22,9 +27,10 @@ export function startupMutationKey(path: string, init: RequestInit, peerId?: str
   }
   const route = path.split("?")[0];
   if (["GET", "HEAD"].includes(method) || /\/(?:stop|close|interrupt)$/.test(route)) return null;
-  const data = record(body)?.data;
-  if (/\/(?:pty\/[^/]+|tabs\/[^/]+\/pty)\/write$/.test(route)
-    && typeof data === "string" && (data.includes("\x03") || data === "\x1b")) return null;
+  if (/\/(?:pty\/[^/]+|tabs\/[^/]+\/pty)\/write$/.test(route)) {
+    const data = record(relayed ? body : parsedBody(init.body))?.data;
+    if (typeof data === "string" && (data.includes("\x03") || data === "\x1b")) return null;
+  }
   const target = route.match(/^\/api\/(?:tabs|pty|workspaces)\/[^/]+/)?.[0] ?? route;
   return `${destination}:${target}`;
 }
@@ -36,25 +42,30 @@ export function createStartupMutations() {
       if (key === null) return start(() => Promise.resolve());
       let flight = flights.get(key);
       if (!flight) {
-        flight = { tail: Promise.resolve(), held: false };
+        flight = { tail: Promise.resolve(), holders: 0 };
         flights.set(key, flight);
       }
       const owned = flight;
       const previous = owned.tail;
-      const hold = () => { owned.held = true; return previous; };
+      let holding = false;
+      const hold = () => {
+        if (!holding && !signal?.aborted) { holding = true; owned.holders++; }
+        return previous;
+      };
+      const releaseHolder = () => { if (holding) { holding = false; owned.holders--; } };
       const begin = async () => {
         if (signal?.aborted) throw signal.reason ?? new DOMException("Request cancelled", "AbortError");
         return start(hold);
       };
       // Ordinary calls run concurrently; only a proven startup refusal installs a barrier.
-      const result = owned.held ? previous.then(begin) : begin();
-      const settled = result.then(() => {}, () => {});
+      const result = owned.holders > 0 ? previous.then(begin) : begin();
+      const settled = result.then(releaseHolder, releaseHolder);
       const tail = Promise.all([previous, settled]).then(() => {});
       owned.tail = tail;
       void tail.then(() => { if (owned.tail === tail) flights.delete(key); });
       if (!signal) return result;
       return new Promise<Response>((resolve, reject) => {
-        const abort = () => reject(signal.reason ?? new DOMException("Request cancelled", "AbortError"));
+        const abort = () => { releaseHolder(); reject(signal.reason ?? new DOMException("Request cancelled", "AbortError")); };
         const release = () => signal.removeEventListener("abort", abort);
         signal.addEventListener("abort", abort, { once: true });
         result.then(value => { release(); resolve(value); }, error => { release(); reject(error); });

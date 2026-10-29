@@ -139,9 +139,9 @@ fn early_send_nonce_survives_initial_launch_registration() {
             let tab = mux.get_tab(&tab_id).unwrap();
             assert_eq!(
                 tab.boot_stage,
-                Some(crate::service::boot_stage::BootStage::LaunchBindingUnconfirmed)
+                Some(crate::service::boot_stage::BootStage::ProviderReady)
             );
-            assert!(tab.boot_failure_reason.is_some());
+            assert!(tab.boot_failure_reason.is_none());
             assert_eq!(tab.session_binding_nonce.as_deref(), Some(nonce.as_str()));
             assert!(tab.agent_session_id.is_none());
             assert!(!tab.launch_session_authenticated());

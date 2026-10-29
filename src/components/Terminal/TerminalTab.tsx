@@ -523,6 +523,7 @@ export const TerminalTab = memo(function TerminalTab({
         }
         data-testid="terminal-frame"
         data-terminal-visible={terminalVisible ? "true" : "false"}
+        data-terminal-ready={frameReady && terminalIoReady && terminalVisible && isVisible && !lock.locked}
         aria-busy={!terminalIoReady}
         style={{
           top: showTerminalKeyBar

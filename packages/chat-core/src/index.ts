@@ -125,6 +125,7 @@ export {
   type MatchedRowRecord,
   type SendEcho,
   type SendEchoBoundary,
+  sendRow,
 } from "./sendOrder";
 export {
   TRANSCRIPT_RETENTION_LIMIT,

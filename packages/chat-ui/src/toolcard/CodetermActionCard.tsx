@@ -191,6 +191,28 @@ export function CodetermActionDetail({ event, invocation, fallback, ...navigatio
   );
 }
 
+export function CodetermSentContent({ event, invocation, technicalCommand, ...navigation }: CodetermNavigationProps & {
+  event: ToolEvent;
+  invocation: CodetermInvocation;
+  technicalCommand?: string;
+}) {
+  const target = navigationTarget(invocation, event.result);
+  return <>
+    <SentMessageBubble
+      inv={invocation}
+      result={event.result}
+      resolveTabName={navigation.resolveTabName}
+      resolvePeerName={navigation.resolvePeerName}
+      onOpenPlan={navigation.onOpenPlan}
+      resolvePlanRef={navigation.resolvePlanRef}
+      fontScale={navigation.fontScale}
+      technicalCommand={technicalCommand}
+      activityStatus={event.status}
+    />
+    {navigation.onFocusTab && target?.kind === "tab" && <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(target.id)} testId="codeterm-focus-tab" />}
+  </>;
+}
+
 export function CodetermActionCard({ event, invocation, expanded, onToggle, ...navigation }: Props) {
   const action = codetermAction(event, invocation, navigation, usePluginNameResolver());
   const { inv, descriptor, target, canNavigate, sendSucceeded, sendPending } = action;
@@ -198,18 +220,7 @@ export function CodetermActionCard({ event, invocation, expanded, onToggle, ...n
     const command = toolCommand(event).command;
     return (
       <div data-testid="chat-sent-to-card" data-tool-status={action.sent.status?.pending ? "pending" : action.sent.status?.ok ? "success" : action.sent.status ? "error" : event.status} className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-lg border px-3 py-2" style={{ borderColor: "var(--ct-border, rgba(128,128,128,.25))", background: "var(--ct-card-bg, var(--ct-bg))" }}>
-        <SentMessageBubble
-          inv={inv}
-          result={event.result}
-          resolveTabName={navigation.resolveTabName}
-          resolvePeerName={navigation.resolvePeerName}
-          onOpenPlan={navigation.onOpenPlan}
-          resolvePlanRef={navigation.resolvePlanRef}
-          fontScale={navigation.fontScale}
-          technicalCommand={command}
-          activityStatus={event.status}
-        />
-        {action.canNavigate && action.target?.kind === "tab" && <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(action.target!.id)} testId="codeterm-focus-tab" />}
+        <CodetermSentContent event={event} invocation={inv} technicalCommand={command} {...navigation} />
       </div>
     );
   }
