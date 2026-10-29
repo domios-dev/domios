@@ -12,6 +12,11 @@ use std::{
 };
 
 mod format;
+mod input;
+mod run_lookup;
+pub use run_lookup::{RunMediaLookupContext,RunMediaLookupOrigin};
+pub(crate) use run_lookup::{run_media_lookup_active,with_run_media_lookup};
+pub use input::{ingest_frame_input,open_context_input,IngestSource,IngestLimits,IngestedInput,IngestRefusal,ViewInputDescriptor,OpenedInput};
 pub use format::{MediaDeliveryDescriptor, MediaFile, MediaType};
 
 pub const MAX_MEDIA_BYTES: u64 = 256 * 1024 * 1024;
@@ -36,6 +41,7 @@ pub struct ResolvedMedia {
 }
 pub struct OpenedMedia {
     pub file: File,
+    pub size: u64,
     pub path: PathBuf,
     pub file_name: String,
     pub content_type: String,
@@ -67,6 +73,7 @@ struct Entry {
     file: Arc<Mutex<File>>,
     size: u64,
     kind: MediaType,
+    input_sha256: Option<String>,
     expires: Instant,
 }
 #[derive(Default)]
@@ -343,6 +350,18 @@ pub fn register_media(
         Instant::now(),
     )
 }
+fn require_frame_context(store:&MediaStore,plugin:&str,frame:&str,context:&ViewCallContext)->Result<(),MediaRefusal>{
+    if &store.frame(plugin,frame,Instant::now())?.context!=context{return Err(MediaRefusal::Expired);}Ok(())
+}
+fn frame_provider_for_context(plugin:&str,frame:&str,context:&ViewCallContext)->Result<Arc<dyn ViewProvider>,MediaRefusal>{
+    let store=STORE.lock();require_frame_context(&store,plugin,frame,context)?;store.frame(plugin,frame,Instant::now())?.provider.upgrade().ok_or(MediaRefusal::Expired)
+}
+pub fn register_context_media(plugin:&str,frame:&str,context:&ViewCallContext,source:MediaFile)->Result<MediaHandle,MediaRefusal>{
+    let mut store=STORE.lock();require_frame_context(&store,plugin,frame,context)?;register_at_root(&mut store,plugin,frame,&codeterm_paths::data_dir().join(plugin),source,Instant::now())
+}
+pub fn revoke_context_media(plugin:&str,frame:&str,context:&ViewCallContext,handle:&str){
+    let mut store=STORE.lock();if require_frame_context(&store,plugin,frame,context).is_ok(){if let Some(frame)=store.frames.get_mut(frame){frame.handles.remove(handle);}}
+}
 fn register_at_root(
     store: &mut MediaStore,
     plugin: &str,
@@ -351,21 +370,20 @@ fn register_at_root(
     source: MediaFile,
     now: Instant,
 ) -> Result<MediaHandle, MediaRefusal> {
+    register_with_descriptor(store,plugin,frame,root,source,now,None)
+}
+fn register_with_descriptor(store:&mut MediaStore,plugin:&str,frame:&str,root:&Path,source:MediaFile,now:Instant,allowed:Option<MediaDeliveryDescriptor>)->Result<MediaHandle,MediaRefusal> {
     let owner = store.frame(plugin, frame, now)?;
     let provider = owner.provider.upgrade().ok_or(MediaRefusal::Expired)?;
-    let descriptor = provider.media_delivery().ok_or(MediaRefusal::Unknown)?;
+    let descriptor = allowed.or_else(||provider.media_delivery()).ok_or(MediaRefusal::Unknown)?;
     if !descriptor.valid()
         || !descriptor.types.contains(&source.content_type)
         || owner.handles.len() >= MAX_HANDLES
     {
         return Err(MediaRefusal::Unknown);
     }
-    let opened = open_owned_at_root(root, &source, &descriptor)?;
-    let size = opened
-        .file
-        .metadata()
-        .map_err(|_| MediaRefusal::Unknown)?
-        .len();
+    let opened = open_owned_at_root(root, &source, &descriptor, None)?;
+    let size = opened.size;
     let file_name = opened.file_name;
     let content_type = opened.content_type;
     let file = opened.file;
@@ -394,6 +412,7 @@ fn register_at_root(
                 file: Arc::new(Mutex::new(file)),
                 size,
                 kind: source.content_type,
+                input_sha256: None,
                 expires,
             },
         );
@@ -435,12 +454,13 @@ pub fn open_owned_media(
     if !valid_plugin_id(plugin) {
         return Err(MediaRefusal::Unknown);
     }
-    open_owned_at_root(&codeterm_paths::data_dir().join(plugin), source, descriptor)
+    open_owned_at_root(&codeterm_paths::data_dir().join(plugin), source, descriptor, None)
 }
 fn open_owned_at_root(
     root: &Path,
     source: &MediaFile,
     descriptor: &MediaDeliveryDescriptor,
+    snapshot: Option<u64>,
 ) -> Result<OpenedMedia, MediaRefusal> {
     if !descriptor.valid()
         || !descriptor.types.contains(&source.content_type)
@@ -451,18 +471,20 @@ fn open_owned_at_root(
     }
     let mut file = codeterm_blueprint_types::code_source::open_file(root, &source.path)
         .map_err(|_| MediaRefusal::Unknown)?;
-    let size = file.metadata().map_err(|_| MediaRefusal::Unknown)?.len();
-    if size == 0 || size > MAX_MEDIA_BYTES {
+    let actual_size = file.metadata().map_err(|_| MediaRefusal::Unknown)?.len();
+    let size = snapshot.unwrap_or(actual_size);
+    if size == 0 || size > MAX_MEDIA_BYTES || actual_size < size {
         return Err(MediaRefusal::Unknown);
     }
     let mut head = [0; 32];
-    let count = file.read(&mut head).map_err(|_| MediaRefusal::Unknown)?;
+    let count = file.read(&mut head[..size.min(32) as usize]).map_err(|_| MediaRefusal::Unknown)?;
     if !source.content_type.matches(&head[..count]) {
         return Err(MediaRefusal::Unknown);
     }
     file.seek(SeekFrom::Start(0))
         .map_err(|_| MediaRefusal::Unknown)?;
     Ok(OpenedMedia {
+        size,
         file,
         path: confined_path(root, &source.path)?,
         file_name: format::safe_name(
@@ -483,6 +505,7 @@ fn open_entry(entry: &Entry) -> Result<OpenedMedia, MediaRefusal> {
         &MediaDeliveryDescriptor {
             types: vec![entry.kind],
         },
+        Some(entry.size),
     )
 }
 pub fn frame_owns_handle(plugin: &str, frame: &str, handle: &str) -> Result<(), MediaRefusal> {
@@ -573,3 +596,7 @@ impl Playback {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) fn safe_transfer_name(name:&str,kind:Option<MediaType>)->String {
+    match kind {Some(kind)=>format::safe_name(name,kind),None=>format::safe_extension_name(name,"bin")}
+}

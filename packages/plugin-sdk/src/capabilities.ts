@@ -1122,7 +1122,7 @@ export interface PluginModule
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
   /** Requires manifest mediaDelivery. Lookup only: never submit work. Paths are relative to this plugin's own data directory. */
-  mediaFile?(id: string): import("./mediaDelivery").MediaFile;
+  mediaFile?(id: string, context: MediaFileContext): import("./mediaDelivery").MediaFile;
   /** Refresh account-backed remote execution availability and environments. */
   discoverRemoteTask?(): import("./remoteTasks").RemoteTaskDiscovery;
   glanceAction?(action: string, ctx: TabContext): unknown;
@@ -1135,3 +1135,16 @@ export interface PermissionChangedEvent {
   allowed: true;
   source: "install" | "action" | "settings";
 }
+
+export interface RunMediaLookupContext {
+  origin: "durable_run";
+  plugin: string;
+  workspace: string;
+  team: string | null;
+  owner: string;
+  run: string;
+  producerOperation: string;
+  producerPort: string;
+  receiverNode: string;
+}
+export type MediaFileContext = ViewCallContext | RunMediaLookupContext;

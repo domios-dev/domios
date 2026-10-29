@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::vm::{call_json, PluginVm};
+mod media_lookup;
 use crate::js_runtime::{ViewHostAction, WebhookReceiverKind};
 use crate::view_host::{ViewError, ViewProvider};
 
@@ -72,16 +73,16 @@ impl ViewProvider for JsViewProvider {
         self.media_delivery.clone().filter(|value| value.valid())
     }
 
-    async fn media_file(&self, id: &str) -> Result<crate::media_delivery::MediaFile, ViewError> {
+    async fn media_file(&self, id: &str, context: &crate::view_host::ViewCallContext) -> Result<crate::media_delivery::MediaFile, ViewError> {
         if self.media_delivery().is_none() || id.is_empty() || id.len() > 256 {
             return Err(ViewError::Call("media delivery denied".into()));
         }
-        let vm = self.vm.clone();
-        let id = id.to_owned();
-        tokio::task::spawn_blocking(move || call_json(&vm, "mediaFile", &[Value::String(id)]))
-            .await
-            .map_err(|_| ViewError::Call("media task failed".into()))?
-            .map_err(|_| ViewError::Call("media file refused".into()))
+        media_lookup::lookup(self.vm.clone(),self.id.clone(),id.to_owned(),context.clone(),crate::converter::ConversionCancellation::default(),media_lookup::deadline()).await
+    }
+
+    async fn run_media_file(&self,id:&str,context:&crate::media_delivery::RunMediaLookupContext)->Result<crate::media_delivery::MediaFile,ViewError>{
+        if self.media_delivery().is_none()||id.is_empty()||id.len()>256||!context.valid_for(&self.id){return Err(ViewError::Call("durable media lookup denied".into()));}
+        media_lookup::lookup_run(self.vm.clone(),self.id.clone(),id.into(),context.clone(),crate::converter::ConversionCancellation::default(),media_lookup::deadline()).await
     }
 
     async fn call(

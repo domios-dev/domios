@@ -139,6 +139,7 @@ pub(super) struct PluginSandbox {
     exec_allow: Vec<String>,
     /// `host.fetch` host allowlist (host_api v2). Empty unless declared.
     net_allow: Vec<String>,
+    pub(super) transfer: super::host_transfer::TransferRuntime,
     token_mode: TokenMode,
     /// Whether `host.secret*` is permitted.
     secrets_allowed: bool,
@@ -179,6 +180,7 @@ impl PluginSandbox {
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
+            transfer: super::host_transfer::TransferRuntime::default(),
             token_mode: TokenMode::None,
             secrets_allowed: true,
             agent_commands_allowed: true,
@@ -209,6 +211,7 @@ impl PluginSandbox {
             plugin_id: String::new(),
             exec_allow: Vec::new(),
             net_allow: Vec::new(),
+            transfer: super::host_transfer::TransferRuntime::default(),
             token_mode: TokenMode::None,
             secrets_allowed: false,
             agent_commands_allowed: false,

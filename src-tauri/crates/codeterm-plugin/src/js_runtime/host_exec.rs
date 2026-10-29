@@ -23,6 +23,8 @@ const MAX_EXEC_JOBS_PER_PLUGIN: usize = 128;
 const EXEC_JOB_RETENTION: Duration = Duration::from_secs(5 * 60);
 const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
 mod control;
+mod scoped;
+pub(super) use scoped::{start_scoped_json_job,abort_scoped_json_job,drop_scoped_json_jobs};
 
 thread_local! {
     static HOST_EXEC_ENV: RefCell<Vec<HashMap<String, String>>> = const { RefCell::new(Vec::new()) };
@@ -514,6 +516,10 @@ struct ExecJob {
     /// that leaves no awaiting consumer, so a slow result is computed once.
     retained: bool,
     consumers: usize,
+    scope: Option<String>,
+    deadline: Option<Instant>,
+    timeout_result: Option<serde_json::Value>,
+    cancel_hook: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 static EXEC_JOBS: LazyLock<Mutex<HashMap<String, ExecJob>>> =
@@ -663,6 +669,7 @@ pub(super) fn close(plugin_id: &str, job_id: &str) {
         }
     };
     if let Some(job) = removed {
+        if let Some(cancel)=job.cancel_hook {cancel();}
         job.process.cancel();
         job.done_event.signal();
         for waiter in job.waiters {
@@ -676,7 +683,7 @@ pub(super) fn drop_plugin_jobs(plugin_id: &str) {
     let ids: Vec<_> = EXEC_JOBS
         .lock()
         .iter()
-        .filter(|(_, job)| job.plugin_id == plugin_id)
+        .filter(|(_, job)| job.plugin_id == plugin_id && job.scope.is_none())
         .map(|(id, _)| id.clone())
         .collect();
     for id in ids {
@@ -735,10 +742,10 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
         return WaitResult::Completed(err("effect job unavailable during observation"));
     }
     let plugin_id = normalize_plugin_id(plugin_id);
-    let event = {
+    let (event, deadline) = {
         let jobs = EXEC_JOBS.lock();
         match jobs.get(job_id).filter(|job| job.plugin_id == plugin_id) {
-            Some(job) => job.done_event.clone(),
+            Some(job) => (job.done_event.clone(), job.deadline),
             None => {
                 return WaitResult::Completed(
                     serde_json::json!({ "done": true, "error": "job not found" }).to_string(),
@@ -746,7 +753,9 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
             }
         }
     };
-    if !event.wait_for(wait_bound(&plugin_id)) {
+    let bound=deadline.map_or_else(||wait_bound(&plugin_id),|deadline|deadline.saturating_duration_since(Instant::now()));
+    if !event.wait_for(bound) {
+        if let Some(result)=scoped::timeout_result(&plugin_id,job_id){return WaitResult::Completed(result);}
         abandon(&plugin_id, job_id);
         return WaitResult::TimedOut;
     }

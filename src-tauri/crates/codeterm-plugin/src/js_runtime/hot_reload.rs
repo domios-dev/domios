@@ -88,6 +88,7 @@ impl CapabilityRegistries {
         } else {
             self.deregister_plugin(id);
         }
+        vm.activate_binary_transfers();
         if caps.transcriber {
             let transcriber = Arc::new(super::JsTranscriber::new(vm.clone(), id.clone()));
             self.transcribe.register(id.clone(), transcriber.clone());
@@ -265,6 +266,7 @@ impl CapabilityRegistries {
     }
 
     fn deregister_common(&self, id: &str) {
+        super::host_transfer::deactivate(id);
         crate::media_delivery::revoke_plugin(id);
         self.decision_model.unregister(id);
         self.transcribe.unregister(id);
