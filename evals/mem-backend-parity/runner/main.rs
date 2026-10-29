@@ -1,3 +1,4 @@
+mod comparison;
 mod embedding;
 mod fixture;
 mod report;
@@ -104,19 +105,25 @@ fn run(options: Options) -> Result<i32, String> {
     )
     .map_err(|e| e.to_string())?;
     let result = (|| {
-        let sqlite =
-            SqliteMemStore::open(&root.path().join("measured.db"), &root.path().join("blobs"))?;
-        fixture::load(&sqlite, &pages)?;
-        fixture::load(postgres.as_ref(), &pages)?;
+        let sqlite = SqliteMemStore::open_for_import(
+            &root.path().join("measured.db"),
+            &root.path().join("blobs"),
+        )?;
+        let sqlite_loaded = fixture::load(&sqlite, &pages, "SQLite");
+        let postgres_loaded = fixture::load(postgres.as_ref(), &pages, "Postgres");
+        sqlite_loaded?;
+        postgres_loaded?;
         println!(
             "LOADED: {} identical items and vectors; all exported rows match both stores",
             corpus.len()
         );
         let rows = report::measure(&sqlite, postgres.as_ref(), &queries, &prepared.embedder);
         let summary = report::summary(&rows);
-        if fixture::pages(&sqlite)? != pages || fixture::pages(postgres.as_ref())? != pages {
-            return Err("recall mutated the frozen fixture despite record_access=false".into());
-        }
+        let sqlite_unchanged = comparison::verify(&sqlite, &pages, "SQLite", "after-recall");
+        let postgres_unchanged =
+            comparison::verify(postgres.as_ref(), &pages, "Postgres", "after-recall");
+        sqlite_unchanged?;
+        postgres_unchanged?;
         let output = serde_json::json!({"inputs": input, "per_query": rows, "summary": summary});
         std::fs::write(
             options.out.join("report.json"),

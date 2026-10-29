@@ -141,13 +141,10 @@ pub fn seed(
     Ok(pages)
 }
 
-pub fn load(store: &dyn MemStore, pages: &[ExportPage]) -> Result<(), String> {
+pub fn load(store: &dyn MemStore, pages: &[ExportPage], name: &str) -> Result<(), String> {
     let ctx = WriteContext::system("mem-backend-parity");
     for page in pages {
         store.import_page(&ctx, page)?;
     }
-    if self::pages(store)? != pages {
-        return Err("loaded store differs from the frozen corpus/metadata/vector rows".into());
-    }
-    Ok(())
+    super::comparison::verify(store, pages, name, "after-import")
 }
