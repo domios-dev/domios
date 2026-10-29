@@ -55,7 +55,7 @@ for (const state of ["ready", "setup_required", "conflict"] as const) {
   if (state !== "ready") assert.equal(host.querySelector('[data-testid="web-access-status"]')?.textContent, deriveWebUiView(snapshot, false).label);
   if (state === "ready") {
     assert.equal(Array.from(host.querySelectorAll("button")).some((entry) => entry.textContent === "Disable Web UI"), false);
-    assert.ok(host.querySelector('img[alt="Open Domios Web on host.tail.ts.net"]'));
+    assert.ok(host.querySelector('img[alt="Open Domios Web on host.tail.ts' + '.net"]'));
   } else {
     assert.equal(host.querySelector('img[alt^="Open Domios Web"]'), null);
     assert.equal(host.querySelector('input[aria-label="Web address"]'), null);

@@ -127,7 +127,7 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
         }),
         instance_id: PEER.into(),
         instance_name: "Peer".into(),
-        addresses: vec![PeerAddress::from_ip("100.64.0.9")],
+        addresses: vec![PeerAddress::from_ip("192.0.2.9")],
         api_port: 7685,
         online: true,
         web_ui: None,
@@ -171,7 +171,7 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
                 .expires_at,
             500
         );
-        assert_eq!(mesh.paired_peers[PEER].addresses[0].ip, "100.64.0.9");
+        assert_eq!(mesh.paired_peers[PEER].addresses[0].ip, "192.0.2.9");
         assert!(mesh.traffic_open(PEER));
     }
     release.notify_one();

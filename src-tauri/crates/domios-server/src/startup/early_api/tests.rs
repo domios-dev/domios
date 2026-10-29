@@ -275,7 +275,7 @@ async fn published_listener_router_serves_authenticated_startup_events_instead_o
                         .method(method.clone())
                         .uri("/api/startup/events")
                         .extension(ConnectInfo(
-                            "100.64.0.2:40000".parse::<SocketAddr>().unwrap(),
+                            "192.0.2.2:40000".parse::<SocketAddr>().unwrap(),
                         ));
                     if let Some(token) = token {
                         request = request.header("authorization", format!("Bearer {token}"));

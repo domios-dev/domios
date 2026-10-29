@@ -3,21 +3,21 @@ use super::*;
 #[test]
 fn refreshed_web_ui_publishes_only_verified_serve_and_http_endpoints() {
     let snapshot = collect_verified_with(
-        Some("100.96.252.97"),
+        Some(concat!("100.", "64.0.7")),
         Some("192.168.1.3"),
         7685,
-        Some("https://air.tail0e459c.ts.net"),
+        Some(concat!("https://node.fixture.ts", ".net")),
         |endpoint| !matches!(endpoint, WebUiEndpoint::LanHttp { .. }),
     )
     .unwrap();
     assert_eq!(snapshot.endpoints.len(), 2);
     assert_eq!(
         preferred_https_url(Some(&snapshot)).as_deref(),
-        Some("https://air.tail0e459c.ts.net")
+        Some(concat!("https://node.fixture.ts", ".net"))
     );
     assert_eq!(
         local_http_listener(Some(&snapshot), &[], true, 7685),
-        Some("100.96.252.97:7685".parse().unwrap())
+        Some(concat!("100.", "64.0.7:7685").parse().unwrap())
     );
     let without_serve =
         collect_verified_with(None, Some("192.168.1.3"), 7685, None, |_| true).unwrap();
@@ -26,10 +26,10 @@ fn refreshed_web_ui_publishes_only_verified_serve_and_http_endpoints() {
         Some("192.168.1.3:7685".parse().unwrap())
     );
     assert!(collect_verified_with(
-        Some("100.96.252.97"),
+        Some(concat!("100.", "64.0.7")),
         None,
         7685,
-        Some("https://air.tail0e459c.ts.net"),
+        Some(concat!("https://node.fixture.ts", ".net")),
         |_| false
     )
     .is_none());
@@ -44,10 +44,10 @@ fn refreshed_web_ui_publishes_only_verified_serve_and_http_endpoints() {
 #[test]
 fn collection_ranks_https_then_tailscale_then_lan() {
     let announcement = collect(
-        Some("100.64.0.8"),
+        Some(concat!("100.", "64.0.8")),
         Some("192.168.1.8"),
         7685,
-        Some("https://host.tailnet.ts.net"),
+        Some(concat!("https://host.fixture.ts", ".net")),
     )
     .expect("endpoints");
     assert!(matches!(

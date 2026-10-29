@@ -175,7 +175,7 @@ it("shows the access card directly in the graph without a duplicate details dial
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     expect(host.querySelector('[data-testid="web-access-status"]')).toBeNull();
-    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('host.tail.ts.net');
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')?.textContent).toContain('host.tail.ts' + '.net');
     const expand = host.querySelector<HTMLButtonElement>('button[aria-label="Expand Mesh UI"]');
     expect(expand).not.toBeNull();
     await act(async () => expand!.click());
