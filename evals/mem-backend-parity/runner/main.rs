@@ -84,7 +84,9 @@ fn run(options: Options) -> Result<i32, String> {
     .map_err(|e| e.to_string())?;
     let container = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../evals/mem-backend-parity/container.py");
-    if !Command::new("python3")
+    let python = std::env::var("MEM_PARITY_PYTHON")
+        .map_err(|_| "MEM_PARITY_PYTHON is required".to_string())?;
+    if !Command::new(python)
         .arg(container)
         .status()
         .map_err(|e| e.to_string())?

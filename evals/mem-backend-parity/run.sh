@@ -21,6 +21,10 @@ done
 case "$MODE" in synthetic|local) ;; *) echo "Unknown embedder: $MODE" >&2; exit 2 ;; esac
 [ "$MODE" = local ] || [ -z "$MODEL" ] || { echo '--local-model requires --embedder local' >&2; exit 2; }
 
+MEM_PARITY_PYTHON="$( { python3 -c 'import sys; sys.stdout.write(sys.executable)' || python -c 'import sys; sys.stdout.write(sys.executable)'; } 2>/dev/null)" || MEM_PARITY_PYTHON=
+[ -n "$MEM_PARITY_PYTHON" ] || { echo 'Python interpreter executable is required' >&2; exit 2; }
+export MEM_PARITY_PYTHON
+
 OUT_DIR="$(mktemp -d "$EVAL_LIB_OUT_BASE/mem-backend-parity.XXXXXX")"
 CARGO_ARGS=(run --locked --manifest-path src-tauri/Cargo.toml -p codeterm-mem-postgres --example mem_backend_parity)
 if [ "$MODE" = local ]; then

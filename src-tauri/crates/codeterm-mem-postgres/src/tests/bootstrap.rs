@@ -28,10 +28,9 @@ impl FreshDatabase {
 
 impl Drop for FreshDatabase {
     fn drop(&mut self) {
-        let result = self.admin.batch_execute(&format!(
-            "DROP DATABASE {} WITH (FORCE)",
-            self.name
-        ));
+        let result = self
+            .admin
+            .batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name));
         if !std::thread::panicking() {
             assert!(result.is_ok(), "fresh disposable database cleanup failed");
         }
@@ -44,7 +43,10 @@ fn four_schema_first_opens_share_database_bootstrap_lock() {
     let database = FreshDatabase::new();
     let mut client = postgres::Client::connect(&database.url, NoTls).unwrap();
     let installed: i64 = client
-        .query_one("SELECT count(*) FROM pg_extension WHERE extname='vector'", &[])
+        .query_one(
+            "SELECT count(*) FROM pg_extension WHERE extname='vector'",
+            &[],
+        )
         .unwrap()
         .get(0);
     assert_eq!(installed, 0);

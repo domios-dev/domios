@@ -30,7 +30,9 @@ fn lexical_score_ties_preserve_candidate_order() {
     let mut hits = vec![hit("z", 0.0), hit("a", 0.0), hit("b", -1.0), hit("c", 0.0)];
     sort_lexical_hits(&mut hits);
     assert_eq!(
-        hits.iter().map(|hit| hit.item.id.as_str()).collect::<Vec<_>>(),
+        hits.iter()
+            .map(|hit| hit.item.id.as_str())
+            .collect::<Vec<_>>(),
         vec!["b", "z", "a", "c"]
     );
 }
