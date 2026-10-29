@@ -2,25 +2,23 @@ use super::super::super::storage::{ConciergeReceiver, DormantConcierge};
 use super::*;
 use std::collections::BTreeSet;
 
+fn receiver_authority(
+    status: Option<&codeterm_neighbors::adapter::ReceiverStatus>,
+) -> codeterm_neighbors::Result<()> {
+    match status {
+        None => Err(Error::ReceiverStatusUnknown),
+        Some(status) if status.receiving_here() => Ok(()),
+        Some(status) if status.receiver_installation_id.is_none() => Err(Error::ReceiverNotChosen),
+        Some(_) => Err(Error::ReceivingElsewhere),
+    }
+}
+
 impl ServiceContext {
     pub(crate) fn require_neighbor_concierge_receiver(
         &self,
         friendship: &str,
     ) -> codeterm_neighbors::Result<()> {
-        if self.neighbor_friend_receiving_here(friendship) {
-            Ok(())
-        } else {
-            Err(
-                if self
-                    .neighbor_friend_receiver(friendship)
-                    .is_some_and(|status| status.receiver_installation_id.is_some())
-                {
-                    Error::ReceivingElsewhere
-                } else {
-                    Error::ReceiverNotChosen
-                },
-            )
-        }
+        receiver_authority(self.neighbor_friend_receiver(friendship).as_ref())
     }
 
     pub(in crate::service::neighbors) async fn reconcile_neighbor_concierge_receiver(
@@ -70,7 +68,7 @@ impl ServiceContext {
         }
         let binding = self
             .neighbor_friend_receiver_binding(friendship)
-            .ok_or_else(|| Error::ReceiverNotChosen.to_string())?;
+            .ok_or_else(|| Error::ReceiverStatusUnknown.to_string())?;
         let settings = metadata
             .settings()
             .await

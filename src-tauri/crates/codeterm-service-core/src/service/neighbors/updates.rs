@@ -48,18 +48,29 @@ impl ServiceContext {
         };
         let generation = self.neighbor_updates().generation.load(Ordering::Acquire);
         let service = self.clone();
-        self.start_neighbor_updates_with(move || {
-            let service = service.clone();
-            let account = account.clone();
-            async move { run(service, account, generation).await }
-        }, Arc::new(codeterm_neighbors::supervisor::RuntimeClock));
+        self.start_neighbor_updates_with(
+            move || {
+                let service = service.clone();
+                let account = account.clone();
+                async move { run(service, account, generation).await }
+            },
+            Arc::new(codeterm_neighbors::supervisor::RuntimeClock),
+        );
     }
 
-    fn start_neighbor_updates_with<F, A>(&self, attempt: A, clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>)
-    where F: std::future::Future<Output = Result<()>> + Send + 'static, A: FnMut() -> F + Send + 'static {
+    fn start_neighbor_updates_with<F, A>(
+        &self,
+        attempt: A,
+        clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>,
+    ) where
+        F: std::future::Future<Output = Result<()>> + Send + 'static,
+        A: FnMut() -> F + Send + 'static,
+    {
         let cell = self.neighbor_updates();
         let mut slot = cell.task.lock();
-        if slot.is_some() { return; }
+        if slot.is_some() {
+            return;
+        }
         let (stop, receiver) = watch::channel(false);
         let rearm = Arc::new(super::recovery::Rearm::default());
         let task_rearm = rearm.clone();
@@ -67,13 +78,20 @@ impl ServiceContext {
             let _ = super::recovery::run(&task_rearm, clock.as_ref(), attempt, || {
                 let mut shutdown = receiver.clone();
                 async move { stopped(&mut shutdown).await }
-            }).await;
+            })
+            .await;
         });
-        *slot = Some(Handle { task, stopped: stop, rearm });
+        *slot = Some(Handle {
+            task,
+            stopped: stop,
+            rearm,
+        });
     }
 
     pub(crate) fn rearm_neighbor_updates(&self) {
-        if let Some(handle) = self.neighbor_updates().task.lock().as_ref() { handle.rearm.signal(); }
+        if let Some(handle) = self.neighbor_updates().task.lock().as_ref() {
+            handle.rearm.signal();
+        }
         self.restore_neighbor_updates_once();
     }
 
@@ -117,7 +135,9 @@ impl Session {
         if self.current().is_ok() {
             if status == ListenerState::Receiving {
                 self.progress.fetch_add(1, Ordering::AcqRel);
-                if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() { handle.rearm.success(); }
+                if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() {
+                    handle.rearm.success();
+                }
             }
             self.service.neighbor_watch_state("account", status, None);
         }
@@ -207,15 +227,15 @@ impl Session {
                 if service.require_neighbors_enabled().is_err() {
                     break;
                 }
-                service.create_in_app_notice(
-                    notice.title,
-                    vec![],
-                    crate::service::notification::NotificationOrigin::default(),
-                    crate::service::notification::PushIntent {
-                        level: None,
-                        event_key: Some(format!("neighbor:{}:{}", codeterm_neighbors::crypto::sha256_hex(uid.as_bytes()), notice.event_id)),
-                    },
-                    false,
+                service.create_in_app_notice_record(
+                    crate::service::notification::InAppNotice::neighbor_connection(
+                        notice.title,
+                        format!(
+                            "neighbor:{}:{}",
+                            codeterm_neighbors::crypto::sha256_hex(uid.as_bytes()),
+                            notice.event_id
+                        ),
+                    ),
                 );
             }
         })
@@ -237,7 +257,9 @@ async fn run(
     account: Arc<codeterm_account::Account>,
     generation: u64,
 ) -> Result<()> {
-    if service.neighbor_access_locked().await { return Err(Error::Locked); }
+    if service.neighbor_access_locked().await {
+        return Err(Error::Locked);
+    }
     let expected = account
         .current_session()
         .await

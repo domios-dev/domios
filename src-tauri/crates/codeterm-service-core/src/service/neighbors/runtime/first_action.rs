@@ -9,6 +9,7 @@ pub(super) fn friend_status(
 ) -> codeterm_neighbors::Result<ReceiverStatus> {
     let friend = list["friends"]
         .as_array()
+        .filter(|rows| rows.len() <= 200)
         .ok_or(Error::InvalidEnvelope)?
         .iter()
         .find(|row| row["friendship_id"] == friendship)
@@ -25,14 +26,27 @@ pub(super) fn friend_status(
     }
 }
 
-fn first_claim_revision(
+pub(super) fn first_claim_revision(
     list: &Value,
     friendship: &str,
     account: &ReceiverStatus,
     installation: &str,
 ) -> codeterm_neighbors::Result<Option<u64>> {
+    if !list["receiver_claim_capabilities"]
+        .as_array()
+        .is_some_and(|values| {
+            values.len() <= 16
+                && values.iter().all(Value::is_string)
+                && values.iter().any(|value| value == "account_all_none_v1")
+        })
+    {
+        return Ok(None);
+    }
     let friend = friend_status(list, friendship, account, installation)?;
-    if account.receiver_installation_id.is_some() || account.legacy_active {
+    if account.receiver_installation_id.is_some()
+        || account.legacy_active
+        || account.receiving_enabled
+    {
         return Ok(None);
     }
     for row in list["friends"].as_array().ok_or(Error::InvalidEnvelope)? {
@@ -55,11 +69,46 @@ fn first_claim_revision(
 fn receiver_refusal(friendship: &str, name: &str, friend: &ReceiverStatus) -> String {
     match friend.receiver_installation_id {
         Some(_) => format!("receiving_elsewhere: Messages from {name} are received on {}. Receive them here? Use domios account neighbors receive-here {friendship} --expected-receiver-revision {} --takeover-confirmed only after the owner confirms.", friend.receiver_machine_label.as_deref().unwrap_or("another machine"), friend.receiver_revision),
-        None => "receiver_not_chosen: No machine receives this friend's messages. Choose Receive this friend here.".into(),
+        None => format!("receiver_not_chosen: No machine receives messages from {name}. Receive them here? Use domios account neighbors receive-here {friendship} --expected-receiver-revision {}.", friend.receiver_revision),
     }
 }
 
 impl ServiceContext {
+    pub(super) async fn neighbor_automatic_claim_snapshot(
+        &self,
+        registry: &FirebaseRegistry,
+    ) -> codeterm_neighbors::Result<(ReceiverStatus, Value)> {
+        let session = self
+            .account()
+            .await
+            .map_err(|_| Error::Transport)?
+            .current_session()
+            .await
+            .map_err(|_| Error::Transport)?
+            .ok_or(Error::Revoked)?;
+        if session.identity.uid != registry.uid {
+            return Err(Error::Revoked);
+        }
+        let calls = callable::Calls {
+            service: self.clone(),
+            uid: registry.uid.clone(),
+            generation: session.login_generation,
+            own_keys: Default::default(),
+            receiver_status: Default::default(),
+        };
+        let account = serde_json::from_value(
+            calls
+                .invoke_fresh(
+                    "friendsReceiverStatus",
+                    json!({"installation_id":registry.installation_id}),
+                )
+                .await?,
+        )
+        .map_err(|_| Error::InvalidEnvelope)?;
+        let list = calls.invoke_fresh("friendsList", json!({})).await?;
+        Ok((account, list))
+    }
+
     pub(in crate::service::neighbors) async fn claim_first_neighbor_receiver(
         &self,
         friendship: &str,
@@ -109,6 +158,7 @@ impl ServiceContext {
                 friendship,
                 receiver::selection::Selection::Set,
                 false,
+                true,
                 revision,
                 generation,
             )
@@ -118,110 +168,6 @@ impl ServiceContext {
                 .await?;
         }
         Ok(())
-    }
-
-    pub(in crate::service::neighbors) async fn remember_neighbor_receiving_invite(
-        &self,
-        metadata: &Metadata,
-        email: String,
-        generation: u64,
-    ) -> Result<(), String> {
-        let mut emails: Vec<String> = metadata
-            .read("receiving-invites.json".into())
-            .await
-            .map_err(|e| e.to_string())?
-            .unwrap_or_default();
-        let email = codeterm_neighbors::crypto::sha256_hex(email.trim().to_lowercase().as_bytes());
-        if !emails.contains(&email) {
-            if emails.len() >= 200 {
-                return Err(Error::InvalidRequest.to_string());
-            }
-            emails.push(email);
-        }
-        self.require_neighbor_generation(generation)?;
-        metadata
-            .write("receiving-invites.json".into(), emails)
-            .await
-            .map_err(|e| e.to_string())
-    }
-
-    pub(super) async fn fulfill_neighbor_receiving_invites(
-        &self,
-        registry: &FirebaseRegistry,
-        scope: &KeyScope,
-        metadata: &Metadata,
-        generation: u64,
-    ) -> Result<(), String> {
-        self.require_neighbors_enabled()
-            .map_err(|e| e.to_string())?;
-        let emails: Vec<String> = metadata
-            .read("receiving-invites.json".into())
-            .await
-            .map_err(|e| e.to_string())?
-            .unwrap_or_default();
-        if emails.is_empty() {
-            return Ok(());
-        }
-        if emails.len() > 200 {
-            return Err(Error::InvalidEnvelope.to_string());
-        }
-        let list = registry
-            .calls
-            .invoke("friendsList", json!({}))
-            .await
-            .map_err(|e| e.to_string())?;
-        let account = registry
-            .receiver_status()
-            .await
-            .map_err(|e| e.to_string())?;
-        let mut remaining = emails.clone();
-        for friend in list["friends"]
-            .as_array()
-            .ok_or_else(|| Error::InvalidEnvelope.to_string())?
-        {
-            let email = codeterm_neighbors::crypto::sha256_hex(
-                friend["email"]
-                    .as_str()
-                    .unwrap_or("")
-                    .trim()
-                    .to_lowercase()
-                    .as_bytes(),
-            );
-            if !emails.contains(&email) {
-                continue;
-            }
-            let id = friend["friendship_id"]
-                .as_str()
-                .ok_or_else(|| Error::InvalidEnvelope.to_string())?;
-            remaining.retain(|pending| pending != &email);
-            self.require_neighbor_generation(generation)?;
-            metadata
-                .write("receiving-invites.json".into(), remaining.clone())
-                .await
-                .map_err(|e| e.to_string())?;
-            if let Some(revision) =
-                first_claim_revision(&list, id, &account, &registry.installation_id)
-                    .map_err(|e| e.to_string())?
-            {
-                self.set_neighbor_friend_receiver(
-                    registry,
-                    scope,
-                    metadata,
-                    id,
-                    receiver::selection::Selection::Set,
-                    false,
-                    revision,
-                    generation,
-                )
-                .await
-                .map_err(|e| e.to_string())?;
-            }
-        }
-        self.require_neighbor_generation(generation)?;
-        metadata
-            .write("receiving-invites.json".into(), remaining)
-            .await
-            .map_err(|e| e.to_string())
     }
 
     pub(super) async fn require_neighbor_receiver_confirmation(
@@ -291,6 +237,7 @@ impl ServiceContext {
                 friendship,
                 receiver::selection::Selection::Set,
                 false,
+                true,
                 revision,
                 generation,
             )

@@ -14,6 +14,7 @@ trait SelectionPort: Send + Sync {
         &self,
         enrollment: codeterm_neighbors::adapter::Enrollment,
     ) -> codeterm_neighbors::Result<()>;
+    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)>;
     async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value>;
 }
 
@@ -52,6 +53,12 @@ impl SelectionPort for RelaySelection<'_> {
         Ok(())
     }
 
+    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)> {
+        self.service
+            .neighbor_automatic_claim_snapshot(self.registry)
+            .await
+    }
+
     async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
         self.service
             .require_neighbor_generation(self.generation)
@@ -84,7 +91,23 @@ async fn select_friend_receiver(
     selection: Selection,
     expected_revision: u64,
     takeover: bool,
+    require_no_receivers: bool,
 ) -> codeterm_neighbors::Result<Value> {
+    if require_no_receivers {
+        if takeover || !matches!(selection, Selection::Set) {
+            return Err(Error::InvalidRequest);
+        }
+        let (account, list) = port.automatic_snapshot().await?;
+        if super::super::first_action::first_claim_revision(
+            &list,
+            friendship,
+            &account,
+            installation,
+        )? != Some(expected_revision)
+        {
+            return Err(Error::ReceiverNotChosen);
+        }
+    }
     if matches!(selection, Selection::Set) {
         let account = port.account_receiver().await?;
         port.enroll(codeterm_neighbors::adapter::Enrollment {
@@ -95,10 +118,14 @@ async fn select_friend_receiver(
         })
         .await?;
     }
-    port.select(json!({
+    let mut command = json!({
         "installation_id":installation,"friendship_id":friendship,"operation":selection,
         "takeover":takeover,"expected_revision":expected_revision,"operation_id":uuid::Uuid::new_v4().simple().to_string(),
-    })).await
+    });
+    if require_no_receivers {
+        command["require_no_receivers"] = json!(true);
+    }
+    port.select(command).await
 }
 
 impl ServiceContext {
@@ -110,6 +137,7 @@ impl ServiceContext {
         friendship: &str,
         selection: Selection,
         confirmed: bool,
+        require_no_receivers: bool,
         expected_revision: u64,
         generation: u64,
     ) -> codeterm_neighbors::Result<Value> {
@@ -141,6 +169,7 @@ impl ServiceContext {
             selection,
             expected_revision,
             confirmed,
+            require_no_receivers,
         )
         .await?;
         self.require_neighbor_generation(generation)

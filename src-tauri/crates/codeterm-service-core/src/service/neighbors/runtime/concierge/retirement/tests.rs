@@ -301,7 +301,7 @@ async fn global_stop_and_signout_retire_all_local_friends_without_touching_other
 async fn nonreceiver_bind_apply_create_and_ensure_refuse_before_network_or_new_tabs() {
     for receiver in [None, Some(false)] {
         let expected = if receiver.is_none() {
-            Error::ReceiverNotChosen
+            Error::ReceiverStatusUnknown
         } else {
             Error::ReceivingElsewhere
         };
@@ -406,7 +406,7 @@ async fn cold_nonreceiver_boot_cannot_materialize_and_retirement_survives_anothe
         );
         assert_eq!(
             service.wake_frozen_tab(id).unwrap_err(),
-            Error::ReceiverNotChosen.to_string()
+            Error::ReceiverStatusUnknown.to_string()
         );
     }
     service.set_neighbor_friend_receiver_for_test(&friend, Some(false), 9);
@@ -693,4 +693,31 @@ async fn signout_metadata_failures_still_retire_current_account_agents_and_crede
             );
         }
     }
+}
+
+#[test]
+fn unknown_receiver_cache_is_not_a_confirmed_empty_receiver_projection() {
+    use codeterm_neighbors::adapter::ReceiverStatus;
+    assert_eq!(receiver_authority(None), Err(Error::ReceiverStatusUnknown));
+    let mut status = ReceiverStatus {
+        receiver_revision: 0,
+        receiver_installation_id: None,
+        receiver_key_id: None,
+        receiver_machine_label: None,
+        receiving_enabled: false,
+        is_me: false,
+        legacy_active: false,
+    };
+    assert_eq!(
+        receiver_authority(Some(&status)),
+        Err(Error::ReceiverNotChosen)
+    );
+    status.receiver_installation_id = Some("foreign".into());
+    assert_eq!(
+        receiver_authority(Some(&status)),
+        Err(Error::ReceivingElsewhere)
+    );
+    status.is_me = true;
+    status.receiving_enabled = true;
+    assert_eq!(receiver_authority(Some(&status)), Ok(()));
 }

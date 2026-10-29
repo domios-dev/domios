@@ -13,7 +13,7 @@ fn account(installation: Option<&str>) -> ReceiverStatus {
 }
 
 fn list(installation: Option<&str>) -> Value {
-    json!({"friends":[{"friendship_id":"friend", "my_receiver":{
+    json!({"receiver_claim_capabilities":["account_all_none_v1"],"friends":[{"friendship_id":"friend", "my_receiver":{
         "source":"friend","installation_id":installation,"key_id":null,
         "enc_key_id":null,"session_id":null,"machine_label":installation,
         "revision":9,"features":[],"receiving":false
@@ -28,7 +28,7 @@ fn accepting_and_granting_an_unassigned_friend_claims_the_observed_revision() {
     );
     assert_eq!(
         first_claim_revision(
-            &json!({"friends":[{"friendship_id":"friend"}]}),
+            &json!({"receiver_claim_capabilities":["account_all_none_v1"],"friends":[{"friendship_id":"friend"}]}),
             "friend",
             &account(None),
             "here"
@@ -65,7 +65,7 @@ fn missing_friend_and_malformed_projections_never_claim() {
     );
     assert_eq!(
         first_claim_revision(
-            &json!({"friends":[{"friendship_id":"friend","my_receiver":{}}]}),
+            &json!({"receiver_claim_capabilities":["account_all_none_v1"],"friends":[{"friendship_id":"friend","my_receiver":{}}]}),
             "friend",
             &account(None),
             "here"
@@ -80,4 +80,25 @@ fn refusals_distinguish_none_chosen_and_name_the_receiving_machine() {
     let refusal = receiver_refusal("friend", "Anya", &account(Some("Anya's Mac")));
     assert!(refusal.contains("Messages from Anya are received on Anya's Mac. Receive them here?"));
     assert!(refusal.contains("--expected-receiver-revision 7 --takeover-confirmed"));
+}
+
+#[test]
+fn absent_unknown_or_malformed_capabilities_never_authorize_an_automatic_claim() {
+    for capability in [Value::Null, json!(["unknown"]), json!({}), json!([true])] {
+        let mut value = list(None);
+        value["receiver_claim_capabilities"] = capability;
+        assert_eq!(
+            first_claim_revision(&value, "friend", &account(None), "here"),
+            Ok(None)
+        );
+    }
+    let mut value = list(None);
+    value
+        .as_object_mut()
+        .unwrap()
+        .remove("receiver_claim_capabilities");
+    assert_eq!(
+        first_claim_revision(&value, "friend", &account(None), "here"),
+        Ok(None)
+    );
 }

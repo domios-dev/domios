@@ -4,12 +4,12 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 mod backend_reads;
-mod recovery;
 pub mod capabilities;
 mod confinement;
 mod delivery;
 mod flags;
 mod handling;
+mod recovery;
 pub use flags::FlagCategory;
 pub(crate) mod history;
 mod launch_fence;
@@ -78,11 +78,16 @@ impl ServiceContext {
         self.neighbor_registry_owned(command).await
     }
 
-    pub(super) async fn neighbor_registry_owned(&self, command: NeighborCommand) -> Result<Value, String> {
+    pub(super) async fn neighbor_registry_owned(
+        &self,
+        command: NeighborCommand,
+    ) -> Result<Value, String> {
         if self.neighbor_access_locked().await {
             return match command {
                 NeighborCommand::List {} => Ok(backend_reads::locked_list()),
-                NeighborCommand::ClaimReferralTrial {} => Ok(json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null})),
+                NeighborCommand::ClaimReferralTrial {} => Ok(
+                    json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null}),
+                ),
                 _ => Err(codeterm_neighbors::Error::Locked.to_string()),
             };
         }
@@ -96,14 +101,7 @@ impl ServiceContext {
             .ok_or("Sign in to manage Neighbors")?;
         let base = codeterm_account::firebase_endpoints::current().functions;
         let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
-        let invited_email = match &command {
-            NeighborCommand::Request { email } => Some(email.clone()),
-            _ => None,
-        };
-        let owner_connect = matches!(
-            &command,
-            NeighborCommand::Request { .. } | NeighborCommand::Respond { accept: true, .. }
-        );
+        let owner_connect = matches!(&command, NeighborCommand::Respond { accept: true, .. });
         let (name, data) = command.callable();
         let removed = if name == "friendsRemove" {
             data["friendship_id"].as_str().map(str::to_owned)
@@ -113,11 +111,16 @@ impl ServiceContext {
         let response = if matches!(name, "friendsList" | "claimReferralTrial") {
             use codeterm_neighbors::adapter::AuthenticatedCall;
             let calls = runtime::callable::Calls {
-                service: self.clone(), uid: session.identity.uid.clone(),
+                service: self.clone(),
+                uid: session.identity.uid.clone(),
                 generation: session.login_generation,
-                own_keys: Default::default(), receiver_status: Default::default(),
+                own_keys: Default::default(),
+                receiver_status: Default::default(),
             };
-            let result = calls.invoke(name, data).await.map_err(|error| error.to_string())?;
+            let result = calls
+                .invoke(name, data)
+                .await
+                .map_err(|error| error.to_string())?;
             Ok(json!({"result": result}))
         } else {
             transport.call(name, session.id_token.expose(), data).await
@@ -167,11 +170,6 @@ impl ServiceContext {
             self.remember_neighbor_registry(&result);
         } else if name != "friendsRemove" {
             self.forget_neighbor_registry();
-        }
-        if let Some(email) = invited_email {
-            let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
-            self.remember_neighbor_receiving_invite(&metadata, email, history_generation)
-                .await?;
         }
         if owner_connect {
             if let Some(friendship) = result["friendship_id"].as_str() {

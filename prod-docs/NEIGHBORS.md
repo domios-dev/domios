@@ -18,11 +18,11 @@ domios account neighbors revoke
 
 Friend moves use the effective revision; account enrollment uses top-level revision. Reconfirm stale. `status.friend_receivers[id]` exposes `receiving_here,receiver_machine_label,receiving_enabled,revision,source`; missing=unknown, never account fallback. Top-level receiver fields describe the account default. Keys: Windows Credential Manager/macOS Keychain/Linux Secret Service; unavailable stores refuse. Sign-out clears access first, stops reception, then removes only local private keys.
 
-Local grants/setup. Receiver loss closes agents to Recently Closed and revokes credentials; return starts fresh. No choice: `receiver_not_chosen`; another receiver: `receiving_elsewhere` naming its machine. First owner setup claims an unassigned friendship only when no receiver is chosen anywhere. Without a concierge, ciphertext waits unacknowledged; no cursor advance until setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Recounts coalesce.
+Local grants/setup. Receiver loss closes agents to Recently Closed and revokes credentials; return starts fresh. Unknown: `receiver_status_unknown`; confirmed no choice: `receiver_not_chosen`; another receiver: `receiving_elsewhere` naming its machine. No automatic claim on this backend; use the per-friend receiving action. Without a concierge, ciphertext waits unacknowledged; no cursor advance until setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Recounts coalesce.
 
-Receive retries:3, reset on confirmed snapshot; exhaustion=listen_retries_exhausted. Auth/revocation/off/generation/receiver changes stop. Retry retains cursor, never replays uncertainty. Errors:status.watches/neighbors-watch-status. Details:API-LIFECYCLE.
+Transient setup/listen failures retry with capped backoff until stopped; permanent failures await explicit rearm or account/registry changes. Auth/revocation/off/generation/receiver changes stop. Retry retains cursors; uncertain mutations never replay. Errors:status.watches/neighbors-watch-status. Details:API-LIFECYCLE.
 
-General: `domios account neighbors receive-here ID --expected-receiver-revision N`, N from status. If elsewhere, name its machine and ask; add `--takeover-confirmed` only after approval. Stale:refresh/reconfirm. No grant edits; Workers/concierges/peers refused. Accept/grant/concierge setup claims the first receiver. Invites retain local intent until acceptance.
+General: `domios account neighbors receive-here ID --expected-receiver-revision N`, N from status. If elsewhere, name its machine and ask; add `--takeover-confirmed` only after approval. Stale:refresh/reconfirm. No grant edits; Workers/concierges/peers refused. No background invitation claim or retry.
 
 ## Authority and permissions
 
@@ -179,4 +179,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 52 -->
+<!-- revision: 53 -->

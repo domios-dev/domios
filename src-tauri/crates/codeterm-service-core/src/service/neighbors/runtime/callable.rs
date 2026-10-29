@@ -67,50 +67,109 @@ impl AuthenticatedCall for Calls {
         kind: &str,
     ) {
         if code == Some(16) {
-            self.service.extensions.get_or_init(AuthFailures::default).0.lock().insert((self.uid.clone(), self.generation));
+            self.service
+                .extensions
+                .get_or_init(AuthFailures::default)
+                .0
+                .lock()
+                .insert((self.uid.clone(), self.generation));
         }
         log::debug!(
             "[neighbor-listen] operation={operation} target={target} code={code:?} kind={kind}"
         );
     }
     async fn id_token(&self) -> Result<Zeroizing<String>> {
-        if self.service.neighbor_access_locked().await { return Err(Error::Locked); }
+        if self.service.neighbor_access_locked().await {
+            return Err(Error::Locked);
+        }
         let mut session = self.session().await?;
         let failed = {
-            let mut failures = self.service.extensions.get_or_init(AuthFailures::default).0.lock();
+            let mut failures = self
+                .service
+                .extensions
+                .get_or_init(AuthFailures::default)
+                .0
+                .lock();
             let failed = failures.remove(&(self.uid.clone(), self.generation));
             failures.retain(|key| key.0 == self.uid && key.1 == self.generation);
             failed
         };
-        if failed { session = self.recover_session(&session).await?; }
+        if failed {
+            session = self.recover_session(&session).await?;
+        }
         self.validate_session(&session).await?;
         Ok(Zeroizing::new(session.id_token.expose().to_owned()))
     }
     async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
         self.local_session().await?;
-        let result = self.service.neighbor_backend_read(route, &self.uid, self.generation, self.invoke_owned(route, data)).await;
+        let result = self
+            .service
+            .neighbor_backend_read(
+                route,
+                &self.uid,
+                self.generation,
+                self.invoke_owned(route, data),
+            )
+            .await;
         self.local_session().await?;
         result
     }
 }
 
 impl Calls {
+    pub(in crate::service::neighbors) async fn invoke_fresh(
+        &self,
+        route: &str,
+        data: Value,
+    ) -> Result<Value> {
+        if !matches!(route, "friendsList" | "friendsReceiverStatus") {
+            return Err(Error::InvalidRequest);
+        }
+        if self.service.neighbor_access_locked().await {
+            return Err(Error::Locked);
+        }
+        self.local_session().await?;
+        self.receiver_status.lock().await.take();
+        let result = self.invoke_owned(route, data).await?;
+        self.local_session().await?;
+        Ok(result)
+    }
+
     async fn invoke_owned(&self, route: &str, data: Value) -> Result<Value> {
-        let transport = HttpCallable::new(codeterm_account::firebase_endpoints::current().functions).map_err(|_| Error::Transport)?;
+        let transport =
+            HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
+                .map_err(|_| Error::Transport)?;
         self.invoke_with_transport(&transport, route, data).await
     }
 
-    async fn recover_session(&self, expected: &codeterm_account::Session) -> Result<codeterm_account::Session> {
-        let account = self.service.ext::<crate::service::account::AccountCell>().0.get().ok_or(Error::Revoked)?;
-        let session = account.recover_session(expected).await.map_err(|error| match error {
-            codeterm_account::Error::Cancelled => Error::Revoked,
-            _ => Error::Transport,
-        })?.ok_or(Error::Revoked)?;
+    async fn recover_session(
+        &self,
+        expected: &codeterm_account::Session,
+    ) -> Result<codeterm_account::Session> {
+        let account = self
+            .service
+            .ext::<crate::service::account::AccountCell>()
+            .0
+            .get()
+            .ok_or(Error::Revoked)?;
+        let session = account
+            .recover_session(expected)
+            .await
+            .map_err(|error| match error {
+                codeterm_account::Error::Cancelled => Error::Revoked,
+                _ => Error::Transport,
+            })?
+            .ok_or(Error::Revoked)?;
         self.validate_session(&session).await?;
         Ok(session)
     }
 
-    async fn invoke_with_transport(&self, transport: &dyn CallableTransport, route: &str, data: Value) -> Result<Value> {
+    async fn invoke_with_transport(
+        &self,
+        transport: &dyn CallableTransport,
+        route: &str,
+        data: Value,
+    ) -> Result<Value> {
         let cached_lookup = match route {
             "friendsOwnKeys" => Some(self.own_keys.lock().await),
             "friendsReceiverStatus" => Some(self.receiver_status.lock().await),
@@ -133,10 +192,16 @@ impl Calls {
             self.receiver_status.lock().await.take();
         }
         let mut session = self.session().await?;
-        let mut response = transport.call(route, session.id_token.expose(), data.clone()).await;
-        if matches!(&response, Err(CallableFailure::Status { status: 401, body }) if recoverable_authentication(body.as_ref())) {
+        let mut response = transport
+            .call(route, session.id_token.expose(), data.clone())
+            .await;
+        if matches!(&response, Err(CallableFailure::Status { status: 401, body }) if recoverable_authentication(body.as_ref()))
+        {
             session = self.recover_session(&session).await?;
-            if matches!(route, "friendsList" | "friendsReceiverStatus" | "friendsOwnKeys") {
+            if matches!(
+                route,
+                "friendsList" | "friendsReceiverStatus" | "friendsOwnKeys"
+            ) {
                 response = transport.call(route, session.id_token.expose(), data).await;
             } else {
                 return Err(Error::Transport);
@@ -145,7 +210,10 @@ impl Calls {
         let body = match response {
             Ok(body) => body,
             Err(CallableFailure::Status { status, body }) => {
-                if body.as_ref().is_some_and(codeterm_account::session_revocation::is_session_revoked) {
+                if body
+                    .as_ref()
+                    .is_some_and(codeterm_account::session_revocation::is_session_revoked)
+                {
                     self.service.session_revocations().revoked(&session).await;
                     return Err(Error::SessionRevoked);
                 }
@@ -211,6 +279,7 @@ fn refusal(body: &Value) -> Error {
         },
         Some("operation_id_conflict") => Error::OperationIdConflict,
         Some("installation_unverified") => Error::InstallationUnverified,
+        Some("receivers_present") => Error::ReceiversPresent,
         Some("receiver_elsewhere") => Error::ReceiverElsewhere,
         Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
         Some("not_receiver") => Error::NotReceiver,

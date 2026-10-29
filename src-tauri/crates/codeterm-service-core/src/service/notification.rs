@@ -1,5 +1,8 @@
 //! Notification creation with OS toast support.
 
+mod in_app;
+pub(in crate::service) use in_app::InAppNotice;
+
 #[cfg(test)]
 use codeterm_notification_core::contract::NotificationAction;
 use codeterm_notification_core::contract::{adopt_caller_actions, CallerAction};
@@ -60,33 +63,30 @@ impl ServiceContext {
         intent: PushIntent,
         include_push: bool,
     ) -> String {
-        let declared = intent.level;
-        let plan = self.resolve_push_plan(if include_push {
-            intent.clone()
+        self.create_in_app_notice_record(InAppNotice {
+            title,
+            actions,
+            origin,
+            intent,
+            include_push,
+        })
+    }
+
+    pub(in crate::service) fn create_in_app_notice_record(&self, notice: InAppNotice) -> String {
+        let plan = self.resolve_push_plan(if notice.include_push {
+            notice.intent.clone()
         } else {
             PushIntent::default()
         });
-        let push_enabled = include_push && (!plan.targets.is_empty() || !plan.refusals.is_empty());
-        create_notification_with_delivery(
-            if push_enabled {
-                NotificationAdmission::Explicit
-            } else {
-                NotificationAdmission::LocalEvent
-            },
+        let push_ready = !plan.targets.is_empty() || !plan.refusals.is_empty();
+        in_app::create(
             &self.notif,
-            |_, _| {},
-            title,
-            None,
-            Some("info"),
-            Ask::offering(Some(actions)),
-            Some(false),
-            origin,
-            |candidate| self.resolve_tab_provenance(candidate),
+            notice,
+            push_ready,
             PushDispatch {
-                intent,
+                intent: plan.intent,
                 per_scope_limit: plan.per_scope_limit,
                 deliver: move |envelope| {
-                    let envelope = neighbor_notice_push(envelope);
                     super::notification_push::deliver_plan(
                         &plan.targets,
                         &plan.refusals,
@@ -95,10 +95,7 @@ impl ServiceContext {
                     )
                 },
             },
-            SurfaceDispatch {
-                declared,
-                desktop: crate::notification::desktop::DesktopPolicy::silent(),
-            },
+            |candidate| self.resolve_tab_provenance(candidate),
             |payload| self.ui.emit("notification-created", payload),
         )
     }

@@ -546,7 +546,7 @@ impl ServiceContext {
                 }
                 NeighborRuntimeCommand::SetFriendReceiver { friendship_id,receiver_operation,takeover_confirmed,expected_receiver_revision } => {
                     self.set_neighbor_friend_receiver(&registry,&scope,&metadata,&friendship_id,receiver_operation,
-                        takeover_confirmed,expected_receiver_revision,generation).await
+                        takeover_confirmed,false,expected_receiver_revision,generation).await
                 }
                 NeighborRuntimeCommand::Retry { friendship_id } => {
                     if !hex_id(&friendship_id, 64) {

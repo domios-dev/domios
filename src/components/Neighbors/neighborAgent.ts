@@ -34,7 +34,7 @@ export function permissionInterviewTask(subject: NeighborSubject): string {
   const id = subject.friendshipId;
   const apply = id
     ? [
-      `Check \`domios account neighbors status\` for friend_receivers["${id}"]. If unknown, wait for authoritative status; if elsewhere, name the receiving machine and ask me to confirm before using receive-here for this friend with --expected-receiver-revision and --takeover-confirmed. Do not enroll all friends or bind a manual agent. When no receiver is chosen anywhere, saving grants claims this friend here and creates the concierge automatically.`,
+      `Check \`domios account neighbors status\` for friend_receivers["${id}"]. If unknown, wait for authoritative status; if elsewhere, name the receiving machine and ask me to confirm before using receive-here for this friend with --expected-receiver-revision and --takeover-confirmed. Do not enroll all friends or bind a manual agent. If no receiver is chosen, use receive-here for this friend with the observed --expected-receiver-revision before applying grants.`,
       `Their connection id is ${id}. Write a short, specific scope into your pad and apply it with \`domios account neighbors grant ${id} --from-pad <file>\`; add \`--allow-tab-requests true\` only if I agreed. If I want nothing shared, run \`domios account neighbors deny ${id}\`.`,
     ]
     : ["They have not accepted yet, so there is no connection id. Agree the scope now and keep it in your pad. Once they accept, find their connection id with `domios account neighbors list`, check that friend's effective receiver, and apply local grants only on the receiving machine."];

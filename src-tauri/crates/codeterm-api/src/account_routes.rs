@@ -458,6 +458,8 @@ fn neighbor_failure(message: String) -> Response {
             "receiver_elsewhere"
             | "receiving_elsewhere"
             | "receiver_not_chosen"
+            | "receiver_status_unknown"
+            | "receivers_present"
             | "feature_unsupported"
             | "key_revoked"
             | "friendship_ended"

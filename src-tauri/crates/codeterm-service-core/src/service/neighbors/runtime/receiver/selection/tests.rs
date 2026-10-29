@@ -38,6 +38,10 @@ impl SelectionPort for Port {
         Ok(())
     }
 
+    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)> {
+        Err(Error::InvalidRequest)
+    }
+
     async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
         self.trace
             .lock()
@@ -56,7 +60,7 @@ async fn set_enrolls_only_the_secondary_installation_then_moves_the_named_friend
             trace: Default::default(),
         };
         assert_eq!(
-            select_friend_receiver(&port, "here", &friendship, Selection::Set, 9, true)
+            select_friend_receiver(&port, "here", &friendship, Selection::Set, 9, true, false)
                 .await
                 .unwrap(),
             json!({"selected":true})
@@ -92,9 +96,17 @@ async fn reset_skips_key_enrollment_and_submits_only_the_friend_reset() {
         trace: Default::default(),
     };
     let friendship = "b".repeat(64);
-    select_friend_receiver(&port, "here", &friendship, Selection::Reset, 10, true)
-        .await
-        .unwrap();
+    select_friend_receiver(
+        &port,
+        "here",
+        &friendship,
+        Selection::Reset,
+        10,
+        true,
+        false,
+    )
+    .await
+    .unwrap();
     let trace = port.trace.lock();
     assert_eq!(trace.len(), 1);
     assert_eq!(trace[0]["call"], "friendsSetFriendReceiver");
@@ -111,7 +123,16 @@ async fn failed_installation_enrollment_never_submits_a_friend_receiver_mutation
         trace: Default::default(),
     };
     assert_eq!(
-        select_friend_receiver(&port, "here", &"a".repeat(64), Selection::Set, 9, true).await,
+        select_friend_receiver(
+            &port,
+            "here",
+            &"a".repeat(64),
+            Selection::Set,
+            9,
+            true,
+            false
+        )
+        .await,
         Err(Error::KeyLimit {
             limit: 5,
             active: 5
@@ -160,11 +181,190 @@ async fn first_claim_sends_no_takeover_and_only_the_named_friend() {
         fail_enrollment: false,
         trace: Default::default(),
     };
-    select_friend_receiver(&port, "here", &"c".repeat(64), Selection::Set, 0, false)
-        .await
-        .unwrap();
+    select_friend_receiver(
+        &port,
+        "here",
+        &"c".repeat(64),
+        Selection::Set,
+        0,
+        false,
+        false,
+    )
+    .await
+    .unwrap();
     let trace = port.trace.lock();
     assert_eq!(trace[2]["command"]["friendship_id"], "c".repeat(64));
     assert_eq!(trace[2]["command"]["takeover"], false);
     assert_eq!(trace[2]["command"]["expected_revision"], 0);
+}
+
+struct AtomicState {
+    account: ReceiverStatus,
+    friends: Value,
+    gap: Option<&'static str>,
+    enrollments: usize,
+    selections: usize,
+    claimed: usize,
+}
+
+struct AtomicPort(parking_lot::Mutex<AtomicState>);
+
+fn status(installation: Option<&str>) -> ReceiverStatus {
+    ReceiverStatus {
+        receiver_revision: 0,
+        receiver_installation_id: installation.map(str::to_owned),
+        receiver_key_id: None,
+        receiver_machine_label: installation.map(str::to_owned),
+        receiving_enabled: false,
+        is_me: installation == Some("here"),
+        legacy_active: false,
+    }
+}
+
+fn automatic_port(capability: bool, gap: Option<&'static str>) -> AtomicPort {
+    AtomicPort(parking_lot::Mutex::new(AtomicState {
+        account: status(None),
+        friends: json!({"receiver_claim_capabilities":if capability { vec!["account_all_none_v1"] } else { vec![] },
+            "friends":[{"friendship_id":"one"},{"friendship_id":"two"}]}),
+        gap,
+        enrollments: 0,
+        selections: 0,
+        claimed: 0,
+    }))
+}
+
+#[async_trait::async_trait]
+impl SelectionPort for AtomicPort {
+    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)> {
+        let state = self.0.lock();
+        Ok((state.account.clone(), state.friends.clone()))
+    }
+
+    async fn account_receiver(&self) -> codeterm_neighbors::Result<ReceiverStatus> {
+        Ok(self.0.lock().account.clone())
+    }
+
+    async fn enroll(
+        &self,
+        enrollment: codeterm_neighbors::adapter::Enrollment,
+    ) -> codeterm_neighbors::Result<()> {
+        assert!(enrollment.installation_only);
+        assert!(!enrollment.takeover);
+        let mut state = self.0.lock();
+        state.enrollments += 1;
+        match state.gap.take() {
+            Some("account") => state.account = status(Some("foreign")),
+            Some("other_friend") => {
+                state.friends["friends"][1]["my_receiver"] = json!({
+                    "source":"friend","installation_id":"foreign","key_id":null,"enc_key_id":null,
+                    "session_id":null,"machine_label":"Foreign Mac","revision":0,"features":[],"receiving":false
+                })
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
+        let mut state = self.0.lock();
+        state.selections += 1;
+        assert_eq!(command["require_no_receivers"], true);
+        assert_eq!(command["takeover"], false);
+        let id = command["friendship_id"].as_str().unwrap();
+        if super::super::super::first_action::first_claim_revision(
+            &state.friends,
+            id,
+            &state.account,
+            "here",
+        )? != Some(0)
+        {
+            return Err(Error::ReceiversPresent);
+        }
+        let friend = state.friends["friends"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|friend| friend["friendship_id"] == id)
+            .unwrap();
+        friend["my_receiver"] = json!({
+            "source":"friend","installation_id":"here","key_id":null,"enc_key_id":null,
+            "session_id":null,"machine_label":"Here","revision":1,"features":[],"receiving":false
+        });
+        state.claimed += 1;
+        Ok(json!({"selected":true}))
+    }
+}
+
+#[tokio::test]
+async fn two_first_actions_claim_only_the_first_friend_from_fresh_admission() {
+    let port = automatic_port(true, None);
+    select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true)
+        .await
+        .unwrap();
+    assert_eq!(
+        select_friend_receiver(&port, "here", "two", Selection::Set, 0, false, true).await,
+        Err(Error::ReceiverNotChosen)
+    );
+    let state = port.0.lock();
+    assert_eq!(
+        (state.enrollments, state.selections, state.claimed),
+        (1, 1, 1)
+    );
+}
+
+#[tokio::test]
+async fn atomic_all_none_precondition_refuses_an_intervening_account_or_other_friend_receiver() {
+    for gap in ["account", "other_friend"] {
+        let port = automatic_port(true, Some(gap));
+        assert_eq!(
+            select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
+            Err(Error::ReceiversPresent)
+        );
+        assert_eq!(port.0.lock().claimed, 0);
+        assert_eq!(
+            select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
+            Err(Error::ReceiverNotChosen)
+        );
+        let state = port.0.lock();
+        assert_eq!((state.enrollments, state.selections), (1, 1));
+    }
+}
+
+#[tokio::test]
+async fn absent_global_claim_capability_performs_no_enrollment_or_selection() {
+    for capability in [
+        Value::Null,
+        json!(["unknown"]),
+        json!({}),
+        json!([true]),
+        json!(["account_all_none_v1", true]),
+    ] {
+        let port = automatic_port(false, None);
+        port.0.lock().friends["receiver_claim_capabilities"] = capability;
+        assert_eq!(
+            select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
+            Err(Error::ReceiverNotChosen)
+        );
+        let state = port.0.lock();
+        assert_eq!(
+            (state.enrollments, state.selections, state.claimed),
+            (0, 0, 0)
+        );
+    }
+    let port = automatic_port(false, None);
+    port.0
+        .lock()
+        .friends
+        .as_object_mut()
+        .unwrap()
+        .remove("receiver_claim_capabilities");
+    assert_eq!(
+        select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
+        Err(Error::ReceiverNotChosen)
+    );
+    let state = port.0.lock();
+    assert_eq!(
+        (state.enrollments, state.selections, state.claimed),
+        (0, 0, 0)
+    );
 }

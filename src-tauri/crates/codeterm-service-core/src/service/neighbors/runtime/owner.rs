@@ -126,8 +126,6 @@ impl ServiceContext {
                 .map(Outcome::Value),
             Operation::ReceiverChanged | Operation::RegistryChanged => {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
-                self.fulfill_neighbor_receiving_invites(&registry, &scope, &metadata, generation)
-                    .await?;
                 self.start_neighbor_listeners(
                     transport.clone(),
                     registry,
@@ -198,8 +196,6 @@ impl ServiceContext {
             #[cfg(not(any(test, feature = "test-support")))]
             Operation::Restore => {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
-                self.fulfill_neighbor_receiving_invites(&registry, &scope, &metadata, generation)
-                    .await?;
                 self.start_neighbor_listeners(transport, registry, scope, metadata, generation)
                     .await?;
                 Ok(Outcome::Value(Value::Null))
