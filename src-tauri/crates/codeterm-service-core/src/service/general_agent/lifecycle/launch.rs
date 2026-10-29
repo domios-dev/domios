@@ -208,6 +208,7 @@ pub(super) fn start(
 
     let use_resume = session_id.is_some();
     let mut startup_message = None;
+    let mut first_turn_planned = false;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match super::super::launch_files::command(
@@ -281,6 +282,9 @@ pub(super) fn start(
             .flatten();
         let launch_instructions =
             compose_launch_instructions(system_prompt, bootstrap_message, &system_prompt_delivery);
+        first_turn_planned = launch_instructions.starter_prompt
+            != crate::agent::provider::StarterPrompt::NoStarter
+            || launch_instructions.startup_message.is_some();
         startup_message = launch_instructions.startup_message;
         if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(
@@ -390,6 +394,17 @@ pub(super) fn start(
         return;
     }
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
+    let lazy_session = svc
+        .agent_registry
+        .with_provider(provider_name, |provider| {
+            provider.session_starts_on_first_user_turn()
+        })
+        .unwrap_or(false);
+    if super::first_turn::awaiting_user_turn(lazy_session, use_resume, first_turn_planned)
+        && super::first_turn::prepare(svc, &tab_id, &pty_id, provider_name)
+    {
+        return;
+    }
     let bound_session = match deliver_before_binding(
         || {
             if let Some(message) = startup_message {

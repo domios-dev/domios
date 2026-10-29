@@ -664,6 +664,15 @@ impl ServiceContext {
             return Ok(None);
         };
         self.require_background_work_safe(&target.tab_id, force)?;
+        let unconfirmed = self.mux.read().get_tab(&target.tab_id).is_some_and(|tab| {
+            tab.boot_stage == Some(crate::service::boot_stage::BootStage::LaunchBindingUnconfirmed)
+                && !tab.agent_booting
+        });
+        if unconfirmed {
+            if let Some(recovery) = self.failed_launch_restart_snapshot(&target.tab_id)? {
+                target = recovery;
+            }
+        }
         if self.is_unverified_launch_shell(&target) {
             target.session_id = None;
         }
@@ -679,6 +688,9 @@ impl ServiceContext {
             return Err(AgentRestartError::BadRequest(
                 "General Agent launch already in progress".to_string(),
             ));
+        }
+        if unconfirmed && target.session_id.is_some() {
+            self.set_agent_session_id(&target.tab_id, target.session_id.clone());
         }
         crate::service::task_files::release_tab(self, &target.tab_id);
 

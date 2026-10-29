@@ -1,6 +1,56 @@
 use super::*;
 
 #[test]
+fn unconfirmed_general_launch_recovers_its_own_journaled_session_without_liveness() {
+    use crate::multiplexer::types::PriorBindingNonce;
+    use crate::session::lifecycle::LifecycleTransition;
+
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    crate::service::general_agent::ensure_general_workspace(&mut mux, true);
+    let id = mux
+        .resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)
+        .unwrap();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.cwd = Some("D:/fixture".into());
+    tab.boot_stage = Some(BootStage::LaunchBindingUnconfirmed);
+    tab.agent_booting = false;
+    tab.prior_session_binding_nonces.push(PriorBindingNonce {
+        nonce: "previous-nonce".into(),
+        session_id: Some("owned-session".into()),
+        resume_target_session_id: None,
+    });
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.set_agent_full_access(false);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::with_session(
+            "fixture-provider",
+            "owned-session",
+        ),
+    ));
+    fixture.service.open_lifecycle_epoch(&id).unwrap();
+    fixture.service.record_lifecycle(
+        &id,
+        LifecycleTransition::SessionBound {
+            session_id: "owned-session".into(),
+            binding_nonce: "previous-nonce".into(),
+            source: Default::default(),
+        },
+    );
+    let recovery = fixture
+        .service
+        .failed_launch_restart_snapshot(&id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(recovery.session_id.as_deref(), Some("owned-session"));
+    assert_eq!(recovery.provider, "fixture-provider");
+    assert!(
+        crate::service::general_agent::claim_general_agent_tab_retry(&id, &fixture.service.mux)
+            .unwrap()
+    );
+}
+
+#[test]
 fn never_started_pty_can_restart_without_observed_agent_liveness() {
     for booting in [false, true] {
         for session in [None, Some("saved-session")] {
