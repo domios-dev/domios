@@ -5,7 +5,7 @@ import { PLUGIN_UI_MONITOR } from "./pluginUiMonitor";
 async function fixture(run: (win: Window, send: ReturnType<typeof vi.fn>) => Promise<void>) {
   const win = new Window();
   const send = vi.fn();
-  Object.defineProperty(win, "parent", { value: { postMessage: send } });
+  Object.assign(win, { ct: { __reportUiState: (state: unknown) => send({__ctUiState:state}, "*") } });
   win.document.body.innerHTML = '<div id="ct-root"></div>';
   win.eval(PLUGIN_UI_MONITOR);
   win.document.dispatchEvent(new win.Event("DOMContentLoaded"));

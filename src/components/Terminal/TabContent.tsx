@@ -128,7 +128,7 @@ export function TabContent({
 
   const body = tab.frozen && !sleepingTranscript && (tab.agent_type || isChatBackend) ? null : tab.close_restore?.stopped ? <RestoredShell tab={tab} /> : chatBacking && descriptor?.remote_task && isRemoteTaskTab(tab, descriptor.remote_task) ? (
     tab.remote_peer_id ? <div role="status">Remote task controls are unavailable through this mesh tab.</div> :
-    <RemoteTaskTab key={chatBacking.session_id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
+    <RemoteTaskTab key={chatBacking.session_id} tabId={tab.id} pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} capability={descriptor.remote_task} />
   ) : isChatBackend ? (
     <TabSessionChat tabId={tab.id} api={api} chatBackend uiFontScale={uiFontScale} isVisible={isVisible} />
   ) : (

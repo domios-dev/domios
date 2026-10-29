@@ -95,7 +95,7 @@ export interface GlanceView {
 
 // ── view (sandboxed iframe UI bridge target) ──
 
-export type ViewCall = (method: string, args: unknown) => unknown;
+export type ViewCall = (method: string, args: unknown, context: ViewCallContext) => unknown;
 
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
@@ -1012,6 +1012,20 @@ export interface SurfaceViewBridge {
   invoke(method: string, args?: unknown): Promise<unknown>;
   close(): void;
   onSurfaceStateChanged(callback: () => void): () => void;
+}
+
+/** Authoritative context of this registered UI document; no run/budget or private lease. */
+export interface ViewCallContext {
+  plugin: string;
+  origin: "document" | "remote_task" | "recording_setup";
+  surface: string | null;
+  instance: string | null;
+  tab: string | null;
+  owner: string | null;
+  workspace: string | null;
+  team: string | null;
+  actor: { kind: "local" };
+  frame: string | null;
 }
 
 export interface SurfaceCallContext {

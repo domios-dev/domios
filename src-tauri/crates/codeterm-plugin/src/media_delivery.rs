@@ -1,5 +1,5 @@
 //! Opaque, frame-scoped access to passive files owned by a plugin.
-use crate::view_host::{ViewProvider, ViewRegistry, ViewRegistryHandle};
+use crate::view_host::{ViewCallContext, ViewProvider, ViewRegistry, ViewRegistryHandle};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::{
@@ -52,7 +52,10 @@ pub struct MediaHandle {
 
 struct Frame {
     plugin: String,
+    view_lease: String,
+    context: ViewCallContext,
     provider: Weak<dyn ViewProvider>,
+    provider_registration: String,
     registry: Weak<ViewRegistry>,
     expires: Instant,
     handles: HashMap<String, Entry>,
@@ -105,12 +108,13 @@ impl MediaStore {
             return Err(MediaRefusal::Foreign);
         }
         let provider = value.provider.upgrade().ok_or(MediaRefusal::Expired)?;
-        let current = value
-            .registry
-            .upgrade()
-            .and_then(|registry| registry.get(plugin))
-            .ok_or(MediaRefusal::Expired)?;
-        if value.expires <= now || !Arc::ptr_eq(&provider, &current) {
+        let registry = value.registry.upgrade().ok_or(MediaRefusal::Expired)?;
+        let current = registry.get(plugin).ok_or(MediaRefusal::Expired)?;
+        if value.expires <= now
+            || !Arc::ptr_eq(&provider, &current)
+            || registry.registration_id(plugin).as_deref()
+                != Some(value.provider_registration.as_str())
+        {
             return Err(MediaRefusal::Expired);
         }
         Ok(value)
@@ -135,23 +139,59 @@ impl MediaStore {
 }
 
 /// Called only by the authenticated host document loader.
+pub struct FrameRegistration {
+    pub document: String,
+    pub context: ViewCallContext,
+    pub media_frame: String,
+    pub view_lease: String,
+}
+
 pub fn create_frame(
     provider: &Arc<dyn ViewProvider>,
     registry: &ViewRegistryHandle,
-) -> Result<String, MediaRefusal> {
+    context: ViewCallContext,
+) -> Result<FrameRegistration, MediaRefusal> {
+    create_frame_at_key(provider, registry, context, token())
+}
+
+/// A proven original document replaces its retired registration, never an occupied one.
+pub fn reregister_frame(
+    provider: &Arc<dyn ViewProvider>,
+    registry: &ViewRegistryHandle,
+    context: ViewCallContext,
+    presentation: &str,
+) -> Result<FrameRegistration, MediaRefusal> {
+    if !valid_token(presentation) {
+        return Err(MediaRefusal::Unknown);
+    }
+    create_frame_at_key(provider, registry, context, presentation.into())
+}
+
+fn create_frame_at_key(
+    provider: &Arc<dyn ViewProvider>,
+    registry: &ViewRegistryHandle,
+    mut context: ViewCallContext,
+    frame: String,
+) -> Result<FrameRegistration, MediaRefusal> {
+    let provider_registration = registry
+        .registration_id(provider.id())
+        .ok_or(MediaRefusal::Unknown)?;
     if !registry
         .get(provider.id())
         .is_some_and(|current| Arc::ptr_eq(&current, provider))
     {
         return Err(MediaRefusal::Unknown);
     }
-    let descriptor = provider.media_delivery().ok_or(MediaRefusal::Unknown)?;
-    if !valid_plugin_id(provider.id()) || !descriptor.valid() {
+    if !valid_plugin_id(provider.id())
+        || context.plugin != provider.id()
+        || context.origin != crate::view_host::ViewCallOrigin::Document
+    {
         return Err(MediaRefusal::Unknown);
     }
     let mut store = STORE.lock();
     store.cleanup(Instant::now());
-    if store.frames.len() >= MAX_FRAMES
+    if store.frames.contains_key(&frame)
+        || store.frames.len() >= MAX_FRAMES
         || store
             .frames
             .values()
@@ -161,18 +201,104 @@ pub fn create_frame(
     {
         return Err(MediaRefusal::Unknown);
     }
-    let frame = token();
+    let view_lease = token();
+    let document = uuid::Uuid::new_v4().simple().to_string();
+    context.frame = Some(document.clone());
     store.frames.insert(
         frame.clone(),
         Frame {
             plugin: provider.id().into(),
+            view_lease: view_lease.clone(),
+            context: context.clone(),
             provider: Arc::downgrade(provider),
+            provider_registration,
             registry: Arc::downgrade(registry),
             expires: Instant::now() + FRAME_TTL,
             handles: HashMap::new(),
         },
     );
-    Ok(frame)
+    Ok(FrameRegistration {
+        document,
+        context,
+        media_frame: frame,
+        view_lease,
+    })
+}
+
+/// The presentation frame key is not a backend view-call credential.
+pub fn view_frame(
+    plugin: &str,
+    lease: &str,
+) -> Result<(Arc<dyn ViewProvider>, ViewCallContext), MediaRefusal> {
+    if !valid_token(lease) {
+        return Err(MediaRefusal::Unknown);
+    }
+    let mut store = STORE.lock();
+    let now = Instant::now();
+    store.cleanup(now);
+    let key = store
+        .frames
+        .iter()
+        .find(|(_, frame)| frame.plugin == plugin && frame.view_lease == lease)
+        .map(|(key, _)| key.clone())
+        .ok_or(MediaRefusal::Unknown)?;
+    let frame = store.frame(plugin, &key, now)?;
+    Ok((
+        frame.provider.upgrade().ok_or(MediaRefusal::Expired)?,
+        frame.context.clone(),
+    ))
+}
+
+/// Only authenticated host media routes use the presentation key to resolve this context.
+pub fn frame_context(plugin: &str, key: &str) -> Result<ViewCallContext, MediaRefusal> {
+    let mut store = STORE.lock();
+    store.cleanup(Instant::now());
+    Ok(store.frame(plugin, key, Instant::now())?.context.clone())
+}
+
+/// Host admission checks the captured invocation without accepting an echoed scope or lease.
+pub fn context_provider(context: &ViewCallContext) -> Result<Arc<dyn ViewProvider>, MediaRefusal> {
+    let mut store = STORE.lock();
+    let now = Instant::now();
+    store.cleanup(now);
+    let key = store
+        .frames
+        .iter()
+        .find(|(_, frame)| frame.context == *context)
+        .map(|(key, _)| key.clone())
+        .ok_or(MediaRefusal::Unknown)?;
+    store
+        .frame(&context.plugin, &key, now)?
+        .provider
+        .upgrade()
+        .ok_or(MediaRefusal::Expired)
+}
+
+pub fn context_is_live(context: &ViewCallContext) -> Result<(), MediaRefusal> {
+    context_provider(context).map(|_| ())
+}
+
+pub fn active_view_contexts(plugin: &str) -> Vec<ViewCallContext> {
+    let mut store = STORE.lock();
+    let now = Instant::now();
+    store.cleanup(now);
+    store
+        .frames
+        .keys()
+        .filter_map(|key| {
+            store
+                .frame(plugin, key, now)
+                .ok()
+                .map(|frame| frame.context.clone())
+        })
+        .collect()
+}
+
+pub fn revoke_view_frame(plugin: &str, lease: &str) {
+    STORE
+        .lock()
+        .frames
+        .retain(|_, frame| frame.plugin != plugin || frame.view_lease != lease);
 }
 
 pub fn revoke_frame(plugin: &str, frame: &str) {

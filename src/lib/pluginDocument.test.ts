@@ -1,4 +1,5 @@
 // @vitest-environment-options {"happyDOM":{"settings":{"disableJavaScriptFileLoading":true,"disableCSSFileLoading":true}}}
+import { TestViewPort } from "./pluginViewChannel.testSupport";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Window } from "happy-dom";
 import { loadPluginDocument, materializePluginDocument, MAX_PLUGIN_DOCUMENT_BYTES, pluginAssetPath } from "./pluginDocument";
@@ -9,6 +10,10 @@ import { resolve } from "node:path";
 const origin = "http://127.0.0.1:7690";
 const path = "/api/plugins/example/ui/index.html?surface=board&instance=own&tab=tab-1";
 const policy = "default-src 'none'; script-src 'nonce-fixture'; style-src 'unsafe-inline'; img-src blob: data:; font-src blob: data:; connect-src 'none'; base-uri 'none'; form-action 'none'";
+
+const registrationSnapshot = (registration = "e".repeat(64)) => JSON.stringify({registration, scope:{
+  surface:"board",instance:"own",tab:"tab-1",owner:"owner",workspace:"workspace",team:null,providerRegistration:"opaque-provider-registration",
+}});
 
 let parserWindow: Window;
 beforeEach(() => {
@@ -31,7 +36,7 @@ function fixture(assetStatus = 200) {
   const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
     const pathname = new URL(String(input)).pathname;
     if (pathname.endsWith("index.html")) return new Response('<html><head><style nonce="fixture">body{background:url(./icon.svg)}</style></head><body><img src="./icon.svg"><script nonce="fixture" src="./app.js"></script></body></html>', {
-      headers: { "Content-Type": "text/html", "Content-Security-Policy": policy },
+      headers: { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Registration": registrationSnapshot(), "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64) },
     });
     if (pathname.endsWith("app.js")) return new Response("window.test=1", { status: assetStatus, headers: { "Content-Type": "text/javascript" } });
     return new Response("<svg></svg>", { headers: { "Content-Type": "image/svg+xml" } });
@@ -118,7 +123,7 @@ describe("authenticated plugin document", () => {
       const filename = new URL(String(input)).pathname.split("/").pop()!;
       return new Response(filename === "index.html" ? raw : readFileSync(resolve(directory, filename), "utf8"), {
         headers: filename === "index.html"
-          ? { "Content-Type": "text/html", "Content-Security-Policy": policy }
+          ? { "Content-Type": "text/html", "Content-Security-Policy": policy, "X-Domios-Plugin-View-Registration": registrationSnapshot(), "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64) }
           : { "Content-Type": "text/javascript" },
       });
     });
@@ -184,9 +189,9 @@ describe("scoped plugin media documents", () => {
   const scopedPolicy = policy + "; media-src 'none'";
   function mediaFixture(mediaUrl = `/api/plugins/example/media/${frame}/${handle}`, html = "<html><head></head><body><video></video></body></html>") {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input, init) => {
-      if (init?.method === "DELETE") return new Response(null, { status: 204 });
+      if (String(_input).endsWith("/view-frame/revoke")) return new Response(null, { status: 204 });
       if (init?.method === "POST") return Response.json({ handle, url: mediaUrl, content_type: "video/mp4", file_name: "clip.mp4", expires_in_seconds: 600 });
-      return new Response(html, { headers: { "Content-Security-Policy": scopedPolicy, "X-Domios-Plugin-Media-Frame": frame } });
+      return new Response(html, { headers: { "Content-Security-Policy": scopedPolicy, "X-Domios-Plugin-View-Registration": registrationSnapshot(frame), "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64), "X-Domios-Plugin-Media-Frame": frame } });
     });
     return { fetch, client: createTransportClient({ origin, token: "owner-secret", fetch }) };
   }
@@ -208,7 +213,8 @@ describe("scoped plugin media documents", () => {
     expect(new Headers(init!.headers).get("authorization")).toBe("Bearer owner-secret");
     document.dispose();
     document.dispose();
-    expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+    await Promise.resolve();
+    expect(fixture.fetch.mock.calls.filter(([url]) => String(url).endsWith("/view-frame/revoke"))).toHaveLength(1);
     await expect(document.media("job-output")).rejects.toThrow("unavailable");
   });
   it.each(["https://foreign.example/clip.mp4", `/api/plugins/other/media/${frame}/${handle}`, `/api/plugins/example/media/${"c".repeat(64)}/${handle}`])("rejects a returned URL outside this exact frame: %s", async (url) => {
@@ -220,13 +226,91 @@ describe("scoped plugin media documents", () => {
   it("revokes the minted frame when materialization fails", async () => {
     const fixture = mediaFixture(undefined, '<script>untrusted()</script>');
     await expect(loadPluginDocument(fixture.client, path, new AbortController().signal)).rejects.toThrow("nonce");
-    expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method === "DELETE")).toHaveLength(1);
+    await Promise.resolve();
+    expect(fixture.fetch.mock.calls.filter(([url]) => String(url).endsWith("/view-frame/revoke"))).toHaveLength(1);
   });
   it("does not offer registration when the document has no media capability", async () => {
-    const fixture = createTransportClient({ origin, token: "secret", fetch: vi.fn(async () => new Response("<html></html>", { headers: { "Content-Security-Policy": policy } })) });
+    const fixture = createTransportClient({ origin, token: "secret", fetch: vi.fn(async () => new Response("<html></html>", { headers: { "Content-Security-Policy": policy, "X-Domios-Plugin-View-Registration": registrationSnapshot(), "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame": "d".repeat(64) } })) });
     const document = await loadPluginDocument(fixture, path, new AbortController().signal);
     expect(document.frameToken).toBeNull();
     await expect(document.media("output")).rejects.toThrow("unavailable");
     document.dispose();
   });
+});
+
+describe("host-private plugin view invocation", () => {
+  it("binds backend calls to the originating loader lease without exposing it in HTML", async () => {
+    const lease = "d".repeat(64);
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (_input,init) => {
+      if (String(_input).endsWith("/view-frame/revoke")) return new Response(null,{status:204});
+      if (init?.method === "POST") return Response.json({accepted:true});
+      return new Response("<html><head></head><body></body></html>",{headers:{"Content-Security-Policy":policy,"X-Domios-Plugin-View-Registration": registrationSnapshot(), "X-Domios-Plugin-View-Document": crypto.randomUUID().replaceAll("-", ""), "X-Domios-Plugin-View-Frame":lease}});
+    });
+    const client = createTransportClient({origin,token:"owner-secret",fetch});
+    const document = await loadPluginDocument(client,path,new AbortController().signal);
+    expect(document.html).not.toContain(lease);
+    const forged = {owner:"foreign",viewFrame:"forged",frame:"forged"};
+    await document.invoke("read",forged);
+    const [url,init] = fetch.mock.calls.find(([,init])=>init?.method==="POST")!;
+    expect(new URL(String(url)).pathname).toBe("/api/plugins/view-call");
+    expect(JSON.parse(String(init!.body))).toEqual({pluginId:"example",viewFrame:lease,method:"read",args:forged});
+    document.dispose();
+    await Promise.resolve();
+    const disposal = fetch.mock.calls.find(([url]) => String(url).endsWith("/view-frame/revoke"))!;
+    expect(String(disposal[0])).not.toContain(lease);
+    expect(JSON.parse(String(disposal[1]!.body))).toEqual({pluginId:"example",registration:"e".repeat(64)});
+    expect(fetch.mock.calls.every(([url]) => !String(url).includes(lease))).toBe(true);
+    const calls=fetch.mock.calls.length;
+    await expect(document.invoke("submit",{})).rejects.toThrow("unavailable");
+    expect(fetch.mock.calls).toHaveLength(calls);
+  });
+
+  it("refuses documents without a private registration", async () => {
+    const client=createTransportClient({origin,token:"owner",fetch:vi.fn(async()=>new Response("<html></html>",{headers:{"Content-Security-Policy":policy}}))});
+    await expect(loadPluginDocument(client,path,new AbortController().signal)).rejects.toThrow("registration missing");
+  });
+});
+
+it("retires backend media/lease on every native load and remints only after original-port proof", async () => {
+  const registration="e".repeat(64), original="d".repeat(64), fresh="f".repeat(64);
+  let liveLease:string|null=original;
+  let registrations=0;
+  const fetch=vi.fn<typeof globalThis.fetch>().mockImplementation(async(input,init)=>{
+    const endpoint=new URL(String(input)).pathname;
+    if(endpoint.endsWith("/view-frame/revoke")) {
+      expect(JSON.parse(String(init?.body))).toEqual({pluginId:"example",registration});
+      liveLease=null;return new Response(null,{status:204});
+    }
+    if(endpoint.endsWith("/view-frame/register")) {
+      expect(liveLease).toBeNull();registrations++;
+      expect(JSON.parse(String(init?.body))).toEqual({pluginId:"example",...JSON.parse(registrationSnapshot(registration))});
+      liveLease=fresh;return Response.json({viewLease:fresh});
+    }
+    if(endpoint.endsWith("/view-call")) {
+      expect(JSON.parse(String(init?.body)).viewFrame).toBe(liveLease);
+      return Response.json({read:true});
+    }
+    return new Response("<html><head></head><body><video></video></body></html>",{headers:{
+      "Content-Security-Policy":policy+"; media-src 'none'","X-Domios-Plugin-View-Frame":original,
+      "X-Domios-Plugin-View-Document":"a".repeat(32),"X-Domios-Plugin-Media-Frame":registration,
+      "X-Domios-Plugin-View-Registration":registrationSnapshot(registration),
+    }});
+  });
+  const document=await loadPluginDocument(createTransportClient({origin,token:"owner",fetch}),path,new AbortController().signal);
+  const port=new TestViewPort();let challengeReady!:()=>void;
+  const post=port.postMessage.bind(port);
+  port.postMessage=(message)=>{post(message);if(message.__ctChallenge!=null)challengeReady();};
+  const firstChallenge=new Promise<void>(resolve=>{challengeReady=resolve;});
+  let ready!:()=>void;const proven=new Promise<void>(resolve=>{ready=resolve;});
+  document.channel.bind(window,()=>({shown:false,frameFocused:false,activated:false,generation:0}));
+  document.channel.subscribe(vi.fn(),ready,vi.fn());document.channel.accept(window,port.port);
+  await firstChallenge;
+  expect(liveLease).toBeNull();expect(registrations).toBe(0);
+  port.prove();await proven;expect(liveLease).toBe(fresh);expect(registrations).toBe(1);
+  await expect(document.invoke("read",{})).resolves.toEqual({read:true});
+  const nextChallenge=new Promise<void>(resolve=>{challengeReady=resolve;});
+  document.channel.observeLoad();await nextChallenge;
+  expect(liveLease).toBeNull();expect(registrations).toBe(1);
+  // A replacement cannot answer the original endpoint: nothing is reactivated.
+  document.dispose();
 });

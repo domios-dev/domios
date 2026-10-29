@@ -12,7 +12,12 @@ impl ViewProvider for Provider {
             types: vec![MediaType::Mp4, MediaType::Png],
         })
     }
-    async fn call(&self, _: &str, _: Value) -> Result<Value, crate::view_host::ViewError> {
+    async fn call(
+        &self,
+        _: &str,
+        _: Value,
+        _context: &crate::view_host::ViewCallContext,
+    ) -> Result<Value, crate::view_host::ViewError> {
         Ok(Value::Null)
     }
 }
@@ -39,7 +44,10 @@ fn fixture() -> (
         frame.clone(),
         Frame {
             plugin: provider.id().into(),
+            view_lease: token(),
+            context: ViewCallContext::panel(provider.id()),
             provider: Arc::downgrade(&provider),
+            provider_registration: registry.registration_id(provider.id()).unwrap(),
             registry: Arc::downgrade(&registry),
             expires: now + FRAME_TTL,
             handles: HashMap::new(),
@@ -314,7 +322,9 @@ fn frame_and_plugin_revocation_prevent_deferred_registration_and_old_streams() {
         now,
     )
     .unwrap();
-    let second_frame = create_frame(&provider, &registry).unwrap();
+    let second_frame = create_frame(&provider, &registry, ViewCallContext::panel(provider.id()))
+        .unwrap()
+        .media_frame;
     assert_eq!(
         frame_owns_handle(provider.id(), &second_frame, &first.handle),
         Err(MediaRefusal::Foreign)
@@ -358,4 +368,137 @@ fn native_registry_replacement_and_removal_revoke_live_frame_authority() {
     registry.unregister(provider.id());
     assert!(frame_provider(provider.id(), &frame).is_err());
     revoke_frame(provider.id(), &frame);
+}
+
+#[test]
+fn private_view_lease_never_accepts_presentation_key_and_revokes_with_frame() {
+    let (_, _, provider, _, _, registry) = fixture();
+    let registration =
+        create_frame(&provider, &registry, ViewCallContext::panel(provider.id())).unwrap();
+    let (_, context) = view_frame(provider.id(), &registration.view_lease).unwrap();
+    assert_ne!(registration.view_lease, registration.media_frame);
+    assert_ne!(
+        context.frame.as_deref(),
+        Some(registration.view_lease.as_str())
+    );
+    assert_ne!(
+        context.frame.as_deref(),
+        Some(registration.media_frame.as_str())
+    );
+    assert!(view_frame(provider.id(), &registration.media_frame).is_err());
+    assert!(view_frame("foreign-plugin", &registration.view_lease).is_err());
+    assert_eq!(
+        frame_context(provider.id(), &registration.media_frame).unwrap(),
+        context
+    );
+    context_is_live(&context).unwrap();
+    revoke_view_frame(provider.id(), &registration.view_lease);
+    assert!(view_frame(provider.id(), &registration.view_lease).is_err());
+    assert!(frame_context(provider.id(), &registration.media_frame).is_err());
+    assert!(context_is_live(&context).is_err());
+}
+
+#[test]
+fn view_leases_refuse_replaced_providers_and_context_plugin_spoofing() {
+    let (_, _, provider, _, _, registry) = fixture();
+    assert!(create_frame(&provider, &registry, ViewCallContext::panel("foreign")).is_err());
+    let registration =
+        create_frame(&provider, &registry, ViewCallContext::panel(provider.id())).unwrap();
+    let replacement: Arc<dyn ViewProvider> = Arc::new(Provider(provider.id().into()));
+    registry.register(provider.id(), replacement);
+    assert!(view_frame(provider.id(), &registration.view_lease).is_err());
+    assert!(frame_context(provider.id(), &registration.media_frame).is_err());
+    revoke_plugin(provider.id());
+}
+
+#[test]
+fn native_load_retirement_revokes_context_and_media_even_after_fresh_registration() {
+    let (dir, store, provider, frame, now, registry) = fixture();
+    STORE.lock().frames.extend(store.frames);
+    let handle = register_at_root(
+        &mut STORE.lock(),
+        provider.id(),
+        &frame,
+        dir.path(),
+        source("clip.mp4"),
+        now,
+    )
+    .unwrap();
+    let reader = playback(provider.id(), &frame, &handle.handle).unwrap();
+    let old = frame_context(provider.id(), &frame).unwrap();
+    let old_lease = STORE.lock().frames[&frame].view_lease.clone();
+    revoke_frame(provider.id(), &frame);
+    assert!(context_is_live(&old).is_err());
+    assert!(view_frame(provider.id(), &old_lease).is_err());
+    assert!(reader.read(0, 4).is_err());
+    let fresh = reregister_frame(
+        &provider,
+        &registry,
+        ViewCallContext::panel(provider.id()),
+        &frame,
+    )
+    .unwrap();
+    assert_ne!(fresh.view_lease, old_lease);
+    assert_ne!(fresh.context.frame, old.frame);
+    assert!(context_is_live(&old).is_err());
+    assert!(view_frame(provider.id(), &old_lease).is_err());
+    assert!(reader.read(0, 4).is_err());
+    assert!(open_frame_media(provider.id(), &frame, &handle.handle).is_err());
+    assert!(reregister_frame(&provider, &registry, fresh.context.clone(), &frame).is_err());
+    context_is_live(&fresh.context).unwrap();
+    revoke_frame(provider.id(), &frame);
+}
+
+#[test]
+fn same_arc_registry_generation_changes_revoke_old_frame_admissions_and_readers() {
+    for unregister_first in [false, true] {
+        let (dir, store, provider, frame, now, registry) = fixture();
+        STORE.lock().frames.extend(store.frames);
+        let registered = register_at_root(
+            &mut STORE.lock(),
+            provider.id(),
+            &frame,
+            dir.path(),
+            source("clip.mp4"),
+            now,
+        )
+        .unwrap();
+        let reader = playback(provider.id(), &frame, &registered.handle).unwrap();
+        let context = frame_context(provider.id(), &frame).unwrap();
+        let lease = STORE.lock().frames[&frame].view_lease.clone();
+        let previous = registry.registration_id(provider.id()).unwrap();
+        if unregister_first {
+            registry.unregister(provider.id());
+            assert!(context_is_live(&context).is_err());
+            assert!(reader.read(0, 4).is_err());
+        }
+        registry.register(provider.id(), provider.clone());
+        assert_ne!(
+            registry.registration_id(provider.id()).as_deref(),
+            Some(previous.as_str())
+        );
+        assert!(frame_provider(provider.id(), &frame).is_err());
+        assert!(frame_context(provider.id(), &frame).is_err());
+        assert!(view_frame(provider.id(), &lease).is_err());
+        assert!(context_is_live(&context).is_err());
+        assert!(reader.read(0, 4).is_err());
+        assert!(open_frame_media(provider.id(), &frame, &registered.handle).is_err());
+        assert!(register_at_root(
+            &mut STORE.lock(),
+            provider.id(),
+            &frame,
+            dir.path(),
+            source("clip.mp4"),
+            now
+        )
+        .is_err());
+        let fresh =
+            create_frame(&provider, &registry, ViewCallContext::panel(provider.id())).unwrap();
+        context_is_live(&fresh.context).unwrap();
+        view_frame(provider.id(), &fresh.view_lease).unwrap();
+        assert!(view_frame(provider.id(), &lease).is_err());
+        assert!(reader.read(0, 4).is_err());
+        revoke_frame(provider.id(), &fresh.media_frame);
+        revoke_frame(provider.id(), &frame);
+    }
 }

@@ -205,6 +205,8 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     plugin_manager_snapshot: (a) => webJson("GET", "/api/plugins/snapshot", undefined, { signal: a.signal as AbortSignal | undefined }),
     plugin_tab_menu: () => webJson("GET", "/api/plugins/tab-menu"),
     plugin_tab_menu_action: (a) => webJson("POST", "/api/plugins/tab-menu/action", a),
+    plugin_remote_task_call: (a) => client.localJson("POST", "/api/plugins/remote-task-call", a),
+    plugin_recording_suggestion: (a) => client.localJson("POST", "/api/plugins/recording-suggestion", a),
     plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
     provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli`),
     push_channel_roster: () => webJson("GET", "/api/notifications/channels"),

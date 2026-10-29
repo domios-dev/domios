@@ -25,7 +25,12 @@ impl ViewProvider for Native {
             file_name: Some("Clip.mp4".into()),
         })
     }
-    async fn call(&self, _: &str, _: Value) -> Result<Value, ViewError> {
+    async fn call(
+        &self,
+        _: &str,
+        _: Value,
+        _context: &crate::view_host::ViewCallContext,
+    ) -> Result<Value, ViewError> {
         Ok(Value::Null)
     }
 }

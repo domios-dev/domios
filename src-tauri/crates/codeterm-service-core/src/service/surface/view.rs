@@ -69,7 +69,11 @@ impl ServiceContext {
         }
     }
 
-    fn invalidate_surface_view(&self, plugin: &str, request: &str) -> Result<(), String> {
+    pub(super) fn invalidate_surface_view(
+        &self,
+        plugin: &str,
+        request: &str,
+    ) -> Result<(), String> {
         if request.len() > 1024 {
             return Err("surface invalidation exceeds 1024 bytes".into());
         }

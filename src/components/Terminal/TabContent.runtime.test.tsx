@@ -141,7 +141,7 @@ it("routes a non-PTY task tab through its backing provider even without a local 
   __setListenForTest(async () => () => {});
   __setInvokeForTest(async <T,>(command: string) => {
     calls.push(command);
-    const value = command === "plugin_view_call" ? {phase: "bound", snapshot: {status: "ready", result: "Fixture remote result", diff: null}}
+    const value = command === "plugin_remote_task_call" ? {phase: "bound", snapshot: {status: "ready", result: "Fixture remote result", diff: null}}
       : command === "plugin_manager_snapshot" ? {plugins: [], channels: [], diff: [], marketplace: []} : {};
     return value as T;
   });
@@ -157,7 +157,7 @@ it("routes a non-PTY task tab through its backing provider even without a local 
     </MuxStateStoreContext.Provider>));
     expect(host.querySelector('section[aria-label="Remote task"]')).not.toBeNull();
     expect(host.querySelector("pre")?.textContent).toBe("Fixture remote result");
-    expect(calls).toContain("plugin_view_call");
+    expect(calls).toContain("plugin_remote_task_call");
     expect(calls).not.toContain("chat_start");
     expect(onPtySpawned).not.toHaveBeenCalled();
   } finally {
