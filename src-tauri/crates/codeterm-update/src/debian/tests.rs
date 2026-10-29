@@ -19,6 +19,13 @@ fn only_signature_verified_bytes_are_staged_and_exposed_to_dpkg() {
         root.path(),
     )
     .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = std::fs::metadata(staged.path.parent().unwrap()).unwrap();
+        assert_eq!(metadata.uid(), unsafe { libc::geteuid() });
+        assert_eq!(metadata.mode() & 0o777, 0o700);
+    }
     assert_eq!(std::fs::read(&staged.path).unwrap(), bytes);
     assert_eq!(
         staged.command(),

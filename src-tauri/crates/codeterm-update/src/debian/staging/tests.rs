@@ -33,11 +33,25 @@ fn cleanup_requires_owned_unused_and_stale() {
 
 #[test]
 fn lease_excludes_other_installers_and_cleanup() {
-    let root = tempfile::Builder::new().prefix(PREFIX).tempdir().unwrap();
+    let mut directory = tempfile::Builder::new();
+    directory.prefix(PREFIX);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        directory.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let root = directory.tempdir().unwrap();
     let first = StageLease::acquire(root.path()).unwrap();
     assert!(StageLease::acquire(root.path()).is_err());
     drop(first);
     assert!(StageLease::acquire(root.path()).is_ok());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o770)).unwrap();
+        assert!(!owned(root.path()));
+        assert!(StageLease::acquire(root.path()).is_err());
+    }
 }
 
 #[test]

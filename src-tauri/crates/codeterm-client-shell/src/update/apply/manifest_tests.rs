@@ -9,13 +9,18 @@ fn retained_metadata_prepares_without_network_and_keeps_signature_verification()
         include_str!("../../../../../../tests/fixtures/auto-update/version-bound/signature.base64");
     let payload =
         include_bytes!("../../../../../../tests/fixtures/auto-update/version-bound/payload.txt");
+    let mut context = tauri::test::mock_context(tauri::test::noop_assets());
+    context.config_mut().plugins.0.insert(
+        "updater".into(),
+        serde_json::json!({ "pubkey": public_key, "requireSignedVersion": true }),
+    );
     let app = crate::app_runtime::builder()
         .plugin(
             tauri_plugin_updater::Builder::new()
                 .pubkey(public_key)
                 .build(),
         )
-        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .build(context)
         .unwrap();
     let updater = app
         .updater_builder()

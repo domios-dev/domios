@@ -69,6 +69,7 @@ impl AccountMeshAuthority for Authority {
 
 #[tokio::test]
 async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_retries_skip_hint() {
+    crate::test_support::install_app_version();
     use axum::response::IntoResponse;
     use codeterm_service_core::{
         multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
