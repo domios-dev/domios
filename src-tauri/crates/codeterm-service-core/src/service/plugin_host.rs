@@ -91,6 +91,37 @@ fn api_cfg_base_url(cfg: crate::config::schema::ApiConfig) -> String {
 // ── PluginHostCtx impl ───────────────────────────────────────────────────────
 
 impl codeterm_plugin::PluginHostCtx for ServiceContext {
+    fn surface_registration(&self, plugin: &str, runtime: &str) -> Option<String> {
+        let (provider, registration) = self
+            .ext::<codeterm_plugin::view_host::ViewRegistryHandle>()
+            .registered(plugin)?;
+        (provider.id() == plugin && provider.invocation_runtime().as_deref() == Some(runtime))
+            .then_some(registration)
+    }
+    fn bind_run_transfer_input(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::blueprint_step::StepInputContext,
+        handle: &str,
+        destination: &str,
+        control: &codeterm_plugin::binary_transfer::InputPreparation,
+    ) -> codeterm_plugin::binary_transfer::Result<
+        codeterm_plugin::binary_transfer::TransferInputGrant,
+    > {
+        self.host_extension::<codeterm_plugin::blueprint_step::RunInputs>()
+            .ok_or(codeterm_plugin::binary_transfer::TransferRefusal::NotAllowed)?
+            .0
+            .bind(plugin, context, handle, destination, control)
+    }
+    fn plugin_job_json(&self, plugin: &str, request: &str) -> String {
+        match self.host_extension::<codeterm_plugin::plugin_jobs::PluginJobs>() {
+            Some(jobs) => match jobs.0.invoke(plugin, request) {
+                Ok(value) => value.to_string(),
+                Err(_) => serde_json::json!({"error":"plugin_job_request_refused"}).to_string(),
+            },
+            None => serde_json::json!({"error":"plugin_jobs_unavailable"}).to_string(),
+        }
+    }
     fn runtime_launch_authorized(
         &self,
         binding: &codeterm_plugin::agent_runtime::RuntimeLaunchBinding,

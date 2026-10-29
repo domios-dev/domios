@@ -66,3 +66,5 @@ export type { ChatAttachment } from "./gen/ChatAttachment";
 export * from "./mediaDelivery";
 
 export * from "./binaryTransfer";
+export * from "./costUnits";
+export * from "./pluginJobs";

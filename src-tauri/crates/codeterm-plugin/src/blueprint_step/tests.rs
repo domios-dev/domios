@@ -249,10 +249,10 @@ fn plugin_steps_waiting_approval_reestimates_exact_operation_without_duplicate_s
         }
     );
     assert!(ledger
-        .authorize("approval", &request.context.scope, "foreign", 5)
+        .authorize_fresh("approval", &request.context.scope, "foreign", 5, 100)
         .is_err());
     ledger
-        .authorize("approval", &request.context.scope, "owner", 4)
+        .authorize_fresh("approval", &request.context.scope, "owner", 4, 100)
         .unwrap();
     assert_eq!(
         drive(&runtime, &request).waiting.unwrap().reason,
@@ -260,7 +260,7 @@ fn plugin_steps_waiting_approval_reestimates_exact_operation_without_duplicate_s
     );
     assert_eq!(fixture.submitted.load(Ordering::SeqCst), 0);
     ledger
-        .authorize("approval", &request.context.scope, "owner", 5)
+        .authorize_fresh("approval", &request.context.scope, "owner", 5, 100)
         .unwrap();
     assert_eq!(drive(&runtime, &request).reserved, 5);
     assert_eq!(drive(&runtime, &request).job.as_deref(), Some("job-1"));
@@ -339,7 +339,7 @@ fn plugin_steps_changed_inputs_or_revision_cannot_reuse_owner_approval() {
     let runtime = runtime(&ledger, &descriptor, fixture.clone());
     drive(&runtime, &request);
     ledger
-        .authorize("immutable", &request.context.scope, "owner", 1)
+        .authorize_fresh("immutable", &request.context.scope, "owner", 1, 100)
         .unwrap();
     for change in 0..3 {
         let mut changed = request.clone();
@@ -520,10 +520,21 @@ fn plugin_steps_estimate_freshness_uses_admission_time_and_unsupported_cancel_is
         )
         .unwrap();
     assert_eq!(held.waiting.unwrap().reason, WaitingReason::EstimateStale);
-    ledger
-        .authorize("freshness", &request.context.scope, "owner", 1)
-        .unwrap();
+    assert!(ledger
+        .authorize_fresh("freshness", &request.context.scope, "owner", 1, 201)
+        .is_err());
     fixture.estimate.lock().as_mut().unwrap().valid_until_ms = 300;
+    runtime
+        .refresh_estimate(
+            &request,
+            || 202,
+            Instant::now() + Duration::from_secs(5),
+            Default::default(),
+        )
+        .unwrap();
+    ledger
+        .authorize_fresh("freshness", &request.context.scope, "owner", 1, 202)
+        .unwrap();
     assert_eq!(
         runtime
             .drive(
@@ -581,4 +592,6 @@ fn plugin_steps_native_js_adapter_parity_uses_identical_contract_fixtures() {
 }
 
 mod media;
+mod monitor;
+mod refresh;
 mod review;

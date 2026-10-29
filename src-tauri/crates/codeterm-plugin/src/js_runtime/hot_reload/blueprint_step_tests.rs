@@ -11,6 +11,27 @@ fn manifest() -> PluginManifest {
 }
 
 #[test]
+fn plugin_identity_preconstructed_capabilities_cannot_replace_vm_identity() {
+    let caps = test_caps();
+    let vm = Arc::new(
+        super::super::PluginVm::from_source("fixture", "module.exports.default={};".into())
+            .unwrap(),
+    );
+    for id in [
+        "blueprint-plugin-operations.sqlite",
+        "blueprint-run-media.sqlite",
+        "other-valid-id",
+        "nul",
+    ] {
+        let mut manifest = manifest();
+        manifest.id = id.into();
+        manifest.capabilities.view = true;
+        caps.register_plugin(&manifest, &vm);
+        assert!(caps.view.get(id).is_none());
+    }
+}
+
+#[test]
 fn plugin_steps_registration_requires_declared_exports_and_revokes_snapshots() {
     let caps = test_caps();
     let manifest = manifest();

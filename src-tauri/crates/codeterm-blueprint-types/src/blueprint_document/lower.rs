@@ -39,7 +39,7 @@ pub(super) fn lower(doc: &Document) -> LowerResult {
                 "unsupported: per-node capability or budget enforcement".into(),
             ));
         }
-        if !node.outcomes.is_empty() {
+        if !node.outcomes.is_empty() && !node.uses.as_ref().is_some_and(NodeKind::plugin) {
             errors.push((
                 format!("{path}.outcomes"),
                 "unsupported: explicit outcome declarations".into(),
@@ -141,6 +141,9 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
             json!({"kind":"command","command":lit(run)?})
         } else {
             match node.uses.as_ref().ok_or("Node kind required")? {
+                NodeKind::Plugin(id) => json!({"kind":"plugin","node_type":id,
+                    "config":node.plugin.as_ref().ok_or("Plugin step config required")?,"params":with,
+                    "outcomes":if node.outcomes.is_empty(){vec!["done".to_string(),"failed".to_string()]}else{node.outcomes.clone()}}),
                 NodeKind::Http | NodeKind::Github => json!({"kind":node.kind(),"probe":with}),
                 NodeKind::Ask => {
                     with["kind"] = json!("ask");

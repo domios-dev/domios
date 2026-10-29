@@ -2,6 +2,22 @@ use super::*;
 use crate::converter::ConversionCancellation;
 use std::{sync::Arc, time::Instant};
 
+fn bounded_update(
+    update: Result<JobUpdate, String>,
+    call: &StepCall<'_>,
+) -> Result<JobUpdate, String> {
+    update.map(|update| {
+        if call.cancellation.is_cancelled() || Instant::now() >= call.deadline {
+            JobUpdate::unknown(update.job)
+        } else {
+            update
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests;
+
 pub struct StepRuntime<'a> {
     pub ledger: &'a OperationLedger,
     pub descriptor: &'a StepDescriptor,
@@ -10,6 +26,39 @@ pub struct StepRuntime<'a> {
 }
 
 impl StepRuntime<'_> {
+    pub fn refresh_estimate(
+        &self,
+        request: &StepRequest,
+        now_ms: impl FnOnce() -> u64,
+        deadline: Instant,
+        cancellation: ConversionCancellation,
+    ) -> Result<OperationRecord, String> {
+        let _lease = self
+            .ledger
+            .try_acquire(&request.context.operation)
+            .ok_or("plugin operation busy")?;
+        let record = self.record(request)?;
+        self.validate(&record.plugin, request, true)?;
+        if record.state != OperationState::WaitingForOwnerOk
+            || record.job.is_some()
+            || record.reserved != 0
+        {
+            return Err("price refresh requires an unsubmitted held operation".into());
+        }
+        if cancellation.is_cancelled() || Instant::now() >= deadline {
+            return Err("price refresh interrupted".into());
+        }
+        let call = StepCall {
+            request,
+            job: None,
+            deadline,
+            cancellation,
+        };
+        let estimate = self.adapter.estimate(&call).ok().flatten();
+        self.ledger
+            .refresh_price(&request.context.operation, estimate, now_ms())
+    }
+
     pub fn drive(
         &self,
         plugin: &str,
@@ -18,7 +67,7 @@ impl StepRuntime<'_> {
         deadline: Instant,
         cancellation: ConversionCancellation,
     ) -> Result<OperationRecord, String> {
-        self.validate(plugin, request)?;
+        self.validate(plugin, request, true)?;
         let Some(_lease) = self.ledger.try_acquire(&request.context.operation) else {
             return self.record(request);
         };
@@ -58,7 +107,7 @@ impl StepRuntime<'_> {
             Some(Estimate {
                 amount: 0,
                 unit: self.unit(request)?,
-                valid_until_ms: u64::MAX,
+                valid_until_ms: MAX_COST_AMOUNT,
             })
         };
         let admitted = self
@@ -74,7 +123,7 @@ impl StepRuntime<'_> {
         if current.cancel_requested {
             return Ok(current);
         }
-        let update = self.adapter.submit(&call);
+        let update = bounded_update(self.adapter.submit(&call), &call);
         self.settle(request, update)?;
         self.record(request)
     }
@@ -90,7 +139,7 @@ impl StepRuntime<'_> {
             .try_acquire(&request.context.operation)
             .ok_or("plugin operation busy")?;
         let record = self.record(request)?;
-        self.validate(&record.plugin, request)?;
+        self.validate(&record.plugin, request, false)?;
         if record.state.terminal()
             || matches!(
                 record.state,
@@ -111,7 +160,10 @@ impl StepRuntime<'_> {
             deadline,
             cancellation,
         };
-        self.settle(request, self.adapter.reconcile(&call))?;
+        self.settle(
+            request,
+            bounded_update(self.adapter.reconcile(&call), &call),
+        )?;
         self.record(request)
     }
 
@@ -124,7 +176,7 @@ impl StepRuntime<'_> {
             return self.record_cancel_intent(request);
         };
         let record = self.record(request)?;
-        self.validate(&record.plugin, request)?;
+        self.validate(&record.plugin, request, false)?;
         if record.state.terminal() {
             return Ok(record);
         }
@@ -138,20 +190,32 @@ impl StepRuntime<'_> {
             return self.record_cancel_intent(request);
         }
         self.record_cancel_intent(request)?;
-        if !self.descriptor.lifecycle.cancel || Instant::now() >= deadline {
+        if record.cancel_dispatched
+            || !self.descriptor.lifecycle.cancel
+            || Instant::now() >= deadline
+        {
             return self.record(request);
         }
+        self.ledger.change(&request.context.operation, |record| {
+            record.cancel_dispatched = true;
+            Ok(())
+        })?;
         let call = StepCall {
             request,
             job: record.job.as_deref(),
             deadline,
             cancellation: Default::default(),
         };
-        self.settle(request, self.adapter.cancel(&call))?;
+        self.settle(request, bounded_update(self.adapter.cancel(&call), &call))?;
         self.record(request)
     }
 
-    fn validate(&self, plugin: &str, request: &StepRequest) -> Result<(), String> {
+    fn validate(
+        &self,
+        plugin: &str,
+        request: &StepRequest,
+        fresh_inputs: bool,
+    ) -> Result<(), String> {
         self.descriptor.validate()?;
         if !token(&request.unit) || request.step_allowance > MAX_COST_AMOUNT {
             return Err("invalid step spending authorization".into());
@@ -204,6 +268,9 @@ impl StepRuntime<'_> {
             && self.media.is_none()
         {
             return Err("run media authority unavailable".into());
+        }
+        if !fresh_inputs {
+            return Ok(());
         }
         let mut lineage = Vec::new();
         for value in request.inputs.values().flatten() {

@@ -16,9 +16,14 @@ impl Resolver {
 }
 
 impl RunMediaResolver for Resolver {
-    fn fingerprint(&self, plugin: &str, media_id: &str, kind: PortKind) -> Result<String, String> {
+    fn fingerprint(
+        &self,
+        context: &crate::media_delivery::RunMediaLookupContext,
+        media_id: &str,
+        kind: PortKind,
+    ) -> Result<String, String> {
         if !self.installed.load(Ordering::SeqCst)
-            || plugin != "fixture"
+            || context.plugin != "fixture"
             || media_id != "image-1"
             || kind != PortKind::Image
         {
@@ -46,7 +51,7 @@ fn plugin_steps_media_authority_survives_restart_and_refuses_foreign_scope_or_re
             handle
         );
         media
-            .authorize_handoff(&context.scope, &handle, "reviewer", "review")
+            .authorize_handoff(&context, &handle, "reviewer", "review")
             .unwrap();
         handle
     };
@@ -68,12 +73,13 @@ fn plugin_steps_media_authority_survives_restart_and_refuses_foreign_scope_or_re
     assert!(media
         .input(&receiving, "other", &handle, PortKind::Image)
         .is_err());
-    for change in 0..3 {
+    for change in 0..4 {
         let mut foreign = receiving.clone();
         match change {
             0 => foreign.scope.workspace = "foreign".into(),
             1 => foreign.scope.team = None,
-            _ => foreign.scope.run = "foreign".into(),
+            2 => foreign.scope.run = "foreign".into(),
+            _ => foreign.owner = "foreign".into(),
         }
         assert!(media
             .input(&foreign, "reviewer", &handle, PortKind::Image)
@@ -175,7 +181,7 @@ fn plugin_steps_fixture_media_handoff_review_metadata_and_three_job_history() {
     };
 
     media
-        .authorize_handoff(&generation.context.scope, handle, "fixture", "review")
+        .authorize_handoff(&generation.context, handle, "fixture", "review")
         .unwrap();
     let mut review = request("review");
     review.node_type = "fixture.review".into();

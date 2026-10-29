@@ -35,7 +35,26 @@ impl std::error::Error for ViewError {}
 /// A plugin iframe backend. Host-owned ports remain separate from viewCall.
 #[async_trait]
 pub trait ViewProvider: Send + Sync {
+    fn invocation_runtime(&self) -> Option<String> {
+        None
+    }
     fn id(&self) -> &str;
+
+    fn job_lifecycle(&self) -> Option<crate::plugin_jobs::JobLifecycleDescriptor> {
+        None
+    }
+    fn reconcile_job(
+        &self,
+        _call: &crate::plugin_jobs::JobCall,
+    ) -> Result<crate::plugin_jobs::JobObservation, ViewError> {
+        Err(ViewError::Call("job lifecycle unavailable".into()))
+    }
+    fn cancel_job(
+        &self,
+        _call: &crate::plugin_jobs::JobCall,
+    ) -> Result<crate::plugin_jobs::JobObservation, ViewError> {
+        Err(ViewError::Call("job cancellation unavailable".into()))
+    }
 
     /// The webhook capability served by this view, when it has one.
     fn webhook_receiver_kind(&self) -> Option<WebhookReceiverKind> {

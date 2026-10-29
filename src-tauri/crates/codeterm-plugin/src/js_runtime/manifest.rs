@@ -256,6 +256,8 @@ fn default_capabilities() -> Capabilities {
         view: false,
         media_delivery: None,
         binary_transfer: None,
+        job_lifecycle: None,
+        cost_units: Default::default(),
         agent_runtime: None,
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),

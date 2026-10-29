@@ -49,6 +49,7 @@ pub enum WaitingReason {
     EstimateStale,
     OverRunCeiling,
     OverStepAllowance,
+    OwnerConfirmation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

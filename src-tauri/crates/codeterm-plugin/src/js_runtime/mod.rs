@@ -86,3 +86,4 @@ pub use manifest::{
 };
 use vm::call_json_strict;
 pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};
+mod host_jobs;

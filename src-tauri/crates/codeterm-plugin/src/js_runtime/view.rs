@@ -20,9 +20,53 @@ pub struct JsViewProvider {
     host_actions: Vec<ViewHostAction>,
     view_inputs: Option<crate::media_delivery::ViewInputDescriptor>,
     media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
+    job_lifecycle: Option<crate::plugin_jobs::JobLifecycleDescriptor>,
 }
 
 impl JsViewProvider {
+    pub fn with_job_lifecycle(
+        mut self,
+        descriptor: Option<crate::plugin_jobs::JobLifecycleDescriptor>,
+    ) -> Self {
+        self.job_lifecycle = descriptor.filter(|value| value.valid());
+        self
+    }
+
+    fn job_call(
+        &self,
+        export: &str,
+        call: &crate::plugin_jobs::JobCall,
+    ) -> Result<crate::plugin_jobs::JobObservation, ViewError> {
+        if call.context.scope.plugin != self.id
+            || crate::view_host::has_view_call_context()
+            || call.cancellation.is_cancelled()
+            || std::time::Instant::now() >= call.deadline
+            || self
+                .job_lifecycle()
+                .is_none_or(|descriptor| export == "jobCancel" && !descriptor.cancel)
+        {
+            return Err(ViewError::Call("job lifecycle scope refused".into()));
+        }
+        let mut value = serde_json::to_value(&call.context)
+            .map_err(|_| ViewError::Call("invalid job context".into()))?;
+        value["deadlineMs"] = serde_json::json!(call
+            .deadline
+            .saturating_duration_since(std::time::Instant::now())
+            .as_millis()
+            .min(30_000) as u64);
+        let result: crate::plugin_jobs::JobObservation = super::vm::call_json_interruptible(
+            &self.vm,
+            export,
+            &[value],
+            call.cancellation.clone(),
+            call.deadline,
+        )
+        .map_err(|_| ViewError::Call("job lifecycle unavailable".into()))?;
+        if !result.valid_for(&call.context.job) {
+            return Err(ViewError::Call("job identity or state changed".into()));
+        }
+        Ok(result)
+    }
     pub fn with_media_delivery(
         mut self,
         descriptor: Option<crate::media_delivery::MediaDeliveryDescriptor>,
@@ -47,6 +91,7 @@ impl JsViewProvider {
             host_actions: Vec::new(),
             view_inputs: None,
             media_delivery: None,
+            job_lifecycle: None,
         }
     }
 
@@ -73,6 +118,24 @@ impl JsViewProvider {
 
 #[async_trait]
 impl ViewProvider for JsViewProvider {
+    fn invocation_runtime(&self) -> Option<String> {
+        Some(self.vm.runtime_identity().into())
+    }
+    fn job_lifecycle(&self) -> Option<crate::plugin_jobs::JobLifecycleDescriptor> {
+        self.job_lifecycle.clone()
+    }
+    fn reconcile_job(
+        &self,
+        call: &crate::plugin_jobs::JobCall,
+    ) -> Result<crate::plugin_jobs::JobObservation, ViewError> {
+        self.job_call("jobReconcile", call)
+    }
+    fn cancel_job(
+        &self,
+        call: &crate::plugin_jobs::JobCall,
+    ) -> Result<crate::plugin_jobs::JobObservation, ViewError> {
+        self.job_call("jobCancel", call)
+    }
     fn id(&self) -> &str {
         &self.id
     }

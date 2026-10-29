@@ -614,6 +614,7 @@ pub fn decode(stored: &StoredSentinel) -> Sentinel {
                     held_reason: Some(crate::admission::HeldReason::PlanLimitLocked),
                     baseline_pending: true,
                     continuation: None,
+                    plugin_hold: None,
                 })
             })
             .unwrap_or_default(),

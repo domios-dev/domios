@@ -408,6 +408,13 @@ pub struct Capabilities {
     pub media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub binary_transfer: Option<crate::binary_transfer::BinaryTransferDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_lifecycle: Option<crate::plugin_jobs::JobLifecycleDescriptor>,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::cost_units::CostUnits::is_empty"
+    )]
+    pub cost_units: crate::cost_units::CostUnits,
     /// Drives a non-PTY tab as a full conversational backend (e.g. LM Studio).
     /// The tab routes send/read through the plugin instead of a terminal.
     /// Bool (registered, backend-only) or `{ spawnable }` object (user-openable).

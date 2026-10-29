@@ -61,6 +61,15 @@ fn recording_reply(
 }
 
 impl PluginHostCtx for AnalyticsHost {
+    fn surface_registration(&self, plugin: &str, _: &str) -> Option<String> {
+        (plugin == "origin-fixture").then(|| "epoch".into())
+    }
+    fn plugin_job_json(&self, plugin: &str, _: &str) -> String {
+        match crate::surface_invocation::current(plugin) {
+            Some(origin) => json!({"origin":origin}).to_string(),
+            None => json!({"error":"plugin_job_request_refused"}).to_string(),
+        }
+    }
     fn mem_search_json(&self, _: &str) -> String {
         String::new()
     }
@@ -189,6 +198,23 @@ impl PluginHostCtx for AnalyticsHost {
         recording_reply(self.recordings.set_enabled(plugin_id, enabled))
     }
     fn surface_call_json(&self, plugin_id: &str, caller: &str, verb: &str, args: &str) -> String {
+        if matches!(verb, "origin-probe" | "origin-sync") {
+            let context = crate::surface_invocation::SurfaceInvocationContext {
+                plugin: plugin_id.into(),
+                registration: "epoch".into(),
+                surface: "studio".into(),
+                instance: "instance".into(),
+                tab: "surface-tab".into(),
+                owner: "owner".into(),
+                actor: caller.into(),
+                workspace: "workspace".into(),
+                team: None,
+            };
+            return match crate::surface_invocation::issue(context) {
+                Ok(invocation) => json!({"view_dispatch":{"context":{"owner":"owner","actor":caller},"verb":verb,"args":[],"invocation":invocation}}).to_string(),
+                Err(_) => json!({"error":"surface invocation unavailable"}).to_string(),
+            };
+        }
         if verb == "view-probe" {
             return json!({"view_dispatch":{"context":{"surface":"board","instance":"instance-one",
                 "tab":"surface-tab","owner":"owner-tab","actor":caller,"actorLabel":"Visitor"},

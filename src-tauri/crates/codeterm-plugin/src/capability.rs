@@ -57,6 +57,13 @@ impl<T: ?Sized> CapabilityRegistry<T> {
         self.entries.read().get(id).map(|entry| entry.1.clone())
     }
 
+    pub fn registered(&self, id: &str) -> Option<(Arc<T>, String)> {
+        self.entries
+            .read()
+            .get(id)
+            .map(|entry| (entry.0.clone(), entry.1.clone()))
+    }
+
     /// All registered implementations (order unspecified).
     pub fn active(&self) -> Vec<Arc<T>> {
         self.entries

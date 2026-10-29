@@ -1,4 +1,5 @@
 pub mod activity;
+pub use async_trait::async_trait;
 pub mod agent_claude;
 pub mod agent_commands;
 pub mod agent_prompt_lines;
@@ -83,3 +84,7 @@ pub use webhook::{
 mod test_support;
 
 pub mod binary_transfer;
+pub mod cost_units;
+pub mod plugin_id;
+pub mod plugin_jobs;
+pub mod surface_invocation;

@@ -48,6 +48,7 @@ impl PluginManifest {
     /// Strict parse plus the cross-field capability rules every load path enforces.
     pub fn from_json_str(text: &str) -> Result<Self, String> {
         let mut manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        crate::plugin_id::validate(&manifest.id)?;
         if let Some(raw) = manifest.agent_prompt_line.take() {
             match crate::agent_prompt_lines::validate_agent_prompt_line(&raw) {
                 Ok(line) => manifest.agent_prompt_line = Some(line),
@@ -73,6 +74,16 @@ impl PluginManifest {
             return Err("binaryTransfer limits exceed the host bounds".into());
         }
         manifest.capabilities.validate_tab_menu()?;
+        if manifest
+            .capabilities
+            .job_lifecycle
+            .as_ref()
+            .is_some_and(|descriptor| !descriptor.valid() || !manifest.capabilities.view)
+        {
+            return Err(
+                "jobLifecycle requires a view and contract version 1 with reconciliation".into(),
+            );
+        }
         manifest.capabilities.validate_surfaces()?;
         manifest.capabilities.validate_view_host_actions()?;
         for source in manifest.capabilities.record_sources.values() {

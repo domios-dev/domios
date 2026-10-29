@@ -1,4 +1,5 @@
 //! Notification creation with OS toast support.
+mod daemon;
 
 #[cfg(test)]
 use codeterm_notification_core::contract::NotificationAction;
@@ -324,6 +325,36 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        if self.notification_requires_owner(id) {
+            return Err("Blueprint spending decisions require the local owner".into());
+        }
+        self.answer_notification_inner(id, label)
+    }
+
+    pub fn notification_requires_owner(&self, id: &str) -> bool {
+        self.notif.lock().answer_slot(id).is_some_and(|slot| {
+            slot.daemon_request
+                .as_deref()
+                .is_some_and(|request| request.starts_with("blueprint-plugin:"))
+        })
+    }
+
+    pub fn answer_notification_as_owner(
+        &self,
+        id: &str,
+        label: &str,
+    ) -> Result<serde_json::Value, String> {
+        self.answer_notification_inner(id, label)
+    }
+
+    fn answer_notification_inner(
+        &self,
+        id: &str,
+        label: &str,
+    ) -> Result<serde_json::Value, String> {
+        if let Some(result) = self.answer_host_question(id, label) {
+            return result;
+        }
         if let Some(result) = self.answer_mesh_link_notification(id, label) {
             return result;
         }

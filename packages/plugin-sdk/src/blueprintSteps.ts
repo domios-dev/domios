@@ -1,4 +1,13 @@
-import type { NodeSchema } from "./capabilities";
+type SchemaNotes = { description?: string; default?: unknown };
+export type BlueprintParameterSchema = SchemaNotes & (
+  | { type: "object" | ["object", "null"]; properties: Record<string, BlueprintParameterSchema>; required?: string[]; additionalProperties?: false }
+  | { type: "array" | ["array", "null"]; items: BlueprintParameterSchema; minItems?: number; maxItems: number }
+  | { type: "string" | ["string", "null"]; maxLength?: number; enum?: (string | null)[]; const?: string | null }
+  | { type: "number" | "integer" | ["number", "null"] | ["integer", "null"]; minimum?: number; maximum?: number; enum?: (number | null)[]; const?: number | null }
+  | { type: "boolean" | ["boolean", "null"]; enum?: (boolean | null)[]; const?: boolean | null }
+  | { type: "null" }
+  | { oneOf: BlueprintParameterSchema[] }
+);
 
 export type BlueprintPortKind = "text" | "json" | "image" | "audio" | "video" | "file";
 
@@ -6,7 +15,7 @@ export interface BlueprintStepPort {
   kind: BlueprintPortKind;
   minItems: number;
   maxItems: number;
-  schema?: NodeSchema;
+  schema?: BlueprintParameterSchema;
 }
 
 export interface BlueprintStepDescriptor {
@@ -15,7 +24,7 @@ export interface BlueprintStepDescriptor {
   id: string;
   title: string;
   description: string;
-  params: NodeSchema;
+  params: BlueprintParameterSchema;
   inputs: Record<string, BlueprintStepPort>;
   outputs: Record<string, BlueprintStepPort>;
   outcomes: string[];
@@ -76,7 +85,7 @@ export interface BlueprintStepEstimate {
 }
 
 export type BlueprintOperationState = "prepared" | "waiting_for_owner_ok" | "submitting" | "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
-export type BlueprintWaitingReason = "estimate_missing" | "estimate_stale" | "over_run_ceiling" | "over_step_allowance";
+export type BlueprintWaitingReason = "estimate_missing" | "estimate_stale" | "over_run_ceiling" | "over_step_allowance" | "owner_confirmation";
 
 export interface BlueprintStepWaiting {
   reason: BlueprintWaitingReason;

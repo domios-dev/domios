@@ -213,6 +213,9 @@ pub fn execute_step(
             return Err(JournalReason::Deadline);
         }
         let result = match &step.kind {
+            StepKind::Plugin { .. } if !simulate => {
+                super::plugin::run(ctx, step, &input, operation_limit)?
+            }
             StepKind::Call { call, grants } => crate::blueprint_calls::execute(
                 ctx,
                 &step.name,
@@ -237,8 +240,13 @@ pub fn execute_step(
                 &ctx.input_display,
                 ctx.cleanup.clone(),
                 operation_limit,
+                super::agent_media::inputs(ctx, step, &input)?,
+                ctx.run_id,
             ),
         };
+        if result.state == JournalState::Held {
+            return Ok((result, input));
+        }
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);
         }

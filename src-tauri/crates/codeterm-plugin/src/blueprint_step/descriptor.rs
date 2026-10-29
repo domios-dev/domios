@@ -1,4 +1,4 @@
-use crate::js_runtime::manifest::NodeSchema;
+use super::StepSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -15,8 +15,7 @@ pub struct StepDescriptor {
     pub id: String,
     pub title: String,
     pub description: String,
-    #[serde(with = "schema")]
-    pub params: NodeSchema,
+    pub params: StepSchema,
     pub inputs: BTreeMap<String, StepPort>,
     pub outputs: BTreeMap<String, StepPort>,
     pub outcomes: Vec<String>,
@@ -30,12 +29,8 @@ pub struct StepPort {
     pub kind: PortKind,
     pub min_items: u16,
     pub max_items: u16,
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        with = "optional_schema"
-    )]
-    pub schema: Option<NodeSchema>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<StepSchema>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -100,7 +95,7 @@ pub fn parse_descriptors(value: &Value) -> Result<Vec<StepDescriptor>, String> {
 
 impl StepDescriptor {
     pub fn validate(&self) -> Result<(), String> {
-        NodeSchema::from_value(&self.params.to_value())
+        StepSchema::from_value(&self.params.to_value())
             .map_err(|_| "invalid step parameter schema")?;
         let parts = self.id.split('.').collect::<Vec<_>>();
         if self.contract_version != 1
@@ -148,7 +143,7 @@ impl StepDescriptor {
                 return Err("invalid plugin step port".into());
             }
             if let Some(schema) = &port.schema {
-                NodeSchema::from_value(&schema.to_value())
+                StepSchema::from_value(&schema.to_value())
                     .map_err(|_| "invalid step JSON schema")?;
             }
         }
@@ -169,32 +164,5 @@ impl StepDescriptor {
                 && output.max_items <= port.max_items
                 && (port.schema.is_none() || port.schema == output.schema)
         })
-    }
-}
-
-mod schema {
-    use super::*;
-    pub fn serialize<S: serde::Serializer>(schema: &NodeSchema, s: S) -> Result<S::Ok, S::Error> {
-        schema.to_value().serialize(s)
-    }
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(d: D) -> Result<NodeSchema, D::Error> {
-        NodeSchema::from_value(&Value::deserialize(d)?).map_err(serde::de::Error::custom)
-    }
-}
-
-mod optional_schema {
-    use super::*;
-    pub fn serialize<S: serde::Serializer>(
-        schema: &Option<NodeSchema>,
-        s: S,
-    ) -> Result<S::Ok, S::Error> {
-        schema.as_ref().map(NodeSchema::to_value).serialize(s)
-    }
-    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
-        d: D,
-    ) -> Result<Option<NodeSchema>, D::Error> {
-        Option::<Value>::deserialize(d)?
-            .map(|v| NodeSchema::from_value(&v).map_err(serde::de::Error::custom))
-            .transpose()
     }
 }
