@@ -53,23 +53,24 @@ pub(super) fn add_channel(
         }
         fs::rename(&cache_path, &final_path).map_err(|e| format!("rename channel cache: {e}"))?;
     }
-    let mut reg = read_channel_registry().unwrap_or_default();
-    reg.channels.insert(
-        name.clone(),
-        ChannelRecord {
-            name: name.clone(),
-            url: url.to_string(),
-            path: final_path.display().to_string(),
-            kind: if is_local {
-                ChannelKind::Local
-            } else if archive_channel::is_archive_url(url) {
-                ChannelKind::Archive
-            } else {
-                ChannelKind::Git
+    let result = mutate_channel_registry(|reg| {
+        reg.channels.insert(
+            name.clone(),
+            ChannelRecord {
+                name: name.clone(),
+                url: url.to_string(),
+                path: final_path.display().to_string(),
+                kind: if is_local {
+                    ChannelKind::Local
+                } else if archive_channel::is_archive_url(url) {
+                    ChannelKind::Archive
+                } else {
+                    ChannelKind::Git
+                },
             },
-        },
-    );
-    let result = write_channel_registry(&reg);
+        );
+        Ok(())
+    });
     audit_channel_result("channel_add", Some(&name), &result);
     result?;
     Ok(serde_json::json!({
@@ -308,16 +309,17 @@ pub(super) fn remove_channel(name: &str, force: bool) -> Result<serde_json::Valu
             "'{name}' is the system plugin channel; pass --force to remove its registry entry"
         ));
     }
-    let mut reg = read_channel_registry().unwrap_or_default();
-    let ch = reg
-        .channels
-        .remove(name)
-        .ok_or_else(|| format!("channel '{name}' not registered"))?;
-    let path = PathBuf::from(&ch.path);
-    if path.exists() {
-        fs::remove_dir_all(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
-    }
-    let result = write_channel_registry(&reg);
+    let result = mutate_channel_registry(|reg| {
+        let ch = reg
+            .channels
+            .remove(name)
+            .ok_or_else(|| format!("channel '{name}' not registered"))?;
+        let path = PathBuf::from(&ch.path);
+        if path.exists() {
+            fs::remove_dir_all(&path).map_err(|e| format!("remove {}: {e}", path.display()))?;
+        }
+        Ok(())
+    });
     audit_channel_result("channel_remove", Some(name), &result);
     result?;
     Ok(serde_json::json!({
@@ -375,7 +377,7 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
     }
     // Two renames, not remove_dir_all then rename: the recursive delete left a window
     // with no `path`, and a concurrent diff reading ch.path dropped the channel.
-    if path.exists() {
+    let result = if path.exists() {
         let backup = path.with_file_name(format!(
             ".{}-old-{}",
             path.file_name()
@@ -395,7 +397,12 @@ pub(super) fn refresh_channel_record(ch: &ChannelRecord) -> Result<(), String> {
         Ok(())
     } else {
         fs::rename(&tmp, &path).map_err(|e| format!("replace channel cache: {e}"))
+    };
+    result?;
+    if ch.name == SYSTEM_CHANNEL_NAME {
+        mutate_channel_registry(|_| Ok(()))?;
     }
+    Ok(())
 }
 
 pub(super) fn materialize_registered_channel(
