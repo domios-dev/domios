@@ -43,6 +43,7 @@
   "src/components/Sidebar/sortable.pressFocus.test.tsx",
   "src/components/Sidebar/sidebarScrollTouch.test.ts",
   "src/components/Sidebar/GeneralInventory.test.tsx",
+  "src/components/Sidebar/SidebarGeneralSection.test.tsx",
   "src/components/Sidebar/WorkspaceItem.reveal.test.tsx",
   "src/components/MeshPanel/MeshPanel.web.wiring.test.tsx",
   "src/components/MeshPanel/AddPeerPanel.test.tsx",
