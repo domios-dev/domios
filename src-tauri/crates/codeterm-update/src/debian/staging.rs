@@ -75,10 +75,14 @@ pub(super) fn store(
     signature: &str,
     root: &Path,
 ) -> Result<StagedDebianPackage, String> {
-    let dir = tempfile::Builder::new()
-        .prefix(PREFIX)
-        .tempdir_in(root)
-        .map_err(|e| e.to_string())?;
+    let mut directory = tempfile::Builder::new();
+    directory.prefix(PREFIX);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        directory.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let dir = directory.tempdir_in(root).map_err(|e| e.to_string())?;
     let lease = StageLease::acquire(dir.path())?;
     let path = dir.path().join("domios-update.deb");
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
