@@ -1,6 +1,7 @@
 //! Start / restart / readiness-poll for the General Agent PTY+launch flow.
 
 use crate::service::MuxEmitCause;
+mod first_turn;
 mod launch;
 mod readiness;
 mod runtime_launch;
@@ -467,14 +468,21 @@ pub fn start_general_agent(
     };
 
     let session_id = if let Some(ref id) = session_id {
-        let valid = svc
-            .agent_registry
-            .with_provider(provider_name, |p| {
-                p.session_exists(&general_cwd, id) == Some(true)
-            })
-            .unwrap_or(false);
-        let owned = valid
-            && state::session_id_is_owned(&svc.agent_registry, provider_name, &general_cwd, id);
+        let binding = {
+            let mux = mux.read();
+            let tab = mux.get_tab(&tab_id);
+            (
+                tab.and_then(|tab| tab.agent_type.clone()),
+                tab.and_then(|tab| tab.agent_session_id.clone()),
+            )
+        };
+        let owned = state::session_id_is_owned(
+            &svc.agent_registry,
+            provider_name,
+            &general_cwd,
+            id,
+            (binding.0.as_deref(), binding.1.as_deref()),
+        );
         if !owned {
             log::info!(
                 "[general-agent] Session '{}' not valid or not GA-owned for provider '{}' — clearing, will detect fresh",
@@ -812,9 +820,16 @@ fn general_agent_permission_bypass(
 }
 
 fn clear_stale_general_binding(svc: &crate::ServiceState, mux: &crate::MuxState, tab_id: &str) {
-    svc.set_tab_agent_type(tab_id, None);
-    svc.set_agent_session_id(tab_id, None);
-    state::clear_session_id();
+    let provider = svc.configuration().general_agent.agent_provider;
+    let same_provider = mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.agent_type.as_deref() == Some(provider.as_str()));
+    if !same_provider {
+        svc.set_tab_agent_type(tab_id, None);
+        svc.set_agent_session_id(tab_id, None);
+        state::clear_session_id();
+    }
     if let Some(tab) = mux.write().get_tab_mut(tab_id) {
         tab.pty_id = None;
     }
