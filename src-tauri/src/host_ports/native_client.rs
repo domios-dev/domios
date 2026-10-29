@@ -289,10 +289,12 @@ pub(crate) async fn initialize_client(
 pub(crate) async fn retry_initialize_client(
     app: AppHandle,
 ) -> Result<NativeClientInitialization, ClientStartupFailure> {
-    let gate = app
+    let Some(gate) = app
         .try_state::<NativeClientInitializationGate>()
         .map(|state| state.inner().clone())
-        .ok_or_else(|| "Verified native client installation inputs are unavailable".to_string())?;
+    else {
+        return crate::run::retry_client_installation(app).await;
+    };
     let _permit = gate
         .acquire()
         .ok_or_else(|| "Native client initialization is already active".to_string())?;

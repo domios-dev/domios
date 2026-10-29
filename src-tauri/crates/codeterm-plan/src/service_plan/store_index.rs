@@ -266,63 +266,7 @@ impl PlanStore {
     }
 
     pub fn scan_project(&self, project_path: &Path) -> Result<PathBuf, PlanError> {
-        let project_root = paths::project_root(project_path);
-        let import_root = project_root.to_string_lossy().replace('\\', "/");
-        if self.database.legacy_imported(&import_root)? {
-            return Ok(project_root);
-        }
-        let mut import_error = None;
-        let plans_dir =
-            paths::plans_dir(&project_root).map_err(|e| PlanError::Io(e.to_string()))?;
-        for bucket in ["active", "archive"] {
-            let bucket_dir = plans_dir.join(bucket);
-            let Ok(entries) = std::fs::read_dir(&bucket_dir) else {
-                continue;
-            };
-            for entry in entries {
-                let Ok(entry) = entry else {
-                    continue;
-                };
-                // v2-first discovery: a converted plan dir has plan.yaml and no
-                // plan.json; a legacy dir has plan.json. Find either.
-                let dir = entry.path();
-                let yaml = dir.join("plan.yaml");
-                let json = dir.join("plan.json");
-                let path = if yaml.is_file() {
-                    yaml
-                } else if json.is_file() {
-                    json
-                } else {
-                    continue;
-                };
-                if let Err(e) = self.load_file_into_index(path.clone(), &project_root) {
-                    log::warn!("[plan] skip malformed plan {}: {}", path.display(), e);
-                    import_error.get_or_insert(e);
-                }
-            }
-        }
-        let specs_dir = project_root.join(".domios").join("specs");
-        if let Ok(entries) = std::fs::read_dir(&specs_dir) {
-            for entry in entries {
-                let Ok(entry) = entry else {
-                    continue;
-                };
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
-                    continue;
-                }
-                if let Err(e) = self.load_spec_file_into_index(path.clone(), &project_root) {
-                    log::warn!("[spec] skip malformed spec {}: {}", path.display(), e);
-                    import_error.get_or_insert(e);
-                }
-            }
-        }
-        if let Some(error) = import_error {
-            return Err(error);
-        }
-        self.database
-            .mark_legacy_imported(&import_root, unix_time_millis())?;
-        Ok(project_root)
+        Ok(paths::project_root(project_path))
     }
 
     pub fn relocate_workspace_projects(

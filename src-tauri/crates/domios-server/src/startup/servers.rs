@@ -284,12 +284,6 @@ pub(crate) fn start_servers(
             Ok(false) => log::debug!("[mem] dreaming cron already present"),
             Err(e) => log::warn!("[mem] failed to install dreaming cron: {}", e),
         }
-        // burning tokens to wrap a single bash command.
-        if mem::dreaming::remove_legacy_librarian_cron(
-            &mut codeterm_service_core::mem_host::CronSchedulerPort(&mut cs),
-        ) {
-            log::info!("[mem] removed legacy librarian cron (replaced by direct loop)");
-        }
     }
 
     let port_ready = if cron_available {
@@ -356,12 +350,14 @@ pub(crate) fn start_servers(
         );
     }
 
-    codeterm_service_core::async_runtime::block_on(async {
+    let secrets = service_state.secrets.clone();
+    codeterm_service_core::async_runtime::spawn(async move {
         let init_started = std::time::Instant::now();
-        if let Err(error) = service_state.secrets.read().await.init().await {
+        let store = secrets.read().await.clone();
+        if let Err(error) = store.init().await {
             log::warn!("[secrets] init failed: {error}");
         } else {
-            log::info!(
+            log::debug!(
                 "[secrets] init done in {}ms",
                 init_started.elapsed().as_millis()
             );

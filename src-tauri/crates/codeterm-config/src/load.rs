@@ -3,7 +3,7 @@ use std::path::Path;
 use parking_lot::Mutex;
 
 use super::schema::AppConfig;
-use super::{agent_access, dropped_keys, kpi_default, normalize_runtime_defaults, resolve_theme};
+use super::{normalize_runtime_defaults, resolve_theme};
 use codeterm_util::persisted_state::{Loaded, StateFile};
 
 pub(super) const SALVAGED_CONFIG_MARKER: &str =
@@ -170,16 +170,6 @@ fn finish_loaded(
     tokens: TokenPolicy,
     cached_token: Option<&Option<String>>,
 ) -> Result<AppConfig, String> {
-    let migrated_agent_access = agent_access::migrate(&mut config, contents);
-    let migrated_kpi_default = kpi_default::migrate(&mut config);
-    let dropped_keys = dropped_keys::detect(contents);
-    if !dropped_keys.is_empty() {
-        log::warn!(
-            "[config] upgrade dropped keys with no replacement, still present in {}: {}",
-            file.path().display(),
-            dropped_keys.join(", ")
-        );
-    }
     resolve_theme(&mut config);
     normalize_runtime_defaults(&mut config);
     // Mesh tab disabled → force offline. Tab is the on/off switch for the whole subsystem; flag is the runtime presence state.
@@ -196,7 +186,7 @@ fn finish_loaded(
                 return Ok(config);
             }
         };
-    if migrated_token || migrated_agent_access || migrated_kpi_default {
+    if migrated_token {
         persist_migrated_config(file, &config, |contents| {
             if file.held().is_some() {
                 file.replace_held_recovery(&mark_salvaged_config(contents))

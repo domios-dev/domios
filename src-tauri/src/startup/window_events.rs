@@ -18,7 +18,12 @@ pub(crate) fn handle_window_event(
             });
         }
     }
-    if let tauri::WindowEvent::CloseRequested { .. } = event {
+    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        if window.label() == "starting" {
+            api.prevent_close();
+            let _ = crate::run::request_client_quit_exact(window.app_handle(), None);
+            return;
+        }
         if window.label() != "main" {
             return;
         }

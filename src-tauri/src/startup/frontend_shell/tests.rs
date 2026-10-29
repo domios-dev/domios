@@ -365,3 +365,14 @@ fn frontend_shell_contract_keeps_genuine_external_links_and_rejects_credentials(
         assert_eq!(external_link(&target, None, api), None);
     }
 }
+
+#[test]
+fn frontend_shell_contract_first_navigation_waits_for_starting_document_completion() {
+    use tauri::webview::PageLoadEvent::{Finished, Started};
+    let starting = starting_url().unwrap();
+    assert!(!starting_document_finished(Started, &starting));
+    assert!(starting_document_finished(Finished, &starting));
+    for other in [unavailable_url().unwrap(), fallback_url().unwrap(), start_failure_url(None).unwrap()] {
+        assert!(!starting_document_finished(Finished, &other));
+    }
+}

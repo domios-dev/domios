@@ -2,6 +2,7 @@ mod cli_shim;
 pub(crate) mod desktop_lifecycle;
 pub(crate) mod frontend_shell;
 mod native_notification;
+pub(crate) mod starting_window;
 mod user_path;
 mod window;
 mod window_events;

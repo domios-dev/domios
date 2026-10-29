@@ -145,7 +145,7 @@ fn unavailable_url() -> Result<Url, url::ParseError> {
     brand_page_url(BrandFallback::Reconnecting)
 }
 
-fn starting_url() -> Result<Url, url::ParseError> {
+pub(super) fn starting_url() -> Result<Url, url::ParseError> {
     brand_page_url(BrandFallback::Starting)
 }
 
@@ -402,8 +402,13 @@ pub fn create_window(
                     &page_unavailable,
                     &page_fallback,
                 );
-            } else if cfg!(debug_assertions) {
-                let _ = window.eval("window.__CODETERM_SHELL_DIAGNOSTIC__?.('page-finished')");
+            } else {
+                if starting_document_finished(payload.event(), payload.url()) {
+                    window_created(window.app_handle());
+                }
+                if cfg!(debug_assertions) {
+                    let _ = window.eval("window.__CODETERM_SHELL_DIAGNOSTIC__?.('page-finished')");
+                }
             }
         })
         .on_navigation(move |url| {
@@ -442,6 +447,11 @@ pub fn create_window(
             Err(error.into())
         }
     }
+}
+
+fn starting_document_finished(event: tauri::webview::PageLoadEvent, url: &Url) -> bool {
+    event == tauri::webview::PageLoadEvent::Finished
+        && starting_url().is_ok_and(|starting| same_navigation_document(url, &starting))
 }
 
 fn same_navigation_document(url: &Url, expected: &Url) -> bool {
@@ -485,14 +495,12 @@ static ON_RECOVERY_SURFACE: AtomicBool = AtomicBool::new(false);
 /// The start-failure page is a recovery surface the retrying page must still replace.
 static ON_START_FAILURE: AtomicBool = AtomicBool::new(false);
 
-/// Startup keeps the window hidden until something worth seeing is painted; this bounds that wait.
-const REVEAL_DEADLINE: Duration = Duration::from_secs(4);
-
 pub(crate) fn reveal_main(app: &codeterm_client_shell::app_runtime::AppHandle) {
     let Some(window) = app.get_webview_window("main") else {
         return;
     };
     if window.is_visible().unwrap_or(true) {
+        super::starting_window::dismiss(app);
         return;
     }
     let shown = window
@@ -501,19 +509,21 @@ pub(crate) fn reveal_main(app: &codeterm_client_shell::app_runtime::AppHandle) {
         .and_then(|()| window.set_focus());
     if let Err(error) = shown {
         log::debug!("[frontend-shell] window reveal failed: {error}");
+    } else {
+        super::starting_window::dismiss(app);
     }
 }
 
-pub(crate) fn reveal_after_deadline(app: codeterm_client_shell::app_runtime::AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        tokio::time::sleep(REVEAL_DEADLINE).await;
-        reveal_main(&app);
-    });
-}
-
 fn show_unavailable(window: &WebviewWindow) {
+    if let Some(starting) = window.app_handle().get_webview_window("starting") {
+        show_start_failure(
+            &starting,
+            "The Domios interface could not be loaded. Retry to reconnect.",
+        );
+        return;
+    }
     reveal_main(window.app_handle());
-    // Re-navigating would restart the page (and its retry ring) on every failed attempt.
+    // Preserve the recovery document across repeated disconnection events.
     let on_recovery_surface = ON_RECOVERY_SURFACE.swap(true, Ordering::AcqRel);
     if !ON_START_FAILURE.swap(false, Ordering::AcqRel) && on_recovery_surface {
         return;
@@ -534,7 +544,9 @@ fn show_unavailable(window: &WebviewWindow) {
 
 /// A fragment-only change keeps the document, so a repeated refusal just updates its reason.
 pub(crate) fn show_start_failure(window: &WebviewWindow, reason: &str) {
-    reveal_main(window.app_handle());
+    if window.label() == "main" {
+        reveal_main(window.app_handle());
+    }
     ON_RECOVERY_SURFACE.store(true, Ordering::Release);
     ON_START_FAILURE.store(true, Ordering::Release);
     match start_failure_url(Some(reason))
@@ -554,13 +566,20 @@ pub(crate) fn server_disconnected(app: codeterm_client_shell::app_runtime::AppHa
     if let Some(window) = app.get_webview_window("main") {
         show_unavailable(&window);
     }
+    if !crate::crash::exit::is_client_exit_pending() {
+        retry(&app);
+    }
 }
 
-const SHELL_ACTION_SCHEME: &str = "domios-shell";
+pub(super) const SHELL_ACTION_SCHEME: &str = "domios-shell";
 
 /// The recovery page has no IPC, so its titlebar and Retry button navigate to `domios-shell://<action>`.
-fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHandle, url: &Url) {
-    let Some(window) = app.get_webview_window("main") else {
+pub(super) fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHandle, url: &Url) {
+    let Some(window) = app
+        .get_webview_window("main")
+        .filter(|window| window.is_visible().unwrap_or(false))
+        .or_else(|| app.get_webview_window("starting"))
+    else {
         return;
     };
     let outcome = match url.host_str().unwrap_or_default() {
@@ -576,6 +595,8 @@ fn run_shell_action(app: &codeterm_client_shell::app_runtime::AppHandle, url: &U
             retry(app);
             Ok(())
         }
+        "quit" => crate::run::request_client_quit_exact(app, None)
+            .map_err(|error| format!("{error:?}")),
         other => Err(format!("unknown shell action {other}")),
     };
     if let Err(error) = outcome {
@@ -718,6 +739,9 @@ fn observe_navigation(
         match root_render.wait_until(generation, deadline).await {
             ClientRootRenderWait::Ready => {
                 log::debug!("[frontend-shell] root render acknowledged: view={view_generation}, navigation={current_navigation}");
+                crate::host_ports::native_client::startup_reached(
+                    crate::host_ports::native_client::ClientStartupStage::RootRender,
+                );
                 reveal_main(&app);
                 return;
             }
@@ -892,25 +916,35 @@ async fn reinitialize_client(app: codeterm_client_shell::app_runtime::AppHandle)
             }
             if let Err(error) = recover_for_attachment(app.clone(), &initialized.ready).await {
                 log::error!("[frontend-shell] attachment recovery failed: {error}");
-                if let Some(window) = app.get_webview_window("main") {
-                    show_unavailable(&window);
+                if let Some(window) = app
+                    .get_webview_window("starting")
+                    .or_else(|| app.get_webview_window("main"))
+                {
+                    show_start_failure(&window, &error);
                 }
             }
         }
         Err(error) => {
-            log::error!("[frontend-shell] client retry refused: {error}");
-            if let Some(window) = app.get_webview_window("main") {
-                if error.stated_refusal() {
-                    show_start_failure(&window, error.message());
-                } else {
-                    show_unavailable(&window);
-                }
+            log::error!(
+                "[frontend-shell] client retry refused (stated={}): {error}",
+                error.stated_refusal()
+            );
+            if let Some(window) = app
+                .get_webview_window("starting")
+                .or_else(|| app.get_webview_window("main"))
+            {
+                show_start_failure(&window, error.message());
             }
         }
     }
 }
 
 pub fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
+    if let Some(starting) = app.get_webview_window("starting") {
+        if let Ok(url) = starting_url() {
+            let _ = starting.navigate(url);
+        }
+    }
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let Some(attachment) = app
@@ -921,6 +955,8 @@ pub fn retry(app: &codeterm_client_shell::app_runtime::AppHandle) {
             return;
         };
         let Some(window) = app.get_webview_window("main") else {
+            drop(attachment);
+            reinitialize_client(app).await;
             return;
         };
         let identity = attachment.identity().clone();

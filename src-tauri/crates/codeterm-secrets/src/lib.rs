@@ -417,44 +417,6 @@ pub fn is_valid_http_url(s: &str) -> bool {
     !host.is_empty()
 }
 
-/// One-time carry-over of a pre-existing native-Bitwarden setup into the
-/// Bitwarden *plugin* namespace: server URL → `config.plugins.bitwarden.serverUrl`
-/// and saved session/master/email from `domios.secrets.bitwarden` →
-/// `codeterm.plugin.bitwarden`. Best-effort, idempotent. Returns true if config changed.
-pub fn migrate_native_bitwarden_to_plugin(config: &mut codeterm_config::schema::AppConfig) -> bool {
-    let mut changed = false;
-    let native_url = config.integrations.secrets.bitwarden.server_url.clone();
-    let entry = config
-        .plugins
-        .entry("bitwarden".to_string())
-        .or_insert_with(|| serde_json::json!({}));
-    let has_url = entry
-        .get("serverUrl")
-        .and_then(|v| v.as_str())
-        .map(|s| !s.is_empty())
-        .unwrap_or(false);
-    if !has_url && !native_url.is_empty() {
-        if let Some(obj) = entry.as_object_mut() {
-            obj.insert("serverUrl".into(), serde_json::json!(native_url));
-            changed = true;
-        }
-    }
-    let native = secret_file::SecretFile::new("domios.secrets.bitwarden");
-    let plugin = capability::plugin_secret_bucket("bitwarden");
-    for (from, to) in [
-        ("session", "session"),
-        ("master_password", "master_password"),
-        ("login_email", "login_email"),
-    ] {
-        if plugin.get(to).is_err() {
-            if let Ok(v) = native.get(from) {
-                let _ = plugin.set(to, &v);
-            }
-        }
-    }
-    changed
-}
-
 /// Validate a secret name — used by every adapter to keep behaviour uniform.
 /// Rules: 1..=128 chars, no leading/trailing whitespace, no NUL bytes.
 pub fn validate_name(name: &str) -> Result<(), SecretError> {

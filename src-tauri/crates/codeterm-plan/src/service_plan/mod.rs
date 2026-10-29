@@ -62,7 +62,6 @@ pub mod spec_store;
 pub mod state;
 mod store_db;
 mod store_index;
-mod store_migrate;
 mod store_persist;
 mod store_queries;
 mod store_rows;
