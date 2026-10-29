@@ -1,39 +1,36 @@
-import { X } from "lucide-react";
+import { useEffect } from "react";
 import { useUpdate } from "../hooks/useUpdate";
+import { useMultiplexer } from "../store/multiplexer";
+import { createNoticePublisher } from "../lib/notices";
+import { updateNotice } from "../lib/updateNotice";
 import { updatePresentation } from "../lib/updatePresentation";
 import { RestoreStatePanel } from "./Terminal/RestoreStatePanel";
 import type { RestoreStageView } from "../lib/restoreStageView";
-import { formatUpdateBytes, updateStageView } from "../lib/updateStageView";
-import { Button } from "./shared/Button";
+import { updateStageView } from "../lib/updateStageView";
 
 export function UpdateProgressLayer() {
-  const { status, latestVersion, error, toastOpen, installing, downloadedBytes, downloadTotalBytes,
-    dismissUpdateToast, applyUpdate } = useUpdate();
-  const presentation = updatePresentation(status, installing, latestVersion);
-  if (presentation.blocking) {
-    const stage = status === "restarting" ? "restarting" : "applying";
-    return <UpdateScreen view={updateStageView(stage, latestVersion)} />;
-  }
-  if (!toastOpen || !presentation.background) return null;
-  const measured = status === "downloading" && downloadTotalBytes && downloadTotalBytes > 0
-    ? Math.min(100, Math.max(0, downloadedBytes / downloadTotalBytes * 100)) : undefined;
-  return <aside aria-label="App update" className="fixed bottom-4 right-4 z-[90] w-80 max-w-[calc(100vw-2rem)] rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 shadow-lg">
-    <div className="flex items-start justify-between gap-3">
-      <div role="status" className="text-sm text-[var(--ct-fg)]">
-        {presentation.title}{!presentation.retry && latestVersion ? ` ${latestVersion}` : ""}
-      </div>
-      <Button variant="ghost" size="compact" aria-label="Dismiss update progress" onClick={dismissUpdateToast}><X size={14} /></Button>
-    </div>
-    {presentation.retry ? <>
-      <p className="mt-2 break-words text-xs text-[var(--ct-muted-fg)]">{error ?? "The update could not be completed."}</p>
-      <Button variant="ghost" size="compact" onClick={() => void applyUpdate()}>Retry</Button>
-    </> : <>
-      <progress aria-label="Domios update progress" max={100} value={measured} className="ct-progress mt-2" />
-      <p className="mt-2 text-xs text-[var(--ct-muted-fg)]">
-        {measured !== undefined && downloadTotalBytes !== null ? `${formatUpdateBytes(downloadedBytes)} of ${formatUpdateBytes(downloadTotalBytes)}` : "You can keep working while the update is prepared."}
-      </p>
-    </>}
-  </aside>;
+  const { status, latestVersion, error, toastOpen, installing, dismissUpdateToast, applyUpdate } = useUpdate();
+  const { upsertToast } = useMultiplexer();
+  const { blocking, background, retry, title } = updatePresentation(status, installing, latestVersion);
+  useEffect(() => {
+    if (!toastOpen || !background) return;
+    const notice = updateNotice({
+      title,
+      body: retry ? "The update could not be completed." : "You can keep working. View download and preparation progress in Updates.",
+      failed: retry,
+      error,
+      latestVersion,
+    });
+    createNoticePublisher({ upsertToast })({
+      kind: "toast", id: "app-update", tabId: null, workspaceId: null,
+      title: notice.title, detail: notice.body, severity: notice.severity,
+      actions: notice.retry ? [{ label: "Retry", run: () => { void applyUpdate(); } }] : undefined,
+    });
+    dismissUpdateToast();
+  }, [toastOpen, background, retry, title, error, latestVersion, upsertToast, dismissUpdateToast, applyUpdate]);
+  if (!blocking) return null;
+  const stage = status === "restarting" ? "restarting" : "applying";
+  return <UpdateScreen view={updateStageView(stage, latestVersion)} />;
 }
 
 export function UpdateScreen({ view, contained = false }: { view: RestoreStageView; contained?: boolean }) {
