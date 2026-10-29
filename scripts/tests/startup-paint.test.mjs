@@ -5,18 +5,23 @@ import { runInNewContext } from 'node:vm';
 
 const source = readFileSync(new URL('../../src-tauri/src/startup/frontend_shell/initial_document.js', import.meta.url), 'utf8');
 
-function documentFixture({ readyState = 'loading', markWidth = 76, status = 'Opaque status', role = 'status', hasMark = true } = {}) {
-  const frames = [], events = new Map(), styles = [];
+function documentFixture({ readyState = 'loading', markWidth = 76, markHeight = 76, statusWidth = 100, statusHeight = 24, status = 'Opaque status', role = 'status', hasMark = true, framesThrow = true } = {}) {
+  const events = new Map(), styles = [], navigations = [];
+  const box = (width, height) => {
+    assert.equal(styles.length, 1);
+    return { width, height };
+  };
   const main = {
     querySelector(selector) {
-      if (selector === 'svg') return hasMark ? { getBoundingClientRect: () => ({ width: markWidth }) } : null;
-      if (selector === 'h1') return { textContent: status, getBoundingClientRect: () => ({ height: 24 }) };
+      if (selector === 'svg') return hasMark ? { getBoundingClientRect: () => box(markWidth, markHeight) } : null;
+      if (selector === 'h1') return { textContent: status, getBoundingClientRect: () => box(statusWidth, statusHeight) };
       return null;
     },
   };
-  const window = {}, location = {};
+  const window = {};
   runInNewContext(source, {
-    window, location,
+    window,
+    location: { set href(value) { navigations.push(value); } },
     document: {
       readyState,
       head: { append: style => styles.push(style) },
@@ -27,37 +32,45 @@ function documentFixture({ readyState = 'loading', markWidth = 76, status = 'Opa
       },
       querySelector: selector => selector === 'main[role]' && role ? main : null,
     },
-    requestAnimationFrame: callback => frames.push(callback),
+    requestAnimationFrame: () => { if (framesThrow) throw Error('Hidden view cannot deliver frames'); },
   });
-  return { window, location, frames, styles, events };
+  return { window, navigations, styles, events };
 }
 
 for (const role of ['status', 'alert']) {
-  test(`Starting ${role} waits for content and a paint opportunity before acknowledgement`, () => {
-    const fixture = documentFixture({ role });
-    assert.equal(fixture.styles.length, 0);
-    fixture.events.get('DOMContentLoaded')();
-    assert.equal(fixture.styles.length, 1);
-    fixture.window.__DOMIOS_STARTING_PAINT__(7);
-    assert.equal(fixture.location.href, undefined);
-    assert.equal(fixture.frames.length, 1);
-    fixture.frames.shift()();
-    assert.equal(fixture.location.href, undefined);
-    assert.equal(fixture.frames.length, 1);
-    fixture.frames.shift()();
-    assert.equal(fixture.location.href, 'domios-starting-painted://localhost/7');
-    fixture.window.__DOMIOS_STARTING_PAINT__(7);
-    assert.equal(fixture.frames.length, 0);
-  });
+  for (const framesThrow of [false, true]) {
+    for (const readyState of ['loading', 'complete']) {
+      test(`Starting ${role} acknowledges layout with frames unavailable: throws=${framesThrow}, document=${readyState}`, () => {
+        const fixture = documentFixture({ role, framesThrow, readyState });
+        fixture.window.__DOMIOS_STARTING_READY__(7);
+        if (readyState === 'loading') {
+          assert.deepEqual(fixture.navigations, []);
+          assert.equal(fixture.styles.length, 0);
+          fixture.events.get('DOMContentLoaded')();
+        }
+        assert.equal(fixture.styles.length, 1);
+        assert.deepEqual(fixture.navigations, ['domios-starting-ready://localhost/7']);
+        fixture.window.__DOMIOS_STARTING_READY__(7);
+        assert.equal(fixture.navigations.length, 1);
+      });
+    }
+  }
 }
 
-test('An empty or unlaid-out Starting document cannot acknowledge paint', () => {
-  for (const options of [{ status: '' }, { status: '  ' }, { hasMark: false }, { role: null }, { markWidth: 0 }]) {
+test('A replaced pending generation cannot acknowledge the old layout request', () => {
+  const fixture = documentFixture();
+  fixture.window.__DOMIOS_STARTING_READY__(1);
+  fixture.window.__DOMIOS_STARTING_READY__(2);
+  fixture.events.get('DOMContentLoaded')();
+  assert.deepEqual(fixture.navigations, ['domios-starting-ready://localhost/2']);
+});
+
+test('Missing content and zero layout refuse document readiness and request native recovery', () => {
+  for (const options of [{ status: '' }, { status: '  ' }, { hasMark: false }, { role: null }, { markWidth: 0 }, { markHeight: 0 }, { statusWidth: 0 }, { statusHeight: 0 }]) {
     const fixture = documentFixture({ ...options, readyState: 'complete' });
-    assert.equal(fixture.styles.length, 1);
-    fixture.window.__DOMIOS_STARTING_PAINT__(3);
-    for (const frame of fixture.frames.splice(0)) frame();
-    assert.equal(fixture.frames.length, 0);
-    assert.equal(fixture.location.href, undefined);
+    fixture.window.__DOMIOS_STARTING_READY__(3);
+    assert.deepEqual(fixture.navigations, ['domios-starting-unavailable://localhost/3']);
+    fixture.window.__DOMIOS_STARTING_READY__(3);
+    assert.equal(fixture.navigations.length, 1);
   }
 });

@@ -1,16 +1,17 @@
 use super::*;
 
 pub(crate) const SCHEME: &str = "domios-startup";
-pub(crate) const STARTING_PAINT_SCHEME: &str = "domios-starting-painted";
-pub(crate) const STARTING_PAINT_SCRIPT: &str = include_str!("initial_document.js");
+pub(crate) const STARTING_READY_SCHEME: &str = "domios-starting-ready";
+pub(crate) const STARTING_UNAVAILABLE_SCHEME: &str = "domios-starting-unavailable";
+pub(crate) const STARTING_READY_SCRIPT: &str = include_str!("initial_document.js");
 
 #[derive(Default)]
-pub(crate) struct StartingPaint {
+pub(crate) struct StartingLayout {
     generation: u64,
     acknowledged: bool,
 }
 
-impl StartingPaint {
+impl StartingLayout {
     pub(crate) fn begin(&mut self) {
         self.generation += 1;
         self.acknowledged = false;
@@ -21,9 +22,17 @@ impl StartingPaint {
     }
 
     pub(crate) fn acknowledge(&mut self, url: &Url) -> bool {
+        self.resolve(url, STARTING_READY_SCHEME)
+    }
+
+    pub(crate) fn refuse(&mut self, url: &Url) -> bool {
+        self.resolve(url, STARTING_UNAVAILABLE_SCHEME)
+    }
+
+    fn resolve(&mut self, url: &Url, scheme: &str) -> bool {
         if self.generation == 0
             || self.acknowledged
-            || url.scheme() != STARTING_PAINT_SCHEME
+            || url.scheme() != scheme
             || url.host_str() != Some("localhost")
             || url.path() != format!("/{}", self.generation)
             || url.query().is_some()
@@ -36,6 +45,44 @@ impl StartingPaint {
         }
         self.acknowledged = true;
         true
+    }
+}
+
+pub(crate) fn show_layout_failure(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    layout: Arc<parking_lot::Mutex<StartingLayout>>,
+    generation: u64,
+) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+
+    let handle = app.clone();
+    if let Err(error) = app.run_on_main_thread(move || {
+        if handle.get_webview_window("starting").is_none()
+            || layout.lock().generation() != generation
+        {
+            return;
+        }
+        let retry_app = handle.clone();
+        handle
+            .dialog()
+            .message("The Domios startup window could not prepare its content. Retry to load it again, or quit.")
+            .title("Domios could not start")
+            .kind(MessageDialogKind::Error)
+            .buttons(MessageDialogButtons::OkCancelCustom("Retry".into(), "Quit".into()))
+            .show(move |retry_requested| {
+                if retry_app.get_webview_window("starting").is_none()
+                    || layout.lock().generation() != generation
+                {
+                    return;
+                }
+                if retry_requested {
+                    super::retry(&retry_app);
+                } else {
+                    let _ = crate::run::request_client_quit_exact(&retry_app, None);
+                }
+            });
+    }) {
+        log::error!("[startup] native document failure surface unavailable: {error}");
     }
 }
 

@@ -432,14 +432,14 @@ test('prebuilt launch partitions bounded verification bootstrap and attachment w
 });
 
 for (const externalFrontend of [false, true]) {
-  for (const outcome of ['deadline', 'refused', 'health-failed', 'SIGINT', 'SIGTERM']) {
-    test(`prebuilt ${outcome} preserves recovery except explicit cancellation, split DEV=${externalFrontend}`, async () => {
+  for (const outcome of ['deadline', 'refused', 'health-failed', 'app-exited', 'supervisor-exited', 'already-dead', 'spawn-failed', 'SIGINT', 'SIGTERM']) {
+    test(`prebuilt ${outcome} retains live recovery and classifies known failures, split DEV=${externalFrontend}`, async () => {
       const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
       const definition = source.match(/^async function launchPrebuilt\(options\) \{[\s\S]*?^\}/m)[0].replaceAll('import.meta.url', JSON.stringify(import.meta.url));
       const timers = [];
       let stopped = 0, disconnected = 0, readinessChecks = 0;
       const child = new EventEmitter();
-      Object.assign(child, { pid: 123, connected: true, unref() {}, disconnect() { disconnected++; this.connected = false; } });
+      Object.assign(child, { pid: 123, exitCode: null, signalCode: null, connected: true, unref() {}, disconnect() { disconnected++; this.connected = false; } });
       const launchProcess = Object.assign(new EventEmitter(), { env: { DEV_FRONT_EXTERNAL: externalFrontend ? '1' : '0' } });
       const launch = new Function('resolve', 'option', 'process', 'existsSync', 'statSync', 'spawn', 'node', 'fileURLToPath', 'repo', 'console', 'setTimeout', 'clearTimeout', 'terminateOwnedChild', 'waitForReady', `${definition}\nreturn launchPrebuilt;`)(
         path.resolve, (options, key) => options.get(key), launchProcess,
@@ -451,26 +451,69 @@ for (const externalFrontend of [false, true]) {
       child.emit('message', { type: 'phase', phase: 2 });
       assert.deepEqual(timers.map(timer => timer.ms), [30_000, 30_000, externalFrontend ? 180_000 : 30_000]);
       const cancelled = outcome === 'SIGINT' || outcome === 'SIGTERM';
+      const observedExit = ['app-exited', 'supervisor-exited', 'already-dead', 'spawn-failed'].includes(outcome);
       if (outcome === 'deadline') timers.at(-1).callback();
       else if (outcome === 'refused') child.emit('message', { type: 'failed', error: 'Native client startup refused' });
       else if (outcome === 'health-failed') child.emit('message', { type: 'ready', signal: 'attachment fixture' });
+      else if (outcome === 'app-exited') child.emit('message', { type: 'exited', code: 4, signal: null, error: 'app exited with code 4' });
+      else if (outcome === 'supervisor-exited') {
+        child.exitCode = 9;
+        child.emit('exit', 9, null);
+      } else if (outcome === 'already-dead') {
+        child.exitCode = 4;
+        child.emit('message', { type: 'failed', error: 'app already dead' });
+      } else if (outcome === 'spawn-failed') child.emit('message', { type: 'launch-failed', error: 'client spawn failed' });
       else launchProcess.emit(outcome);
       await assert.rejects(result, error => {
         if (outcome === 'deadline') {
           assert.match(error.message, /phase=attachment/);
           assert.equal(error.code, 'DEV_ATTACHMENT_PENDING');
         } else if (cancelled) assert.equal(error.code, 'DEV_LAUNCH_CANCELLED');
+        else if (observedExit) {
+          assert.notEqual(error.code, 'DEV_ATTACHMENT_PENDING');
+          assert.match(error.message, /app exited with code 4|supervisor exited.*code=9|app already dead|client spawn failed/);
+        }
         else {
           assert.match(error.message, outcome === 'refused' ? /startup refused/ : /health fixture failed/);
           assert.equal(error.code, 'DEV_ATTACHMENT_PENDING');
         }
         return true;
       });
-      assert.equal(stopped, cancelled ? 1 : 0);
-      assert.equal(disconnected, cancelled ? 0 : 1);
+      assert.equal(stopped, cancelled || observedExit ? 1 : 0);
+      assert.equal(disconnected, cancelled || observedExit ? 0 : 1);
       assert.equal(readinessChecks, outcome === 'health-failed' ? 1 : 0);
       assert.deepEqual(child.eventNames(), []);
       assert.deepEqual(launchProcess.eventNames(), []);
     });
   }
+}
+
+for (const outcome of ['live-refusal', 'app-exited', 'launch-failed']) {
+  test(`prebuilt supervisor reports ${outcome} distinctly`, async () => {
+    const source = fs.readFileSync(new URL('../dev-prep.mjs', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+    const definition = source.match(/^async function supervisePrebuilt\(options\) \{[\s\S]*?^\}/m)[0];
+    const messages = [], completion = Promise.withResolvers();
+    const supervisorProcess = { env: {}, connected: true, send: message => messages.push(message) };
+    const supervise = new Function('resolve', 'option', 'StringDecoder', 'nativeLocatorSink', 'runDevApp', 'repo', 'devRuntimeEnvironment', 'process', 'prebuiltReadinessPhase', 'startupFailureSignal', 'readinessSignal', 'disconnectSupervisor', `${definition}\nreturn supervisePrebuilt;`)(
+      path.resolve, (options, key) => options.get(key), StringDecoder, () => () => {},
+      async ({ onData }) => {
+        if (outcome === 'live-refusal') onData(Buffer.from('refusal fixture\n'));
+        if (outcome === 'launch-failed') throw Error('spawn fixture');
+        return completion.promise;
+      }, '/fixture', () => ({}), supervisorProcess, phase => phase,
+      () => 'refused fixture', () => false, () => { supervisorProcess.connected = false; });
+    const pending = supervise(new Map([['--app', '/fixture/app'], ['--log', '/fixture/log'], ['--api-port', '17886']]));
+    if (outcome === 'live-refusal') {
+      assert.equal(messages[0].type, 'failed');
+      assert.equal(supervisorProcess.connected, false);
+    }
+    completion.resolve({ code: 4, signal: null });
+    await pending;
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].type, outcome === 'live-refusal' ? 'failed' : outcome === 'app-exited' ? 'exited' : 'launch-failed');
+    if (outcome === 'app-exited') {
+      assert.equal(messages[0].code, 4);
+      assert.equal(messages[0].signal, null);
+    }
+  });
 }

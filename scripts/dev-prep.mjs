@@ -533,11 +533,11 @@ async function supervisePrebuilt(options) {
       }
     } });
     if (!ready && process.connected) {
-      process.send({ type: "failed", error: `prebuilt app exited before readiness (code=${code}, signal=${signal})` });
+      process.send({ type: "exited", code, signal, error: `prebuilt app exited before readiness (code=${code}, signal=${signal})` });
     }
     process.exitCode = startupFailed ? 1 : code ?? (signal ? 1 : 0);
   } catch (error) {
-    if (process.connected) process.send({ type: "failed", error: error.message });
+    if (process.connected) process.send({ type: "launch-failed", error: error.message });
     process.exitCode = 1;
   } finally { disconnectSupervisor(); }
 
@@ -567,6 +567,7 @@ async function launchPrebuilt(options) {
   let deadline;
   let phase=0;
   let checkingReadiness = false;
+  let observedFailure = false;
   const startupWait = new AbortController();
   let cancelLaunch;
   try {
@@ -597,31 +598,39 @@ async function launchPrebuilt(options) {
             .then(() => resolveReady(message.signal), fail);
         }
         else if (message?.type === "failed") fail(new Error(message.error));
+        else if (message?.type === "exited" || message?.type === "launch-failed") {
+          observedFailure = true;
+          fail(new Error(message.error));
+        }
         else if (message?.type === "phase" && Number.isInteger(message.phase) && message.phase === phase+1 && message.phase <= 2) {
           phase=message.phase;
           clearTimeout(deadline);
           armDeadline();
         }
       });
-      child.once("error", fail);
-      child.once("exit", (code, signal) =>
-        fail(new Error(`prebuilt supervisor exited before readiness (code=${code}, signal=${signal})`)),
-      );
+      child.once("error", error => {
+        observedFailure = true;
+        fail(error);
+      });
+      child.once("exit", (code, signal) => {
+        observedFailure = true;
+        fail(new Error(`prebuilt supervisor exited before readiness (code=${code}, signal=${signal})`));
+      });
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
       function armDeadline() {
         const phaseDeadlineMs = externalFrontend && phase === 2 && fixtureDeadline === undefined ? 180_000 : deadlineMs;
         deadline = setTimeout(() => {
           const error = new Error(`prebuilt app did not report readiness within ${phaseDeadlineMs}ms (phase=${['preparation','bootstrap','attachment'][phase]})`);
-          if (externalFrontend) error.code = "DEV_ATTACHMENT_PENDING";
           fail(error);
         }, phaseDeadlineMs);
       }
       armDeadline();
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
-    if (error.code === "DEV_LAUNCH_CANCELLED") await terminateOwnedChild(child);
-    else if (child?.pid) {
+    if (error.code === "DEV_LAUNCH_CANCELLED" || observedFailure || child?.exitCode != null || child?.signalCode != null) {
+      await terminateOwnedChild(child);
+    } else if (child?.pid) {
       if (child.connected) child.disconnect();
       error.code = "DEV_ATTACHMENT_PENDING";
     }

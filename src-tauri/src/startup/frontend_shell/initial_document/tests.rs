@@ -21,29 +21,53 @@ fn starting_window_is_hidden_and_opaque_even_when_main_is_transparent() {
 }
 
 #[test]
-fn starting_paint_requires_the_current_document_acknowledgement_once() {
+fn starting_layout_requires_the_current_document_acknowledgement_once() {
     let ack = |generation| {
-        Url::parse(&format!("domios-starting-painted://localhost/{generation}")).unwrap()
+        Url::parse(&format!("domios-starting-ready://localhost/{generation}")).unwrap()
     };
-    let mut paint = StartingPaint::default();
-    assert!(!paint.acknowledge(&ack(0)));
-    paint.begin();
-    let old = paint.generation();
-    paint.begin();
-    assert!(!paint.acknowledge(&ack(old)));
+    let mut layout = StartingLayout::default();
+    assert!(!layout.acknowledge(&ack(0)));
+    layout.begin();
+    let old = layout.generation();
+    layout.begin();
+    assert!(!layout.acknowledge(&ack(old)));
     for invalid in [
         "domios-shell://localhost/2",
-        "domios-starting-painted://foreign/2",
-        "domios-starting-painted://localhost/2?stale=1",
-        "domios-starting-painted://localhost/2#stale",
-        "domios-starting-painted://user@localhost/2",
+        "domios-starting-ready://foreign/2",
+        "domios-starting-ready://localhost/2?stale=1",
+        "domios-starting-ready://localhost/2#stale",
+        "domios-starting-ready://user@localhost/2",
     ] {
-        assert!(!paint.acknowledge(&Url::parse(invalid).unwrap()));
+        assert!(!layout.acknowledge(&Url::parse(invalid).unwrap()));
     }
-    assert!(paint.acknowledge(&ack(paint.generation())));
-    assert!(!paint.acknowledge(&ack(paint.generation())));
-    paint.begin();
-    assert!(paint.acknowledge(&ack(paint.generation())));
+    assert!(layout.acknowledge(&ack(layout.generation())));
+    assert!(!layout.acknowledge(&ack(layout.generation())));
+    layout.begin();
+    assert!(layout.acknowledge(&ack(layout.generation())));
+}
+
+#[test]
+fn unavailable_starting_layout_is_not_ready_and_only_current_failure_can_open_recovery() {
+    let failure = |generation| {
+        Url::parse(&format!("domios-starting-unavailable://localhost/{generation}")).unwrap()
+    };
+    let mut layout = StartingLayout::default();
+    assert!(!layout.refuse(&failure(0)));
+    layout.begin();
+    let old = layout.generation();
+    layout.begin();
+    assert!(!layout.refuse(&failure(old)));
+    assert!(!layout.acknowledge(&failure(layout.generation())));
+    assert!(layout.refuse(&failure(layout.generation())));
+    assert!(!layout.refuse(&failure(layout.generation())));
+    let ready = Url::parse(&format!(
+        "domios-starting-ready://localhost/{}",
+        layout.generation()
+    ))
+    .unwrap();
+    assert!(!layout.acknowledge(&ready));
+    layout.begin();
+    assert!(!layout.refuse(&failure(old)));
 }
 
 #[test]
