@@ -254,13 +254,19 @@ fn account_home_diagnostic_credential_reads_selected_home_without_writes() {
 #[test]
 fn credential_document_budget_refuses_oversized_secrets_without_returning_contents() {
     let root = tempfile::tempdir().unwrap();
-    let credential = codex_credential(root.path());
+    let credential = CredentialConfig {
+        file_environment: None,
+        id: "fixtureAuth".into(),
+        file: root.path().join("auth.json").to_string_lossy().into_owned(),
+        public: fields(&[("accountId", "tokens.account_id")]),
+        secret: fields(&[("accessToken", "tokens.access_token")]),
+    };
     let text=serde_json::json!({"tokens":{"access_token":"opaque-secret".repeat(100000),"account_id":"opaque-account"}}).to_string();
     std::fs::write(root.path().join("auth.json"), text).unwrap();
-    assert!(public_json(std::slice::from_ref(&credential), "codexAuth").is_none());
+    assert!(public_json(std::slice::from_ref(&credential), "fixtureAuth").is_none());
     let error = inject(
         &[credential],
-        r#"{"credential":{"id":"codexAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
+        r#"{"credential":{"id":"fixtureAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
     )
     .unwrap_err();
     assert!(!error.contains("opaque-secret"));

@@ -1729,14 +1729,14 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/host_credentials/tests.rs",
       "token": "codex_credential",
-      "count": 7,
+      "count": 6,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/host_credentials/tests.rs",
       "token": "codexAuth",
-      "count": 9,
+      "count": 7,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
@@ -2261,7 +2261,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/core.rs",
       "token": "agent_claude",
-      "count": 11,
+      "count": 10,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -2282,7 +2282,7 @@
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/claude/core.rs",
       "token": "Claude",
-      "count": 9,
+      "count": 8,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -10807,35 +10807,7 @@
     },
     {
       "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/scoped_filesystem.rs",
-      "token": "agent_claude",
-      "count": 1,
-      "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/scoped_filesystem.rs",
       "token": "claude",
-      "count": 1,
-      "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/js_runtime/parity_test/scoped_filesystem.rs",
-      "token": "ClaudeProvider",
-      "count": 1,
-      "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/provider/launch_permissions/filesystem/tests.rs",
-      "token": "agent_claude",
-      "count": 1,
-      "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-plugin/src/provider/launch_permissions/filesystem/tests.rs",
-      "token": "ClaudeProvider",
       "count": 1,
       "justification": "Existing next provider-specific test fixture; exact test-only allowance.",
       "removalSlice": "Remaining provider boundary extraction"
