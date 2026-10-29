@@ -79,3 +79,58 @@ fn native_and_js_agent_commands_preserve_body_identically() {
         );
     }
 }
+
+struct NativeHeadless;
+impl AgentCommandProvider for NativeHeadless {
+    fn id(&self) -> &str {
+        "headless-parity"
+    }
+    fn granted(&self) -> bool {
+        true
+    }
+    fn on_agent_command(
+        &self,
+        caller: &str,
+        verb: &str,
+        args: &[String],
+        _: Option<&str>,
+    ) -> Result<AgentCommandResult, String> {
+        Ok(AgentCommandResult { result: serde_json::json!({"context":{"surface":"studio","instance":"logical-context","jobContext":"logical-context","tab":caller,"owner":caller,"actor":caller,"actorLabel":"agent","workspace":"workspace","team":"team","headless":true},"verb":verb,"args":args}).to_string(), catalogue_changed:false })
+    }
+}
+#[test]
+fn native_and_js_headless_dispatch_preserve_host_context_despite_forged_argument_identity() {
+    use crate::{
+        host_traits::PluginHostCtx,
+        js_runtime::{
+            host_api::PluginSandbox, host_compute::tests::AnalyticsHost,
+            manifest::PermissionsConfig, JsAgentCommandHandler, PluginVm,
+        },
+    };
+    use std::sync::Arc;
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(vec![], vec![]).with_identity_and_perms(
+            "headless-parity",
+            &PermissionsConfig {
+                surfaces: true,
+                agent_commands: true,
+                ..Default::default()
+            },
+        ),
+    );
+    let vm = Arc::new(PluginVm::from_source_sandboxed("headless-parity", "module.exports.default={onAgentCommand(c){return host.surface.dispatch(c.verb,c.args);},onSurfaceCall(context,verb,args){return JSON.stringify({context:context,verb:verb,args:args});}}".into(),None,sandbox).unwrap());
+    let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let js = JsAgentCommandHandler::new(vm, "headless-parity", true);
+    let args = vec![r#"{"owner":"foreign","workspace":"foreign","jobContext":"foreign"}"#.into()];
+    let native = NativeHeadless
+        .on_agent_command("actual-agent", "headless-probe", &args, None)
+        .unwrap();
+    let actual = js
+        .on_agent_command("actual-agent", "headless-probe", &args, None)
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&actual.result).unwrap(),
+        serde_json::from_str::<serde_json::Value>(&native.result).unwrap()
+    );
+}

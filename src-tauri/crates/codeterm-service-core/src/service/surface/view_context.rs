@@ -58,7 +58,7 @@ impl ServiceContext {
         instance: Option<&str>,
         tab: Option<&str>,
     ) -> Result<ViewCallContext, String> {
-        let context = resolve_context(&self.mux.read(), plugin, surface, instance, tab)?;
+        let mut context = resolve_context(&self.mux.read(), plugin, surface, instance, tab)?;
         if let Some(surface) = &context.surface {
             let declared = self
                 .ext::<codeterm_plugin::surfaces::SurfaceRegistryHandle>()
@@ -70,6 +70,12 @@ impl ServiceContext {
             }) {
                 return Err("plugin_view_scope_invalid".into());
             }
+        }
+        if let (Some(surface), Some(owner)) = (&context.surface, &context.owner) {
+            context.job_context = self
+                .plugin_agent_invocation(plugin, surface, owner)
+                .ok()
+                .map(|context| context.instance);
         }
         Ok(context)
     }
@@ -99,6 +105,7 @@ impl ServiceContext {
         if current.owner != context.owner
             || current.workspace != context.workspace
             || current.team != context.team
+            || current.job_context != context.job_context
         {
             return Err("plugin_view_scope_invalid".into());
         }

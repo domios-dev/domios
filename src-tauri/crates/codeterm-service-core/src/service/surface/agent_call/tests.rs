@@ -327,3 +327,29 @@ fn surface_agent_call_annotation_goes_to_the_surface_owner() {
     };
     assert!(annotation_recipient(&orphan).is_err());
 }
+
+#[test]
+fn declared_view_verbs_run_headlessly_only_for_the_owning_agent() {
+    let team = team();
+    let surface: SurfaceDecl = serde_json::from_value(json!({"id":"studio","title":"Studio","renderer":"view","agentVerbs":["prepare","status","result"]})).unwrap();
+    for verb in ["prepare", "status", "result"] {
+        assert_eq!(
+            plan_agent_call(&team.mux, "fixture", &surface, &team.qa, verb, None).unwrap(),
+            CallPlan::Headless
+        );
+        assert!(plan_agent_call(
+            &team.mux,
+            "fixture",
+            &surface,
+            &team.qa,
+            verb,
+            Some(&team.snake)
+        )
+        .is_err());
+    }
+    assert_eq!(
+        plan_agent_call(&team.mux, "fixture", &surface, &team.qa, "open", None).unwrap(),
+        CallPlan::Open
+    );
+    assert!(plan_agent_call(&team.mux, "fixture", &surface, &team.qa, "undeclared", None).is_err());
+}
