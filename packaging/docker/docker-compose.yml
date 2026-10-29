@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
 secrets:
   postgres_password:
-    file: ./secrets/postgres_password
+    file: ${DOMIOS_POSTGRES_PASSWORD_FILE:-./secrets/postgres_password}
 volumes:
   domios-data:
   postgres-data:

@@ -2,15 +2,90 @@ import http.client
 import json
 import os
 import pathlib
+import re
 import selectors
 import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import tomllib
 import time
+import urllib.parse
 
 DATA = pathlib.Path.home() / ".domios"
+SERVER = "/opt/domios/domios-server/domios-server"
+
+
+def migrate_memory(backend):
+    prepare()
+    return subprocess.run([
+        SERVER, "memory-migrate", "--to", backend, "--json",
+    ], check=False).returncode
+
+
+def select_memory(backend):
+    prepare()
+    path = DATA / "config.toml"
+    text = path.read_text()
+    expected = tomllib.loads(text)
+    expected.setdefault("memory", {})["backend"] = backend
+    section = re.search(r"(?ms)^\[memory\][ \t]*\n(.*?)(?=^\[|\Z)", text)
+    setting = f'backend = "{backend}"\n'
+    if section:
+        body, count = re.subn(r"(?m)^[ \t]*backend[ \t]*=[^\n]*(?:\n|$)", setting, section[1])
+        if count == 0:
+            body = setting + section[1]
+        text = text[:section.start(1)] + body + text[section.end(1):]
+    else:
+        text += "\n[memory]\n" + setting
+    if tomllib.loads(text) != expected:
+        raise RuntimeError("Refusing ambiguous memory configuration")
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=DATA, prefix=".container-config-", delete=False) as output:
+            temporary = pathlib.Path(output.name)
+            os.chmod(temporary, 0o600)
+            output.write(text)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    print(json.dumps({"memory.backend": backend}))
+    return 0
+
+
+def redact_diagnostics(text, secrets):
+    values = []
+
+    def collect(value, depth=0):
+        if depth > 5:
+            return
+        if isinstance(value, dict):
+            for item in value.values():
+                collect(item, depth + 1)
+        elif isinstance(value, str) and value:
+            values.append(value)
+            try:
+                nested = json.loads(value)
+            except ValueError:
+                nested = None
+            if isinstance(nested, dict):
+                collect(nested, depth + 1)
+            if "://" in value:
+                password = urllib.parse.urlsplit(value).password
+                if password:
+                    values.extend([password, urllib.parse.unquote(password)])
+
+    collect(secrets)
+    for value in sorted(set(values), key=len, reverse=True):
+        text = text.replace(value, "[REDACTED]")
+    text = re.sub(r"(?i)\b(?:https?|postgres(?:ql)?)://\S+", "[REDACTED URL]", text)
+    text = re.sub(r"(?i)\bbearer\s+\S+", "Bearer [REDACTED]", text)
+    text = re.sub(r'(?i)([\"\w]*(?:token|password|secret|api_key)[\"\w]*\s*[:=]\s*)[^\s,}]+', r'\1[REDACTED]', text)
+    return text
 
 
 def health():
@@ -66,6 +141,7 @@ class ProcessRuntime:
         self.watcher.register(self.wake_read, selectors.EVENT_READ, "signal")
         self.previous = {}
         self.reply = bytearray()
+        self.log_offset = None
 
     def install(self, handler):
         for signum in (signal.SIGTERM, signal.SIGINT):
@@ -78,8 +154,10 @@ class ProcessRuntime:
             pass
 
     def start(self):
+        log = DATA / "logs/domios.log"
+        self.log_offset = log.stat().st_size if log.exists() else 0
         self.child = subprocess.Popen(
-            ["/opt/domios/domios-server/domios-server", "serve"],
+            [SERVER, "serve"],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True,
         )
         self.pidfd = os.pidfd_open(self.child.pid)
@@ -89,6 +167,32 @@ class ProcessRuntime:
                    "probe_sink": None, "probe_identity_alias": None}
         self.child.stdin.write((json.dumps(options) + "\n").encode())
         self.child.stdin.close()
+
+    def diagnostics(self, reason):
+        print(f"Container daemon failed: {reason}", file=sys.stderr)
+        if self.log_offset is None:
+            return
+        try:
+            private(DATA / "logs", 0o700, directory=True)
+            log = DATA / "logs/domios.log"
+            private(log, 0o600)
+            with log.open("rb") as stream:
+                size = os.fstat(stream.fileno()).st_size
+                offset = self.log_offset if size >= self.log_offset else 0
+                stream.seek(max(offset, size - 65536))
+                text = stream.read(65536).decode("utf-8", errors="replace")
+            secrets_path = DATA / ".secrets"
+            secrets = {}
+            if secrets_path.exists():
+                private(secrets_path, 0o600)
+                with secrets_path.open("rb") as stream:
+                    secrets = json.loads(stream.read(1048577))
+            text = redact_diagnostics(text, secrets)
+            lines = text.splitlines()[-80:]
+            tail = "\n".join(lines).encode("utf-8")[-8192:].decode("utf-8", errors="ignore")
+            print("Daemon log tail (bounded and redacted):\n" + tail, file=sys.stderr)
+        except (OSError, ValueError, RuntimeError):
+            print("Daemon log tail unavailable; inspect the protected data-volume logs", file=sys.stderr)
 
     def forward(self, signum):
         try:
@@ -181,6 +285,8 @@ class Supervisor:
                 event = self.runtime.wait(deadline)
                 if event == "exit":
                     self.runtime.reap(0)
+                    if self.requested is None or failed:
+                        self.runtime.diagnostics("unexpected exit")
                     return 0 if self.requested is not None and not failed else 1
                 if event == "ready" and not stopping:
                     deadline = None
@@ -188,11 +294,13 @@ class Supervisor:
                     if stopping:
                         self.runtime.forward(signal.SIGKILL)
                         self.runtime.reap(2)
+                        self.runtime.diagnostics("stop deadline exceeded")
                         return 1
                     failed = True
                     self.requested = signal.SIGTERM
         except BaseException:
             self.cleanup()
+            self.runtime.diagnostics("startup supervision failed")
             raise
         finally:
             self.runtime.close()
@@ -202,14 +310,21 @@ def run(postgres=False):
     return Supervisor(ProcessRuntime()).run(lambda: prepare(postgres))
 
 
+def command(args):
+    if args == ["health"]:
+        health()
+        return 0
+    if args in ([], ["postgres"]):
+        return run(args == ["postgres"])
+    if (len(args) == 3 and args[0] in ("migrate-memory", "select-memory")
+            and args[1] == "--to" and args[2] in ("sqlite", "postgres")):
+        return migrate_memory(args[2]) if args[0] == "migrate-memory" else select_memory(args[2])
+    raise ValueError("Expected postgres, health, migrate-memory --to BACKEND, or select-memory --to BACKEND")
+
+
 if __name__ == "__main__":
     try:
-        if sys.argv[1:] == ["health"]:
-            health()
-        elif sys.argv[1:] in ([], ["postgres"]):
-            sys.exit(run(sys.argv[1:] == ["postgres"]))
-        else:
-            raise ValueError("Expected no arguments, or health")
+        sys.exit(command(sys.argv[1:]))
     except Exception as error:
         print(f"Container refused: {error}", file=sys.stderr)
         sys.exit(1)

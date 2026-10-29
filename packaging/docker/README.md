@@ -94,6 +94,15 @@ then a hung child is killed and reaped within two seconds. Keep Docker's stop
 grace at 30 seconds (as in the run command and Compose). Docker's healthcheck
 uses a bounded standard-library HTTP request to `/api/health` every five seconds.
 
+The daemon writes its full log to `/home/domios/.domios/logs/domios.log` on the
+data volume. On an unexpected daemon exit or startup deadline, the supervisor
+writes the failure and up to 80 lines / 8 KiB of the current startup's log to
+container stderr, visible through `docker logs` or `docker compose logs domios`.
+The excerpt redacts local secret values and credential URLs; it never prints
+the protected readiness reply or its API token. If safe redaction is unavailable,
+only an unavailable notice is printed. Inspect the protected volume log locally
+for further detail; do not publish unredacted logs.
+
 ## Sign in without a browser in the container
 
 ```bash
@@ -134,31 +143,65 @@ secret file through `POSTGRES_PASSWORD_FILE`; no password is an environment
 value. The Domios database URL belongs only in its active secret store as
 `domios.mem:postgres_url`, never in config, environment, build args or the image.
 
-For a fresh installation, bootstrap the Domios volume with SQLite first, since
-the secret CLI requires a running authenticated daemon. Complete this before
-creating memory items. If an existing SQLite store contains items, stop and use
-the documented `domios mem backend migrate --to postgres` procedure instead of
-selecting an empty database.
+Bootstrap the Domios volume with SQLite first, since the secret CLI requires a
+running authenticated daemon. Even a fresh start creates bundled memory items.
+After saving the URL, stop the server and explicitly migrate those items before
+selecting Postgres. Selecting an empty Postgres database while SQLite has items
+is deliberately refused; do not remove the SQLite store to bypass this guard.
 
 ```bash
 umask 077
-mkdir -p packaging/docker/secrets
-# Provision postgres_password and postgres_url here from your secret manager.
+secret_dir=$(mktemp -d)
+# Provision postgres_password and postgres_url in secret_dir from your secret manager.
 # The URL uses host postgres, database/user domios and the same password,
 # percent-encoded in the URL; keep both files private and out of Git.
 export DOMIOS_IMAGE=domios-server:VERSION
+export DOMIOS_POSTGRES_PASSWORD_FILE="$secret_dir/postgres_password"
+# This environment value is a file path, never the password.
 docker volume create domios-docker_domios-data
 docker run -d --name domios-bootstrap \
   --mount source=domios-docker_domios-data,target=/home/domios/.domios \
   "$DOMIOS_IMAGE"
 # Wait for Docker's healthy state before the following command.
 docker exec -i domios-bootstrap domios mem secret save --name domios.mem:postgres_url \
-  < packaging/docker/secrets/postgres_url
-docker exec domios-bootstrap domios config set memory.backend postgres
+  < "$secret_dir/postgres_url"
 docker stop domios-bootstrap
 docker rm domios-bootstrap
-docker compose -p domios-docker -f packaging/docker/docker-compose.yml up -d
+
+# Start only the database; the server must remain stopped during migration.
+docker compose -p domios-docker -f packaging/docker/docker-compose.yml \
+  up -d --wait --wait-timeout 180 postgres
+docker compose -p domios-docker -f packaging/docker/docker-compose.yml \
+  run --rm domios migrate-memory --to postgres
+# Check the migration JSON: verified and source_unchanged must both be true.
+# Select the backend separately, only after the migration command succeeds.
+docker compose -p domios-docker -f packaging/docker/docker-compose.yml \
+  run --rm --no-deps domios select-memory --to postgres
+docker compose -p domios-docker -f packaging/docker/docker-compose.yml \
+  up -d --wait --wait-timeout 180
+docker compose -p domios-docker -f packaging/docker/docker-compose.yml ps
+docker compose -p domios-docker -f packaging/docker/docker-compose.yml logs domios
+docker compose -p domios-docker -f packaging/docker/docker-compose.yml \
+  exec postgres psql -U domios -d domios -c '\dt domios_mem.*'
 ```
+
+Wait for Docker health to become healthy, then check `/api/health` reports
+`startup.state = "ready"` on the chosen loopback host port. Use `domios mem search`
+inside the running server container to verify migrated records. Keep the password
+file private and available for subsequent Compose recreations; remove the URL
+file after its secret-store save. Remove both temporary secret files when this
+deployment is retired.
+
+`migrate-memory` invokes the shipped server's existing offline migration and
+returns its JSON and exit status. It starts no daemon and changes no config.
+The local secret store works offline on the same data volume. Migration takes
+the existing store ownership locks, retains SQLite, verifies all 21 tables and
+reindexes when required. Remote embedding requires its configured consent and
+credentials; the default local model may download into the persistent cache.
+`select-memory --to postgres` changes only `memory.backend` in the private config
+through an atomic write. Both one-off commands must run with the server stopped
+and the same image, volume and configuration. They also support `--to sqlite`
+for an explicitly verified reverse migration. See `domios docs MEMORY`.
 
 The Compose command explicitly selects the `postgres` container configuration;
 it refuses an existing configuration still selecting SQLite. All Domios
