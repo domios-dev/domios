@@ -718,6 +718,10 @@ fn set_orchestrator_help_mentions_workers_not_leads() {
         .render_long_help()
         .to_string();
     assert!(help.contains("workers"), "{help}");
+    assert!(
+        help.contains("own live roleless, team-less agent"),
+        "{help}"
+    );
     assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
 }
 

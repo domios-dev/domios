@@ -55,6 +55,7 @@ pub async fn set_tab_role(
                     parent_tab_id: body.parent_tab_id.as_deref(),
                     plan_id: Some(&plan_id),
                     creates_team: false,
+                    ..Default::default()
                 },
             )?;
             state
@@ -89,6 +90,7 @@ pub async fn set_tab_role(
                 parent_tab_id: body.parent_tab_id.as_deref(),
                 plan_id: body.plan_id.as_deref(),
                 creates_team: becomes_anchor,
+                ..Default::default()
             },
         )?;
         let was_orchestrator = {
@@ -187,17 +189,24 @@ pub async fn make_orchestrator(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-        mutation_authority::authorize(
+        let caller = mutation_authority::authorize_with_caller(
             &state,
             &headers,
             &id,
             TabMutationScope {
                 creates_team: true,
+                self_promotion: true,
                 ..Default::default()
             },
         )?;
-        codeterm_orchestration::make_orchestrator(&state.svc, &id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        match caller {
+            Some(caller) => {
+                codeterm_orchestration::make_orchestrator_as_tab(&state.svc, &id, &caller)
+                    .map_err(|e| (StatusCode::FORBIDDEN, e))?
+            }
+            None => codeterm_orchestration::make_orchestrator(&state.svc, &id)
+                .map_err(|e| (StatusCode::BAD_REQUEST, e))?,
+        }
         Ok(Json(serde_json::json!({"ok": true})))
     })
     .await
