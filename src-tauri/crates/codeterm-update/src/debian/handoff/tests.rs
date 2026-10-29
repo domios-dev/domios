@@ -31,7 +31,10 @@ fn service_context_requires_sudo_and_a_separate_transient_unit() {
     ));
     assert!(!inside_systemd_unit(
         false,
-        concat!("0::/user.slice/user@", "1000.service/app.slice/desktop.scope\n")
+        concat!(
+            "0::/user.slice/user@",
+            "1000.service/app.slice/desktop.scope\n"
+        )
     ));
 }
 
