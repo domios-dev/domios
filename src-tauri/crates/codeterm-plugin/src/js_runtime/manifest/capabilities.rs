@@ -433,6 +433,9 @@ pub struct Capabilities {
     /// User-gesture actions the plugin's view may ask the host for; requires `view`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub view_host_actions: Vec<super::ViewHostAction>,
+    /// What `pickFile` may bring in; required by, and only allowed with, that action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_inputs: Option<super::ViewInputs>,
     #[serde(default, flatten, skip_serializing)]
     pub(crate) unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }

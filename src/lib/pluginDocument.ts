@@ -13,6 +13,16 @@ export interface PluginMediaHandle {
   expires_in_seconds: number;
 }
 
+/** The only routes a document's host actions reach; each is owner-only and lease-checked by the daemon. */
+export const PLUGIN_HOST_ROUTES = ["/api/plugins/view-host-action", "/api/plugins/view-host-action/download", "/api/plugins/view-input"] as const;
+export type PluginHostRoute = (typeof PLUGIN_HOST_ROUTES)[number];
+
+export interface PluginHostResponse {
+  response: Response;
+  /** Whether the lease the request carried is still this document's; recheck after reading the body. */
+  current(): boolean;
+}
+
 export interface PluginDocument {
   html: string;
   channel: PluginViewChannel;
@@ -20,6 +30,8 @@ export interface PluginDocument {
   dispose(): void;
   invoke(method: string, args: unknown): Promise<unknown>;
   media(id: string): Promise<PluginMediaHandle>;
+  /** App-only: never reachable from the frame, which can choose neither the route nor the lease. */
+  hostRequest(route: PluginHostRoute, init: { body: BodyInit; headers?: Record<string, string>; signal?: AbortSignal }): Promise<PluginHostResponse>;
 }
 
 export interface PluginAsset {
@@ -213,6 +225,17 @@ export async function loadPluginDocument(client: TransportClient, path: string, 
       const expected = `${base}/media/${frame}/${result.handle}`;
       if (result.url !== null && result.url !== expected) throw new Error("Invalid plugin media URL");
       return { ...result, url: result.url === null ? null : new URL(expected, client.origin()).href };
+    }, async hostRequest(route, init) {
+      // The private lease travels as a request header, captured now; a response for a lease that was
+      // retired or reminted meanwhile is refused here, and callers recheck after reading the body.
+      if (disposed || signal.aborted || !plugin || !viewLease || !PLUGIN_HOST_ROUTES.includes(route)) throw new Error("Plugin view unavailable");
+      const capturedLease = viewLease;
+      const current = () => !disposed && !signal.aborted && viewLease !== null && viewLease === capturedLease;
+      // The registration key is non-secret; the daemon accepts it only with a lease that resolves to it.
+      const headers = { ...init.headers, "X-Domios-Plugin-View-Frame": capturedLease, "X-Domios-Plugin-Media-Frame": snapshot.registration };
+      const response = await client.request!(route, { method: "POST", headers, body: init.body, signal: init.signal ?? signal }, true);
+      if (!current()) throw new Error("Plugin view unavailable");
+      return { response, current };
     } };
   } catch (error) { dispose(); throw error; }
 }

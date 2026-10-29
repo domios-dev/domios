@@ -8,7 +8,10 @@ mod view;
 
 pub use action::run_action;
 pub use action::PluginManagerAction;
-pub use host_action::{view_host_action, view_host_download, HostActionRequest};
+pub use host_action::{
+    view_host_action, view_host_download, view_host_input, DocumentStamp, HostActionRequest,
+    PickedSource,
+};
 pub use view::bubble_poll;
 pub use view::glance_render;
 pub use view::view_call;

@@ -273,6 +273,36 @@ describe("host-private plugin view invocation", () => {
     expect(fetch.mock.calls).toHaveLength(calls);
   });
 
+  it("stamps host actions with this document's lease and registration, and refuses a reply after retirement", async () => {
+    const lease = "d".repeat(64), registration = "e".repeat(64);
+    const answer = deferredValue<Response>();
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async (input) => {
+      const endpoint = new URL(String(input)).pathname;
+      if (endpoint.endsWith("/view-frame/revoke")) return new Response(null, { status: 204 });
+      if (endpoint === "/api/plugins/view-host-action") return answer.promise;
+      return new Response("<html><head></head><body></body></html>", { headers: {
+        "Content-Security-Policy": policy, "X-Domios-Plugin-View-Registration": registrationSnapshot(registration),
+        "X-Domios-Plugin-View-Document": "a".repeat(32), "X-Domios-Plugin-View-Frame": lease,
+      } });
+    });
+    const document = await loadPluginDocument(createTransportClient({ origin, token: "owner", fetch }), path, new AbortController().signal);
+    const pending = document.hostRequest("/api/plugins/view-host-action", { body: JSON.stringify({ pluginId: "example", action: "copyText" }), headers: { "Content-Type": "application/json" } });
+    await vi.waitFor(() => expect(fetch.mock.calls.some(([url]) => String(url).endsWith("/view-host-action"))).toBe(true));
+    const [, init] = fetch.mock.calls.find(([url]) => String(url).endsWith("/view-host-action"))!;
+    const headers = new Headers(init!.headers);
+    expect(headers.get("x-domios-plugin-view-frame")).toBe(lease);
+    expect(headers.get("x-domios-plugin-media-frame")).toBe(registration);
+    expect(String(init!.body)).not.toContain(lease);
+    // The native load retires this lease before the daemon answers: the reply never reaches the caller.
+    document.channel.observeLoad();
+    answer.resolve(Response.json({ ok: true }));
+    await expect(pending).rejects.toThrow("unavailable");
+    // Only the three host-action routes are reachable, and none without a current lease.
+    await expect(document.hostRequest("/api/plugins/view-call" as never, { body: "{}" })).rejects.toThrow("unavailable");
+    await expect(document.hostRequest("/api/plugins/view-host-action", { body: "{}" })).rejects.toThrow("unavailable");
+    document.dispose();
+  });
+
   it("refuses documents without a private registration", async () => {
     const client=createTransportClient({origin,token:"owner",fetch:vi.fn(async()=>new Response("<html></html>",{headers:{"Content-Security-Policy":policy}}))});
     await expect(loadPluginDocument(client,path,new AbortController().signal)).rejects.toThrow("registration missing");

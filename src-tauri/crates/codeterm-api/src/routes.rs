@@ -821,6 +821,10 @@ pub(super) fn create_router_with_preview_admission(
             plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action_download),
         )
         .route(
+            "/api/plugins/view-input",
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_input),
+        )
+        .route(
             "/api/plugins/tab-menu",
             get(plugin_tab_menu_routes::tab_menu),
         )

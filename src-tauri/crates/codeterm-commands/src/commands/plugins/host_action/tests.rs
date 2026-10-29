@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use serde_json::{json, Value};
 
-use super::{open_download, perform, HostActionRequest, MediaRef};
+use super::{open_download, perform, settle_ingest, HostActionRequest, MediaRef};
 use codeterm_service_core::plugin::js_runtime::ViewHostAction;
 use codeterm_service_core::plugin_media::{MediaRefusal, OpenedMedia, PluginMediaResolver};
 use codeterm_service_core::view_host::{ViewError, ViewProvider, ViewRegistry};
@@ -37,6 +37,8 @@ impl ViewProvider for StubView {
 struct StubMedia {
     owner: &'static str,
     file: PathBuf,
+    /// The length media delivery validated at registration; the file on disk may since differ.
+    registered: Option<u64>,
 }
 
 impl PluginMediaResolver for StubMedia {
@@ -56,7 +58,9 @@ impl PluginMediaResolver for StubMedia {
             return Err(MediaRefusal::Foreign);
         }
         Ok(OpenedMedia {
-            size: std::fs::metadata(&self.file).expect("fixture media").len(),
+            size: self
+                .registered
+                .unwrap_or_else(|| std::fs::metadata(&self.file).expect("fixture media").len()),
             file: std::fs::File::open(&self.file).expect("fixture media"),
             path: self.file.clone(),
             file_name: "frame.png".into(),
@@ -122,6 +126,7 @@ fn media(dir: &std::path::Path) -> StubMedia {
     StubMedia {
         owner: "studio",
         file,
+        registered: None,
     }
 }
 
@@ -147,6 +152,124 @@ fn host_action_request_refuses_unknown_actions_and_fields() {
     assert!(
         parse(json!({ "pluginId": "studio", "action": "reveal", "path": "/etc/hosts" })).is_err()
     );
+    // The frame comes from the verified lease; a body naming one is refused, not trusted.
+    assert!(parse(json!({ "pluginId": "studio", "action": "reveal", "frame": "1".repeat(64) })).is_err());
+}
+
+/// A view that declared pickFile, with or without (valid) inputs.
+struct PickingView(Option<codeterm_plugin::media_delivery::ViewInputDescriptor>);
+
+#[async_trait::async_trait]
+impl ViewProvider for PickingView {
+    fn id(&self) -> &str {
+        "picker"
+    }
+
+    fn host_actions(&self) -> &[ViewHostAction] {
+        &[ViewHostAction::PickFile]
+    }
+
+    fn view_inputs(&self) -> Option<codeterm_plugin::media_delivery::ViewInputDescriptor> {
+        self.0.clone()
+    }
+
+    async fn call(
+        &self,
+        _method: &str,
+        _args: Value,
+        _context: &codeterm_plugin::view_host::ViewCallContext,
+    ) -> Result<Value, ViewError> {
+        Ok(Value::Null)
+    }
+}
+
+fn ingested(handle: &str) -> codeterm_plugin::media_delivery::IngestedInput {
+    codeterm_plugin::media_delivery::IngestedInput {
+        handle: handle.into(),
+        file_name: "fox.png".into(),
+        content_type: "image/png".into(),
+        size: 3,
+        sha256: "0".repeat(64),
+    }
+}
+
+#[test]
+fn ingest_answers_only_the_opaque_handle_and_its_display_fields() {
+    let answer = settle_ingest(Ok(ingested(HANDLE)));
+    assert_eq!(
+        answer,
+        json!({ "ok": true, "input": { "handle": HANDLE, "fileName": "fox.png", "contentType": "image/png", "size": 3 } })
+    );
+    assert!(!answer.to_string().contains(&"0".repeat(64)), "the digest stays host-side");
+}
+
+#[test]
+fn ingest_refusals_keep_their_typed_reasons() {
+    use codeterm_plugin::media_delivery::IngestRefusal;
+    // UnknownFrame includes a document that stopped being current during the copy, which
+    // ingestion itself cleaned up (media delivery's two-frame cleanup fixture covers that).
+    for (refusal_kind, expected) in [
+        (IngestRefusal::UnknownFrame, refusal("denied", "stale")),
+        (IngestRefusal::TooLarge, refusal("invalid", "too_large")),
+        (IngestRefusal::TypeNotAccepted, refusal("invalid", "type")),
+        (IngestRefusal::Unreadable, refusal("unavailable", "unreadable")),
+        (IngestRefusal::Storage, refusal("unavailable", "storage")),
+        (IngestRefusal::Deadline, refusal("unavailable", "deadline")),
+    ] {
+        assert_eq!(settle_ingest(Err(refusal_kind)), expected);
+    }
+}
+
+#[test]
+fn pick_file_preflight_answers_only_the_declared_bounds() {
+    let registry = ViewRegistry::new();
+    let declared = codeterm_plugin::media_delivery::ViewInputDescriptor {
+        accept: vec!["image/png".into(), "image/jpeg".into()],
+        max_bytes: 1024,
+        max_files: 2,
+    };
+    registry.register("picker", Arc::new(PickingView(Some(declared))));
+    registry.register("bare", Arc::new(PickingView(None)));
+    assert_eq!(
+        perform(&registry, None, request("picker", ViewHostAction::PickFile)),
+        json!({ "ok": true, "accept": ["image/png", "image/jpeg"], "maxBytes": 1024, "maxFiles": 2 })
+    );
+    assert_eq!(
+        perform(&registry, None, request("bare", ViewHostAction::PickFile)),
+        refusal("denied", "undeclared")
+    );
+}
+
+#[test]
+fn save_as_copies_only_the_registered_length_of_a_file_that_grew() {
+    let dir = scratch("grown");
+    let mut resolver = media(&dir);
+    // Registered as "png" (3 bytes); the plugin kept appending afterwards.
+    resolver.registered = Some(3);
+    let destination = dir.join("picked.png");
+    let mut save = request("studio", ViewHostAction::SaveAs);
+    save.destination = Some(destination.to_string_lossy().into_owned());
+    assert_eq!(perform(&registry(), Some(&resolver), save), json!({ "ok": true }));
+    assert_eq!(std::fs::read(&destination).unwrap(), b"png");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn save_as_refuses_a_file_cut_short_after_admission_and_keeps_the_destination() {
+    let dir = scratch("shrunk");
+    let mut resolver = media(&dir);
+    resolver.registered = Some(4096);
+    let destination = dir.join("picked.png");
+    std::fs::write(&destination, b"kept").unwrap();
+    let mut save = request("studio", ViewHostAction::SaveAs);
+    save.destination = Some(destination.to_string_lossy().into_owned());
+    assert_eq!(
+        perform(&registry(), Some(&resolver), save),
+        refusal("unavailable", "media_changed")
+    );
+    assert_eq!(std::fs::read(&destination).unwrap(), b"kept");
+    assert_eq!(leftover_temps(&dir), 0);
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

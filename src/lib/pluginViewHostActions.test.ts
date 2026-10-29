@@ -30,7 +30,7 @@ const run = (
   gate: ViewHostGate = createViewHostGate(() => 0),
 ) => {
   const intent = gesture === true ? CLICK_IN_FRAME : gesture === false ? { ...CLICK_IN_FRAME, activated: false } : gesture;
-  return performViewHostAction("studio", "frame-1", { action, args }, intent, fake, isCurrent, gate);
+  return performViewHostAction("studio", { action, args }, intent, fake, isCurrent, gate);
 };
 
 function deferred<T>() {
@@ -79,8 +79,8 @@ describe("plugin view host actions", () => {
     expect(await run(fake, "saveAs", { handle: HANDLE, suggestedName: "../fox?.png" })).toEqual({ ok: true });
     expect(fake.pickDestination).toHaveBeenCalledWith("fox.png");
     expect(calls).toEqual([
-      { pluginId: "studio", frame: "frame-1", handle: HANDLE, action: "saveAs" },
-      { pluginId: "studio", frame: "frame-1", handle: HANDLE, action: "saveAs", destination: "/home/me/Downloads/fox.png" },
+      { pluginId: "studio", handle: HANDLE, action: "saveAs" },
+      { pluginId: "studio", handle: HANDLE, action: "saveAs", destination: "/home/me/Downloads/fox.png" },
     ]);
   });
 
@@ -101,7 +101,7 @@ describe("plugin view host actions", () => {
   it("downloads on the web mirror and refuses reveal there", async () => {
     const { fake, calls } = deps([], false);
     expect(await run(fake, "saveAs", { handle: HANDLE, suggestedName: "clip.mp4" })).toEqual({ ok: true });
-    expect(fake.download).toHaveBeenCalledWith({ pluginId: "studio", frame: "frame-1", handle: HANDLE }, "clip.mp4", expect.any(Function));
+    expect(fake.download).toHaveBeenCalledWith({ pluginId: "studio", handle: HANDLE }, "clip.mp4", expect.any(Function));
     expect(await run(fake, "reveal", { handle: HANDLE })).toEqual({ ok: false, code: "unavailable", reason: "reveal" });
     expect(calls).toEqual([]);
   });
@@ -110,7 +110,7 @@ describe("plugin view host actions", () => {
     const { fake, calls } = deps([{ ok: true, path: "/data/plugins/studio/media/1.png" }]);
     expect(await run(fake, "reveal", { handle: HANDLE, path: "/etc/passwd" })).toEqual({ ok: true });
     expect(fake.reveal).toHaveBeenCalledWith("/data/plugins/studio/media/1.png");
-    expect(calls).toEqual([{ pluginId: "studio", frame: "frame-1", handle: HANDLE, action: "reveal" }]);
+    expect(calls).toEqual([{ pluginId: "studio", handle: HANDLE, action: "reveal" }]);
   });
 
   it("requires a handle for media actions and survives a failing host", async () => {
@@ -121,8 +121,9 @@ describe("plugin view host actions", () => {
   });
 
   it("states what this app can perform so a view hides actions instead of probing them", async () => {
-    expect(viewHostSupport(deps().fake)).toEqual({ copyText: true, saveAs: true, reveal: true });
-    expect(viewHostSupport(deps([], false).fake)).toEqual({ copyText: true, saveAs: true, reveal: false });
+    expect(viewHostSupport(deps().fake)).toEqual({ copyText: true, saveAs: true, reveal: true, pickFile: false });
+    expect(viewHostSupport(deps([], false).fake)).toEqual({ copyText: true, saveAs: true, reveal: false, pickFile: false });
+    expect(viewHostSupport({ ...deps().fake, pickFiles: async () => null, ingest: async () => null }).pickFile).toBe(true);
     const { fake, calls } = deps();
     const noClipboard: ViewHostDeps = { ...fake, writeText: undefined };
     expect(viewHostSupport(noClipboard).copyText).toBe(false);
@@ -211,5 +212,73 @@ describe("plugin view host actions", () => {
     expect(safeFileName("..\\a\"b\n.mp4")).toBe("ab.mp4");
     expect(safeFileName("   ")).toBe("media");
     expect(safeFileName(undefined)).toBe("media");
+  });
+});
+
+describe("pickFile", () => {
+  const DECLARED = { ok: true, accept: ["image/png", "image/jpeg"], maxBytes: 100, maxFiles: 2 };
+  const input = (n: number) => ({ handle: String(n).repeat(64), fileName: `ref${n}.png`, contentType: "image/png", size: 10 });
+  const pngPath = (name: string) => ({ kind: "path" as const, path: `/home/me/${name}`, name });
+
+  function picker(answers: unknown[], picked: ReturnType<typeof pngPath>[] | null, native = true) {
+    const base = deps(answers, native);
+    const ingested: unknown[] = [];
+    const queue = [...picked ? picked.map((_, i) => ({ ok: true, input: input(i + 1) })) : []];
+    const fake = {
+      ...base.fake,
+      pickFiles: vi.fn(async (_accept: string[], _multiple: boolean) => picked),
+      ingest: vi.fn(async (_plugin: string, file: unknown) => { ingested.push(file); return queue.shift(); }),
+    };
+    return { ...base, fake, ingested };
+  }
+
+  it("preflights the declaration, narrows the dialog to it and returns only opaque handles", async () => {
+    const { fake, calls } = picker([DECLARED], [pngPath("fox.png"), pngPath("slate.png")]);
+    const result = await run(fake, "pickFile", { accept: ["image/png", "image/svg+xml"], multiple: true });
+    expect(calls).toEqual([{ pluginId: "studio", action: "pickFile" }]);
+    expect(fake.pickFiles).toHaveBeenCalledWith(["image/png"], true);
+    expect(result).toEqual({ ok: true, inputs: [input(1), input(2)], skipped: [] });
+    expect(JSON.stringify(result)).not.toContain("/home/me");
+  });
+
+  it("never opens the picker for an undeclared view or a request outside the declaration", async () => {
+    const undeclared = picker([{ ok: false, code: "denied", reason: "undeclared" }], [pngPath("fox.png")]);
+    expect(await run(undeclared.fake, "pickFile", {})).toEqual({ ok: false, code: "denied", reason: "undeclared" });
+    expect(undeclared.fake.pickFiles).not.toHaveBeenCalled();
+    const outside = picker([DECLARED], [pngPath("fox.png")]);
+    expect(await run(outside.fake, "pickFile", { accept: ["video/mp4"] })).toEqual({ ok: false, code: "invalid", reason: "accept" });
+    expect(outside.fake.pickFiles).not.toHaveBeenCalled();
+  });
+
+  it("caps the pick at the declared count and treats a dismissed picker as cancelled", async () => {
+    const single = picker([{ ...DECLARED, maxFiles: 1 }], [pngPath("fox.png")]);
+    await run(single.fake, "pickFile", { multiple: true });
+    expect(single.fake.pickFiles).toHaveBeenCalledWith(["image/png", "image/jpeg"], false);
+    const many = picker([DECLARED], [pngPath("a.png"), pngPath("b.png"), pngPath("c.png")]);
+    expect(await run(many.fake, "pickFile", { multiple: true })).toEqual({ ok: false, code: "invalid", reason: "too_many" });
+    expect(many.ingested).toEqual([]);
+    const dismissed = picker([DECLARED], null);
+    expect(await run(dismissed.fake, "pickFile", {})).toEqual({ ok: false, code: "denied", reason: "cancelled" });
+  });
+
+  it("reports files the host refused next to the ones it took", async () => {
+    const { fake } = picker([DECLARED], [pngPath("fox.png"), pngPath("notes.png")]);
+    fake.ingest.mockResolvedValueOnce({ ok: true, input: input(1) }).mockResolvedValueOnce({ ok: false, code: "invalid", reason: "type" });
+    expect(await run(fake, "pickFile", { multiple: true })).toEqual({
+      ok: true, inputs: [input(1)], skipped: [{ fileName: "notes.png", code: "invalid", reason: "type" }],
+    });
+  });
+
+  it("never ingests for a frame replaced while the picker was open", async () => {
+    const { fake } = picker([DECLARED], [pngPath("fox.png")]);
+    const chosen = deferred<ReturnType<typeof pngPath>[] | null>();
+    fake.pickFiles.mockImplementationOnce(() => chosen.promise);
+    let current = true;
+    const picking = run(fake, "pickFile", {}, true, () => current);
+    await vi.waitFor(() => expect(fake.pickFiles).toHaveBeenCalled());
+    current = false;
+    chosen.resolve([pngPath("fox.png")]);
+    expect(await picking).toEqual(STALE);
+    expect(fake.ingest).not.toHaveBeenCalled();
   });
 });

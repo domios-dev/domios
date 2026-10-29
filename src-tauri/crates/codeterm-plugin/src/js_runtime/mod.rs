@@ -81,7 +81,7 @@ pub use manifest::{
     SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
     SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
     SpawnConfig, TabMenuAction, TabMenuItem, TrustGrantConfig, UsageConfig, ViewHostAction,
-    WebhookReceiverCap, WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS,
+    ViewInputs, WebhookReceiverCap, WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS,
     RESUME_TEMPLATE_PLACEHOLDERS,
 };
 use vm::call_json_strict;

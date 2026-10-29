@@ -61,28 +61,27 @@ Those host contexts have `frame:null`; generic view calls always require their p
 
 ### Host actions from a view
 
-A view may ask the host, through `ct.host`, only for the actions its manifest
+A view may ask the host, through `ct.host`, only for actions its manifest
 declares in `capabilities.viewHostActions` (requires `view`): `copyText(text)`;
-`saveAs(mediaHandle, suggestedName)`, which saves one of the plugin's own media
-files through the system save dialog (the web mirror downloads it); and
-`reveal(mediaHandle)`, which shows that file in the file manager (desktop only).
-Each call resolves to `{ ok: true }` or `{ ok: false, code, reason }`, never
-throws, and is `denied`, `unavailable` (the host cannot act here) or `invalid`.
+`saveAs(mediaHandle, suggestedName)` through the save dialog (the web mirror
+downloads); `reveal(mediaHandle)` in the file manager (desktop only); and
+`pickFile({ accept?, multiple? })`, which asks the user for files of the kinds
+`capabilities.viewInputs` declares (passive media `accept`, `maxBytes`,
+`maxFiles`) and answers `inputs: [{ handle, fileName, contentType, size }]`.
+Each call resolves to `{ ok: true }` or `{ ok: false, code, reason }` with code
+`denied`, `unavailable` or `invalid`, and never throws.
 
-Call them from a click or key handler. copyText and reveal use a
-recent-activation heuristic, not proof that one fresh click asked for one
-effect: they act only while the view is shown, its frame holds focus and the
-app had user activation within the browser's short window, all observed by the
-app. One call runs at a time per frame and effects are rate-limited to one per
-second (`denied` / `busy`), which bounds repeats without proving a new gesture.
-saveAs gets per-intent confirmation from the save dialog or download. Every copy
-shows a "Copied from <plugin>" notice the plugin cannot hide. A call pending when
-its frame is hidden, reloaded, navigated or replaced gets `denied` / `stale` and
-does nothing. `ct.host.availability()` resolves to `{ copyText, saveAs, reveal }`
-booleans for hiding unsupported actions; it grants nothing. A media handle is
-the opaque handle the host issued to this frame, never a path; a reloaded frame
-gets new handles, and `media_expired` means this frame's access lapsed, not that
-the file is gone.
+Call them from a click or key handler. They use a recent-activation heuristic,
+not proof that one fresh click asked for one effect: they act only while the
+view is shown, its frame holds focus and the app had user activation, all
+observed by the app; one call runs at a time per frame and effects are limited
+to one per second (`denied` / `busy`). saveAs and pickFile also get the user's
+own choice in a system dialog. Every copy shows a "Copied from <plugin>" notice
+the plugin cannot hide. A call pending when its frame is hidden, reloaded or
+replaced gets `denied` / `stale`. `ct.host.availability()` booleans hide
+unsupported actions and grant nothing. Handles are opaque, frame-scoped, never
+paths; a reloaded frame gets new ones, and `media_expired` means this frame's
+access lapsed, not that the file is gone.
 
 ## Opening, listing and closing
 
@@ -236,4 +235,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

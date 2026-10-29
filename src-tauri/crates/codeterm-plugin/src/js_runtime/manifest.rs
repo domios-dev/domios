@@ -45,7 +45,7 @@ pub use methods::manifest_settings_sections;
 pub use read_root::ReadRootEnvironment;
 pub use surfaces::{SurfaceDecl, SurfaceRenderer, SurfaceRestore};
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
-pub use view_host_actions::ViewHostAction;
+pub use view_host_actions::{ViewHostAction, ViewInputs, MAX_VIEW_INPUT_FILES};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "format", rename_all = "snake_case")]
@@ -265,6 +265,7 @@ fn default_capabilities() -> Capabilities {
         tab_menu: Vec::new(),
         surfaces: Vec::new(),
         view_host_actions: Vec::new(),
+        view_inputs: None,
         unknown: Default::default(),
     }
 }

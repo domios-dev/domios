@@ -1065,7 +1065,32 @@ export interface SurfaceContribution {
 // ── viewHostActions (plugin.json `capabilities.viewHostActions`; requires `view`) ──
 
 // The user-gesture actions the view page may ask for through `ct.host`; each named once.
-export type ViewHostAction = "copyText" | "saveAs" | "reveal";
+export type ViewHostAction = "copyText" | "saveAs" | "reveal" | "pickFile";
+
+// `capabilities.viewInputs`, required by (and only allowed with) `pickFile`: what the user may
+// pick for the view, as passive media types, each at most `maxBytes`, at most `maxFiles` per pick.
+export type ViewInputMediaType =
+  | "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+  | "audio/mpeg" | "audio/ogg" | "audio/wav"
+  | "video/mp4" | "video/webm" | "video/ogg";
+export interface ViewInputsContribution {
+  accept: ViewInputMediaType[];
+  maxBytes: number;
+  // 1-8.
+  maxFiles: number;
+}
+
+// One file the user picked: an opaque handle owned by this frame, never a path. Image preview is not
+// implied; show it as a file until the host offers a preview URL for it.
+export interface PickedInput {
+  handle: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+}
+export type PickFileResult =
+  | { ok: true; inputs: PickedInput[]; skipped: { fileName: string; code: "denied" | "unavailable" | "invalid"; reason: string }[] }
+  | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
 
 // `denied`: no recent activation in this shown, focused view; undeclared; cancelled; `busy` (one
 // call at a time, at most one effect per second); `stale` (the frame was hidden or replaced
@@ -1086,6 +1111,9 @@ export interface ViewHostBridge {
   copyText(text: string): Promise<ViewHostResult>;
   saveAs(mediaHandle: string, suggestedName?: string): Promise<ViewHostResult>;
   reveal(mediaHandle: string): Promise<ViewHostResult>;
+  // The app's own picker (system dialog, or the browser's on the web mirror). `accept` may only narrow
+  // the declared `viewInputs.accept`; `multiple` is honored up to `viewInputs.maxFiles`.
+  pickFile(options?: { accept?: ViewInputMediaType[]; multiple?: boolean }): Promise<PickFileResult>;
 }
 
 // ── onAgentCommand (the inverse seam) ──
