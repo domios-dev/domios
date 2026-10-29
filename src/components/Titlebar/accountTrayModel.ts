@@ -15,11 +15,11 @@ export function accountAvatarUrl(value: string | null | undefined): string | nul
   }
 }
 
-export interface PlanBadge { tier: string; name: string; admin: boolean; stale: boolean }
+export interface PlanBadge { tier: string; name: string; admin: boolean; stale: boolean; verifying?: boolean }
 
 export function planBadge(plan: PlanModel | null): PlanBadge | null {
   if (!plan) return null;
-  return { tier: plan.plan, name: capitalized(plan.plan), admin: plan.authority === "admin", stale: plan.stale };
+  return { tier: plan.plan, name: capitalized(plan.plan), admin: plan.authority === "admin", stale: plan.stale, ...(plan.verifying ? { verifying: true } : {}) };
 }
 
 export function accountTrayModel(account: AccountModel, plan: PlanModel | null) {
@@ -29,7 +29,7 @@ export function accountTrayModel(account: AccountModel, plan: PlanModel | null) 
       initial: accountInitials(identity),
       avatarUrl: accountAvatarUrl(account.identity.photo_url),
       badge: planBadge(plan),
-      plan: plan ? `${plan.authority === "admin" ? "Admin · " : ""}${capitalized(plan.plan)} · ${plan.status}${plan.stale ? " · stale" : ""}` : "Plan unavailable",
+      plan: plan ? `${plan.authority === "admin" ? "Admin · " : ""}${capitalized(plan.plan)} · ${plan.status}${plan.verifying ? " · verifying" : plan.stale ? " · stale" : ""}` : "Plan unavailable",
       name: `Account: ${identity}` };
   }
   return { kind: account.kind, name: account.kind === "pending" ? "Signing in or loading account" : "Account",

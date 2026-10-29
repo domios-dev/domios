@@ -84,7 +84,7 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         | AccountMeshRefusal::KeyConflict
         | AccountMeshRefusal::GenerationMismatch
         | AccountMeshRefusal::ChallengeInvalid
-        | AccountMeshRefusal::EnrollmentBudget
+        | AccountMeshRefusal::EnrollmentBudget { .. }
         | AccountMeshRefusal::ProofInvalid
         | AccountMeshRefusal::VerificationUnavailable => M::handshake(reason(&refusal)),
     }

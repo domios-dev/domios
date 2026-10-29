@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { AccountMeshClientProvider, type AccountMeshSnapshot } from "../MeshPanel/accountMeshClient";
 import { deferred, FakeAccountMeshClient, snapshot } from "../MeshPanel/accountMachines.testdata";
-import { useAccountEnrollmentFailure } from "./useAccountEnrollmentFailure";
+import { useAccountEnrollmentFailure, useEnrollmentNotice } from "./useAccountEnrollmentFailure";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -52,4 +52,31 @@ it("discards an old account's pending snapshot after signing out", async () => {
   const calls = read.mock.calls.length;
   await act(async () => client.emit(snapshot()));
   expect(read.mock.calls).toHaveLength(calls);
+});
+
+function Notice({ identity }: { identity: string | null }) {
+  return <output>{useEnrollmentNotice(identity) ?? "clear"}</output>;
+}
+
+it("shows the deadline in the account menu observation and clears it without enrolling", async () => {
+  const now = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
+  try {
+    const state = snapshot({ enrollment: "refused", last_refusal: { reason: "enrollment_budget", retry_after_seconds: 121 }, retry_at: 1_800_000_121 });
+    const client = new FakeAccountMeshClient(state);
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    const paint = async (identity: string | null) => {
+      await act(async () => root!.render(<AccountMeshClientProvider value={client}><Notice identity={identity} /></AccountMeshClientProvider>));
+    };
+    await paint("owner");
+    expect(host.textContent).toContain("Try again in 3 min");
+    now.mockReturnValue(1_800_000_061_000);
+    await act(async () => client.emit(state));
+    expect(host.textContent).toContain("Try again in 1 min");
+    await paint(null);
+    expect(host.textContent).toBe("clear");
+    expect(client.enrollCalls).toBe(0);
+    expect(client.listCalls).toBe(0);
+  } finally { now.mockRestore(); }
 });

@@ -488,7 +488,10 @@ pub enum RegistryRefusal {
     #[serde(rename = "challenge_invalid")]
     ChallengeInvalid,
     #[serde(rename = "enrollment_budget")]
-    EnrollmentBudget,
+    EnrollmentBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after_seconds: Option<u64>,
+    },
     #[serde(rename = "proof_invalid")]
     ProofInvalid,
     #[serde(rename = "rate-limited")]
@@ -506,6 +509,22 @@ pub enum RegistryRefusal {
 impl RegistryRefusal {
     /// Unknown or malformed details are an outage, never a plan-limit refusal.
     pub fn from_details(details: &serde_json::Value) -> Self {
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("enrollment_budget") {
+            let seconds = details
+                .get("retry_after_seconds")
+                .and_then(|value| {
+                    value
+                        .as_f64()
+                        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
+                })
+                .filter(|seconds| {
+                    seconds.is_finite() && *seconds > 0.0 && *seconds <= u64::MAX as f64
+                })
+                .map(|seconds| seconds.ceil() as u64);
+            return Self::EnrollmentBudget {
+                retry_after_seconds: seconds,
+            };
+        }
         match serde_json::from_value::<Self>(details.clone()) {
             Ok(Self::Offline) | Err(_) => Self::Unavailable,
             Ok(Self::MachineLimit { limit: 0, .. }) => Self::Unavailable,

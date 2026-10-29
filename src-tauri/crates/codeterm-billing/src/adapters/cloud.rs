@@ -244,7 +244,6 @@ impl Cloud {
 fn entitlements_request(
     installation_id: &codeterm_account::InstallationId,
     proof: Option<codeterm_account::account_mesh::wire::InstallationProof>,
-    local: bool,
 ) -> Result<serde_json::Value> {
     let mut data = serde_json::json!({"installation_id":installation_id});
     match proof {
@@ -252,8 +251,7 @@ fn entitlements_request(
             data["installation_proof"] =
                 serde_json::to_value(proof).map_err(|_| "Invalid installation proof")?
         }
-        None if local => {}
-        None => return Err("Installation proof unavailable".into()),
+        None => {}
     }
     Ok(data)
 }
@@ -288,20 +286,31 @@ impl BillingProvider for Cloud {
         let local = cfg!(debug_assertions) && self.local_entitlements(session);
         let proof = if local {
             None
+        } else if let Some(source) = &self.installation_proofs {
+            source.proof(session, &self.installation_id).await.ok()
         } else {
-            Some(
-                self.installation_proofs
-                    .as_ref()
-                    .ok_or("Installation proof unavailable")?
-                    .proof(session, &self.installation_id)
-                    .await
-                    .map_err(|_| "Installation proof unavailable")?,
-            )
+            None
         };
-        let data = entitlements_request(&self.installation_id, proof, local)?;
-        self.call::<ApplicationEnvelope>(session, "getEntitlements", data)
+        let has_proof = proof.is_some();
+        let data = entitlements_request(&self.installation_id, proof)?;
+        match self
+            .call::<ApplicationEnvelope>(session, "getEntitlements", data)
             .await
-            .map(Reading::from)
+        {
+            Ok(envelope) => Ok(Reading::from(envelope)),
+            Err(error)
+                if error != codeterm_account::session_revocation::SESSION_REVOKED && has_proof =>
+            {
+                self.call::<ApplicationEnvelope>(
+                    session,
+                    "getEntitlements",
+                    serde_json::json!({"installation_id": self.installation_id}),
+                )
+                .await
+                .map(Reading::from)
+            }
+            Err(error) => Err(error),
+        }
     }
     async fn checkout_url(&self, session: &Session, plan: &str) -> Result<url::Url> {
         self.browser_url(

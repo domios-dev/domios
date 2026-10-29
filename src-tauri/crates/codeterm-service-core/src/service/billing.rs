@@ -142,14 +142,7 @@ impl ServiceContext {
     }
     pub async fn account_plan(&self) -> Result<Snapshot, String> {
         let result = self.account_plan_inner().await;
-        if result.is_err() {
-            self.apply_limit_gate(LimitGate::new(
-                codeterm_entitlements::compiled_free(),
-                codeterm_entitlements::enforcing(),
-            ));
-        } else {
-            self.sync_limit_gate();
-        }
+        self.sync_limit_gate();
         result
     }
     pub(super) async fn clear_account_plan(&self) -> Result<(), String> {
@@ -182,14 +175,7 @@ impl ServiceContext {
     }
     pub async fn refresh_billing(&self, event: RefreshEvent) -> Result<Snapshot, String> {
         let result = self.refresh_billing_inner(event).await;
-        if result.is_err() {
-            self.apply_limit_gate(LimitGate::new(
-                codeterm_entitlements::compiled_free(),
-                codeterm_entitlements::enforcing(),
-            ));
-        } else {
-            self.sync_limit_gate();
-        }
+        self.sync_limit_gate();
         result
     }
     async fn refresh_billing_inner(&self, event: RefreshEvent) -> Result<Snapshot, String> {

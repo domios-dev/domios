@@ -25,3 +25,7 @@ assert.equal(future.plan, "future-tier");
 assert.equal(future.limits?.max.workspaces, 19);
 assert.equal(future.limits?.max.teams, 8);
 assert.equal(future.limits?.max["agent.tabs"], 64);
+
+const verifying = accountPlanModel({entitlements:{plan:"pro",status:"active",current_period_end:0,cancel_at_period_end:false},stale:false,checking:true,access:{authority:"free",full_access:false}});
+assert.equal(verifying.plan, "pro");
+assert.equal(verifying.verifying, true);

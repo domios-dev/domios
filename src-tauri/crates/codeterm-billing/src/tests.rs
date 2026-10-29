@@ -100,7 +100,7 @@ fn envelope_free_with_null_billing_maps_free() {
 #[test]
 fn envelope_admin_carries_full_access() {
     let reading = reading(ADMIN_GRANT);
-    assert_eq!(reading.entitlements.unwrap().plan, Plan::Free);
+    assert_eq!(reading.entitlements.unwrap().plan, Plan::Admin);
     assert_eq!(reading.access.authority, Authority::Admin);
     assert!(reading.access.full_access);
     assert!(reading.access.priority_support);
@@ -170,7 +170,7 @@ async fn requires_inventory_keeps_previous_entitlements_stale() {
             Err("unused".into())
         }
     }
-    let mut pending = envelope(ADMIN_GRANT);
+    let mut pending = envelope(UNSIGNED);
     pending["billing"] = serde_json::Value::Null;
     pending["billing_inventory"] = "requires_inventory".into();
     let billing = Billing::new(Arc::new(Replies(parking_lot::Mutex::new(vec![
@@ -188,7 +188,7 @@ async fn requires_inventory_keeps_previous_entitlements_stale() {
         .await;
     assert!(second.stale);
     assert_eq!(second.entitlements, first.entitlements);
-    assert_eq!(second.entitlements.plan, Plan::Free);
+    assert_eq!(second.entitlements.plan, Plan::Pro);
     assert_eq!(second.access.unwrap().authority, Authority::Free);
     assert!(!billing.entitlement_allows(Some(&session), Capability::PaidFeatures));
 }
@@ -222,13 +222,14 @@ async fn stale_cache_transport_failure() {
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
     assert!(stale.stale);
-    assert_eq!(stale.entitlements.plan, Plan::Free);
+    assert_eq!(stale.entitlements.plan, Plan::Pro);
     let other = session_for_other();
     let failed = billing
         .refresh(Some(&other), RefreshEvent::SignIn, now)
         .await;
     assert!(failed.stale);
-    assert_eq!(failed.entitlements, Entitlements::default());
+    assert_eq!(failed.entitlements.plan.as_str(), "unavailable");
+    assert!(failed.checking);
 }
 fn session_for_other() -> codeterm_account::Session {
     session("other")
@@ -536,7 +537,7 @@ fn clock(
 }
 
 #[tokio::test]
-async fn malformed_grant_with_paid_envelope_is_compiled_free() {
+async fn malformed_grant_keeps_server_tier_verifying_without_authorizing_paid() {
     let mut reading = paid_grant();
     reading.grant = Some(serde_json::json!({"arbitrary":"invalid"}));
     let provider = GrantReplies::new(vec![Ok(reading.clone())]);
@@ -552,7 +553,8 @@ async fn malformed_grant_with_paid_envelope_is_compiled_free() {
             Instant::now(),
         )
         .await;
-    assert_eq!(snapshot.entitlements.plan, Plan::Free);
+    assert_eq!(snapshot.entitlements.plan, Plan::Pro);
+    assert!(snapshot.checking);
     assert_eq!(snapshot.access.unwrap().authority, Authority::Free);
     assert!(snapshot.grant.is_none());
     assert!(store.load().unwrap().is_none());
@@ -640,7 +642,7 @@ async fn grant_reload_reverifies_and_signout_epoch_and_refusal_remove_it() {
 }
 
 #[tokio::test]
-async fn phase_b_no_grant_is_compiled_free_even_with_paid_envelope() {
+async fn unsigned_paid_envelope_is_visible_verifying_without_paid_authorization() {
     let (_, clock) = clock(1_700_000_060);
     let mut unsigned = paid_grant();
     unsigned.grant = None;
@@ -654,6 +656,9 @@ async fn phase_b_no_grant_is_compiled_free_even_with_paid_envelope() {
     let snapshot = billing
         .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
         .await;
+    assert_eq!(snapshot.entitlements.plan, Plan::Pro);
+    assert!(snapshot.checking);
+    assert!(!billing.limit_gate().summary().enforcing);
     assert_eq!(snapshot.access.unwrap().max_workspaces, Some(2));
     assert!(!billing.entitlement_allows(Some(&user), Capability::PaidFeatures));
 }
@@ -1113,3 +1118,6 @@ mod focus;
 
 #[path = "neighbors_tests.rs"]
 mod neighbors;
+
+#[path = "enrollment_fallback_tests.rs"]
+mod enrollment_fallback;

@@ -3,6 +3,7 @@ use super::state::AccountMeshRefusal;
 #[derive(Default)]
 pub(super) struct Retry {
     failures: u32,
+    budget_retry_used: bool,
     pub deadline: Option<u64>,
     pub refusal: Option<AccountMeshRefusal>,
 }
@@ -27,11 +28,22 @@ impl Retry {
     pub fn pending(&self, now: u64) -> Option<AccountMeshRefusal> {
         self.refusal.filter(|_| {
             (self.exhausted() && self.deadline.is_none())
+                || (self.budget_retry_used && self.deadline.is_none())
                 || self.deadline.is_some_and(|at| now < at)
         })
     }
 
     pub fn settle(&mut self, now: u64, result: Result<(), AccountMeshRefusal>) {
+        if let Err(AccountMeshRefusal::EnrollmentBudget {
+            retry_after_seconds,
+        }) = result
+        {
+            self.deadline = (!self.budget_retry_used)
+                .then(|| now.saturating_add(retry_after_seconds.unwrap_or(900)));
+            self.budget_retry_used = true;
+            self.refusal = result.err();
+            return;
+        }
         let delay = match result {
             Err(AccountMeshRefusal::RateLimited {
                 retry_after_seconds,

@@ -63,3 +63,24 @@ fn rate_limit_uses_the_longer_server_or_exponential_backoff_deadline() {
     );
     assert_eq!(retry.deadline, Some(370));
 }
+
+#[test]
+fn enrollment_budget_arms_one_retry_and_parks_after_a_second_refusal() {
+    for seconds in [None, Some(61)] {
+        let mut retry = Retry::default();
+        let refusal = AccountMeshRefusal::EnrollmentBudget {
+            retry_after_seconds: seconds,
+        };
+        let delay = seconds.unwrap_or(900);
+        retry.settle(100, Err(refusal));
+        assert_eq!(retry.deadline, Some(100 + delay));
+        assert_eq!(retry.pending(99 + delay), Some(refusal));
+        assert_eq!(retry.pending(100 + delay), None);
+        retry.settle(100 + delay, Err(refusal));
+        assert_eq!(retry.deadline, None);
+        retry.resume();
+        assert_eq!(retry.pending(100 + delay + 86400), Some(refusal));
+        retry.settle(100 + delay, Ok(()));
+        assert_eq!(retry.pending(100 + delay), None);
+    }
+}

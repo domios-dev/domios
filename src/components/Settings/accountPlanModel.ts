@@ -12,6 +12,7 @@ export interface AccountPlan {
   entitlements: { plan: string; status: string; current_period_end: number; cancel_at_period_end: boolean };
   access: { authority: "admin" | "billing" | "free"; full_access: boolean } | null;
   stale: boolean;
+  checking?: boolean;
   limits?: unknown;
 }
 export interface PlanModel {
@@ -20,12 +21,13 @@ export interface PlanModel {
   plan: string;
   status: string;
   stale: boolean;
+  verifying?: boolean;
   periodEnd: number | null;
   cancelAtPeriodEnd: boolean;
   limits: FreeLimits | null;
 }
 export function accountPlanModel(value: AccountPlan): PlanModel {
-  return {authority:value.access?.authority ?? null,fullAccess:value.access?.full_access ?? false,plan:value.entitlements.plan,status:value.entitlements.status,stale:value.stale,
+  return {authority:value.access?.authority ?? null,fullAccess:value.access?.full_access ?? false,plan:value.entitlements.plan,status:value.entitlements.status,stale:value.stale,verifying:value.checking ?? false,
     periodEnd:value.entitlements.current_period_end || null,cancelAtPeriodEnd:value.entitlements.cancel_at_period_end,
     limits:parseFreeLimits(value.limits)};
 }

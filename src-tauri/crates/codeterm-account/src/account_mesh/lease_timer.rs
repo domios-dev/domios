@@ -11,6 +11,9 @@ impl AccountMesh {
             {
                 return None;
             }
+            if matches!(result, Err(AccountMeshRefusal::EnrollmentBudget { .. })) {
+                return inner.retry.deadline;
+            }
             let membership_due = inner
                 .state
                 .membership
@@ -31,7 +34,7 @@ impl AccountMesh {
                         | AccountMeshRefusal::InstallationUnverified
                         | AccountMeshRefusal::CutoffAfterCurrentSession
                         | AccountMeshRefusal::AppCheck
-                        | AccountMeshRefusal::EnrollmentBudget
+                        | AccountMeshRefusal::EnrollmentBudget { .. }
                         | AccountMeshRefusal::SignedOut
                         | AccountMeshRefusal::PlanLimitLocked)
                 )
@@ -78,6 +81,24 @@ impl AccountMesh {
             return;
         };
         let mesh = Arc::downgrade(self);
+        if matches!(result, Err(AccountMeshRefusal::EnrollmentBudget { .. })) {
+            let remaining = due.saturating_sub(self.now());
+            let Some(deadline) =
+                tokio::time::Instant::now().checked_add(Duration::from_secs(remaining))
+            else {
+                return;
+            };
+            tokio::spawn(async move {
+                tokio::time::sleep_until(deadline).await;
+                let Some(mesh) = mesh.upgrade() else {
+                    return;
+                };
+                if mesh.with(|inner| inner.lease == lease && inner.is_current(epoch)) {
+                    let _ = mesh.refresh(EnrollTrigger::Lease).await;
+                }
+            });
+            return;
+        }
         tokio::spawn(async move {
             loop {
                 let Some(mesh) = mesh.upgrade() else {
