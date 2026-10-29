@@ -568,9 +568,17 @@ async function launchPrebuilt(options) {
   let phase=0;
   let checkingReadiness = false;
   const startupWait = new AbortController();
+  let cancelLaunch;
   try {
     await new Promise((resolveReady, rejectReady) => {
       const fail = (error) => rejectReady(error instanceof Error ? error : new Error(String(error)));
+      cancelLaunch = () => {
+        const error = new Error("prebuilt desktop launch cancelled");
+        error.code = "DEV_LAUNCH_CANCELLED";
+        fail(error);
+      };
+      process.once("SIGINT", cancelLaunch);
+      process.once("SIGTERM", cancelLaunch);
       child = spawn(
         node,
         [fileURLToPath(import.meta.url), "--supervise-prebuilt", "--app", app, "--log", log, "--api-port", apiPort, ...(options.has("--record")?["--record",option(options,"--record")]:[])],
@@ -612,12 +620,18 @@ async function launchPrebuilt(options) {
       armDeadline();
     }).then((signal) => console.log(`[dev-prebuilt] readiness signal: ${signal}`));
   } catch (error) {
-    if (error.code === "DEV_ATTACHMENT_PENDING") {
-      if (child?.connected) child.disconnect();
-    } else await terminateOwnedChild(child);
+    if (error.code === "DEV_LAUNCH_CANCELLED") await terminateOwnedChild(child);
+    else if (child?.pid) {
+      if (child.connected) child.disconnect();
+      error.code = "DEV_ATTACHMENT_PENDING";
+    }
     throw error;
   } finally {
     startupWait.abort();
+    if (cancelLaunch) {
+      process.off("SIGINT", cancelLaunch);
+      process.off("SIGTERM", cancelLaunch);
+    }
     if (deadline) clearTimeout(deadline);
     if (child) child.removeAllListeners();
   }

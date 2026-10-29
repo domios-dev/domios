@@ -3,6 +3,50 @@ use std::future::{poll_fn, Future};
 use std::task::Poll;
 
 #[test]
+fn starting_window_is_hidden_and_opaque_even_when_main_is_transparent() {
+    let mut config = tauri::utils::config::Config::default();
+    config.app.windows.push(tauri::utils::config::WindowConfig {
+        visible: true,
+        transparent: true,
+        ..Default::default()
+    });
+    let window = starting_window_config(&config).unwrap();
+    assert_eq!(window.label, "starting");
+    assert!(!window.visible);
+    assert!(!window.transparent);
+    assert_eq!(
+        window.url,
+        WebviewUrl::CustomProtocol(starting_url().unwrap())
+    );
+}
+
+#[test]
+fn starting_paint_requires_the_current_document_acknowledgement_once() {
+    let ack = |generation| {
+        Url::parse(&format!("domios-starting-painted://localhost/{generation}")).unwrap()
+    };
+    let mut paint = StartingPaint::default();
+    assert!(!paint.acknowledge(&ack(0)));
+    paint.begin();
+    let old = paint.generation();
+    paint.begin();
+    assert!(!paint.acknowledge(&ack(old)));
+    for invalid in [
+        "domios-shell://localhost/2",
+        "domios-starting-painted://foreign/2",
+        "domios-starting-painted://localhost/2?stale=1",
+        "domios-starting-painted://localhost/2#stale",
+        "domios-starting-painted://user@localhost/2",
+    ] {
+        assert!(!paint.acknowledge(&Url::parse(invalid).unwrap()));
+    }
+    assert!(paint.acknowledge(&ack(paint.generation())));
+    assert!(!paint.acknowledge(&ack(paint.generation())));
+    paint.begin();
+    assert!(paint.acknowledge(&ack(paint.generation())));
+}
+
+#[test]
 fn starting_document_url_is_absolute_and_stable_in_packaged_and_development_modes() {
     let dev = Url::parse("http://127.0.0.1:1479/").unwrap();
     for dev_url in [None, Some(dev)] {

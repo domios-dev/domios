@@ -1,6 +1,43 @@
 use super::*;
 
 pub(crate) const SCHEME: &str = "domios-startup";
+pub(crate) const STARTING_PAINT_SCHEME: &str = "domios-starting-painted";
+pub(crate) const STARTING_PAINT_SCRIPT: &str = include_str!("initial_document.js");
+
+#[derive(Default)]
+pub(crate) struct StartingPaint {
+    generation: u64,
+    acknowledged: bool,
+}
+
+impl StartingPaint {
+    pub(crate) fn begin(&mut self) {
+        self.generation += 1;
+        self.acknowledged = false;
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub(crate) fn acknowledge(&mut self, url: &Url) -> bool {
+        if self.generation == 0
+            || self.acknowledged
+            || url.scheme() != STARTING_PAINT_SCHEME
+            || url.host_str() != Some("localhost")
+            || url.path() != format!("/{}", self.generation)
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.port().is_some()
+        {
+            return false;
+        }
+        self.acknowledged = true;
+        true
+    }
+}
 
 pub(super) fn url(http_protocol: bool) -> Result<Url, url::ParseError> {
     Url::parse(if http_protocol {
@@ -20,6 +57,16 @@ pub(crate) fn window_config(
         .cloned()
         .ok_or("Main window configuration is missing")?;
     window.url = WebviewUrl::CustomProtocol(starting_url()?);
+    Ok(window)
+}
+
+pub(crate) fn starting_window_config(
+    config: &tauri::utils::config::Config,
+) -> Result<tauri::utils::config::WindowConfig, Box<dyn std::error::Error>> {
+    let mut window = window_config(config)?;
+    window.label = "starting".into();
+    window.visible = false;
+    window.transparent = false;
     Ok(window)
 }
 
