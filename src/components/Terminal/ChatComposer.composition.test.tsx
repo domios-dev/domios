@@ -169,12 +169,12 @@ test("starting composer preserves its draft before five seconds and explicitly o
   const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
   const due: Array<() => void> = [];
   const schedule = window.setTimeout.bind(window);
-  const timer = vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args) => {
+  const timer = vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args): ReturnType<typeof setTimeout> => {
     if (delay === 5_000 && typeof callback === "function") {
       due.push(() => callback(...args));
-      return 0 as unknown as ReturnType<typeof window.setTimeout>;
+      return 0 as unknown as ReturnType<typeof setTimeout>;
     }
-    return schedule(callback, delay, ...args);
+    return schedule(callback, delay, ...args) as unknown as ReturnType<typeof setTimeout>;
   });
   const h = await renderComposer("starting-override", { tab: {
     id: "starting-override", agent_type: "opaque-provider", agent_booting: true,
