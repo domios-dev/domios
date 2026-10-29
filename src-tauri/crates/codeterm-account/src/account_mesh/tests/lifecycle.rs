@@ -37,7 +37,7 @@ async fn account_mesh_sign_in_enrolls_once_and_restart_renews_the_same_slot() {
         .await
         .unwrap();
     assert_eq!(harness.calls("enroll"), 1);
-    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.calls("renew"), 0);
 
     harness.restart().await;
     assert_eq!(harness.state().presence, Presence::NeverSignedIn);
@@ -49,8 +49,8 @@ async fn account_mesh_sign_in_enrolls_once_and_restart_renews_the_same_slot() {
         .unwrap();
     assert_eq!(harness.calls("enroll_key"), 1);
     assert_eq!(harness.calls("enroll"), 1);
-    assert_eq!(harness.calls("renew"), 2);
-    assert_eq!(harness.registry.slot(UID), Some(3));
+    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.registry.slot(UID), Some(2));
     assert!(harness.state().current_membership(START).is_some());
 }
 
@@ -209,6 +209,7 @@ async fn account_mesh_recovers_when_the_enroll_key_reply_is_lost() {
 async fn account_mesh_reenrolls_when_its_remote_row_is_inactive() {
     let harness = enrolled().await;
     harness.registry.revoke_self(UID);
+    harness.clock.set(START + 3600);
 
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
 
@@ -719,6 +720,11 @@ async fn account_mesh_clock_behind_the_issuer_still_enrolls_without_a_longer_lea
 }
 
 async fn next_renewal(harness: &Harness) -> Duration {
+    let state = harness.state();
+    let due = state
+        .retry_at
+        .unwrap_or_else(|| state.membership.as_ref().unwrap().verified.refresh_after());
+    harness.clock.set(due);
     let started = tokio::time::Instant::now();
     tokio::time::timeout(
         Duration::from_secs(3600),

@@ -526,7 +526,23 @@ impl ServiceContext {
             tab_id,
             |focused| self.emit_tab_focus_changed(focused),
             || self.schedule_focused_tab_model_refresh(),
-        )
+        )?;
+        let target = {
+            let mux = self.mux.read();
+            mux.resolve_tab_id(tab_id).filter(|id| {
+                mux.get_tab(id)
+                    .is_some_and(|tab| super::lazy_restore::wake_eligible(tab, true))
+            })
+        };
+        if let Some(target) = target {
+            let service = self.clone();
+            crate::async_runtime::spawn_blocking(move || {
+                if let Err(reason) = service.wake_tab_on_request(&target) {
+                    log::warn!("[tab-focus] wake failed tab={target}: {reason}");
+                }
+            });
+        }
+        Ok(())
     }
 
     pub fn link_pty(&self, tab_id: &str, pty_id: String) -> String {

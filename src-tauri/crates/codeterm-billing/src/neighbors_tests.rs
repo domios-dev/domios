@@ -9,38 +9,68 @@ async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_up
     let provider = GrantReplies::new(vec![Ok(free), Err("offline".into()), Ok(paid_grant())]);
     let (_, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider).with_test_grants(
-        activation("fixture-online-v1"), "fixture-installation",
-        Arc::new(MemoryGrants::default()), clock,
+        activation("fixture-online-v1"),
+        "fixture-installation",
+        Arc::new(MemoryGrants::default()),
+        clock,
     );
     let user = session("fixture-user");
     assert!(!billing.neighbors_locked("fixture-user"));
     billing.snapshot(Some(&user));
     assert!(!billing.neighbors_locked("fixture-user"));
     let now = Instant::now();
-    billing.refresh(Some(&user), RefreshEvent::SignIn, now).await;
+    billing
+        .refresh(Some(&user), RefreshEvent::SignIn, now)
+        .await;
     assert!(billing.neighbors_locked("fixture-user"));
     assert!(!billing.neighbors_locked("other-account"));
-    billing.refresh(Some(&user), RefreshEvent::Explicit, now + Duration::from_secs(1)).await;
+    billing
+        .refresh(
+            Some(&user),
+            RefreshEvent::Explicit,
+            now + Duration::from_secs(1),
+        )
+        .await;
     assert!(!billing.neighbors_locked("fixture-user"));
-    billing.refresh(Some(&user), RefreshEvent::Explicit, now + Duration::from_secs(2)).await;
+    billing
+        .refresh(
+            Some(&user),
+            RefreshEvent::Explicit,
+            now + Duration::from_secs(2),
+        )
+        .await;
     assert_eq!(billing.snapshot(Some(&user)).entitlements.plan, Plan::Pro);
     assert!(!billing.neighbors_locked("fixture-user"));
 }
 
 #[tokio::test]
 async fn paid_expiry_missing_proof_and_not_yet_valid_proof_are_not_free_observations() {
-    for (now, missing) in [(1_700_000_060, false), (1_699_000_000, false), (1_700_000_060, true)] {
+    for (now, missing) in [
+        (1_700_000_060, false),
+        (1_699_000_000, false),
+        (1_700_000_060, true),
+    ] {
         let mut paid = paid_grant();
-        if missing { paid.grant = None; }
+        if missing {
+            paid.grant = None;
+        }
         let (time, clock) = clock(now);
         let billing = Billing::new(GrantReplies::new(vec![Ok(paid)])).with_test_grants(
-            activation("fixture-online-v1"), "fixture-installation", Arc::new(MemoryGrants::default()), clock,
+            activation("fixture-online-v1"),
+            "fixture-installation",
+            Arc::new(MemoryGrants::default()),
+            clock,
         );
         let user = session("fixture-user");
-        billing.refresh(Some(&user), RefreshEvent::SignIn, Instant::now()).await;
+        billing
+            .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+            .await;
         assert!(!billing.neighbors_locked("fixture-user"));
         time.store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);
-        assert_eq!(billing.snapshot(Some(&user)).access.unwrap().authority, Authority::Free);
+        assert_eq!(
+            billing.snapshot(Some(&user)).access.unwrap().authority,
+            Authority::Free
+        );
         assert!(!billing.neighbors_locked("fixture-user"));
     }
 }
@@ -59,20 +89,37 @@ impl BillingProvider for PendingPaid {
         }
         Ok(paid_grant())
     }
-    async fn checkout_url(&self, _: &codeterm_account::Session, _: &str) -> Result<url::Url> { Err("unused".into()) }
-    async fn portal_url(&self, _: &codeterm_account::Session) -> Result<url::Url> { Err("unused".into()) }
+    async fn checkout_url(&self, _: &codeterm_account::Session, _: &str) -> Result<url::Url> {
+        Err("unused".into())
+    }
+    async fn portal_url(&self, _: &codeterm_account::Session) -> Result<url::Url> {
+        Err("unused".into())
+    }
 }
 
 #[tokio::test]
 async fn paid_expiry_while_refresh_is_pending_does_not_stop_neighbors() {
-    let provider = Arc::new(PendingPaid { calls: 0.into(), started: tokio::sync::Notify::new(), release: tokio::sync::Semaphore::new(0) });
+    let provider = Arc::new(PendingPaid {
+        calls: 0.into(),
+        started: tokio::sync::Notify::new(),
+        release: tokio::sync::Semaphore::new(0),
+    });
     let (time, clock) = clock(1_700_000_060);
     let billing = Billing::new(provider.clone()).with_test_grants(
-        activation("fixture-online-v1"), "fixture-installation", Arc::new(MemoryGrants::default()), clock,
+        activation("fixture-online-v1"),
+        "fixture-installation",
+        Arc::new(MemoryGrants::default()),
+        clock,
     );
     let user = session("fixture-user");
-    billing.refresh(Some(&user), RefreshEvent::SignIn, Instant::now()).await;
-    let refresh = billing.refresh(Some(&user), RefreshEvent::Explicit, Instant::now() + Duration::from_secs(1));
+    billing
+        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .await;
+    let refresh = billing.refresh(
+        Some(&user),
+        RefreshEvent::Explicit,
+        Instant::now() + Duration::from_secs(1),
+    );
     let control = async {
         provider.started.notified().await;
         time.store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);

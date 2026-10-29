@@ -262,18 +262,34 @@ fn daily_limit_refusals_preserve_the_server_limit_and_reset_time() {
 fn outage_responses_retry_but_permission_auth_and_entitlement_refusals_stop() {
     for status in [401, 429, 500, 502, 503] {
         assert_eq!(callable_error(status, None), Error::Transport);
-        assert_eq!(callable_error(status, Some(&json!({"error":{"status":"INTERNAL"}}))), Error::Transport);
+        assert_eq!(
+            callable_error(status, Some(&json!({"error":{"status":"INTERNAL"}}))),
+            Error::Transport
+        );
     }
     assert_eq!(callable_error(403, None), Error::PermissionDenied);
-    assert!(!codeterm_neighbors::supervisor::retryable(Error::PermissionDenied));
+    assert!(!codeterm_neighbors::supervisor::retryable(
+        Error::PermissionDenied
+    ));
     for reason in ["friends_locked", "entitlement_locked"] {
-        assert_eq!(callable_error(403, Some(&json!({"error":{"details":{"reason":reason}}}))), Error::Locked);
+        assert_eq!(
+            callable_error(403, Some(&json!({"error":{"details":{"reason":reason}}}))),
+            Error::Locked
+        );
     }
 }
 
 #[test]
 fn callable_failure_preserves_structured_delivery_limits() {
-    assert_eq!(callable_error(429, Some(&json!({"error":{"details":{"reason":"rate_limited","retry_after_seconds":45}}}))), Error::RateLimited { retry_after_seconds: 45 });
+    assert_eq!(
+        callable_error(
+            429,
+            Some(&json!({"error":{"details":{"reason":"rate_limited","retry_after_seconds":45}}}))
+        ),
+        Error::RateLimited {
+            retry_after_seconds: 45
+        }
+    );
 }
 
 mod auth;

@@ -53,21 +53,38 @@ async fn account_setup_outage_recovers_without_a_ui_action_and_stop_cancels_acti
     let (active, mut ready) = tokio::sync::mpsc::unbounded_channel();
     let (held, ended) = tokio::sync::oneshot::channel::<()>();
     let held = Arc::new(parking_lot::Mutex::new(Some(held)));
-    service.start_neighbor_updates_with(move || {
-        let count = count.clone(); let active = active.clone(); let held = held.clone();
-        async move {
-            if count.fetch_add(1, Ordering::SeqCst) == 0 { return Err(Error::Transport); }
-            let _held = held.lock().take();
-            active.send(()).unwrap();
-            std::future::pending::<Result<()>>().await
-        }
-    }, clock.clone());
-    assert_eq!(deadlines.recv().await, Some(std::time::Duration::from_millis(500)));
+    service.start_neighbor_updates_with(
+        move || {
+            let count = count.clone();
+            let active = active.clone();
+            let held = held.clone();
+            async move {
+                if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return Err(Error::Transport);
+                }
+                let _held = held.lock().take();
+                active.send(()).unwrap();
+                std::future::pending::<Result<()>>().await
+            }
+        },
+        clock.clone(),
+    );
+    assert_eq!(
+        deadlines.recv().await,
+        Some(std::time::Duration::from_millis(500))
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     clock.advance();
     ready.recv().await.unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 2);
-    assert!(!service.neighbor_updates().task.lock().as_ref().unwrap().task.is_finished());
+    assert!(!service
+        .neighbor_updates()
+        .task
+        .lock()
+        .as_ref()
+        .unwrap()
+        .task
+        .is_finished());
     service.stop_neighbor_updates();
     assert!(ended.await.is_err());
     assert!(service.neighbor_updates().task.lock().is_none());
@@ -84,15 +101,23 @@ async fn account_rearm_during_a_failing_setup_is_retained() {
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let count = calls.clone();
     let (events, mut observed) = tokio::sync::mpsc::unbounded_channel();
-    service.start_neighbor_updates_with(move || {
-        let count = count.clone(); let events = events.clone(); let permit = permit.clone();
-        async move {
-            let call = count.fetch_add(1, Ordering::SeqCst);
-            events.send(call).unwrap();
-            if call == 0 { permit.acquire().await.unwrap().forget(); return Err(Error::Locked); }
-            std::future::pending::<Result<()>>().await
-        }
-    }, clock);
+    service.start_neighbor_updates_with(
+        move || {
+            let count = count.clone();
+            let events = events.clone();
+            let permit = permit.clone();
+            async move {
+                let call = count.fetch_add(1, Ordering::SeqCst);
+                events.send(call).unwrap();
+                if call == 0 {
+                    permit.acquire().await.unwrap().forget();
+                    return Err(Error::Locked);
+                }
+                std::future::pending::<Result<()>>().await
+            }
+        },
+        clock,
+    );
     assert_eq!(observed.recv().await, Some(0));
     service.rearm_neighbor_updates();
     release.add_permits(1);

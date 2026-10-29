@@ -66,6 +66,7 @@ import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 import { ReplyQuote } from "@codeterm/chat-ui";
 import type { ComposerReply } from "./composerReply";
 import { useComposerReply } from "./useComposerReply";
+import { useStartupSend } from "./useStartupSend";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -231,6 +232,7 @@ function ChatComposerImpl({
   contextSlot?: HTMLElement | null;
 }) {
   recordComposerRender(tabId);
+  const startupSend = useStartupSend(tabId, chatBackend);
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
@@ -401,6 +403,8 @@ function ChatComposerImpl({
   }
 
   async function send(extraAttachments: string[] = []) {
+    if (!startupSend.allowed) return;
+    const startupOverrideNonce = startupSend.overrideNonce;
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
     const { text, allAttachments, recordedVoiceAttachments, quoted } = draft;
@@ -451,14 +455,14 @@ function ChatComposerImpl({
       return;
     }
     try {
-      const fallbackCommand = !chatBackend && allAttachments.length === 0
+      const fallbackCommand = !startupOverrideNonce && !chatBackend && allAttachments.length === 0
         ? cliFallbackCommandPayload(composed) : null;
       if (fallbackCommand) {
         if (!currentPtyId) throw new Error("Tab has no PTY");
         onOpenTerminalFallback?.();
         await invoke("write_pty_string", { ptyId: currentPtyId, data: fallbackCommand, raw: false });
       } else {
-        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
+        observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed, startupOverrideNonce));
       }
       recall.remember(portable);
     } catch (e) {
@@ -596,7 +600,7 @@ function ChatComposerImpl({
           onSchedule={openScheduleModal}
           onSendWithAttachments={(paths) => void send(paths)}
           onError={flagComposerError}
-          sendDisabled={(!input.trim() && attachments.length === 0 && !reply.reply)}
+          sendDisabled={!startupSend.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
           hasText={input.trim().length > 0 || attachments.length > 0 || reply.reply !== null}
           cardHeader={(reply.reply || attachments.length > 0) && <>
             {reply.reply && <ReplyQuote label={reply.reply.label} excerpt={reply.reply.excerpt} onRemove={() => { reply.clear(); refocusComposer(); }} />}

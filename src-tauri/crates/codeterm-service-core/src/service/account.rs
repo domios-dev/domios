@@ -32,6 +32,12 @@ struct AccountIdentity(std::sync::Weak<super::ServiceContext>);
 
 #[async_trait]
 impl codeterm_account::IdentityObserver for AccountIdentity {
+    async fn session_refreshed(&self, session: &codeterm_account::Session) {
+        if let Some(service) = self.0.upgrade() {
+            service.account_mesh_credentials_refreshed(session);
+        }
+    }
+
     async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
         if let Some(service) = self.0.upgrade() {
             service.neighbor_identity_changed();

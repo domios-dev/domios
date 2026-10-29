@@ -1,8 +1,8 @@
 import type { Neighbor, NeighborList, NeighborRequest, OutgoingNeighborRequest } from "./neighborModel";
 
 /** What the sidebar and the graph need before the fresh list arrives: names, avatars and addresses, never messages or permissions. */
-export type CachedFriend = Pick<Neighbor, "friendship_id" | "uid" | "displayName" | "photoURL" | "paused" | "my_paused"> & { gateway_tab?: string | null };
-export type CachedRequest = Pick<NeighborRequest, "request_id" | "uid" | "displayName" | "photoURL">;
+export type CachedFriend = Pick<Neighbor, "friendship_id" | "uid" | "displayName" | "email" | "photoURL" | "paused" | "my_paused"> & { gateway_tab?: string | null };
+export type CachedRequest = Pick<NeighborRequest, "request_id" | "uid" | "displayName" | "email" | "photoURL">;
 export type CachedInvite = Pick<OutgoingNeighborRequest, "id" | "typed_email" | "created_at">;
 export interface CachedNeighbors { access: NeighborList["access"]; can_invite?: boolean; friends: CachedFriend[]; incoming: CachedRequest[]; outgoing: CachedInvite[] }
 
@@ -20,10 +20,12 @@ export function readNeighborCache(identity: string | null): CachedNeighbors | nu
     const valid = friends.filter((friend): friend is CachedFriend => typeof friend === "object" && friend !== null
       && typeof friend.friendship_id === "string" && typeof friend.uid === "string"
       && (friend.displayName === null || typeof friend.displayName === "string")
-      && (friend.photoURL === null || typeof friend.photoURL === "string"));
+      && (friend.photoURL === null || typeof friend.photoURL === "string")
+      && (friend.email === undefined || friend.email === null || typeof friend.email === "string"));
     const text = (field: unknown) => field === null || typeof field === "string";
     const requests = (Array.isArray(incoming) ? incoming : []).filter((request): request is CachedRequest => typeof request === "object" && request !== null
-      && typeof request.request_id === "string" && typeof request.uid === "string" && text(request.displayName) && text(request.photoURL));
+      && typeof request.request_id === "string" && typeof request.uid === "string" && text(request.displayName) && text(request.photoURL)
+      && (request.email === undefined || text(request.email)));
     const invites = (Array.isArray(outgoing) ? outgoing : []).filter((invite): invite is CachedInvite => typeof invite === "object" && invite !== null
       && typeof invite.id === "string" && typeof invite.typed_email === "string" && typeof invite.created_at === "number");
     return { access, friends: valid.slice(0, MAX_FRIENDS), incoming: requests.slice(0, MAX_FRIENDS), outgoing: invites.slice(0, MAX_FRIENDS),
@@ -32,9 +34,9 @@ export function readNeighborCache(identity: string | null): CachedNeighbors | nu
 }
 
 export function writeNeighborCache(identity: string, list: NeighborList) {
-  const friends = list.friends.slice(0, MAX_FRIENDS).map(({ friendship_id, uid, displayName, photoURL, gateway_tab }) =>
-    ({ friendship_id, uid, displayName, photoURL, ...(gateway_tab === undefined ? {} : { gateway_tab }) }));
-  const incoming = list.incoming.slice(0, MAX_FRIENDS).map(({ request_id, uid, displayName, photoURL }) => ({ request_id, uid, displayName, photoURL }));
+  const friends = list.friends.slice(0, MAX_FRIENDS).map(({ friendship_id, uid, displayName, email, photoURL, gateway_tab }) =>
+    ({ friendship_id, uid, displayName, photoURL, ...(email === undefined ? {} : { email }), ...(gateway_tab === undefined ? {} : { gateway_tab }) }));
+  const incoming = list.incoming.slice(0, MAX_FRIENDS).map(({ request_id, uid, displayName, email, photoURL }) => ({ request_id, uid, displayName, photoURL, ...(email === undefined ? {} : { email }) }));
   const outgoing = list.outgoing.slice(0, MAX_FRIENDS).map(({ id, typed_email, created_at }) => ({ id, typed_email, created_at }));
   const cached: CachedNeighbors = { access: list.access, friends, incoming, outgoing, ...(list.can_invite === undefined ? {} : { can_invite: list.can_invite }) };
   try { localStorage.setItem(key(identity), JSON.stringify(cached)); }

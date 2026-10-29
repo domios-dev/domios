@@ -54,19 +54,47 @@ impl ServiceContext {
     }
 
     pub(in crate::service::neighbors) fn rearm_neighbor_restoration(&self) {
-        self.extensions.get_or_init(RestorationRearm::default).0.signal();
-        if self.neighbor_cell().restoration.lock().as_ref().is_none_or(|task| task.is_finished()) {
-            self.neighbor_cell().bootstrapped.store(false, Ordering::Release);
+        self.extensions
+            .get_or_init(RestorationRearm::default)
+            .0
+            .signal();
+        if self
+            .neighbor_cell()
+            .restoration
+            .lock()
+            .as_ref()
+            .is_none_or(|task| task.is_finished())
+        {
+            self.neighbor_cell()
+                .bootstrapped
+                .store(false, Ordering::Release);
         }
         #[cfg(not(any(test, feature = "test-support")))]
         self.restore_neighbors_once();
     }
 
     #[cfg(any(test, not(feature = "test-support")))]
-    fn start_neighbor_restoration_with<F, A>(&self, generation: u64, attempt: A, clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>)
-    where F: std::future::Future<Output = codeterm_neighbors::Result<()>> + Send + 'static, A: FnMut() -> F + Send + 'static {
-        if self.neighbor_cell().bootstrapped.swap(true, Ordering::AcqRel) { return; }
-        let rearm = self.extensions.get_or_init(RestorationRearm::default).0.clone();
+    fn start_neighbor_restoration_with<F, A>(
+        &self,
+        generation: u64,
+        attempt: A,
+        clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>,
+    ) where
+        F: std::future::Future<Output = codeterm_neighbors::Result<()>> + Send + 'static,
+        A: FnMut() -> F + Send + 'static,
+    {
+        if self
+            .neighbor_cell()
+            .bootstrapped
+            .swap(true, Ordering::AcqRel)
+        {
+            return;
+        }
+        let rearm = self
+            .extensions
+            .get_or_init(RestorationRearm::default)
+            .0
+            .clone();
         let service = self.clone();
         self.spawn_neighbor_restoration(async move {
             let _ = super::super::recovery::run(&rearm, clock.as_ref(), attempt, || {
@@ -75,10 +103,15 @@ impl ServiceContext {
                     let cancelled = service.neighbor_cell().control_cancel.notified();
                     tokio::pin!(cancelled);
                     cancelled.as_mut().enable();
-                    if service.require_neighbor_generation(generation).is_err() || service.require_neighbors_enabled().is_err() { return; }
+                    if service.require_neighbor_generation(generation).is_err()
+                        || service.require_neighbors_enabled().is_err()
+                    {
+                        return;
+                    }
                     cancelled.await;
                 }
-            }).await;
+            })
+            .await;
         });
     }
 
@@ -91,7 +124,9 @@ impl ServiceContext {
     #[cfg(not(any(test, feature = "test-support")))]
     pub(super) fn restore_neighbor_watches(&self, generation: u64) -> WatchStartup<'_> {
         Box::pin(async move {
-            if self.neighbor_access_locked().await { return Err(Error::Locked.to_string()); }
+            if self.neighbor_access_locked().await {
+                return Err(Error::Locked.to_string());
+            }
             self.require_neighbors_enabled()
                 .map_err(|error| error.to_string())?;
             self.require_neighbor_generation(generation)?;
@@ -150,7 +185,9 @@ impl ServiceContext {
         {
             return;
         }
-        if self.require_neighbors_enabled().is_err() { return; }
+        if self.require_neighbors_enabled().is_err() {
+            return;
+        }
         let service = self.clone();
         let generation = self.neighbor_history_generation();
         self.start_neighbor_restoration_with(generation, move || {

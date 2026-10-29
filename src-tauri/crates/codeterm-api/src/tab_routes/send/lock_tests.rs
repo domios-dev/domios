@@ -59,6 +59,7 @@ async fn local_and_mesh_relayed_sends_to_a_locked_tab_are_typed_zero_write_refus
     let chat = chat_send_text(
         State(state.clone()),
         bearer(),
+        None,
         Path(locked.clone()),
         Json(body(None)),
     )

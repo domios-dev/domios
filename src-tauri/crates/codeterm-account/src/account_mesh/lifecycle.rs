@@ -118,6 +118,8 @@ pub(super) struct Inner {
     pub(super) published_endpoint: Option<super::wire::MeshEndpoint>,
     pub(super) published_until: u64,
     pub(super) sync_pending: bool,
+    pub(super) refreshed_credentials: Option<super::admission::CredentialStamp>,
+    pub(super) auth_parked: Option<super::admission::CredentialStamp>,
     pub(super) resolved: HashMap<String, MeshTarget>,
     flight: Option<Flight>,
     awaiting_logout: bool,
@@ -152,6 +154,8 @@ impl Inner {
 
     fn begin_epoch(&mut self) {
         self.cancel_flight();
+        self.auth_parked = None;
+        self.refreshed_credentials = None;
         self.notice_epoch = None;
         self.registry_flight = None;
         self.retry = Default::default();
@@ -173,6 +177,7 @@ pub struct AccountMesh {
     persist_lock: tokio::sync::Mutex<()>,
     push_lock: tokio::sync::Mutex<()>,
     pub(super) key_lock: tokio::sync::Mutex<()>,
+    pub(super) admission_lock: tokio::sync::Mutex<()>,
 }
 
 fn merge(current: Option<EnrollTrigger>, next: EnrollTrigger) -> EnrollTrigger {
@@ -208,6 +213,8 @@ impl AccountMesh {
                 published_endpoint: None,
                 published_until: 0,
                 sync_pending: false,
+                auth_parked: None,
+                refreshed_credentials: None,
                 flight: None,
                 awaiting_logout: false,
                 notice_epoch: None,
@@ -219,6 +226,7 @@ impl AccountMesh {
             persist_lock: tokio::sync::Mutex::new(()),
             push_lock: tokio::sync::Mutex::new(()),
             key_lock: tokio::sync::Mutex::new(()),
+            admission_lock: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -458,6 +466,7 @@ impl AccountMesh {
 
     pub fn enrollment_signed_in(&self) {
         self.with(|inner| {
+            inner.auth_parked = None;
             inner.rotation_attempt = None;
             if inner.state.last_refusal != Some(AccountMeshRefusal::ReauthRequired) {
                 return;
@@ -482,6 +491,12 @@ impl AccountMesh {
             };
             if inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
                 return Err(AccountMeshRefusal::ReauthRequired);
+            }
+            if trigger == EnrollTrigger::Explicit {
+                inner.auth_parked = None;
+            }
+            if inner.auth_parked.is_some() {
+                return Err(AccountMeshRefusal::Unauthenticated);
             }
             let epoch = inner.state.account_epoch;
             if matches!(trigger, EnrollTrigger::Explicit | EnrollTrigger::Network) {
@@ -568,6 +583,7 @@ impl AccountMesh {
             inner.retry.settle(self.now(), *result);
             let retry_at = inner.retry.deadline;
             let rerun = if owned
+                && inner.auth_parked.is_none()
                 && retry_at.is_none()
                 && !inner.retry.exhausted()
                 && *result != Err(AccountMeshRefusal::ReauthRequired)
@@ -671,7 +687,7 @@ impl AccountMesh {
                 Err(_) => inner.retry.deadline?.saturating_sub(now),
             };
             inner.lease += 1;
-            Some((inner.lease, delay))
+            Some((inner.lease, delay.max(1)))
         }) else {
             return;
         };

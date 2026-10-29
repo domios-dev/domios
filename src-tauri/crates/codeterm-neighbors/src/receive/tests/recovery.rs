@@ -376,7 +376,9 @@ impl ReceptionEvents for Reconnect {
         self.states.lock().unwrap().push(state);
     }
     async fn retry_after_failure(&self, _: usize) -> Result<()> {
-        if self.opens.lock().unwrap().len() >= 4 { return Err(self.stream_error); }
+        if self.opens.lock().unwrap().len() >= 4 {
+            return Err(self.stream_error);
+        }
         Ok(())
     }
 }

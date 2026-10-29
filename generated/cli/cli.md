@@ -85,7 +85,7 @@ General Agent only: deny this Neighbor's requests
 
 #### `domios account neighbors enroll`
 
-Receive all friends here (account takeover); use a friend's UI to move only that friend
+Receive all friends here (account takeover); use receive-here to move only one friend
 
 - `--confirm-takeover`
 - `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
@@ -128,6 +128,14 @@ List active own key IDs
 Read a Neighbor's local permission policy
 
 - `<friendship_id>`
+
+#### `domios account neighbors receive-here`
+
+General Agent: receive one named friend's messages here; confirm an existing receiver move with the owner
+
+- `--expected-receiver-revision`
+- `<friendship_id>`
+- `--takeover-confirmed` — Pass only after the owner explicitly agrees to move receiving from the named machine
 
 #### `domios account neighbors revoke`
 

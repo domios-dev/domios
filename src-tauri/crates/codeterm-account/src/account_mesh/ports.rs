@@ -38,6 +38,7 @@ pub trait MeshRegistry: Send + Sync {
 #[async_trait]
 pub trait SessionSource: Send + Sync {
     async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal>;
+    async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal>;
 }
 
 /// Protected storage for the installation key seed (the existing account credential store).
