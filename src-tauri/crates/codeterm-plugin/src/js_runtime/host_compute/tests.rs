@@ -61,6 +61,9 @@ fn recording_reply(
 }
 
 impl PluginHostCtx for AnalyticsHost {
+    fn surface_registration(&self, plugin: &str, _: &str) -> Option<String> {
+        (plugin == "origin-fixture").then(|| "epoch".into())
+    }
     fn plugin_job_json(&self, plugin: &str, _: &str) -> String {
         match crate::surface_invocation::current(plugin) {
             Some(origin) => json!({"origin":origin}).to_string(),

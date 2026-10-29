@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use std::io::Read;
@@ -13,6 +13,9 @@ use codeterm_service_core::notification::vet::{
 };
 
 const NOTIFICATION_FILE_READ_LIMIT: u64 = 16 * 1024 * 1024;
+
+#[cfg(test)]
+mod owner_tests;
 
 #[derive(Deserialize)]
 pub struct ListNotifQuery {
@@ -160,17 +163,29 @@ pub struct AnswerNotifBody {
 /// chosen label; neither can name a command, arguments, or a target tab.
 pub async fn answer_notification(
     AxumState(state): AxumState<AppState>,
+    caller: Option<Extension<crate::auth::CallerIdentity>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<AnswerNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
+    let owner = matches!(
+        caller.as_ref().map(|caller| &caller.0),
+        Some(crate::auth::CallerIdentity::Local)
+    );
+    if state.svc.notification_requires_owner(&id) && !owner {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Blueprint spending decisions require the local owner".into(),
+        ));
+    }
     if state
         .svc
         .notif
         .lock()
         .answer_slot(&id)
         .is_some_and(|slot| slot.daemon_request.is_some())
+        && !owner
         && !crate::auth::is_local_caller(&state, &headers)
     {
         return Err((
@@ -181,7 +196,11 @@ pub async fn answer_notification(
     blocking_answer(move || {
         let started = std::time::Instant::now();
         log::debug!("[notify-answer] {id} delivery started off runtime");
-        let result = state.svc.answer_notification(&id, &body.label);
+        let result = if owner {
+            state.svc.answer_notification_as_owner(&id, &body.label)
+        } else {
+            state.svc.answer_notification(&id, &body.label)
+        };
         log::debug!(
             "[notify-answer] {id} delivery finished in {}ms success={}",
             started.elapsed().as_millis(),

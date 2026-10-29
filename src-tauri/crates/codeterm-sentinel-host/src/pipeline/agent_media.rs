@@ -15,6 +15,9 @@ pub(super) fn inputs(
     let Ok(values) = serde_json::from_value::<PortValues>(input.value.clone()) else {
         return Ok(Vec::new());
     };
+    if !scope_live(ctx) {
+        return Err(JournalReason::ContractViolation);
+    }
     let registry =
         super::plugin::media(ctx.service).map_err(|_| JournalReason::JournalWriteFailed)?;
     let files = RunMediaFiles {
@@ -107,7 +110,22 @@ pub(super) fn inputs(
             lineage,
         });
     }
+    if !scope_live(ctx) {
+        return Err(JournalReason::ContractViolation);
+    }
     Ok(media)
+}
+
+fn scope_live(ctx: &RunCtx<'_>) -> bool {
+    let mux = ctx.service.mux.read();
+    !ctx.lease.cancelled.load(Ordering::SeqCst)
+        && mux
+            .get_tab(&ctx.lease.job.creator_tab_id)
+            .is_some_and(|owner| owner.team_id == ctx.lease.job.team_id)
+        && mux
+            .find_workspace_for_tab(&ctx.lease.job.creator_tab_id)
+            .as_deref()
+            == Some(ctx.lease.job.workspace_id.as_str())
 }
 
 pub(super) fn review_verdict(value: &serde_json::Value) -> Result<&str, String> {

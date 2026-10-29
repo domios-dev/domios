@@ -23,6 +23,7 @@ fn cost_unit_host_sdk_shared_exact_decimal_fixtures_and_manifest_validation() {
     let manifest = crate::js_runtime::manifest::PluginManifest::from_json_str(&json!({"id":"fixture-units","displayName":"Fixture","version":"0.1.0","capabilities":{"costUnits":fixture["units"]}}).to_string()).unwrap();
     assert_eq!(manifest.capabilities.cost_units, units);
     for invalid in [
+        json!({"credit":{"one":"credit","other":"credits","currency":null}}),
         json!({"credit":{"one":"credit","other":"credits","currency":{"code":"usd","scale":6}}}),
         json!({"credit":{"one":"credit","other":"credits","currency":{"code":"USD","scale":16}}}),
         json!({"credit":{"one":"credit","other":"credits","extra":"untrusted"}}),

@@ -133,7 +133,10 @@ pub(super) fn run(
             return result(record.clone());
         }
     }
-    let inputs = match inputs(&registered, input) {
+    let bound = step.execution.as_ref().is_some_and(|execution| {
+        execution.input_binding.is_some() || !execution.input_bindings.is_empty()
+    });
+    let inputs = match inputs(&registered, input, bound) {
         Ok(inputs) => inputs,
         Err(_) => return Ok(held("plugin_step_input_unavailable")),
     };
@@ -207,9 +210,15 @@ pub(super) fn run(
     }
 }
 
-fn inputs(registered: &RegisteredStep, input: &ExecutionEnvelope) -> Result<PortValues, String> {
+pub(super) fn inputs(
+    registered: &RegisteredStep,
+    input: &ExecutionEnvelope,
+    bound: bool,
+) -> Result<PortValues, String> {
     let descriptor = &registered.descriptor;
-    let values = if descriptor.inputs.is_empty() {
+    let values = if descriptor.inputs.is_empty()
+        || !bound && descriptor.inputs.values().all(|port| port.min_items == 0)
+    {
         Default::default()
     } else if let Ok(values) = serde_json::from_value::<PortValues>(input.value.clone()) {
         values

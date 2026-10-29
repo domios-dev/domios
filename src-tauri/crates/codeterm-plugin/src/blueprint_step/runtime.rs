@@ -2,6 +2,22 @@ use super::*;
 use crate::converter::ConversionCancellation;
 use std::{sync::Arc, time::Instant};
 
+fn bounded_update(
+    update: Result<JobUpdate, String>,
+    call: &StepCall<'_>,
+) -> Result<JobUpdate, String> {
+    update.map(|update| {
+        if call.cancellation.is_cancelled() || Instant::now() >= call.deadline {
+            JobUpdate::unknown(update.job)
+        } else {
+            update
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests;
+
 pub struct StepRuntime<'a> {
     pub ledger: &'a OperationLedger,
     pub descriptor: &'a StepDescriptor,
@@ -107,7 +123,7 @@ impl StepRuntime<'_> {
         if current.cancel_requested {
             return Ok(current);
         }
-        let update = self.adapter.submit(&call);
+        let update = bounded_update(self.adapter.submit(&call), &call);
         self.settle(request, update)?;
         self.record(request)
     }
@@ -144,7 +160,10 @@ impl StepRuntime<'_> {
             deadline,
             cancellation,
         };
-        self.settle(request, self.adapter.reconcile(&call))?;
+        self.settle(
+            request,
+            bounded_update(self.adapter.reconcile(&call), &call),
+        )?;
         self.record(request)
     }
 
@@ -171,16 +190,23 @@ impl StepRuntime<'_> {
             return self.record_cancel_intent(request);
         }
         self.record_cancel_intent(request)?;
-        if !self.descriptor.lifecycle.cancel || Instant::now() >= deadline {
+        if record.cancel_dispatched
+            || !self.descriptor.lifecycle.cancel
+            || Instant::now() >= deadline
+        {
             return self.record(request);
         }
+        self.ledger.change(&request.context.operation, |record| {
+            record.cancel_dispatched = true;
+            Ok(())
+        })?;
         let call = StepCall {
             request,
             job: record.job.as_deref(),
             deadline,
             cancellation: Default::default(),
         };
-        self.settle(request, self.adapter.cancel(&call))?;
+        self.settle(request, bounded_update(self.adapter.cancel(&call), &call))?;
         self.record(request)
     }
 

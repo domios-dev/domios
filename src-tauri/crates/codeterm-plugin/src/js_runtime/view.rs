@@ -118,6 +118,9 @@ impl JsViewProvider {
 
 #[async_trait]
 impl ViewProvider for JsViewProvider {
+    fn invocation_runtime(&self) -> Option<String> {
+        Some(self.vm.runtime_identity().into())
+    }
     fn job_lifecycle(&self) -> Option<crate::plugin_jobs::JobLifecycleDescriptor> {
         self.job_lifecycle.clone()
     }

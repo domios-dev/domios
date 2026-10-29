@@ -16,6 +16,50 @@ use std::sync::{
 struct Generator {
     submissions: AtomicUsize,
 }
+
+#[test]
+fn plugin_steps_optional_media_ports_are_empty_unless_explicitly_bound() {
+    let registry = GraphNodeRegistry::default();
+    let descriptor = parse_descriptors(&json!([{"contractVersion":1,"revision":1,"id":"fixture.optional","title":"Optional","description":"Fixture",
+        "params":{"type":"object","properties":{}},"inputs":{"references":{"kind":"image","minItems":0,"maxItems":4},"mask":{"kind":"image","minItems":0,"maxItems":1}},"outputs":{},"outcomes":["done","failed"],"effects":{"sideEffects":false,"potentiallyPaid":false},"lifecycle":{"reconcile":false,"cancel":false}}])).unwrap();
+    registry
+        .register_steps(
+            "fixture",
+            &descriptor,
+            Arc::new(Generator {
+                submissions: AtomicUsize::new(0),
+            }),
+        )
+        .unwrap();
+    let registered = registry.step("fixture.optional").unwrap();
+    assert!(plugin::inputs(
+        &registered,
+        &ExecutionEnvelope::from_text("previous prompt"),
+        false
+    )
+    .unwrap()
+    .is_empty());
+    let values: PortValues = [(
+        "references".into(),
+        vec![PortValue::Media {
+            handle: "a".repeat(64),
+            media: PortKind::Image,
+        }],
+    )]
+    .into();
+    let envelope = ExecutionEnvelope {
+        media: "json".into(),
+        schema_id: None,
+        value: serde_json::to_value(&values).unwrap(),
+    };
+    assert!(plugin::inputs(&registered, &envelope, false)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        plugin::inputs(&registered, &envelope, true).unwrap(),
+        values
+    );
+}
 impl BlueprintStep for Generator {
     fn estimate(&self, call: &StepCall<'_>) -> Result<Option<Estimate>, String> {
         Ok(Some(Estimate {
@@ -63,7 +107,10 @@ impl BlueprintStep for Generator {
     }
 }
 
-struct MediaProvider(String);
+struct MediaProvider(
+    String,
+    Option<std::sync::Weak<codeterm_service_core::service::ServiceContext>>,
+);
 #[codeterm_plugin::async_trait]
 impl ViewProvider for MediaProvider {
     fn id(&self) -> &str {
@@ -83,6 +130,16 @@ impl ViewProvider for MediaProvider {
         assert!(!codeterm_plugin::view_host::has_view_call_context());
         assert!(context.valid_for(&self.0));
         assert_eq!(id, "image-1");
+        if context.receiver_node == "review" {
+            if let Some(service) = self.1.as_ref().and_then(std::sync::Weak::upgrade) {
+                service
+                    .mux
+                    .write()
+                    .get_tab_mut(&context.owner)
+                    .unwrap()
+                    .team_id = Some("changed-owner-team".into());
+            }
+        }
         Ok(codeterm_plugin::media_delivery::MediaFile {
             path: "output.png".into(),
             content_type: codeterm_plugin::media_delivery::MediaType::Png,
@@ -104,19 +161,25 @@ impl Drop for Artifact {
 #[test]
 fn plugin_steps_fixture_pipeline_delivers_real_image_to_agent_and_holds_after_three_jobs_one_failure(
 ) {
-    fixture_pipeline(false);
+    fixture_pipeline(false, false);
 }
 
 #[test]
 fn plugin_steps_owner_quote_refresh_rejects_stale_approval_and_resumes_exact_held_run_once() {
-    fixture_pipeline(true);
+    fixture_pipeline(true, false);
 }
 
-fn fixture_pipeline(approve: bool) {
+#[test]
+fn plugin_steps_media_agent_handoff_refuses_owner_scope_changed_during_resolution() {
+    fixture_pipeline(false, true);
+}
+
+fn fixture_pipeline(approve: bool, scope_lost: bool) {
     let root = tempfile::tempdir().unwrap();
     let producer = format!("fixture-{}", uuid::Uuid::new_v4().simple());
-    let artifact = Artifact(codeterm_service_core::paths::data_dir().join(&producer));
-    std::fs::create_dir(&artifact.0).unwrap();
+    let artifact_root = codeterm_service_core::paths::data_dir().join(&producer);
+    std::fs::create_dir(&artifact_root).unwrap();
+    let artifact = Artifact(artifact_root);
     let image = include_bytes!("../../../../icons/32x32.png");
     std::fs::write(artifact.0.join("output.png"), image).unwrap();
     let (mux, creator) = MultiplexerState::new();
@@ -133,23 +196,26 @@ fn fixture_pipeline(approve: bool) {
     });
     let descriptor = parse_descriptors(&json!([{"contractVersion":1,"revision":1,"id":format!("{producer}.generate"),"title":"Generate","description":"No paid calls",
         "params":{"type":"object","properties":{"prompt":{"type":"string","maxLength":128}},"required":["prompt"],"additionalProperties":false},
-        "inputs":{},"outputs":{"image":{"kind":"image","minItems":1,"maxItems":1}},"outcomes":["done","failed"],"effects":{"sideEffects":true,"potentiallyPaid":true},"lifecycle":{"reconcile":true,"cancel":false}}])).unwrap();
+        "inputs":{"references":{"kind":"image","minItems":0,"maxItems":4},"mask":{"kind":"image","minItems":0,"maxItems":1}},"outputs":{"image":{"kind":"image","minItems":1,"maxItems":1}},"outcomes":["done","failed"],"effects":{"sideEffects":true,"potentiallyPaid":true},"lifecycle":{"reconcile":true,"cancel":false}}])).unwrap();
     fixture
         .service
         .ext::<Arc<GraphNodeRegistry>>()
         .register_steps(&producer, &descriptor, generator.clone())
         .unwrap();
-    fixture
-        .service
-        .ext::<ViewRegistryHandle>()
-        .register(&producer, Arc::new(MediaProvider(producer.clone())));
+    fixture.service.ext::<ViewRegistryHandle>().register(
+        &producer,
+        Arc::new(MediaProvider(
+            producer.clone(),
+            scope_lost.then(|| fixture.service.weak_self()),
+        )),
+    );
     let manifest_json = r#"{"id":"fixture-review","displayName":"Fixture review","version":"0.1.0","capabilities":{"chatBackend":{"agentTasks":true}}}"#;
     let manifest = serde_json::from_str(manifest_json).unwrap();
-    let vm = codeterm_plugin::js_runtime::PluginVm::from_source_with("fixture-review", r#"module.exports.default={agentTaskMedia(){return ['image'];},runAgentTask(r){if(r.media.length!==1||r.media[0].bytes.length<32||r.media[0].bytes[0]!==137||r.media[0].bytes[1]!==80||r.media[0].lineage.port!=='image')throw Error('real image input missing');return {status:'done',output:{verdict:'pass',notes:'image bytes received'}};},abortAgentTask(){}};"#.into(), Some(manifest_json.into())).unwrap();
+    let vm = Arc::new(codeterm_plugin::js_runtime::PluginVm::from_source_with("fixture-review", r#"module.exports.default={calls:0,reviewCount(){return this.calls;},agentTaskMedia(){return ['image'];},runAgentTask(r){this.calls++;if(r.media.length!==1||r.media[0].bytes.length<32||r.media[0].bytes[0]!==137||r.media[0].bytes[1]!==80||r.media[0].lineage.port!=='image')throw Error('real image input missing');return {status:'done',output:{verdict:'pass',notes:'image bytes received'}};},abortAgentTask(){}};"#.into(), Some(manifest_json.into())).unwrap());
     fixture.service.chatbackend_registry.register_and_wait(
         "fixture-review",
         Arc::new(codeterm_plugin::js_runtime::JsChatBackend::from_manifest(
-            Arc::new(vm),
+            vm.clone(),
             &manifest,
         )),
     );
@@ -191,7 +257,21 @@ fn fixture_pipeline(approve: bool) {
         &std::cell::Cell::new(false),
     )
     .unwrap();
+    if scope_lost {
+        assert_eq!(completion.state, JournalState::Failed);
+        assert_eq!(
+            codeterm_plugin::js_runtime::call_json::<u32>(&vm, "reviewCount", &[]).unwrap(),
+            0
+        );
+        assert_eq!(generator.submissions.load(Ordering::SeqCst), 1);
+        storage.shutdown().wait(Duration::from_secs(10)).unwrap();
+        return;
+    }
     assert_eq!(completion.state, JournalState::Held);
+    assert_eq!(
+        codeterm_plugin::js_runtime::call_json::<u32>(&vm, "reviewCount", &[]).unwrap(),
+        1
+    );
     let ledger = plugin::ledger(&fixture.service).unwrap();
     let scope = RunScope {
         workspace: job.workspace_id.clone(),
@@ -252,7 +332,7 @@ fn fixture_pipeline(approve: bool) {
     let first_outputs = history[0].outputs.clone();
     let waiting = history.last().unwrap();
     if approve {
-        let questions = crate::plugin_owner::OwnerQuestions(Arc::downgrade(&fixture.service));
+        let questions = crate::plugin_owner::OwnerQuestions(fixture.service.weak_self());
         let old_key = owner_decision_key(waiting);
         questions
             .answer_operation(
@@ -487,14 +567,14 @@ impl BlueprintStep for InputConsumer {
 }
 
 fn run_input_fixture(
-    service: &codeterm_service_core::service::ServiceState,
+    service: &codeterm_service_core::service::ServiceContext,
     producer: &OperationRecord,
     source: std::path::PathBuf,
     bytes: &[u8],
 ) {
     let consumer = format!("input-fixture-{}", uuid::Uuid::new_v4().simple());
     let adapter = Arc::new(InputConsumer {
-        service: Arc::downgrade(service),
+        service: service.weak_self(),
         source,
         bytes: bytes.to_vec(),
     });

@@ -20,6 +20,9 @@ impl std::error::Error for ModelProviderEnvUnavailable {}
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
 pub trait PluginHostCtx: Send + Sync {
+    fn surface_registration(&self, _plugin: &str, _runtime: &str) -> Option<String> {
+        None
+    }
     fn plugin_job_json(&self, _plugin: &str, _request: &str) -> String {
         r#"{"error":"plugin_jobs_unavailable"}"#.into()
     }

@@ -6,9 +6,8 @@ import { PluginOperationApproval, usePluginOperationApproval } from "./PluginOpe
 Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
 
 describe("host step approval bar", () => {
-  for (const theme of ["dark","light"]) it(`focuses dismissal and records only explicit approval in ${theme}`, async () => {
+  it("focuses dismissal and records only explicit approval", async () => {
     const host = document.createElement("div");
-    host.dataset.theme = theme;
     document.body.append(host);
     const root = createRoot(host);
     let controller:ReturnType<typeof usePluginOperationApproval>|undefined;
@@ -19,13 +18,18 @@ describe("host step approval bar", () => {
     const quote = {amount:5,unit:"micro_credits",amountDisplay:"5 units (micro_credits)",runLabel:"Covers run #12",nodeLabel:"Generate",aboveRunBudget:true};
     try {
       await act(async () => root.render(<Fixture/>));
-      let answer:Promise<boolean>;
+      let answer!:Promise<boolean>;
       await act(async () => {answer = controller!.confirm(quote);});
+      expect(host.textContent).toContain("Above this run's budget.");
       expect(document.activeElement?.textContent).toBe("Not now");
       expect(controller!.isOpen()).toBe(true);
       await act(async () => window.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"})));
       expect(await answer!).toBe(false);
       expect(host.querySelector('[aria-label="Step approval"]')).toBeNull();
+      await act(async () => {answer = controller!.confirm({...quote,aboveRunBudget:false});});
+      expect(host.textContent).not.toContain("Above this run's budget.");
+      await act(async () => controller!.dismiss());
+      expect(await answer).toBe(false);
       await act(async () => {answer = controller!.confirm(quote);});
       await act(async () => [...host.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent?.startsWith("Approve "))!.click());
       expect(await answer!).toBe(true);

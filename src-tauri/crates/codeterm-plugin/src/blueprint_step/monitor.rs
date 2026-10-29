@@ -318,7 +318,11 @@ impl OperationLedger {
             state
         };
         current.next_check_ms = now_ms
-            .saturating_add(interval_ms)
+            .saturating_add(if current.cancel_requested && !current.cancel_dispatched {
+                1000
+            } else {
+                interval_ms
+            })
             .min(current.registration.deadline_ms);
         current.claim = None;
         write_monitor(&tx, &current, 0)?;

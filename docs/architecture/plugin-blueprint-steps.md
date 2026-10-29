@@ -69,6 +69,9 @@ quote and opens a host-owned view bar; dismissal records nothing. The bar and
 per-frame gate and a current document generation. Navigation opens the actual
 run inspector. Document headers carry the private lease/registration, never
 iframe authority. Retirement may suppress a reply; persisted receipts remain.
+Spending answers require exact Local identity at the HTTP boundary. Generic
+tab, peer, service-push and channel notification answers cannot assert owner
+authority; ordinary non-spending notification answers keep their existing path.
 
 Static `capabilities.costUnits` maps at most32 atomic unit tokens to
 `{one,other,currency?:{code,scale}}`. Names are trimmed ASCII labels <=48bytes;
@@ -94,6 +97,9 @@ logical handler, not a fabricated document context. Projection spans sanctioned
 continuations and clears on final/error/unwind/cancel. Continuation keys must
 match a registered plugin-owned job and the current root/logical invocation;
 foreign, stale or consumed markers refuse before consuming a receipt.
+Root entry snapshots the registration only when the registered view belongs
+to that actual VM runtime. A retained old VM cannot borrow a replacement's
+registration, including replacement before it requests a surface ticket.
 `return host.surface.dispatch(verb,args)` carries the synchronous continuation
 bridge through `onAgentCommand`; it never returns a JavaScript Promise.
 
@@ -106,6 +112,12 @@ of a frame does not stop admitted work; owner/workspace/Team loss, removal,
 explicit stop and deadlines stop observation without inventing cancellation.
 Native blocking functions/kernel I/O cannot be forcibly preempted; retained
 process leases exclude overlapping callbacks and durable claims fence results.
+Blueprint Stop persists exact-job cancellation intent and dispatches supported
+best-effort cancellation at most once. Uncertain cancellation stays unknown;
+restart never repeats the cancel effect. Nonterminal and unavailable states
+update the matching saved hold before view invalidation. Owner-scope loss
+stops observation without creating cancellation authority. Studio `stop`
+remains observation teardown, distinct from `cancel`.
 Status callbacks still run within existing capability grants plus bounded
 physical requests; the callback contract is not a new general sandbox.
 
@@ -136,3 +148,11 @@ Separate fixtures approve/revalidate/resume the exact cursor, cancel without
 losing outputs, mint fresh media inputs, recover known job receipts after
 frame retirement, and sabotage stale/foreign continuation authority.
 Exact canonical commands and unrun/actual results accompany the commit report.
+
+Manifest, loader sandbox construction, VM entry and capability registration
+share strict bounded plugin ids: lower-case letters/digits/hyphen/underscore,
+an alphanumeric first character, and no Windows device names. Paths, dotted
+host SQLite filenames and mismatched runtime identities refuse before entry.
+This closes the new ledger-file collision. Existing host directory namespace
+collisions (a valid id naming a pre-existing host subdirectory) require a
+separate data-root design; this change does not claim to eliminate them.

@@ -168,7 +168,13 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
                     "required plugin input port is unbound",
                 ));
             }
-        } else if descriptor.inputs.len() > 1 {
+        } else if descriptor.inputs.len() > 1
+            && (descriptor.inputs.values().any(|port| port.min_items > 0)
+                || step
+                    .execution
+                    .as_ref()
+                    .is_some_and(|execution| execution.input_binding.is_some()))
+        {
             errors.push(ValidationError::new(
                 &field,
                 "multiple plugin inputs require named bindings",

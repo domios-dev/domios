@@ -22,6 +22,7 @@ struct Ticket {
 struct Invocation {
     id: String,
     plugin: String,
+    registration: Option<String>,
     tickets: BTreeMap<String, Ticket>,
     active: Vec<String>,
     resume: Option<(String, String, bool)>,
@@ -30,11 +31,12 @@ thread_local! { static CURRENT: RefCell<Option<Invocation>> = const { RefCell::n
 
 pub(crate) struct RootScope(Option<Invocation>);
 impl RootScope {
-    pub(crate) fn enter(plugin: &str) -> Self {
+    pub(crate) fn enter(plugin: &str, registration: Option<String>) -> Self {
         Self(CURRENT.with(|slot| {
             slot.replace(Some(Invocation {
                 id: uuid::Uuid::new_v4().simple().to_string(),
                 plugin: plugin.into(),
+                registration,
                 tickets: BTreeMap::new(),
                 active: Vec::new(),
                 resume: None,
@@ -118,7 +120,10 @@ pub fn issue(context: SurfaceInvocationContext) -> Result<String, String> {
         let mut slot = slot.borrow_mut();
         let invocation = slot
             .as_mut()
-            .filter(|invocation| invocation.plugin == context.plugin)
+            .filter(|invocation| {
+                invocation.plugin == context.plugin
+                    && invocation.registration.as_deref() == Some(context.registration.as_str())
+            })
             .ok_or("surface invocation root unavailable")?;
         if invocation.tickets.len() >= 64 {
             return Err("surface invocation limit reached".into());

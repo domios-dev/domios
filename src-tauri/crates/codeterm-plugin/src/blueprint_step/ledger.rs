@@ -56,6 +56,8 @@ pub struct OperationRecord {
     pub authorized: Option<OperationApproval>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub cancel_requested: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub cancel_dispatched: bool,
     pub outcome: Option<String>,
     pub outputs: PortValues,
 }
@@ -115,6 +117,10 @@ impl OperationLedger {
         self.inner.active.lock().contains(key)
     }
 
+    pub fn monitor_in_flight(&self, operation: &str) -> bool {
+        self.lease_active(&format!("monitor:{operation}"))
+    }
+
     pub fn admit_run(&self, scope: &RunScope, unit: &str, ceiling: u64) -> Result<(), String> {
         if !token(unit) || ceiling > MAX_COST_AMOUNT {
             return Err("invalid spending authorization".into());
@@ -172,6 +178,7 @@ impl OperationLedger {
             reserved: 0,
             authorized: None,
             cancel_requested: false,
+            cancel_dispatched: false,
             outcome: None,
             outputs: Default::default(),
         };
@@ -191,6 +198,43 @@ impl OperationLedger {
 
     pub fn get(&self, operation: &str) -> Result<Option<OperationRecord>, String> {
         read(&self.inner.db.lock(), operation)
+    }
+
+    pub fn request_cancel(
+        &self,
+        operation: &str,
+        scope: &RunScope,
+        owner: &str,
+    ) -> Result<OperationRecord, String> {
+        self.change(operation, |record| {
+            if &record.request.context.scope != scope || record.request.context.owner != owner {
+                return Err("plugin cancellation scope refused".into());
+            }
+            if !record.state.terminal() {
+                record.cancel_requested = true;
+                record.state = OperationState::Unknown;
+            }
+            Ok(())
+        })?;
+        self.get(operation)?
+            .ok_or("plugin operation unavailable".into())
+    }
+
+    pub fn mark_uncertain(
+        &self,
+        operation: &str,
+        scope: &RunScope,
+        owner: &str,
+    ) -> Result<(), String> {
+        self.change(operation, |record| {
+            if &record.request.context.scope != scope || record.request.context.owner != owner {
+                return Err("plugin operation scope refused".into());
+            }
+            if !record.state.terminal() {
+                record.state = OperationState::Unknown;
+            }
+            Ok(())
+        })
     }
 
     pub fn recover_inflight(&self) -> Result<(), String> {

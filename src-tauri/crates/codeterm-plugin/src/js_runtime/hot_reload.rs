@@ -81,6 +81,10 @@ impl CapabilityRegistries {
         core: bool,
     ) {
         let id = &manifest.id;
+        if crate::plugin_id::validate(id).is_err() || id != vm.plugin_id() {
+            log::error!("[plugin] capability registration refused: invalid runtime identity");
+            return;
+        }
         let caps = &manifest.capabilities;
         // Models must be removed when a manifest drops `chatBackend`, because they belong to that capability.
         if caps.chat_backend.enabled() {

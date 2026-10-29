@@ -9,6 +9,13 @@ const preview = {ok:true,preview:{operation,decisionKey:decision.decisionKey,run
 function host() {return {send:vi.fn(async (request: {action:string}) => request.action === "preview" ? preview : {ok:true}),confirm:vi.fn(() => true)};}
 
 describe("plugin operation owner decisions", () => {
+  for (const [limits,aboveRunBudget] of [["both",true],["step only",false],["run only",true],["equal",false]] as const) {
+    it(`preserves the host preview disclosure for ${limits} limits`, async () => {
+      const h={...host(),send:vi.fn(async(request:{action:string})=>request.action === "preview" ? {...preview,preview:{...preview.preview,aboveRunBudget}} : {ok:true})};
+      expect(await decidePluginOperation(decision,intent,()=>true,createViewHostGate(),h)).toEqual({ok:true});
+      expect(h.confirm).toHaveBeenCalledWith(expect.objectContaining({aboveRunBudget,amount:5,unit:"micro_credits",amountDisplay:"5 units (micro_credits)"}));
+    });
+  }
   it("requires an observed gesture and host confirmation of the exact daemon quote", async () => {
     const h = host();
     expect(await decidePluginOperation(decision,{...intent,activated:false},() => true,createViewHostGate(),h)).toEqual({ok:false,code:"denied",reason:"gesture"});

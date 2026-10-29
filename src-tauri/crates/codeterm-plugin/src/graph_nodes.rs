@@ -110,6 +110,7 @@ impl GraphNodeRegistry {
         adapter: Arc<dyn BlueprintStep>,
         cost_units: crate::cost_units::CostUnits,
     ) -> Result<(), String> {
+        crate::plugin_id::validate(plugin)?;
         if descriptors.len() > crate::blueprint_step::MAX_STEP_DESCRIPTORS {
             return Err("too many plugin steps".into());
         }

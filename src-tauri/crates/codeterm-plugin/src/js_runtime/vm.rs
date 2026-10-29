@@ -162,6 +162,7 @@ pub struct PluginVm {
     /// identity, so awaiting one must not read it through the lock it releases.
     sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     plugin_id: String,
+    runtime_identity: String,
     cli_binary: Option<String>,
 }
 
@@ -189,6 +190,7 @@ impl PluginVm {
     /// preamble that does this, so plugin authors don't need to know
     /// about it.
     pub fn load(plugin_id: &str, plugin_js_path: &Path) -> Result<Self, VmError> {
+        crate::plugin_id::validate(plugin_id).map_err(VmError::RuntimeInit)?;
         let source = std::fs::read_to_string(plugin_js_path).map_err(|e| VmError::ReadFile {
             path: plugin_js_path.display().to_string(),
             source: e,
@@ -205,6 +207,8 @@ impl PluginVm {
         manifest_json: String,
         sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     ) -> Result<Self, VmError> {
+        crate::plugin_id::validate_runtime(plugin_id, Some(&manifest_json))
+            .map_err(VmError::RuntimeInit)?;
         let source = std::fs::read_to_string(plugin_js_path).map_err(|e| VmError::ReadFile {
             path: plugin_js_path.display().to_string(),
             source: e,
@@ -219,6 +223,8 @@ impl PluginVm {
         plugin_js_path: &Path,
         manifest_json: String,
     ) -> Result<Self, VmError> {
+        crate::plugin_id::validate_runtime(plugin_id, Some(&manifest_json))
+            .map_err(VmError::RuntimeInit)?;
         let source = std::fs::read_to_string(plugin_js_path).map_err(|e| VmError::ReadFile {
             path: plugin_js_path.display().to_string(),
             source: e,
@@ -243,6 +249,8 @@ impl PluginVm {
         bundle_source: String,
         manifest_json: Option<String>,
     ) -> Result<Self, VmError> {
+        crate::plugin_id::validate_runtime(plugin_id, manifest_json.as_deref())
+            .map_err(VmError::RuntimeInit)?;
         Self::from_source_sandboxed(
             plugin_id,
             bundle_source,
@@ -259,6 +267,8 @@ impl PluginVm {
         manifest_json: Option<String>,
         sandbox: std::sync::Arc<super::host_api::PluginSandbox>,
     ) -> Result<Self, VmError> {
+        crate::plugin_id::validate_runtime(plugin_id, manifest_json.as_deref())
+            .map_err(VmError::RuntimeInit)?;
         let rt = Runtime::new().map_err(|e| VmError::RuntimeInit(e.to_string()))?;
         let ctx = Context::full(&rt).map_err(|e| VmError::RuntimeInit(e.to_string()))?;
 
@@ -320,6 +330,7 @@ impl PluginVm {
             }),
             sandbox,
             plugin_id: plugin_id.to_string(),
+            runtime_identity: uuid::Uuid::new_v4().simple().to_string(),
             cli_binary,
         })
     }
@@ -462,6 +473,12 @@ impl Drop for PluginVm {
     }
 }
 
+impl PluginVm {
+    pub(crate) fn runtime_identity(&self) -> &str {
+        &self.runtime_identity
+    }
+}
+
 /// Record a host-composed `ctx.cwd` as a read-root grant on the plugin's
 /// sandbox. Callers must only pass ctx objects the host itself assembled.
 pub(super) fn grant_ctx_cwd(vm: &PluginVm, ctx: &serde_json::Value) {
@@ -557,7 +574,11 @@ fn call_prepared<R: serde::de::DeserializeOwned>(
         return Err(VmError::MissingFunction(method.to_owned()));
     }
     let _file_lock_scope = super::host_api::FileLockCallScope::new();
-    let _surface_scope = crate::surface_invocation::RootScope::enter(&vm.plugin_id);
+    let registration = vm
+        .sandbox
+        .service()
+        .and_then(|service| service.surface_registration(&vm.plugin_id, vm.runtime_identity()));
+    let _surface_scope = crate::surface_invocation::RootScope::enter(&vm.plugin_id, registration);
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| {
         call_json_inner_interruptible::<R>(vm, method, args, strict, interrupt)

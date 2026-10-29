@@ -22,6 +22,16 @@ pub fn preview_from_view(
         .host_extension::<Handle>()
         .ok_or("Blueprint scheduler unavailable")?;
     let now = handle.store.lock().clock.now_ms();
+    if !handle.store.lock().list().iter().any(|job| {
+        !job.machine.stopped
+            && job.admission.plugin_hold.as_ref().is_some_and(|held| {
+                held.operation == operation
+                    && held.run == record.request.context.scope.run
+                    && cost_hold(held)
+            })
+    }) {
+        return Err("plugin operation is not awaiting price approval".into());
+    }
     if owner_decision_key(&record) != decision_key
         || record.state != OperationState::WaitingForOwnerOk
         || !fresh(&record, now)
@@ -42,9 +52,16 @@ pub fn preview_from_view(
     Ok(
         json!({"operation":operation,"decisionKey":decision_key,"runLabel":record.request.context.run_label,
         "nodeLabel":record.request.context.node_label,"amount":quote.amount,"unit":quote.unit,
-        "amountDisplay":amount_display,"aboveRunBudget":record.waiting.as_ref().is_some_and(|waiting| waiting.reason == WaitingReason::OverRunCeiling)}),
+        "amountDisplay":amount_display,"aboveRunBudget":record.waiting.as_ref().is_some_and(|waiting| above_run_budget(quote, waiting))}),
     )
 }
+
+fn above_run_budget(quote: &Estimate, waiting: &Waiting) -> bool {
+    quote.unit == waiting.unit && quote.amount > waiting.remaining
+}
+
+#[cfg(test)]
+mod tests;
 
 fn view_record(
     service: &ServiceContext,
@@ -120,6 +137,9 @@ pub(crate) fn publish(service: &ServiceContext, handle: &Handle) -> Result<(), S
     let now = handle.store.lock().clock.now_ms();
     let ledger = plugin::ledger(service)?;
     for job in jobs {
+        if job.machine.stopped {
+            continue;
+        }
         let Some(held) = &job.admission.plugin_hold else {
             continue;
         };

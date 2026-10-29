@@ -140,7 +140,7 @@ fn plugin_monitor_blueprint_callback_reconciles_known_job_without_resubmission()
     );
 }
 
-struct Provider {
+pub(super) struct Provider {
     checks: AtomicUsize,
     cancels: AtomicUsize,
 }
@@ -183,7 +183,7 @@ impl ViewProvider for Provider {
     }
 }
 
-fn fixture(
+pub(super) fn fixture(
     root: &std::path::Path,
 ) -> (
     ServiceFixture,
@@ -253,8 +253,8 @@ fn fixture(
     (fixture, handle, provider, context, frame.view_lease, clock)
 }
 
-fn admit(service: &ServiceState, context: &ViewCallContext) -> String {
-    let admission = crate::plugin_job_admission::JobAdmission(Arc::downgrade(service));
+fn admit(service: &ServiceContext, context: &ViewCallContext) -> String {
+    let admission = crate::plugin_job_admission::JobAdmission(service.weak_self());
     let receipt = with_view_call_context("monitor-fixture", context, || {
         admission
             .invoke("monitor-fixture", r#"{"action":"admit"}"#)
@@ -271,7 +271,7 @@ fn plugin_monitor_host_retains_receipt_after_frame_retirement_and_checks_exact_j
     let (fixture, handle, provider, context, lease, clock) = fixture(root.path());
     let operation = admit(&fixture.service, &context);
     codeterm_plugin::media_delivery::revoke_view_frame("monitor-fixture", &lease);
-    let admission = crate::plugin_job_admission::JobAdmission(Arc::downgrade(&fixture.service));
+    let admission = crate::plugin_job_admission::JobAdmission(fixture.service.weak_self());
     let tracked = admission
         .invoke(
             "monitor-fixture",
@@ -318,7 +318,7 @@ fn plugin_monitor_host_refuses_replaced_document_scope_and_never_fabricates_unsu
     let root = tempfile::tempdir().unwrap();
     let (fixture, handle, provider, context, _, clock) = fixture(root.path());
     let operation = admit(&fixture.service, &context);
-    let admission = crate::plugin_job_admission::JobAdmission(Arc::downgrade(&fixture.service));
+    let admission = crate::plugin_job_admission::JobAdmission(fixture.service.weak_self());
     admission
         .invoke(
             "monitor-fixture",

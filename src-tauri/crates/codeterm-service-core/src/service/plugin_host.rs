@@ -91,6 +91,13 @@ fn api_cfg_base_url(cfg: crate::config::schema::ApiConfig) -> String {
 // ── PluginHostCtx impl ───────────────────────────────────────────────────────
 
 impl codeterm_plugin::PluginHostCtx for ServiceContext {
+    fn surface_registration(&self, plugin: &str, runtime: &str) -> Option<String> {
+        let (provider, registration) = self
+            .ext::<codeterm_plugin::view_host::ViewRegistryHandle>()
+            .registered(plugin)?;
+        (provider.id() == plugin && provider.invocation_runtime().as_deref() == Some(runtime))
+            .then_some(registration)
+    }
     fn bind_run_transfer_input(
         &self,
         plugin: &str,

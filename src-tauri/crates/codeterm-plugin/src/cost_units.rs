@@ -10,8 +10,18 @@ pub struct CostUnits(BTreeMap<String, CostUnit>);
 pub struct CostUnit {
     pub one: String,
     pub other: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "currency",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub currency: Option<CostCurrency>,
+}
+
+fn currency<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<CostCurrency>, D::Error> {
+    CostCurrency::deserialize(deserializer).map(Some)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

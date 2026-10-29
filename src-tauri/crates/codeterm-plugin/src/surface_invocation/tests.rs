@@ -17,7 +17,7 @@ fn context() -> SurfaceInvocationContext {
 #[test]
 fn surface_job_origin_is_exact_to_handler_phases_and_restores_nested_or_unwound_roots() {
     assert!(issue(context()).is_err());
-    let _root = RootScope::enter("fixture");
+    let _root = RootScope::enter("fixture", Some("registration".into()));
     let ticket = issue(context()).unwrap();
     assert!(current("fixture").is_none());
     assert!(begin(&ticket));
@@ -36,7 +36,7 @@ fn surface_job_origin_is_exact_to_handler_phases_and_restores_nested_or_unwound_
     assert!(current("fixture").is_none());
     assert!(begin(&ticket));
     let failed = std::panic::catch_unwind(|| {
-        let _nested = RootScope::enter("fixture");
+        let _nested = RootScope::enter("fixture", Some("registration".into()));
         assert!(current("fixture").is_none());
         assert!(!begin(&ticket));
         panic!("opaque native unwind");
@@ -50,7 +50,7 @@ fn surface_job_origin_is_exact_to_handler_phases_and_restores_nested_or_unwound_
 
 #[test]
 fn await_take_requires_exact_native_root_job_and_once_only_resume_or_discard() {
-    let _root = RootScope::enter("fixture");
+    let _root = RootScope::enter("fixture", Some("registration".into()));
     let root = root_identity();
     assert!(take_mode("key", "job", &root).is_empty());
     {
@@ -65,7 +65,7 @@ fn await_take_requires_exact_native_root_job_and_once_only_resume_or_discard() {
         let _discard = ResumeScope::enter("key", "job", true);
         assert_eq!(take_mode("key", "job", &root), "discard");
     }
-    let _other = RootScope::enter("fixture");
+    let _other = RootScope::enter("fixture", Some("registration".into()));
     let _resume = ResumeScope::enter("key", "job", false);
     assert!(take_mode("key", "job", &root).is_empty());
 }
