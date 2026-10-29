@@ -282,9 +282,6 @@ pub(crate) fn request_client_quit_exact(
                 client_generation,
             } => {
                 log::debug!("[client] exact server exit observed; epoch={} client_generation={client_generation}", server.epoch);
-                if !crash::exit::confirm_client_exit(ticket) {
-                    return;
-                }
             }
             ExactServerShutdownResult::RefusedBeforeDispatch(reason) => {
                 crash::exit::refuse_client_exit_before_dispatch(ticket);
@@ -295,11 +292,16 @@ pub(crate) fn request_client_quit_exact(
                 log::debug!("[client] exact server exit remains uncertain: {reason:?}");
             }
         }
-        match quit_plan::plan_quit_result(origin, quit_plan::classify_shutdown(&result)) {
-            QuitResolution::ExitClient => app.exit(0),
-            QuitResolution::CloseClientOnly => close_client_only(&app),
-            QuitResolution::Feedback(feedback) => show_quit_feedback(&app, feedback),
-        }
+        quit_plan::finish_quit(
+            origin,
+            &result,
+            || crash::exit::confirm_client_exit(ticket),
+            |resolution| match resolution {
+                QuitResolution::ExitClient => app.exit(0),
+                QuitResolution::CloseClientOnly => close_client_only(&app),
+                QuitResolution::Feedback(feedback) => show_quit_feedback(&app, feedback),
+            },
+        );
     });
     Ok(())
 }

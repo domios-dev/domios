@@ -59,3 +59,22 @@ pub fn is_owned_descendant(
     }
     false
 }
+
+#[cfg(any(windows, test))]
+fn terminate_and_wait<T>(
+    processes: &[T],
+    terminate: impl Fn(&T) -> std::io::Result<()>,
+    wait: impl Fn(&T) -> std::io::Result<()>,
+) -> std::io::Result<()> {
+    let terminations = processes.iter().map(&terminate).collect::<Vec<_>>();
+    let mut failure = None;
+    for (process, termination) in processes.iter().zip(terminations) {
+        if let Err(error) = wait(process) {
+            failure.get_or_insert_with(|| termination.err().unwrap_or(error));
+        }
+    }
+    failure.map_or(Ok(()), Err)
+}
+
+#[cfg(test)]
+mod tests;

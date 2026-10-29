@@ -988,7 +988,8 @@ impl super::NativeHostClient {
                     ExactServerShutdownRefusal::HelperUnavailable,
                 );
             }
-            Err(_) => {
+            Err(error) => {
+                helper_diagnostic(ClientStartupStage::Attach, &error);
                 return ExactServerShutdownResult::UncertainAfterDispatch(
                     ExactServerShutdownUncertainty::HelperOutcomeUnknown,
                 );

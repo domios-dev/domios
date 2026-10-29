@@ -504,12 +504,14 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
         errors.push(error);
     }
     #[cfg(windows)]
-    let owned_tree = codeterm_util::process_tree::OwnedProcessTree::capture_current_server();
+    let owned_tree = codeterm_util::process_tree::OwnedProcessTree::capture_current_server()
+        .map_err(|error| io::Error::other(format!("Owned process tree capture failed: {error}")));
     let reapers = running.states.pty.lock().begin_shutdown();
     #[cfg(windows)]
-    if let Err(error) =
-        owned_tree.and_then(|tree| tree.terminate_remaining(std::time::Duration::from_secs(6)))
-    {
+    if let Err(error) = owned_tree.and_then(|tree| {
+        tree.terminate_remaining(std::time::Duration::from_secs(6))
+            .map_err(|error| io::Error::other(format!("Owned process tree exit failed: {error}")))
+    }) {
         errors.push(error.to_string());
     }
     match reapers {
