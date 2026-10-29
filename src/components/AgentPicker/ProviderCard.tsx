@@ -17,9 +17,8 @@ export function ProviderCard({ provider, selected, onSelect }: ProviderCardProps
   const availability = providerAvailability(provider);
   const dots = useRef<DotMatrixCanvasHandle>(null);
   const reducedMotion = usePrefersReducedMotion();
-  const ripple = () => dots.current?.emitRelease(performance.now());
-  // A card ripples under the pointer and answers its choice with a wave; only the chosen one keeps a lit field.
-  useEffect(() => { if (selected) ripple(); }, [selected]);
+  // The chosen card answers with one wave from its glyph and keeps a lit field; hover stays still.
+  useEffect(() => { if (selected) dots.current?.emitRelease(performance.now()); }, [selected]);
   return (
     <button
       type="button"
@@ -28,10 +27,9 @@ export function ProviderCard({ provider, selected, onSelect }: ProviderCardProps
       data-selected={selected ? "yes" : "no"}
       aria-pressed={selected}
       onClick={onSelect}
-      onPointerEnter={selected ? undefined : ripple}
       className={`agent-provider-card brand-dot-stage ct-liquid-interactive ct-panel-card relative cursor-pointer ${PROVIDER_CARD_LAYOUT}`}
     >
-      <DotMatrixCanvas ref={dots} mode="loading" reducedMotion={reducedMotion} intensity={3} restIntensity={selected ? 10 : 0} waveDurationMs={1_100} />
+      {selected && <DotMatrixCanvas ref={dots} mode="loading" reducedMotion={reducedMotion} intensity={3} restIntensity={10} waveDurationMs={1_100} />}
       {provider.badge && <span className="agent-provider-card-badge">{provider.badge}</span>}
       <span className="agent-provider-card-selection" aria-hidden="true">
         ✓
