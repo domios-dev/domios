@@ -1,6 +1,6 @@
 use super::*;
 use crate::ports::daemon_question::DaemonQuestions;
-use codeterm_notification_core::contract::NotificationAction;
+use codeterm_notification_core::contract::{NotificationAction, NotifyLevel};
 
 impl ServiceContext {
     pub fn publish_daemon_question(
