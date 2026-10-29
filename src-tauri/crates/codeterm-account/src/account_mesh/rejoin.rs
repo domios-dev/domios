@@ -11,21 +11,40 @@ use std::sync::Arc;
 impl AccountMesh {
     pub(super) fn own_removed(&self) -> bool {
         let state = self.state();
-        matches!(
-            state.last_refusal,
-            Some(AccountMeshRefusal::Revoked | AccountMeshRefusal::Forbidden)
-        ) || state.registry.as_ref().is_some_and(|registry| {
-            registry
-                .rows
-                .iter()
-                .any(|row| row.installation_id == self.installation() && !row.active)
-        })
+        matches!(state.last_refusal, Some(AccountMeshRefusal::Revoked))
+            || state.registry.as_ref().is_some_and(|registry| {
+                registry
+                    .rows
+                    .iter()
+                    .any(|row| row.installation_id == self.installation() && !row.active)
+            })
     }
 
     pub(super) async fn rejoin(
         &self,
         signed: &mut Signed,
     ) -> Result<MeshResult, AccountMeshRefusal> {
+        let active_target = self.state().registry.as_ref().and_then(|registry| {
+            registry
+                .rows
+                .iter()
+                .find(|row| row.installation_id == self.installation() && row.active)
+                .map(|row| row.target())
+        });
+        let generation = self.generation(signed).await?;
+        if let Some(target) = active_target
+            .as_ref()
+            .filter(|target| generation > target.key_generation)
+        {
+            return self
+                .rejoin_admission(
+                    signed,
+                    MeshOperation::Recover {
+                        target: target.clone(),
+                    },
+                )
+                .await;
+        }
         self.with(|inner| {
             if !inner.is_current(signed.epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
@@ -47,7 +66,6 @@ impl AccountMesh {
             inner.rotation_attempt = Some(attempt);
             Ok(())
         })?;
-        let generation = self.generation(signed).await?;
         let _guard = self.key_lock.lock().await;
         let key = Arc::new(InstallationKey::generate());
         let next_generation = generation
@@ -97,12 +115,31 @@ impl AccountMesh {
         })?;
         self.persist().await;
         drop(_guard);
-        self.admission(
-            signed,
-            MeshOperation::Enroll {
+        let operation = match active_target {
+            Some(target) => MeshOperation::Recover { target },
+            None => MeshOperation::Enroll {
                 expected_slot_revision: 0,
             },
-        )
-        .await
+        };
+        self.rejoin_admission(signed, operation).await
+    }
+
+    async fn rejoin_admission(
+        &self,
+        signed: &Signed,
+        operation: MeshOperation,
+    ) -> Result<MeshResult, AccountMeshRefusal> {
+        match self.admission(signed, operation).await? {
+            MeshResult::Recovered(result) => {
+                Ok(MeshResult::Membership(super::wire::MembershipResult {
+                    operation: super::wire::MembershipOperation::Recover,
+                    installation_id: result.installation_id,
+                    slot_revision: result.slot_revision,
+                    registry_revision: result.registry_revision,
+                    membership: result.membership.ok_or(AccountMeshRefusal::Invalid)?,
+                }))
+            }
+            result => Ok(result),
+        }
     }
 }

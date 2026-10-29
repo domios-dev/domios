@@ -461,6 +461,10 @@ fn tailnet(ip: IpAddr) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", deny_unknown_fields)]
 pub enum RegistryRefusal {
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "revoked")]
+    Revoked,
     #[serde(rename = "installation_unverified")]
     InstallationUnverified,
     #[serde(rename = "cutoff_after_current_session")]

@@ -301,3 +301,225 @@ fn captured_cleanup_challenges_allow_only_closing_the_captured_installation() {
         assert!(!cleanup_challenge(&challenge));
     }
 }
+
+struct DeadlineClock {
+    uid: String,
+    time: ClockPort,
+}
+#[async_trait::async_trait]
+impl Clock for DeadlineClock {
+    fn now(&self) -> Instant {
+        self.time.now()
+    }
+    async fn wait(&self, delay: Duration) {
+        assert!(
+            account(&self.uid).try_lock().is_ok(),
+            "budget is unlocked during wait"
+        );
+        self.time.wait(delay).await;
+        tokio::time::advance(delay).await;
+    }
+}
+struct DeadlineTransport {
+    clock: DeadlineClock,
+    hang: bool,
+    calls: std::sync::atomic::AtomicU64,
+}
+#[async_trait::async_trait]
+impl super::super::callable::CallableTransport for DeadlineTransport {
+    fn retry_clock(&self) -> &dyn Clock {
+        &self.clock
+    }
+    async fn call(
+        &self,
+        _: &str,
+        _: &str,
+        _: serde_json::Value,
+    ) -> Result<serde_json::Value, super::super::callable::CallableFailure> {
+        assert!(
+            account(&self.clock.uid).try_lock().is_ok(),
+            "budget is unlocked during transport"
+        );
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if self.hang {
+            std::future::pending::<()>().await;
+        }
+        Ok(serde_json::json!({"result":{"nonce":"n.a.b"}}))
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn mesh_budget_wait_is_outside_call_deadline_and_locks_cover_neither_wait_nor_io() {
+    use super::super::{
+        callable::CallableRegistry, lifecycle::*, ports::*, state::AccountMeshRefusal,
+        tests::support::*, wire::*,
+    };
+    for hang in [false, true] {
+        let uid = format!("mesh-budget-deadline-{hang}");
+        let clock = DeadlineClock {
+            uid: uid.clone(),
+            time: ClockPort::new(),
+        };
+        account(&uid).lock().await.limited("other", clock.now(), 45);
+        let registry = Arc::new(CallableRegistry::new(DeadlineTransport {
+            clock,
+            hang,
+            calls: 0.into(),
+        }));
+        let harness = Harness::new().await;
+        let mesh = AccountMesh::new(
+            AccountMeshConfig {
+                installation_id: crate::InstallationId::parse(INSTALLATION.into()).unwrap(),
+                default_display_name: None,
+                trust: None,
+                call_deadline: Duration::from_secs(15),
+                withdrawal_deadline: Duration::from_secs(10),
+                schedule_leases: false,
+            },
+            AccountMeshPorts {
+                registry: registry.clone(),
+                sessions: harness.sessions.clone(),
+                keys: harness.keys.clone(),
+                store: harness.store.clone(),
+                endpoint: harness.endpoint.clone(),
+                transport: harness.transport.clone(),
+                clock: harness.clock.clone(),
+            },
+        );
+        let request = ChallengeRequest {
+            endpoint: ProofEndpoint::MeshAdmission,
+            key_id: "a".repeat(64),
+            body: serde_json::json!({}),
+        };
+        let session = session(&uid);
+        let start = tokio::time::Instant::now();
+        let result = mesh.call(registry.challenge(&session, &request)).await;
+        assert_eq!(
+            registry
+                .transport()
+                .calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert_eq!(
+            start.elapsed(),
+            Duration::from_secs(if hang { 60 } else { 45 })
+        );
+        assert_eq!(
+            result,
+            if hang {
+                Err(AccountMeshRefusal::Offline)
+            } else {
+                Ok("n.a.b".into())
+            }
+        );
+    }
+}
+
+struct BurstTransport {
+    entered: tokio::sync::mpsc::UnboundedSender<String>,
+    release: tokio::sync::Semaphore,
+    calls: parking_lot::Mutex<Vec<String>>,
+}
+#[async_trait::async_trait]
+impl super::super::callable::CallableTransport for BurstTransport {
+    async fn call(
+        &self,
+        route: &str,
+        _: &str,
+        _: serde_json::Value,
+    ) -> Result<serde_json::Value, super::super::callable::CallableFailure> {
+        self.calls.lock().push(route.into());
+        self.entered.send(route.into()).unwrap();
+        self.release.acquire().await.unwrap().forget();
+        if route == "mesh" {
+            Err(super::super::callable::CallableFailure::Status {
+                status: 429,
+                retry_after_seconds: Some(90),
+                body: None,
+            })
+        } else {
+            Ok(serde_json::json!({"result":true}))
+        }
+    }
+}
+
+#[tokio::test]
+async fn parked_multi_route_burst_serializes_probes_and_rechecks_new_429_before_dispatch() {
+    use super::super::callable::CallableFailure;
+    let uid = "serialized-multi-route-burst";
+    let (waiting, mut waits) = tokio::sync::mpsc::unbounded_channel();
+    let clock = ParkedClock {
+        time: ClockPort::new(),
+        waiting,
+        release: tokio::sync::Semaphore::new(0),
+    };
+    let (entered, mut calls) = tokio::sync::mpsc::unbounded_channel();
+    let transport = BurstTransport {
+        entered,
+        release: tokio::sync::Semaphore::new(0),
+        calls: Default::default(),
+    };
+    account(uid).lock().await.limited("prior", clock.now(), 45);
+    let mesh_guard = guard();
+    let neighbor_guard = guard();
+    let gift_guard = guard();
+    let control = async {
+        waits.recv().await.unwrap();
+        assert!(account(uid).try_lock().is_ok());
+        assert!(calls.try_recv().is_err());
+        clock.release.add_permits(1);
+        assert_eq!(calls.recv().await.unwrap(), "mesh");
+        assert!(calls.try_recv().is_err());
+        gift_guard.authority.send_replace(None);
+        transport.release.add_permits(1);
+        waits.recv().await.unwrap();
+        assert_eq!(
+            account(uid).lock().await.remaining(clock.now()),
+            Duration::from_secs(90)
+        );
+        assert!(
+            calls.try_recv().is_err(),
+            "queued routes cannot dispatch before the new shared deadline"
+        );
+        clock.release.add_permits(1);
+        assert_eq!(calls.recv().await.unwrap(), "neighbors");
+        transport.release.add_permits(1);
+    };
+    let (mesh, neighbor, gift, ()) = tokio::join!(biased;
+        run(&transport, uid, "mesh", "", serde_json::Value::Null, &mesh_guard, &clock),
+        run(&transport, uid, "neighbors", "", serde_json::Value::Null, &neighbor_guard, &clock),
+        run(&transport, uid, "gift", "", serde_json::Value::Null, &gift_guard, &clock),
+        control,
+    );
+    assert!(matches!(
+        mesh,
+        Err(CallableFailure::Status { status: 429, .. })
+    ));
+    assert!(neighbor.is_ok());
+    assert_eq!(gift, Err(CallableFailure::Retired));
+    assert_eq!(*transport.calls.lock(), ["mesh", "neighbors"]);
+    assert_eq!(*clock.time.waits.lock(), [45, 90].map(Duration::from_secs));
+    let live = guard();
+    let release = async {
+        assert_eq!(calls.recv().await.unwrap(), "gift");
+        transport.release.add_permits(1);
+    };
+    let (result, ()) = tokio::join!(
+        run(
+            &transport,
+            uid,
+            "gift",
+            "",
+            serde_json::Value::Null,
+            &live,
+            &clock
+        ),
+        release,
+    );
+    assert!(
+        result.is_ok(),
+        "retired waiters leave the next admission available"
+    );
+    assert_eq!(*transport.calls.lock(), ["mesh", "neighbors", "gift"]);
+}

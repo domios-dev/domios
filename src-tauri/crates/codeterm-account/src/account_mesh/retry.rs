@@ -12,6 +12,12 @@ impl Retry {
         self.failures > 4
     }
 
+    pub fn keep_recovering(&mut self, now: u64) {
+        if self.exhausted() && self.deadline.is_none() {
+            self.deadline = Some(now.saturating_add(300));
+        }
+    }
+
     pub fn resume(&mut self) {
         if self.exhausted() {
             *self = Self::default();
@@ -19,8 +25,10 @@ impl Retry {
     }
 
     pub fn pending(&self, now: u64) -> Option<AccountMeshRefusal> {
-        self.refusal
-            .filter(|_| self.exhausted() || self.deadline.is_some_and(|at| now < at))
+        self.refusal.filter(|_| {
+            (self.exhausted() && self.deadline.is_none())
+                || self.deadline.is_some_and(|at| now < at)
+        })
     }
 
     pub fn settle(&mut self, now: u64, result: Result<(), AccountMeshRefusal>) {

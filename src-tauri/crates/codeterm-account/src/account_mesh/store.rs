@@ -17,7 +17,14 @@ impl FileAccountMeshStore {
 
 fn read(path: &PathBuf) -> io::Result<AccountMeshRecord> {
     match fs::read(path) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(io::Error::other),
+        Ok(bytes) => {
+            let mut record: AccountMeshRecord =
+                serde_json::from_slice(&bytes).map_err(io::Error::other)?;
+            record.admission_cache = fs::read(path.with_file_name("mesh-admission.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+            Ok(record)
+        }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(AccountMeshRecord::default()),
         Err(error) => Err(error),
     }
@@ -31,7 +38,22 @@ fn write(path: &PathBuf, record: &AccountMeshRecord) -> io::Result<()> {
     let bytes = serde_json::to_vec(record).map_err(io::Error::other)?;
     let temporary = path.with_extension("json.tmp");
     fs::write(&temporary, bytes)?;
-    fs::rename(&temporary, path)
+    fs::rename(&temporary, path)?;
+    let cache_path = path.with_file_name("mesh-admission.json");
+    match &record.admission_cache {
+        Some(cache) => {
+            let temporary = cache_path.with_extension("json.tmp");
+            fs::write(
+                &temporary,
+                serde_json::to_vec(cache).map_err(io::Error::other)?,
+            )?;
+            fs::rename(temporary, cache_path)
+        }
+        None => match fs::remove_file(cache_path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        },
+    }
 }
 
 #[async_trait]

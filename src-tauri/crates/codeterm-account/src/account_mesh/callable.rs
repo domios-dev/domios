@@ -128,14 +128,14 @@ pub trait CallableTransport: Send + Sync {
 pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
     let (status, body) = match failure {
         CallableFailure::Offline => return RegistryRefusal::Offline,
-        CallableFailure::Retired => return RegistryRefusal::Forbidden,
+        CallableFailure::Retired => return RegistryRefusal::Cancelled,
         CallableFailure::Status { status, body, .. } => (*status, body),
     };
     if body.as_ref().is_some_and(is_session_revoked) {
         return RegistryRefusal::Unauthenticated;
     }
     match status {
-        404 => return RegistryRefusal::Invalid,
+        404 => return RegistryRefusal::Unavailable,
         403 => {
             let typed = body
                 .as_ref()
@@ -152,7 +152,7 @@ pub fn refusal(failure: &CallableFailure) -> RegistryRefusal {
                             | RegistryRefusal::RateLimited { .. }
                     )
                 })
-                .unwrap_or(RegistryRefusal::Forbidden);
+                .unwrap_or(RegistryRefusal::Unavailable);
         }
         429 => {
             if body
@@ -319,6 +319,9 @@ impl<T: CallableTransport> CallableRegistry<T> {
 
 #[async_trait]
 impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
+    fn handles_call_deadline(&self) -> bool {
+        true
+    }
     async fn revoke_prior_sessions(
         &self,
         session: &Session,
