@@ -25,14 +25,23 @@ fn plugin_monitor_old_real_vm_cannot_borrow_replacement_registration_before_or_a
         assert!(fixture
             .service
             .register_host_extension(Arc::new(PluginJobs(Arc::new(
-                crate::plugin_job_admission::JobAdmission(fixture.service.weak_self())
+                crate::plugin_job_admission::JobAdmission(
+                    fixture
+                        .service
+                        .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+                        .clone()
+                )
             ))))
             .is_ok());
         let source = r#"module.exports.default={phase:'',onAgentCommand(c){if(c.verb==='raw'){host.surfaceCall('submit','[]');return {result:JSON.stringify(host.jobs.admit())};}this.phase=c.verb;if(this.phase==='before')host.progress({label:'park'});return host.surface.dispatch('submit',[]);},onSurfaceCall(){if(this.phase==='after')host.progress({label:'park'});return JSON.stringify(host.jobs.admit({owner:'forged',registration:'forged'}));}};"#;
         let old = Arc::new(PluginVm::from_source("monitor-fixture", source.into()).unwrap());
         let fresh = Arc::new(PluginVm::from_source("monitor-fixture", source.into()).unwrap());
-        let host: Arc<dyn codeterm_plugin::PluginHostCtx> =
-            fixture.service.weak_self().upgrade().unwrap();
+        let host: Arc<dyn codeterm_plugin::PluginHostCtx> = fixture
+            .service
+            .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+            .clone()
+            .upgrade()
+            .unwrap();
         assert!(old.set_service(Arc::downgrade(&host)));
         assert!(fresh.set_service(Arc::downgrade(&host)));
         let provider = |vm| {

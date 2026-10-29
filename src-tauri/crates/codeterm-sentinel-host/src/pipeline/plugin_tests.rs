@@ -1,4 +1,5 @@
 use super::*;
+use crate::store::Store;
 use codeterm_plugin::{
     blueprint_step::*,
     graph_nodes::GraphNodeRegistry,
@@ -51,6 +52,7 @@ fn plugin_steps_optional_media_ports_are_empty_unless_explicitly_bound() {
         media: "json".into(),
         schema_id: None,
         value: serde_json::to_value(&values).unwrap(),
+        text: String::new(),
     };
     assert!(plugin::inputs(&registered, &envelope, false)
         .unwrap()
@@ -206,7 +208,12 @@ fn fixture_pipeline(approve: bool, scope_lost: bool) {
         &producer,
         Arc::new(MediaProvider(
             producer.clone(),
-            scope_lost.then(|| fixture.service.weak_self()),
+            scope_lost.then(|| {
+                fixture
+                    .service
+                    .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+                    .clone()
+            }),
         )),
     );
     let manifest_json = r#"{"id":"fixture-review","displayName":"Fixture review","version":"0.1.0","capabilities":{"chatBackend":{"agentTasks":true}}}"#;
@@ -332,7 +339,12 @@ fn fixture_pipeline(approve: bool, scope_lost: bool) {
     let first_outputs = history[0].outputs.clone();
     let waiting = history.last().unwrap();
     if approve {
-        let questions = crate::plugin_owner::OwnerQuestions(fixture.service.weak_self());
+        let questions = crate::plugin_owner::OwnerQuestions(
+            fixture
+                .service
+                .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+                .clone(),
+        );
         let old_key = owner_decision_key(waiting);
         questions
             .answer_operation(
@@ -574,7 +586,9 @@ fn run_input_fixture(
 ) {
     let consumer = format!("input-fixture-{}", uuid::Uuid::new_v4().simple());
     let adapter = Arc::new(InputConsumer {
-        service: service.weak_self(),
+        service: service
+            .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+            .clone(),
         source,
         bytes: bytes.to_vec(),
     });

@@ -104,7 +104,12 @@ pub fn decide_from_view(
         "cancel" => "Cancel this step".into(),
         _ => return Err("plugin operation decision unavailable".into()),
     };
-    OwnerQuestions(service.weak_self()).answer_operation(decision_key, operation, &label)
+    OwnerQuestions(
+        service
+            .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+            .clone(),
+    )
+    .answer_operation(decision_key, operation, &label)
 }
 
 fn question(record: &OperationRecord) -> String {

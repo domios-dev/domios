@@ -5,6 +5,37 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
 struct Unavailable;
+
+#[test]
+fn unavailable_plugin_errors_preserve_typed_step_locations() {
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let document = codeterm_blueprint_types::blueprint_document::parse(
+        "fixture.yaml",
+        include_str!("../../../../../tests/fixtures/blueprint-plugin-media-review.yaml"),
+    )
+    .unwrap()
+    .document;
+    let lowered = document.lower().unwrap();
+    let spec: BlueprintSpec = serde_json::from_value(lowered["spec"].clone()).unwrap();
+    let errors = plugin_validation::validate(&fixture.service, &spec);
+    assert_eq!(errors.len(), 4);
+    for (error, index) in errors.iter().zip([0, 2, 3, 4]) {
+        assert_eq!(error.reason, "plugin_step_unavailable");
+        assert_eq!(error.field, format!("steps[{index}].plugin"));
+        assert_eq!(
+            error.path,
+            ValidationPath::Step {
+                index,
+                field: StepField::Common("plugin".into()),
+            }
+        );
+        assert_eq!(
+            error.path.document_field(),
+            format!("pipeline.steps[{index}].plugin")
+        );
+    }
+}
+
 impl BlueprintStep for Unavailable {
     fn estimate(&self, _: &StepCall<'_>) -> Result<Option<Estimate>, String> {
         Err("not invoked".into())
