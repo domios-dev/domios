@@ -5,7 +5,6 @@ use codeterm_service_core::mesh::{
         AccountPresence, AdmissionRefusal, BoxFuture, LinkAuthorizationRequest,
         LinkPermitExpectation, LinkTarget, SignedMembership, VerifiedMembership,
     },
-    manager::LinkOrigin,
     types::{PeerAddress, PeerAnnounce, RegistryRevision, RELAY_PROTOCOL_VERSION},
 };
 use std::sync::{
@@ -73,6 +72,7 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
     use codeterm_service_core::{
         multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
     };
+    crate::test_support::install_app_version();
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (private, public) = codeterm_service_core::mesh::crown::generate_peer_keypair();
@@ -101,7 +101,6 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
             &[],
             membership("peer-installation", 120),
             "account",
-            LinkOrigin::Remote,
             "link",
         )
         .unwrap();

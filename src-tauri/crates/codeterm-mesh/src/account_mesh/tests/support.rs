@@ -6,9 +6,8 @@ use parking_lot::Mutex;
 
 use crate::account_mesh::link::LinkTransport;
 use crate::account_mesh::protocol::{
-    AdoptCommit, AdoptOffer, LinkApproval, LinkApprovalReply, LinkCommit, LinkCommitReply,
-    LinkConfirm, LinkConfirmReply, LinkHello, ADOPT_COMMIT_PATH, ADOPT_OFFER_PATH,
-    LINK_APPROVAL_PATH, LINK_COMMIT_PATH, LINK_CONFIRM_PATH, LINK_HELLO_PATH,
+    LinkCommit, LinkCommitReply, LinkConfirm, LinkConfirmReply, LinkHello, LINK_COMMIT_PATH,
+    LINK_CONFIRM_PATH, LINK_HELLO_PATH,
 };
 use crate::account_mesh::{
     AccountMeshAuthority, AccountMeshState, AccountPresence, AdmissionRefusal, BoxFuture,
@@ -272,8 +271,6 @@ pub struct Loopback {
     after: Option<AfterStep>,
     pub posts: AtomicUsize,
     lose_reply_of: Option<&'static str>,
-    approval_decision: Option<bool>,
-    approval_entered: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Loopback {
@@ -286,20 +283,12 @@ impl Loopback {
             after: None,
             posts: AtomicUsize::new(0),
             lose_reply_of: None,
-            approval_decision: Some(true),
-            approval_entered: None,
         }
     }
 
     /// The responder handles `path`, but its reply never reaches the initiator.
     pub fn lose_reply_of(mut self, path: &'static str) -> Self {
         self.lose_reply_of = Some(path);
-        self
-    }
-
-    pub fn hold_approval(mut self, entered: Arc<tokio::sync::Notify>) -> Self {
-        self.approval_decision = None;
-        self.approval_entered = Some(entered);
         self
     }
 
@@ -317,32 +306,17 @@ fn encode<T: serde::Serialize>(value: T) -> Result<serde_json::Value, AdmissionR
     serde_json::to_value(value).map_err(|e| AdmissionRefusal::handshake(e.to_string()))
 }
 
-fn caller(mesh: &MeshState, bearer: Option<String>) -> Result<String, AdmissionRefusal> {
-    let token = bearer.ok_or(AdmissionRefusal::Unauthenticated)?;
-    let mut manager = mesh.lock();
-    let peer = manager
-        .authenticate_request(&token)
-        .ok_or(AdmissionRefusal::Unauthenticated)?;
-    manager
-        .check_and_record_nonce(&token)
-        .map_err(|_| AdmissionRefusal::Unauthenticated)?;
-    Ok(peer)
-}
-
 impl LinkTransport for Loopback {
     fn post(
         &self,
         ip: &str,
         port: u16,
         path: &'static str,
-        bearer: Option<String>,
         body: serde_json::Value,
     ) -> BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
         let target = self.routes.get(&(ip.to_string(), port)).cloned();
         let after = self.after.clone();
         let lost = self.lose_reply_of == Some(path);
-        let approval_decision = self.approval_decision;
-        let approval_entered = self.approval_entered.clone();
         self.posts.fetch_add(1, Ordering::SeqCst);
         Box::pin(async move {
             let mesh = target.ok_or(AdmissionRefusal::PeerUnreachable)?;
@@ -351,19 +325,6 @@ impl LinkTransport for Loopback {
                     let hello: LinkHello = decode(body)?;
                     let reply = mesh.lock().accept_link_hello(hello)?;
                     encode(reply)
-                }
-                LINK_APPROVAL_PATH => {
-                    let proof: LinkApproval = decode(body)?;
-                    mesh.lock().request_link_approval(&proof)?;
-                    if let Some(entered) = approval_entered {
-                        entered.notify_one();
-                    }
-                    if let Some(approve) = approval_decision {
-                        mesh.lock().decide_link(&proof.link_id, approve)?;
-                    }
-                    crate::account_mesh::approval::wait_for_link_approval(&mesh, &proof.link_id)
-                        .await?;
-                    encode(LinkApprovalReply { approved: true })
                 }
                 LINK_CONFIRM_PATH => {
                     let confirm: LinkConfirm = decode(body)?;
@@ -379,18 +340,6 @@ impl LinkTransport for Loopback {
                     let commit: LinkCommit = decode(body)?;
                     mesh.lock().commit_link(&commit)?;
                     encode(LinkCommitReply { committed: true })
-                }
-                ADOPT_OFFER_PATH => {
-                    let peer = caller(&mesh, bearer)?;
-                    let offer: AdoptOffer = decode(body)?;
-                    let reply = mesh.lock().accept_adopt_offer(&peer, offer)?;
-                    encode(reply)
-                }
-                ADOPT_COMMIT_PATH => {
-                    let peer = caller(&mesh, bearer)?;
-                    let commit: AdoptCommit = decode(body)?;
-                    let reply = mesh.lock().commit_adoption(&peer, commit)?;
-                    encode(reply)
                 }
                 _ => Err(AdmissionRefusal::handshake("unknown path")),
             };

@@ -2,8 +2,7 @@ use std::sync::Arc;
 
 use super::MeshManager;
 use crate::account_mesh::protocol::{
-    AdoptCommit, AdoptCommitReply, AdoptOffer, AdoptOfferReply, LinkCommit, LinkConfirm, LinkHello,
-    LinkHelloReply, PartyDescriptor,
+    LinkCommit, LinkConfirm, LinkHello, LinkHelloReply, PartyDescriptor,
 };
 use crate::account_mesh::transcript::{
     self, possession_digest, Party, Purpose, COMMIT_ROLE, INITIATOR_ROLE, RESPONDER_ROLE,
@@ -24,26 +23,8 @@ pub struct PendingLink {
     pub(super) account_id: String,
     pub(super) account_epoch: u64,
     pub(super) created_at: u64,
-    pub(super) approved: bool,
-    removal_watermark: u64,
     /// Both permits are held; the pair is recorded only on the initiator's commit.
     confirmed: bool,
-}
-
-/// Local Connect or Approve may lift this machine's own removal of a peer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkOrigin {
-    LocalAdd { removal_watermark: u64 },
-    Remote,
-}
-
-pub struct PendingAdoption {
-    peer_id: String,
-    initiator_membership: SignedMembership,
-    transcript: [u8; 32],
-    account_id: String,
-    account_epoch: u64,
-    created_at: u64,
 }
 
 /// What the responder must hold after verifying a confirm, before its own online permit.
@@ -59,7 +40,6 @@ pub struct AdmissionContext {
     pub authority: Arc<dyn AccountMeshAuthority>,
     pub account_id: String,
     pub account_epoch: u64,
-    pub removal_watermark: u64,
     pub membership: SignedMembership,
     pub party: Party,
     pub private_key: String,
@@ -102,7 +82,6 @@ impl MeshManager {
             authority,
             account_id,
             account_epoch: self.account.account_epoch,
-            removal_watermark: self.removal_watermark(),
             membership,
             private_key,
         })
@@ -173,9 +152,6 @@ impl MeshManager {
         if instance_id == self.ident.identity.instance_id {
             return Err(AdmissionRefusal::handshake("cannot link this instance"));
         }
-        if self.is_blocked(instance_id) {
-            return Err(AdmissionRefusal::handshake("peer identity is blocked"));
-        }
         if let Some(existing) = self.paired_peers.get(instance_id) {
             if existing.public_key != public_key {
                 return Err(AdmissionRefusal::handshake(
@@ -191,15 +167,7 @@ impl MeshManager {
 
     fn prune_pending(&mut self) {
         let now = self.now();
-        self.pending_links.retain(|id, pending| {
-            let ttl = if !pending.approved && self.link_requests.contains_key(id) {
-                crate::account_mesh::approval::APPROVAL_TTL_SECS + PENDING_TTL_SECS
-            } else {
-                PENDING_TTL_SECS
-            };
-            now.saturating_sub(pending.created_at) <= ttl
-        });
-        self.pending_adoptions
+        self.pending_links
             .retain(|_, pending| now.saturating_sub(pending.created_at) <= PENDING_TTL_SECS);
     }
 
@@ -221,26 +189,6 @@ impl MeshManager {
         }
         if self.pending_links.contains_key(&hello.link_id) {
             return Err(AdmissionRefusal::handshake("duplicate link id"));
-        }
-        if self.pending_links.iter().any(|(id, pending)| {
-            pending.initiator.party.installation_id == initiator.installation_id
-                && self.link_requests.get(id).is_some_and(|request| {
-                    request.decision_at(self.now())
-                        == crate::account_mesh::approval::LinkDecision::Waiting
-                })
-        }) {
-            return Err(AdmissionRefusal::handshake("link request already pending"));
-        }
-        let superseded: Vec<String> = self
-            .pending_links
-            .iter()
-            .filter(|(_, pending)| {
-                pending.initiator.party.installation_id == initiator.installation_id
-            })
-            .map(|(id, _)| id.clone())
-            .collect();
-        for id in superseded {
-            self.clear_link_request(&id);
         }
         let nonce = transcript::fresh_nonce();
         let digest = transcript::transcript(
@@ -265,8 +213,6 @@ impl MeshManager {
                 account_id: context.account_id.clone(),
                 account_epoch: context.account_epoch,
                 created_at: self.now(),
-                approved: false,
-                removal_watermark: context.removal_watermark,
                 confirmed: false,
             },
         );
@@ -286,13 +232,6 @@ impl MeshManager {
         confirm: &LinkConfirm,
     ) -> Result<LinkConfirmation, AdmissionRefusal> {
         self.prune_pending();
-        if !self
-            .pending_links
-            .get(&confirm.link_id)
-            .is_some_and(|pending| pending.approved)
-        {
-            return Err(AdmissionRefusal::handshake("link requires local approval"));
-        }
         if self
             .pending_links
             .get(&confirm.link_id)
@@ -381,7 +320,6 @@ impl MeshManager {
         {
             return Err(AdmissionRefusal::handshake("unknown or unconfirmed link"));
         }
-        self.link_requests.remove(&commit.link_id);
         let pending = self
             .pending_links
             .remove(&commit.link_id)
@@ -406,20 +344,8 @@ impl MeshManager {
             &[],
             pending.initiator_membership,
             &pending.account_id,
-            LinkOrigin::LocalAdd {
-                removal_watermark: pending.removal_watermark,
-            },
             &commit.link_id,
         )
-    }
-
-    fn refuse_removed_peer(&self, instance_id: &str) -> Result<(), AdmissionRefusal> {
-        if self.is_revoked(instance_id) {
-            return Err(AdmissionRefusal::handshake(
-                "peer was removed on this machine; add it from here to link again",
-            ));
-        }
-        Ok(())
     }
 
     /// Persists an account-admitted edge. Existing records keep their access policy.
@@ -429,29 +355,31 @@ impl MeshManager {
         preferred_addresses: &[types::PeerAddress],
         membership: SignedMembership,
         account_id: &str,
-        origin: LinkOrigin,
         link_nonce: &str,
     ) -> Result<(), AdmissionRefusal> {
         let party = &peer.party;
         self.check_link_identity(&party.instance_id, &party.mesh_public_key)?;
-        match origin {
-            LinkOrigin::Remote => self.refuse_removed_peer(&party.instance_id)?,
-            LinkOrigin::LocalAdd { removal_watermark } => {
-                if self
-                    .revocation_list
-                    .tombstones
-                    .get(&party.instance_id)
-                    .is_some_and(|removed_at| *removed_at > removal_watermark)
-                {
-                    return Err(AdmissionRefusal::Cancelled);
-                }
-            }
-        }
+        let context = self.admission_context()?;
+        let membership =
+            self.verify_peer_membership(&context, &membership.token, &party.installation_id)?;
         let mut addresses = types::sanitize_addresses(preferred_addresses);
         for address in types::sanitize_addresses(&peer.addresses) {
             if !addresses.iter().any(|known| known.ip == address.ip) {
                 addresses.push(address);
             }
+        }
+        let superseded: Vec<String> = self
+            .links
+            .links
+            .iter()
+            .filter(|(id, record)| {
+                id.as_str() != party.instance_id
+                    && record.installation_id() == Some(party.installation_id.as_str())
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in superseded {
+            self.remove_account_peer(&id);
         }
         self.links
             .admit(
@@ -465,7 +393,6 @@ impl MeshManager {
         if let Some(record) = self.links.links.get_mut(&party.instance_id) {
             record.link_nonce = Some(link_nonce.into());
         }
-        self.links.disconnects.remove(&party.instance_id);
         let record = self
             .paired_peers
             .entry(party.instance_id.clone())
@@ -490,200 +417,12 @@ impl MeshManager {
             record.addresses = addresses;
             record.api_port = peer.api_port;
         }
-        if matches!(origin, LinkOrigin::LocalAdd { .. }) {
-            self.revocation_list
-                .revoked
-                .retain(|id| id != &party.instance_id);
-            self.revocation_list.tombstones.remove(&party.instance_id);
-        }
+        record.online = true;
+        record.consecutive_misses = 0;
+        record.instance_name = peer.instance_name.clone();
         self.save().map_err(AdmissionRefusal::handshake)?;
         self.bump_gate();
         log::info!("[mesh/account] linked {}", party.instance_id);
-        Ok(())
-    }
-
-    /// Adoption responder, step 1: only an open legacy (or same-account adopted) edge qualifies.
-    pub fn accept_adopt_offer(
-        &mut self,
-        peer_id: &str,
-        offer: AdoptOffer,
-    ) -> Result<AdoptOfferReply, AdmissionRefusal> {
-        let context = self.admission_context()?;
-        self.check_adoptable(peer_id, &context)?;
-        let peer_key = self
-            .paired_peers
-            .get(peer_id)
-            .map(|peer| peer.public_key.clone())
-            .ok_or_else(|| AdmissionRefusal::handshake("peer is not paired"))?;
-        let membership =
-            self.verify_peer_membership(&context, &offer.membership, &offer.installation_id)?;
-        self.prune_pending();
-        if self.pending_adoptions.len() >= MAX_PENDING {
-            return Err(AdmissionRefusal::RateLimited {
-                retry_after_seconds: PENDING_TTL_SECS,
-            });
-        }
-        let initiator = Party {
-            instance_id: peer_id.to_string(),
-            mesh_public_key: peer_key,
-            installation_id: offer.installation_id.clone(),
-        };
-        let nonce = transcript::fresh_nonce();
-        let digest = transcript::transcript(
-            Purpose::Adopt,
-            &initiator,
-            &context.party,
-            &context.account_id,
-            &offer.nonce,
-            &nonce,
-        );
-        let installation_signature = context
-            .authority
-            .sign_possession(&possession_digest(&digest, RESPONDER_ROLE))?;
-        let mesh_signature = transcript::sign_mesh(&context.private_key, &digest, RESPONDER_ROLE)
-            .map_err(AdmissionRefusal::handshake)?;
-        self.pending_adoptions.insert(
-            offer.adoption_id.clone(),
-            PendingAdoption {
-                peer_id: peer_id.to_string(),
-                initiator_membership: membership,
-                transcript: digest,
-                account_id: context.account_id.clone(),
-                account_epoch: context.account_epoch,
-                created_at: self.now(),
-            },
-        );
-        Ok(AdoptOfferReply {
-            adoption_id: offer.adoption_id,
-            installation_id: context.party.installation_id.clone(),
-            membership: context.membership.token,
-            nonce,
-            installation_signature,
-            mesh_signature,
-        })
-    }
-
-    /// Adoption responder, step 2: verify the initiator's proof, then adopt in place.
-    pub fn commit_adoption(
-        &mut self,
-        peer_id: &str,
-        commit: AdoptCommit,
-    ) -> Result<AdoptCommitReply, AdmissionRefusal> {
-        self.prune_pending();
-        let pending = self
-            .pending_adoptions
-            .remove(&commit.adoption_id)
-            .filter(|pending| pending.peer_id == peer_id)
-            .ok_or_else(|| AdmissionRefusal::handshake("unknown or expired adoption"))?;
-        let context = self.admission_context()?;
-        if context.account_epoch != pending.account_epoch
-            || context.account_id != pending.account_id
-        {
-            return Err(AdmissionRefusal::Cancelled);
-        }
-        let peer_key = self
-            .paired_peers
-            .get(peer_id)
-            .map(|peer| peer.public_key.clone())
-            .ok_or_else(|| AdmissionRefusal::handshake("peer is not paired"))?;
-        if !transcript::verify_mesh(
-            &peer_key,
-            &pending.transcript,
-            INITIATOR_ROLE,
-            &commit.mesh_signature,
-        ) || !context.authority.verify_possession(
-            &pending.initiator_membership.verified,
-            &possession_digest(&pending.transcript, INITIATOR_ROLE),
-            &commit.installation_signature,
-        ) {
-            return Err(AdmissionRefusal::handshake(
-                "initiator adoption proof invalid",
-            ));
-        }
-        let installation_id = pending
-            .initiator_membership
-            .verified
-            .installation_id
-            .clone();
-        let expected = LinkPermitExpectation {
-            transcript: pending.transcript,
-            holder_installation_id: installation_id.clone(),
-            peer_installation_id: context.party.installation_id.clone(),
-            account_id: context.account_id.clone(),
-        };
-        self.commit_local_adoption(
-            peer_id,
-            &context,
-            &installation_id,
-            pending.initiator_membership,
-            (&commit.permit, &expected),
-        )?;
-        Ok(AdoptCommitReply { adopted: true })
-    }
-
-    pub(crate) fn check_adoptable(
-        &self,
-        peer_id: &str,
-        context: &AdmissionContext,
-    ) -> Result<(), AdmissionRefusal> {
-        if self
-            .owner_account()
-            .is_some_and(|owner| owner != context.account_id)
-        {
-            return Err(AdmissionRefusal::handshake(
-                "legacy edge belongs to another account",
-            ));
-        }
-        match self.links.get(peer_id).map(|record| &record.admission) {
-            Some(crate::account_mesh::ledger::LinkAdmission::Legacy { .. }) => {
-                if self.traffic_open(peer_id) {
-                    Ok(())
-                } else {
-                    Err(AdmissionRefusal::handshake("legacy edge is not open"))
-                }
-            }
-            Some(crate::account_mesh::ledger::LinkAdmission::Adopted { account_id, .. })
-                if account_id == &context.account_id =>
-            {
-                Ok(())
-            }
-            _ => Err(AdmissionRefusal::handshake(
-                "edge has no adoptable provenance",
-            )),
-        }
-    }
-
-    /// Monotonic in-place adoption: keys, record and access policy stay as they are.
-    pub(crate) fn commit_local_adoption(
-        &mut self,
-        peer_id: &str,
-        context: &AdmissionContext,
-        installation_id: &str,
-        remote: SignedMembership,
-        permit: (&str, &LinkPermitExpectation),
-    ) -> Result<(), AdmissionRefusal> {
-        self.fence_admission(context)?;
-        context
-            .authority
-            .verify_link_permit(permit.0, permit.1, self.now())?;
-        self.verify_peer_membership(context, &remote.token, installation_id)?;
-        let peer_key = self
-            .paired_peers
-            .get(peer_id)
-            .map(|peer| peer.public_key.clone())
-            .ok_or_else(|| AdmissionRefusal::handshake("peer is not paired"))?;
-        self.links
-            .admit(
-                peer_id,
-                &context.account_id,
-                installation_id,
-                &peer_key,
-                remote,
-            )
-            .map_err(AdmissionRefusal::handshake)?;
-        self.save().map_err(AdmissionRefusal::handshake)?;
-        self.bump_gate();
-        log::info!("[mesh/account] adopted {}", peer_id);
         Ok(())
     }
 }

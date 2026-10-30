@@ -183,7 +183,7 @@ impl Fixture {
         self.state
             .mesh
             .lock()
-            .insert_legacy_pair_for_test(PairedPeer {
+            .insert_account_peer_for_test(PairedPeer {
                 instance_id: "preview-peer".into(),
                 instance_name: "Preview".into(),
                 addresses: Vec::new(),

@@ -161,9 +161,9 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
     let mut state = signed_in(2);
     state.cleanup = Cleanup::Pending;
     let snapshot = AccountMeshSnapshot {
+        local_installation_id: "installation-a".into(),
         view: state.view(),
         pairs: Vec::new(),
-        link_requests: Vec::new(),
     };
     let value = serde_json::to_value(&snapshot).unwrap();
     for key in [
@@ -223,7 +223,7 @@ fn account_mesh_start_failure_never_opens_past_a_persisted_sign_out() {
     assert_eq!(
         fallback_mesh_state(Ok(AccountMeshRecord::default())).presence,
         mesh::AccountPresence::NeverSignedIn,
-        "an upgrade that never signed out keeps legacy pairs"
+        "an empty account record has never signed in"
     );
 }
 
@@ -264,7 +264,7 @@ fn legacy_manager() -> codeterm_mesh::MeshManager {
         "local".into(),
         7685,
     );
-    manager.insert_legacy_pair_for_test(PairedPeer {
+    manager.insert_account_peer_for_test(PairedPeer {
         instance_id: "peer-a".into(),
         instance_name: "Peer A".into(),
         addresses: Vec::new(),
@@ -354,6 +354,7 @@ fn listener_account_mesh(
     store: Arc<dyn AccountMeshStore>,
 ) -> Arc<AccountMesh> {
     let transport = Arc::new(TransportBridge {
+        installation_id: "installation-a".into(),
         service: Arc::downgrade(service),
         mesh_state: watch::channel(mesh::AccountMeshState::default()).0,
     });

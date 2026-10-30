@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Presence {
-    /// No explicit sign-out ever happened here; legacy continuity stays with transport.
     #[default]
     NeverSignedIn,
     SignedIn {
@@ -37,7 +36,7 @@ pub enum Traffic {
     #[default]
     Open,
     BlockedSignedOut,
-    /// Signed in but refused a slot by the account's machine limit; pairings stay listed.
+    /// Signed in but refused a slot by the account's machine limit; account installations stay listed.
     #[serde(rename = "plan_limit_locked")]
     PlanLimitLocked,
 }
@@ -295,7 +294,7 @@ impl LifecycleState {
         }
     }
 
-    /// Only a membership of the signed-in account, current at `now`, admits adopted traffic.
+    /// Only a membership of the signed-in account, current at `now`, admits account mesh traffic.
     pub fn current_membership(&self, now: u64) -> Option<&SignedMembership> {
         let account = self.signed_in_account()?;
         self.membership

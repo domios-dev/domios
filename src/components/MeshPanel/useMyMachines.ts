@@ -9,7 +9,7 @@ import {
   type MeshTarget,
 } from "./accountMeshClient";
 
-import { useMachineLinkActions } from "./useMachineLinkActions";
+
 
 export interface MachineFailure {
   operation: string;
@@ -37,9 +37,6 @@ export interface MyMachines {
   failures: ReadonlyMap<string, MachineFailure>;
   load: () => Promise<void>;
   signIn: () => Promise<void>;
-  connect: (row: MachineRowView, target: MeshTarget) => Promise<void>;
-  decide: (row: MachineRowView, notificationId: string, approve: boolean) => Promise<void>;
-  disconnect: (row: MachineRowView, instanceId: string) => Promise<boolean>;
   revoke: (row: MachineRowView, target: MeshTarget, alsoSignOut?: boolean) => Promise<boolean>;
   revokeSession: (row: MachineRowView) => Promise<boolean>;
   renameSelf: (name: string) => Promise<boolean>;
@@ -78,9 +75,6 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     failureEpoch.current = snapshot.account_epoch;
     setFailures(current => {
       const next = changedEpoch ? new Map<string, MachineFailure>() : new Map(current);
-      for (const [key, failure] of next) {
-        if (failure.operation.startsWith("connect ") && snapshot.pairs.some(pair => pair.installation_id === key)) next.delete(key);
-      }
       return next.size === current.size && [...next.keys()].every(key => current.has(key)) ? current : next;
     });
   }, [snapshot]);
@@ -149,24 +143,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
     }
   }, [onSignIn]);
 
-  const { linking, connect, decide, deciding } = useMachineLinkActions({ client, snapshot, load, onChanged, fail, dismissFailure });
-  const view = useMemo(() => myMachinesView({ account, snapshot, listFailure, linking, now: now() }), [account, snapshot, listFailure, linking, now]);
-
-  const disconnect = useCallback(async (row: MachineRowView, instanceId: string) => {
-    dismissFailure(row.key);
-    setBusy(row.key);
-    try {
-      await client.unpair(instanceId);
-    } catch {
-      setBusy(null);
-      fail(row.key, `disconnect ${row.name}`, { reason: "unavailable" });
-      return false;
-    }
-    setBusy(null);
-    onChanged?.();
-    await load();
-    return true;
-  }, [client, dismissFailure, fail, load, onChanged]);
+  const view = useMemo(() => myMachinesView({ account, snapshot, listFailure, now: now() }), [account, snapshot, listFailure, now]);
 
   const revoke = useCallback(async (row: MachineRowView, target: MeshTarget, alsoSignOut = false) => {
     setBusy(row.key);
@@ -244,7 +221,7 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const openPlans = useCallback((key: string) => openLockedMachinePlans(snapshot, key), [snapshot]);
 
   return {
-    view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy: deciding ?? busy, failures,
-    load, signIn, connect, decide, disconnect, revoke, revokeSession, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
+    view, snapshot, listFailure, loadFailed, refreshing, signingIn, busy, failures,
+    load, signIn, revoke, revokeSession, renameSelf, rename, retryEnrollment, openPlans, dismissFailure,
   };
 }

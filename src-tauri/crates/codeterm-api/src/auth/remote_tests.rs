@@ -33,7 +33,7 @@ fn apply(state: &AppState, presence: AccountPresence) {
 
 fn signed_peer(state: &AppState) -> String {
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
-    state.mesh.lock().insert_legacy_pair_for_test(PairedPeer {
+    state.mesh.lock().insert_account_peer_for_test(PairedPeer {
         instance_id: "paired".into(),
         instance_name: "paired".into(),
         addresses: vec![],

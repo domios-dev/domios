@@ -5,11 +5,11 @@ import { macRow, NOW, snapshot } from "./accountMachines.testdata";
 describe("enrollment budget projection", () => {
   it("keeps cached machines readable and all registry controls read-only", () => {
     const state = snapshot({ enrollment: "refused", last_refusal: { reason: "enrollment_budget", retry_after_seconds: 121 }, retry_at: NOW + 121 });
-    const view = myMachinesView({ account: "signed_in", snapshot: state, linking: new Set(), now: NOW });
+    const view = myMachinesView({ account: "signed_in", snapshot: state, now: NOW });
     if (view.kind !== "account") throw new Error("Account machines missing");
     const row = view.machines.find(row => row.key === macRow.installation_id);
     expect(row?.name).toBe("MacBook");
-    expect(row?.controls).toEqual({ add: null, revoke: null, unpairInstanceId: null });
+    expect(row?.controls).toEqual({ revoke: null });
     expect(row?.canSignOut).toBe(false);
     expect(view.self?.readOnly).toBe(true);
     expect(enrollmentRetryMessage(state, NOW)).toContain(new Date((NOW + 121) * 1000).toISOString());

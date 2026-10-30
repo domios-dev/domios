@@ -399,7 +399,7 @@ for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI
 inheriting production routing. Confirm identity before changing that instance.
 Restart only that named instance through the documented launcher. Verify both
 loopback health and tailnet health, the build identity, and
-`dc config get api_listener.ready_addresses` before `dc mesh link`.
+`dc config get api_listener.ready_addresses` before checking automatic account mesh connections.
 Removing the opt-in uses JSON `null` and another scoped restart.
 
 To join two DEV consoles on different machines over the mesh (pairing,

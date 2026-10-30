@@ -487,7 +487,7 @@ async fn standalone_self_promotion_refuses_peer_and_missing_auth() {
             },
             ..Default::default()
         });
-        mesh.insert_legacy_pair_for_test(PairedPeer {
+        mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "paired".into(),
             instance_name: "paired".into(),
             addresses: vec![],

@@ -262,11 +262,15 @@ pub(super) async fn run_with_network(
     loop {
         let enabled = {
             let config = service.ext::<crate::config::ConfigState>().lock();
-            config.api.enabled
+            config.api.enabled && config.mesh.enabled
         };
         let port = control.bound_addr().map_or(0, |address| address.port());
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
-        let desired = network.selected(enabled && listening, port).await;
+        let desired = if enabled && listening {
+            network.selected(true, port).await
+        } else {
+            Vec::new()
+        };
         let primary = if listening {
             control.listeners.primary_ready()
         } else {
@@ -280,6 +284,10 @@ pub(super) async fn run_with_network(
         if published != retained {
             control.listeners.publish_tailnet(retained.clone());
             published = retained;
+            service.events.publish_generic(
+                super::reconcile::CONNECTIVITY_CHANGED,
+                serde_json::Value::Null,
+            );
             service.ui.emit("mesh-state-changed", serde_json::json!({}));
         }
         serving.reconcile(&desired, &router, &primary).await;
@@ -287,6 +295,10 @@ pub(super) async fn run_with_network(
         if published != ready {
             control.listeners.publish_tailnet(ready.clone());
             published = ready;
+            service.events.publish_generic(
+                super::reconcile::CONNECTIVITY_CHANGED,
+                serde_json::Value::Null,
+            );
             service.ui.emit("mesh-state-changed", serde_json::json!({}));
         }
         let retry_at = serving
@@ -304,6 +316,7 @@ pub(super) async fn run_with_network(
             changed = network.changed() => {
                 if changed.is_err() { break; }
                 serving.retry_now();
+                service.events.publish_generic(super::reconcile::CONNECTIVITY_CHANGED, serde_json::Value::Null);
             },
             changed = rest.changed() => {
                 if changed.is_err() { break; }
@@ -321,6 +334,10 @@ pub(super) async fn run_with_network(
     }
     serving.withdraw(&[]).await;
     control.listeners.publish_tailnet(Vec::new());
+    service.events.publish_generic(
+        super::reconcile::CONNECTIVITY_CHANGED,
+        serde_json::Value::Null,
+    );
     service.ui.emit("mesh-state-changed", serde_json::json!({}));
 }
 

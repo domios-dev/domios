@@ -127,7 +127,7 @@ where
     }) {
         let new_hint = {
             let mut mesh = state.mesh.lock();
-            if mesh.is_revoked(&sender_id) || mesh.is_blocked(&sender_id) {
+            if mesh.account_peer_revoked(&sender_id) {
                 return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
             }
             mesh.check_and_record_nonce(token).is_ok()
@@ -146,33 +146,11 @@ where
     }
     let mut mesh = state.mesh.lock();
     if let Some(membership) = membership.as_deref() {
-        mesh.note_advertised_membership(&sender_id, membership);
         mesh.refresh_peer_membership(&sender_id, membership);
     }
     if !mesh.traffic_open(&sender_id) {
         let reason = format!("{:?}", mesh.traffic_decision(&sender_id));
         return Err((StatusCode::FORBIDDEN, reason));
-    }
-    let adopt =
-        membership.is_some() && mesh.is_legacy_link(&sender_id) && mesh.admission_context().is_ok();
-    if adopt {
-        let mesh_state = state.mesh.clone();
-        let peer_id = sender_id.clone();
-        let service = state.svc.clone();
-        codeterm_service_core::async_runtime::spawn(async move {
-            let previous = mesh_state.lock().account_mesh_pairs();
-            let _ =
-                codeterm_service_core::mesh::account_mesh::link::adopt_peer(&mesh_state, &peer_id)
-                    .await;
-            if previous != mesh_state.lock().account_mesh_pairs() {
-                service
-                    .ui
-                    .emit("account-mesh-changed", serde_json::Value::Null);
-                service
-                    .ui
-                    .emit("mesh-state-changed", serde_json::Value::Null);
-            }
-        });
     }
     match mesh.apply_announce(&sender_id, &ann) {
         Ok(change) if change.changed() => {

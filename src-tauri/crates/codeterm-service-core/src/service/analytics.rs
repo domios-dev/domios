@@ -139,7 +139,7 @@ impl ServiceContext {
                 }));
                 if let Some(mesh) = self.try_ext::<crate::mesh::MeshState>() {
                     let counts = worker.clone();
-                    mesh.lock().bind_pairing_observers(
+                    mesh.lock().bind_connection_observers(
                         mesh_observer(worker.clone()),
                         Arc::new(move |machines| counts.set_mesh_machines(machines)),
                     );

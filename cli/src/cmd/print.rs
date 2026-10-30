@@ -111,35 +111,35 @@ fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(String, Str
     let (message, hint) = match reason {
         "unauthenticated" | "signed-out" => (
             "Your Domios account session could not be verified.",
-            "sign in again, then retry domios mesh link <installation-id>",
+            "sign in again, then check domios mesh status",
         ),
         "verification-unavailable" => (
             "Your Domios account membership could not be verified.",
-            "sign in again, then retry domios mesh link <installation-id>",
+            "sign in again, then check domios mesh status",
         ),
         "app-check" | "forbidden" => (
             "The account service refused this machine link.",
-            "sign in again and confirm this machine is allowed, then retry domios mesh link <installation-id>",
+            "sign in again and confirm this machine is allowed, then check domios mesh status",
         ),
         "invalid" => (
             "The account service rejected the machine link details.",
-            "refresh the account machine list, then retry domios mesh link <installation-id>",
+            "refresh the account machine list, then check domios mesh status",
         ),
         "authority-unavailable" | "unavailable" => (
             "The account service is temporarily unavailable.",
-            "retry domios mesh link <installation-id> in a moment",
+            "check domios mesh status for automatic connection recovery",
         ),
         "offline" => (
             "The other machine is offline.",
-            "bring both machines online, then retry domios mesh link <installation-id>",
+            "bring both machines online, then check domios mesh status",
         ),
         "peer-unreachable" => (
             "The other machine could not be reached.",
-            "bring both machines online, then retry domios mesh link <installation-id>",
+            "bring both machines online, then check domios mesh status",
         ),
         "handshake-failed" => (
             "The machines could not complete the link handshake.",
-            "make sure both machines are online, then retry domios mesh link <installation-id>",
+            "make sure both machines are online, then check domios mesh status",
         ),
         "revoked" => (
             "This machine was removed from your account.",
@@ -147,11 +147,11 @@ fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(String, Str
         ),
         "cancelled" | "conflict" => (
             "The account changed before the machine could be linked.",
-            "refresh the account machine list, then retry domios mesh link <installation-id>",
+            "refresh the account machine list, then check domios mesh status",
         ),
         "rate-limited" => (
             "The account service is receiving too many requests.",
-            "wait briefly, then retry domios mesh link <installation-id>",
+            "wait briefly, then check domios mesh status",
         ),
         "mesh.machines" => (
             "Your account has reached its machine limit.",
@@ -159,17 +159,16 @@ fn render_account_mesh_refusal(value: &serde_json::Value) -> Option<(String, Str
         ),
         "mesh-allowance" => (
             "Your account does not have an available mesh link.",
-            "review your Domios plan, then retry domios mesh link <installation-id>",
+            "review your Domios plan, then check domios mesh status",
         ),
         "expired" => (
             "The machine link authorization expired.",
-            "refresh the account machine list, then retry domios mesh link <installation-id>",
+            "refresh the account machine list, then check domios mesh status",
         ),
         _ => {
             return Some((
                 format!("Account Mesh refused the link ({reason})."),
-                "refresh the account machine list, then retry domios mesh link <installation-id>"
-                    .to_string(),
+                "refresh the account machine list, then check domios mesh status".to_string(),
             ));
         }
     };
@@ -348,45 +347,7 @@ pub(crate) fn write_cli_error(
 }
 
 #[cfg(test)]
-mod http_refusal_tests {
-    use super::{write_cli_error, CliError};
-
-    #[test]
-    fn account_mesh_refusal_uses_a_repair_hint_without_echoing_http_json() {
-        for (reason, expected, hint) in [
-            (
-                "unauthenticated",
-                "account session could not be verified",
-                "sign in again",
-            ),
-            (
-                "verification-unavailable",
-                "membership could not be verified",
-                "sign in again",
-            ),
-            (
-                "future-refusal",
-                "Account Mesh refused the link (future-refusal).",
-                "refresh the account machine list",
-            ),
-        ] {
-            let body = format!(
-                r#"{{"ok":false,"request_id":"request-1","failure":{{"reason":"{reason}"}}}}"#
-            );
-            let error = CliError::http(401, &body);
-            let mut out = Vec::new();
-            let mut err = Vec::new();
-            write_cli_error(false, &error, &mut out, &mut err);
-            let rendered = String::from_utf8(err).unwrap();
-
-            assert!(rendered.contains(expected), "{rendered}");
-            assert!(rendered.contains(hint), "{rendered}");
-            assert!(!rendered.contains("request-1"), "{rendered}");
-            assert!(!rendered.contains("HTTP 401"), "{rendered}");
-            assert!(!rendered.contains("failure"), "{rendered}");
-        }
-    }
-}
+mod http_refusal_tests;
 
 const ENTITY_ID_FIELDS: &[&str] = &[
     "id",

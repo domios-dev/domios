@@ -74,12 +74,6 @@
         "/api/account/mesh/enroll"
       ]
     ],
-    "account_mesh_link": [
-      [
-        "POST",
-        "/api/mesh/link"
-      ]
-    ],
     "account_mesh_list": [
       [
         "POST",
@@ -640,18 +634,6 @@
       [
         "POST",
         "/api/notifications/item/read"
-      ]
-    ],
-    "mesh_disconnect": [
-      [
-        "POST",
-        "/api/mesh/peers/disconnect/peer"
-      ]
-    ],
-    "mesh_exit": [
-      [
-        "POST",
-        "/api/mesh/exit"
       ]
     ],
     "mesh_get_status": [

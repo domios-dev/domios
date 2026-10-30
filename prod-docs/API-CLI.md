@@ -97,7 +97,6 @@ HTTP fallback requires exactly `http://127.0.0.1:<port>` without credentials, pa
 
 ### Mesh CLI failures
 
-`domios mesh link <installation-id>` checks the HTTP result before printing success. A refusal exits non-zero and carries the typed `failure.reason`; `mesh.machines` means the account's free machine slots are used.
 
 `domios tab list --mesh <peer>` exits non-zero when the peer has no online mesh route; `(no tabs)` is reserved for a successful response from an online peer. `domios tab get-text --mesh <peer>` requires a PTY-backed remote tab. If the tab has no PTY, the CLI reports that condition and suggests choosing a PTY-backed tab.
 
@@ -200,4 +199,8 @@ One flow per provider; cancel before retry. Verified completion resumes the same
 thread without replay. **Send to my phone** requests one `action_needed` push;
 saved sessions and notifications omit login values.
 
-<!-- revision: 67 -->
+
+
+Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
+
+<!-- revision: 68 -->

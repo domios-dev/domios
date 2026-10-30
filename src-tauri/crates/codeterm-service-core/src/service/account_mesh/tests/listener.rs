@@ -2,7 +2,7 @@ use super::*;
 use crate::startup::rest_api::{self, RestApiControl, RestApiPhase};
 use std::net::{Ipv4Addr, SocketAddr};
 
-struct LoopbackAlias;
+struct LoopbackAlias(watch::Receiver<()>);
 
 #[async_trait]
 impl tailnet::AddressChanges for LoopbackAlias {
@@ -15,7 +15,7 @@ impl tailnet::AddressChanges for LoopbackAlias {
     }
 
     async fn changed(&mut self) -> Result<(), ()> {
-        std::future::pending().await
+        self.0.changed().await.map_err(|_| ())
     }
 }
 
@@ -29,6 +29,17 @@ async fn wait_for_ready(
             return;
         }
         changes.changed().await.unwrap();
+    }
+}
+
+async fn wait_for_connectivity(
+    events: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
+) {
+    loop {
+        if matches!(events.recv().await.unwrap().event, codeterm_events::SystemEvent::Generic { event_type, .. } if event_type == reconcile::CONNECTIVITY_CHANGED)
+        {
+            return;
+        }
     }
 }
 
@@ -96,8 +107,17 @@ async fn lifecycle() {
         Ipv4Addr::new(127, 0, 0, 2).into(),
         control.bound_addr().unwrap().port(),
     );
-    let task = tokio::spawn(tailnet::run_with_network(service.clone(), LoopbackAlias));
+    let (network_change, notifications) = watch::channel(());
+    let mut network_events = service.events.subscribe();
+    let task = tokio::spawn(tailnet::run_with_network(
+        service.clone(),
+        LoopbackAlias(notifications),
+    ));
     wait_for_ready(&mut ready, remote, true).await;
+    wait_for_connectivity(&mut network_events).await;
+    while network_events.try_recv().is_ok() {}
+    network_change.send_replace(());
+    wait_for_connectivity(&mut network_events).await;
     #[cfg(windows)]
     let child = tokio::task::spawn_blocking(
         codeterm_util::tcp_listener::test_support::InheritingChild::start,
@@ -124,6 +144,29 @@ async fn lifecycle() {
         .unwrap();
     assert_eq!(response.text().await.unwrap(), "production listener");
     account.sign_out(async {}).await.1.unwrap();
+    while network_events.try_recv().is_ok() {}
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .mesh
+        .enabled = false;
+    service
+        .events
+        .publish_generic("config-changed", serde_json::Value::Null);
+    wait_for_ready(&mut ready, remote, false).await;
+    wait_for_connectivity(&mut network_events).await;
+    let rebound =
+        codeterm_util::tcp_listener::bind(remote).expect("Mesh disable releases the listener");
+    drop(rebound);
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .mesh
+        .enabled = true;
+    service
+        .events
+        .publish_generic("config-changed", serde_json::Value::Null);
+    wait_for_ready(&mut ready, remote, true).await;
     service
         .ext::<crate::config::ConfigState>()
         .lock()
@@ -133,9 +176,7 @@ async fn lifecycle() {
         .events
         .publish_generic("config-changed", serde_json::Value::Null);
     wait_for_ready(&mut ready, remote, false).await;
-    let rebound =
-        codeterm_util::tcp_listener::bind(remote).expect("API disable releases the listener");
-    drop(rebound);
+    drop(codeterm_util::tcp_listener::bind(remote).expect("API disable releases the listener"));
     task.abort();
     let _ = task.await;
     control.shutdown_and_wait().await.unwrap();

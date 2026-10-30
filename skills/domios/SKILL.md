@@ -57,7 +57,7 @@ specific shell id).
 
 ## Adding a machine to the mesh
 
-New machines come only from the account: sign both in to the same account, then `domios mesh link <installation-id>` (or Add in the Mesh tab). Both must be online and directly reachable; there is no broadcast, scan or manual address. Signing out blocks the mesh without unpairing; signing back in to the same account restores it. See `domios docs MESH`.
+Sign in on each machine with the same Domios account. Active installations connect automatically when online and reachable, using account membership and fresh online permits. Remove from mesh revokes the installation slot. Signing out blocks traffic; sign in again on the named machine to restore it. See `domios docs MESH`.
 
 ## References
 
@@ -85,4 +85,4 @@ The always-on protocol lives in your provider rules and fires regardless of whic
 
 Task drafting, retained-send inspection and checklist schemas follow the shared CLI reference above. `blueprint list --all` requires owner or Orchestrator authority; cross-scope inspection does not authorize mutation.
 
-<!-- revision: 89 -->
+<!-- revision: 90 -->

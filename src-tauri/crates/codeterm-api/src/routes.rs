@@ -635,31 +635,12 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/attachments/transfer",
             post(super::mesh_attachment::transfer),
         )
-        .route("/api/mesh/link", post(mesh_routes::mesh_account_link))
-        .route(
-            "/api/mesh/disconnect-notice",
-            post(mesh_routes::disconnect::receive_disconnect),
-        )
         .route("/api/mesh/link/hello", post(mesh_routes::mesh_link_hello))
-        .route(
-            "/api/mesh/link/approval",
-            post(mesh_routes::mesh_link_approval),
-        )
         .route(
             "/api/mesh/link/confirm",
             post(mesh_routes::mesh_link_confirm),
         )
         .route("/api/mesh/link/commit", post(mesh_routes::mesh_link_commit))
-        .route("/api/mesh/adopt/offer", post(mesh_routes::mesh_adopt_offer))
-        .route(
-            "/api/mesh/adopt/commit",
-            post(mesh_routes::mesh_adopt_commit),
-        )
-        .route(
-            "/api/mesh/disconnect",
-            post(mesh_routes::mesh_disconnect_peer),
-        )
-        .route("/api/mesh/unrevoke", post(mesh_routes::mesh_unrevoke))
         .route("/api/mesh/sync", post(mesh_routes::mesh_sync))
         .route("/api/mesh/enabled", post(mesh_routes::mesh_set_enabled))
         .route(
@@ -717,15 +698,7 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/relay-asset/{peer}/{*path}",
             get(mesh_routes::mesh_relay_asset),
         )
-        .route(
-            "/api/mesh/peers/{id}",
-            axum::routing::delete(mesh_routes::mesh_unpair),
-        )
         .route("/api/mesh/refresh", post(mesh_routes::mesh_refresh))
-        .route(
-            "/api/mesh/peers/disconnect/{id}",
-            post(mesh_routes::mesh_disconnect_peer_by_id),
-        )
         .route(
             "/api/mesh/account-presence",
             post(mesh_routes::account_presence),
@@ -742,7 +715,6 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/peers/{id}/addr",
             post(mesh_routes::mesh_set_peer_addr),
         )
-        .route("/api/mesh/exit", post(mesh_routes::mesh_exit))
         .route(
             "/api/mesh/peers/{id}/access",
             post(mesh_routes::mesh_set_access),

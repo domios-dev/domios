@@ -1,6 +1,5 @@
-//! Mesh networking types — peer discovery, pairing, and communication.
+//! Mesh networking types — account installations and authenticated communication.
 
-use std::collections::HashMap;
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
@@ -18,7 +17,7 @@ pub struct MeshIdentity {
     /// This peer's Ed25519 private key (base64). Used to sign mesh requests.
     #[serde(default)]
     pub private_key: Option<String>,
-    /// This peer's Ed25519 public key (base64). Shared with peers during pairing.
+    /// This peer's Ed25519 public key (base64). Shared during the account handshake.
     #[serde(default)]
     pub public_key: Option<String>,
 }
@@ -85,17 +84,7 @@ pub fn address_tier(addr: &PeerAddress) -> u8 {
     }
 }
 
-/// Drop addresses whose `ip` field doesn't parse as a real IpAddr.
-///
-/// Pre-v1.1.9 daemons could publish unparseable error-string IPs into
-/// peer records when `tailscale ip -4` failed via the GUI bridge — see
-/// commit f0ff692 / release/1.1.9 issue #28. The validate-before-cache
-/// fix only protects fresh pairs; existing peers.json records and any
-/// gossip from still-running v1.1.8 peers carry the poison forward.
-///
-/// Apply this on every inbound address path (load_peers on startup,
-/// mesh_sync ingest, mesh_introduce, mesh_announce_inbound) so a single
-/// poisoned peer can't keep re-poisoning the network.
+/// Drop inbound addresses whose IP field is not a valid address.
 pub fn sanitize_addresses(addresses: &[PeerAddress]) -> Vec<PeerAddress> {
     addresses
         .iter()
@@ -296,7 +285,6 @@ pub struct RelayResponse {
 pub enum PeerStatus {
     Online,
     Offline,
-    Pairing,
 }
 
 // ── API response types ──────────────────────────────────────────────
@@ -316,29 +304,26 @@ pub struct MeshStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountInstallation {
+    pub installation_id: String,
+    pub name: String,
+    pub active: bool,
+    pub signed_out: bool,
+    pub membership_expires_at: Option<u64>,
+    pub endpoint_expires_at: Option<u64>,
+    pub instance_id: Option<String>,
+    pub online: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshPeersResponse {
+    pub installations: Vec<AccountInstallation>,
     pub paired: Vec<PairedPeer>,
     pub local_instance_name: String,
     #[serde(default)]
     pub local_last_active_ms: Option<u64>,
     #[serde(default)]
     pub local_dev: bool,
-}
-
-// ── Revocation ──────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct RevocationList {
-    /// Instance IDs whose mesh tokens have been revoked.
-    pub revoked: Vec<String>,
-    /// Instance IDs explicitly blocked from ever linking.
-    pub blocked: Vec<String>,
-    /// Locally-created tombstones. Their generation survives restart so stale
-    /// gossip cannot recreate an explicitly removed peer.
-    #[serde(default)]
-    pub tombstones: HashMap<String, u64>,
-    #[serde(default)]
-    pub next_tombstone_generation: u64,
 }
 
 #[cfg(test)]
