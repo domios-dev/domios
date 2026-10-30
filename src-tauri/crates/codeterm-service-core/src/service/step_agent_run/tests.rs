@@ -229,3 +229,38 @@ fn step_run_terminal_completion_always_closes_its_tab() {
     );
     RUNS.runs.lock().remove(&id);
 }
+
+#[test]
+fn step_run_completion_before_wait_retains_exact_outcome_and_settles_once() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let id = uuid::Uuid::new_v4().to_string();
+    RUNS.runs.lock().insert(id.clone(), StepRun {
+        plugin: "fixture".into(), operation: "own".into(), tab_id: None,
+        state: StepRunState::Running, ended_at: None,
+    });
+    finish(&fixture.service, &id, true, String::new(), Ok(vec![message("assistant", "opaque final")]));
+    assert!(settle(&id, StepRunState::Canceled).is_none());
+    for (plugin, operation, run) in [("foreign", "own", id.as_str()), ("fixture", "foreign", id.as_str()), ("fixture", "own", "foreign")] {
+        assert_eq!(fixture.service.wait_step_agent_run(plugin, operation, run, Instant::now()), StepRunState::Unknown);
+    }
+    for _ in 0..2 {
+        assert_eq!(fixture.service.wait_step_agent_run("fixture", "own", &id, Instant::now()), StepRunState::Done { text: "opaque final".into() });
+    }
+    RUNS.runs.lock().remove(&id);
+}
+
+#[test]
+fn step_run_cancel_before_completion_retains_cancel_without_replay() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let id = uuid::Uuid::new_v4().to_string();
+    RUNS.runs.lock().insert(id.clone(), StepRun {
+        plugin: "fixture".into(), operation: "own".into(), tab_id: None,
+        state: StepRunState::Running, ended_at: None,
+    });
+    assert_eq!(fixture.service.cancel_step_agent_run("fixture", "own", &id), StepRunState::Canceled);
+    finish(&fixture.service, &id, true, String::new(), Ok(vec![message("assistant", "late final")]));
+    assert_eq!(fixture.service.wait_step_agent_run("fixture", "own", &id, Instant::now()), StepRunState::Canceled);
+    RUNS.runs.lock().remove(&id);
+}
