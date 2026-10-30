@@ -66,7 +66,7 @@ fn session_streams_silent_ranges_and_rows_after_reload(large: bool) {
         assert!(snapshot.start_offset > 0);
     } else {
         assert!(snapshot.total < 1024);
-        assert_eq!(snapshot.start_offset, 0);
+        assert_eq!(snapshot.start_offset, blob.len() as u64);
     }
     assert_eq!(snapshot.end_offset, snapshot.total);
     assert_eq!(snapshot.messages.len(), 1);
