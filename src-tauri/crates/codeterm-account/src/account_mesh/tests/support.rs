@@ -948,29 +948,8 @@ impl InstallationKeyStore for MemoryKeys {
     }
 }
 
-pub struct MemoryStore {
-    pub record: Mutex<AccountMeshRecord>,
-    pub corrupt: Mutex<bool>,
-    pub fail_save: Mutex<bool>,
-    log: Log,
-}
-#[async_trait]
-impl AccountMeshStore for MemoryStore {
-    async fn load(&self) -> io::Result<AccountMeshRecord> {
-        if *self.corrupt.lock().unwrap() {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        Ok(self.record.lock().unwrap().clone())
-    }
-    async fn save(&self, record: &AccountMeshRecord) -> io::Result<()> {
-        if *self.fail_save.lock().unwrap() {
-            return Err(io::ErrorKind::PermissionDenied.into());
-        }
-        note(&self.log, format!("save:signed_out={}", record.signed_out));
-        *self.record.lock().unwrap() = record.clone();
-        Ok(())
-    }
-}
+mod store;
+pub use store::MemoryStore;
 
 #[derive(Default)]
 pub struct FakeEndpoint(pub Mutex<Option<MeshEndpoint>>);
@@ -1056,6 +1035,8 @@ impl Harness {
             record: Mutex::default(),
             corrupt: Mutex::new(corrupt),
             fail_save: Mutex::new(false),
+            save_gate: Mutex::new(None),
+            save_entered: Notify::new(),
             log: log.clone(),
         });
         let transport = Arc::new(FakeTransport {

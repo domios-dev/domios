@@ -568,6 +568,8 @@ impl AccountMesh {
             let existing = inner.state.signed_in_account().is_some_and(|account| {
                 inner.record.keys.contains_key(account) || inner.record.slots.contains_key(account)
             });
+            // Fresh sign-in must observe remote slot removal before reusing a cached lease.
+            inner.record.peer_presence_refresh |= existing;
             inner.rejoin_window = Some(super::rejoin::RejoinWindow {
                 epoch: inner.state.account_epoch + 1,
                 signed_in_at: self.now(),
