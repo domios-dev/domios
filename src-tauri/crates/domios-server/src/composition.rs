@@ -133,10 +133,12 @@ pub(crate) fn compose_observed(
                         );
                         codeterm_service_core::service::mirror_skills_to_providers();
                         for provider in bridge_registry.all_provider_arcs() {
-                            codeterm_service_core::agent::model_binary_watch::install(provider);
+                            codeterm_service_core::agent::model_binary_watch::install_in_background(
+                                provider,
+                            );
                         }
                         for provider in bridge_chatbackend_registry.active() {
-                            codeterm_service_core::agent::model_binary_watch::install_chatbackend(
+                            codeterm_service_core::agent::model_binary_watch::install_chatbackend_in_background(
                                 provider,
                                 bridge_chatbackend_registry.clone(),
                             );
@@ -472,7 +474,7 @@ pub(crate) fn compose_observed(
         );
         codeterm_service_core::service::plugin_skills::spawn_sync(service_state.mem.clone());
         for provider in chatbackend_registry.active() {
-            codeterm_service_core::agent::model_binary_watch::install_chatbackend(
+            codeterm_service_core::agent::model_binary_watch::install_chatbackend_in_background(
                 provider,
                 chatbackend_registry.clone(),
             );
