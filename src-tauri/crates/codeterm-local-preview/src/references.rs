@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::html_preview::checked_path;
 use codeterm_types::agent::chat_types::ChatMsg;
+use codeterm_wire::envelope::{FrameKind, MessageSegment};
 
 pub fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");
@@ -15,6 +16,7 @@ pub fn path_key(path: &Path) -> String {
 }
 
 fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {
+    if raw != raw.trim() { return; }
     let path = if raw.to_ascii_lowercase().starts_with("file:") {
         let Ok(url) = url::Url::parse(raw) else {
             return;
@@ -27,7 +29,7 @@ fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {
         };
         path
     } else {
-        let path = Path::new(raw.trim());
+        let path = Path::new(raw);
         if path.is_absolute() {
             path.to_path_buf()
         } else if let Some(cwd) = cwd {
@@ -41,80 +43,24 @@ fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {
     }
 }
 
-fn directive(line: &str) -> Vec<&str> {
-    let Some((tag, value)) = line.trim().split_once(char::is_whitespace) else {
-        return Vec::new();
-    };
-    if ![
-        "@ds-page",
-        "@ds-image",
-        "@ds-document",
-        "@ct-page",
-        "@ct-image",
-        "@ct-document",
-        "@file",
-    ]
-    .iter()
-    .any(|prefix| tag.eq_ignore_ascii_case(prefix))
-    {
-        return Vec::new();
-    }
-    crate::artifact_directive::artifact_paths(tag, value)
-}
-
-fn marker_paths(line: &str) -> Vec<String> {
-    static TAG: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)<domios\b([^<>]*?)/?>"#).unwrap());
-    static ATTRIBUTE: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r#"(?i)([a-z]+)="([^"]*)""#).unwrap());
-    TAG.captures_iter(line)
-        .filter_map(|tag| {
-            let attributes: std::collections::HashMap<_, _> = ATTRIBUTE
-                .captures_iter(&tag[1])
-                .map(|value| (value[1].to_ascii_lowercase(), value[2].to_string()))
-                .collect();
-            if attributes.get("type")? != "attachment" {
-                return None;
-            }
-            Some(
-                attributes
-                    .get("path")?
-                    .replace("&quot;", "\"")
-                    .replace("&lt;", "<")
-                    .replace("&gt;", ">")
-                    .replace("&amp;", "&"),
-            )
-        })
-        .collect()
+fn untrusted_segments(segments: &[MessageSegment]) -> bool {
+    segments.iter().any(|part| match part {
+        MessageSegment::Frame { kind, segments, .. } => matches!(*kind, FrameKind::Neighbor | FrameKind::SystemPrompt) || untrusted_segments(segments),
+        MessageSegment::Paste { .. } | MessageSegment::UnknownFrame { .. } | MessageSegment::PartialFrame { .. } => true,
+        _ => false,
+    })
 }
 
 pub fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashSet<String> {
     let mut paths = HashSet::new();
     for message in messages {
-        let mut fence: Option<(char, usize)> = None;
-        for line in message.content.lines() {
-            let trimmed = line.trim_start();
-            if let Some(marker @ ('`' | '~')) = trimmed.chars().next() {
-                let count = trimmed.chars().take_while(|c| *c == marker).count();
-                if count >= 3 {
-                    if fence.is_none() {
-                        fence = Some((marker, count));
-                    } else if fence.is_some_and(|(open, width)| open == marker && count >= width) {
-                        fence = None;
-                    }
-                    continue;
-                }
-            }
-            if fence.is_some() {
-                continue;
-            }
-            for path in marker_paths(line) {
-                insert(&mut paths, &path, None);
-            }
-            for path in directive(line) {
-                insert(&mut paths, path, None);
-            }
+        let trusted = message.inbound_kind.as_deref() != Some("neighbor")
+            && !message.segments.as_deref().is_some_and(untrusted_segments);
+        let scan = crate::artifact_directive::scan_artifacts(&message.content, trusted);
+        for card in scan.cards {
+            for path in card.paths { insert(&mut paths, &path, None); }
         }
+        for path in scan.attachment_paths { insert(&mut paths, &path, None); }
         for attachment in message.attachments.iter().flatten() {
             if let Some(path) = &attachment.path {
                 insert(&mut paths, path, None);

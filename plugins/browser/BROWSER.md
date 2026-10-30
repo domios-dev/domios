@@ -46,7 +46,7 @@ Rules:
 - After async page changes, wait on evidence (`wait --text T`, `wait --url U`, `wait --selector S`), never on a bare timeout. A wait fails after 15 seconds.
 - For secrets, pipe the exact text to `domios plugin browser type <target> --stdin`. Browser masks the input before insertion and redacts the value from output, snapshots, events and annotations. This requires an HTML input that supports password masking. Never put secrets in arguments or print them.
 - `type` focuses the element, clears it, then inserts the text. If a custom input still ignores it, click it first and retry.
-- Use `text [limit]` to read long content; use `screenshot [file] [--full]` **only for visual claims** (layout, colour, clipping, alignment). Screenshots go to your pad; show one to the user with `@ct-image <path>`.
+- Use `text [limit]` to read long content; use `screenshot [file] [--full]` **only for visual claims** (layout, colour, clipping, alignment). Screenshots go to your pad; show one to the user with `<ds-image src="ABSOLUTE_PATH" />`.
 - **Never report an action as done unless the page proves it.** Re-snapshot and quote the evidence: a new heading, a success message, the changed value. If an action could have sent, submitted, bought or deleted something and you could not read back the result, say the effect is unproven.
 - If a command fails, read its error and retry with corrected arguments when the error is actionable. Don't switch to another browser tool (global browser skills, standalone Playwright, a REPL) just because the first call failed.
 - Report flaky behaviour as flaky, not as a pass.
@@ -150,4 +150,4 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 On every outcome other than `read`, `text` holds the reason.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

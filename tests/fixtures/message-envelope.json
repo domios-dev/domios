@@ -795,5 +795,25 @@
       }
     ],
     "source": "synthetic: routed Neighbor question with a host tip"
+  },
+  {
+    "name": "routed file after context with unmatched fence",
+    "raw": "<domios from=\"tab\" tab=\"author\">\n<context>\n```html\n</domios>\n<ds-document src=\"/quoted/old.md\" />\n</context>\n<ds-document src=\"/live/owned.md\" />\n</domios>",
+    "route": "host_injected",
+    "quoted": true,
+    "segments": [
+      {
+        "attrs": {
+          "from": "tab",
+          "tab": "author"
+        },
+        "body": "<context>\n```html\n</domios>\n<ds-document src=\"/quoted/old.md\" />\n</context>\n<ds-document src=\"/live/owned.md\" />",
+        "from": "tab",
+        "kind": "tab",
+        "tip": null,
+        "type": "frame"
+      }
+    ],
+    "source": "synthetic canonical context/file boundary"
   }
 ]

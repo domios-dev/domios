@@ -119,7 +119,7 @@ On agent/Team/worker/cron tabs, a calibrated choice >=0.80 may answer only provi
 
 General Agent recovery allows at most two restarts per episode, then owner action. Crash recovery requires a verified session and an absent provider process; startup failures/error loops each allow one attempt within that cap. Model-authorized recovery stays notify-only pending qualification. See `domios docs AGENT-CONTROL`.
 
-Mission Control shows verdicts. Bounded supporter/journal.jsonl stores action/budget/answer/model/criteria metadata, never raw inputs/tokens. other causes no action/hint. Clearing a required token preserves the connection but makes it unusable. The Guide opens from a standalone @ds-guide supporter-agent paragraph. Connection guidance: `domios docs SPINAL-CORD`; settings: `domios docs RUNTIME-CONFIG`; response fields/routes: `domios docs API-MEMORY`.
+Mission Control shows verdicts. Bounded supporter/journal.jsonl stores action/budget/answer/model/criteria metadata, never raw inputs/tokens. other causes no action/hint. Clearing a required token preserves the connection but makes it unusable. The Guide opens from a standalone `<ds-guide section="supporter-agent" />` paragraph. Connection guidance: `domios docs SPINAL-CORD`; settings: `domios docs RUNTIME-CONFIG`; response fields/routes: `domios docs API-MEMORY`.
 
 ### Wake-up selection
 
@@ -213,4 +213,4 @@ Stop the daemon before `domios mem backup restore --from ARCHIVE`. Restore holds
 
 Use a Domios cron for online creation and encrypted off-machine archive storage. Postgres needs pg_dump --format=custom and, with the daemon stopped, pg_restore --single-transaction --exit-on-error; back up storage with writers quiesced. Supply database credentials through protected service/password files, never argv.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->

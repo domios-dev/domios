@@ -7,7 +7,7 @@ async function main() {
   const owners: string[] = [];
   let paths = ["/work/live.md"];
   const model = createChatDocumentsModel(async (requested, tabId) => { calls.push(requested); owners.push(tabId); return { paths, home: "/home/ann" }; });
-  const documents = documentsFromTranscript([{ content: "@ds-document /work/missing.md\n@ds-document /work/live.md" }]);
+  const documents = documentsFromTranscript([{ content: "<ds-document src='/work/missing.md' />\n<ds-document src='/work/live.md' />" }]);
   model.set("a", documents);
   assert.equal(model.get("a").documents.length, 0);
   await model.refresh("a");
