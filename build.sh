@@ -727,18 +727,6 @@ named_dev_isolated() {
   [ -n "$CT_INSTANCE" ]
 }
 
-case "$CMD" in
-  dev|dev-prebuilt)
-    if [ "${CODETERM_DEV_LAUNCH_CHILD:-0}" != 1 ]; then
-      launch_root="$CT_DATA_DIR"
-      mkdir -p "$launch_root"
-      launch_shell="$BASH"
-      if command -v cygpath >/dev/null 2>&1; then launch_shell="$(cygpath -w "$BASH")"; fi
-      exec node scripts/dev-launch-owner.mjs "$launch_root" "$launch_shell" ./build.sh "$@"
-    fi
-    ;;
-esac
-
 adopt_named_dev_target() {
   node scripts/dev-named-target.mjs adopt "$(pwd -P)" "$HOME"
 }
@@ -747,6 +735,20 @@ adopt_named_dev_target() {
 refuse_named_dev_rebuild_while_running() {
   node scripts/dev-named-target.mjs refuse-running "$(named_dev_target_dir)" "$HOME" "$CT_INSTANCE" "rebuild ($CMD)"
 }
+
+case "$CMD" in
+  dev|dev-prebuilt)
+    if [ "${CODETERM_DEV_LAUNCH_CHILD:-0}" != 1 ]; then
+      # A running instance's launcher holds its launch lock, so name the running DEVs before that lock refuses.
+      if [ "$CMD" = dev ] && named_dev_isolated; then refuse_named_dev_rebuild_while_running || exit 2; fi
+      launch_root="$CT_DATA_DIR"
+      mkdir -p "$launch_root"
+      launch_shell="$BASH"
+      if command -v cygpath >/dev/null 2>&1; then launch_shell="$(cygpath -w "$BASH")"; fi
+      exec node scripts/dev-launch-owner.mjs "$launch_root" "$launch_shell" ./build.sh "$@"
+    fi
+    ;;
+esac
 
 prepare_named_dev_target() {
   adopt_named_dev_target || exit 2
