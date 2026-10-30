@@ -18,10 +18,8 @@ pub use records::{
 
 use crate::error::StorageError;
 use crate::owner::Storage;
-use crate::owner::WriteCx;
 use crate::repositories::workspaces::WorkspaceRecord;
 use crate::repositories::{Committed, Completion, Read, Revision};
-use rusqlite::Connection;
 use std::collections::HashSet;
 
 fn retain_orphan_teams(snapshot: &mut DeskSnapshot) {
@@ -33,18 +31,6 @@ fn retain_orphan_teams(snapshot: &mut DeskSnapshot) {
     snapshot
         .teams
         .retain(|team| workspace_ids.contains(team.workspace_id.as_str()));
-}
-
-pub(crate) fn write_import(
-    cx: &mut WriteCx<'_>,
-    snapshot: DeskSnapshot,
-) -> Result<(), StorageError> {
-    snapshot.validate_preserving_orphan_teams()?;
-    mutations::import(cx, snapshot)
-}
-
-pub(crate) fn import_projection(conn: &Connection) -> Result<DeskSnapshot, StorageError> {
-    queries::load(conn).map(|state| state.snapshot)
 }
 
 impl Storage {

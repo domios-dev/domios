@@ -62,14 +62,3 @@ required-features = ["dev-tools"]
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
 required-features = ["dev-tools"]
-
-[[bin]]
-name = "storage-verify"
-path = "src/bin/storage-verify.rs"
-required-features = ["dev-tools"]
-
-# One-off legacy plan.json to store_v2 yaml migration. Rehearse on a project copy with --dry-run first.
-[[bin]]
-name = "convert-plan-storage"
-path = "src/bin/convert-plan-storage.rs"
-required-features = ["dev-tools"]

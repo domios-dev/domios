@@ -704,7 +704,7 @@ for w in json.load(sys.stdin):
 #     workspaces (PTYs already killed by the restart) intermittently
 #     returns dropped connections; the retry loop covers the gap.
 #   - reset_dev_state_hard — replaces the selected named dev Storage
-#     root from an empty typed import, then restarts that instance.
+#     root and lets startup initialize it, then restarts that instance.
 #     Use when the bench's `pre` snapshot count must be exact.
 reset_dev_state() {
   local pass max_pass=4
@@ -725,45 +725,19 @@ for w in json.load(sys.stdin):
   done
 }
 
-# Build an empty inert copy root and import it with the reviewed typed verifier.
-# Only the selected named dev instance's Storage root is replaced.
+# Fresh startup creates the current schema in the selected named dev Storage root.
 seed_empty_storage_root() {
   [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] || {
     echo "ERROR: Storage reset requires CODETERM_INSTANCE for a named dev instance" >&2
     return 7
   }
   dev_resolve || return 7
-  local data_dir stage imported previous
+  local data_dir stage
   data_dir="$(dev_data_dir)" || return 7
   dev_kill_hard || return
   stage="$(mktemp -d "$data_dir/.storage-seed.XXXXXX")" || return 1
-  mkdir -p "$stage/copy-root" || { rm -rf "$stage"; return 1; }
-  if ! (
-    cd "$EVAL_LIB_REPO_ROOT" || exit 1
-    CARGO_TARGET_DIR="$data_dir/target" CODETERM_ALLOW_EXTERNAL_TARGET=1 \
-      cargo run --quiet --manifest-path "$EVAL_LIB_REPO_ROOT/src-tauri/Cargo.toml" \
-        -p codeterm-devtools --features dev-tools --bin storage-verify -- --copy-root "$stage/copy-root" --work-root "$stage/work-root"
-  ); then
-    rm -rf "$stage"
-    return 1
-  fi
-  imported="$stage/work-root/instance/storage"
-  [ -f "$imported/state.db" ] || {
-    echo "ERROR: typed empty import did not create Storage state.db" >&2
-    rm -rf "$stage"
-    return 1
-  }
-  previous="$stage/previous-storage"
-  if [ -e "$data_dir/storage" ] && ! mv "$data_dir/storage" "$previous"; then
-    rm -rf "$stage"
-    return 1
-  fi
-  if ! mv "$imported" "$data_dir/storage"; then
-    if [ -e "$previous" ] && ! mv "$previous" "$data_dir/storage"; then
-      echo "ERROR: prior Storage root preserved at $previous" >&2
-      return 1
-    fi
-    rm -rf "$stage"
+  if [ -e "$data_dir/storage" ] && ! mv "$data_dir/storage" "$stage/previous-storage"; then
+    rmdir "$stage"
     return 1
   fi
   rm -rf "$stage"

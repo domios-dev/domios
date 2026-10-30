@@ -11,8 +11,6 @@ const ATTEMPTS: &str = "execution_attempts";
 pub(super) struct PlanRows {
     pub(super) plan: String,
     pub(super) tasks: Vec<TaskRows>,
-    /// Why `plan` still embeds its tasks; such a plan keeps whole-document storage.
-    pub(super) kept_whole: Option<String>,
 }
 
 #[derive(Debug)]
@@ -40,18 +38,13 @@ pub(super) struct AttemptRow {
     pub(super) hash: i64,
 }
 
-/// Splits a plan document into its plan row and per-task rows without interpreting any other field;
-/// tasks that cannot be keyed by a unique id stay embedded in the plan row.
+/// Splits a plan document into its plan row and uniquely keyed task rows.
 pub(super) fn split_plan(mut plan: Value) -> Result<PlanRows, String> {
     let fields = plan
         .as_object_mut()
         .ok_or("plan document is not an object")?;
     if let Some(reason) = fields.get(TASKS).and_then(unkeyable_tasks) {
-        return Ok(PlanRows {
-            plan: to_json(&plan)?,
-            tasks: Vec::new(),
-            kept_whole: Some(reason),
-        });
+        return Err(reason);
     }
     let tasks = match fields.remove(TASKS) {
         Some(Value::Array(tasks)) => tasks,
@@ -64,7 +57,6 @@ pub(super) fn split_plan(mut plan: Value) -> Result<PlanRows, String> {
     Ok(PlanRows {
         plan: to_json(&plan)?,
         tasks,
-        kept_whole: None,
     })
 }
 
@@ -154,13 +146,13 @@ pub(super) struct StoredTask {
     pub(super) attempts: Vec<Value>,
 }
 
-/// Rebuilds the plan document; a plan row that still embeds its tasks is returned unchanged.
+/// Rebuilds the plan document from its task rows.
 pub(super) fn join_plan(mut plan: Value, tasks: Vec<StoredTask>) -> Result<Value, String> {
     let fields = plan
         .as_object_mut()
         .ok_or("plan document is not an object")?;
     if fields.contains_key(TASKS) {
-        return Ok(plan);
+        return Err("unsupported whole-document plan row: tasks must be stored separately".into());
     }
     let tasks = tasks
         .into_iter()
@@ -178,11 +170,8 @@ pub(super) fn join_plan(mut plan: Value, tasks: Vec<StoredTask>) -> Result<Value
     Ok(plan)
 }
 
-/// A kept-whole plan row is bounded only by the per-field checks, so a legacy plan never becomes unwritable.
 pub(super) fn validate_row_sizes(rows: &PlanRows) -> Result<(), String> {
-    if rows.kept_whole.is_none() {
-        check_row("plan row", &rows.plan)?;
-    }
+    check_row("plan row", &rows.plan)?;
     for task in &rows.tasks {
         check_row("task row", &task.document)?;
         for milestone in &task.milestones {
