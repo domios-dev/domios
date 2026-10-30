@@ -596,25 +596,28 @@ impl ServiceContext {
         })?;
         let authorized_gates =
             (!params.authorized_gates.is_empty()).then(|| params.authorized_gates.clone());
-        let existing_attempt = self
-            .plan_store
-            .show_task(&authority.task_id)
-            .is_some_and(|detail| {
-                detail
-                    .task
-                    .execution_attempts
-                    .iter()
-                    .any(|attempt| attempt.id == authority.attempt_id)
-            });
+        let existing_attempt =
+            self.plan_store
+                .show_task(&authority.task_id)
+                .is_some_and(|detail| {
+                    detail
+                        .task
+                        .execution_attempts
+                        .iter()
+                        .any(|attempt| attempt.id == authority.attempt_id)
+                });
         let checkout_path = if existing_attempt {
             None
         } else {
-            let cwd = self.mux.read().get_tab(tab_id).and_then(|tab| tab.cwd.clone());
+            let cwd = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(|tab| tab.cwd.clone());
             cwd.and_then(|cwd| git2::Repository::discover(cwd).ok())
                 .and_then(|repo| {
-                    repo.workdir().map(|path| {
-                        codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy())
-                    })
+                    repo.workdir()
+                        .map(|path| codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()))
                 })
         };
         let binding = bind_worker_task_to_tab(

@@ -782,8 +782,9 @@ fn agent_ack_renders_current_manifest_brief_byte_completely() {
 fn json_binding_refusal_only_offers_partial_reporting() {
     let refusal = crate::cmd::report_guard::unavailable_scope_refusal("lookup failed");
     let value = report_refusal_json(&refusal, false, None, None);
-    assert_eq!(value["next_commands"], serde_json::json!([
-        "domios agent report --status partial --from-pad report.md"
-    ]));
+    assert_eq!(
+        value["next_commands"],
+        serde_json::json!(["domios agent report --status partial --from-pad report.md"])
+    );
     assert!(!refusal.message().contains("git commit"));
 }

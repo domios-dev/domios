@@ -6,10 +6,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn run(dir: &Path, args: &[&str]) {
-    let out = git_command(dir)
-        .args(args)
-        .output()
-        .unwrap();
+    let out = git_command(dir).args(args).output().unwrap();
     assert!(
         out.status.success(),
         "git {} failed: {}",
@@ -929,11 +926,7 @@ fn recorded_checkout_never_scopes_or_acknowledges_dirt() {
         ..Default::default()
     };
     assert_eq!(
-        readiness_validation_options(
-            Some(&checkout),
-            ReportBase::typed("explicit-base"),
-            true
-        ),
+        readiness_validation_options(Some(&checkout), ReportBase::typed("explicit-base"), true),
         (None, false)
     );
     let lane = crate::cmd::report_lane::TaskReadinessScope {
@@ -977,7 +970,9 @@ fn recorded_nested_directory_cannot_borrow_parent_repository() {
             run(&recorded, &["init", "--initial-branch", "integration"]);
             fs::remove_dir_all(recorded.join(".git")).unwrap();
         }
-        assert!(git_lines(foreign.path(), &["status", "--porcelain"]).unwrap().is_empty());
+        assert!(git_lines(foreign.path(), &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
         for sha in [Some(head(foreign.path())), None] {
             let error = enrich_ready_report(
                 Some(&scope),
@@ -991,9 +986,10 @@ fn recorded_nested_directory_cannot_borrow_parent_repository() {
             .unwrap_err();
             assert!(error.reason.contains("is not a git worktree root"));
             assert!(error.message().contains("repair the recorded checkout"));
-            assert_eq!(error.next_commands(), vec![
-                "domios agent report --status partial --from-pad report.md"
-            ]);
+            assert_eq!(
+                error.next_commands(),
+                vec!["domios agent report --status partial --from-pad report.md"]
+            );
             assert!(!error.message().contains("git commit"));
         }
     }
@@ -1021,12 +1017,15 @@ fn report_git_commands_remove_repository_and_index_overrides() {
     command.env("GIT_CONFIG_KEY_0", "core.worktree");
     command.env("GIT_CONFIG_VALUE_0", foreign.path());
     sanitize_git_environment(&mut command);
-    assert!(command.get_envs().all(|(key, value)| {
-        !key.to_string_lossy().starts_with("GIT_") || value.is_none()
-    }));
+    assert!(command
+        .get_envs()
+        .all(|(key, value)| { !key.to_string_lossy().starts_with("GIT_") || value.is_none() }));
     let output = command.args(["rev-parse", "HEAD"]).output().unwrap();
     assert!(output.status.success());
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), head(own.path()));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        head(own.path())
+    );
     assert_ne!(head(own.path()), head(foreign.path()));
 }
 

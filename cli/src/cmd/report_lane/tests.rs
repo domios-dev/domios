@@ -93,10 +93,8 @@ fn strips_the_windows_verbatim_prefix_from_a_recorded_lane() {
 
 #[test]
 fn only_explicit_nonrepository_intent_skips_repository_guards() {
-    let nonrepo = task_readiness_scope_from_task(
-        &json!({ "execution_intent": "non_repository" }),
-        "tab-a",
-    );
+    let nonrepo =
+        task_readiness_scope_from_task(&json!({ "execution_intent": "non_repository" }), "tab-a");
     let malformed =
         task_readiness_scope_from_task(&json!({ "execution_intent": "read_only" }), "tab-a");
 
@@ -486,11 +484,8 @@ fn report_binding_model_uses_only_current_recorded_paths() {
         ),
     ];
     for (task, expected_path, recorded_checkout) in cases {
-        let scope = task_readiness_scope_from_task_with_canonical_path(
-            &task,
-            "tab-a",
-            Some("/canonical"),
-        );
+        let scope =
+            task_readiness_scope_from_task_with_canonical_path(&task, "tab-a", Some("/canonical"));
         assert_eq!(scope.worktree_path.as_deref(), expected_path.map(Path::new));
         assert_eq!(scope.recorded_checkout, recorded_checkout);
         assert_eq!(scope.canonical_checkout_path, None);
@@ -550,7 +545,9 @@ fn unavailable_bound_scope_never_enters_checkout_inspection() {
         Ok(json!({"tasks": [{"id": "task-a", "execution_attempts": {}}]})),
     ];
     for lookup in lookups {
-        let mut rpc = ScopeLookupRpc { reply: Some(lookup) };
+        let mut rpc = ScopeLookupRpc {
+            reply: Some(lookup),
+        };
         let scope = task_readiness_scope(&mut rpc, Some("plan-a"), Some("task-a"), "tab-a");
         let mut entered_guard = false;
         let result = scope.and_then(|scope| {

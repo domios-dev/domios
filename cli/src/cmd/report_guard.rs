@@ -183,10 +183,9 @@ impl<'a> ReadinessScope<'a> {
             .and_then(|root| std::fs::canonicalize(root).ok());
         let anchor = std::fs::canonicalize(lane).ok();
         let matches_anchor = match (anchor, top_level) {
-            (Some(anchor), Some(root)) => codeterm_paths::paths_equal(
-                &anchor.to_string_lossy(),
-                &root.to_string_lossy(),
-            ),
+            (Some(anchor), Some(root)) => {
+                codeterm_paths::paths_equal(&anchor.to_string_lossy(), &root.to_string_lossy())
+            }
             _ => false,
         };
         if !matches_anchor {
@@ -235,7 +234,8 @@ pub fn enrich_ready_report(
     if canonical_writer && is_readiness_status(status) && validation_worktree.is_none() {
         return Err(canonical_checkout_refusal());
     }
-    let (base, acknowledge_dirty) = readiness_validation_options(task_scope, base, acknowledge_dirty);
+    let (base, acknowledge_dirty) =
+        readiness_validation_options(task_scope, base, acknowledge_dirty);
     enrich_ready_report_in_scope(
         ReadinessScope {
             pane_cwd: Path::new("."),
@@ -376,7 +376,11 @@ struct GitWorktreeInspection {
     base: Option<String>,
 }
 
-fn report_sha_mismatches_head(resolved_sha: Option<&str>, head: &str, recorded_checkout: bool) -> bool {
+fn report_sha_mismatches_head(
+    resolved_sha: Option<&str>,
+    head: &str,
+    recorded_checkout: bool,
+) -> bool {
     if recorded_checkout {
         resolved_sha != Some(head)
     } else {
