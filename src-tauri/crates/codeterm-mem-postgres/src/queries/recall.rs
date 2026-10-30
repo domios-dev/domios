@@ -1,11 +1,11 @@
 use super::search_in;
+use crate::executor::Transaction;
 use crate::{db_error, items, vectors, StoreResult};
 use codeterm_mem::{
     embedder::StampedVector,
     search::{extract_keywords, ranking, SearchConfig, SearchMode},
     MemItem, SearchHit, SearchQuery,
 };
-use postgres::Transaction;
 use std::collections::HashSet;
 
 pub(crate) fn recall_with_embedding_in(

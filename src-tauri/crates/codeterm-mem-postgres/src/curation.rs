@@ -1,3 +1,4 @@
+use crate::executor::Transaction;
 use crate::{db_error, graph, items, PostgresMemStore, StoreResult};
 use codeterm_mem::{
     backend::WriteContext,
@@ -5,7 +6,6 @@ use codeterm_mem::{
     store::{area_merge::AreaMergeOutcome, HistorySnapshot, MemUpdate},
     MemKind,
 };
-use postgres::Transaction;
 use std::collections::BTreeMap;
 
 pub(crate) fn archive_in(

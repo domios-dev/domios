@@ -1,6 +1,8 @@
+use crate::executor::Client;
+use crate::executor::Transaction;
 use crate::{PostgresMemStore, PostgresOpenError, PostgresOptions, StoreResult};
 use parking_lot::Mutex;
-use postgres::{Client, Config, NoTls};
+use postgres::Config;
 use std::sync::Arc;
 
 pub(crate) struct SchemaFence {
@@ -41,9 +43,7 @@ impl SchemaFence {
         schema: &str,
         exclusive: bool,
     ) -> Result<Arc<Self>, PostgresOpenError> {
-        let mut client = config
-            .connect(NoTls)
-            .map_err(|_| PostgresOpenError::Connection)?;
+        let mut client = Client::connect(config).map_err(|_| PostgresOpenError::Connection)?;
         let key = format!("domios_mem:schema:{schema}");
         let sql = if exclusive {
             "SELECT pg_try_advisory_lock(hashtextextended($1, 0))"
@@ -65,7 +65,7 @@ impl SchemaFence {
         }))
     }
 
-    pub(crate) fn admit(&self, tx: &mut postgres::Transaction<'_>) -> StoreResult<()> {
+    pub(crate) fn admit(&self, tx: &mut Transaction<'_>) -> StoreResult<()> {
         if self.exclusive {
             return Ok(());
         }
@@ -84,7 +84,7 @@ impl SchemaFence {
 
     pub(crate) fn shared_session(&self) -> StoreResult<SessionLease> {
         // A dedicated client keeps session lease ownership independent of pool recycling.
-        let mut client = self.config.connect(NoTls).map_err(crate::db_error)?;
+        let mut client = Client::connect(&self.config)?;
         let acquired: bool = client
             .query_one(
                 "SELECT pg_try_advisory_lock_shared(hashtextextended($1, 0))",

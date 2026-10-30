@@ -1,6 +1,7 @@
+use crate::executor::Transaction;
 use crate::{db_error, items, vectors, StoreResult};
 use codeterm_mem::{graph::TraversalResult, Entity, Relation};
-use postgres::{Row, Transaction};
+use postgres::Row;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 pub(crate) fn relation(row: Row) -> StoreResult<Relation> {

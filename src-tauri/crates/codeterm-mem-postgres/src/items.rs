@@ -1,3 +1,4 @@
+use crate::executor::Transaction;
 use crate::{db_error, vectors, PostgresMemStore, StoreResult};
 use codeterm_mem::{
     backend::{SaveError, WriteContext},
@@ -6,7 +7,7 @@ use codeterm_mem::{
     store::{self, HistoryEntry, HistorySnapshot, MemAuthor, MemAuthorKind, MemUpdate},
     MemItem, NewMemItem,
 };
-use postgres::{Row, Transaction};
+use postgres::Row;
 use sha2::{Digest, Sha256};
 
 pub(crate) fn now() -> String {

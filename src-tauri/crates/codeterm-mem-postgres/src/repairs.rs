@@ -1,6 +1,6 @@
+use crate::executor::Transaction;
 use crate::{db_error, graph, items, vectors, StoreResult};
 use codeterm_mem::graph_repair::*;
-use postgres::Transaction;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 

@@ -1,6 +1,6 @@
 use crate::db_error;
+use crate::executor::Transaction;
 use codeterm_mem::solution_metadata::SolutionMetadata;
-use postgres::Transaction;
 
 pub(super) fn read(tx: &mut Transaction<'_>, id: &str) -> Result<Option<SolutionMetadata>, String> {
     tx.query_opt(

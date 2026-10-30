@@ -1,10 +1,11 @@
+use crate::executor::{GenericClient, Transaction};
 use crate::{db_error, vectors, PostgresMemStore, StoreResult};
 use codeterm_mem::backend::{
     ExportCursor, ExportPage, StoreRow, StoreTable, StoreValue, TableCounts,
 };
 use postgres::{
     types::{ToSql, Type},
-    GenericClient, Row, Transaction,
+    Row,
 };
 use std::collections::BTreeMap;
 
@@ -361,7 +362,7 @@ impl PostgresMemStore {
 
     fn snapshot_on(
         &self,
-        conn: &mut postgres::Client,
+        conn: &mut crate::executor::Client,
         visitor: &mut dyn FnMut(&dyn codeterm_mem::backend::ExportSnapshot) -> StoreResult<()>,
     ) -> StoreResult<()> {
         let mut tx = conn
