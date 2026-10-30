@@ -2,6 +2,93 @@ use super::*;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
+#[derive(Default)]
+struct InjectedBackend {
+    directories: parking_lot::Mutex<std::collections::HashSet<PathBuf>>,
+    started: parking_lot::Mutex<Vec<PathBuf>>,
+    stopped: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+struct InjectedWatch(Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for InjectedWatch {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl DirectoryBackend for InjectedBackend {
+    fn nearest(&self, source: &Path) -> Result<PathBuf, String> {
+        source
+            .ancestors()
+            .skip(1)
+            .find(|path| self.directories.lock().contains(*path))
+            .map(Path::to_path_buf)
+            .ok_or_else(|| "no directory".into())
+    }
+
+    fn watch(
+        &self,
+        root: &Path,
+        mode: RecursiveMode,
+        _: u64,
+        _: &Sender<Command>,
+    ) -> Result<Box<dyn Send>, String> {
+        assert_eq!(mode, RecursiveMode::NonRecursive);
+        self.started.lock().push(root.to_path_buf());
+        Ok(Box::new(InjectedWatch(self.stopped.clone())))
+    }
+}
+
+#[test]
+fn source_subscriptions_descend_nonrecursively_with_injected_backend() {
+    let backend = Arc::new(InjectedBackend::default());
+    let root = PathBuf::from("sessions");
+    let project = root.join("project");
+    let session = project.join("own");
+    let source = session.join("turn.jsonl");
+    backend.directories.lock().insert(root.clone());
+    let mut registry = Registry {
+        backend: backend.clone(),
+        ..Registry::default()
+    };
+    let (commands, _) = mpsc::channel();
+    let (wake, changes) = mpsc::sync_channel(1);
+    let first = registry
+        .subscribe(source.clone(), wake.clone(), &commands)
+        .unwrap();
+    let second = registry.subscribe(source.clone(), wake, &commands).unwrap();
+    assert_eq!(*backend.started.lock(), vec![root.clone()]);
+    for (old, next) in [(&root, &project), (&project, &session)] {
+        backend.directories.lock().insert(next.clone());
+        let generation = registry.roots[old].generation;
+        registry.event(
+            old.clone(),
+            generation,
+            Ok(
+                Event::new(EventKind::Create(notify::event::CreateKind::Folder))
+                    .add_path(next.clone()),
+            ),
+            &commands,
+        );
+        assert!(changes.try_recv().is_ok());
+        assert_eq!(registry.roots.len(), 1);
+        assert!(registry.roots.contains_key(next));
+        assert!(registry
+            .subscribers
+            .values()
+            .all(|entry| entry.root == *next));
+    }
+    assert_eq!(*backend.started.lock(), vec![root, project, session]);
+    registry.subscribers.remove(&first);
+    registry.prune();
+    assert_eq!(registry.roots.len(), 1);
+    registry.subscribers.remove(&second);
+    registry.prune();
+    assert!(registry.roots.is_empty());
+    assert_eq!(backend.stopped.load(std::sync::atomic::Ordering::SeqCst), 3);
+}
+
 fn receive(events: &Receiver<()>) {
     events.recv_timeout(Duration::from_secs(2)).unwrap();
 }
