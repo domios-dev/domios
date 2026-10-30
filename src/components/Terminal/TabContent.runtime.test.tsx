@@ -462,7 +462,7 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
   };
   const other: Tab = { ...tab, id: "header-refresh-other", agent_session_id: "other-session",
     session_binding_nonce: "other-binding", backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "other-session" } };
-  const state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab, [other.id]: other }, teams: [],
+  let state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab, [other.id]: other }, teams: [],
     active_workspace_id: null, focused_tab_id: tab.id, notifications: [], tabStatuses: {}, toasts: [],
     activeTabIds: {}, generation: 1, pendingCloses: [] };
   const store = createMuxStateStore(() => state);
@@ -551,7 +551,7 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
     expect(calls.some(call => ["chat_send_text", "chat_send_raw", "send_text", "restart_agent_tab", "agent_runtime_retry"].includes(call.command))).toBe(false);
 
     tab = { ...tab, agent_runtime_state: { state: "degraded", epoch: 2, reason: "Deadline: opaque" } };
-    state.tabs[tab.id] = tab;
+    state = { ...state, tabs: { ...state.tabs, [tab.id]: tab } };
     await act(async () => store.notify());
     await render();
     const restoring = ownSurface().querySelector('[role="status"][aria-label="Restoring…"]');
@@ -559,7 +559,7 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
     expect(ownSurface().querySelector('[aria-label="Agent runtime is taking longer than usual"]')).not.toBeNull();
     expect(ownSurface().querySelector("textarea")).toBe(composer);
     tab = { ...tab, agent_runtime_state: { state: "degraded", epoch: 3, reason: "ProcessExited: opaque" } };
-    state.tabs[tab.id] = tab;
+    state = { ...state, tabs: { ...state.tabs, [tab.id]: tab } };
     await act(async () => store.notify());
     await render();
     expect(ownSurface().querySelector('[aria-label="Agent runtime unavailable"]')).not.toBeNull();
