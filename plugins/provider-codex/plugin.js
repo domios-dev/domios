@@ -3007,14 +3007,24 @@ function budgetReduction(state, updates) {
 }
 
 // plugins/provider-codex/src/runtimeReduce.ts
+function copyReducerState(state) {
+  const items = /* @__PURE__ */ Object.create(null);
+  for (const [id, row3] of Object.entries(state.items)) items[id] = { ...row3 };
+  const copy = { ...state, items, completed: [...state.completed], compacted: [...state.compacted], evidenced: [...state.evidenced] };
+  for (const key of ["questions", "abandoned", "childCompleted", "open", "retired"]) {
+    const values = state[key];
+    if (values) copy[key] = [...values];
+  }
+  if (state.parents) copy.parents = Object.assign(/* @__PURE__ */ Object.create(null), state.parents);
+  if (state.childActive) copy.childActive = { ...state.childActive };
+  if (state.agents) copy.agents = { ...state.agents, rows: Object.assign(/* @__PURE__ */ Object.create(null), state.agents.rows) };
+  if (state.reasoning) copy.reasoning = Object.fromEntries(Object.entries(state.reasoning).map(([id, parts]) => [id, { summary: [...parts.summary], content: [...parts.content] }]));
+  return copy;
+}
 function initial(ctx, raw) {
   const state = object(raw);
   if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
-    const restored = JSON.parse(JSON.stringify(state));
-    restored.items = Object.assign(/* @__PURE__ */ Object.create(null), restored.items);
-    if (restored.parents) restored.parents = Object.assign(/* @__PURE__ */ Object.create(null), restored.parents);
-    if (restored.agents) restored.agents.rows = Object.assign(/* @__PURE__ */ Object.create(null), restored.agents.rows);
-    return restored;
+    return copyReducerState(state);
   }
   return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
 }
