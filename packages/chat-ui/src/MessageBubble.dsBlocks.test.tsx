@@ -251,6 +251,42 @@ test("dsBlocks all nine live-card kinds have no subscription before their own te
   } finally { await view.close(); }
 });
 
+test("dsBlocks MessageBubble never rebinds preceding deferred content to a new message or replacement prefix", async () => {
+  const view = await mount();
+  try {
+    for (const replacement of ['new-message', 'same-message'] as const) {
+      const events: string[] = [];
+      const plugins = binding({ kind: "loading" } as const, (event) => events.push(event));
+      const connect = binding({ kind: "loading" } as const);
+      const value: ChatBlockHost = {
+        plugins: { binding: plugins.source, run: async () => {}, openView() {}, openInPlugins() {} },
+        connect: { binding: connect.source, connect: async () => {}, disconnect: async () => {}, openSettings() {} },
+      };
+      const render = (content: string, id: string) => view.render(<ChatBlockHostProvider value={value}><MessageBubble message={{ id, type: "assistant", content }} streaming /></ChatBlockHostProvider>);
+      await render('<ds-plugin id="git" />', 'preceding');
+      assert.deepEqual(plugins.counts, { starts: 1, live: 1, refresh: 1 }, `${replacement}: preceding plugin`);
+      const tag = '<ds-connect bridge="telegram" />';
+      const id = replacement === 'new-message' ? 'candidate' : 'preceding';
+      for (let at = 1; at < tag.length; at++) {
+        await render(tag.slice(0, at), id);
+        assert.deepEqual(plugins.counts, { starts: 1, live: 0, refresh: 1 }, `${replacement} prefix ${at}: preceding lifetime`);
+        assert.deepEqual(events, ['subscribe', 'refresh:git', 'unsubscribe'], `${replacement} prefix ${at}: preceding events`);
+        assert.deepEqual(connect.counts, { starts: 0, live: 0, refresh: 0 }, `${replacement} prefix ${at}: candidate lifetime`);
+        assert.equal(view.host.querySelectorAll('[data-chat-block="plugin"],[data-chat-block="connect"]').length, 0);
+      }
+      await render(tag, id);
+      assert.deepEqual(plugins.counts, { starts: 1, live: 0, refresh: 1 }, `${replacement}: prior plugin stays released`);
+      assert.deepEqual(connect.counts, { starts: 1, live: 1, refresh: 1 }, `${replacement}: own terminator`);
+      for (let after = 0; after < 20; after++) {
+        await render(tag + '\n\n' + 'more '.repeat(after + 1), id);
+        assert.deepEqual(connect.counts, { starts: 1, live: 1, refresh: 1 }, `${replacement} append ${after}: candidate lifetime`);
+      }
+      await view.render(null);
+      assert.equal(connect.counts.live, 0);
+    }
+  } finally { await view.close(); }
+});
+
 test("dsBlocks beside genuine attachments use message trust and retain authority/opening-offset identity", async () => {
   const view = await mount();
   const { DsRenderContext } = await import("./blocks/DsRenderContext");
