@@ -4,6 +4,8 @@ Memory keeps facts, notes, preferences and skills available to agents across con
 
 Persistent memory lives in Domios, never in provider side stores. It is English and its bodies carry no dates. Skills are registered through memory, never written directly into provider skill directories. Conversations are searched as sessions; durable facts are searched as memory.
 
+Installed plugins contribute descriptions, declared verbs and normalized login state to the same memory index used by per-turn recall. Relevant message requests can recall a plugin with its help or sign-in command. Install, upgrade, removal and observed login-state changes refresh that index; removed plugins disappear, and account details and sign-in codes never enter it. Authentication refusals offer chat-first sign-in with the declared login command and tell the agent to show the returned code or QR to the user.
+
 ## Embedding transitions
 
 Recall embeddings take priority over queued background inference. A bounded semantic budget falls back to keyword results with an explicit degradation reason. Embedder status exposes live queued and in-flight work separately from persisted vector-pending items, along with failures and availability.

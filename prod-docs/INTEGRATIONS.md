@@ -128,18 +128,20 @@ A plugin contributes graph nodes through `capabilities.graphNodes` in its manife
 
 - **converters** declare which media kinds (`text`, `audio`, `video`, `image`) the plugin turns into which (`from` differs from `to`, at most 16). The plugin exports `convert(request)` returning `{ text }`, `{ path }` (a file inside the request's `outputDir`), or `{ error }`. The host chains conversion steps across plugins from the declarations alone, so a plan never depends on which plugin serves a step. A `transcriber` capability is registered as `audio -> text` automatically.
 - **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
-Plugin `steps` declare up to 32 namespaced operations with versioned parameter
-schemas, named input/output ports, outcomes, and lifecycle/cost declarations.
-`domios blueprint nodes` lists installed descriptors. Namespaced YAML steps pin
-their revision, spending unit/ceilings and typed forward bindings. Paid operations
-require a fresh safe estimate; missing/stale prices and exhausted allowance hold
-visibly for the owner. Approval applies only to that exact operation and maximum,
-never downstream spend. Unknown status permits a free exact-job check, never a
-paid retry. `ct.openRun` opens the attributed run from a foreground gesture.
-`capabilities.jobLifecycle` supplies frame-independent existing-job observation;
-`host.jobs` retains exact receipts, observes state and invalidates current views.
-Static `capabilities.costUnits` and SDK `formatCostAmount` keep studio and host
-approval prices identical, with exact decimals and no currency conversion.
+Plugin `steps` declare 1..32 namespaced nodes with versioned closed parameter
+schemas, named text/JSON/file/image/audio/video ports, cardinality, outcomes and
+submit/reconcile/cancel lifecycle methods. Duplicate ids are refused.
+`domios blueprint nodes` lists the installed descriptors. Authors use only
+`uses: <plugin>.<step>` and `with:`; apply pins the installed descriptor revision.
+A later revision change or removal holds the run with `plugin_step_unavailable`.
+A built-in code or command node can select a declared output using
+`bind: {in: read.out.text}`. It receives the plain string, JSON value or confined
+file path; multi-item ports yield arrays. Commands bound to plugin ports receive
+that plain value on stdin (JSON values as JSON). Plugin-to-plugin bindings retain
+confined run-media handles. Holds preserve the cursor, outputs and exact job id;
+the durable Blueprint monitor reconciles that job and resumes the run.
+`unknown` and `canceled` are host-reserved outcomes. A persisted submitting
+operation becomes unknown after restart and is never submitted again.
 
 ### Model endpoints and presets
 
@@ -191,4 +193,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

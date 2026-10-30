@@ -1,5 +1,5 @@
 use super::vm::{call_json_interruptible, PluginVm};
-use crate::blueprint_step::{valid_job_identity, BlueprintStep, Estimate, JobUpdate, StepCall};
+use crate::blueprint_step::{valid_job_identity, BlueprintStep, JobUpdate, StepCall};
 use std::sync::Arc;
 
 pub struct JsBlueprintStep {
@@ -57,9 +57,6 @@ impl JsBlueprintStep {
 }
 
 impl BlueprintStep for JsBlueprintStep {
-    fn estimate(&self, call: &StepCall<'_>) -> Result<Option<Estimate>, String> {
-        self.call("blueprintEstimate", call)
-    }
     fn submit(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
         self.job_call("blueprintSubmit", call)
     }

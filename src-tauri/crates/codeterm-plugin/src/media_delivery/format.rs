@@ -8,7 +8,7 @@ pub struct MediaDeliveryDescriptor {
 impl MediaDeliveryDescriptor {
     pub fn valid(&self) -> bool {
         !self.types.is_empty()
-            && self.types.len() <= 10
+            && self.types.len() <= 11
             && self
                 .types
                 .iter()
@@ -26,6 +26,8 @@ pub struct MediaFile {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MediaType {
+    #[serde(rename = "application/octet-stream")]
+    Binary,
     #[serde(rename = "video/mp4")]
     Mp4,
     #[serde(rename = "video/webm")]
@@ -50,6 +52,7 @@ pub enum MediaType {
 impl MediaType {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Binary => "application/octet-stream",
             Self::Mp4 => "video/mp4",
             Self::Webm => "video/webm",
             Self::OggVideo => "video/ogg",
@@ -70,6 +73,7 @@ impl MediaType {
     }
     fn extension(self) -> &'static str {
         match self {
+            Self::Binary => "bin",
             Self::Mp4 => "mp4",
             Self::Webm => "webm",
             Self::OggVideo | Self::OggAudio => "ogg",
@@ -83,6 +87,7 @@ impl MediaType {
     }
     pub fn matches(self, head: &[u8]) -> bool {
         match self {
+            Self::Binary => true,
             Self::Mp4 => head.get(4..8) == Some(b"ftyp"),
             Self::Webm => head.starts_with(&[0x1a, 0x45, 0xdf, 0xa3]),
             Self::OggVideo | Self::OggAudio => head.starts_with(b"OggS"),

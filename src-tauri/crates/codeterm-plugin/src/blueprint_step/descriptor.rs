@@ -5,7 +5,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const MAX_STEP_DESCRIPTORS: usize = 32;
 pub const MAX_STEP_BYTES: usize = 65_536;
-pub const MAX_COST_AMOUNT: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -55,7 +54,6 @@ pub struct StepLifecycle {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StepEffects {
     pub side_effects: bool,
-    pub potentially_paid: bool,
 }
 
 pub fn token(value: &str) -> bool {
@@ -125,10 +123,7 @@ impl StepDescriptor {
         for outcome in &self.outcomes {
             if !token(outcome)
                 || !outcomes.insert(outcome)
-                || matches!(
-                    outcome.as_str(),
-                    "waiting_for_owner_ok" | "unknown" | "canceled"
-                )
+                || matches!(outcome.as_str(), "unknown" | "canceled")
             {
                 return Err("invalid, duplicate or host-reserved plugin outcome".into());
             }

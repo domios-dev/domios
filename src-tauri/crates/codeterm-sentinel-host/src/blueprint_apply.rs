@@ -226,6 +226,7 @@ fn apply_document(
             .map_err(|error| error.to_string())?;
         let mut candidate = if let Some(spec) = spec {
             let preview = service.blueprint_pipeline_validate(caller, spec.clone())?;
+            let spec = preview.normalized_spec;
             let checks = preview
                 .checks
                 .into_iter()

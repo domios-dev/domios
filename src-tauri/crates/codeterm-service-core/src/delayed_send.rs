@@ -41,6 +41,8 @@ struct QueueInner {
 pub struct DelayedSendQueue {
     path: PathBuf,
     inner: Arc<Mutex<QueueInner>>,
+    #[cfg(test)]
+    persistence_refusal: Arc<Mutex<Option<String>>>,
 }
 
 impl DelayedSendQueue {
@@ -48,6 +50,8 @@ impl DelayedSendQueue {
         Self {
             path,
             inner: Arc::new(Mutex::new(QueueInner::default())),
+            #[cfg(test)]
+            persistence_refusal: Default::default(),
         }
     }
 
@@ -87,6 +91,8 @@ impl DelayedSendQueue {
         Ok(Self {
             path,
             inner: Arc::new(Mutex::new(QueueInner { messages })),
+            #[cfg(test)]
+            persistence_refusal: Default::default(),
         })
     }
 
@@ -529,7 +535,16 @@ impl DelayedSendQueue {
         Ok(Some(updated))
     }
 
+    #[cfg(test)]
+    pub(crate) fn refuse_persistence(&self, reason: Option<&str>) {
+        *self.persistence_refusal.lock() = reason.map(str::to_owned);
+    }
+
     fn persist(&self) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(reason) = self.persistence_refusal.lock().clone() {
+            return Err(reason);
+        }
         let messages = self.inner.lock().messages.clone();
         let json = serde_json::to_string_pretty(&QueueFile {
             version: QUEUE_VERSION,

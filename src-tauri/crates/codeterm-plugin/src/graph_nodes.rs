@@ -1,4 +1,4 @@
-use crate::blueprint_step::{BlueprintStep, Estimate, JobUpdate, StepCall, StepDescriptor};
+use crate::blueprint_step::{BlueprintStep, JobUpdate, StepCall, StepDescriptor};
 use crate::js_runtime::manifest::{EventSourceDecl, GraphNodesCap};
 use parking_lot::RwLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,7 +14,6 @@ pub struct GraphNodeRegistry {
 
 #[derive(Clone)]
 pub struct RegisteredStep {
-    pub cost_units: crate::cost_units::CostUnits,
     pub plugin: String,
     pub descriptor: StepDescriptor,
     pub adapter: Arc<dyn BlueprintStep>,
@@ -33,15 +32,6 @@ impl RegisteredAdapter {
             .then_some(())
             .ok_or_else(|| "plugin step removed".into())
     }
-    fn call<T>(
-        &self,
-        call: impl FnOnce(&dyn BlueprintStep) -> Result<T, String>,
-    ) -> Result<T, String> {
-        self.ensure_active()?;
-        let result = call(self.adapter.as_ref());
-        self.ensure_active()?;
-        result
-    }
     fn job_call(
         &self,
         call: impl FnOnce(&dyn BlueprintStep) -> Result<JobUpdate, String>,
@@ -56,9 +46,6 @@ impl RegisteredAdapter {
 }
 
 impl BlueprintStep for RegisteredAdapter {
-    fn estimate(&self, call: &StepCall<'_>) -> Result<Option<Estimate>, String> {
-        self.call(|adapter| adapter.estimate(call))
-    }
     fn submit(&self, call: &StepCall<'_>) -> Result<JobUpdate, String> {
         self.job_call(|adapter| adapter.submit(call))
     }
@@ -100,19 +87,10 @@ impl GraphNodeRegistry {
         descriptors: &[StepDescriptor],
         adapter: Arc<dyn BlueprintStep>,
     ) -> Result<(), String> {
-        self.register_steps_with_units(plugin, descriptors, adapter, Default::default())
-    }
-
-    pub fn register_steps_with_units(
-        &self,
-        plugin: &str,
-        descriptors: &[StepDescriptor],
-        adapter: Arc<dyn BlueprintStep>,
-        cost_units: crate::cost_units::CostUnits,
-    ) -> Result<(), String> {
         crate::plugin_id::validate(plugin)?;
-        if descriptors.len() > crate::blueprint_step::MAX_STEP_DESCRIPTORS {
-            return Err("too many plugin steps".into());
+        if descriptors.is_empty() || descriptors.len() > crate::blueprint_step::MAX_STEP_DESCRIPTORS
+        {
+            return Err("capabilities.graphNodes.steps: declare 1..32 steps".into());
         }
         let mut steps = self.steps.write();
         if steps.iter().filter(|step| step.plugin != plugin).count() + descriptors.len()
@@ -129,7 +107,9 @@ impl GraphNodeRegistry {
                     .iter()
                     .any(|s| s.plugin != plugin && s.descriptor.id == descriptor.id)
             {
-                return Err("plugin step namespace collision".into());
+                return Err(
+                    "capabilities.graphNodes.steps.id: namespace collision or duplicate id".into(),
+                );
             }
         }
         for step in steps.iter().filter(|step| step.plugin == plugin) {
@@ -142,7 +122,6 @@ impl GraphNodeRegistry {
             adapter,
         });
         steps.extend(descriptors.iter().map(|descriptor| RegisteredStep {
-            cost_units: cost_units.clone(),
             plugin: plugin.into(),
             descriptor: descriptor.clone(),
             adapter: adapter.clone(),

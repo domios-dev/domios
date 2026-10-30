@@ -194,7 +194,7 @@ fn hand_edited_task_yaml_reconciles_while_plan_yaml_is_own_write() {
 }
 
 #[test]
-fn colocated_spec_does_not_fk_fail_the_plan_on_fresh_scan() {
+fn colocated_spec_does_not_fk_fail_the_plan_on_fresh_watch_load() {
     // Persisting the spec before its plan used to discard the plan on import; the watcher must retain it.
     let dir = tempfile::tempdir().unwrap();
     let project = paths::project_root(dir.path());
@@ -218,21 +218,30 @@ fn colocated_spec_does_not_fk_fail_the_plan_on_fresh_scan() {
         (plan.id, spec.id)
     };
 
-    // Wipe the index DB, keep the on-disk yaml: mimic a fresh startup that must
-    // re-import plan.yaml plus its co-located spec.yaml from scratch.
+    // Exercise the watcher import into an empty database, with the owning plan absent.
     let db = dir.path().join(".domios").join("plans.db");
     for suffix in ["", "-wal", "-shm"] {
         let _ = std::fs::remove_file(format!("{}{}", db.display(), suffix));
     }
 
-    let reloaded = PlanStore::open(db).unwrap();
-    let loaded_project = reloaded.scan_project(dir.path()).unwrap();
-    assert_eq!(loaded_project, project);
+    let reloaded = PlanStore::open(db.clone()).unwrap();
+    let outcome = reloaded.reconcile_watched_plan(&project, &plan_id).unwrap();
+    assert_eq!(outcome, WatchOutcome::Loaded);
     let plan = reloaded
         .get(&plan_id)
         .expect("plan must survive the co-located spec load");
     assert_eq!(plan.title, "Plan");
-    assert_eq!(reloaded.get_spec(&spec_id).map(|s| s.id), Some(spec_id));
+    assert_eq!(
+        reloaded.get_spec(&spec_id).map(|s| s.id),
+        Some(spec_id.clone())
+    );
+    drop(reloaded);
+
+    let reopened = PlanStore::open(db).unwrap();
+    assert_eq!(reopened.get(&plan_id).unwrap().title, "Plan");
+    let spec = reopened.get_spec(&spec_id).unwrap();
+    assert_eq!(spec.id, spec_id);
+    assert_eq!(spec.sections[0].body, "spec body");
 }
 
 #[test]

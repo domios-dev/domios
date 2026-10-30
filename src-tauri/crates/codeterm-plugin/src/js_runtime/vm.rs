@@ -1,6 +1,7 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
 mod arguments;
+mod connection;
 mod objects;
 #[cfg(test)]
 mod raw_arguments_test;
@@ -150,6 +151,7 @@ pub const ASYNC_JOB_TIMEOUT_ERROR: &str = "plugin async job exceeded its bounded
 /// mutex so cross-thread callers serialize cleanly. Cheap to clone via
 /// `Arc<PluginVm>`.
 pub struct PluginVm {
+    connection: Mutex<connection::ConnectionSnapshot>,
     bundle_access: std::sync::Arc<crate::bundle_access::BundleAccess>,
     inner: Mutex<Inner>,
     // Acquire before the VM lock, never while holding a VM or mux guard.
@@ -317,6 +319,7 @@ impl PluginVm {
                     .map(str::to_owned)
             });
         Ok(Self {
+            connection: Mutex::new(connection::ConnectionSnapshot::default()),
             bundle_access: crate::bundle_access::BundleAccess::for_plugin(plugin_id),
             catalogue_gate: Mutex::new(()),
             methods: parking_lot::RwLock::new(methods),

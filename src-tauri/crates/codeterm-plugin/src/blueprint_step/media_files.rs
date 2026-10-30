@@ -63,6 +63,7 @@ impl RunMediaFiles {
         let mut opened = open_owned_media(&context.plugin, &source, &descriptor)
             .map_err(|_| "durable media source refused")?;
         let prefix = match kind {
+            PortKind::File => "",
             PortKind::Image => "image/",
             PortKind::Audio => "audio/",
             PortKind::Video => "video/",

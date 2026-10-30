@@ -218,3 +218,40 @@ async fn capacity_retry_ignores_unclassified_foreign_and_provider_managed_errors
         .list(None)
         .is_empty());
 }
+
+#[tokio::test]
+async fn capacity_retry_persistence_refusal_still_records_completion_once() {
+    let scene = fixtures::scene();
+    let epoch = scene.session.context.lock().epoch;
+    let before = scene.session.completions.lock().sequence();
+    let changes = scene.session.control_changes.subscribe();
+    let queue = scene.fixture.service.ext::<DelayedSendQueue>();
+    queue.refuse_persistence(Some("injected queue persistence refusal"));
+    let events = vec![
+        capacity_error("turn", transient()),
+        finished("turn", Some(RuntimeTurnDetail::Failed)),
+    ];
+    let result = publish_events(
+        &scene.fixture.service,
+        &scene.session,
+        epoch,
+        events.clone(),
+        123,
+    )
+    .await;
+    assert!(
+        matches!(result, Err(super::super::model::RuntimeFailure::HookFailed(reason))
+        if reason == "injected queue persistence refusal")
+    );
+    assert!(scene.session.completions.lock().contains("thread", "turn"));
+    assert_eq!(scene.session.completions.lock().sequence(), before + 1);
+    assert!(changes.has_changed().unwrap());
+    let queued = queue.list(None);
+    assert_eq!(queued.len(), 1);
+    queue.refuse_persistence(None);
+    publish_events(&scene.fixture.service, &scene.session, epoch, events, 124)
+        .await
+        .unwrap();
+    assert_eq!(queue.list(None).len(), 1);
+    assert_eq!(queue.list(None)[0].id, queued[0].id);
+}

@@ -23,7 +23,6 @@ export { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, sanitizeStyleValue } fro
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 export { parseAttachedDiscussionDoc } from "./discussionDoc";
 export type { AttachedDiscussionDoc } from "./discussionDoc";
-export { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 export { InteractiveQuestion } from "./interactive/InteractiveQuestion";
 export type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 export type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
@@ -37,7 +36,6 @@ export type { OutboundReportDescriptor } from "./codeterm/OutboundReportCard";
 export {
   parseDeliveredTaskOutcome,
   reportContentBody,
-  reportIncidentLine,
   reportOutcomeLine,
   reportOutcomeTone,
   reportVerdict,

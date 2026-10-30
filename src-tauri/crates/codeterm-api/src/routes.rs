@@ -742,16 +742,6 @@ pub(super) fn create_router_with_preview_admission(
             plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action),
         )
         .route(
-            "/api/plugins/run-view",
-            plugin_host_action_routes::owner_post(crate::plugin_run_view_routes::resolve)
-                .layer(axum::extract::DefaultBodyLimit::max(4096)),
-        )
-        .route(
-            "/api/plugins/operation-decision",
-            plugin_host_action_routes::owner_post(crate::plugin_operation_routes::decide)
-                .layer(axum::extract::DefaultBodyLimit::max(4096)),
-        )
-        .route(
             "/api/plugins/view-host-action/download",
             plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action_download),
         )

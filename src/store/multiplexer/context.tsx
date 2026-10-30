@@ -73,9 +73,6 @@ export interface MultiplexerActionsContextType {
   createOrchestrationPair: (input: OrchestrationPairInput) => Promise<OrchestrationPairResult>;
 }
 
-/** @deprecated Use MultiplexerActionsContextType — state reads go through useMuxState/useMuxSelector. */
-export type MultiplexerContextType = MultiplexerActionsContextType;
-
 export const MultiplexerActionsContext = createContext<MultiplexerActionsContextType | null>(null);
 export const MuxStateStoreContext = createContext<MuxStateStore | null>(null);
 

@@ -7,7 +7,7 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use codeterm_storage::{Storage, StorageConfig};
 use serde_json::{json, Value};
 
-fn fixture(document: Value, root: &Path) -> (ServiceFixture, Storage, Handle, Lease) {
+pub(crate) fn fixture(document: Value, root: &Path) -> (ServiceFixture, Storage, Handle, Lease) {
     let (mut mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
     mux.get_tab_mut(&creator).unwrap().agent_type = Some("test-agent".into());

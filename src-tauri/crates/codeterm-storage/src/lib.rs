@@ -4,7 +4,6 @@
 mod assets;
 mod backup;
 mod error;
-mod migration;
 mod owner;
 mod repositories;
 mod schema;
@@ -16,15 +15,6 @@ pub use assets::{
 };
 pub use backup::{BackupReceipt, RestoreReceipt};
 pub use error::{ConstraintKind, StorageError};
-pub use migration::{
-    capture_sources, CaptureLimits, CaptureStep, Captured, ComparisonReport, DecodeFailure,
-    DecodeFailureKind, DomainComparison, DomainImport, EntryKind, ExpectedDivergence, IgnoredKeys,
-    ImportDomain, ImportMarker, ImportOutcome, ImportPlan, ImportProvenance, ImportReceipt,
-    ImportRefusal, ImportRequest, ImportTamper, LegacyDecoder, LiveRootImportRequest,
-    MigrationError, ProjectionMismatch, RecordedManifest, RecoveryCandidate, RefusalReport,
-    Sha256Digest, SourceCapture, SourceFile, SourceRole, SourceSelection, SourceStatus,
-    IMPORT_MANIFEST_FORMAT,
-};
 #[cfg(feature = "test-support")]
 pub use owner::{Fault, Hold, ReentrancyProbe};
 pub use owner::{

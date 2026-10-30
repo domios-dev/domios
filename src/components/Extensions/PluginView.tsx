@@ -15,11 +15,6 @@ import { surfaceQuery, type PluginViewSurface } from "../../lib/surfaceTab";
 import { createViewHostGate, performViewHostAction, viewHostSupport, type ViewHostGate } from "../../lib/pluginViewHostActions";
 import { viewHostDeps } from "../../lib/pluginViewHostDeps";
 import { getPluginSnapshotState } from "../../lib/pluginSnapshotStore";
-import { openPluginRun } from "../../lib/pluginRunNavigation";
-import { decidePluginOperation } from "../../lib/pluginOperationDecision";
-import { pluginRunHost } from "../../lib/pluginRunHost";
-import { requestOpenJob } from "../Jobs/openJobEvent";
-import { PluginOperationApproval, usePluginOperationApproval } from "./PluginOperationApproval";
 
 type ApiCfg = DaemonApiConfig;
 
@@ -86,12 +81,10 @@ export function PluginView({
   // end every pending request, which never becomes current again. Each generation gets its own gate.
   const generationRef = useRef(0);
   const hostGate = useRef<ViewHostGate>(createViewHostGate());
-  const approval = usePluginOperationApproval();
   const invalidateHostActions = useCallback(() => {
     generationRef.current += 1;
     hostGate.current = createViewHostGate();
-    approval.dismiss();
-  }, [approval.dismiss]);
+  }, []);
   // The host's own, non-suppressible receipt for a clipboard write the plugin asked for.
   // A fresh object per copy, so a repeated copy restarts the notice instead of being swallowed.
   const [copiedFrom, setCopiedFrom] = useState<{ name: string } | null>(null);
@@ -173,23 +166,6 @@ export function PluginView({
         onClose?.();
         return;
       }
-      if (m.__ctOpenRun != null || m.__ctDecideOperation != null) {
-        const reply = m.__ctOpenRun ?? m.__ctDecideOperation;
-        if (!Number.isSafeInteger(reply)) return;
-        if (!hostRequest) {
-          channel.send({ __ctReply: reply, result: { ok: false, code: "unavailable", reason: "host" } });
-          return;
-        }
-        if (approval.isOpen()) {channel.send({__ctReply:reply,result:{ok:false,code:"denied",reason:"busy"}});return;}
-        const generation = intent.generation;
-        const isCurrent = () => generationRef.current === generation && iframeRef.current?.contentWindow === win && activeRef.current;
-        const host = pluginRunHost(pluginId, hostRequest);
-        const result = m.__ctOpenRun != null
-          ? await openPluginRun(m.reference, intent, isCurrent, hostGate.current, {resolve: host.resolve, open: requestOpenJob})
-          : await decidePluginOperation(m.decision, intent, isCurrent, hostGate.current, {send: host.decide, confirm: approval.confirm, settled: approval.settled});
-        if (isCurrent()) channel.send({__ctReply:reply,result});
-        return;
-      }
       if (m.__ctHost != null) {
         // The request belongs to this document generation; hide, reload, navigation and disposal end it for good.
         const generation = intent.generation;
@@ -246,7 +222,7 @@ export function PluginView({
         }
       }
     },
-    [pluginId, cwd, onClose, documentPath, surface, media, hostRequest, invokeView, callDocument, announceCopy, channel, approval.confirm, approval.settled, approval.isOpen],
+    [pluginId, cwd, onClose, documentPath, surface, media, hostRequest, invokeView, callDocument, announceCopy, channel],
   );
 
   const captureIntent = useCallback((): FrameIntent => ({
@@ -323,7 +299,6 @@ export function PluginView({
         style={{ flex: 1, width: "100%", border: "none", background: "var(--ct-bg)", display: "block", height: "100%" }}
       />}
       {copiedFrom && <div role="status" data-testid="plugin-view-copied" style={COPY_NOTICE_STYLE}>Copied from {copiedFrom.name}</div>}
-      <PluginOperationApproval approval={approval.approval} pluginName={getPluginSnapshotState().snapshot.plugins.find(item => item.id === pluginId)?.display_name || pluginId} onApprove={approval.approve} onDismiss={approval.dismiss}/>
     </PluginUiHost>
   );
 

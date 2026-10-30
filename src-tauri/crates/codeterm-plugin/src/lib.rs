@@ -36,6 +36,7 @@ pub mod media_delivery;
 pub mod model_catalog;
 pub mod model_providers;
 pub mod permission_prompt;
+pub mod plugin_connection;
 pub mod plugin_icon;
 pub mod plugin_index;
 pub mod plugin_lifecycle;
@@ -84,7 +85,5 @@ pub use webhook::{
 mod test_support;
 
 pub mod binary_transfer;
-pub mod cost_units;
 pub mod plugin_id;
-pub mod plugin_jobs;
 pub mod surface_invocation;

@@ -14,7 +14,7 @@ export interface PluginMediaHandle {
 }
 
 /** The only routes a document's host actions reach; each is owner-only and lease-checked by the daemon. */
-export const PLUGIN_HOST_ROUTES = ["/api/plugins/view-host-action", "/api/plugins/view-host-action/download", "/api/plugins/view-input", "/api/plugins/run-view", "/api/plugins/operation-decision"] as const;
+export const PLUGIN_HOST_ROUTES = ["/api/plugins/view-host-action", "/api/plugins/view-host-action/download", "/api/plugins/view-input"] as const;
 export type PluginHostRoute = (typeof PLUGIN_HOST_ROUTES)[number];
 
 export interface PluginHostResponse {

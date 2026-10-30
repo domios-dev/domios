@@ -28,44 +28,14 @@ pub struct StepContext {
     pub node: String,
     pub attempt: String,
     pub operation: String,
-    pub run_view: String,
-    pub run_label: String,
     pub node_label: String,
     pub input_lineage: Vec<InputLineage>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Estimate {
-    pub amount: u64,
-    pub unit: String,
-    pub valid_until_ms: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WaitingReason {
-    EstimateMissing,
-    EstimateStale,
-    OverRunCeiling,
-    OverStepAllowance,
-    OwnerConfirmation,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct Waiting {
-    pub reason: WaitingReason,
-    pub estimate: Option<u64>,
-    pub remaining: u64,
-    pub unit: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OperationState {
     Prepared,
-    WaitingForOwnerOk,
     Submitting,
     Queued,
     Running,
@@ -156,8 +126,6 @@ pub struct StepRequest {
     pub revision: u32,
     pub params: Value,
     pub inputs: PortValues,
-    pub unit: String,
-    pub step_allowance: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -192,7 +160,6 @@ pub struct StepCall<'a> {
 }
 
 pub trait BlueprintStep: Send + Sync {
-    fn estimate(&self, call: &StepCall<'_>) -> Result<Option<Estimate>, String>;
     fn submit(&self, call: &StepCall<'_>) -> Result<JobUpdate, String>;
     fn reconcile(&self, call: &StepCall<'_>) -> Result<JobUpdate, String>;
     fn cancel(&self, call: &StepCall<'_>) -> Result<JobUpdate, String>;

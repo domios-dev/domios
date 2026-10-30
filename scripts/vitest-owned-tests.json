@@ -1,4 +1,7 @@
 [
+  "src/components/Automation/blueprint/replayModel.test.ts",
+  "src/components/Automation/blueprint/triggerModel.test.tsx",
+  "src/components/Jobs/useTabJobs.blueprints.test.tsx",
   "src/lib/pluginViewChannel.test.ts",
   "src/lib/pluginViewConsent.test.ts",
   "src/components/Sidebar/TabItem.activity.test.tsx",
@@ -366,9 +369,5 @@
   "src/components/MeshPanel/enrollmentRefusal.test.ts",
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
-  "src/hooks/terminal/useXterm.composition.test.tsx",
-  "src/lib/pluginRunNavigation.test.ts",
-  "src/lib/pluginOperationDecision.test.ts",
-  "src/lib/pluginRunHost.test.ts",
-  "src/components/Extensions/PluginOperationApproval.test.tsx"
+  "src/hooks/terminal/useXterm.composition.test.tsx"
 ]

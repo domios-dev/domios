@@ -211,12 +211,6 @@ pub struct PluginManifest {
     #[serde(skip)]
     pub source_path: Option<PathBuf>,
 
-    // Pre-1.10.21 manifests still ship these; accept them so a plugin never fails to load over an icon field.
-    #[serde(default, rename = "iconHint")]
-    pub legacy_icon_hint: Option<serde_json::Value>,
-    #[serde(default, rename = "iconSvg")]
-    pub legacy_icon_svg: Option<serde_json::Value>,
-
     /// Raw manifest `iconColor`; an invalid value is dropped, never a load failure.
     #[serde(default, rename = "iconColor")]
     pub raw_icon_color: Option<serde_json::Value>,
@@ -256,8 +250,6 @@ fn default_capabilities() -> Capabilities {
         view: false,
         media_delivery: None,
         binary_transfer: None,
-        job_lifecycle: None,
-        cost_units: Default::default(),
         agent_runtime: None,
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),

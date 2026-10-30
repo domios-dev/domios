@@ -88,12 +88,10 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | POST | `/api/plugins/view-host-action` | Check or perform a plugin view's declared user-gesture action; refusals are typed results. |
 | POST | `/api/plugins/view-host-action/download` | Stream a plugin view's own media file as a download. |
 | POST | `/api/plugins/view-input` | Ingest a file the user picked for a plugin view; answers an opaque frame handle. |
-| POST | `/api/plugins/run-view` | Local owner only: `{pluginId,reference}` resolves an opaque owned run reference to the inspector target. Requires private `X-Domios-Plugin-View-Frame` and matching `X-Domios-Plugin-Media-Frame` headers; exact live document/provider/owner/workspace/Team checks before and after lookup. Closed JSON body, max 4 KiB; typed denied/stale or run target. |
-| POST | `/api/plugins/operation-decision` | Local owner only: `{pluginId,operation,decisionKey,action}` with `preview`, `approve`, `check_price`, `check` or `cancel`. Same private document headers and exact owner scope; closed JSON body, max 4 KiB. Preview returns the host quote; approval records only a fresh exact operation/unit/maximum, never downstream authority. The host confirmation bar freezes the key. Already recorded decisions survive a stale UI reply; unknown jobs are checked, never resubmitted. |
 | DELETE | `/api/plugins/{plugin}/media-frame/{frame}` | Local owner only: retire this presentation frame and all its media handles; returns 204. |
 | POST | `/api/plugins/{plugin}/media-register/{frame}` | Local owner only: `{id,viewFrame}` resolves a declared plugin media ID with the private current document lease. Returns `{handle,url,file_name,content_type,expires_in_seconds}`; `url` may be null for gesture-only files. The lease and live owner/workspace/Team/provider registration must match this exact frame; unavailable media returns 404. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
