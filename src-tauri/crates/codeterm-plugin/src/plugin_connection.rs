@@ -92,11 +92,15 @@ pub fn recall_line(catalog: &AgentVerbCatalog) -> String {
     let next = match state {
         PluginConnectionState::SignedIn => format!("`{help}`"),
         PluginConnectionState::Unknown | PluginConnectionState::Pending => {
+            let command = ["login-status", "health", "status"]
+                .into_iter()
+                .find(|verb| catalog.verbs.iter().any(|usage| usage.as_str() == *verb))
+                .map(|verb| format!("domios plugin {} {verb}", catalog.id))
+                .unwrap_or(help);
             return format!(
-                "{}: {} — run `domios plugin {} login-status`.",
+                "{}: {} — run `{command}`.",
                 catalog.display_name,
                 state.label(),
-                catalog.id
             );
         }
         _ => format!("Offer sign-in: `{login}`"),

@@ -87,6 +87,38 @@ fn recall_action_fits_existing_default_snippet_budget() {
 }
 
 #[test]
+fn unknown_and_pending_recall_only_suggest_declared_status_verbs_or_help() {
+    for (verbs, expected) in [
+        (
+            vec!["login", "login-status", "health", "status"],
+            "login-status",
+        ),
+        (vec!["login", "health", "logout"], "health"),
+        (vec!["login", "status"], "status"),
+        (vec!["login"], "--help"),
+    ] {
+        let mut catalog = catalog();
+        catalog.verbs = verbs.iter().map(|verb| (*verb).to_owned()).collect();
+        for state in [
+            None,
+            Some(PluginConnectionState::Unknown),
+            Some(PluginConnectionState::Pending),
+        ] {
+            catalog.connection_state = state;
+            let line = recall_line(&catalog);
+            let command = line.split('`').nth(1).expect("suggested command");
+            let verb = command
+                .split_whitespace()
+                .last()
+                .expect("verb or help option");
+            assert_eq!(verb, expected);
+            assert!(verb == "--help" || catalog.verbs.iter().any(|declared| declared == verb));
+            assert!(line.contains(state.unwrap_or(PluginConnectionState::Unknown).label()));
+        }
+    }
+}
+
+#[test]
 fn auth_refusal_takes_precedence_over_signed_in_state() {
     for response in [
         json!({"state":"logged-in", "error":"not-logged-in: connect first"}),
