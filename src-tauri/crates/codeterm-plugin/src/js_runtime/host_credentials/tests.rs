@@ -9,6 +9,10 @@ fn fields(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 fn codex_credential(dir: &std::path::Path) -> CredentialConfig {
+    fixture_credential(dir, "codexAuth")
+}
+
+fn fixture_credential(dir: &std::path::Path, id: &str) -> CredentialConfig {
     let file = dir.join("auth.json");
     std::fs::write(
         &file,
@@ -17,7 +21,7 @@ fn codex_credential(dir: &std::path::Path) -> CredentialConfig {
     .unwrap();
     CredentialConfig {
         file_environment: None,
-        id: "codexAuth".into(),
+        id: id.into(),
         file: file.to_string_lossy().into_owned(),
         public: fields(&[("accountId", "tokens.account_id")]),
         secret: fields(&[("accessToken", "tokens.access_token")]),
@@ -261,7 +265,7 @@ fn catalogue_credential_home_never_falls_back_when_selected_file_is_missing() {
     let mut env = codeterm_util::test_env::EnvGuard::lock();
     let default = tempfile::tempdir().unwrap();
     let selected = tempfile::tempdir().unwrap();
-    let mut credential = codex_credential(default.path());
+    let mut credential = fixture_credential(default.path(), "fixtureAuth");
     credential.file_environment = Some(super::super::manifest::ReadRootEnvironment {
         variable: "FIXTURE_CREDENTIAL_HOME".into(),
         subdir: "auth.json".into(),
@@ -272,12 +276,12 @@ fn catalogue_credential_home_never_falls_back_when_selected_file_is_missing() {
         vec![selected.path().join("auth.json")]
     );
     assert_eq!(
-        public_json(std::slice::from_ref(&credential), "codexAuth"),
+        public_json(std::slice::from_ref(&credential), "fixtureAuth"),
         None
     );
     assert!(inject(
         &[credential],
-        r#"{"credential":{"id":"codexAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
+        r#"{"credential":{"id":"fixtureAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
     )
     .is_err());
 }

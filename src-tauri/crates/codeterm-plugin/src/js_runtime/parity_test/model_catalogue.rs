@@ -129,7 +129,7 @@ fn catalogue_inputs_use_only_declared_credential_home_for_both_transports() {
     let selected_home = tempfile::tempdir().unwrap();
     let default_file = default_home.path().join("auth.json");
     std::fs::write(&default_file, "owner-credential-fixture").unwrap();
-    for variable in ["CODEX_HOME", "FIXTURE_PROVIDER_HOME", "XDG_DATA_HOME"] {
+    for variable in ["FIXTURE_HOME", "FIXTURE_PROVIDER_HOME", "XDG_DATA_HOME"] {
         let manifest_json = serde_json::json!({
             "id": "credential-home-fixture",
             "version": "0.1.0",
