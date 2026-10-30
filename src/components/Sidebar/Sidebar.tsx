@@ -15,7 +15,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import { shareRecord } from "../../lib/sameJson";
 import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
-import { getAgentProvider } from "../../lib/agentProviders";
+import { getPlugin } from "../../lib/plugins/registry";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
@@ -199,10 +199,10 @@ export const Sidebar = memo(function Sidebar({
     }
     let folder: string | null = workspaceCwd;
     if (!folder) {
-      const provider = getAgentProvider(agentId);
+      const provider = getPlugin(agentId);
       if (IS_WEB) {
         setFolderPicker({
-          title: `Project folder for ${provider?.displayName ?? agentId}`,
+          title: `Project folder for ${provider?.meta.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
             void spawnAgentTab(workspaceId, agentId, path).catch(reportFailure);
@@ -214,7 +214,7 @@ export const Sidebar = memo(function Sidebar({
           folder = await open({
             directory: true,
             multiple: false,
-            title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+            title: `Choose project folder for ${provider?.meta.displayName ?? agentId}`,
           });
         } catch (err) {
           console.error(`[agent-spawn] folder picker failed:`, err);

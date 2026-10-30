@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 pub const DOMIOS_CLOSE_TAG: &str = "</domios>";
-pub const DOMIOS_LEGACY_TYPED_INSTRUCTION: &str = "Handle the message above.";
 pub const DOMIOS_PASTED_MARKER: &str = "pasted by Domios";
 
 pub fn pasted_marker_tail() -> String {

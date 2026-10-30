@@ -1,7 +1,7 @@
 export type LocalArtifactKind = "page" | "image" | "video" | "document";
 export interface LocalArtifactDirective { kind: LocalArtifactKind; path: string; paths?: string[]; }
 export function parseLocalArtifactDirective(source: string): LocalArtifactDirective | null {
-  const match = /^\s*@(?:ds|ct)-(page|image|document)\s+(.+?)\s*$/i.exec(source.replace(/\r/g, ""));
+  const match = /^\s*@ds-(page|image|document)\s+(.+?)\s*$/i.exec(source.replace(/\r/g, ""));
   if (!match || match[2].includes("\n")) return null;
   const kind = match[1].toLowerCase() as LocalArtifactKind;
   const argument = match[2];
