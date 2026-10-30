@@ -57,6 +57,37 @@ pub trait PluginHostCtx: Send + Sync {
     fn agent_reap_json(&self, session_id: &str) -> String;
     fn agent_poll_json(&self, session_id: &str) -> String;
 
+    fn agent_run_start_json(
+        &self,
+        _plugin: &str,
+        _context: &crate::blueprint_step::StepInputContext,
+        _opts: &str,
+    ) -> String {
+        r#"{"error":"agent_runs_unavailable"}"#.into()
+    }
+    fn agent_run_wait_json(
+        &self,
+        _plugin: &str,
+        _operation: &str,
+        _run: &str,
+        _deadline: std::time::Instant,
+    ) -> String {
+        r#"{"state":"unknown"}"#.into()
+    }
+    fn agent_run_cancel_json(&self, _plugin: &str, _operation: &str, _run: &str) -> String {
+        r#"{"state":"unknown"}"#.into()
+    }
+
+    fn step_surface_call_json(
+        &self,
+        _plugin: &str,
+        _context: &crate::blueprint_step::StepInputContext,
+        _verb: &str,
+        _args: &str,
+    ) -> String {
+        r#"{"error":"step_surfaces_unavailable"}"#.into()
+    }
+
     // ── Plugin activity (progress) ───────────────────────────────────────
     fn progress_raw_json(&self, plugin_id: &str, opts_json: &str) -> String;
 

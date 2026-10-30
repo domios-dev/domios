@@ -1,3 +1,4 @@
+import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionObservations, turnError } from "./turnErrors";
 import { checkOpencodeUpdate } from "./update";
 import { modelProviderExports } from "./modelProviders";
@@ -105,6 +106,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,

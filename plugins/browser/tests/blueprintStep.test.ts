@@ -11,13 +11,15 @@ function fakeSurface(answers: Partial<Record<string, Answer>> = {}) {
   const calls: { verb: string; args: string[] }[] = [];
   let opened = false;
   const call = (verb: string, argsJson: string) => {
-    calls.push({ verb, args: JSON.parse(argsJson) });
+    const payload = JSON.parse(argsJson);
+    calls.push({ verb, args: Array.isArray(payload) ? payload : payload.args });
+    if (verb !== "open" && opened) expect(payload.surface).toEqual({ tab: "run-surface", instance: "run-instance" });
     if (verb === "open") opened = true;
     const answer = answers[verb] ?? (verb === "status" && !opened ? { result: "no browser open; run `open` first" }
       : verb === "status" ? { result: STATUS }
         : verb === "text" ? { result: "Example Domain\nsecond line" }
           : { result: `${verb} ok` });
-    return JSON.stringify(answer);
+    return JSON.stringify(verb === "open" && !("error" in answer) ? { ...answer, surface: { tab: "run-surface", instance: "run-instance" } } : answer);
   };
   return { call, calls, verbs: () => calls.map((entry) => entry.verb) };
 }
@@ -40,6 +42,18 @@ const texts = (update: ReturnType<typeof readPage>) => ({
 });
 
 describe("browser.read_page Blueprint step", () => {
+  it("never closes a foreign browser when open fails", () => {
+    const surface = fakeSurface({ open: { error: "open refused" } });
+    expect(readPage(request({ url: "https://example.com" }), surface.call).outcome).toBe("navigation_failed");
+    expect(surface.verbs()).toEqual(["status", "open"]);
+  });
+
+  it("uses only the surface identity granted by open after a UI browser races the probe", () => {
+    const surface = fakeSurface();
+    const update = readPage(request({ url: "https://example.com" }), surface.call);
+    expect(update.outcome).toBe("read");
+    expect(surface.verbs()).toContain("goto");
+  });
   it("opens, navigates, checks status, reads and closes in order and settles synchronously", () => {
     const surface = fakeSurface();
     const update = readPage(request({ url: "https://example.com" }), surface.call);

@@ -314,6 +314,19 @@ impl ServiceContext {
             let mux = self.mux.read();
             plan_agent_call(&mux, plugin_id, surface, &caller_tab, verb, of.as_deref())
         }?;
+        self.execute_surface_plan(plugin_id, surface, caller_tab, verb, args, plan)
+    }
+
+    pub(super) fn execute_surface_plan(
+        &self,
+        plugin_id: &str,
+        surface: &SurfaceDecl,
+        caller_tab: String,
+        verb: &str,
+        args: Vec<String>,
+        plan: CallPlan,
+    ) -> Result<Value, String> {
+        let is_view = surface.renderer == codeterm_plugin::surfaces::SurfaceRenderer::View;
         let noun = surface.title.to_lowercase();
         let (tab_id, actor) = match plan {
             CallPlan::Answer(text) => return Ok(json!({"result":text})),

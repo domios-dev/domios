@@ -1,4 +1,3 @@
-import { CircleStop } from "lucide-react";
 import type { BlueprintDocument, BlueprintExpandedCall, BlueprintIrNode, BlueprintJournalNode, BlueprintPluginNode, BlueprintPluginPort, BlueprintPort, BlueprintProjection, BlueprintValue } from "../../../lib/blueprintApi";
 import type { PipelineView } from "../pipelineModel";
 import { blueprintNodeKey, type BlueprintExpansion } from "../blueprintExpansion";
@@ -17,6 +16,8 @@ export interface BlueprintPin {
   /** The port's schema type when the definition declares it, e.g. from `in.properties.<port>`. */
   type?: string;
   connected: boolean;
+  terminal?: boolean;
+  hostReserved?: boolean;
 }
 
 export interface BlueprintBody {
@@ -159,7 +160,7 @@ function bodyOf(node: BlueprintIrNode): BlueprintBody | null {
 }
 
 function pluginBody(node: BlueprintIrNode, descriptor: BlueprintPluginNode): BlueprintBody | null {
-  if (!descriptor.available) return { kind: "text", text: "Plugin unavailable: install or enable its plugin to run this node." };
+  if (!descriptor.available) return { kind: "text", text: `${descriptor.plugin ?? "This plugin"} isn't installed or is turned off.\nInstall or enable it to run this step.` };
   return node.does ? { kind: "text", text: node.does } : descriptor.description ? { kind: "text", text: descriptor.description } : null;
 }
 
@@ -345,7 +346,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
       const key = blueprintNodeKey(path, definition.id);
       const node: BlueprintGraphNode = {
         key, id: definition.id, type: kind.type, icon: kind.icon, kindLabel: kind.label,
-        title: definition.name ?? (descriptor?.available ? descriptor.title : undefined) ?? definition.id,
+        title: definition.name ?? descriptor?.title ?? (descriptor ? "Unknown plugin step" : definition.id),
         body: descriptor ? pluginBody(definition, descriptor) : bodyOf(definition), inputs: [pin("in", "exec", "in", "")], outputs: [], callPath: path, scope, definition, routes: [], evidence: evidenceFor(key),
         trigger: nodeTrigger(definition, document.kind === "watch" && index === 0, !path.length && document.kind === "watch" && index === 0 ? pipeline.triggerRuntime ?? null : null),
         callee: definition.call ? calleeOf(definition.call, calls.find((entry) => entry.node === definition.id)) : undefined,
@@ -370,11 +371,12 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
           const route = definition.routes?.[outcome] ?? (stops(outcome) || document.kind === "watch" ? "@stop" : "@next");
           const target = route === "@next" ? steps[index + 1]?.id ?? "$result" : route === "@stop" ? "$stop" : route;
           node.routes.push({ outcome, target });
-          node.outputs.push(pin(`route:${outcome}`, "exec", "out", outcome));
+          node.outputs.push({ ...pin(`route:${outcome}`, "exec", "out", outcome), terminal: target === "$stop", hostReserved: descriptor !== undefined && (PLUGIN_RESERVED_OUTCOMES as readonly string[]).includes(outcome) });
         }
       }
       if (definition.out) node.outputs.push(pin("data:out", "data", "out", "out", portType(definition.out)));
       for (const [port, declared] of Object.entries(descriptor?.outputs ?? {})) node.outputs.push({ ...pin(`data:${port}`, "data", "out", port), type: pluginPortType(declared) });
+      if (descriptor) node.outputs = [...node.outputs.filter(pin => !pin.hostReserved), ...node.outputs.filter(pin => pin.hostReserved)];
       add(node);
       yield;
       const callee = calls.find((entry) => entry.node === definition.id);
@@ -382,12 +384,6 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
         node.outputs.push(pin("callee", "exec", "out", "callee", callee.pin.id));
         yield* graph(callee.graph, callee.children, [...path, definition.id], callee);
       }
-    }
-    const routesTo = (target: string) => [...local.values()].some((node) => node.routes.some((route) => route.target === target));
-    if (routesTo("$stop")) {
-      const stop = control("$stop", "Stop", "result", "stop", CircleStop);
-      stop.inputs.push(pin("in", "exec", "in", ""));
-      add(stop);
     }
     const result = control("$result", "Result", "result", "result", blueprintNodeKinds.result.icon);
     result.inputs.push(pin("in", "exec", "in", ""));
@@ -408,6 +404,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
     }
     for (const node of local.values()) {
       for (const route of node.routes) {
+        if (route.target === "$stop") continue;
         const target = local.get(route.target);
         const fromPin = route.outcome === "next" && node.outputs.some((entry) => entry.id === "next") ? "next" : `route:${route.outcome}`;
         if (target) connect("exec", node, fromPin, target, "in", route.outcome === "next" ? null : route.outcome);

@@ -51,11 +51,11 @@ var TEXT_BYTES = 48e3;
 var TRUNCATED = "\n[truncated]";
 var VERB_MARGIN_MS = 16e3;
 var NO_BROWSER = /^no browser open\b/;
-function ask(call, verb, args) {
+function ask(call, verb, args, surface) {
   try {
-    const reply = JSON.parse(call(verb, JSON.stringify(args)));
+    const reply = JSON.parse(call(verb, JSON.stringify(surface ? { args, surface } : args)));
     if (typeof reply?.error === "string") return { error: reply.error };
-    if (typeof reply?.result === "string") return { result: reply.result };
+    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
   } catch {
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
@@ -68,12 +68,12 @@ function utf8Bytes(text) {
   }
   return bytes;
 }
-function boundText(text, lines) {
+function boundText(text, lines, budget = TEXT_BYTES) {
   const kept = text.split("\n");
   let out = kept.slice(0, lines).join("\n");
   let truncated = kept.length > lines;
-  if (utf8Bytes(out) > TEXT_BYTES) {
-    while (utf8Bytes(out) > TEXT_BYTES - TRUNCATED.length) {
+  if (utf8Bytes(JSON.stringify(out)) > budget) {
+    while (utf8Bytes(JSON.stringify(out + TRUNCATED)) > budget) {
       const points = Array.from(out);
       out = points.slice(0, Math.floor(points.length * 0.9)).join("");
     }
@@ -100,8 +100,8 @@ function readPage(request, call, now = Date.now) {
     state: "succeeded",
     outcome,
     outputs: {
-      text: [{ kind: "text", text: redactCredentials(text) }],
-      final_url: [{ kind: "text", text: redactCredentials(finalUrl) }]
+      text: [{ kind: "text", text: boundText(redactCredentials(text), MAX_LINES) }],
+      final_url: [{ kind: "text", text: boundText(redactCredentials(finalUrl), 1, 8e3) }]
     }
   });
   const url = requestedUrl(request);
@@ -111,32 +111,35 @@ function readPage(request, call, now = Date.now) {
   }
   const probe = ask(call, "status", []);
   if ("error" in probe) return finish("navigation_failed", probe.error);
-  if (!NO_BROWSER.test(probe.result)) return finish("browser_busy", "the run owner already has a browser open; read_page leaves it untouched");
+  if (!NO_BROWSER.test(probe.result)) return finish("browser_busy", "the step already has a surface open; read_page leaves it untouched");
   const covered = () => deadline - now() > VERB_MARGIN_MS;
+  let surface;
   try {
     const opened = ask(call, "open", []);
     if ("error" in opened) return finish("navigation_failed", opened.error);
+    surface = opened.surface;
+    if (!surface || typeof surface.tab !== "string" || typeof surface.instance !== "string") return finish("navigation_failed", "the host did not grant a run-owned surface");
     if (!covered()) return finish("navigation_failed", "the step deadline cannot cover navigation", url);
-    const moved = ask(call, "goto", [url]);
+    const moved = ask(call, "goto", [url], surface);
     if ("error" in moved) return finish("navigation_failed", moved.error, url);
     const waitText = request.params?.wait_text;
     if (typeof waitText === "string" && waitText.trim()) {
       if (!covered()) return finish("navigation_failed", "the step deadline cannot cover wait_text", url);
-      const waited = ask(call, "wait", ["--text", waitText]);
+      const waited = ask(call, "wait", ["--text", waitText], surface);
       if ("error" in waited) return finish("navigation_failed", waited.error, url);
     }
-    const status = ask(call, "status", []);
+    const status = ask(call, "status", [], surface);
     if ("error" in status) return finish("navigation_failed", status.error, url);
     const page = statusField(status.result, "page") ?? "";
     const separator = page.lastIndexOf(" \u2014 ");
     const finalUrl = separator >= 0 ? page.slice(separator + 3).trim() : url;
     const needs = statusField(status.result, "needs human");
     if (needs && needs !== "none") return finish("needs_human", `the page needs a human: ${needs}`, finalUrl);
-    const read = ask(call, "text", [String(TEXT_CHARS)]);
+    const read = ask(call, "text", [String(TEXT_CHARS)], surface);
     if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
     return finish("read", boundText(read.result, lineLimit(request.params?.limit)), finalUrl);
   } finally {
-    ask(call, "close", []);
+    if (surface) ask(call, "close", [], surface);
   }
 }
 

@@ -8,6 +8,7 @@ pub struct StepInputContext {
     pub submitting: bool,
     pub deadline: std::time::Instant,
     pub cancellation: crate::converter::ConversionCancellation,
+    pub surfaces: std::sync::Arc<parking_lot::Mutex<std::collections::BTreeMap<String, String>>>,
 }
 thread_local! { static CURRENT: RefCell<Option<StepInputContext>> = const { RefCell::new(None) }; }
 pub struct StepInputScope(Option<StepInputContext>);
@@ -20,6 +21,7 @@ impl StepInputScope {
                 submitting,
                 deadline: call.deadline,
                 cancellation: call.cancellation.clone(),
+                surfaces: Default::default(),
             }))
         }))
     }

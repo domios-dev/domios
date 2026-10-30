@@ -169,6 +169,7 @@ fn blueprint_v2_project_watch_and_unstarted_pipeline_have_current_graph_without_
             std::slice::from_ref(&job),
             &BTreeMap::new(),
             &definitions,
+            &codeterm_plugin::graph_nodes::GraphNodeRegistry::default(),
         )
         .unwrap();
         assert_eq!(view.blueprints[0]["call_graph"]["kind"], source["kind"]);
@@ -214,8 +215,13 @@ fn blueprint_v2_project_loads_retained_definition_history_before_projection() {
     assert_eq!(retained[&job.id][&1], old);
     assert_eq!(retained[&job.id][&2], current);
     assert_eq!(
-        run_projection(&job, &journals[&job.id], retained.get(&job.id)).unwrap()
-            ["graph_definition_version"],
+        run_projection(
+            &job,
+            &journals[&job.id],
+            retained.get(&job.id),
+            &codeterm_plugin::graph_nodes::GraphNodeRegistry::default()
+        )
+        .unwrap()["graph_definition_version"],
         1
     );
 }

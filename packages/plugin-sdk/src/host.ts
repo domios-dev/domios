@@ -196,6 +196,13 @@ export interface HostWorkspace {
 }
 
 // session), get (the plugin's key→session map). send/poll is the job-id bridge — the VM never blocks.
+export type HostAgentRunReply = { state?: "running" | "done" | "failed" | "canceled" | "unknown"; text?: string; reason?: string; error?: string };
+export interface HostAgentRun {
+  start<T>(opts: { prompt: string; cwd: string; model?: string; timeoutMs: number; sandbox?: "read-only" }, then: (reply: { run?: string; error?: string }) => T): T;
+  await<T>(run: string, then: (reply: HostAgentRunReply) => T): T;
+  cancel<T>(run: string, then: (reply: HostAgentRunReply) => T): T;
+}
+
 export interface HostAgent {
   spawn(
     workspaceId: string,
@@ -502,6 +509,7 @@ export interface Host {
   worker: HostWorker;
   workspace: HostWorkspace;
   agent: HostAgent;
+  agentRun: HostAgentRun;
   mem: HostMem;
   analyticsQuery(queryJson: string): string;
   analytics: HostAnalytics;

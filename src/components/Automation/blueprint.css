@@ -9,7 +9,7 @@
   --bp-action: color-mix(in srgb, var(--ct-green) 55%, var(--ct-cyan));
   --bp-result: var(--ct-muted-fg);
   --bp-exec: color-mix(in srgb, var(--ct-fg) 38%, transparent);
-  --bp-data: color-mix(in srgb, var(--ct-cyan) 62%, var(--ct-muted-fg));
+  --bp-data: var(--ct-data-flow);
   --bp-lit: var(--ct-accent);
   --bp-node-bg: color-mix(in srgb, var(--ct-titlebar-bg) 92%, var(--ct-bg));
   --bp-line: color-mix(in srgb, var(--ct-fg) 10%, transparent);
@@ -329,7 +329,19 @@
 }
 .bp-node[data-type="plugin"] .bp-node__subtitle { color: color-mix(in srgb, var(--bp-plugin) 70%, var(--ct-fg)); font-weight: 550; }
 .bp-node[data-unavailable] { border-style: dashed; border-color: color-mix(in srgb, var(--ct-yellow) 55%, var(--bp-line)); }
-.bp-node[data-unavailable] .bp-node__body { color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-fg)); }
+.bp-unavailable-status { display: block; color: color-mix(in srgb, var(--ct-yellow) 55%, var(--ct-fg)); }
+.bp-unavailable-instruction { display: block; color: var(--ct-muted-fg); }
+.bp-row[data-host-start]::before { content: ""; position: absolute; top: -4px; left: 12px; right: 12px; border-top: 1px solid var(--ct-border-subtle); }
+.bp-pin-label:is([data-terminal], [data-host]) .bp-pin-label__name { color: var(--ct-muted-fg); }
+.bp-host-caption { margin-left: 6px; color: var(--ct-muted-fg); font-size: 9px; }
+.bp-terminal { position: absolute; right: -16px; top: 50%; width: 16px; height: 1px; background: var(--ct-muted-fg); }
+.bp-terminal > span { position: absolute; right: 0; top: -2px; width: 5px; height: 5px; background: var(--ct-muted-fg); }
+.plan-side-panel-layer[data-blueprint-sheet] { position: fixed; inset: 0; z-index: 60; padding: 0; }
+.plan-side-panel-layer[data-blueprint-sheet] .plan-side-panel { width: 100%; max-width: 100%; height: 100%; border-radius: 0; background: var(--ct-bg-elev); }
+.bp-view .plan-side-panel { background: var(--ct-bg-elev); backdrop-filter: none; }
+.bp-view .plan-side-panel__header { border: 0; border-bottom: 1px solid var(--ct-border-subtle); box-shadow: none; background-image: none; }
+.bp-view .plan-side-panel__header::after { display: none; }
+.bp-view :is(.plan-side-panel__header, .plan-side-panel__body) { background: var(--ct-bg-elev); backdrop-filter: none; }
 .bp-node[data-type="call"] .bp-node__header { background: color-mix(in srgb, var(--bp-call) 9%, transparent); border-radius: 11px 11px 0 0; }
 .bp-node[data-type="call"] .bp-node__subtitle { color: color-mix(in srgb, var(--bp-call) 70%, var(--ct-fg)); font-weight: 550; }
 .bp-node[data-type="call"][aria-pressed="true"] {

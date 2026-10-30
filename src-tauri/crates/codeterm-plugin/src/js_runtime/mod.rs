@@ -11,6 +11,7 @@ mod decision_model;
 mod event_source;
 mod glance;
 pub mod grants;
+mod host_agent_run;
 mod host_api;
 mod host_compute;
 mod host_credentials;

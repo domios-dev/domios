@@ -2,7 +2,8 @@ import type { BlueprintJobUpdate, BlueprintStepRequest } from "@codeterm/plugin-
 import { redactCredentials } from "./redaction";
 
 type SurfaceCall = (verb: string, argsJson: string) => string;
-type Reply = { result: string } | { error: string };
+type SurfaceIdentity = { tab: string; instance: string };
+type Reply = { result: string; surface?: SurfaceIdentity } | { error: string };
 export type ReadPageOutcome = "read" | "navigation_failed" | "needs_human" | "browser_busy";
 
 const DEFAULT_LINES = 200;
@@ -16,11 +17,11 @@ const VERB_MARGIN_MS = 16_000;
 // Core answers `status` itself, without touching any runtime, when the owner has no browser.
 const NO_BROWSER = /^no browser open\b/;
 
-function ask(call: SurfaceCall, verb: string, args: string[]): Reply {
+function ask(call: SurfaceCall, verb: string, args: string[], surface?: SurfaceIdentity): Reply {
   try {
-    const reply = JSON.parse(call(verb, JSON.stringify(args))) as { result?: unknown; error?: unknown };
+    const reply = JSON.parse(call(verb, JSON.stringify(surface ? { args, surface } : args))) as { result?: unknown; error?: unknown; surface?: SurfaceIdentity };
     if (typeof reply?.error === "string") return { error: reply.error };
-    if (typeof reply?.result === "string") return { result: reply.result };
+    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
   } catch { /* an unparseable answer is reported below */ }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }
@@ -35,13 +36,13 @@ function utf8Bytes(text: string): number {
   return bytes;
 }
 
-function boundText(text: string, lines: number): string {
+function boundText(text: string, lines: number, budget = TEXT_BYTES): string {
   const kept = text.split("\n");
   let out = kept.slice(0, lines).join("\n");
   let truncated = kept.length > lines;
-  if (utf8Bytes(out) > TEXT_BYTES) {
+  if (utf8Bytes(JSON.stringify(out)) > budget) {
     // Cut whole code points: a lone surrogate would make the host reject the reply.
-    while (utf8Bytes(out) > TEXT_BYTES - TRUNCATED.length) {
+    while (utf8Bytes(JSON.stringify(out + TRUNCATED)) > budget) {
       const points = Array.from(out);
       out = points.slice(0, Math.floor(points.length * 0.9)).join("");
     }
@@ -73,8 +74,8 @@ export function readPage(request: BlueprintStepRequest, call: SurfaceCall | unde
     state: "succeeded",
     outcome,
     outputs: {
-      text: [{ kind: "text", text: redactCredentials(text) }],
-      final_url: [{ kind: "text", text: redactCredentials(finalUrl) }],
+      text: [{ kind: "text", text: boundText(redactCredentials(text), MAX_LINES) }],
+      final_url: [{ kind: "text", text: boundText(redactCredentials(finalUrl), 1, 8000) }],
     },
   });
   const url = requestedUrl(request);
@@ -84,31 +85,34 @@ export function readPage(request: BlueprintStepRequest, call: SurfaceCall | unde
   }
   const probe = ask(call, "status", []);
   if ("error" in probe) return finish("navigation_failed", probe.error);
-  if (!NO_BROWSER.test(probe.result)) return finish("browser_busy", "the run owner already has a browser open; read_page leaves it untouched");
+  if (!NO_BROWSER.test(probe.result)) return finish("browser_busy", "the step already has a surface open; read_page leaves it untouched");
   const covered = () => deadline - now() > VERB_MARGIN_MS;
+  let surface: SurfaceIdentity | undefined;
   try {
     const opened = ask(call, "open", []);
     if ("error" in opened) return finish("navigation_failed", opened.error);
+    surface = opened.surface;
+    if (!surface || typeof surface.tab !== "string" || typeof surface.instance !== "string") return finish("navigation_failed", "the host did not grant a run-owned surface");
     if (!covered()) return finish("navigation_failed", "the step deadline cannot cover navigation", url);
-    const moved = ask(call, "goto", [url]);
+    const moved = ask(call, "goto", [url], surface);
     if ("error" in moved) return finish("navigation_failed", moved.error, url);
     const waitText = request.params?.wait_text;
     if (typeof waitText === "string" && waitText.trim()) {
       if (!covered()) return finish("navigation_failed", "the step deadline cannot cover wait_text", url);
-      const waited = ask(call, "wait", ["--text", waitText]);
+      const waited = ask(call, "wait", ["--text", waitText], surface);
       if ("error" in waited) return finish("navigation_failed", waited.error, url);
     }
-    const status = ask(call, "status", []);
+    const status = ask(call, "status", [], surface);
     if ("error" in status) return finish("navigation_failed", status.error, url);
     const page = statusField(status.result, "page") ?? "";
     const separator = page.lastIndexOf(" — ");
     const finalUrl = separator >= 0 ? page.slice(separator + 3).trim() : url;
     const needs = statusField(status.result, "needs human");
     if (needs && needs !== "none") return finish("needs_human", `the page needs a human: ${needs}`, finalUrl);
-    const read = ask(call, "text", [String(TEXT_CHARS)]);
+    const read = ask(call, "text", [String(TEXT_CHARS)], surface);
     if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
     return finish("read", boundText(read.result, lineLimit(request.params?.limit)), finalUrl);
   } finally {
-    ask(call, "close", []);
+    if (surface) ask(call, "close", [], surface);
   }
 }

@@ -8,6 +8,7 @@ mod model;
 mod ops;
 pub(crate) mod resume;
 pub(crate) mod runtime;
+mod step_call;
 pub use runtime::sse_payload as runtime_sse_payload;
 mod stream_ops;
 mod transport;

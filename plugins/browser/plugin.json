@@ -25,7 +25,7 @@
           "revision": 1,
           "id": "browser.read_page",
           "title": "Browser: read page",
-          "description": "Opens a browser for the run owner, reads one page's text and closes it. An owner browser that is already open is left untouched (browser_busy).",
+          "description": "Opens a browser for the run owner, reads one page's text and closes it. Existing owner browsers are left untouched; every run gets a separate surface.",
           "params": {
             "type": "object",
             "properties": {

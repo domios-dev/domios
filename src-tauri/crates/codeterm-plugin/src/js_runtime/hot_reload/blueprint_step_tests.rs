@@ -11,6 +11,46 @@ fn manifest() -> PluginManifest {
 }
 
 #[test]
+fn provider_manifests_register_real_run_prompt_steps() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let mut registered = 0;
+    for entry in std::fs::read_dir(root).unwrap() {
+        let directory = entry.unwrap().path();
+        let Ok(manifest_json) = std::fs::read_to_string(directory.join("plugin.json")) else {
+            continue;
+        };
+        let raw: serde_json::Value = serde_json::from_str(&manifest_json).unwrap();
+        if !raw
+            .pointer("/capabilities/graphNodes/steps")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|steps| {
+                steps.iter().any(|step| {
+                    step["id"]
+                        .as_str()
+                        .is_some_and(|id| id.ends_with(".run_prompt"))
+                })
+            })
+        {
+            continue;
+        }
+        let manifest: PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+        let source = std::fs::read_to_string(directory.join("plugin.js")).unwrap();
+        let vm = Arc::new(super::super::PluginVm::from_source(&manifest.id, source).unwrap());
+        let caps = test_caps();
+        caps.register_plugin(&manifest, &vm);
+        let steps = caps.graph_nodes.steps();
+        assert_eq!(steps.len(), 1);
+        let descriptor = &steps[0].descriptor;
+        assert_eq!(descriptor.id, format!("{}.run_prompt", manifest.id));
+        assert_eq!(descriptor.outcomes, ["done", "failed"]);
+        assert!(descriptor.lifecycle.reconcile && descriptor.lifecycle.cancel);
+        assert!(manifest.permissions.spawn_agents);
+        registered += 1;
+    }
+    assert_eq!(registered, 3);
+}
+
+#[test]
 fn plugin_identity_preconstructed_capabilities_cannot_replace_vm_identity() {
     let caps = test_caps();
     let vm = Arc::new(
@@ -127,10 +167,7 @@ fn browser_manifest_declares_read_page_step() {
         step.descriptor.outcomes,
         ["read", "navigation_failed", "needs_human", "browser_busy"]
     );
-    assert_eq!(
-        step.descriptor.inputs.keys().collect::<Vec<_>>(),
-        ["url"]
-    );
+    assert_eq!(step.descriptor.inputs.keys().collect::<Vec<_>>(), ["url"]);
     assert_eq!(
         step.descriptor.outputs.keys().collect::<Vec<_>>(),
         ["final_url", "text"]
@@ -169,10 +206,9 @@ fn browser_manifest_declares_read_page_step() {
     let busy = call(&request);
     assert_eq!(busy.state, OperationState::Succeeded);
     assert_eq!(busy.outcome.as_deref(), Some("browser_busy"));
-    step.descriptor.validate_values(&busy.outputs, true).unwrap();
+    step.descriptor
+        .validate_values(&busy.outputs, true)
+        .unwrap();
     request.params = json!({"url":"file:///etc/passwd"});
-    assert_eq!(
-        call(&request).outcome.as_deref(),
-        Some("navigation_failed")
-    );
+    assert_eq!(call(&request).outcome.as_deref(), Some("navigation_failed"));
 }

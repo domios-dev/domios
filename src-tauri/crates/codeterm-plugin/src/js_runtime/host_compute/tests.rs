@@ -240,6 +240,35 @@ impl PluginHostCtx for AnalyticsHost {
     fn local_recording_enabled_json(&self, plugin_id: &str, enabled: bool) -> String {
         recording_reply(self.recordings.set_enabled(plugin_id, enabled))
     }
+    fn step_surface_call_json(
+        &self,
+        plugin: &str,
+        context: &crate::blueprint_step::StepInputContext,
+        verb: &str,
+        args: &str,
+    ) -> String {
+        self.surface_call_json(plugin, &context.request.context.owner, verb, args)
+    }
+    fn agent_run_start_json(
+        &self,
+        plugin: &str,
+        context: &crate::blueprint_step::StepInputContext,
+        _opts: &str,
+    ) -> String {
+        json!({"run": format!("{plugin}:{}", context.request.context.owner)}).to_string()
+    }
+    fn agent_run_wait_json(
+        &self,
+        _plugin: &str,
+        _operation: &str,
+        _run: &str,
+        _deadline: std::time::Instant,
+    ) -> String {
+        json!({"state":"done","text":"opaque answer"}).to_string()
+    }
+    fn agent_run_cancel_json(&self, _plugin: &str, _operation: &str, _run: &str) -> String {
+        json!({"state":"canceled"}).to_string()
+    }
     fn surface_call_json(&self, plugin_id: &str, caller: &str, verb: &str, args: &str) -> String {
         if matches!(verb, "origin-probe" | "origin-sync") {
             let context = crate::surface_invocation::SurfaceInvocationContext {

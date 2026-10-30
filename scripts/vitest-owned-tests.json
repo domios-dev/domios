@@ -371,5 +371,6 @@
   "src/components/MeshPanel/enrollmentRefusal.test.ts",
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
-  "src/hooks/terminal/useXterm.composition.test.tsx"
+  "src/hooks/terminal/useXterm.composition.test.tsx",
+  "plugins/provider-shared/tests/runPromptStep.test.ts"
 ]

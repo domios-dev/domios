@@ -1,30 +1,12 @@
 import assert from "node:assert/strict";
-import type { BlueprintDocument, BlueprintPluginNode } from "../../../lib/blueprintApi";
 import { blueprintNodeKey } from "../blueprintExpansion";
 import { buildIncrementally } from "../blueprintIncremental";
 import { pipelineModel } from "../pipelineModel";
 import { buildBlueprintGraph } from "./graphModel";
-import { layoutBlueprint } from "./layout";
+import { frameBlueprint, layoutBlueprint } from "./layout";
+import { computeFitTransform } from "@codeterm/canvas-camera";
 
-const document: BlueprintDocument = {
-  schema_version: 2, kind: "pipeline", name: "plugin-fixture",
-  trigger: { type: "event", kind: { lit: "fixture" } },
-  steps: [
-    { id: "read", uses: "fixture.read", with: { url: { lit: "https://example.com" }, limit: { lit: 5 } }, routes: { read: "use", busy: "@stop" } },
-    { id: "use", code: { lang: "python", src: "def main(value): return value" }, bind: { in: "read.out.text" } },
-    { id: "gone", uses: "missing.step", routes: {} },
-  ],
-  result: { to: "owner" },
-};
-const pluginNodes: Record<string, BlueprintPluginNode> = {
-  "fixture.read": {
-    available: true, title: "Fixture: read page", plugin: "fixture", description: "Reads one page",
-    inputs: { url: { kind: "text", minItems: 0, maxItems: 1 } },
-    outputs: { text: { kind: "text", minItems: 1, maxItems: 1 }, shot: { kind: "image", minItems: 0, maxItems: 1 } },
-    outcomes: ["read", "busy"],
-  },
-  "missing.step": { available: false },
-};
+import { document, pluginNodes } from "./pluginNodes.testdata";
 
 async function main() {
   const pipeline = pipelineModel({ id: "plugins", name: document.name, state: "idle", run_id: null, current_step: null, last_event_at_ms: null,
@@ -49,12 +31,19 @@ async function main() {
   const gone = model.nodes.find((node) => node.key === blueprintNodeKey([], "gone"))!;
   assert.equal(gone.type, "plugin");
   assert.equal(gone.plugin?.available, false);
-  assert.match(gone.body?.text ?? "", /^Plugin unavailable/);
-  assert.equal(gone.title, "gone");
+  assert.equal(gone.title, "Saved page reader");
+  assert(!model.wires.some(wire => model.nodes.find(node => node.key === wire.to.node)?.control === "stop"), "stop routes never draw edges");
+  assert(read.outputs.find(pin => pin.label === "busy")?.terminal, "stop outcomes terminate at their output port");
 
   const plain = await buildIncrementally(buildBlueprintGraph({ ...pipeline, plugin_nodes: undefined }, new Set()), async () => {}, new AbortController().signal);
   assert.equal(plain.nodes.find((node) => node.key === blueprintNodeKey([], "read"))!.type, "action", "without the payload mark a dotted id is not a plugin");
-  layoutBlueprint(model);
+  const layout = layoutBlueprint(model);
+  const initial = frameBlueprint(layout, {width:380,height:844}, false)!;
+  assert(initial.scale >= 0.75, "a narrow initial view stays readable");
+  const trigger = layout.nodes.find(entry => entry.node.control === "trigger")!.box;
+  assert.equal((trigger.x + trigger.width / 2) * initial.scale + initial.x, 190, "the initial narrow view centres the trigger");
+  assert(frameBlueprint(layout, {width:380,height:844}, true)!.scale >= 0.5, "narrow Fit all keeps its scale floor");
+  assert.deepEqual(frameBlueprint(layout, {width:1280,height:900}, true),computeFitTransform(layout.bounds,1280,900,{maxScale:1,fitPadding:28}),"desktop Fit all is unchanged");
   console.log("Blueprint plugin nodes: typed pins, outcome routes and unavailable state come from payload descriptors");
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });

@@ -36,7 +36,7 @@ fn step_probe(surfaces: bool) -> (Arc<PluginVm>, Arc<dyn PluginHostCtx>) {
     (vm, host)
 }
 
-fn request(owner: &str) -> StepRequest {
+pub(crate) fn request(owner: &str) -> StepRequest {
     StepRequest {
         context: StepContext {
             scope: RunScope {
@@ -81,12 +81,14 @@ fn blueprint_step_surface_call_acts_as_run_owner() {
     let step = JsBlueprintStep::new(vm.clone());
     let text = answered(step.submit(&call(&request)).unwrap());
     assert_eq!(
-        text,
-        r#"step-probe|owner-tab|status|["--of","forged"]"#,
+        text, r#"step-probe|owner-tab|status|["--of","forged"]"#,
         "the surface caller is the host-stamped owner, whatever the params or args say"
     );
     let after: Value = call_json(&vm, "outside", &[]).unwrap();
-    assert_eq!(after["error"], NO_AGENT_CALLER, "the scope ends with the submit");
+    assert_eq!(
+        after["error"], NO_AGENT_CALLER,
+        "the scope ends with the submit"
+    );
 }
 
 #[test]
@@ -106,8 +108,14 @@ fn surface_call_outside_agent_command_or_step_is_refused() {
     );
     let request = request("owner-tab");
     let step = JsBlueprintStep::new(vm);
-    assert_eq!(answered(step.reconcile(&call(&request)).unwrap()), NO_AGENT_CALLER);
-    assert_eq!(answered(step.cancel(&call(&request)).unwrap()), NO_AGENT_CALLER);
+    assert_eq!(
+        answered(step.reconcile(&call(&request)).unwrap()),
+        NO_AGENT_CALLER
+    );
+    assert_eq!(
+        answered(step.cancel(&call(&request)).unwrap()),
+        NO_AGENT_CALLER
+    );
 }
 
 #[test]

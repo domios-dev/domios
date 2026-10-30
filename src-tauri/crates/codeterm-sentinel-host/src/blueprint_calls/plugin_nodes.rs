@@ -4,7 +4,11 @@ use serde_json::{json, Map, Value};
 
 /// The installed descriptor of every plugin step the closure uses, keyed by its `uses`.
 /// A step whose plugin is removed or disabled is listed with `available: false`.
-pub fn collect(registry: &GraphNodeRegistry, closure: &FrozenClosure, into: &mut Map<String, Value>) {
+pub fn collect(
+    registry: &GraphNodeRegistry,
+    closure: &FrozenClosure,
+    into: &mut Map<String, Value>,
+) {
     let documents = std::iter::once(&closure.root.document)
         .chain(closure.callees.values().map(|callee| &*callee.document));
     for node in documents.flat_map(|document| document.nodes()) {

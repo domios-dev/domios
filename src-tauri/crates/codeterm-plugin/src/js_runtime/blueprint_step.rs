@@ -23,9 +23,8 @@ impl JsBlueprintStep {
         let _input_scope =
             crate::blueprint_step::StepInputScope::enter(self.vm.plugin_id(), call, submitting);
         // The host-stamped run owner acts for the submit; the plugin can never name it.
-        let _caller = submitting.then(|| {
-            super::host_surface::AgentCallerScope::enter(&call.request.context.owner)
-        });
+        let _caller = submitting
+            .then(|| super::host_surface::AgentCallerScope::enter(&call.request.context.owner));
         let mut value =
             serde_json::to_value(call.request).map_err(|_| "invalid plugin step request")?;
         value["job"] = serde_json::json!(call.job);
@@ -34,14 +33,32 @@ impl JsBlueprintStep {
             .saturating_duration_since(std::time::Instant::now())
             .as_millis()
             .min(u64::MAX as u128) as u64);
-        call_json_interruptible(
+        let result = call_json_interruptible(
             &self.vm,
             method,
             &[value],
             call.cancellation.clone(),
             call.deadline,
         )
-        .map_err(|_| "plugin step call failed".into())
+        .map_err(|_| "plugin step call failed".into());
+        if submitting {
+            if let (Some(service), Some(context)) = (
+                self.vm.service(),
+                crate::blueprint_step::current_step_input(self.vm.plugin_id()),
+            ) {
+                let surfaces = context.surfaces.lock().clone();
+                for (tab, instance) in surfaces {
+                    service.step_surface_call_json(
+                        self.vm.plugin_id(),
+                        &context,
+                        "close",
+                        &serde_json::json!({"args":[],"surface":{"tab":tab,"instance":instance}})
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        result
     }
 
     fn job_call(&self, method: &str, call: &StepCall<'_>) -> Result<JobUpdate, String> {

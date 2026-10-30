@@ -16,6 +16,8 @@ mod attachment_capabilities;
 mod execution_sandbox;
 #[path = "parity_test/general_offer.rs"]
 mod general_offer;
+#[path = "parity_test/host_agent_run.rs"]
+mod host_agent_run;
 #[path = "parity_test/host_exec.rs"]
 mod host_exec;
 #[path = "parity_test/inline_fixture.rs"]

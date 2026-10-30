@@ -5,6 +5,7 @@
 //! - The provider is the calling plugin's own agentProvider registration (provider id == plugin
 //!   id); a plugin never names a provider and core holds no provider default.
 //! - Workspace, Team and owner come from the host-stamped step request, never from the plugin.
+//! - Cwd must equal the authored step param before trust is answered; ended tabs always close.
 //! - The prompt is the hidden launch's first turn, delivered once by the launch path; nothing
 //!   here resends it.
 //! - Completion is the run watcher's turn-end event. The reply is the last assistant message of
@@ -45,8 +46,8 @@ impl StepRunState {
 
 struct StepRun {
     plugin: String,
+    operation: String,
     tab_id: Option<String>,
-    keep: bool,
     state: StepRunState,
     ended_at: Option<Instant>,
 }
@@ -62,6 +63,7 @@ static RUNS: LazyLock<StepRuns> = LazyLock::new(StepRuns::default);
 /// What a step asks for; scope fields are copied from the host-stamped step request.
 pub struct StepRunRequest {
     pub plugin: String,
+    pub operation: String,
     pub workspace: String,
     pub team: Option<String>,
     pub owner: String,
@@ -69,7 +71,8 @@ pub struct StepRunRequest {
     pub prompt: String,
     pub model: Option<String>,
     pub cwd: String,
-    pub keep: bool,
+    pub timeout_ms: u64,
+    pub sandbox: Option<String>,
 }
 
 /// The canonical existing absolute directory, or why it is refused.
@@ -116,7 +119,7 @@ fn bounded(text: &str) -> String {
     format!("{}{TRUNCATED}", &text[..end])
 }
 
-fn settle(run_id: &str, state: StepRunState) -> Option<(Option<String>, bool)> {
+fn settle(run_id: &str, state: StepRunState) -> Option<Option<String>> {
     let mut runs = RUNS.runs.lock();
     let run = runs.get_mut(run_id)?;
     if run.state.terminal() {
@@ -124,14 +127,14 @@ fn settle(run_id: &str, state: StepRunState) -> Option<(Option<String>, bool)> {
     }
     run.state = state;
     run.ended_at = Some(Instant::now());
-    let ended = (run.tab_id.clone(), run.keep);
+    let ended = run.tab_id.clone();
     drop(runs);
     RUNS.changed.notify_all();
     Some(ended)
 }
 
-fn close_unless_kept(svc: &ServiceContext, ended: Option<(Option<String>, bool)>) {
-    if let Some((Some(tab), false)) = ended {
+fn close_run(svc: &ServiceContext, ended: Option<Option<String>>) {
+    if let Some(Some(tab)) = ended {
         if let Err(error) = svc.close_tab_with_reason(&tab, TabCloseReason::AgentRunEnded) {
             log::debug!("[step-run] close {tab}: {error}");
         }
@@ -159,7 +162,7 @@ pub(crate) fn finish(
             },
         }
     };
-    close_unless_kept(svc, settle(run_id, state));
+    close_run(svc, settle(run_id, state));
 }
 
 /// Own-session messages of a PTY-backed step tab, read before the tab closes.
@@ -177,6 +180,20 @@ pub(crate) fn pty_messages(svc: &ServiceContext, tab_id: &str) -> Result<Vec<Cha
         .map(|(messages, _)| messages)
 }
 
+fn step_permission_bypass(
+    svc: &ServiceContext,
+    plugin: &str,
+    confined: bool,
+) -> Result<Option<super::permission_policy::PermissionBypassAuthorization>, String> {
+    super::permission_policy::spawn_permission_bypass_for(
+        svc,
+        &svc.agent_registry,
+        plugin,
+        false,
+        confined,
+    )
+}
+
 impl ServiceContext {
     /// Spawns the hidden step agent and returns its run id; the prompt is its first turn.
     pub fn start_step_agent_run(&self, request: StepRunRequest) -> Result<String, String> {
@@ -191,6 +208,8 @@ impl ServiceContext {
             return Err(format!("prompt must be 1..{MAX_PROMPT_BYTES} bytes"));
         }
         let cwd = working_dir(&request.cwd)?;
+        let permission_bypass =
+            step_permission_bypass(self, &request.plugin, request.sandbox.is_some())?;
         let run_id = uuid::Uuid::new_v4().simple().to_string();
         let mut params = SpawnAgentParams {
             agent: Some(request.plugin.clone()),
@@ -204,6 +223,9 @@ impl ServiceContext {
             creator_tab_id: Some(request.owner.clone()),
             title: Some(format!("blueprint:{}", request.label)),
             audience: TabAudience::UserOwnedAutomation,
+            skip_permissions: Some(permission_bypass.is_some()),
+            permission_bypass_authorization: permission_bypass,
+            sandbox: request.sandbox,
             spawned_by_tab_id: Some(request.owner),
             ..Default::default()
         };
@@ -220,6 +242,7 @@ impl ServiceContext {
         if let Some(metadata) = spec.chatbackend_launch.as_mut() {
             metadata.owner_linkage = Some(RuntimeOwnerLinkage::StepRun {
                 run_id: run_id.clone(),
+                timeout_seconds: request.timeout_ms.div_ceil(1000),
             });
         }
         if let Some(agent) = spec.agent_launch_mut() {
@@ -228,12 +251,26 @@ impl ServiceContext {
         {
             let mut runs = RUNS.runs.lock();
             runs.retain(|_, run| run.ended_at.is_none_or(|at| at.elapsed() < ENDED_RETENTION));
+            if let Some((id, _)) = runs
+                .iter()
+                .find(|(_, run)| run.plugin == request.plugin && run.operation == request.operation)
+            {
+                return Ok(id.clone());
+            }
+            if runs
+                .values()
+                .filter(|run| run.plugin == request.plugin && !run.state.terminal())
+                .count()
+                >= 32
+            {
+                return Err("too many active step agent runs".into());
+            }
             runs.insert(
                 run_id.clone(),
                 StepRun {
                     plugin: request.plugin.clone(),
+                    operation: request.operation.clone(),
                     tab_id: None,
-                    keep: request.keep,
                     state: StepRunState::Running,
                     ended_at: None,
                 },
@@ -247,13 +284,20 @@ impl ServiceContext {
                 return Err(error);
             }
         };
-        if let Some(run) = RUNS.runs.lock().get_mut(&run_id) {
+        let ended_early = if let Some(run) = RUNS.runs.lock().get_mut(&run_id) {
             run.tab_id = Some(handle.tab_id.clone());
+            run.state.terminal()
+        } else {
+            false
+        };
+        if ended_early {
+            let _ = self.close_tab_with_reason(&handle.tab_id, TabCloseReason::AgentRunEnded);
+            return Ok(run_id);
         }
         if !runtime {
             let pty = self.agent_run_pty_map.lock().get(&handle.tab_id).cloned();
             let Some(pty) = pty else {
-                close_unless_kept(
+                close_run(
                     self,
                     settle(
                         &run_id,
@@ -271,7 +315,7 @@ impl ServiceContext {
                 crate::agent::run_watcher::AgentRunKind::StepRun {
                     run_id: run_id.clone(),
                 },
-                self.configuration().memory.worker_timeout_seconds,
+                request.timeout_ms.div_ceil(1000),
                 None,
             );
         }
@@ -279,10 +323,19 @@ impl ServiceContext {
     }
 
     /// Waits for the run's end event until `deadline`; `running` when the deadline comes first.
-    pub fn wait_step_agent_run(&self, plugin: &str, run_id: &str, deadline: Instant) -> StepRunState {
+    pub fn wait_step_agent_run(
+        &self,
+        plugin: &str,
+        operation: &str,
+        run_id: &str,
+        deadline: Instant,
+    ) -> StepRunState {
         let mut runs = RUNS.runs.lock();
         loop {
-            let Some(run) = runs.get(run_id).filter(|run| run.plugin == plugin) else {
+            let Some(run) = runs
+                .get(run_id)
+                .filter(|run| run.plugin == plugin && run.operation == operation)
+            else {
                 return StepRunState::Unknown;
             };
             if run.state.terminal() {
@@ -297,8 +350,18 @@ impl ServiceContext {
     }
 
     /// Interrupts a runtime turn when the provider has one, then closes the tab.
-    pub fn cancel_step_agent_run(&self, plugin: &str, run_id: &str) -> StepRunState {
-        let tab = match RUNS.runs.lock().get(run_id).filter(|run| run.plugin == plugin) {
+    pub fn cancel_step_agent_run(
+        &self,
+        plugin: &str,
+        operation: &str,
+        run_id: &str,
+    ) -> StepRunState {
+        let tab = match RUNS
+            .runs
+            .lock()
+            .get(run_id)
+            .filter(|run| run.plugin == plugin && run.operation == operation)
+        {
             None => return StepRunState::Unknown,
             Some(run) if run.state.terminal() => return run.state.clone(),
             Some(run) => run.tab_id.clone(),
@@ -309,7 +372,7 @@ impl ServiceContext {
             }
         }
         let ended = settle(run_id, StepRunState::Canceled);
-        if let Some((Some(tab), _)) = ended {
+        if let Some(Some(tab)) = ended {
             let _ = self.close_tab_with_reason(&tab, TabCloseReason::Cancelled);
         }
         StepRunState::Canceled

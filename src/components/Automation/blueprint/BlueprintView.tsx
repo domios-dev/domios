@@ -26,6 +26,7 @@ import { createAutomationCamera, type AutomationCamera } from "./viewport";
 import { singleCadence } from "./triggerModel";
 import { projectRunPath } from "./replayModel";
 import { useRunReplay } from "./useRunReplay";
+import { useBlueprintSheet } from "./useBlueprintSheet";
 
 const DRAWER_MOTION: PresenceMotion = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
 const cameras = new Map<string, AutomationCamera>();
@@ -104,6 +105,8 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
   const body = useElementHeight();
   const opener = useRef<HTMLElement | null>(null);
   const drawer = usePresence<string>(selected, DRAWER_MOTION);
+  const narrow = useBlueprintSheet();
+  const sheetOpen = narrow && (selected !== null || diffOpen);
   const shown = runId === null ? pipeline : pipeline.runs?.find((run) => run.id === runId)?.pipeline ?? null;
   const graphSource = useMemo(() => shown ?? pipeline, [shown, pipeline]);
   const built = useMemo(() => trail.length ? new Set([...expanded, ...trail.map((id, depth) => blueprintNodeKey(trail.slice(0, depth), id))]) : expanded, [expanded, trail]);
@@ -194,8 +197,8 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
   const closeDetails = () => {
     camera.selected = null;
     setSelected(null);
-    if (opener.current?.isConnected && !drawer.ref.current?.contains(opener.current)) opener.current.focus();
-    else body.element?.querySelector<HTMLElement>('[role="region"]')?.focus();
+    const target = opener.current?.isConnected && !drawer.ref.current?.contains(opener.current) ? opener.current : body.element?.querySelector<HTMLElement>('[aria-pressed="true"][data-node-key]');
+    queueMicrotask(() => target?.focus());
   };
   const resizeLog = (height: number) => {
     const next = clampLogHeight(height, available);
@@ -237,7 +240,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
       {onStop && <button type="button" className={`${AUTOMATION_TOOL} bp-stop`} aria-busy={stopping || undefined} disabled={!canStop || stopping} onClick={() => void stop()}><Square size={12} aria-hidden="true" />{stopping ? "Stopping…" : "Stop Blueprint"}</button>}
     </div>
     <div ref={body.ref} data-blueprint-body="" className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div inert={sheetOpen || undefined} aria-hidden={sheetOpen || undefined} className="flex min-h-0 min-w-0 flex-1 flex-col">
         {shown && shown.historical_graph_available !== false && !error && !shown.projection_error && graph
           ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={shownLayout ?? graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={path?.wires ?? new Set()} litNodes={path?.nodes} historical={path?.dim} active={path?.active} callouts={replay.step === replayEvents.length ? callouts : []} values={path?.model ?? graph.model}
             notices={notices} crumbs={crumbs} panelOpen={selected !== null || diffOpen} toolbar={history ? runsToggle : undefined} />
@@ -290,18 +293,18 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
           </div>
         </>}
       </div>
-      {diffOpen && loadHistory && <div className="plan-side-panel-layer">
-        <DetailsFrame label="Semantic diff" title={<h3 className="plan-side-panel__title">Semantic diff</h3>} onClose={() => setDiffOpen(false)}>
+      {diffOpen && loadHistory && <div className="plan-side-panel-layer" data-blueprint-sheet={narrow || undefined}>
+        <DetailsFrame modal={narrow} label="Semantic diff" title={<h3 className="plan-side-panel__title">Semantic diff</h3>} onClose={() => setDiffOpen(false)}>
           <BlueprintSemanticDiff load={loadHistory} />
         </DetailsFrame>
       </div>}
-      {!diffOpen && drawer.state && drawer.item !== null && graph && <div className="plan-side-panel-layer">
+      {!diffOpen && drawer.state && drawer.item !== null && graph && <div className="plan-side-panel-layer" data-blueprint-sheet={narrow || undefined}>
         <BlueprintNodeDetails key={drawer.item} node={shownNode} model={path?.model ?? graph.model}
           call={shownNode?.definition ? expandedCall(graphSource, shownNode.callPath, shownNode.definition.id) : undefined}
           expanded={shownNode ? expanded.has(shownNode.key) : false}
           onExpand={() => shownNode && setExpanded((current) => toggleBlueprintExpansion(current, shownNode.key))}
           onOpen={shownNode?.callee?.openable ? () => drill(shownNode.key) : undefined}
-          onClose={closeDetails} panelRef={drawer.ref} presence={drawer.state} />
+          onClose={closeDetails} panelRef={drawer.ref} presence={drawer.state} modal={narrow} />
       </div>}
     </div>
   </section>;

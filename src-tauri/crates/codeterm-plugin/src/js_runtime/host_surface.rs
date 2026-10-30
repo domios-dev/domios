@@ -3,6 +3,8 @@
 //! the pipeline) while JsBlueprintStep runs `blueprintSubmit`. Reconcile, cancel and every other
 //! entry point have no caller. The plugin can never name the caller; core resolves ownership,
 //! declared verbs and attribution before returning a view dispatch.
+//! A step receives a separate surface on open; every later call supplies that exact tab and
+//! instance, checked against the host-owned submit scope. Owner surfaces are never adopted.
 //! `invalidate` needs the same grant plus an opted-in declaration and exact live instance.
 //! It accepts at most 1024 bytes of identity only, never FS paths, command data or credentials.
 
@@ -59,7 +61,12 @@ pub(crate) fn surface_call(sandbox: &PluginSandbox, verb: &str, args_json: &str)
         return err(NO_AGENT_CALLER);
     };
     match sandbox.service() {
-        Some(svc) => svc.surface_call_json(sandbox.plugin_id(), &caller, verb, args_json),
+        Some(svc) => match crate::blueprint_step::current_step_input(sandbox.plugin_id()) {
+            Some(context) if context.submitting => {
+                svc.step_surface_call_json(sandbox.plugin_id(), &context, verb, args_json)
+            }
+            _ => svc.surface_call_json(sandbox.plugin_id(), &caller, verb, args_json),
+        },
         None => err("host service unavailable"),
     }
 }
@@ -121,6 +128,6 @@ pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result
 #[cfg(test)]
 mod continuation_tests;
 #[cfg(test)]
-mod step_tests;
+pub(crate) mod step_tests;
 #[cfg(test)]
 mod tests;

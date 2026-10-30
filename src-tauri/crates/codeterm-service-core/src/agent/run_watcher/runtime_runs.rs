@@ -62,10 +62,15 @@ impl RunWatcherRegistry {
                 tab.into(),
                 RuntimeRun {
                     nonce: nonce.clone(),
-                    kind,
+                    kind: kind.clone(),
                     armed: false,
                     ended_turn: false,
-                    completion: None,
+                    completion: matches!(&kind, AgentRunKind::StepRun { .. }).then(|| {
+                        RuntimeCompletion {
+                            summary: "agent turn completed".into(),
+                            barrier: super::cron_completion::CompletionBarrier::default(),
+                        }
+                    }),
                     reported: false,
                     cancelled,
                 },
@@ -353,46 +358,47 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let (kind, timeout) = if let Some(crate::service::spawn::RuntimeOwnerLinkage::StepRun {
             run_id,
+            timeout_seconds,
         }) = &metadata.owner_linkage
         {
             (
                 AgentRunKind::StepRun {
                     run_id: run_id.clone(),
                 },
-                self.configuration().memory.worker_timeout_seconds,
+                *timeout_seconds,
             )
         } else if let Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) =
             &metadata.owner_linkage
         {
-                let timeout = self
-                    .try_ext::<crate::CronState>()
-                    .and_then(|cron| cron.lock().get(job_id).and_then(|job| job.timeout_seconds))
-                    .unwrap_or(self.configuration().memory.worker_timeout_seconds);
-                (
-                    AgentRunKind::Cron {
-                        job_id: job_id.clone(),
-                        run_id: run_id.clone(),
-                    },
-                    timeout,
-                )
-            } else if let Some(worker_id) = &metadata.agent.worker_id {
-                let intent = self
-                    .workers
-                    .get(worker_id)
-                    .map(|worker| worker.intent)
-                    .unwrap_or_default();
-                (
-                    AgentRunKind::MemWorker {
-                        worker_id: worker_id.clone(),
-                    },
-                    crate::mem::worker_deadline::worker_deadline_secs(
-                        &intent,
-                        &self.configuration().memory,
-                    ),
-                )
-            } else {
-                return Ok(());
-            };
+            let timeout = self
+                .try_ext::<crate::CronState>()
+                .and_then(|cron| cron.lock().get(job_id).and_then(|job| job.timeout_seconds))
+                .unwrap_or(self.configuration().memory.worker_timeout_seconds);
+            (
+                AgentRunKind::Cron {
+                    job_id: job_id.clone(),
+                    run_id: run_id.clone(),
+                },
+                timeout,
+            )
+        } else if let Some(worker_id) = &metadata.agent.worker_id {
+            let intent = self
+                .workers
+                .get(worker_id)
+                .map(|worker| worker.intent)
+                .unwrap_or_default();
+            (
+                AgentRunKind::MemWorker {
+                    worker_id: worker_id.clone(),
+                },
+                crate::mem::worker_deadline::worker_deadline_secs(
+                    &intent,
+                    &self.configuration().memory,
+                ),
+            )
+        } else {
+            return Ok(());
+        };
         self.run_watcher.register_runtime(self, tab, kind, timeout)
     }
 }
