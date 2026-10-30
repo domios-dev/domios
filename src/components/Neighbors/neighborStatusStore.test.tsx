@@ -148,3 +148,18 @@ it("shares receiver status on open across concurrent consumers", async () => {
   expect(runtime.status).toHaveBeenCalledTimes(1);
   expect(seen).toEqual([true, true, true]);
 });
+
+it.each([4, 5])("keeps an unversioned friend event at revision %s when its reread returns the old receiver", async revision => {
+  const initial = { enrolled: true, bindings: {}, friend_receivers: {
+    first: { ...receiver(false, 4), receiver_machine_label: "Studio" },
+  } };
+  const { runtime, emit } = client(Promise.resolve(initial), Promise.resolve(initial));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: ReturnType<typeof useReceiverState> = null;
+  const Probe = () => { seen = useReceiverState(runtime, true, "first"); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  await act(async () => emit({ ...receiver(false, revision), receiver_machine_label: "Laptop", friendship_id: "first" }));
+  expect(seen).toMatchObject({ revision, receiver_machine_label: "Laptop" });
+});

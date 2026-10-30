@@ -50,3 +50,16 @@ it("machine-slot refusal shows the counts and exposes existing machine-removal c
   await act(async () => button("Manage machines").click());
   expect(document.querySelector('[aria-label="Manage machines"]')).not.toBeNull();
 });
+
+it("invalidates an open confirmation when the named machine changes at the same revision", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); unmount = () => act(() => root.unmount());
+  const receive = vi.fn(async () => {});
+  const show = (machine: string) => <NeighborReceiveHere receiver={{ ...receiver, receiver_machine_label: machine }} friendName="Ada" initiallyOpen onReceive={receive} />;
+  await act(async () => root.render(show("Studio")));
+  await act(async () => root.render(show("Laptop")));
+  await act(async () => button("Receive this friend here").click());
+  expect(receive).not.toHaveBeenCalled();
+  await act(async () => button("Receive this friend here").click());
+  expect(receive).toHaveBeenCalledExactlyOnceWith(9);
+});

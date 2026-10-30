@@ -21,7 +21,8 @@ export function NeighborReceiveHere({ receiver, onReceive, friendName, targetMac
   initiallyOpen?: boolean;
   onClose?: () => void;
 }) {
-  const [confirming, setConfirming] = useState<number | null>(initiallyOpen ? receiver.revision : null);
+  const binding = JSON.stringify([receiver.revision, receiver.receiver_machine_label, receiver.receiving_here, receiver.receiving_enabled, operation, targetMachine]);
+  const [confirming, setConfirming] = useState<string | null>(initiallyOpen ? binding : null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<ReturnType<typeof receiverFailureDescription> | null>(null);
   const [keyLimited, setKeyLimited] = useState(false);
@@ -29,9 +30,9 @@ export function NeighborReceiveHere({ receiver, onReceive, friendName, targetMac
   const label = operation === "reset" ? "Stop receiving this friend" : "Receive this friend here";
   const close = () => { setConfirming(null); onClose?.(); };
   if (confirming === null) {
-    return <div className="neighbors-receive">{operation === "set" && !receiver.receiving_here && receiver.receiving_enabled && <p className="neighbor-note">{friendName} is received on {receiver.receiver_machine_label ?? "another machine"}. Move here?</p>}<Button size="sm" onClick={() => { setError(null); setConfirming(receiver.revision); }}>{label}</Button></div>;
+    return <div className="neighbors-receive">{operation === "set" && !receiver.receiving_here && receiver.receiving_enabled && <p className="neighbor-note">{friendName} is received on {receiver.receiver_machine_label ?? "another machine"}. Move here?</p>}<Button size="sm" onClick={() => { setError(null); setConfirming(binding); }}>{label}</Button></div>;
   }
-  const stale = confirming !== receiver.revision;
+  const stale = confirming !== binding;
   return <div role="group" aria-label={`Receive ${friendName} on this machine`} className="ct-card ct-card--static neighbors-receive neighbors-receive--confirm">
     {stale && <p className="neighbor-note">Receiving changed. Confirm again to receive here.</p>}
     <p className="ct-card__meta">{takeoverWarning(receiver, targetMachine, friendName, operation)}</p>
@@ -42,7 +43,7 @@ export function NeighborReceiveHere({ receiver, onReceive, friendName, targetMac
       onFailure={() => setError(receiverFailureDescription(null))} />}
     <div className="neighbor-confirm__actions">
       <Button size="sm" variant="primary" loading={busy} onClick={() => {
-        if (stale) { setConfirming(receiver.revision); return; }
+        if (stale) { setConfirming(binding); return; }
         setBusy(true); setError(null); setKeyLimited(false);
         void onReceive(receiver.revision).then(close,
           (failure: unknown) => {

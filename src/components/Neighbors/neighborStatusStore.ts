@@ -29,6 +29,15 @@ function keepNewerReceiver(fresh: NeighborStatusSnapshot, current: NeighborStatu
   if (current.friend_receivers_version !== undefined && current.friend_receivers_version > (fresh.friend_receivers_version ?? -1)) {
     next = { ...next, friend_receivers: current.friend_receivers, friend_receivers_version: current.friend_receivers_version };
   }
+  if (fresh.friend_receivers_version === undefined || current.friend_receivers_version === undefined
+    || fresh.friend_receivers_version === current.friend_receivers_version) {
+    const receivers = { ...next.friend_receivers };
+    for (const [id, receiver] of Object.entries(current.friend_receivers ?? {})) {
+      const observed = receivers[id];
+      if (observed && receiver.revision >= observed.revision) receivers[id] = receiver;
+    }
+    next = { ...next, friend_receivers: receivers };
+  }
   return next;
 }
 
