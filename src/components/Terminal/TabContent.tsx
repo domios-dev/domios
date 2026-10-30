@@ -4,7 +4,7 @@ import { transcriptWindowKey, useTranscriptWindow } from "./transcriptStore";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { RestoreStatePanel } from "./RestoreStatePanel";
 import { DeferredPresence } from "../shared/DeferredPresence";
-import { restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
+import { restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "../../lib/restoreStageView";
 import { useWakeOnOpen } from "./useWakeOnOpen";
 import { TerminalTab } from "./TerminalTab";
 import { useLayoutEffect, useRef } from "react";
@@ -186,7 +186,7 @@ export function TabContent({
           </div>
         )}
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
-          <DeferredPresence present={isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restore.phase !== "ready" || wake.pending || (hasCachedTranscript && !bodyPainted))}
+          <DeferredPresence present={isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}
             className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
             {restore.phase === "failed"
               ? <div className="pointer-events-auto"><InlineErrorNotice error={restore.detail} operation="resuming this session" /></div>
