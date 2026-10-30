@@ -20,7 +20,7 @@ export function ProviderCard({ provider, selected, onSelect }: ProviderCardProps
       data-selected={selected ? "yes" : "no"}
       aria-pressed={selected}
       onClick={onSelect}
-      className={`agent-provider-card ct-liquid-interactive ct-panel-card relative cursor-pointer ${PROVIDER_CARD_LAYOUT}`}
+      className={`agent-provider-card ct-panel-card relative cursor-pointer ${PROVIDER_CARD_LAYOUT}`}
     >
       {provider.badge && <span className="agent-provider-card-badge">{provider.badge}</span>}
       <span className="agent-provider-card-selection" aria-hidden="true">
