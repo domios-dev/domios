@@ -1,8 +1,6 @@
 use super::*;
 use crate::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
-use crate::agent::provider::{
-    AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
-};
+use crate::agent::provider::{AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery};
 use crate::lock_hold::TimedRwLock;
 use crate::multiplexer::state::MultiplexerState;
 use crate::service::chat_send_transaction::ChatSendState;
@@ -30,11 +28,7 @@ impl AgentProvider for SourcedJsonlProvider {
         None
     }
 
-    fn build_resume_command(
-        &self,
-        _session_id: &str,
-        _skip_permissions: bool,
-    ) -> Option<String> {
+    fn build_resume_command(&self, _session_id: &str, _skip_permissions: bool) -> Option<String> {
         None
     }
 
@@ -407,9 +401,7 @@ fn stale_session_sink_cannot_supply_delivery_evidence_after_rebind() {
 /// from an attributable bound-session turn, with no readiness machinery.
 #[test]
 fn missing_store_send_confirms_from_attributable_bound_session_turn() {
-    use crate::service::chat_send_transaction::{
-        ChatSendLedger, ChatSendState, SendLiveBinding,
-    };
+    use crate::service::chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding};
 
     let (state, tab_id) = MultiplexerState::new();
     let mux = Arc::new(TimedRwLock::new("chat-send-live-confirm-test", state));
