@@ -96,6 +96,7 @@ pub(super) fn startup_error(message: &str) -> Error {
         Error::LocalKeyUnavailable,
         Error::SecretStore,
         Error::Refused,
+        Error::Unavailable,
         Error::InstallationUnverified,
     ] {
         if message == error.to_string() {

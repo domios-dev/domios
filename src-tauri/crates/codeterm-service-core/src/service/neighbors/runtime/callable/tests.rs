@@ -313,6 +313,9 @@ fn http_status_body_matrix_keeps_permanent_failures_out_of_recovery() {
     for body in bodies {
         for status in [401, 403, 404, 429, 500, 503] {
             let error = classify_callable_error(status, body.as_ref(), Some(60));
+            if status == 404 {
+                assert_eq!(error, Error::Unavailable);
+            }
             assert_eq!(
                 codeterm_neighbors::supervisor::retryable(error),
                 !matches!(status, 403 | 404),

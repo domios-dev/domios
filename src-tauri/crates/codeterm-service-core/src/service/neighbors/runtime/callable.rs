@@ -258,6 +258,7 @@ fn classify_callable_error(status: u16, body: Option<&Value>, retry_after: Optio
         .unwrap_or(0)
         .max(retry_after.unwrap_or(0));
     match status {
+        404 => Error::Unavailable,
         403 => match structured {
             Error::Refused
             | Error::Transport
