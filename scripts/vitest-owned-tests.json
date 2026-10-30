@@ -145,6 +145,7 @@
   "plugins/analytics/tests/plugin.test.ts",
   "plugins/browser/tests/plugin.test.ts",
   "plugins/browser/tests/atomic.test.ts",
+  "plugins/browser/tests/blueprintStep.test.ts",
   "plugins/analytics/ui/src/model/model.test.ts",
   "plugins/analytics/ui/src/Dashboard.test.tsx",
   "plugins/analytics/ui/src/Dashboard.freshness.test.tsx",

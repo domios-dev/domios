@@ -33,6 +33,8 @@ const MAX_RESTARTS: u32 = 2;
 pub enum AgentRunKind {
     MemWorker { worker_id: String },
     Cron { job_id: String, run_id: String },
+    /// A Blueprint step's one-prompt agent; its end settles `step_agent_run`.
+    StepRun { run_id: String },
 }
 
 #[derive(Debug, Default)]
@@ -956,6 +958,17 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
                     cwd: run_cwd.as_deref(),
                 },
             );
+        }
+        AgentRunKind::StepRun { run_id } => {
+            if let Some(attempt) = crate::service::launch_readiness::LaunchAttempt::current(
+                &svc.mux,
+                &state.tab_id,
+                &state.pty_id,
+            ) {
+                crate::service::launch_readiness::retire_attempt(&attempt);
+            }
+            let messages = crate::service::step_agent_run::pty_messages(svc, &state.tab_id);
+            crate::service::step_agent_run::finish(svc, run_id, success, summary, messages);
         }
     }
 }

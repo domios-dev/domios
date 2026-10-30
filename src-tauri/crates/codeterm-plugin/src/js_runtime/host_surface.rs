@@ -1,5 +1,8 @@
-//! Host API audit: `call` requires `surfaces` and a host-scoped onAgentCommand caller;
-//! core resolves ownership, declared verbs and attribution before returning a view dispatch.
+//! Host API audit: `call` requires `surfaces` and a host-scoped caller: the agent of the running
+//! onAgentCommand, or the run owner (`request.context.owner`, the Blueprint creator tab stamped by
+//! the pipeline) while JsBlueprintStep runs `blueprintSubmit`. Reconcile, cancel and every other
+//! entry point have no caller. The plugin can never name the caller; core resolves ownership,
+//! declared verbs and attribution before returning a view dispatch.
 //! `invalidate` needs the same grant plus an opted-in declaration and exact live instance.
 //! It accepts at most 1024 bytes of identity only, never FS paths, command data or credentials.
 
@@ -14,13 +17,13 @@ use super::vm::VmError;
 
 pub(crate) const SURFACE_DENIED: &str = "host.surface: surfaces permission required";
 pub(crate) const NO_AGENT_CALLER: &str =
-    "host.surface.call acts for the calling agent and is only available inside onAgentCommand";
+    "host.surface.call acts for the calling agent and is only available inside onAgentCommand or a Blueprint step submit";
 
 thread_local! {
     static AGENT_CALLER: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
-/// Core-stamped caller of the running `onAgentCommand`; the plugin cannot name another agent.
+/// Core-stamped caller of the running `onAgentCommand` or step submit; the plugin cannot name another.
 pub(crate) struct AgentCallerScope {
     previous: Option<String>,
 }
@@ -117,5 +120,7 @@ pub(super) fn install(host: &Object<'_>, sandbox: &Arc<PluginSandbox>) -> Result
 
 #[cfg(test)]
 mod continuation_tests;
+#[cfg(test)]
+mod step_tests;
 #[cfg(test)]
 mod tests;

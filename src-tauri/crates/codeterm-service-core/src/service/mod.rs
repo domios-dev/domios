@@ -193,6 +193,7 @@ mod shell_restart;
 pub use shell_restart::{ShellCommandSubmission, ShellRestartOutcome};
 pub mod smart_add;
 pub mod spawn;
+pub mod step_agent_run;
 pub mod spawn_capability;
 mod spawn_chatbackend;
 mod spawn_cli;

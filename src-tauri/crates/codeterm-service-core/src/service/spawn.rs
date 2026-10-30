@@ -116,6 +116,7 @@ pub(crate) struct RuntimeForkLaunch {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RuntimeOwnerLinkage {
     CronRun { job_id: String, run_id: String },
+    StepRun { run_id: String },
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]

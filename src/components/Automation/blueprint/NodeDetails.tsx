@@ -63,8 +63,15 @@ export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, on
         <dt>Last probe</dt><dd>{eventTime(node.trigger.runtime?.lastAt ?? null) ?? "Not recorded"}</dd>
       </Facts>
     </section>}
+    {node.plugin?.available === false && <p role="status" className="bp-notice" data-tone="held">Plugin unavailable: install or enable its plugin to run this node.</p>}
     {definition?.does && <p className="ct-detail__prose m-0">{definition.does}</p>}
-    {node.body && !definition?.does && node.body.kind === "text" && <p className="ct-detail__prose m-0">{node.body.text}</p>}
+    {node.body && !definition?.does && node.body.kind === "text" && node.plugin?.available !== false && <p className="ct-detail__prose m-0">{node.body.text}</p>}
+    {node.plugin && <section aria-label="Parameters" className="ct-detail__block">
+      <h4 className={SECTION}>Parameters</h4>
+      {node.plugin.params.length
+        ? <Facts>{node.plugin.params.map(([name, value]) => <Fragment key={name}><dt>{name}</dt><dd className="ct-detail__mono">{value}</dd></Fragment>)}</Facts>
+        : <p className="ct-job-note">No parameters set.</p>}
+    </section>}
     {definition && <Facts>
       <dt>Node ID</dt><dd className="ct-detail__mono">{definition.id}</dd>
       <dt>Kind</dt><dd>{node.kindLabel}{definition.uses ? ` (${definition.uses})` : ""}</dd>

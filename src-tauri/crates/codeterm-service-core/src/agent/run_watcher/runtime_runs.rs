@@ -262,6 +262,13 @@ impl RunWatcherRegistry {
         let output = serde_json::to_string(&runtime_messages(tab)).unwrap_or_default();
         log::debug!("[run-watcher.runtime] end tab={tab} success={success} timed_out={timed_out} reported={}", run.reported);
         match run.kind {
+            AgentRunKind::StepRun { run_id } => crate::service::step_agent_run::finish(
+                svc,
+                &run_id,
+                success,
+                summary,
+                Ok(runtime_messages(tab)),
+            ),
             AgentRunKind::Cron { job_id, run_id } => cron_end::finish(
                 svc,
                 cron_end::EndedCronRun {
@@ -344,10 +351,19 @@ impl ServiceContext {
         tab: &str,
         metadata: &crate::service::spawn::ChatBackendLaunchMetadata,
     ) -> Result<(), String> {
-        let (kind, timeout) =
-            if let Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) =
-                &metadata.owner_linkage
-            {
+        let (kind, timeout) = if let Some(crate::service::spawn::RuntimeOwnerLinkage::StepRun {
+            run_id,
+        }) = &metadata.owner_linkage
+        {
+            (
+                AgentRunKind::StepRun {
+                    run_id: run_id.clone(),
+                },
+                self.configuration().memory.worker_timeout_seconds,
+            )
+        } else if let Some(crate::service::spawn::RuntimeOwnerLinkage::CronRun { job_id, run_id }) =
+            &metadata.owner_linkage
+        {
                 let timeout = self
                     .try_ext::<crate::CronState>()
                     .and_then(|cron| cron.lock().get(job_id).and_then(|job| job.timeout_seconds))

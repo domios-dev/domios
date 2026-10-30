@@ -87,3 +87,92 @@ fn plugin_steps_registration_requires_declared_exports_and_revokes_snapshots() {
     };
     assert!(snapshot.adapter.submit(&call).is_err());
 }
+
+#[test]
+fn browser_manifest_declares_read_page_step() {
+    use crate::host_traits::PluginHostCtx;
+    let manifest = PluginManifest::from_json_str(include_str!(
+        "../../../../../../plugins/browser/plugin.json"
+    ))
+    .expect("browser manifest parses");
+    let sandbox = Arc::new(
+        crate::js_runtime::host_api::PluginSandbox::restricted(vec![], vec![])
+            .with_identity_and_perms("browser", &manifest.permissions),
+    );
+    let vm = Arc::new(
+        super::super::PluginVm::from_source_sandboxed(
+            "browser",
+            include_str!("../../../../../../plugins/browser/plugin.js").into(),
+            None,
+            sandbox,
+        )
+        .unwrap(),
+    );
+    let host: Arc<dyn PluginHostCtx> =
+        Arc::new(crate::js_runtime::host_compute::tests::AnalyticsHost::default());
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let caps = test_caps();
+    caps.register_plugin(&manifest, &vm);
+    let steps = caps.graph_nodes.steps();
+    assert_eq!(
+        steps
+            .iter()
+            .map(|step| step.descriptor.id.as_str())
+            .collect::<Vec<_>>(),
+        ["browser.read_page"]
+    );
+    let step = &steps[0];
+    assert_eq!(step.plugin, "browser");
+    assert_eq!(
+        step.descriptor.outcomes,
+        ["read", "navigation_failed", "needs_human", "browser_busy"]
+    );
+    assert_eq!(
+        step.descriptor.inputs.keys().collect::<Vec<_>>(),
+        ["url"]
+    );
+    assert_eq!(
+        step.descriptor.outputs.keys().collect::<Vec<_>>(),
+        ["final_url", "text"]
+    );
+    assert!(!step.descriptor.lifecycle.reconcile && !step.descriptor.lifecycle.cancel);
+    // The fake host answers status as a live browser, so the real bundle stops at browser_busy.
+    let mut request = StepRequest {
+        context: StepContext {
+            scope: RunScope {
+                workspace: "w".into(),
+                team: None,
+                run: "r".into(),
+            },
+            owner: "owner-tab".into(),
+            node: "read".into(),
+            attempt: "attempt".into(),
+            operation: "operation".into(),
+            node_label: String::new(),
+            input_lineage: vec![],
+        },
+        node_type: "browser.read_page".into(),
+        revision: 1,
+        params: json!({"url":"https://example.com"}),
+        inputs: Default::default(),
+    };
+    let call = |request: &StepRequest| {
+        step.adapter
+            .submit(&StepCall {
+                request,
+                job: None,
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(5),
+                cancellation: Default::default(),
+            })
+            .unwrap()
+    };
+    let busy = call(&request);
+    assert_eq!(busy.state, OperationState::Succeeded);
+    assert_eq!(busy.outcome.as_deref(), Some("browser_busy"));
+    step.descriptor.validate_values(&busy.outputs, true).unwrap();
+    request.params = json!({"url":"file:///etc/passwd"});
+    assert_eq!(
+        call(&request).outcome.as_deref(),
+        Some("navigation_failed")
+    );
+}

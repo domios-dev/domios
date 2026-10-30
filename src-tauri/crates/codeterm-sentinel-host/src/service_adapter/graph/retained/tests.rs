@@ -82,7 +82,14 @@ fn blueprint_v2_project_each_run_uses_its_immutable_callee_and_own_journal() {
         &BTreeSet::new(),
         &codeterm_plugin::graph_events::SubscriptionTable::new(),
     );
-    project(&mut view, std::slice::from_ref(&job), &journals, &versions).unwrap();
+    project(
+        &mut view,
+        std::slice::from_ref(&job),
+        &journals,
+        &versions,
+        &Default::default(),
+    )
+    .unwrap();
     let root = &view.blueprints[0];
     assert_eq!(root["graph_definition_version"], 2);
     assert_eq!(
@@ -114,6 +121,7 @@ fn blueprint_v2_project_each_run_uses_its_immutable_callee_and_own_journal() {
             expected
                 .map(|(_, version)| version)
                 .or_else(|| (id == "evicted").then_some(99)),
+            &Default::default(),
         )
         .unwrap();
         for field in [

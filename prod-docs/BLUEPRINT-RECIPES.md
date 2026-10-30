@@ -49,4 +49,21 @@ Built-in names remain stable as inputs change, so re-apply retargets the existin
 
 Full format, validation diagnostics, editor schema and sharing: `domios docs BLUEPRINTS`.
 
-<!-- revision: 17 -->
+## Read a web page into the next node
+
+The Browser plugin's `browser.read_page` node opens a browser for the run, reads the page text and closes the browser. `domios blueprint nodes` lists it. The code node below gets the redacted page text and returns its first line. Route `browser_busy`, `needs_human` and `navigation_failed` to a notify node, or to `@stop`, when the run should report them.
+
+```yaml
+- id: read
+  uses: browser.read_page
+  with: {url: {lit: "https://example.com"}, limit: {lit: 50}}
+  outcomes: [read, navigation_failed, needs_human, browser_busy]
+  routes: {read: first_line, navigation_failed: "@stop", needs_human: "@stop", browser_busy: "@stop"}
+- id: first_line
+  code: {lang: python, src: 'def main(value): return value.splitlines()[0]'}
+  bind: {in: read.out.text}
+```
+
+`domios docs BROWSER` (section *Blueprint node*) explains the parameters and outcomes.
+
+<!-- revision: 18 -->

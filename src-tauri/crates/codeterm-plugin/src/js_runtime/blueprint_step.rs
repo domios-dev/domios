@@ -19,11 +19,13 @@ impl JsBlueprintStep {
         if call.cancellation.is_cancelled() || std::time::Instant::now() >= call.deadline {
             return Err("plugin step interrupted".into());
         }
-        let _input_scope = crate::blueprint_step::StepInputScope::enter(
-            self.vm.plugin_id(),
-            call,
-            method == "blueprintSubmit",
-        );
+        let submitting = method == "blueprintSubmit";
+        let _input_scope =
+            crate::blueprint_step::StepInputScope::enter(self.vm.plugin_id(), call, submitting);
+        // The host-stamped run owner acts for the submit; the plugin can never name it.
+        let _caller = submitting.then(|| {
+            super::host_surface::AgentCallerScope::enter(&call.request.context.owner)
+        });
         let mut value =
             serde_json::to_value(call.request).map_err(|_| "invalid plugin step request")?;
         value["job"] = serde_json::json!(call.job);

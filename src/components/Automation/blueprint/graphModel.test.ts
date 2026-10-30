@@ -35,8 +35,8 @@ function assertGeometry(model: BlueprintGraphModel, layout: BlueprintLayout) {
 }
 
 async function main() {
-  const bindings: { binding: string; node: string | null }[] = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-bindings.json", import.meta.url), "utf8"));
-  for (const fixture of bindings) assert.deepEqual(splitBinding(fixture.binding), fixture.node === null ? null : { node: fixture.node, port: "out" }, fixture.binding);
+  const bindings: { binding: string; node: string | null; selection: string | null }[] = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-bindings.json", import.meta.url), "utf8"));
+  for (const fixture of bindings) assert.deepEqual(splitBinding(fixture.binding), fixture.node === null ? null : { node: fixture.node, port: "out", selection: fixture.selection }, fixture.binding);
   const faninContract = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-fanin.golden.json", import.meta.url), "utf8"));
   const faninGraph = await buildIncrementally(buildBlueprintGraph(pipelineModel(faninContract), new Set()), async () => {}, new AbortController().signal);
   const incoming = faninGraph.wires.filter((wire) => wire.kind === "data" && wire.to.node === key([], "join"));

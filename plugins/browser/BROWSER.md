@@ -135,4 +135,19 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 `snapshot --json --with-text --out evidence/page.json` and `text 12000 --out evidence/page.txt` save redacted output directly into the calling agent's pad and return its path. Relative paths resolve against the caller's pad, including with `--of`. Absolute paths must remain inside that pad. Parent traversal, symlinks/reparse points and Windows device names refuse.
 
-<!-- revision: 7 -->
+## Blueprint node
+
+`uses: browser.read_page` reads one page inside a Blueprint run. The run owner (the Tab that created the Blueprint) gets its own browser for the run, so the user can watch it live. The node closes that browser before it finishes, on success and on failure.
+
+- `with:` takes `url` (http or https, at most 2048 characters), an optional `wait_text`, and `limit`, the number of text lines to keep (default 200, at most 2000). A bound `url` input from an earlier node wins over `with.url`.
+- Outputs: `text` (the page text, with credentials redacted) and `final_url`. Bind them downstream as `read.out.text` and `read.out.final_url`.
+- Outcomes:
+  - `read`: the page was read.
+  - `navigation_failed`: the URL is invalid, navigation or `wait_text` failed, or the step deadline was too short.
+  - `needs_human`: `status` reported a captcha, login or dialog.
+  - `browser_busy`: the owner already has a browser open.
+- With `browser_busy`, the node leaves that browser alone: it does not navigate, read or close it. Close it, or create the Blueprint from another Tab, before you run the node again.
+
+On every outcome other than `read`, `text` holds the reason.
+
+<!-- revision: 8 -->
