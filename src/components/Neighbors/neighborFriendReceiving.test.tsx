@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import type { NeighborList } from "./neighborModel";
 import type { NeighborClient } from "./neighborClient";
-import type { ReferralClaim } from "./referralTrial";
 import type { NeighborRuntimeClient, ReceiverState } from "./neighborRuntimeClient";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { NeighborConversationView } from "./NeighborConversationView";
@@ -47,8 +46,7 @@ function receiving(ada: ReceiverState): NeighborRuntimeClient {
 }
 function friends(list: NeighborList["friends"]): NeighborClient {
   const value: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: list, incoming: [], outgoing: [] };
-  return { list: vi.fn(async () => value), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  return { list: vi.fn(async () => value), apply: vi.fn(async () => {}) };
 }
 async function mount(node: React.ReactNode) {
   const host = document.createElement("div"); document.body.append(host);

@@ -51,8 +51,6 @@ pub struct NeighborRuntimeCell {
     pub(super) failures: parking_lot::Mutex<HashMap<String, Value>>,
     pending_counts: parking_lot::Mutex<HashMap<String, u64>>,
     names: parking_lot::Mutex<HashMap<String, String>>,
-    control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    control_start: tokio::sync::Mutex<()>,
     control_cancel: tokio::sync::Notify,
     pub(super) watch_states: parking_lot::Mutex<std::collections::BTreeMap<String, Value>>,
     bootstrapped: std::sync::atomic::AtomicBool,
@@ -767,38 +765,12 @@ impl ServiceContext {
         }
     }
 
-    pub(super) async fn neighbor_receiver_changed(
-        &self,
-        friendship: Option<&str>,
-    ) -> Result<(), String> {
-        self.require_neighbors_enabled()
-            .map_err(|e| e.to_string())?;
-        self.forget_neighbor_registry();
-        if let Some(friendship) = friendship {
-            self.stop_neighbor_concierge_listener(friendship);
-            let version = self.forget_neighbor_friend_receiver(friendship);
-            self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":version}));
-        } else {
-            let version = self.forget_neighbor_friend_receivers();
-            self.ui.emit(
-                "neighbor-runtime-status",
-                json!({"receiver_unavailable":true,"friend_receivers_version":version}),
-            );
-        }
-        self.neighbor_operation(owner::Operation::ReceiverChanged)
-            .await?;
-        Ok(())
-    }
-
     pub(super) fn pause_neighbor_reception(&self) {
         self.forget_neighbor_friend_receivers();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
-        if let Some(task) = self.neighbor_cell().control.lock().take() {
-            task.abort();
-        }
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped
@@ -806,6 +778,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.reset_neighbor_projection();
         self.forget_neighbor_friend_receivers();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
@@ -814,9 +787,6 @@ impl ServiceContext {
         self.neighbor_cell().pauses.clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
-        if let Some(task) = self.neighbor_cell().control.lock().take() {
-            task.abort();
-        }
         self.stop_neighbor_updates();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell()

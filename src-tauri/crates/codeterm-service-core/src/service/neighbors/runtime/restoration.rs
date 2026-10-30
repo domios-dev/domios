@@ -98,9 +98,6 @@ impl ServiceContext {
             if !super::super::updates::receives_friends(&list, &registry.installation_id) {
                 return Ok(true);
             }
-            let transport = self.neighbor_transport(&registry)?;
-            self.watch_neighbor_receiver(transport.clone(), generation)
-                .await?;
             self.neighbor_operation(owner::Operation::ReceiverChanged)
                 .await?;
             Ok(true)

@@ -1,24 +1,20 @@
 use crate::service::ServiceContext;
-use codeterm_neighbors::{supervisor::reconnect_delay, Error, Result};
+use codeterm_neighbors::{Error, Result};
 use serde_json::Value;
 use std::{
     future::Future,
     sync::atomic::{AtomicU64, Ordering},
-    time::Instant,
 };
 
 #[derive(Default)]
 struct State {
     key: Option<(String, u64)>,
     result: Option<Result<Value>>,
-    failures: usize,
     rearmed: u64,
-    retry_at: Option<Instant>,
 }
 
 #[derive(Default)]
 struct ReadGate {
-    session_cached: bool,
     state: tokio::sync::Mutex<State>,
     rearmed: AtomicU64,
 }
@@ -28,8 +24,6 @@ impl ReadGate {
         &self,
         key: (String, u64),
         locked: bool,
-        now: impl Fn() -> Instant,
-        jitter: impl Fn() -> u64,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
         if locked {
@@ -43,32 +37,10 @@ impl ReadGate {
                 ..State::default()
             };
         } else if let Some(result) = &state.result {
-            if self.session_cached
-                || result.is_ok() && rearmed == state.rearmed
-            {
-                return result.clone();
-            }
-            if let Err(error) = result {
-                let permanent = !codeterm_neighbors::supervisor::retryable(*error);
-                if permanent && rearmed == state.rearmed
-                    || !permanent && state.retry_at.is_some_and(|at| now() < at)
-                {
-                    return Err(*error);
-                }
-            }
+            if rearmed == state.rearmed { return result.clone(); }
         }
         state.rearmed = rearmed;
         let result = load.await;
-        match result {
-            Ok(_) => {
-                state.failures = 0;
-                state.retry_at = None;
-            }
-            Err(_) => {
-                state.failures = state.failures.saturating_add(1);
-                state.retry_at = Some(now() + reconnect_delay(state.failures, jitter()));
-            }
-        }
         state.result = Some(result.clone());
         result
     }
@@ -78,27 +50,10 @@ impl ReadGate {
     }
 }
 
+#[derive(Default)]
 struct Reads {
     locked: parking_lot::Mutex<Option<bool>>,
     list: ReadGate,
-    receiver: ReadGate,
-    keys: ReadGate,
-    claims: ReadGate,
-}
-
-impl Default for Reads {
-    fn default() -> Self {
-        Self {
-            locked: Default::default(),
-            list: Default::default(),
-            receiver: Default::default(),
-            keys: Default::default(),
-            claims: ReadGate {
-                session_cached: true,
-                ..Default::default()
-            },
-        }
-    }
 }
 
 impl ServiceContext {
@@ -127,7 +82,6 @@ impl ServiceContext {
                 *previous = Some(locked);
             }
             if locked {
-                service.stop_neighbor_updates();
                 service.pause_neighbor_reception();
                 if let Some(account) = service
                     .ext::<crate::service::account::AccountCell>()
@@ -158,13 +112,12 @@ impl ServiceContext {
         generation: u64,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
-        let locked = self.neighbor_access_locked().await;
+        if let Some(value) = self.neighbor_projection_read(uid, generation, route).await? { return Ok(value); }
+        if matches!(route, "friendsOwnKeys" | "friendsReceiverStatus") { return Err(Error::Transport); }
+        let locked = self.neighbor_access_locked().await && route != "friendsList";
         let reads = self.extensions.get_or_init(Reads::default);
         let gate = match route {
             "friendsList" => &reads.list,
-            "friendsReceiverStatus" => &reads.receiver,
-            "friendsOwnKeys" => &reads.keys,
-            "claimReferralTrial" => &reads.claims,
             _ => {
                 return if locked {
                     Err(Error::Locked)
@@ -176,18 +129,7 @@ impl ServiceContext {
         gate.read(
             (uid.to_owned(), generation),
             locked,
-            Instant::now,
-            rand::random,
-            async {
-                if route == "claimReferralTrial" {
-                    let metadata = super::storage::Metadata::new(
-                        self.account_data_root().map_err(|_| Error::CursorStore)?, uid,
-                    );
-                    super::referral::claim_once(&metadata, load).await
-                } else {
-                    load.await
-                }
-            },
+            load,
         )
         .await
     }
@@ -196,17 +138,9 @@ impl ServiceContext {
         self.extensions.get_or_init(Reads::default).list.rearm();
     }
 
-    pub(in crate::service::neighbors) fn invalidate_neighbor_inventory(&self) {
-        let reads = self.extensions.get_or_init(Reads::default);
-        reads.keys.rearm();
-        reads.receiver.rearm();
-    }
-
     pub(crate) fn rearm_neighbor_reads(&self) {
         let reads = self.extensions.get_or_init(Reads::default);
         reads.list.rearm();
-        reads.receiver.rearm();
-        reads.keys.rearm();
         self.rearm_neighbor_updates();
         self.rearm_neighbor_restoration();
     }

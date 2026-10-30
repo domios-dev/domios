@@ -75,6 +75,7 @@ class StatusStore extends SharedRead<NeighborStatusSnapshot> {
       this.write({ ...this.value, concierges: { ...(this.value.concierges ?? {}), [payload.friendship_id]: payload } });
     }).then(keep);
     void listen("neighbor-agent-changed", reread).then(keep);
+    void listen("account-changed", () => { if (this.live) resetNeighborStatus(); }).then(keep);
     void this.read(load).catch(() => {});
   }
 
@@ -83,13 +84,13 @@ class StatusStore extends SharedRead<NeighborStatusSnapshot> {
 
 export function useNeighborStatus(client: NeighborRuntimeClient, active: boolean): NeighborStatusSnapshot | null {
   const generation = useSyncExternalStore(subscribeReset, () => statusGeneration);
-  const [status, setStatus] = useState<NeighborStatusSnapshot | null>(null);
+  const [snapshot, setSnapshot] = useState<{ generation: number; value: NeighborStatusSnapshot | null }>({ generation, value: null });
   useEffect(() => {
-    if (!active) { setStatus(null); return; }
+    if (!active) { setSnapshot({ generation, value: null }); return; }
     let store = stores.get(client);
     if (!store) { store = new StatusStore(client); stores.set(client, store); activeStores.add(store); }
-    setStatus(store.value ?? null);
-    return store.subscribe(setStatus);
+    setSnapshot({ generation, value: store.value ?? null });
+    return store.subscribe(value => setSnapshot({ generation, value }));
   }, [active, client, generation]);
-  return status;
+  return active && snapshot.generation === generation ? snapshot.value : null;
 }

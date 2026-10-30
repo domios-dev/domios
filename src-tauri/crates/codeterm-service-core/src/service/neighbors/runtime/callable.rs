@@ -77,9 +77,6 @@ impl AuthenticatedCall for Calls {
         );
     }
     async fn id_token(&self) -> Result<Zeroizing<String>> {
-        if self.service.neighbor_access_locked().await {
-            return Err(Error::Locked);
-        }
         let mut session = self.session().await?;
         let failed = {
             let mut failures = self
@@ -213,9 +210,6 @@ impl Calls {
         };
         self.validate_session(&session).await?;
         let result = body.get("result").cloned().ok_or(Error::Transport)?;
-        if matches!(route, "friendsEnrollVerifierKey" | "friendsRevokeVerifierKey" | "friendsSetFriendReceiver") {
-            self.service.invalidate_neighbor_inventory();
-        }
         if matches!(route, "friendsEnrollVerifierKey" | "friendsRevokeVerifierKey" | "friendsSetFriendReceiver" | "friendsSetPaused" | "friendsSetDailyLimit" | "friendsSetFileDailyLimit") {
             self.service.invalidate_neighbor_list();
             self.service.forget_neighbor_registry();

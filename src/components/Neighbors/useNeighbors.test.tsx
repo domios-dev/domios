@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { useNeighbors } from "./useNeighbors";
 import type { NeighborClient } from "./neighborClient";
 import type { NeighborList } from "./neighborModel";
-import { neighborReads } from "./neighborReads";
+import { neighborReads, resetNeighborReads } from "./neighborReads";
 
 const bridge = vi.hoisted(() => ({ handlers: new Map<string, Set<(event: { payload: unknown }) => void>>() }));
 vi.mock("../../lib/bridge", () => ({ listen: async (event: string, handler: (event: { payload: unknown }) => void) => {
@@ -17,7 +17,7 @@ vi.mock("../../lib/bridge", () => ({ listen: async (event: string, handler: (eve
 let mounted: { root: ReturnType<typeof createRoot>; host: HTMLDivElement } | null = null;
 const states: ReturnType<typeof useNeighbors>[] = [];
 const list: NeighborList = { schema_version: 1, access: "paid", can_invite: false, friends: [], incoming: [], outgoing: [] };
-const client = (): NeighborClient => ({ list: vi.fn(async () => list), apply: vi.fn(async () => {}), claimReferralTrial: vi.fn() });
+const client = (): NeighborClient => ({ list: vi.fn(async () => list), apply: vi.fn(async () => {}) });
 function Harness({ port, index, identity = "owner" }: { port: NeighborClient; index: number; identity?: string }) {
   states[index] = useNeighbors(identity, port);
   return null;
@@ -33,6 +33,7 @@ const emit = (event: string, payload: unknown = {}) => {
 afterEach(async () => {
   if (mounted) { await act(async () => mounted!.root.unmount()); mounted.host.remove(); mounted = null; }
   bridge.handlers.clear();
+  resetNeighborReads();
   vi.restoreAllMocks();
 });
 
@@ -52,10 +53,8 @@ it("counts exactly one initial read across four consumers, ten focus events and 
     await act(async () => root.render(<Harness port={port} index={0} />));
   }
   expect(port.list).toHaveBeenCalledTimes(1);
-  expect(port.claimReferralTrial).toHaveBeenCalledTimes(0);
   await act(async () => emit("neighbors-changed", { uid: "owner", list: null }));
   expect(port.list).toHaveBeenCalledTimes(2);
-  expect(port.claimReferralTrial).toHaveBeenCalledTimes(0);
 });
 
 it("consumes own-account snapshots even with no mounted view and ignores foreign pushes", async () => {
@@ -107,17 +106,15 @@ it("keeps account snapshots isolated and bounds sign-in refreshes without claimi
   await act(async () => root.render(<Harness port={port} index={0} identity="second" />));
   expect(neighborReads(port, "second")).not.toBe(first);
   expect(port.list).toHaveBeenCalledTimes(3);
-  expect(port.claimReferralTrial).not.toHaveBeenCalled();
 });
 
 it("carries the server's persisted referral receipt in the shared snapshot", async () => {
   const port = client();
-  const referral = { schema_version: 1 as const, outcome: "already_granted" as const, trial_end: 1700604800, friend_request_id: null };
-  vi.mocked(port.list).mockResolvedValue({ ...list, referral });
+  const referral = { state: "granted" as const, inviter_uid: "inviter", trial_end: 1700604800, friend_request_id: null };
+  vi.mocked(port.list).mockResolvedValue({ ...list, referral_trial: referral });
   const root = mount();
   await act(async () => root.render(<Harness port={port} index={0} />));
   expect(states[0].referral).toEqual(referral);
   await act(async () => states[0].refresh());
   expect(port.list).toHaveBeenLastCalledWith(undefined, true);
-  expect(port.claimReferralTrial).not.toHaveBeenCalled();
 });

@@ -44,11 +44,6 @@ fn registry_commands_match_server_callables_without_extra_fields() {
         (json!({"operation":"list"}), "friendsList", json!({})),
         (json!({"operation":"refresh"}), "friendsList", json!({})),
         (
-            json!({"operation":"claim_referral_trial"}),
-            "claimReferralTrial",
-            json!({}),
-        ),
-        (
             json!({"operation":"request","email":"friend@example.test"}),
             "friendsRequest",
             json!({"email":"friend@example.test"}),
@@ -76,8 +71,8 @@ fn registry_commands_match_server_callables_without_extra_fields() {
     for input in [
         json!({"operation":"friendsSend"}),
         json!({"operation":"list","uid":"other"}),
-        json!({"operation":"claim_referral_trial","uid":"other"}),
-        json!({"operation":"claim_referral_trial","trial_end":1700604800}),
+        json!({"operation":"unknown_operation","uid":"other"}),
+        json!({"operation":"unknown_operation","trial_end":1700604800}),
         json!({"operation":"request","email":"friend@example.test","plan":"pro"}),
     ] {
         assert!(serde_json::from_value::<NeighborCommand>(input).is_err());

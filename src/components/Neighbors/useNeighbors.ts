@@ -66,6 +66,6 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
   }
 
   const list = loaded.identity === identity ? loaded.list : null;
-  return { list, referral: list?.referral ?? null,
+  return { list, referral: list?.referral_trial ?? null,
     error: loaded.identity === identity ? loaded.error : null, pending, apply, refresh };
 }

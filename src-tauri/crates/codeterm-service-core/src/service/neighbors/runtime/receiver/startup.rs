@@ -153,11 +153,8 @@ impl ServiceContext {
         if !super::super::super::updates::receives_friends(&list, &registry.installation_id) {
             self.reconcile_neighbor_friend_receiver_rows(&metadata, &registry, &list, None, generation).await?;
             self.stop_neighbor_listeners();
-            if let Some(task) = self.neighbor_cell().control.lock().take() { task.abort(); }
             return Ok(());
         }
-        self.watch_neighbor_receiver(transport.clone(), generation)
-            .await?;
         let lifecycle = InstallationKeys {
             store: &self
                 .neighbor_key_store()

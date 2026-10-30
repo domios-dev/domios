@@ -1,52 +1,5 @@
 use super::*;
 
-struct NoCalls;
-#[async_trait::async_trait]
-impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
-    async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
-        panic!("No callable is needed while startup is cancelled");
-    }
-    async fn id_token(&self) -> codeterm_neighbors::Result<Zeroizing<String>> {
-        panic!("No authentication is needed while startup is cancelled");
-    }
-}
-
-#[tokio::test]
-async fn off_cancels_watch_start_even_while_an_earlier_connection_holds_the_gate() {
-    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let service = &fixture.service;
-    let held = service.neighbor_cell().control_start.lock().await;
-    let child = service.clone();
-    let (started, entered) = tokio::sync::oneshot::channel();
-    let task = tokio::spawn(async move {
-        started.send(()).unwrap();
-        child
-            .watch_neighbor_receiver(
-                Arc::new(FirebaseTransport {
-                    calls: Arc::new(NoCalls),
-                    uid: "owner".into(),
-                    project: "invalid/project".into(),
-                    installation_id: "machine".into(),
-                }),
-                child.neighbor_history_generation(),
-            )
-            .await
-    });
-    entered.await.unwrap();
-    service
-        .ext::<crate::config::ConfigState>()
-        .lock()
-        .neighbors
-        .enabled = false;
-    service.pause_neighbor_reception();
-    assert_eq!(
-        task.await.unwrap().unwrap_err(),
-        Error::Disabled.to_string()
-    );
-    drop(held);
-}
-
 #[tokio::test]
 async fn friend_receiver_fence_requires_current_enabled_installation_and_revision() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();

@@ -180,3 +180,13 @@ it("shares one runtime read and subscription across four consumers and five view
   expect(runtime.status).toHaveBeenCalledTimes(1);
   expect(runtime.subscribe).toHaveBeenCalledTimes(1);
 });
+
+it("replaces mounted consumers' shared status when the account generation resets", async () => {
+  const { runtime } = client(Promise.resolve(status(true, 9)), Promise.resolve(status(false, 1)));
+  const probe = show(runtime, true);
+  await probe.first;
+  expect(probe.seen[probe.seen.length - 1]).toBe(true);
+  await act(async () => resetNeighborStatus());
+  expect(probe.seen[probe.seen.length - 1]).toBe(false);
+  expect(runtime.status).toHaveBeenCalledTimes(2);
+});

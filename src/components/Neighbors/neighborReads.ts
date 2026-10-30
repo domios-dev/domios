@@ -3,7 +3,13 @@ import { SharedRead } from "../../lib/sharedRead";
 import type { NeighborClient } from "./neighborClient";
 import { parseNeighbors, type NeighborList } from "./neighborModel";
 
-const clients = new WeakMap<NeighborClient, Map<string, NeighborReads>>();
+let clients = new WeakMap<NeighborClient, Map<string, NeighborReads>>();
+const activeReads = new Set<NeighborReads>();
+
+export function resetNeighborReads() {
+  for (const reads of activeReads) reads.dispose();
+  clients = new WeakMap();
+}
 
 class NeighborReads {
   readonly list = new SharedRead<NeighborList>(undefined, Infinity);
@@ -39,7 +45,7 @@ class NeighborReads {
     };
   }
 
-  dispose() { this.stopReloads?.(); }
+  dispose() { this.stopReloads?.(); activeReads.delete(this); }
 }
 
 export function neighborReads(client: NeighborClient, identity: string | null) {
@@ -48,6 +54,6 @@ export function neighborReads(client: NeighborClient, identity: string | null) {
   if (!identity) { for (const reads of accounts.values()) reads.dispose(); accounts.clear(); return null; }
   if (accounts.size > 0 && !accounts.has(identity)) { for (const reads of accounts.values()) reads.dispose(); accounts.clear(); }
   let reads = accounts.get(identity);
-  if (!reads) { reads = new NeighborReads(identity); accounts.set(identity, reads); }
+  if (!reads) { reads = new NeighborReads(identity); accounts.set(identity, reads); activeReads.add(reads); }
   return reads;
 }

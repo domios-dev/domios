@@ -81,7 +81,7 @@ impl AuthenticatedCall for Evidence {
                 }
                 Ok(json!(ids
                     .iter()
-                    .map(|id| json!({"key_id":id}))
+                    .map(|id| json!({"verifier_key_id":id}))
                     .collect::<Vec<_>>()))
             }
             "friendsRevokeVerifierKey" => {

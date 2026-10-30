@@ -147,6 +147,11 @@ impl ServiceContext {
         } else {
             files::send_envelope(transport, &signed, &attachments).await
         };
+        if result.is_ok() {
+            if let Err(error) = self.record_neighbor_send(metadata, &transport.uid, &friendship, generation).await {
+                log::debug!("[neighbors] local send count unavailable: {error}");
+            }
+        }
         let status = match &result {
             Ok(status) => *status,
             Err(Error::Transport) => codeterm_neighbors::wire::DeliveryStatus::Pending,
