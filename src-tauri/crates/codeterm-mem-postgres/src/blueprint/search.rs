@@ -1,9 +1,9 @@
+use crate::executor::Transaction;
 use crate::queries;
 use codeterm_mem::{
     backend::blueprint::SolutionCandidates, embedder::StampedVector, search::SearchConfig,
     SearchQuery,
 };
-use postgres::Transaction;
 
 pub(super) fn candidates(
     tx: &mut Transaction<'_>,

@@ -1,10 +1,10 @@
 use super::metadata;
+use crate::executor::Transaction;
 use crate::items;
 use codeterm_blueprint_types::blueprint_memory::CuratorEvidence;
 use codeterm_mem::{
     backend::WriteContext, solution_metadata::SolutionMetadata, store::MemUpdate, NewMemItem,
 };
-use postgres::Transaction;
 pub(super) fn save(
     tx: &mut Transaction<'_>,
     ctx: &WriteContext,

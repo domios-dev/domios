@@ -1,3 +1,4 @@
+use crate::executor::Transaction;
 mod recall;
 pub(crate) use recall::{matched_entities_in, recall_with_embedding_in, scoped_vectors_in};
 
@@ -6,7 +7,7 @@ use codeterm_mem::{
     store::{GraphDump, GraphDumpStats, GraphEdge, GraphNode, TailEntry},
     MemItem, MemStats, SearchHit, SearchQuery,
 };
-use postgres::{types::ToSql, Transaction};
+use postgres::types::ToSql;
 use std::collections::{HashMap, HashSet};
 
 pub(crate) fn items_in(

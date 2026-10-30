@@ -1,9 +1,9 @@
+use crate::executor::Transaction;
 use crate::{db_error, items, StoreResult};
 use codeterm_mem::{
     layers::{self, ScoreParts},
     WakeUpOptions,
 };
-use postgres::Transaction;
 
 pub(crate) fn generate_in(tx: &mut Transaction<'_>, opts: &WakeUpOptions) -> StoreResult<String> {
     let identity = if opts.include_l0 {

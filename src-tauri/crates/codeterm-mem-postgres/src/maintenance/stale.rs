@@ -1,11 +1,11 @@
 use crate::db_error;
+use crate::executor::Transaction;
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use codeterm_mem::{
     backend::WriteContext,
     curation::calibration::stale::{utc_day_start, StaleSelection, STALE_ACTOR},
 };
 use codeterm_types::config::DreamHygieneConfig;
-use postgres::Transaction;
 use serde_json::{json, Value};
 const PREDICATE: &str = include_str!("stale_predicate.sql");
 pub(super) fn run(

@@ -17,6 +17,7 @@ codeterm-mem-store = { path = "../../../crates/mem-store" }
 postgres = "0.19"
 pgvector = { version = "0.4", features = ["postgres"] }
 r2d2 = "0.8"
+rayon = "1"
 r2d2_postgres = "0.18"
 parking_lot = "0.12"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +28,7 @@ sha2 = "0.10"
 ulid = "1"
 
 [dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros"] }
 codeterm-mem-postgres = { path = ".", features = ["test-support"] }
 codeterm-mem = { path = "../codeterm-mem", default-features = false, features = ["test-support"] }
 tempfile = "3"

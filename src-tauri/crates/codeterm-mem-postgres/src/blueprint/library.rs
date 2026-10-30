@@ -1,4 +1,5 @@
 use super::{calls, index, metadata, SOURCE};
+use crate::executor::Transaction;
 use crate::{db_error, items};
 use codeterm_blueprint_types::blueprint_memory::{self as model, Entry, MERGE_BUDGET};
 use codeterm_mem::{
@@ -13,7 +14,6 @@ use codeterm_mem::{
     store::MemUpdate,
     MemKind, MemScope, NewMemItem,
 };
-use postgres::Transaction;
 
 pub(super) fn save(
     tx: &mut Transaction<'_>,

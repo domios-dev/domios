@@ -1,5 +1,5 @@
+use crate::executor::Transaction;
 use crate::{db_error, vectors, PostgresMemStore};
-use postgres::Transaction;
 mod dreaming;
 mod layout;
 mod purge;

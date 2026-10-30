@@ -1,8 +1,8 @@
+use crate::executor::Transaction;
 use crate::{db_error, PostgresMemStore};
 use codeterm_mem::dreaming::recluster::ReclusterReport;
 use codeterm_mem_store::plan_format::{self, ClusterAction, ClusterPlan};
 use codeterm_types::agent::models::resolve_model_id;
-use postgres::Transaction;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 const SUMMARY_TRUNC: usize = 120;

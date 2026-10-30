@@ -1,12 +1,16 @@
+use crate::executor::Transaction;
+use crate::executor::{Client, Manager};
 use codeterm_mem::backend::MemStore;
 use parking_lot::Mutex;
-use postgres::{Config, NoTls, Transaction};
-use r2d2_postgres::PostgresConnectionManager;
+use postgres::Config;
+#[cfg(test)]
+use postgres::NoTls;
 use std::{sync::Arc, time::Duration};
 
 mod blueprint;
 mod curation;
 mod engines;
+mod executor;
 mod fence;
 mod graph;
 pub use fence::MigrationLease;
@@ -22,7 +26,6 @@ mod vectors;
 mod wake_up;
 
 pub type StoreResult<T> = Result<T, String>;
-type Manager = PostgresConnectionManager<NoTls>;
 
 #[derive(Clone, Debug)]
 pub struct PostgresOptions {
@@ -78,8 +81,8 @@ impl std::error::Error for PostgresOpenError {}
 #[derive(Debug)]
 struct SilentPoolErrors;
 
-impl r2d2::HandleError<postgres::Error> for SilentPoolErrors {
-    fn handle_error(&self, _error: postgres::Error) {}
+impl r2d2::HandleError<std::io::Error> for SilentPoolErrors {
+    fn handle_error(&self, _error: std::io::Error) {}
 }
 
 #[derive(Clone)]
@@ -108,7 +111,7 @@ impl PostgresMemStore {
             .min_idle(Some(0))
             .connection_timeout(Duration::from_secs(5))
             .error_handler(Box::new(SilentPoolErrors))
-            .build(PostgresConnectionManager::new(config, NoTls))
+            .build(Manager::new(config))
             .map_err(|_| PostgresOpenError::Connection)?;
         if fence.exclusive {
             let mut conn = fence.client.lock();
@@ -174,7 +177,7 @@ impl PostgresMemStore {
 
     fn transaction_on<T, E: From<String>>(
         &self,
-        conn: &mut postgres::Client,
+        conn: &mut Client,
         wait: bool,
         f: impl FnOnce(&mut Transaction<'_>) -> Result<T, E>,
     ) -> Result<T, E> {
@@ -209,7 +212,7 @@ impl PostgresMemStore {
 
     fn nontransactional_write<T>(
         &self,
-        f: impl FnOnce(&mut postgres::Client) -> StoreResult<T>,
+        f: impl FnOnce(&mut Client) -> StoreResult<T>,
     ) -> StoreResult<T> {
         let _gate = self.gate.lock();
         if self.read_only {

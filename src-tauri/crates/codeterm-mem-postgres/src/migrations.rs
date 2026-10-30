@@ -1,10 +1,10 @@
+use crate::executor::{Client, GenericClient};
 use crate::{db_error, StoreResult};
-use postgres::Client;
 
 pub(crate) const VERSION: i64 = 2;
 
 pub(crate) fn verify_version(
-    client: &mut impl postgres::GenericClient,
+    client: &mut impl GenericClient,
     schema: &str,
 ) -> Result<(), crate::PostgresOpenError> {
     let table = format!("{schema}.mem_schema_version");

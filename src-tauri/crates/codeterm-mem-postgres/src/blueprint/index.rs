@@ -1,10 +1,10 @@
+use crate::executor::Transaction;
 use crate::{db_error, vectors};
 use codeterm_mem::{
     backend::WriteContext,
     blueprint_library::index::{valid_dimension, IndexRow, Slot, VectorKey, Vectors},
     embedder::{ActiveEmbedder, EmbedderIdentity},
 };
-use postgres::Transaction;
 
 pub(super) fn write_row(tx: &mut Transaction<'_>, id: &str, row: &IndexRow) -> Result<(), String> {
     let signature = serde_json::to_string(&row.signature).map_err(|error| error.to_string())?;

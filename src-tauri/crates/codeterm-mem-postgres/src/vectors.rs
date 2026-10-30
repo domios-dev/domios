@@ -1,9 +1,9 @@
+use crate::executor::Transaction;
 use crate::{db_error, PostgresMemStore, StoreResult};
 use codeterm_mem::embedder::{
     index::{vector_id, InsertOutcome},
     EmbedderIdentity, StampedVector,
 };
-use postgres::Transaction;
 use std::collections::BTreeMap;
 
 pub(crate) fn decode(bytes: &[u8]) -> StoreResult<Vec<f32>> {

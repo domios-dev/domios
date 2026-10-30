@@ -1,4 +1,5 @@
 use super::SOURCE;
+use crate::executor::Transaction;
 use crate::{db_error, items};
 use codeterm_blueprint_types::{
     blueprint_document::{
@@ -8,7 +9,6 @@ use codeterm_blueprint_types::{
     blueprint_memory::parse_document,
 };
 use codeterm_mem::blueprint_library::catalog;
-use postgres::Transaction;
 use std::cell::RefCell;
 
 pub(super) struct ScopedResolver<'a, 'b> {

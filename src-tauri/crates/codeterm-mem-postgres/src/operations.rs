@@ -1,3 +1,4 @@
+use crate::executor::Transaction;
 use crate::{db_error, items, queries, PostgresMemStore, StoreResult};
 use codeterm_mem::{
     backend::{Deletion, WriteContext},
@@ -8,7 +9,7 @@ use codeterm_mem::{
 };
 use std::{sync::Arc, time::Duration};
 
-fn sync_status(tx: &mut postgres::Transaction<'_>) -> StoreResult<serde_json::Value> {
+fn sync_status(tx: &mut Transaction<'_>) -> StoreResult<serde_json::Value> {
     let row=tx.query_one("SELECT count(*) FILTER (WHERE source_path IS NOT NULL),count(*) FILTER (WHERE source_path IS NOT NULL AND tags_json LIKE '%source-missing%') FROM mem_items", &[]).map_err(db_error)?;
     Ok(serde_json::json!({"tracked_files":row.get::<_,i64>(0),"stale_files":row.get::<_,i64>(1)}))
 }
