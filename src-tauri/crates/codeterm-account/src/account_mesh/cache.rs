@@ -73,7 +73,10 @@ impl AccountMesh {
             .map(|row| row.target())
     }
 
-    pub(super) async fn restore_admission(&self, signed: &Signed) -> bool {
+    pub(super) async fn restore_admission(
+        &self,
+        signed: &Signed,
+    ) -> Result<bool, super::AccountMeshRefusal> {
         let candidate = self.with(|inner| {
             if inner.state.membership.is_some() || inner.record.signed_out {
                 return None;
@@ -85,13 +88,13 @@ impl AccountMesh {
             ))
         });
         let Some((cache, binding, slot)) = candidate else {
-            return false;
+            return Ok(false);
         };
         if binding.key_id != signed.key.key_id() {
-            return false;
+            return Ok(false);
         }
         let Ok(grant) = parse_membership_token(&cache.token) else {
-            return false;
+            return Ok(false);
         };
         let Ok(verified) = verify_membership(
             &grant,
@@ -105,7 +108,7 @@ impl AccountMesh {
             },
             cache.issued_at,
         ) else {
-            return false;
+            return Ok(false);
         };
         let long_lease = verified.is_current(self.now())
             && verified.expires_at.saturating_sub(verified.issued_at) > 3600;
@@ -153,24 +156,9 @@ impl AccountMesh {
             true
         });
         if restored && long_lease {
-            if let Err(refusal) = self.read_registry(signed).await {
-                let authoritative = matches!(
-                    refusal,
-                    super::AccountMeshRefusal::Forbidden
-                        | super::AccountMeshRefusal::Revoked
-                        | super::AccountMeshRefusal::KeyConflict
-                );
-                if authoritative {
-                    self.with(|inner| {
-                        if inner.is_current(signed.epoch) {
-                            inner.update(&self.watch, |state| state.membership = None);
-                        }
-                    });
-                }
-                return true;
-            }
-            return true;
+            self.list_fresh().await?;
+            return Ok(true);
         }
-        false
+        Ok(false)
     }
 }

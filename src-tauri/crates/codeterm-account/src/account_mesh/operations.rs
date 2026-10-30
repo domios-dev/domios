@@ -330,11 +330,30 @@ impl AccountMesh {
                 inner.rejoin_required = true;
             }
         });
-        let observed_registry = self.restore_admission(&signed).await;
-        if !observed_registry
-            && self.with(|inner| inner.record.peer_presence_refresh && !inner.rejoin_required)
-        {
-            let _ = self.list_fresh().await;
+        let observation = match self.restore_admission(&signed).await {
+            Ok(false)
+                if self
+                    .with(|inner| inner.record.peer_presence_refresh && !inner.rejoin_required) =>
+            {
+                self.list_fresh().await.map(|_| ())
+            }
+            result => result.map(|_| ()),
+        };
+        match observation {
+            Err(
+                AccountMeshRefusal::Forbidden
+                | AccountMeshRefusal::Revoked
+                | AccountMeshRefusal::KeyConflict
+                | AccountMeshRefusal::GenerationMismatch,
+            ) => self.with(|inner| {
+                if inner.is_current(epoch) {
+                    inner.rejoin_required = true;
+                    inner.record.admission_cache = None;
+                    inner.update(&self.watch, |state| state.membership = None);
+                }
+            }),
+            Err(AccountMeshRefusal::Cancelled) => return Err(AccountMeshRefusal::Cancelled),
+            _ => {}
         }
         let now = self.now();
         let current = self.with(|inner| {

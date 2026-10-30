@@ -331,3 +331,41 @@ async fn account_mesh_fresh_signin_observes_current_short_lease_once_without_rot
         assert_eq!(harness.calls("recover_key"), 0);
     }
 }
+
+#[tokio::test]
+async fn account_mesh_fresh_signin_registry_refusal_recovers_short_and_long_cached_leases() {
+    for seconds in [3600, 86400] {
+        for restart in [false, true] {
+            let mut harness = Harness::new().await;
+            *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+            harness.registry.script.lock().unwrap().membership_seconds = Some(seconds);
+            harness.sign_in(UID).await;
+            harness
+                .mesh
+                .refresh(EnrollTrigger::Automatic)
+                .await
+                .unwrap();
+            let old = harness.state().self_installation.clone().unwrap();
+            harness.registry.revoke_self(UID);
+            if restart {
+                harness.restart().await;
+                harness.sign_in(UID).await;
+            }
+            harness.mesh.enrollment_signed_in();
+            harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
+            let state = harness.state();
+            let own = state.self_installation.as_ref().unwrap();
+            assert_eq!(own.key_generation, old.key_generation + 1);
+            assert_ne!(own.key_id, old.key_id);
+            assert!(state.current_membership(START).is_some());
+            assert_eq!(state.publication, Publication::Published);
+            assert_eq!(harness.calls("list"), 2);
+            assert_eq!(harness.calls("renew"), 0);
+            assert_eq!(harness.calls("recover_key"), 1);
+            assert_eq!(harness.calls("recover"), 1);
+            harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+            assert_eq!(harness.calls("list"), 2);
+            assert_eq!(harness.calls("recover_key"), 1);
+        }
+    }
+}
