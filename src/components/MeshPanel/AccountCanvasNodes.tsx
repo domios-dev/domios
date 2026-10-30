@@ -26,10 +26,10 @@ const PILL_TONE: Record<MachineTone, "green" | "accent" | "muted" | "amber" | "r
 
 const COMPACT_GHOST = `${UI_BUTTON.ghost} ${UI_BUTTON.compact}`;
 const COMPACT_ACCENT = `${UI_BUTTON.accent} ${UI_BUTTON.compact}`;
-const NODE_FRAME = "flex flex-col gap-2 rounded-md bg-[var(--ct-bg)] px-3.5 py-3 text-left shadow-sm";
+const NODE_FRAME = "ct-card flex flex-col gap-2 px-3.5 py-3 text-left";
 
 export function MachineReauthentication({ signingIn, onSignIn }: { signingIn: boolean; onSignIn: () => void }) {
-  return <div role="group" aria-label="Add this machine to your mesh" className="flex flex-col gap-2 border-t border-[var(--ct-border)] px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
+  return <div role="group" aria-label="Add this machine to your mesh" className="flex flex-col gap-2 px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
     <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{REAUTH_REQUIRED_COPY}</p>
     <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
       {signingIn ? "Signing in…" : "Rejoin mesh"}
@@ -69,10 +69,9 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
   const lock = meshMachineLockedView(node.row);
   const action = node.action;
   const seen = node.online || node.lastSeenAt === null ? null : formatAge(node.lastSeenAt * 1000, now);
-  const solid = node.tone === "ok" || node.tone === "progress";
   return (
     <section aria-label={node.name} data-status={node.row.status}
-      className={`${NODE_FRAME} border ${solid ? "border-[var(--ct-border)]" : "border-dashed border-[var(--ct-border)]"}`}
+      className={NODE_FRAME}
       style={{ width: MACHINE_CARD_WIDTH }}>
       {node.callout && <Callout callout={node.callout} onDismiss={() => actions.onDismiss(node.key)} />}
       <div className="flex items-center gap-2 min-w-0">
@@ -114,7 +113,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
 }) {
   const lock = meshMachineLockedView(footer.row);
   return (
-    <div className="flex flex-col gap-2 border-t border-[var(--ct-border)] px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
+    <div className="flex flex-col gap-2 px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
       {footer.callout && <Callout callout={footer.callout} onDismiss={() => actions.onDismiss(footer.key)} />}
       <div className="flex items-center gap-2">
         <LockBadge view={lock} />
@@ -141,7 +140,7 @@ export function AccountStateCard({ card, signingIn, onSignIn, onRetry }: {
   onSignIn: () => void;
   onRetry: () => void;
 }) {
-  const frame = `${NODE_FRAME} border border-dashed border-[var(--ct-border)]`;
+  const frame = `${NODE_FRAME} ct-card--static`;
   if (card.kind === "loading") {
     return <section aria-label="My machines" aria-busy="true" className={frame} style={{ width: MACHINE_CARD_WIDTH }}>
       <BusyState inline label="Loading your machines" phase="work" className="text-[12px] text-[var(--ct-muted-fg)]" />
@@ -160,7 +159,6 @@ export function AccountStateCard({ card, signingIn, onSignIn, onRetry }: {
         <span className="text-[14px] font-medium text-[var(--ct-fg)]">{card.blocked ? "Mesh is paused" : "Connect your machines"}</span>
       </div>
       <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{card.headline}</p>
-      <p className="m-0 text-[12px] text-[var(--ct-muted-fg)]">Sign in on each machine with the same account and they connect automatically.</p>
       <div className="pt-0.5">
         <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
           {signingIn ? "Signing in…" : "Sign in"}
