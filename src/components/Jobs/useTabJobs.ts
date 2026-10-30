@@ -2,14 +2,13 @@ import { jobWorkspace } from "./jobsModel";
 import { useCallback, useMemo } from "react";
 import type { ReturnTo } from "../../lib/returnTo";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
-import { pipelineModel } from "../Automation/pipelineModel";
-import { blueprintScenarioJobs } from "../Automation/scenarios";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { hostJobsActionAdapter, type JobActionContext, type JobsActionAdapter } from "./jobActions";
 import { jobsForTab, mergeJobs, mergedJobId, NO_JOBS_FILTER, tabJobKey, type MergedJob } from "./jobsModel";
 import { requestOpenJob } from "./openJobEvent";
 import { useCronJobs } from "./useCronJobs";
 import { useWorkspaceGraphs } from "./useWorkspaceGraphs";
+import { tabBlueprintJobs } from "./tabBlueprintJobs";
 
 const NO_SOURCES: readonly string[] = [];
 
@@ -31,10 +30,7 @@ export function useTabJobs(
   const sources = useMemo(() => workspaceId ? [workspaceId] : NO_SOURCES, [workspaceId]);
   const graphs = useWorkspaceGraphs(adapter, "sidebar", sources);
   const crons = useCronJobs(null);
-  const sentinels = useMemo(() => graphs.flatMap((graph) => graph.graph ? blueprintScenarioJobs(graph.graph, graph.attachment) : []), [graphs]);
-  const blueprints = useMemo(() => graphs.flatMap((graph) => (graph.graph?.blueprints ?? [])
-    .filter((blueprint) => blueprint.owner?.tab_id === tabId)
-    .map((blueprint) => ({ workspaceId: graph.attachment.workspace_id, blueprint, pipeline: pipelineModel(blueprint) }))), [graphs, tabId]);
+  const { blueprints, sentinels } = useMemo(() => tabBlueprintJobs(graphs, tabId), [graphs, tabId]);
   const merged = useMemo(() => mergeJobs(NO_JOBS_FILTER, crons.jobs ?? [], sentinels), [crons.jobs, sentinels]);
   const chips = useMemo(() => jobsForTab(merged, tabId), [merged, tabId]);
   const byKey = useMemo(() => new Map(merged.map((job) => [tabJobKey({ kind: job.kind, id: mergedJobId(job) }), job])), [merged]);
