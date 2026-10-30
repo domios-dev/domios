@@ -140,8 +140,12 @@ impl ProviderBinaryWatchers {
     ) -> WatchInstall {
         targets.sort();
         targets.dedup();
-        let mut watchers = self.watchers.lock();
-        if let Some(existing) = watchers.get(&key).filter(|watch| watch.targets == targets) {
+        if let Some(existing) = self
+            .watchers
+            .lock()
+            .get(&key)
+            .filter(|watch| watch.targets == targets)
+        {
             *existing.callback.lock() = on_change;
             return WatchInstall::Reused;
         }
@@ -156,7 +160,8 @@ impl ProviderBinaryWatchers {
             .into_iter()
             .collect();
         if watch_dirs.is_empty() {
-            watchers.remove(&key);
+            let removed = self.watchers.lock().remove(&key);
+            drop(removed);
             return WatchInstall::Unavailable;
         }
         let watched_targets = targets.clone();
@@ -200,7 +205,9 @@ impl ProviderBinaryWatchers {
                 return WatchInstall::Unavailable;
             }
         }
-        watchers.insert(
+        // Starting and stopping an FSEvents stream takes seconds under load, so
+        // neither happens while other providers wait on this registry lock.
+        let replaced = self.watchers.lock().insert(
             key,
             InputWatch {
                 targets: targets.clone(),
@@ -208,6 +215,7 @@ impl ProviderBinaryWatchers {
                 _watcher: watcher,
             },
         );
+        drop(replaced);
         WatchInstall::Installed(targets.remove(0))
     }
 }
@@ -236,7 +244,7 @@ pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
 }
 
 pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
-    install(provider.clone());
+    install_in_background(provider.clone());
     if !refresh_requests().lock().begin(provider.id(), force) {
         log::debug!(
             "[model_catalog] coalesced provider refresh provider={} source=active-refresh",
@@ -256,7 +264,8 @@ pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
                 provider.id()
             );
             let _ = model_catalog::refresh_models(provider.clone(), force).await;
-            install(provider.clone());
+            let watched = provider.clone();
+            let _ = crate::async_runtime::spawn_blocking(move || install(watched)).await;
             let next = refresh_requests().lock().next(provider.id());
             let Some(queued) = next else { break };
             force = queued;
@@ -302,15 +311,18 @@ fn watchers() -> &'static ProviderBinaryWatchers {
 /// Install the watch and the refresh it triggers. A provider whose CLI is not
 /// installed is simply not watched; the next forced refresh resolves it.
 pub fn install(provider: Arc<dyn AgentProvider>) {
+    let started = std::time::Instant::now();
     let mut targets = provider
         .model_catalogue_capability()
         .fingerprint_files(provider.model_credential_files());
+    let fingerprinted = started.elapsed();
     let binary = provider.cli_binary().and_then(|binary| {
         match codeterm_plugin::js_runtime::probe_bin(binary).resolution {
             codeterm_plugin::js_runtime::BinResolution::Found(path) => Some(path),
             _ => None,
         }
     });
+    let probed = started.elapsed();
     if let Some(binary) = &binary {
         targets.push(binary.clone());
     }
@@ -319,7 +331,16 @@ pub fn install(provider: Arc<dyn AgentProvider>) {
     let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         on_catalogue_input_changed(watched_provider.clone());
     });
-    match watchers().watch(key, targets, on_change) {
+    let installed = watchers().watch(key, targets, on_change);
+    log::debug!(
+        "[boot-operation] catalogue watch provider={} fingerprint_files_ms={} probe_bin_ms={} watch_ms={} outcome={:?}",
+        provider.id(),
+        fingerprinted.as_millis(),
+        (probed - fingerprinted).as_millis(),
+        (started.elapsed() - probed).as_millis(),
+        installed
+    );
+    match installed {
         WatchInstall::Installed(path) => log::info!(
             "[model_catalog] watching catalogue input {}",
             path.display()
@@ -329,6 +350,19 @@ pub fn install(provider: Arc<dyn AgentProvider>) {
         }
         WatchInstall::Reused => {}
     }
+}
+
+/// Install on the blocking pool: callers on the async runtime, an FSEvents run
+/// loop or the startup path must never wait for a stream to start.
+pub fn install_in_background(provider: Arc<dyn AgentProvider>) {
+    crate::async_runtime::spawn_blocking(move || install(provider));
+}
+
+pub fn install_chatbackend_in_background(
+    provider: Arc<dyn ChatBackendProvider>,
+    registry: crate::chatbackend::ChatBackendRegistryHandle,
+) {
+    crate::async_runtime::spawn_blocking(move || install_chatbackend(provider, registry));
 }
 
 pub fn install_chatbackend(

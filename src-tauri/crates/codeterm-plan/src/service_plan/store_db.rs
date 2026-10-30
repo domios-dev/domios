@@ -464,5 +464,6 @@ fn json_error(error: serde_json::Error) -> PlanError {
 mod schema_tests;
 #[cfg(test)]
 mod snapshot_check;
+mod startup_queries;
 #[cfg(test)]
 mod tests;
