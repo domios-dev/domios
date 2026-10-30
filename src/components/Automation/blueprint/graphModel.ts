@@ -189,11 +189,13 @@ function calleeOf(call: NonNullable<BlueprintIrNode["call"]>, expanded?: Bluepri
   return { name: calleeName(call, expanded), openable: Boolean(expanded) };
 }
 
-function journalEvidence(pipeline: PipelineView): Map<string, NodeEvidence> {
-  const evidence = new Map<string, NodeEvidence>();
+export interface BlueprintRunEvent { key: string; evidence: NodeEvidence }
+
+function journalEvents(pipeline: PipelineView): BlueprintRunEvent[] {
+  const events: BlueprintRunEvent[] = [];
   const root = pipeline.call_graph;
   if (!root || !pipeline.nested_run || pipeline.nested_run.id !== pipeline.runId
-    || (pipeline.graph_definition_version != null && pipeline.nested_run.definition_version !== pipeline.graph_definition_version)) return evidence;
+    || (pipeline.graph_definition_version != null && pipeline.nested_run.definition_version !== pipeline.graph_definition_version)) return events;
   const rows = blueprintJournalNodes(pipeline).filter((row) => (row.run_id == null || row.run_id === pipeline.runId)
     && (pipeline.graph_definition_version == null || row.definition_version === pipeline.graph_definition_version));
   const byMarker = new Map<number, BlueprintJournalNode>();
@@ -216,10 +218,24 @@ function journalEvidence(pipeline: PipelineView): Map<string, NodeEvidence> {
     const rootIndexMatches = row.step_index != null && rootSteps[row.step_index]?.id === row.step_name;
     if (!control && !(definition && (row.parent_step_index != null || row.definition_version != null || rootIndexMatches))) continue;
     const key = blueprintNodeKey(context.path, control ?? row.step_name);
-    if (evidence.has(key)) continue;
-    if (row.step_name === "$run") evidence.set(key, { state: row.state === "running" ? "running" : "done", outcome: null, summary: "Run started", at: row.started_at_ms ?? null, journal: row });
-    else evidence.set(key, { state: row.state, outcome: row.outcome ?? null, summary: [...new Set([row.reason, row.result_summary].filter(Boolean))].join(" · ") || null, at: row.ended_at_ms ?? row.started_at_ms ?? null, journal: row });
+    if (row.step_name === "$run") events.push({ key, evidence: { state: row.state === "running" ? "running" : "done", outcome: null, summary: "Run started", at: row.started_at_ms ?? null, journal: row } });
+    else events.push({ key, evidence: { state: row.state, outcome: row.outcome ?? null, summary: [...new Set([row.reason, row.result_summary].filter(Boolean))].join(" · ") || null, at: row.ended_at_ms ?? row.started_at_ms ?? null, journal: row } });
   }
+  return events;
+}
+
+export function blueprintRunEvents(pipeline: PipelineView): BlueprintRunEvent[] {
+  if (pipeline.retained) return pipeline.retained.steps.map((step) => ({ key: blueprintNodeKey([], step.step), evidence: { state: step.state, outcome: step.outcome, summary: step.summary, at: step.at } }));
+  return journalEvents(pipeline).reverse().sort((a, b) => {
+    const aId = a.evidence.journal?.entry_id, bId = b.evidence.journal?.entry_id;
+    if (aId != null && bId != null) return aId - bId;
+    return (a.evidence.at ?? 0) - (b.evidence.at ?? 0);
+  });
+}
+
+function journalEvidence(pipeline: PipelineView): Map<string, NodeEvidence> {
+  const evidence = new Map<string, NodeEvidence>();
+  for (const event of journalEvents(pipeline)) if (!evidence.has(event.key)) evidence.set(event.key, event.evidence);
   return evidence;
 }
 
