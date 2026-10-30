@@ -9,7 +9,9 @@ test('runtime paths use the physical checkout after the build drive is released'
     CODETERM_DEV_WORKSPACE_ROOT: 'X:/', CODETERM_WEB_DIST: 'X:/dist',
     CODETERM_CLI_PATH: '/instance/bin/codeterm', CODETERM_API_PORT: '7686',
     CODETERM_DEV_LAUNCH_CHILD: '1', CODETERM_DEV_LAUNCH_SOCKET: '/private/lease.sock', CODETERM_DEV_LAUNCH_TOKEN: 'private',
+    CODETERM_DEV_TARGET_CHILD: '1', CODETERM_DEV_TARGET_SOCKET: '/private/target.sock', CODETERM_DEV_TARGET_TOKEN: 'private-target',
   };
+  const original = { ...inherited };
   const environment = devRuntimeEnvironment(inherited, physical);
   assert.equal(environment.CODETERM_DEV_WORKSPACE_ROOT, physical);
   assert.equal(environment.CODETERM_WEB_DIST, join(physical, 'dist'));
@@ -19,4 +21,8 @@ test('runtime paths use the physical checkout after the build drive is released'
   assert.equal(environment.CODETERM_DEV_LAUNCH_CHILD, undefined);
   assert.equal(environment.CODETERM_DEV_LAUNCH_SOCKET, undefined);
   assert.equal(environment.CODETERM_DEV_LAUNCH_TOKEN, undefined);
+  assert.equal(environment.CODETERM_DEV_TARGET_CHILD, undefined);
+  assert.equal(environment.CODETERM_DEV_TARGET_SOCKET, undefined);
+  assert.equal(environment.CODETERM_DEV_TARGET_TOKEN, undefined);
+  assert.deepEqual(inherited, original);
 });

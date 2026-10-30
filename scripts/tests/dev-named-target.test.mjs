@@ -232,6 +232,27 @@ done
   });
 }
 
+for (const command of ['dev', 'dev-prebuilt', 'dev-server']) for (const live of [false, true]) {
+  test(`inherited target child marker requires live reservation; command=${command}, live=${live}`, () => {
+    const start = source.indexOf('case "$CMD" in\n  dev|dev-prebuilt|dev-server)\n');
+    const entry = source.slice(start, source.indexOf('esac\n', start) + 5);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-reservation-entry-'));
+    try {
+      const result = spawnSync(bash, ['-c', `set -euo pipefail
+cd "$1"
+CMD="$2"
+export CODETERM_DEV_TARGET_CHILD=1
+named_dev_isolated() { return 0; }
+node() { echo lease-checked; [ "$1" = scripts/dev-launch-owner.mjs ]; [ "$2" = --validate-target-reservation ]; return ${live ? 0 : 1}; }
+${entry}
+echo admitted
+`, '--', directory, command], { encoding: 'utf8' });
+      assert.equal(result.status, live ? 0 : 2, result.stderr);
+      assert.deepEqual(result.stdout.trim().split('\n'), live ? ['lease-checked', 'admitted'] : ['lease-checked']);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+}
+
 for (const [command, instance, refused] of [['dev', 'alpha', true], ['dev', 'alpha', false], ['dev', '', false], ['dev-prebuilt', 'alpha', false]]) {
   test(`launch-owner entry names running DEVs before the instance lock refuses; ${command} instance=${instance || 'default'} refused=${refused}`, () => {
     const entry = source.slice(source.indexOf('case "$CMD" in\n  dev|dev-prebuilt)\n'), source.indexOf('esac\n', source.indexOf('case "$CMD" in\n  dev|dev-prebuilt)\n')) + 5);

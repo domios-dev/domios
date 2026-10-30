@@ -99,6 +99,14 @@ export function targetOwnerEnvironment(environment = process.env) {
     CODETERM_DEV_LAUNCH_TOKEN: environment.CODETERM_DEV_TARGET_TOKEN };
 }
 
+export async function validateTargetReservation(root, environment = process.env) {
+  if (!environment.CODETERM_DEV_TARGET_TOKEN || environment.CODETERM_DEV_TARGET_SOCKET !== launchLockSocket(root)) {
+    throw Error('DEV target reservation has no matching live lease');
+  }
+  const lease = await retainLaunchOwner(targetOwnerEnvironment(environment));
+  await new Promise(resolve => { lease.once('close', resolve); lease.end(); });
+}
+
 export async function releaseTargetReservation(environment = process.env) {
   if (!environment.CODETERM_DEV_TARGET_TOKEN) return;
   await new Promise((resolve, reject) => {
@@ -191,7 +199,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       });
       await owner.finish();
     }
-    : process.argv[2] === '--target-reservation' ? withTargetReservation : main;
+    : process.argv[2] === '--target-reservation' ? withTargetReservation
+      : process.argv[2] === '--validate-target-reservation' ? () => validateTargetReservation(process.argv[3]) : main;
   operation().catch(error => {
     if (process.connected) process.send({ error: error.message }, () => process.disconnect());
     else console.error(error.message);

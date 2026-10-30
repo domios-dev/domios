@@ -736,12 +736,16 @@ refuse_named_dev_rebuild_while_running() {
 
 case "$CMD" in
   dev|dev-prebuilt|dev-server)
-    if named_dev_isolated && [ "${CODETERM_DEV_TARGET_CHILD:-0}" != 1 ]; then
+    if named_dev_isolated; then
       reservation_root="$(pwd -P)/src-tauri/target"
       mkdir -p "$reservation_root"
-      reservation_shell="$BASH"
-      if command -v cygpath >/dev/null 2>&1; then reservation_shell="$(cygpath -w "$BASH")"; fi
-      exec node scripts/dev-launch-owner.mjs --target-reservation "$reservation_root" "$reservation_shell" "$0" "$@"
+      if [ "${CODETERM_DEV_TARGET_CHILD:-0}" = 1 ]; then
+        node scripts/dev-launch-owner.mjs --validate-target-reservation "$reservation_root" || exit 2
+      else
+        reservation_shell="$BASH"
+        if command -v cygpath >/dev/null 2>&1; then reservation_shell="$(cygpath -w "$BASH")"; fi
+        exec node scripts/dev-launch-owner.mjs --target-reservation "$reservation_root" "$reservation_shell" "$0" "$@"
+      fi
     fi
     ;;
 esac

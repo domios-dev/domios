@@ -35,7 +35,8 @@ export function instancesFromTarget(target, home) {
     .map(row => ({ ...row, record: readRecord(row.file) }))
     .filter(row => row.record && inside(row.record.artifacts.server.path, target))
     .map(({ data, file, record }) => ({ name: record.instance.name, port: Number(record.instance.apiPort),
-      identifier: record.instance.identifier, retained: record.nativeClient?.snapshot?.client_process, data, built: statSync(file).mtimeMs }));
+      identifier: record.instance.identifier, server: record.artifacts.server.path,
+      retained: record.nativeClient?.snapshot?.client_process, data, built: statSync(file).mtimeMs }));
 }
 
 export async function isRunning(instance, { request = fetch, snapshot } = {}) {
@@ -47,6 +48,11 @@ export async function isRunning(instance, { request = fetch, snapshot } = {}) {
     if (current && current.created === retained.created && normalize(current.executable) === normalize(retained.executable)) return 'running';
   }
   if (!Number.isInteger(instance.port) || instance.port < 1 || instance.port > 65535 || instance.port === 7685) return 'unknown';
+  for (const listener of snapshot.listeners.filter(row => row.port === instance.port)) {
+    const server = snapshot.processes.find(row => row.pid === listener.pid);
+    if (!server?.created || !server.executable) return 'unknown';
+    if (normalize(physical(server.executable)) === normalize(physical(instance.server))) return 'running';
+  }
   try {
     const response = await request(`http://127.0.0.1:${instance.port}/api/health`, { redirect: 'error', signal: AbortSignal.timeout(2000) });
     if (!response.ok) return snapshot.targetProcesses.length ? 'unknown' : 'stopped';

@@ -7,7 +7,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { adoptLegacyTarget, refusal, runningFromTarget, stopCommand } from '../dev-named-target.mjs';
-import { acquireLaunchOwner, releaseTargetReservation } from '../dev-launch-owner.mjs';
+import { acquireLaunchOwner, releaseTargetReservation, validateTargetReservation } from '../dev-launch-owner.mjs';
 
 function fixture() {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'dev-shared-target-')));
@@ -40,6 +40,37 @@ const health = live => async url => {
   if (!match) throw Error('connection refused');
   return { ok: true, json: async () => ({ instance: { name: match.name, api_port: String(port), identifier: `com.domios.dev.${match.name}` } }) };
 };
+
+for (const failure of ['timeout', 'non-OK']) for (const owner of ['unreadable', 'missing', 'identified']) {
+  test(`server-only listener with ${owner} identity refuses mutation with ${failure} health`, async t => {
+    const { root, checkout, home, legacy, instance, shared } = fixture();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const target = legacy('server-only');
+    instance('server-only', 17823, target);
+    const row = owner === 'identified' ? { pid: 42, created: '123', executable: path.join(target, 'debug/domios-server') }
+      : { pid: 42, created: '', executable: '' };
+    let renames = 0, buildAdmissions = 0;
+    const options = { inspect: () => ({ processes: owner === 'missing' ? [] : [row], listeners: [{ port: 17823, pid: 42 }] }),
+      request: async () => {
+        if (failure === 'timeout') throw Error('timeout');
+        return { ok: false };
+      }, rename: () => { renames++; }, log: () => {},
+    };
+    const blocking = await runningFromTarget(target, home, options);
+    assert.equal(blocking[0].state, owner === 'identified' ? 'running' : 'unknown');
+    if (!refusal(target, 'rebuild', blocking)) buildAdmissions++;
+    await assert.rejects(adoptLegacyTarget(checkout, home, options), /refusing adoption/);
+    assert.equal(renames, 0);
+    assert.equal(buildAdmissions, 0);
+    assert.equal(fs.existsSync(target), true);
+    assert.equal(fs.existsSync(shared), false);
+    const gone = { ...options, inspect: () => ({ processes: [], listeners: [] }) };
+    assert.deepEqual(await runningFromTarget(target, home, gone), []);
+    assert.equal(refusal(target, 'rebuild', await runningFromTarget(target, home, gone)), null);
+    await adoptLegacyTarget(checkout, home, gone);
+    assert.equal(renames, 1);
+  });
+}
 
 for (const failure of ['unhealthy', 'timeout', 'mismatch', 'client-only']) {
   test(`live process refuses adoption and rebuild with ${failure} health`, async t => {
@@ -102,10 +133,18 @@ test('target reservation excludes a launch during scan/mutation and releases on 
   const { root } = fixture();
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const reservation = await acquireLaunchOwner(root, { releaseOnReady: true });
+  const environment = { CODETERM_DEV_TARGET_CHILD: '1',
+    CODETERM_DEV_TARGET_SOCKET: reservation.environment.CODETERM_DEV_LAUNCH_SOCKET,
+    CODETERM_DEV_TARGET_TOKEN: reservation.environment.CODETERM_DEV_LAUNCH_TOKEN };
+  await assert.rejects(validateTargetReservation(root, { CODETERM_DEV_TARGET_CHILD: '1' }), /no matching live lease/);
+  await assert.rejects(validateTargetReservation(root, { ...environment, CODETERM_DEV_TARGET_TOKEN: 'stale-token' }), /disconnected/);
+  await assert.rejects(validateTargetReservation(path.join(root, 'checkout'), environment), /no matching live lease/);
+  await validateTargetReservation(root, environment);
   await assert.rejects(acquireLaunchOwner(root), /unavailable/);
   await releaseTargetReservation({ CODETERM_DEV_TARGET_SOCKET: reservation.environment.CODETERM_DEV_LAUNCH_SOCKET,
     CODETERM_DEV_TARGET_TOKEN: reservation.environment.CODETERM_DEV_LAUNCH_TOKEN });
   await reservation.finish();
+  await assert.rejects(validateTargetReservation(root, environment));
   const next = await acquireLaunchOwner(root);
   await next.finish();
 });
