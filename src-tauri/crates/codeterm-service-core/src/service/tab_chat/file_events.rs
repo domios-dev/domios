@@ -1,10 +1,10 @@
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Sender, SyncSender};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
-pub(super) fn affects_source(event: &Event, source: &Path) -> bool {
+pub(crate) fn affects_source(event: &Event, source: &Path) -> bool {
     if event.need_rescan() {
         return true;
     }
@@ -31,7 +31,7 @@ enum Command {
     Inspect(Sender<Vec<(PathBuf, usize)>>),
 }
 
-pub(super) struct WatchGuard {
+pub(crate) struct WatchGuard {
     commands: Sender<Command>,
     id: u64,
 }
@@ -43,17 +43,68 @@ impl Drop for WatchGuard {
 }
 
 struct RootWatch {
-    _watcher: RecommendedWatcher,
+    _watcher: Box<dyn Send>,
     generation: u64,
 }
 
-#[derive(Default)]
 struct Registry {
     roots: HashMap<PathBuf, RootWatch>,
     subscribers: HashMap<u64, Subscriber>,
     next_id: u64,
     generation: u64,
     logged_counts: (usize, usize),
+    backend: Arc<dyn DirectoryBackend>,
+}
+
+trait DirectoryBackend: Send + Sync {
+    fn nearest(&self, source: &Path) -> Result<PathBuf, String>;
+    fn watch(
+        &self,
+        root: &Path,
+        mode: RecursiveMode,
+        generation: u64,
+        commands: &Sender<Command>,
+    ) -> Result<Box<dyn Send>, String>;
+}
+
+struct NativeBackend;
+
+impl DirectoryBackend for NativeBackend {
+    fn nearest(&self, source: &Path) -> Result<PathBuf, String> {
+        nearest_directory(source)
+    }
+
+    fn watch(
+        &self,
+        root: &Path,
+        mode: RecursiveMode,
+        generation: u64,
+        commands: &Sender<Command>,
+    ) -> Result<Box<dyn Send>, String> {
+        let events = commands.clone();
+        let event_root = root.to_path_buf();
+        let mut watcher = notify::recommended_watcher(move |event| {
+            let _ = events.send(Command::Event(event_root.clone(), generation, event));
+        })
+        .map_err(|error| error.to_string())?;
+        watcher
+            .watch(root, mode)
+            .map_err(|error| error.to_string())?;
+        Ok(Box::new(watcher))
+    }
+}
+
+impl Default for Registry {
+    fn default() -> Self {
+        Self {
+            roots: HashMap::new(),
+            subscribers: HashMap::new(),
+            next_id: 0,
+            generation: 0,
+            logged_counts: (0, 0),
+            backend: Arc::new(NativeBackend),
+        }
+    }
 }
 
 fn nearest_directory(source: &Path) -> Result<PathBuf, String> {
@@ -83,15 +134,9 @@ impl Registry {
         }
         self.generation += 1;
         let generation = self.generation;
-        let events = commands.clone();
-        let event_root = root.to_path_buf();
-        let mut watcher = notify::recommended_watcher(move |event| {
-            let _ = events.send(Command::Event(event_root.clone(), generation, event));
-        })
-        .map_err(|error| error.to_string())?;
-        watcher
-            .watch(root, RecursiveMode::NonRecursive)
-            .map_err(|error| error.to_string())?;
+        let watcher =
+            self.backend
+                .watch(root, RecursiveMode::NonRecursive, generation, commands)?;
         self.roots.insert(
             root.to_path_buf(),
             RootWatch {
@@ -103,10 +148,10 @@ impl Registry {
     }
 
     fn locate(&mut self, source: &Path, commands: &Sender<Command>) -> Result<PathBuf, String> {
-        let mut root = nearest_directory(source)?;
+        let mut root = self.backend.nearest(source)?;
         loop {
             self.ensure_root(&root, commands)?;
-            let current = nearest_directory(source)?;
+            let current = self.backend.nearest(source)?;
             if current == root {
                 return Ok(root);
             }
@@ -263,7 +308,7 @@ fn start_registry() -> Result<Sender<Command>, String> {
     Ok(commands)
 }
 
-pub(super) fn watch(source: &Path, wake: SyncSender<()>) -> Result<WatchGuard, String> {
+pub(crate) fn watch(source: &Path, wake: SyncSender<()>) -> Result<WatchGuard, String> {
     static REGISTRY: OnceLock<Result<Sender<Command>, String>> = OnceLock::new();
     let commands = REGISTRY
         .get_or_init(start_registry)

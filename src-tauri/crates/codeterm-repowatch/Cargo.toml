@@ -5,6 +5,7 @@ version = "0.0.0"
 edition = "2021"
 
 [dependencies]
+codeterm-util = { path = "../codeterm-util" }
 git2 = { version = "0.20", features = ["vendored-openssl"] }
 notify = { version = "7", default-features = false, features = ["macos_fsevent"] }
 notify-debouncer-mini = "0.5"
@@ -17,7 +18,6 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
-codeterm-util = { path = "../codeterm-util" }
 tempfile = "3"
 
 [lints]

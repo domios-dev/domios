@@ -82,24 +82,30 @@ impl FileEvents {
 
     pub(super) fn refresh(&mut self) -> notify::Result<()> {
         if self.roots_changed.swap(false, Ordering::AcqRel) {
-            for root in &self.roots {
-                if self.watched.remove(root).is_some() {
-                    let _ = self.watcher.unwatch(root);
-                }
+            let invalidated: Vec<_> = self
+                .watched
+                .keys()
+                .filter(|path| self.roots.iter().any(|root| path.starts_with(root)))
+                .cloned()
+                .collect();
+            for path in invalidated {
+                self.watched.remove(&path);
+                let _ = self.watcher.unwatch(&path);
             }
         }
-        let mut desired = HashMap::new();
-        for root in &self.roots {
-            if let Some(parent) = root
-                .parent()
-                .and_then(|parent| parent.ancestors().find(|p| p.is_dir()))
-            {
-                desired
-                    .entry(parent.to_path_buf())
-                    .or_insert(RecursiveMode::NonRecursive);
+        let desired = match desired_watches(&self.roots) {
+            Ok(desired) => desired,
+            Err(error) => {
+                for path in self.watched.keys() {
+                    let _ = self.watcher.unwatch(path);
+                }
+                self.watched.clear();
+                return Err(error);
             }
-            if root.is_dir() {
-                desired.insert(root.clone(), RecursiveMode::Recursive);
+        };
+        for (path, mode) in &self.watched {
+            if desired.get(path) != Some(mode) {
+                let _ = self.watcher.unwatch(path);
             }
         }
         for (path, mode) in &desired {
@@ -107,66 +113,42 @@ impl FileEvents {
                 self.watcher.watch(path, *mode)?;
             }
         }
-        for path in self
-            .watched
-            .keys()
-            .filter(|path| !desired.contains_key(*path))
-        {
-            let _ = self.watcher.unwatch(path);
-        }
         self.watched = desired;
         Ok(())
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    fn plugin_reads_and_unrelated_files_do_not_schedule_reloads() {
-        let roots = vec![PathBuf::from("/plugins")];
-        let read = Event::new(EventKind::Access(AccessKind::Read))
-            .add_path("/plugins/provider/plugin.js".into());
-        let unrelated = Event::new(EventKind::Any).add_path("/sessions/output.log".into());
-        let changed = Event::new(EventKind::Any).add_path("/plugins/provider/plugin.js".into());
-        assert!(!relevant(&read, &roots));
-        assert!(!relevant(&unrelated, &roots));
-        assert!(relevant(&changed, &roots));
+fn desired_watches(roots: &[PathBuf]) -> notify::Result<HashMap<PathBuf, RecursiveMode>> {
+    let mut desired = HashMap::new();
+    for root in roots {
+        if let Some(parent) = root
+            .parent()
+            .and_then(|parent| parent.ancestors().find(|p| p.is_dir()))
+        {
+            desired
+                .entry(parent.to_path_buf())
+                .or_insert(RecursiveMode::NonRecursive);
+        }
+        if root.is_dir() {
+            for watch in codeterm_util::watch_plan::covering_set(root)
+                .map_err(|error| notify::Error::generic(&error))?
+            {
+                let mode = if watch.recursive {
+                    RecursiveMode::Recursive
+                } else {
+                    RecursiveMode::NonRecursive
+                };
+                desired.insert(watch.path, mode);
+            }
+        }
     }
-
-    #[test]
-    fn filesystem_changes_wake_the_reconciler_without_a_polling_tick() {
-        let directory = tempfile::tempdir().unwrap();
-        let events = FileEvents::new(vec![directory.path().to_path_buf()]).unwrap();
-        let started = std::time::Instant::now();
-        std::fs::write(directory.path().join("plugin.json"), "{}").unwrap();
-        events
-            .receiver
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap();
-        eprintln!("plugin filesystem wake: {:?}", started.elapsed());
+    if desired.len() > codeterm_util::watch_plan::MAX_WATCHES {
+        let error = format!("plugin watch subscription limit exceeded: {} directories, maximum {}; watching refused", desired.len(), codeterm_util::watch_plan::MAX_WATCHES);
+        log::warn!("{error}");
+        return Err(notify::Error::generic(&error));
     }
-
-    #[test]
-    fn a_missing_plugin_root_is_observed_through_its_existing_parent() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path().join("plugins");
-        let mut events = FileEvents::new(vec![root.clone()]).unwrap();
-        std::fs::create_dir(&root).unwrap();
-        events
-            .receiver
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap();
-        events.refresh().unwrap();
-        assert_eq!(events.watched.get(&root), Some(&RecursiveMode::Recursive));
-        std::fs::remove_dir(&root).unwrap();
-        events
-            .receiver
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap();
-        events.refresh().unwrap();
-        assert!(!events.watched.contains_key(&root));
-    }
+    Ok(desired)
 }
+
+#[cfg(test)]
+mod tests;

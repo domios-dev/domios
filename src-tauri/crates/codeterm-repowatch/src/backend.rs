@@ -2,10 +2,7 @@ use notify::{
     Config as NotifyConfig, Event, EventHandler, RecommendedWatcher, RecursiveMode, Watcher,
     WatcherKind,
 };
-use notify_debouncer_mini::{
-    new_debouncer_opt, Config as DebouncerConfig, DebounceEventResult, Debouncer,
-};
-use parking_lot::Mutex;
+use notify_debouncer_mini::{new_debouncer_opt, Config as DebouncerConfig, DebounceEventResult};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,14 +18,23 @@ pub struct WatchSpec {
     pub recursive: bool,
     /// Absent in a fresh repository; its parent's non-recursive watch covers it.
     pub optional: bool,
+    pub partitioned: bool,
 }
 
 impl WatchSpec {
+    pub fn worktree(path: PathBuf) -> Self {
+        Self {
+            partitioned: true,
+            ..Self::shallow(path)
+        }
+    }
+
     pub fn recursive(path: PathBuf) -> Self {
         Self {
             path,
             recursive: true,
             optional: false,
+            partitioned: false,
         }
     }
 
@@ -37,6 +43,7 @@ impl WatchSpec {
             path,
             recursive: false,
             optional: false,
+            partitioned: false,
         }
     }
 
@@ -45,6 +52,7 @@ impl WatchSpec {
             path,
             recursive: true,
             optional: true,
+            partitioned: false,
         }
     }
 }
@@ -62,7 +70,9 @@ pub type BatchHandler = Box<dyn FnMut(WatchSignal) + Send + 'static>;
 pub type RescanSink = Arc<dyn Fn() + Send + Sync>;
 
 /// A live OS watch. Dropping it releases every backend handle it owns.
-pub trait ActiveWatch: Send {}
+pub trait ActiveWatch: Send {
+    fn update(&mut self, specs: &[WatchSpec]) -> Result<(), String>;
+}
 
 /// The construction seam. A test injects a backend that refuses or one that
 /// hands back its handler, which is the only deterministic way to drive both.
@@ -147,65 +157,144 @@ impl Watcher for RescanWatcher {
 
 pub struct NotifyBackend;
 
-struct NotifyWatch {
-    _debouncer: Debouncer<RescanWatcher>,
+enum Command {
+    Set(Vec<WatchSpec>, std::sync::mpsc::Sender<Result<(), String>>),
+    Signal(WatchSignal),
+    Stop,
 }
 
-impl ActiveWatch for NotifyWatch {}
+struct NotifyWatch {
+    commands: std::sync::mpsc::Sender<Command>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl ActiveWatch for NotifyWatch {
+    fn update(&mut self, specs: &[WatchSpec]) -> Result<(), String> {
+        let (reply, result) = std::sync::mpsc::channel();
+        self.commands
+            .send(Command::Set(specs.to_vec(), reply))
+            .map_err(|e| e.to_string())?;
+        result.recv().map_err(|e| e.to_string())?
+    }
+}
+
+impl Drop for NotifyWatch {
+    fn drop(&mut self) {
+        let _ = self.commands.send(Command::Stop);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
 
 impl WatchBackend for NotifyBackend {
     fn build(
         &self,
         specs: &[WatchSpec],
-        handler: BatchHandler,
+        mut handler: BatchHandler,
     ) -> Result<Box<dyn ActiveWatch>, String> {
-        let shared = Arc::new(Mutex::new(handler));
-        let on_rescan = shared.clone();
-        let sink: RescanSink = Arc::new(move || {
-            let mut guard = on_rescan.lock();
-            (&mut **guard)(WatchSignal::Rescan);
-        });
-        RESCAN_SINK.with(|slot| *slot.borrow_mut() = Some(sink));
-
-        let batched = shared.clone();
-        let config = DebouncerConfig::default().with_timeout(DEBOUNCE);
-        let built =
-            new_debouncer_opt::<_, RescanWatcher>(config, move |result: DebounceEventResult| {
-                let signal = match result {
-                    Ok(events) => {
-                        let mut paths: Vec<PathBuf> = events.into_iter().map(|e| e.path).collect();
-                        paths.sort();
-                        paths.dedup();
-                        if paths.is_empty() {
-                            return;
-                        }
-                        WatchSignal::Batch(paths)
-                    }
-                    Err(e) => WatchSignal::Failed(e.to_string()),
-                };
-                let mut guard = batched.lock();
-                (&mut **guard)(signal);
-            });
-        // Never leave the slot armed for the next construction on this thread.
-        RESCAN_SINK.with(|slot| *slot.borrow_mut() = None);
-
-        let mut debouncer = built.map_err(|e| e.to_string())?;
-        for spec in specs {
-            let mode = if spec.recursive {
-                RecursiveMode::Recursive
-            } else {
-                RecursiveMode::NonRecursive
-            };
-            if let Err(e) = debouncer.watcher().watch(&spec.path, mode) {
-                if spec.optional && !spec.path.exists() {
-                    log::debug!("[repowatch] optional path absent: {}", spec.path.display());
-                    continue;
+        let (dispatch, signals) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("repository-watch-dispatch".into())
+            .spawn(move || {
+                while let Ok(signal) = signals.recv() {
+                    handler(signal);
                 }
-                return Err(format!("watch {} failed: {e}", spec.path.display()));
-            }
-        }
-        Ok(Box::new(NotifyWatch {
-            _debouncer: debouncer,
-        }))
+            })
+            .map_err(|error| error.to_string())?;
+        let (commands, incoming) = std::sync::mpsc::channel();
+        let events = commands.clone();
+        let (ready, started) = std::sync::mpsc::channel();
+        let initial = specs.to_vec();
+        let thread = std::thread::Builder::new()
+            .name("repository-watch-set".into())
+            .spawn(move || {
+                let on_rescan = events.clone();
+                RESCAN_SINK.with(|slot| {
+                    *slot.borrow_mut() = Some(Arc::new(move || {
+                        let _ = on_rescan.send(Command::Signal(WatchSignal::Rescan));
+                    }))
+                });
+                let built = new_debouncer_opt::<_, RescanWatcher>(
+                    DebouncerConfig::default().with_timeout(DEBOUNCE),
+                    move |result: DebounceEventResult| {
+                        let signal = match result {
+                            Ok(events) => {
+                                let mut paths: Vec<_> =
+                                    events.into_iter().map(|e| e.path).collect();
+                                paths.sort();
+                                paths.dedup();
+                                WatchSignal::Batch(paths)
+                            }
+                            Err(error) => WatchSignal::Failed(error.to_string()),
+                        };
+                        let _ = events.send(Command::Signal(signal));
+                    },
+                );
+                RESCAN_SINK.with(|slot| *slot.borrow_mut() = None);
+                let mut debouncer = match built {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let _ = ready.send(Err(error.to_string()));
+                        return;
+                    }
+                };
+                let mut active = std::collections::BTreeMap::new();
+                let mut specs = initial;
+                let result =
+                    super::subscriptions::reconcile(debouncer.watcher(), &mut active, &specs);
+                let failed = result.is_err();
+                if ready.send(result).is_err() || failed {
+                    return;
+                }
+                while let Ok(command) = incoming.recv() {
+                    match command {
+                        Command::Stop => break,
+                        Command::Set(updated, reply) => {
+                            let result = super::subscriptions::reconcile(
+                                debouncer.watcher(),
+                                &mut active,
+                                &updated,
+                            );
+                            if result.is_ok() {
+                                specs = updated;
+                            }
+                            if let Err(error) = &result {
+                                let _ = dispatch.send(WatchSignal::Failed(error.clone()));
+                            }
+                            let _ = reply.send(result);
+                        }
+                        Command::Signal(signal) => {
+                            if let WatchSignal::Batch(paths) = &signal {
+                                if super::subscriptions::topology_changed(&specs, &active, paths) {
+                                    let result = super::subscriptions::invalidate(
+                                        debouncer.watcher(),
+                                        &mut active,
+                                        paths,
+                                    )
+                                    .and_then(|_| {
+                                        super::subscriptions::reconcile(
+                                            debouncer.watcher(),
+                                            &mut active,
+                                            &specs,
+                                        )
+                                    });
+                                    if let Err(error) = result {
+                                        let _ = dispatch.send(WatchSignal::Failed(error));
+                                    }
+                                }
+                            }
+                            let _ = dispatch.send(signal);
+                        }
+                    }
+                }
+            })
+            .map_err(|e| e.to_string())?;
+        let watch = NotifyWatch {
+            commands,
+            thread: Some(thread),
+        };
+        started.recv().map_err(|e| e.to_string())??;
+        Ok(Box::new(watch))
     }
 }
