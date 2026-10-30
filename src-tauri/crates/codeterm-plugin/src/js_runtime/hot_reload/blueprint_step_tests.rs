@@ -12,7 +12,7 @@ fn manifest() -> PluginManifest {
 
 #[test]
 fn provider_manifests_register_real_run_prompt_steps() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugins");
+    let root = crate::test_support::fixture_manifest_dir().join("../../../plugins");
     let mut registered = 0;
     for entry in std::fs::read_dir(root).unwrap() {
         let directory = entry.unwrap().path();
