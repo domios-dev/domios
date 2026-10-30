@@ -113,15 +113,6 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             .0
             .bind(plugin, context, handle, destination, control)
     }
-    fn plugin_job_json(&self, plugin: &str, request: &str) -> String {
-        match self.host_extension::<codeterm_plugin::plugin_jobs::PluginJobs>() {
-            Some(jobs) => match jobs.0.invoke(plugin, request) {
-                Ok(value) => value.to_string(),
-                Err(_) => serde_json::json!({"error":"plugin_job_request_refused"}).to_string(),
-            },
-            None => serde_json::json!({"error":"plugin_jobs_unavailable"}).to_string(),
-        }
-    }
     fn runtime_launch_authorized(
         &self,
         binding: &codeterm_plugin::agent_runtime::RuntimeLaunchBinding,
@@ -397,7 +388,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn contributions_changed(&self, kind: &str) {
         if kind == codeterm_plugin::agent_verbs::PLUGIN_INDEX_CONTRIBUTION_KIND {
-            super::plugin_skills::spawn_sync(self.mem.clone());
+            super::plugin_skills::spawn_sync(
+                self.mem.clone(),
+                self.ext::<crate::agent_commands::AgentCommandRegistryHandle>()
+                    .clone(),
+            );
         }
         if kind == codeterm_plugin::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND {
             super::plugin_prompt::refresh(

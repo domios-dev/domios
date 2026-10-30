@@ -158,54 +158,30 @@ const generate: BlueprintStepDescriptor = {
   outputs: { image: { kind: "image", minItems: 1, maxItems: 1 } },
   outcomes: ["done", "failed"],
   lifecycle: { reconcile: true, cancel: true },
-  effects: { sideEffects: true, potentiallyPaid: true },
+  effects: { sideEffects: true },
 };
 ```
 
-Export `blueprintEstimate`, `blueprintSubmit`, and the declared optional
-`blueprintReconcile`/`blueprintCancel` methods from `BlueprintSteps`. Estimates
-use integer atomic units such as `usd_micro` or `credit_milli`; run ceilings
-are independent per unit. Requests carry host-owned operation identity and
-attribution; reuse the exact operation for reconciliation. An uncertain submit
-must never be replayed. `waiting_for_owner_ok` is a distinct owner hold, with
-`estimate_missing`, `estimate_stale`, `over_run_ceiling`, `over_step_allowance`
-or `owner_confirmation`. Parameters/JSON ports support closed bounded nested
-schemas and finite discriminated alternatives; model catalogs remain plugin-owned.
+Export `blueprintSubmit` and the declared optional `blueprintReconcile` and
+`blueprintCancel` methods from `BlueprintSteps`. Requests carry host-owned
+operation identity and attribution. An uncertain submit is never replayed;
+reconciliation and cancellation refer to the exact persisted job. Invalid
+responses retain a valid returned job identity for later observation.
 
-Owner approval may grant one operation an exception to the remaining run ceiling.
-`BlueprintOperationApproval` records its exact scope, unit and maximum with
-`runCeilingException`; the run ceiling and every later operation remain unchanged.
-In-flight cancellation records intent and uncertainty until an exact known job
-can confirm cancellation. Invalid response payloads preserve a valid returned
-job ID for reconciliation.
+The host reserves `unknown` and `canceled`; other bounded declared outcomes route
+the graph. Parameters and JSON ports use closed bounded schemas. Text, JSON,
+file, image, audio and video ports declare cardinality. Media outputs use
+`{kind: "media_source", id, media}` for an existing plugin-owned artifact.
+`mediaFile` resolves it relative to the plugin data directory; generic files may
+use `application/octet-stream`. Host handles are inputs only and require the
+receiving step's explicit grant. UI frame tokens grant no run-input access.
 
-Backend media outputs use `{kind: "media_source", id, media}` for an existing
-plugin-owned artifact. Host handles are inputs only and require an explicit
-receiving-step grant. UI frame tokens cannot be used as run handles.
-
-The forward runner accepts namespaced YAML steps with pinned revision, per-unit
-spending and typed forward bindings. Holds retain the exact cursor and outputs.
-Declaring a node does not authorize submission. `refresh_estimate` is quote-only.
-
-`capabilities.jobLifecycle` declares frame-independent exact-job observation.
-`host.jobs.admit()` persists trusted origin before effects; `track(operation,job)`
-retains an existing id before monitor admission. These calls grant no submission
-or spending authority. Implement `jobReconcile` and optional `jobCancel` through
-the synchronous continuation bridge. `return host.surface.dispatch(verb,args)`
-carries sanctioned continuations from an agent surface handler; never a Promise.
-
-Static manifest `capabilities.costUnits` declares atomic unit display metadata:
-`{usd_micro:{one:"micro-dollar",other:"micro-dollars",currency:{code:"USD",scale:6}}}`.
-Use `formatCostAmount(amount,unit,units)` for all studio prices. Currency metadata
-describes an existing denomination, never conversion. Formatting is exact,
-trims trailing zeros beyond two decimal places, and keeps undeclared units
-explicit. Native and SDK formatters share a fixture. Frame strings grant no spend.
-
-`ct.openRun(reference)` and `ct.decideOperation({operation,decisionKey,action})`
-require a foreground gesture/current private document. Approval previews the
-host quote and asks through a host-owned bar. Actions are approve/check_price/
-check/cancel; unknown offers no paid retry. Runtime/release proof and the minimum
-published host version accompany integration separately.
+YAML authors write `uses: fixture.generate` and `with:`. Apply pins the installed
+descriptor revision. A built-in node bound to `read.out.text` receives the plain
+string, JSON value or confined file path; multi-item ports supply arrays.
+Commands receive that value on stdin, with JSON values encoded as JSON.
+Plugin-to-plugin bindings retain typed run-media handles. Durable held runs
+reconcile their exact job through the Blueprint monitor and resume at the cursor.
 
 ## Decision model capability
 

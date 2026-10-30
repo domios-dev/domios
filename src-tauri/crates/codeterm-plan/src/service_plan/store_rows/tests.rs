@@ -92,21 +92,18 @@ fn milestone_digests_chain_so_an_edited_prefix_is_detectable() {
 }
 
 #[test]
-fn a_plan_row_that_still_embeds_tasks_joins_unchanged() {
-    let whole = plan_value();
-    assert_eq!(join_plan(whole.clone(), Vec::new()).unwrap(), whole);
+fn a_plan_row_that_embeds_tasks_is_refused() {
+    let error = join_plan(plan_value(), Vec::new()).unwrap_err();
+    assert!(error.contains("unsupported whole-document plan row"));
 }
 
 #[test]
-fn unkeyable_tasks_stay_embedded_in_the_plan_row() {
+fn unkeyable_tasks_are_refused() {
     for unkeyable in [json!("t2"), json!(7)] {
         let mut value = plan_value();
         value["tasks"][1]["id"] = unkeyable;
-        let rows = split_plan(value.clone()).unwrap();
-
-        assert!(rows.tasks.is_empty());
-        assert!(rows.kept_whole.is_some());
-        assert_eq!(serde_json::from_str::<Value>(&rows.plan).unwrap(), value);
+        let error = split_plan(value).unwrap_err();
+        assert!(error.contains("duplicate task id") || error.contains("no string id"));
     }
 }
 

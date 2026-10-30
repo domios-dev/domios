@@ -5,6 +5,7 @@ import { blueprintNodeKinds } from "./kinds";
 
 export const HEADER_HEIGHT = 44;
 export const STATUS_HEIGHT = 24;
+export const TRIGGER_HEIGHT = 26;
 export const ROW_HEIGHT = 24;
 export const BODY_LINE_HEIGHT = 16;
 export const BODY_PAD = 10;
@@ -81,7 +82,7 @@ export function measureNode(node: BlueprintGraphNode) {
   const statusHeight = node.evidence ? STATUS_HEIGHT : 0;
   const bodyHeight = lines ? lines * BODY_LINE_HEIGHT + BODY_PAD * 2 : 0;
   const rows: PinRow[] = [];
-  let top = HEADER_HEIGHT + statusHeight + bodyHeight + (lines ? 0 : 4);
+  let top = HEADER_HEIGHT + (node.trigger ? TRIGGER_HEIGHT : 0) + statusHeight + bodyHeight + (lines ? 0 : 4);
   for (let index = 0; index < Math.max(node.inputs.length, node.outputs.length); index++) {
     rows.push({ top, height: ROW_HEIGHT, left: node.inputs[index] ?? null, right: node.outputs[index] ?? null });
     top += ROW_HEIGHT;

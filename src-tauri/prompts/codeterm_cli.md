@@ -63,6 +63,7 @@ Each command's `--help` has the flags; the Docs column has the depth.
 | Spinal Cord (Supporter Agent): explain, connect, verify, disconnect | `supporter --help` (`spinal-cord` alias) | `domios docs SPINAL-CORD` |
 | Past chats | `sessions search` / `get` / `resume`; read-only `sessions backups export latest --sanitize --out <file>` captures a desk | — |
 | Config | `config get [key]`, `config set` | `docs CONFIG` |
+| Resolving an answered question | `notify resolve <id>` (asking tab only); the owner's next chat message also closes its open questions | `docs NOTIFICATIONS` |
 | Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
 | Plugins, provider CLIs | `plugin list` / `install` / `update`, `agent cli status <provider>` | `docs API-CLI` |
 | Plugin app tabs (surfaces) | `surface list`, `surface open <plugin>:<surface>`, `surface close --tab <ID>`; surfaces take no `send` | `docs SURFACES` |

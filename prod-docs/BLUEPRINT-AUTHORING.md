@@ -40,4 +40,29 @@ A fixed command `run: {lit: "<author-fixed command>"}` is a shell command line, 
 
 Choose 1-3 distinct catalogue tags with repeatable `--tag`; run `domios blueprint tags` for the controlled vocabulary and descriptions. Tags help users browse saved solutions. Unknown tags are refused with the closest valid names.
 
-<!-- revision: 8 -->
+Plugin nodes use `uses: <plugin>.<step>` and literal parameters under `with:`.
+Discover their descriptors with `domios blueprint nodes`; no `plugin:` settings
+block is accepted. Apply pins the installed revision. A missing or changed node
+holds the run with `plugin_step_unavailable`.
+
+Bind a declared plugin output by name on a downstream code or command node:
+
+```yaml
+- id: read
+  uses: fixture.read
+  with: {text: {lit: opaque}}
+- id: consume
+  code: {lang: python, src: 'def main(value): return value'}
+  bind: {in: read.out.text}
+```
+
+A text port supplies its string, a JSON port its JSON value, and a file or media
+port its confined path. Ports with `maxItems: 1` supply one value (or null when
+absent); multi-item ports supply arrays. Commands bound to plugin ports receive
+the plain value on stdin, with JSON values encoded as JSON. Named bindings form
+an object of these values. Bindings between plugins keep typed run-media handles;
+the receiving step can use its existing run-input access. Held operations keep
+their exact job identity for reconciliation or cancellation. Unknown submissions
+are never replayed.
+
+<!-- revision: 9 -->

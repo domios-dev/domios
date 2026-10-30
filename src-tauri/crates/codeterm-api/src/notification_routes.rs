@@ -128,7 +128,14 @@ pub async fn clear_notifications(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.notif.lock().clear(None);
+    tokio::task::spawn_blocking(move || state.svc.clear_notifications(None))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Notification clear failed",
+            )
+        })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -150,13 +157,38 @@ pub async fn delete_notification(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.notif.lock().clear(Some(&id));
+    tokio::task::spawn_blocking(move || state.svc.clear_notifications(Some(&id)))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Notification clear failed",
+            )
+        })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
 #[derive(Deserialize)]
 pub struct AnswerNotifBody {
     label: String,
+}
+
+pub async fn resolve_notification(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let caller = crate::auth::caller_claim(&state, &headers, None)?;
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .resolve_notification(&id, caller.as_deref())
+            .map(|()| Json(serde_json::json!({"ok": true})))
+            .map_err(|message| (StatusCode::CONFLICT, message))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 /// Record the user's choice. The path names the record and the body names the
@@ -173,12 +205,6 @@ pub async fn answer_notification(
         caller.as_ref().map(|caller| &caller.0),
         Some(crate::auth::CallerIdentity::Local)
     );
-    if state.svc.notification_requires_owner(&id) && !owner {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Blueprint spending decisions require the local owner".into(),
-        ));
-    }
     if state
         .svc
         .notif

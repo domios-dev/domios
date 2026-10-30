@@ -1188,8 +1188,6 @@ mod data_dir;
 mod local_recording_devices;
 #[path = "parity_test/media_delivery.rs"]
 mod media_delivery;
-#[path = "parity_test/plugin_jobs.rs"]
-mod plugin_jobs;
 #[path = "parity_test/runtime_chat_descriptor.rs"]
 mod runtime_chat_descriptor;
 #[path = "parity_test/view_context.rs"]

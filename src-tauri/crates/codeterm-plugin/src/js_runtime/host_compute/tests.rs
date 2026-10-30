@@ -25,6 +25,46 @@ fn agent_usage_is_null_until_wired() {
 }
 
 #[test]
+fn login_state_changes_emit_existing_index_invalidation_once() {
+    use crate::agent_commands::AgentCommandProvider;
+    use crate::agent_verbs::{AgentVerbCatalog, PLUGIN_INDEX_CONTRIBUTION_KIND};
+    let host = Arc::new(AnalyticsHost::default());
+    let service: Arc<dyn PluginHostCtx> = host.clone();
+    let vm = Arc::new(
+        PluginVm::from_source(
+            "connection-fixture",
+            r#"
+        module.exports = {onAgentCommand(ctx) {
+            return {result:JSON.stringify({state:ctx.verb === 'logout'?'logged-out':'logged-in'})};
+        }};
+    "#
+            .into(),
+        )
+        .unwrap(),
+    );
+    assert!(vm.set_service(Arc::downgrade(&service)));
+    let handler = crate::js_runtime::JsAgentCommandHandler::new(vm, "connection-fixture", true)
+        .with_catalog(AgentVerbCatalog::compose(
+            "connection-fixture",
+            "Fixture",
+            None,
+            &["login".into(), "health".into(), "logout".into()],
+            None,
+            &[],
+        ));
+    for verb in ["health", "health", "logout", "logout"] {
+        handler.on_agent_command("tab", verb, &[], None).unwrap();
+    }
+    assert_eq!(
+        *host.contributions.lock(),
+        vec![
+            PLUGIN_INDEX_CONTRIBUTION_KIND.to_string(),
+            PLUGIN_INDEX_CONTRIBUTION_KIND.to_string()
+        ]
+    );
+}
+
+#[test]
 fn event_source_plugin_without_graph_events_grant_cannot_emit() {
     let sandbox = Arc::new(
         PluginSandbox::restricted(vec![], vec![])
@@ -49,6 +89,7 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
 #[derive(Default)]
 pub(crate) struct AnalyticsHost {
     pub(crate) recordings: crate::local_recording::LocalRecordingRegistry,
+    contributions: parking_lot::Mutex<Vec<String>>,
 }
 
 fn recording_reply(
@@ -63,12 +104,6 @@ fn recording_reply(
 impl PluginHostCtx for AnalyticsHost {
     fn surface_registration(&self, plugin: &str, _: &str) -> Option<String> {
         (plugin == "origin-fixture").then(|| "epoch".into())
-    }
-    fn plugin_job_json(&self, plugin: &str, _: &str) -> String {
-        match crate::surface_invocation::current(plugin) {
-            Some(origin) => json!({"origin":origin}).to_string(),
-            None => json!({"error":"plugin_job_request_refused"}).to_string(),
-        }
     }
     fn mem_search_json(&self, _: &str) -> String {
         String::new()
@@ -116,7 +151,9 @@ impl PluginHostCtx for AnalyticsHost {
     fn progress_raw_json(&self, _: &str, _: &str) -> String {
         String::new()
     }
-    fn contributions_changed(&self, _: &str) {}
+    fn contributions_changed(&self, kind: &str) {
+        self.contributions.lock().push(kind.into());
+    }
     fn emit_graph_worker_spawned_json(&self, _: &str) {}
     fn socket_display_path(&self) -> String {
         String::new()
@@ -137,6 +174,12 @@ impl PluginHostCtx for AnalyticsHost {
         false
     }
     fn receiver_target_json(&self, plugin_id: &str) -> String {
+        if plugin_id == "origin-fixture" {
+            return match crate::surface_invocation::current(plugin_id) {
+                Some(origin) => json!({"origin":origin}).to_string(),
+                None => json!({"error":"surface_origin_unavailable"}).to_string(),
+            };
+        }
         if plugin_id == "view-invocation-probe" {
             return serde_json::to_string(&crate::view_host::current_view_call_context(plugin_id))
                 .unwrap();
@@ -430,7 +473,14 @@ fn view_invalidation_uses_sandbox_plugin_identity_without_agent_scope_and_is_bou
 async fn view_host_projection_survives_actual_continuation_and_cannot_be_seeded_by_args() {
     use crate::view_host::{ViewCallContext, ViewProvider};
     let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
-    let vm=Arc::new(PluginVm::from_source("view-invocation-probe",r#"module.exports.default={viewCall(method,args,context){return host.awaitJob("view-context-absent-job",function(){return {passed:context,host:host.receiverTarget.get()}})}}"#.into()).unwrap());
+    let job =
+        crate::js_runtime::host_exec::start_retained_json_job("view-invocation-probe", || {
+            json!({"value": 42}).to_string()
+        })
+        .unwrap();
+    let source = r#"module.exports.default={viewCall(method,args,context){return host.awaitJob(JOB,function(result){return {passed:context,host:host.receiverTarget.get(),result:result}})}}"#
+        .replace("JOB", &json!(job).to_string());
+    let vm = Arc::new(PluginVm::from_source("view-invocation-probe", source).unwrap());
     assert!(vm.set_service(Arc::downgrade(&host)));
     let view = crate::js_runtime::JsViewProvider::new(vm, "view-invocation-probe");
     let mut context = ViewCallContext::panel("view-invocation-probe");
@@ -441,5 +491,6 @@ async fn view_host_projection_survives_actual_continuation_and_cannot_be_seeded_
         .unwrap();
     assert_eq!(out["passed"], serde_json::to_value(&context).unwrap());
     assert_eq!(out["host"], out["passed"]);
+    assert_eq!(out["result"]["value"], 42);
     assert!(crate::view_host::current_view_call_context("view-invocation-probe").is_none());
 }

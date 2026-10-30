@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn plugin_native_late_or_cancelled_update_retains_job_as_unknown() {
-    let request:StepRequest = serde_json::from_value(serde_json::json!({"context":{"scope":{"workspace":"workspace","team":null,"run":"run"},"owner":"owner","node":"node","attempt":"attempt","operation":"operation","runView":"run","runLabel":"Run","nodeLabel":"Node","inputLineage":[]},"nodeType":"fixture.step","revision":1,"params":{},"inputs":{},"unit":"units","stepAllowance":0})).unwrap();
+    let request:StepRequest = serde_json::from_value(serde_json::json!({"context":{"scope":{"workspace":"workspace","team":null,"run":"run"},"owner":"owner","node":"node","attempt":"attempt","operation":"operation","nodeLabel":"Node","inputLineage":[]},"nodeType":"fixture.step","revision":1,"params":{},"inputs":{}})).unwrap();
     for expired in [false, true] {
         let cancellation = ConversionCancellation::default();
         if !expired {
@@ -20,7 +20,7 @@ fn plugin_native_late_or_cancelled_update_retains_job_as_unknown() {
         };
         let update = bounded_update(
             Ok(JobUpdate {
-                job: "paid-job".into(),
+                job: "fixture-job".into(),
                 state: OperationState::Succeeded,
                 outcome: Some("done".into()),
                 outputs: PortValues::new(),
@@ -28,6 +28,6 @@ fn plugin_native_late_or_cancelled_update_retains_job_as_unknown() {
             &call,
         )
         .unwrap();
-        assert_eq!(update, JobUpdate::unknown("paid-job".into()));
+        assert_eq!(update, JobUpdate::unknown("fixture-job".into()));
     }
 }

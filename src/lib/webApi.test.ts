@@ -4,7 +4,33 @@ import { withFailureDeadline } from "../test/withFailureDeadline";
 import { agentProvidersFromResponse, syncAgentDescriptorCache } from "../hooks/useAgentProviders";
 import { getAgentDescriptor } from "./agentDescriptorCache";
 import type { ProviderDescriptor } from "./types";
-import { webJson, webUpload, invalidateWebRequestContext } from "./webApi";
+import { webJson, webUpload, invalidateWebRequestContext, relayTarget, setRelayTarget, clearRelayTarget } from "./webApi";
+
+describe("relay preference storage", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("keeps current selections origin-scoped and ignores obsolete session selections", () => {
+    const values = new Map<string, string>();
+    const location = { origin: "http://first:7686", protocol: "http:", host: "first:7686" };
+    vi.stubGlobal("window", { location });
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => { values.delete(key); },
+    });
+    vi.stubGlobal("sessionStorage", { getItem: () => { throw new Error("obsolete storage must not be read"); } });
+    expect(relayTarget()).toBeNull();
+    setRelayTarget("first-peer", "First");
+    expect(relayTarget()).toEqual({ id: "first-peer", name: "First" });
+    location.origin = "http://second:7686";
+    expect(relayTarget()).toBeNull();
+    setRelayTarget("second-peer", "Second");
+    clearRelayTarget();
+    expect(relayTarget()).toBeNull();
+    location.origin = "http://first:7686";
+    expect(relayTarget()).toEqual({ id: "first-peer", name: "First" });
+  });
+});
 
 describe("web JSON prompt response transport", () => {
   afterEach(() => vi.unstubAllGlobals());

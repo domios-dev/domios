@@ -13,6 +13,68 @@ use std::sync::{
 use tower::ServiceExt;
 
 struct Authorization(AtomicUsize);
+
+#[tokio::test]
+async fn notify_resolve_route_closes_only_the_callers_question() {
+    use codeterm_notification_core::{
+        contract::NotificationAction,
+        store::{Ask, NotificationProvenance, NotificationSeverity},
+    };
+    let (mut mux, asker) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&asker).unwrap();
+    let other = mux.create_tab(&workspace).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let question = fixture.service.notif.lock().add_ext(
+        "opaque question".into(),
+        None,
+        NotificationSeverity::Info,
+        NotificationProvenance {
+            tab_id: Some(asker.clone()),
+            ..Default::default()
+        },
+        Ask::offering(Some(vec![NotificationAction::Answer {
+            label: "opaque answer".into(),
+        }])),
+        None,
+        None,
+    );
+    let state = crate::test_support::app_state(&fixture);
+    let router = Router::new()
+        .route(
+            "/api/notifications/{id}/resolve",
+            post(resolve_notification),
+        )
+        .with_state(state);
+    for (tab, expected) in [(&other, StatusCode::CONFLICT), (&asker, StatusCode::OK)] {
+        let token = fixture
+            .service
+            .frontend_pty_env(Some(tab))
+            .remove("CODETERM_API_TOKEN")
+            .unwrap();
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/notifications/{question}/resolve"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+    }
+    assert!(
+        fixture
+            .service
+            .notif
+            .lock()
+            .notification(&question)
+            .unwrap()
+            .resolved
+    );
+}
 impl DaemonQuestionHandler for Authorization {
     fn answer(&self, _: &str, _: &str) -> Option<Result<serde_json::Value, String>> {
         self.0.fetch_add(1, Ordering::SeqCst);
@@ -21,8 +83,7 @@ impl DaemonQuestionHandler for Authorization {
 }
 
 #[tokio::test]
-async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identity_before_authorization(
-) {
+async fn daemon_question_route_refuses_every_non_owner_identity_before_handler() {
     let tab = |id: &str| {
         CallerIdentity::Tab(codeterm_service_core::service::tab_credentials::TabCaller {
             tab_id: id.into(),
@@ -55,10 +116,10 @@ async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identit
         let id = fixture
             .service
             .publish_daemon_question(
-                "blueprint-plugin:operation:quote".into(),
-                "Approve".into(),
-                "Exact operation".into(),
-                vec!["Approve one unit".into()],
+                "fixture-question:opaque".into(),
+                "Fixture".into(),
+                "Opaque question".into(),
+                vec!["Continue".into()],
             )
             .unwrap();
         let mut router = Router::new()
@@ -74,7 +135,7 @@ async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identit
                     .method("POST")
                     .uri(format!("/api/notifications/{id}/answer"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"label":"Approve one unit"}"#))
+                    .body(Body::from(r#"{"label":"Continue"}"#))
                     .unwrap(),
             )
             .await
@@ -101,7 +162,7 @@ async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identit
         if !owner {
             assert!(fixture
                 .service
-                .answer_notification(&id, "Approve one unit")
+                .answer_notification(&id, "Continue")
                 .is_err());
         }
     }

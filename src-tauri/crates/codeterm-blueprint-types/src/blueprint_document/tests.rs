@@ -178,3 +178,20 @@ fn typed_binding_keeps_schema_properties_and_literal_executable_text_opaque() {
         .locations
         .contains_key("steps[0].run"));
 }
+
+#[test]
+fn blueprint_document_plugin_node_needs_no_spending_block() {
+    let raw = "schema_version: 2\nkind: pipeline\nname: plugin-fixture\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: echo\n  uses: fixture.echo\n  with: {text: {lit: opaque}}\nresult: {to: notify}\n";
+    let parsed = parse("plugin.yaml", raw).unwrap();
+    assert!(parsed.document.template_errors().is_empty());
+    let lowered = parsed.document.lower().unwrap();
+    assert_eq!(
+        lowered["spec"]["steps"][0]["kind"],
+        serde_json::json!({
+            "kind": "plugin", "node_type": "fixture.echo", "revision": 0,
+            "params": {"text": "opaque"}, "outcomes": []
+        })
+    );
+    let invalid = raw.replace("  uses: fixture.echo", "  uses: fixture.echo\n  plugin: {revision: 1, spending: {unit: credits, run_ceiling: 2, step_allowance: 1}}");
+    assert!(parse("plugin.yaml", &invalid).is_err());
+}

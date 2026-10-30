@@ -60,6 +60,9 @@ pub fn source_schema_with_media(
         .nodes()
         .find(|n| n.id == id)
         .ok_or("Unknown bind producer")?;
+    if node.uses.as_ref().is_some_and(super::NodeKind::plugin) && node.output.is_none() {
+        return Ok(Port::default());
+    }
     let output = node.output.clone().unwrap_or_else(|| Port {
         kind: if matches!(node.kind(), "code" | "call") {
             ""

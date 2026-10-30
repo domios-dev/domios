@@ -463,3 +463,62 @@ fn blueprint_names_are_unique_per_team_workspace_and_options_persist() {
             .paused
     );
 }
+
+#[test]
+fn sentinel_plugin_descriptor_pins_round_trip_without_allowing_runtime_edits() {
+    use codeterm_blueprint_types::blueprint_pipeline::StepKind;
+    let (_root, storage) = storage();
+    let mut document = pipeline_document("plugin-pins", "tab", "notify");
+    document["steps"] =
+        serde_json::json!([{"id":"emit","uses":"fixture.echo","with":{"text":{"lit":"opaque"}}}]);
+    let mut spec = pipeline(&document);
+    if let StepKind::Plugin {
+        revision, outcomes, ..
+    } = &mut spec.steps[0].kind
+    {
+        *revision = 7;
+        *outcomes = vec!["done".into()];
+    } else {
+        panic!("expected plugin node");
+    }
+    let pinned = definition(document, StageSource::Pipeline(spec));
+    pinned.validate_native_document().unwrap();
+    storage
+        .sentinels()
+        .create(SentinelCreate {
+            identity: identity("plugin_descriptor_pins"),
+            scenario_id: None,
+            definition: pinned.clone(),
+            runtime: runtime(),
+            associate: Vec::new(),
+        })
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let stored = storage
+        .sentinels()
+        .get(id("plugin_descriptor_pins"))
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value
+        .unwrap();
+    assert_eq!(stored.record.definition.definition, pinned);
+    let mut altered = pinned.clone();
+    if let StageSource::Pipeline(spec) = &mut altered.source {
+        if let StepKind::Plugin { params, .. } = &mut spec.steps[0].kind {
+            *params = serde_json::json!({"text":"changed"});
+        }
+    }
+    assert!(altered.validate_native_document().is_err());
+    let mut renamed = pinned.clone();
+    if let StageSource::Pipeline(spec) = &mut renamed.source {
+        spec.steps[0].name = "other".into();
+    }
+    assert!(renamed.validate_native_document().is_err());
+    let mut replaced = pinned;
+    if let StageSource::Pipeline(spec) = &mut replaced.source {
+        if let StepKind::Plugin { node_type, .. } = &mut spec.steps[0].kind {
+            *node_type = "other.echo".into();
+        }
+    }
+    assert!(replaced.validate_native_document().is_err());
+}

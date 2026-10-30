@@ -172,12 +172,7 @@ fn plan_store_open_isolates_malformed_and_pane_era_records_without_rewriting() {
     let planner = legacy_document["planner"].as_object_mut().unwrap();
     let planner_tab = planner.remove("tab_id").unwrap();
     planner.insert("pane_id".into(), planner_tab);
-    legacy_document["tasks"][0]["execution_attempts"] = serde_json::json!([{
-        "id": "attempt-pane-era",
-        "executor_pane_id": "worker-tab",
-        "parent_pane_id": "parent-tab",
-        "orchestrator_pane_id": "orch-tab"
-    }]);
+    legacy_document.as_object_mut().unwrap().remove("tasks");
 
     let connection = Connection::open(&database_path).unwrap();
     connection

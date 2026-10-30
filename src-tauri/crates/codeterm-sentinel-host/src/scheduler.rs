@@ -225,27 +225,6 @@ pub fn start(
     {
         return None;
     }
-    if svc
-        .register_host_extension(Arc::new(codeterm_plugin::plugin_jobs::PluginJobs(
-            Arc::new(crate::plugin_job_admission::JobAdmission(Arc::downgrade(
-                &svc,
-            ))),
-        )))
-        .is_err()
-    {
-        return None;
-    }
-    if svc
-        .register_host_extension(Arc::new(
-            codeterm_service_core::ports::daemon_question::DaemonQuestions::new(Arc::new(
-                crate::plugin_owner::OwnerQuestions(Arc::downgrade(&svc)),
-            )),
-        ))
-        .is_err()
-    {
-        log::error!("[blueprint] owner question registration failed");
-        return None;
-    }
     let callback = shutdown_callback(&handle);
     match codeterm_service_core::crash::shutdown::subscribe_sentinel_shutdown(callback) {
         Ok(subscription) => handle._shutdown = Some(Arc::new(subscription)),
@@ -325,9 +304,6 @@ pub fn start(
                     Err(error) => {
                         log::error!("[blueprint] plugin reconciliation unavailable: {error}")
                     }
-                }
-                if let Err(error) = crate::plugin_owner::publish(&svc, &run_handle) {
-                    log::error!("[blueprint] owner question publication failed: {error}");
                 }
                 super::run_binding::reconcile_runs(&svc, &run_handle);
                 expire_escalations(&store, &svc);

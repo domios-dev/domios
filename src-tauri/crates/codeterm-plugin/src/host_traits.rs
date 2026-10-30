@@ -23,9 +23,6 @@ pub trait PluginHostCtx: Send + Sync {
     fn surface_registration(&self, _plugin: &str, _runtime: &str) -> Option<String> {
         None
     }
-    fn plugin_job_json(&self, _plugin: &str, _request: &str) -> String {
-        r#"{"error":"plugin_jobs_unavailable"}"#.into()
-    }
     fn runtime_launch_authorized(
         &self,
         _binding: &crate::agent_runtime::RuntimeLaunchBinding,

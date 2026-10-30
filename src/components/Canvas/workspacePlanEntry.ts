@@ -41,9 +41,7 @@ function planBelongsToWorkspacePath(entry: PlanIndexEntry, workspace: Workspace)
   if (canonicalProjectPath) {
     return projectPathBelongsToWorkspace(canonicalProjectPath, workspace.cwd);
   }
-  const legacyProjectPath = legacyPlanProjectPath(entry);
-  return legacyProjectPath != null
-    && projectPathBelongsToWorkspace(legacyProjectPath, workspace.cwd);
+  return false;
 }
 
 function normalizePath(path: string): string {
@@ -59,19 +57,6 @@ function projectPathBelongsToWorkspace(projectPath: string, workspacePath: strin
   const project = comparablePath(projectPath);
   const root = comparablePath(workspacePath);
   return project === root || project.startsWith(`${root}/`);
-}
-
-function legacyPlanProjectPath(entry: PlanIndexEntry): string | null {
-  const file = normalizePath(entry.file_path);
-  const marker = "/.domios/plans/";
-  const markerIndex = file.lastIndexOf(marker);
-  if (markerIndex < 0) return null;
-  const parts = file.slice(markerIndex + marker.length).split("/");
-  if (parts.length !== 3) return null;
-  const [bucket, planId, fileName] = parts;
-  if ((bucket !== "active" && bucket !== "archive") || planId !== entry.plan_id) return null;
-  if (fileName !== "plan.json" && fileName !== "plan.yaml") return null;
-  return file.slice(0, markerIndex);
 }
 
 function hasWorkspacePlanContent(entry: PlanIndexEntry): boolean {

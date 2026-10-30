@@ -18,18 +18,6 @@ pub struct PluginJobScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PluginJobOrigin {
-    StudioView {
-        surface: String,
-        instance: String,
-        tab: String,
-        frame: String,
-    },
-    StudioAgent {
-        surface: String,
-        instance: String,
-        tab: String,
-        actor: String,
-    },
     Blueprint {
         blueprint: String,
         run: String,
@@ -117,7 +105,6 @@ impl OperationLedger {
             return Ok(existing);
         }
         if registration.deadline_ms <= now_ms
-            || registration.deadline_ms > MAX_COST_AMOUNT
             || registration.deadline_ms > now_ms.saturating_add(MAX_LIFETIME_MS)
             || registration.next_check_ms < now_ms.saturating_add(1000)
             || registration.next_check_ms > now_ms.saturating_add(900_000)
@@ -431,27 +418,13 @@ fn write_monitor(
 
 impl PluginJobRegistration {
     pub(super) fn valid_identity(&self) -> bool {
-        let fields = match &self.origin {
-            PluginJobOrigin::StudioView {
-                surface,
-                instance,
-                tab,
-                frame,
-            } => [surface, instance, tab, frame],
-            PluginJobOrigin::StudioAgent {
-                surface,
-                instance,
-                tab,
-                actor,
-            } => [surface, instance, tab, actor],
-            PluginJobOrigin::Blueprint {
-                blueprint,
-                run,
-                node,
-                attempt,
-            } => [blueprint, run, node, attempt],
-        };
-        fields
+        let PluginJobOrigin::Blueprint {
+            blueprint,
+            run,
+            node,
+            attempt,
+        } = &self.origin;
+        [blueprint, run, node, attempt]
             .into_iter()
             .chain([&self.scope.workspace, &self.scope.owner, &self.operation])
             .chain(self.scope.team.iter())

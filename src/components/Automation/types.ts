@@ -76,6 +76,7 @@ export interface AutomationNode {
   detail?: {
     runs_since_transition?: number;
     last_probe_at?: number | null;
+    next_check_at_ms?: number | null;
     probe_state?: string | null;
     observe_target?: { kind: string; id: string } | null;
     definition?: {

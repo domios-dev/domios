@@ -1,4 +1,5 @@
 use super::*;
+use crate::blueprint_pipeline::BlueprintExt;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
 use serde_json::json;
 
@@ -7,17 +8,16 @@ struct Adapter {
     submits: AtomicUsize,
     checks: AtomicUsize,
     cancels: AtomicUsize,
+    initial: OperationState,
     gate: parking_lot::Mutex<Option<ReconcileGate>>,
+    complete: std::sync::atomic::AtomicBool,
 }
 impl BlueprintStep for Adapter {
-    fn estimate(&self, _: &StepCall<'_>) -> Result<Option<Estimate>, String> {
-        panic!("free fixture");
-    }
     fn submit(&self, _: &StepCall<'_>) -> Result<JobUpdate, String> {
         self.submits.fetch_add(1, Ordering::SeqCst);
         Ok(JobUpdate {
             job: "existing".into(),
-            state: OperationState::Queued,
+            state: self.initial,
             outcome: None,
             outputs: PortValues::new(),
         })
@@ -31,8 +31,12 @@ impl BlueprintStep for Adapter {
         }
         Ok(JobUpdate {
             job: "existing".into(),
-            state: OperationState::Running,
-            outcome: None,
+            state: if self.complete.load(Ordering::SeqCst) {
+                OperationState::Succeeded
+            } else {
+                OperationState::Running
+            },
+            outcome: self.complete.load(Ordering::SeqCst).then(|| "done".into()),
             outputs: PortValues::new(),
         })
     }
@@ -51,17 +55,50 @@ struct Fixture {
     descriptor: StepDescriptor,
     job: String,
     clock: Arc<codeterm_cron::clock::MockClock>,
+    continuation: serde_json::Value,
+    storage: codeterm_storage::Storage,
     _root: tempfile::TempDir,
 }
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        self.storage
+            .shutdown()
+            .wait(Duration::from_secs(10))
+            .unwrap();
+    }
+}
+
 fn fixture(cancel: bool) -> Fixture {
+    fixture_with_state(cancel, OperationState::Queued)
+}
+
+fn fixture_with_state(cancel: bool, initial: OperationState) -> Fixture {
     let root = tempfile::tempdir().unwrap();
-    let (service, handle, _, context, _, clock) = super::tests::fixture(root.path());
-    let descriptor = parse_descriptors(&json!([{"contractVersion":1,"revision":1,"id":"monitor-fixture.step","title":"Step","description":"No paid calls","params":{"type":"object","properties":{}},"inputs":{},"outputs":{},"outcomes":["done","failed"],"effects":{"sideEffects":false,"potentiallyPaid":false},"lifecycle":{"reconcile":true,"cancel":cancel}}])).unwrap().remove(0);
+    let (mux, owner) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+    let service = ServiceFixture::new(mux);
+    assert!(service
+        .service
+        .register_host_extension(Arc::new(plugin::PluginStepStoreRoot(
+            root.path().join("plugin-state")
+        )))
+        .is_ok());
+    let clock = codeterm_cron::clock::MockClock::starting_at(1000);
+    codeterm_storage::test_support::seed_empty_root(&root.path().join("storage"));
+    let storage =
+        codeterm_storage::Storage::open(&root.path().join("storage"), Default::default()).unwrap();
+    let handle = crate::scheduler::fixture_handle_without_app(crate::store::Store::with_storage(
+        &storage,
+        clock.clone(),
+    ));
+    let descriptor = parse_descriptors(&json!([{"contractVersion":1,"revision":1,"id":"monitor-fixture.step","title":"Step","description":"Lifecycle fixture","params":{"type":"object","properties":{}},"inputs":{},"outputs":{},"outcomes":["done","failed"],"effects":{"sideEffects":false},"lifecycle":{"reconcile":true,"cancel":cancel}}])).unwrap().remove(0);
     let adapter = Arc::new(Adapter {
         submits: AtomicUsize::new(0),
         checks: AtomicUsize::new(0),
         cancels: AtomicUsize::new(0),
+        initial,
         gate: Default::default(),
+        complete: std::sync::atomic::AtomicBool::new(false),
     });
     service
         .service
@@ -72,69 +109,56 @@ fn fixture(cancel: bool) -> Fixture {
             adapter.clone(),
         )
         .unwrap();
-    let owner = context.owner.unwrap();
-    let workspace = context.workspace.unwrap();
     let mut job = handle.store.lock().prepare_document(json!({"schema_version":2,"kind":"pipeline","name":"Monitor fixture","owner":"tab","trigger":{"type":"input","kind":{"lit":"text"},"source":{"lit":{"text":"fixture"}}},
-        "steps":[{"id":"step","uses":"monitor-fixture.step","plugin":{"revision":1,"spending":{"unit":"units","run_ceiling":0,"step_allowance":0}}}],"result":{"to":"notify"}}),crate::store::Owner {creator_tab_id:owner.clone(),workspace_id:workspace.clone(),team_id:None,cwd:root.path().to_string_lossy().into_owned()},false).unwrap();
-    let scope = RunScope {
-        workspace,
+        "steps":[{"id":"step","uses":"monitor-fixture.step"}],"result":{"to":"notify"}}),crate::store::Owner {creator_tab_id:owner.clone(),workspace_id:workspace.clone(),team_id:None,cwd:root.path().to_string_lossy().into_owned()},false).unwrap();
+    let caller = crate::service_adapter::SentinelCaller {
+        tab: owner,
         team: None,
-        run: "run".into(),
+        workspace,
+        cwd: root.path().to_string_lossy().into_owned(),
+        nonce: None,
     };
-    let request = StepRequest {
-        context: StepContext {
-            scope,
-            owner,
-            node: "step".into(),
-            attempt: "attempt".into(),
-            operation: "operation".into(),
-            run_view: "run".into(),
-            run_label: "Monitor run #1".into(),
-            node_label: "Step".into(),
-            input_lineage: vec![],
-        },
-        node_type: descriptor.id.clone(),
-        revision: 1,
-        params: json!({}),
-        inputs: PortValues::new(),
-        unit: "units".into(),
-        step_allowance: 0,
-    };
-    let ledger = plugin::ledger(&service.service).unwrap();
-    ledger
-        .admit_run(&request.context.scope, "units", 0)
-        .unwrap();
-    let registered = service
+    let preview = service
         .service
-        .ext::<Arc<GraphNodeRegistry>>()
-        .step(&descriptor.id)
+        .blueprint_pipeline_validate(&caller, job.pipeline().unwrap().clone())
         .unwrap();
-    StepRuntime {
-        ledger: &ledger,
-        descriptor: &descriptor,
-        adapter: registered.adapter,
-        media: None,
-    }
-    .drive(
-        "monitor-fixture",
-        &request,
-        || 1000,
-        Instant::now() + Duration::from_secs(2),
-        Default::default(),
-    )
-    .unwrap();
-    adapter.submits.store(0, Ordering::SeqCst);
-    job.admission.plugin_hold = Some(codeterm_sentinel::admission::PluginHold {
-        run: "run".into(),
-        node: "step".into(),
-        operation: "operation".into(),
-        state: "queued".into(),
-        reason: "plugin_step_queued".into(),
-    });
-    job.admission.continuation = Some(json!({"priorOutputs":{"kept":"original"}}));
-    let job = storage::commit(&handle.store, |store| store.stage_insert(job))
+    assert!(
+        preview.checks.iter().all(|check| check.passed),
+        "{:?}",
+        preview.checks
+    );
+    job.set_pipeline(Some(preview.normalized_spec));
+    let persisted = storage::commit(&handle.store, |store| store.stage_insert(job)).unwrap();
+    let reopened = crate::store::Store::with_storage(&storage, clock.clone());
+    assert_eq!(
+        reopened.get(&persisted.id).unwrap().pipeline(),
+        persisted.pipeline()
+    );
+    let lease = crate::store::Lease {
+        job: persisted,
+        cancelled: Default::default(),
+        event: None,
+    };
+    assert_eq!(
+        crate::pipeline::run_plugin_fixture(&handle, &service.service, &lease, "run").unwrap(),
+        codeterm_blueprint_types::blueprint_journal::JournalState::Held
+    );
+    let request = plugin::ledger(&service.service)
         .unwrap()
-        .id;
+        .get(&plugin::operation("run", "step"))
+        .unwrap()
+        .unwrap()
+        .request;
+    let job = lease.job.id;
+    let continuation = handle
+        .store
+        .lock()
+        .get(&job)
+        .unwrap()
+        .admission
+        .continuation
+        .clone()
+        .unwrap();
     prepare_monitors(&service.service, &handle).unwrap();
     Fixture {
         service,
@@ -144,6 +168,8 @@ fn fixture(cancel: bool) -> Fixture {
         descriptor,
         job,
         clock,
+        continuation,
+        storage,
         _root: root,
     }
 }
@@ -215,9 +241,9 @@ fn plugin_monitor_updates_exact_queued_run_to_running_and_refuses_removed_or_rev
         );
         assert_eq!(
             job.admission.continuation,
-            Some(json!({"priorOutputs":{"kept":"original"}}))
+            Some(fixture.continuation.clone())
         );
-        assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
     }
 }
 
@@ -243,7 +269,10 @@ fn plugin_monitor_stop_during_reconcile_cancels_exact_job_once_after_restart_wit
     let parked = observed.recv_timeout(Duration::from_secs(2));
     stop(&fixture);
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
-    let intent = ledger.get("operation").unwrap().unwrap();
+    let intent = ledger
+        .get(&fixture.request.context.operation)
+        .unwrap()
+        .unwrap();
     assert!(intent.cancel_requested);
     assert!(!intent.cancel_dispatched);
     release.send(()).unwrap();
@@ -278,7 +307,7 @@ fn plugin_monitor_stop_during_reconcile_cancels_exact_job_once_after_restart_wit
     assert_eq!(record.state, OperationState::Unknown);
     assert!(record.cancel_dispatched);
     assert_eq!(fixture.adapter.cancels.load(Ordering::SeqCst), 1);
-    assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 0);
+    assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
     let job = fixture
         .handle
         .store
@@ -289,7 +318,7 @@ fn plugin_monitor_stop_during_reconcile_cancels_exact_job_once_after_restart_wit
     assert!(job.machine.stopped);
     assert_eq!(
         job.admission.continuation,
-        Some(json!({"priorOutputs":{"kept":"original"}}))
+        Some(fixture.continuation.clone())
     );
 }
 
@@ -311,12 +340,64 @@ fn plugin_monitor_scope_loss_and_unsupported_cancel_preserve_unknown_without_new
         prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
         let record = plugin::ledger(&fixture.service.service)
             .unwrap()
-            .get("operation")
+            .get(&fixture.request.context.operation)
             .unwrap()
             .unwrap();
         assert_eq!(record.state, OperationState::Unknown);
         assert!(record.cancel_requested);
         assert_eq!(fixture.adapter.cancels.load(Ordering::SeqCst), 0);
-        assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 0);
+        assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
     }
+}
+
+#[test]
+fn plugin_monitor_reconciles_running_job_and_resumes_run() {
+    let fixture = fixture_with_state(false, OperationState::Running);
+    let held = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .admission
+        .plugin_hold
+        .clone()
+        .unwrap();
+    assert_eq!(held.reason, "plugin_step_running");
+    fixture.adapter.complete.store(true, Ordering::SeqCst);
+    fixture.clock.set_ms(2000);
+    let ledger = plugin::ledger(&fixture.service.service).unwrap();
+    let claim = ledger.claim_job_check(2000).unwrap().unwrap();
+    run_check(&fixture.service.service, &fixture.handle, claim).unwrap();
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
+    assert!(job.admission.plugin_hold.is_none());
+    assert!(job.admission.continuation.is_some());
+    let lease = crate::store::Lease {
+        job,
+        cancelled: Default::default(),
+        event: None,
+    };
+    assert_eq!(
+        crate::pipeline::run_plugin_fixture(
+            &fixture.handle,
+            &fixture.service.service,
+            &lease,
+            "run"
+        )
+        .unwrap(),
+        codeterm_blueprint_types::blueprint_journal::JournalState::Done
+    );
+    let record = ledger
+        .get(&fixture.request.context.operation)
+        .unwrap()
+        .unwrap();
+    assert_eq!(record.outcome.as_deref(), Some("done"));
+    assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
+    assert_eq!(fixture.adapter.checks.load(Ordering::SeqCst), 1);
 }

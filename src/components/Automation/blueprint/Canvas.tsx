@@ -18,9 +18,9 @@ function keyboardFocus(element: HTMLElement): boolean {
 /** A run fact pinned above the node it happened at, so it follows the graph on pan and zoom. */
 export interface CanvasCallout { nodeKey: string; tone: "failed" | "held"; label: string; lead: string; reason: string; detail: string | null }
 
-export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, callouts = [], notices, crumbs, panelOpen = false, toolbar, values }: {
+export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onOpen, lit, litNodes: reached, historical = false, active, callouts = [], notices, crumbs, panelOpen = false, toolbar, values }: {
   layout: BlueprintLayout; label: string; selected: string | null; camera: AutomationCamera; onSelect: (key: string) => void; onOpen?: (key: string) => void;
-  lit: ReadonlySet<string>; callouts?: readonly CanvasCallout[]; notices?: ReactNode; crumbs?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
+  lit: ReadonlySet<string>; litNodes?: ReadonlySet<string>; historical?: boolean; active?: string | null; callouts?: readonly CanvasCallout[]; notices?: ReactNode; crumbs?: ReactNode; panelOpen?: boolean; toolbar?: ReactNode;
   /** The model of the selected run; with it, data pins and wires show what flowed through them. */
   values?: BlueprintGraphModel;
 }) {
@@ -58,7 +58,7 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
   }, [viewport.containerRef]);
   useLayoutEffect(() => paintGrid(viewport.transform), [paintGrid, viewport.transform]);
   const openable = selected && onOpen ? layout.byKey.get(selected) : undefined;
-  const litNodes = new Set(layout.wires.filter((route) => lit.has(route.wire.id)).flatMap((route) => [route.wire.from.node, route.wire.to.node]));
+  const litNodes = reached ?? new Set(layout.wires.filter((route) => lit.has(route.wire.id)).flatMap((route) => [route.wire.from.node, route.wire.to.node]));
   return <div className="bp-scope flex min-h-0 min-w-0 flex-1 flex-col">
     <div
       ref={attach}
@@ -66,7 +66,7 @@ export function BlueprintCanvas({ layout, label, selected, camera, onSelect, onO
       role="region"
       aria-label={label}
       aria-describedby={hintId}
-      data-replaying={lit.size ? "true" : undefined}
+      data-replaying={historical ? "true" : undefined}
       onMouseDown={viewport.handlers.onMouseDown}
       onKeyDown={viewport.onKeyDown}
       onScroll={(event) => { event.currentTarget.scrollTop = 0; event.currentTarget.scrollLeft = 0; }}
@@ -115,9 +115,11 @@ ${callout.detail}` : callout.reason}
             data-state={node.evidence?.state}
             data-subgraph={node.callee ? node.callee.openable ? "openable" : "pinned" : undefined}
             data-lit={litNodes.has(node.key) || undefined}
+            data-active={active === node.key || undefined}
+            aria-current={active === node.key ? "step" : undefined}
             aria-pressed={selected === node.key}
             aria-label={`Node ${nodeLabel(node)}`}
-            aria-description={[node.callee ? `Sub-graph ${node.callee.name}${node.callee.openable && onOpen ? ", double-click or Enter to open" : ""}` : null, node.evidence ? evidenceText(node.evidence) : null].filter(Boolean).join(". ") || undefined}
+            aria-description={[node.trigger?.label, node.callee ? `Sub-graph ${node.callee.name}${node.callee.openable && onOpen ? ", double-click or Enter to open" : ""}` : null, node.evidence ? evidenceText(node.evidence) : null].filter(Boolean).join(". ") || undefined}
             style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
             onFocus={(event) => { if (keyboardFocus(event.currentTarget)) viewport.reveal(box); }}
             aria-keyshortcuts={onOpen && node.type === "call" ? "Enter" : undefined}

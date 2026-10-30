@@ -29,7 +29,7 @@ export interface BlueprintStepDescriptor {
   outputs: Record<string, BlueprintStepPort>;
   outcomes: string[];
   lifecycle: { reconcile: boolean; cancel: boolean };
-  effects: { sideEffects: boolean; potentiallyPaid: boolean };
+  effects: { sideEffects: boolean };
 }
 
 export interface BlueprintRunScope {
@@ -50,8 +50,6 @@ export interface BlueprintStepContext {
   node: string;
   attempt: string;
   operation: string;
-  runView: string;
-  runLabel: string;
   nodeLabel: string;
   inputLineage: BlueprintInputLineage[];
 }
@@ -72,37 +70,11 @@ export interface BlueprintStepRequest {
   revision: number;
   params: Record<string, unknown>;
   inputs: BlueprintPortValues;
-  unit: string;
-  stepAllowance: number;
   job: string | null;
   deadlineMs: number;
 }
 
-export interface BlueprintStepEstimate {
-  amount: number;
-  unit: string;
-  validUntilMs: number;
-}
-
-export type BlueprintOperationState = "prepared" | "waiting_for_owner_ok" | "submitting" | "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
-export type BlueprintWaitingReason = "estimate_missing" | "estimate_stale" | "over_run_ceiling" | "over_step_allowance" | "owner_confirmation";
-
-export interface BlueprintStepWaiting {
-  reason: BlueprintWaitingReason;
-  estimate: number | null;
-  remaining: number;
-  unit: string;
-}
-
-export interface BlueprintOperationApproval {
-  scope: BlueprintRunScope;
-  operation: string;
-  actor: string;
-  unit: string;
-  maximum: number;
-  runCeilingException: boolean;
-}
-
+export type BlueprintOperationState = "prepared" | "submitting" | "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown";
 export interface BlueprintJobUpdate {
   job: string;
   state: Extract<BlueprintOperationState, "queued" | "running" | "succeeded" | "failed" | "canceled" | "unknown">;
@@ -111,7 +83,6 @@ export interface BlueprintJobUpdate {
 }
 
 export interface BlueprintSteps {
-  blueprintEstimate(request: BlueprintStepRequest): BlueprintStepEstimate | null;
   blueprintSubmit(request: BlueprintStepRequest): BlueprintJobUpdate;
   blueprintReconcile(request: BlueprintStepRequest): BlueprintJobUpdate;
   blueprintCancel(request: BlueprintStepRequest): BlueprintJobUpdate;

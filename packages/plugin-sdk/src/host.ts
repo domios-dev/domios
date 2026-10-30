@@ -474,7 +474,6 @@ export interface Host {
   // The VM must yield while the job completes so a plugin cannot block other calls.
   awaitJob<T, R = ExecPollResult>(jobId: string, then: (result: R) => T): T;
   transfer: import("./binaryTransfer").HostTransfer;
-  jobs: import("./pluginJobs").HostJobs;
   transferStart(optsJson: string): string;
   transferAbort(jobId: string): boolean;
   transferBindInput(requestJson: string): string;

@@ -90,12 +90,26 @@ impl ServiceContext {
     }
 
     pub(crate) fn reconcile_curator_id(&self, id: &str, now: u64) {
+        let gate = self
+            .extensions
+            .get_or_init(CuratorReconciliations::default)
+            .for_plan(id);
+        let _guard = match gate.try_lock() {
+            Some(guard) => guard,
+            None => {
+                #[cfg(test)]
+                super::reconciliation::test_boundary::observe(self, id, false);
+                gate.lock()
+            }
+        };
         let Some(cron) = self.extensions.try_get::<crate::CronState>() else {
             return;
         };
         let Some(plan) = self.plan_store.get(id) else {
             return;
         };
+        #[cfg(test)]
+        super::reconciliation::test_boundary::observe(self, id, true);
         if let Some(index) = self.extensions.try_get::<CuratorTabs>() {
             let mut tabs = index.0.write();
             tabs.retain(|_, plan| plan != id);

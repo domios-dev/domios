@@ -9,7 +9,6 @@ pub mod chat_snapshot;
 pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
-pub mod convert_storage;
 pub mod curator;
 pub mod digest_rules;
 pub mod element_queries;
@@ -25,7 +24,6 @@ mod lane_metadata;
 pub mod lifecycle;
 pub mod locate;
 pub mod loop_mutations;
-pub mod migration_backup;
 pub mod milestone_gates;
 pub mod mutations;
 pub mod next_actions;
@@ -267,13 +265,6 @@ impl PlanStore {
             store.spec_index.write().insert(id, entry);
         }
         store.seed_search_indexes();
-        let now_ms = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        if let Err(error) = store.absorb_legacy_inbox(now_ms) {
-            log::warn!("[radar] legacy inbox plan kept until the next start: {error}");
-        }
         Ok(store)
     }
 

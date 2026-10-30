@@ -116,6 +116,7 @@ pub(super) fn dispatch(
                 "notification.create",
                 "notification.list",
                 "notification.clear",
+                "notification.resolve",
                 "mesh.status",
                 "mesh.peers",
                 "model_provider.add",

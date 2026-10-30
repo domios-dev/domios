@@ -269,8 +269,6 @@ pub struct Node {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uses: Option<NodeKind>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub plugin: Option<PluginStepConfig>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<ValueForm>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<Code>,
@@ -315,21 +313,6 @@ pub struct Node {
     pub session: bool,
     #[serde(default, skip_serializing_if = "is_default")]
     pub paused: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PluginStepConfig {
-    pub revision: u32,
-    pub spending: PluginSpending,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct PluginSpending {
-    pub unit: String,
-    pub run_ceiling: u64,
-    pub step_allowance: u64,
 }
 
 pub fn namespaced_plugin_step(id: &str) -> bool {

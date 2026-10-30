@@ -216,70 +216,38 @@ fn removing_a_task_or_attempt_removes_its_rows_and_reorders_survivors() {
 }
 
 #[test]
-fn opening_a_database_never_rewrites_whole_documents() {
+fn whole_document_rows_are_refused_without_rewriting_them() {
     let (_directory, path, database) = database();
     drop(database);
-    let tasks = (0..18)
-        .map(|seq| task(&format!("old{seq}"), 4, 2, 250 * 1024))
-        .collect();
-    let legacy = plan(tasks);
-    insert_whole_document(&path, &legacy);
-    assert!(plan_row(&path, &legacy.id).len() > 17 * 1024 * 1024);
-
-    let original = plan_row(&path, &legacy.id);
-    let migrated = PlanDatabase::open(path.clone()).unwrap();
-    let after_first = (plan_row(&path, &legacy.id), row_counts(&path));
-    assert_eq!(after_first.0, original);
-    assert_eq!(after_first.1, [0, 0, 0]);
-    assert_eq!(migrated.load_snapshots().unwrap().0, vec![legacy.clone()]);
-    drop(migrated);
-
+    let retired = plan(vec![task("one", 1, 0, 8)]);
+    insert_whole_document(&path, &retired);
+    let original = plan_row(&path, &retired.id);
     let reopened = PlanDatabase::open(path.clone()).unwrap();
-    assert_eq!(
-        (plan_row(&path, &legacy.id), row_counts(&path)),
-        after_first
+
+    let error = reopened.load_plan(&retired.id).unwrap_err().to_string();
+    assert!(
+        error.contains("unsupported whole-document plan row"),
+        "{error}"
     );
-    assert_eq!(reopened.load_plan(&legacy.id).unwrap(), Some(legacy));
+    assert!(reopened.load_snapshots().unwrap().0.is_empty());
+    assert_eq!(plan_row(&path, &retired.id), original);
+    assert_eq!(row_counts(&path), [0, 0, 0]);
 }
 
 #[test]
-fn a_plan_with_duplicate_task_ids_stays_writable_as_a_whole_document() {
+fn duplicate_task_ids_are_refused_without_changing_stored_rows() {
     let (_directory, path, database) = database();
-    let mut plan = plan(
-        (0..20)
-            .map(|seq| task(&format!("big{seq}"), 1, 1, 250 * 1024))
-            .collect(),
-    );
-    database.persist_plan(&plan, None).unwrap();
-    plan.tasks[1].id = plan.tasks[0].id.clone();
-    assert!(serde_json::to_string(&plan).unwrap().len() > store_rows::MAX_STORED_ROW_BYTES);
+    let original = plan(vec![task("one", 1, 1, 8), task("two", 1, 1, 8)]);
+    database.persist_plan(&original, None).unwrap();
+    let before = (plan_row(&path, &original.id), row_counts(&path));
+    let mut duplicate = original.clone();
+    duplicate.tasks[1].id = duplicate.tasks[0].id.clone();
 
-    let writes = database.persist_plan_rows(&plan, None).unwrap();
-
-    assert!(writes.header_identity_changed);
-    assert_eq!(row_counts(&path), [0, 0, 0]);
-    assert!(plan_row(&path, &plan.id).contains("\"tasks\""));
-    assert_eq!(database.load_plan(&plan.id).unwrap(), Some(plan.clone()));
-
-    plan.tasks[1].id = "big1".into();
-    database.persist_plan(&plan, None).unwrap();
-    assert_eq!(row_counts(&path), [20, 20, 20]);
-    assert!(!plan_row(&path, &plan.id).contains("\"tasks\""));
-    assert_eq!(database.load_plan(&plan.id).unwrap(), Some(plan));
-}
-
-#[test]
-fn an_unsplittable_whole_document_is_kept_intact_and_still_loads() {
-    let (_directory, path, database) = database();
-    drop(database);
-    let mut legacy = plan(vec![task("dup", 1, 0, 8), task("dup", 1, 0, 8)]);
-    legacy.id = "pl_dup".into();
-    insert_whole_document(&path, &legacy);
-    let source = plan_row(&path, &legacy.id);
-
-    let reopened = PlanDatabase::open(path.clone()).unwrap();
-
-    assert_eq!(plan_row(&path, &legacy.id), source);
-    assert_eq!(row_counts(&path), [0, 0, 0]);
-    assert_eq!(reopened.load_plan(&legacy.id).unwrap(), Some(legacy));
+    let error = database
+        .persist_plan_rows(&duplicate, None)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("duplicate task id"), "{error}");
+    assert_eq!((plan_row(&path, &original.id), row_counts(&path)), before);
+    assert_eq!(database.load_plan(&original.id).unwrap(), Some(original));
 }

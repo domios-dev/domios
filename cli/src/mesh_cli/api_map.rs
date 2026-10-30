@@ -225,6 +225,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::NotifyAction::Clear => {
                 ("POST".into(), "/api/notifications/clear".into(), None)
             }
+            crate::NotifyAction::Resolve { id } => {
+                ("POST".into(), format!("/api/notifications/{id}/resolve"), None)
+            }
         },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),

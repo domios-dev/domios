@@ -1,5 +1,6 @@
 //! Notification creation with OS toast support.
 mod daemon;
+mod resolution;
 
 mod in_app;
 pub(in crate::service) use in_app::InAppNotice;
@@ -323,18 +324,7 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
-        if self.notification_requires_owner(id) {
-            return Err("Blueprint spending decisions require the local owner".into());
-        }
         self.answer_notification_inner(id, label)
-    }
-
-    pub fn notification_requires_owner(&self, id: &str) -> bool {
-        self.notif.lock().answer_slot(id).is_some_and(|slot| {
-            slot.daemon_request
-                .as_deref()
-                .is_some_and(|request| request.starts_with("blueprint-plugin:"))
-        })
     }
 
     pub fn answer_notification_as_owner(
@@ -359,6 +349,7 @@ impl ServiceContext {
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
+        self.reconcile_notification_questions();
         // An offer applies only to the first recording that proved it, so a later tap cannot widen the surface.
         if let Some(proof) = authority::tap_proof(&admission) {
             self.apply_surface_offer(id, label, proof);

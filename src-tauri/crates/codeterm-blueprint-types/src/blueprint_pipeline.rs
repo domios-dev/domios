@@ -154,7 +154,7 @@ fn default_command_timeout_ms() -> u64 {
 pub enum StepKind {
     Plugin {
         node_type: String,
-        config: crate::blueprint_document::PluginStepConfig,
+        revision: u32,
         params: Value,
         outcomes: Vec<String>,
     },
@@ -259,7 +259,12 @@ impl StepKind {
                 "failed".into(),
             ]
             .into()),
-            Self::Plugin { outcomes, .. } => {
+            Self::Plugin {
+                outcomes, revision, ..
+            } => {
+                if *revision == 0 && outcomes.is_empty() {
+                    return Ok(["done".into(), "failed".into()].into());
+                }
                 validate_buckets("outcomes", outcomes)?;
                 Ok(outcomes.iter().cloned().chain(["failed".into()]).collect())
             }
@@ -540,16 +545,11 @@ pub fn validate_parts(
         match &step.kind {
             StepKind::Plugin {
                 node_type,
-                config,
+                revision: _,
                 params,
                 ..
             } => {
                 if !crate::blueprint_document::namespaced_plugin_step(node_type)
-                    || config.revision == 0
-                    || config.spending.unit.is_empty()
-                    || config.spending.unit.len() > 64
-                    || config.spending.run_ceiling > 9_007_199_254_740_991
-                    || config.spending.step_allowance > 9_007_199_254_740_991
                     || !params.is_object()
                     || params.to_string().len() > 65_536
                 {

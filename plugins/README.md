@@ -384,7 +384,7 @@ plugins, transport adapters, etc) by:
 The registry, the workspace, and the loader are kind-agnostic — they
 just register objects with a `meta.id`. The only thing tied to
 "provider" today is the call sites that consume `ProviderPlugin`-shaped
-data (ChatView, agentProviders adapter, Sidebar).
+data (ChatView, Sidebar).
 
 ## File layout reference
 

@@ -18,11 +18,14 @@ import { BlueprintCanvas, type CanvasCallout } from "./Canvas";
 import { CanvasNotices } from "./CanvasNotes";
 import type { CanvasNote } from "./layout";
 import { DetailsFrame } from "../DetailsFrame";
-import { expandedCall, focusScope, litWires } from "./graphModel";
+import { blueprintRunEvents, expandedCall, focusScope } from "./graphModel";
 import { layoutBlueprint } from "./layout";
 import { BlueprintNodeDetails } from "./NodeDetails";
 import { useBlueprintGraph } from "./useBlueprintGraph";
 import { createAutomationCamera, type AutomationCamera } from "./viewport";
+import { singleCadence } from "./triggerModel";
+import { projectRunPath } from "./replayModel";
+import { useRunReplay } from "./useRunReplay";
 
 const DRAWER_MOTION: PresenceMotion = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
 const cameras = new Map<string, AutomationCamera>();
@@ -117,7 +120,14 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
     const model = focusScope(whole.model, trail);
     return { ...whole, model, layout: layoutBlueprint(model) };
   }, [whole, trail]);
-  const lit = useMemo(() => graph ? litWires(graph.model) : new Set<string>(), [graph]);
+  const replayEvents = useMemo(() => shown && runId !== null ? blueprintRunEvents(shown) : [], [shown, runId]);
+  const replay = useRunReplay(runId, replayEvents.length);
+  const path = useMemo(() => graph ? projectRunPath(graph.model, replayEvents, runId !== null && !building, replay.step) : null, [graph, replayEvents, runId, building, replay.step]);
+  const shownLayout = useMemo(() => {
+    if (!graph || !path) return null;
+    const nodes = new Map(path.model.nodes.map((node) => [node.key, node]));
+    return { ...graph.layout, nodes: graph.layout.nodes.map((laid) => ({ ...laid, node: nodes.get(laid.node.key) ?? laid.node })) };
+  }, [graph, path]);
   const scopeTitles = [pipeline.name, ...trail.map((id, depth) => { const call = expandedCall(graphSource, trail.slice(0, depth), id); return call?.graph.name || call?.pin.id || id; })];
   const enter = (next: readonly string[]) => {
     setTrail(next);
@@ -170,7 +180,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
         : <button type="button" onClick={() => enter(trail.slice(0, depth))}>{title}</button>}
     </li>)}</ol>
   </nav> : null;
-  const shownNode = drawer.item && graph ? graph.model.nodes.find((node) => node.key === drawer.item) ?? null : null;
+  const shownNode = drawer.item && path ? path.model.nodes.find((node) => node.key === drawer.item) ?? null : null;
   const Heading = headingLevel === 3 ? "h3" : "h2";
   const available = body.height || 640;
 
@@ -200,7 +210,10 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
   const runRow = (pressed: boolean) => `ct-row ct-run-row${pressed ? " ct-row--selected" : ""}`;
   const runCount = pipeline.runs?.length ?? 0;
   const runsToggle = <button type="button" className={AUTOMATION_TOOL} aria-expanded={runsOpen} aria-controls="blueprint-run-log" onClick={() => setRunsOpen(!runsOpen)}><List size={13} aria-hidden="true" />Runs<span className="text-[var(--ct-muted-fg)]">{runCount}</span></button>;
-  const journal = shown?.retained
+  const journal = runId !== null && replayEvents.length
+    ? replayEvents.map((entry, index) => ({ name: entry.evidence.journal?.step_name ?? shown?.retained?.steps[index]?.step ?? "Node", state: entry.evidence.state,
+      detail: [entry.evidence.outcome, entry.evidence.summary].filter(Boolean).join(" · "), at: entry.evidence.at, row: entry.evidence.journal ?? null }))
+    : shown?.retained
     ? shown.retained.steps.map((step) => ({ name: step.step, state: step.state, detail: [step.outcome, step.summary].filter(Boolean).join(" · "), at: step.at, row: null }))
     : shown?.nested_run && shown.nested_run.id === shown.runId
       ? blueprintJournalNodes(shown).map((row) => ({ name: row.step_name, state: row.state, detail: [row.outcome, row.reason, row.result_summary].filter(Boolean).join(" · "), at: row.ended_at_ms ?? row.started_at_ms ?? null, row }))
@@ -217,7 +230,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
       {trail.length ? <BackPill label={scopeTitles[trail.length - 1]} onBack={() => enter(trail.slice(0, -1))} /> : onBack && <BackPill label={backLabel} onBack={onBack} />}
       <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}><Network size={14} aria-hidden="true" /></span>
       <Heading className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{pipeline.name}</Heading>
-      <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(pipeline.state)}`} aria-hidden="true" />{pipeline.call_graph?.kind ?? "Blueprint"} · {pipeline.state}</span>
+      <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(pipeline.state)}`} aria-hidden="true" />{pipeline.call_graph?.kind ?? "Blueprint"} · {pipeline.state === "idle" ? singleCadence(pipeline.call_graph) ?? pipeline.state : pipeline.state}</span>
       {loadHistory && <button type="button" className={AUTOMATION_TOOL} aria-expanded={diffOpen} onClick={() => { if (!diffOpen) { camera.selected = null; setSelected(null); } setDiffOpen(!diffOpen); }}><GitCompare size={13} aria-hidden="true" />Semantic diff</button>}
       {actions}
       {exportTarget && <BlueprintExportButton workspaceId={exportTarget.workspaceId} teamId={exportTarget.teamId} id={exportTarget.id} />}
@@ -226,7 +239,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
     <div ref={body.ref} data-blueprint-body="" className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : "h-[min(46rem,80vh)] min-h-[30rem]"}`}>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {shown && shown.historical_graph_available !== false && !error && !shown.projection_error && graph
-          ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={lit} callouts={callouts} values={graph.model}
+          ? <BlueprintCanvas key={JSON.stringify(trail)} onOpen={drill} layout={shownLayout ?? graph.layout} label={`${pipeline.name} graph`} selected={selected} camera={camera} onSelect={select} lit={path?.wires ?? new Set()} litNodes={path?.nodes} historical={path?.dim} active={path?.active} callouts={replay.step === replayEvents.length ? callouts : []} values={path?.model ?? graph.model}
             notices={notices} crumbs={crumbs} panelOpen={selected !== null || diffOpen} toolbar={history ? runsToggle : undefined} />
           : <div className="bp-scope bp-canvas bp-stage relative flex min-h-[14rem] min-w-0 flex-1 flex-col items-start gap-3 p-4">
             {history && runsToggle}
@@ -254,8 +267,15 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
             </div>
             <section aria-label="Selected run journal" className="bp-runs__journal">
               <h3 className="bp-panel__title">Run journal</h3>
+              {runId !== null && replayEvents.length > 0 && !building && <div role="group" aria-label="Run replay" className="bp-replay-controls">
+                <button type="button" className={AUTOMATION_TOOL} onClick={() => replay.dispatch({ type: replay.playing ? "pause" : "play" })}>{replay.playing ? "Pause replay" : "Play replay"}</button>
+                <label className="bp-replay-controls__step">Step
+                  <input type="range" aria-label="Replay step" min={0} max={replayEvents.length} value={replay.step} aria-valuetext={`${replay.step} of ${replayEvents.length} entries`} onChange={(event) => replay.dispatch({ type: "seek", step: Number(event.currentTarget.value) })} />
+                </label>
+                <output aria-live="polite">{replay.step} / {replayEvents.length}</output>
+              </div>}
               {shown?.retained?.incomplete && <p role="status" className="ct-job-note">This retained run is incomplete.</p>}
-              {journal?.length ? <ol className="bp-journal">{journal.map((entry, index) => <li key={index} className="bp-journal__entry">
+              {journal?.length ? <ol className="bp-journal">{journal.map((entry, index) => <li key={index} className="bp-journal__entry" aria-current={runId !== null && index === replay.step - 1 ? "step" : undefined}>
                 <div className="bp-journal__head">
                   <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${stateTone(entry.state)}`} aria-hidden="true" />
                   <span className="bp-journal__name">{entry.name}</span>
@@ -276,7 +296,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
         </DetailsFrame>
       </div>}
       {!diffOpen && drawer.state && drawer.item !== null && graph && <div className="plan-side-panel-layer">
-        <BlueprintNodeDetails key={drawer.item} node={shownNode} model={graph.model}
+        <BlueprintNodeDetails key={drawer.item} node={shownNode} model={path?.model ?? graph.model}
           call={shownNode?.definition ? expandedCall(graphSource, shownNode.callPath, shownNode.definition.id) : undefined}
           expanded={shownNode ? expanded.has(shownNode.key) : false}
           onExpand={() => shownNode && setExpanded((current) => toggleBlueprintExpansion(current, shownNode.key))}
