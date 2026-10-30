@@ -10,9 +10,9 @@ pub struct StepInputContext {
     pub cancellation: crate::converter::ConversionCancellation,
 }
 thread_local! { static CURRENT: RefCell<Option<StepInputContext>> = const { RefCell::new(None) }; }
-pub(crate) struct StepInputScope(Option<StepInputContext>);
+pub struct StepInputScope(Option<StepInputContext>);
 impl StepInputScope {
-    pub(crate) fn enter(plugin: &str, call: &super::StepCall<'_>, submitting: bool) -> Self {
+    pub fn enter(plugin: &str, call: &super::StepCall<'_>, submitting: bool) -> Self {
         Self(CURRENT.with(|slot| {
             slot.replace(Some(StepInputContext {
                 plugin: plugin.into(),

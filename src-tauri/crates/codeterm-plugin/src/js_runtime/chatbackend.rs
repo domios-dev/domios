@@ -246,7 +246,6 @@ impl ChatBackendProvider for JsChatBackend {
         request: &crate::agent_task::AgentTaskRequest,
     ) -> Result<crate::agent_task::AgentTaskResult, String> {
         crate::agent_task::validate_input(&request.input)?;
-        crate::agent_task::validate_media_capability(&request.input, &self.agent_task_media())?;
         if !self.supports_agent_tasks() {
             return Err("provider does not support bounded agent tasks".into());
         }
@@ -265,30 +264,6 @@ impl ChatBackendProvider for JsChatBackend {
         )
         .map_err(|e| format!("agent task failed: {e:?}"))?;
         crate::agent_task::validate_result(output)
-    }
-
-    fn agent_task_media(&self) -> Vec<crate::agent_task::AgentTaskMediaKind> {
-        if !self.supports_agent_tasks() || !super::vm::has_method(&self.vm, "agentTaskMedia") {
-            return Vec::new();
-        }
-        let declared =
-            super::vm::call_json_interruptible::<Vec<crate::agent_task::AgentTaskMediaKind>>(
-                &self.vm,
-                "agentTaskMedia",
-                &[],
-                Default::default(),
-                std::time::Instant::now() + std::time::Duration::from_secs(2),
-            );
-        declared
-            .ok()
-            .filter(|values| {
-                values.len() <= 4
-                    && values
-                        .iter()
-                        .enumerate()
-                        .all(|(index, value)| !values[..index].contains(value))
-            })
-            .unwrap_or_default()
     }
 
     fn abort_agent_task(&self, run_id: &str) -> Result<(), String> {

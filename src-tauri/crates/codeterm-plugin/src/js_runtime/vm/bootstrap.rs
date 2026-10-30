@@ -102,15 +102,6 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
   host.events = {
     emit: function (event) { return parseJson(host.graphEventEmit(JSON.stringify(event || {}))); },
   };
-  host.jobs = {
-    operations: function () { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"operations"}))); },
-    admit: function () { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"admit"}))); },
-    track: function (operation, job) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"track",operation:operation,job:job}))); },
-    status: function (operation) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"status",operation:operation}))); },
-    check: function (operation) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"check",operation:operation}))); },
-    cancel: function (operation) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"cancel",operation:operation}))); },
-    stop: function (operation) { return parseJson(host.pluginJobInvoke(JSON.stringify({action:"stop",operation:operation}))); },
-  };
   // Returns the JSON text `{ result }` or `{ error }` exactly as the host produced it.
   var surfaceDispatch = host.surfaceCall;
   var surfaceBegin = host.surfaceInvocationBegin;

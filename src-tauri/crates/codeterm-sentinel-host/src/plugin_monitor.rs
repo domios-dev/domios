@@ -152,7 +152,8 @@ fn prepare_monitors(service: &ServiceContext, handle: &Handle) -> Result<(), Str
             Some(MonitorStop::CheckLimit)
         } else if !live(service, &registration.scope) {
             Some(MonitorStop::ScopeRemoved)
-        } else if let PluginJobOrigin::Blueprint { blueprint, .. } = &registration.origin {
+        } else {
+            let PluginJobOrigin::Blueprint { blueprint, .. } = &registration.origin;
             match jobs.iter().find(|job| &job.id == blueprint) {
                 None => Some(MonitorStop::ScopeRemoved),
                 Some(job)
@@ -176,8 +177,6 @@ fn prepare_monitors(service: &ServiceContext, handle: &Handle) -> Result<(), Str
                 }
                 _ => None,
             }
-        } else {
-            None
         };
         if let Some(reason) = stopped {
             suspend(service, handle, registration, reason)?;
@@ -236,10 +235,7 @@ fn sync_hold(
         run,
         node,
         ..
-    } = &registration.origin
-    else {
-        return Ok(());
-    };
+    } = &registration.origin;
     storage::commit(&handle.store, |store| {
         let Some(mut job) = store.get(blueprint).cloned() else {
             return storage::Staged::ready(Ok(false));
@@ -332,7 +328,7 @@ fn check(service: &ServiceContext, handle: &Handle, claim: MonitorClaim) -> Resu
             .clone(),
         scope: registration.scope.clone(),
     }));
-    let state = if matches!(registration.origin, PluginJobOrigin::Blueprint { .. }) {
+    let state = {
         let record = ledger
             .get(&registration.operation)?
             .ok_or("plugin operation unavailable")?;
@@ -363,50 +359,6 @@ fn check(service: &ServiceContext, handle: &Handle, claim: MonitorClaim) -> Resu
             runtime.reconcile(&record.request, deadline, Default::default())
         })
         .map_or(OperationState::Unknown, |record| record.state)
-    } else {
-        let registry = service.ext::<codeterm_plugin::view_host::ViewRegistryHandle>();
-        let provider = registry
-            .get(&registration.scope.plugin)
-            .ok_or("plugin lifecycle unavailable")?;
-        let capability = provider
-            .job_lifecycle()
-            .filter(|descriptor| descriptor.valid())
-            .ok_or("plugin lifecycle unavailable")?;
-        let epoch = registry
-            .registration_id(&registration.scope.plugin)
-            .ok_or("plugin lifecycle unavailable")?;
-        let call = codeterm_plugin::plugin_jobs::JobCall {
-            context: codeterm_plugin::plugin_jobs::JobContext {
-                scope: registration.scope.clone(),
-                origin: registration.origin.clone(),
-                operation: registration.operation.clone(),
-                job: registration.job.clone(),
-            },
-            deadline,
-            cancellation: Default::default(),
-        };
-        let result = if claim.cancel && !capability.cancel {
-            Ok(codeterm_plugin::plugin_jobs::JobObservation {
-                job: registration.job.clone(),
-                state: OperationState::Unknown,
-            })
-        } else if claim.cancel {
-            provider.cancel_job(&call)
-        } else {
-            provider.reconcile_job(&call)
-        };
-        if registry
-            .registration_id(&registration.scope.plugin)
-            .as_deref()
-            != Some(epoch.as_str())
-        {
-            OperationState::Unknown
-        } else {
-            result
-                .ok()
-                .filter(|result| result.valid_for(&registration.job))
-                .map_or(OperationState::Unknown, |result| result.state)
-        }
     };
     if !live(service, &registration.scope) {
         suspend(service, handle, registration, MonitorStop::ScopeRemoved)?;
@@ -434,9 +386,8 @@ fn check(service: &ServiceContext, handle: &Handle, claim: MonitorClaim) -> Resu
         owner: completed.registration.scope.owner.clone(),
     })?;
     if completed.state.terminal() {
-        if let PluginJobOrigin::Blueprint { blueprint, .. } = &completed.registration.origin {
-            resume(handle, blueprint, &completed.registration.operation)?;
-        }
+        let PluginJobOrigin::Blueprint { blueprint, .. } = &completed.registration.origin;
+        resume(handle, blueprint, &completed.registration.operation)?;
     }
     Ok(())
 }
@@ -463,7 +414,3 @@ pub(crate) fn resume(handle: &Handle, blueprint: &str, operation: &str) -> Resul
 
 #[cfg(test)]
 mod lifecycle_tests;
-#[cfg(test)]
-mod origin_tests;
-#[cfg(test)]
-mod tests;

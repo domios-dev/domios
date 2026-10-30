@@ -64,12 +64,6 @@ impl PluginHostCtx for AnalyticsHost {
     fn surface_registration(&self, plugin: &str, _: &str) -> Option<String> {
         (plugin == "origin-fixture").then(|| "epoch".into())
     }
-    fn plugin_job_json(&self, plugin: &str, _: &str) -> String {
-        match crate::surface_invocation::current(plugin) {
-            Some(origin) => json!({"origin":origin}).to_string(),
-            None => json!({"error":"plugin_job_request_refused"}).to_string(),
-        }
-    }
     fn mem_search_json(&self, _: &str) -> String {
         String::new()
     }
@@ -137,6 +131,12 @@ impl PluginHostCtx for AnalyticsHost {
         false
     }
     fn receiver_target_json(&self, plugin_id: &str) -> String {
+        if plugin_id == "origin-fixture" {
+            return match crate::surface_invocation::current(plugin_id) {
+                Some(origin) => json!({"origin":origin}).to_string(),
+                None => json!({"error":"surface_origin_unavailable"}).to_string(),
+            };
+        }
         if plugin_id == "view-invocation-probe" {
             return serde_json::to_string(&crate::view_host::current_view_call_context(plugin_id))
                 .unwrap();

@@ -173,12 +173,6 @@ pub async fn answer_notification(
         caller.as_ref().map(|caller| &caller.0),
         Some(crate::auth::CallerIdentity::Local)
     );
-    if state.svc.notification_requires_owner(&id) && !owner {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Blueprint spending decisions require the local owner".into(),
-        ));
-    }
     if state
         .svc
         .notif

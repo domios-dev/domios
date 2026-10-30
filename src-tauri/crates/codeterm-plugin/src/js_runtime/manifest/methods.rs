@@ -60,9 +60,11 @@ impl PluginManifest {
             .map_err(|e| e.to_string())?;
         if let Some(media) = &manifest.capabilities.media_delivery {
             if !media.valid()
-                || (!manifest.capabilities.view && manifest.capabilities.remote_task.is_none())
+                || (!manifest.capabilities.view
+                    && manifest.capabilities.remote_task.is_none()
+                    && manifest.capabilities.graph_nodes.steps.is_empty())
             {
-                return Err("mediaDelivery requires a view and distinct passive MIME types".into());
+                return Err("mediaDelivery requires a view, remote task or graph steps and distinct MIME types".into());
             }
         }
         if manifest
@@ -74,16 +76,6 @@ impl PluginManifest {
             return Err("binaryTransfer limits exceed the host bounds".into());
         }
         manifest.capabilities.validate_tab_menu()?;
-        if manifest
-            .capabilities
-            .job_lifecycle
-            .as_ref()
-            .is_some_and(|descriptor| !descriptor.valid() || !manifest.capabilities.view)
-        {
-            return Err(
-                "jobLifecycle requires a view and contract version 1 with reconciliation".into(),
-            );
-        }
         manifest.capabilities.validate_surfaces()?;
         manifest.capabilities.validate_view_host_actions()?;
         for source in manifest.capabilities.record_sources.values() {

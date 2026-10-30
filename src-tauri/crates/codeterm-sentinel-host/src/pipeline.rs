@@ -1,9 +1,10 @@
-mod agent_media;
+mod agent_review;
 mod checkpoint;
 mod code;
 mod dispatch;
 mod execution;
 pub(crate) mod plugin;
+mod plugin_binding;
 pub(crate) mod previews;
 pub(crate) use checkpoint::retained_inputs;
 mod sources;
@@ -411,7 +412,6 @@ fn run_pipeline(
                     node: step.name.clone(),
                     operation: plugin::operation(run_id, &step.name),
                     state: match reason.as_str() {
-                        "plugin_step_waiting_for_owner_ok" => "waiting_for_owner_ok",
                         "plugin_step_queued" => "queued",
                         "plugin_step_running" => "running",
                         "plugin_step_submitting" => "submitting",
@@ -904,3 +904,14 @@ mod tests;
 
 #[cfg(test)]
 mod runtime_tests;
+
+#[cfg(test)]
+pub(crate) fn run_plugin_fixture(
+    handle: &Handle,
+    service: &ServiceContext,
+    lease: &Lease,
+    run: &str,
+) -> Result<JournalState, JournalReason> {
+    run_pipeline(handle, service, lease, run, &std::cell::Cell::new(false))
+        .map(|completion| completion.state)
+}

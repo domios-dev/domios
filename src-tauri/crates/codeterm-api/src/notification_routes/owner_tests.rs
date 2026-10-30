@@ -21,8 +21,7 @@ impl DaemonQuestionHandler for Authorization {
 }
 
 #[tokio::test]
-async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identity_before_authorization(
-) {
+async fn daemon_question_route_refuses_every_non_owner_identity_before_handler() {
     let tab = |id: &str| {
         CallerIdentity::Tab(codeterm_service_core::service::tab_credentials::TabCaller {
             tab_id: id.into(),
@@ -55,10 +54,10 @@ async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identit
         let id = fixture
             .service
             .publish_daemon_question(
-                "blueprint-plugin:operation:quote".into(),
-                "Approve".into(),
-                "Exact operation".into(),
-                vec!["Approve one unit".into()],
+                "fixture-question:opaque".into(),
+                "Fixture".into(),
+                "Opaque question".into(),
+                vec!["Continue".into()],
             )
             .unwrap();
         let mut router = Router::new()
@@ -74,7 +73,7 @@ async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identit
                     .method("POST")
                     .uri(format!("/api/notifications/{id}/answer"))
                     .header("content-type", "application/json")
-                    .body(Body::from(r#"{"label":"Approve one unit"}"#))
+                    .body(Body::from(r#"{"label":"Continue"}"#))
                     .unwrap(),
             )
             .await
@@ -101,7 +100,7 @@ async fn blueprint_owner_notification_real_route_refuses_every_non_owner_identit
         if !owner {
             assert!(fixture
                 .service
-                .answer_notification(&id, "Approve one unit")
+                .answer_notification(&id, "Continue")
                 .is_err());
         }
     }

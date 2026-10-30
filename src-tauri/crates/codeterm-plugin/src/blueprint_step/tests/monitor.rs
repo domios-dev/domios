@@ -8,11 +8,11 @@ fn registration(operation: &str) -> PluginJobRegistration {
             team: Some("team".into()),
             owner: "owner".into(),
         },
-        origin: PluginJobOrigin::StudioView {
-            surface: "studio".into(),
-            instance: "one".into(),
-            tab: "owner".into(),
-            frame: "document".into(),
+        origin: PluginJobOrigin::Blueprint {
+            blueprint: "blueprint".into(),
+            run: "run".into(),
+            node: "node".into(),
+            attempt: "attempt".into(),
         },
         operation: operation.into(),
         job: format!("job-{operation}"),
@@ -23,7 +23,7 @@ fn registration(operation: &str) -> PluginJobRegistration {
 
 #[test]
 fn plugin_monitor_exact_job_identity_exclusive_claim_and_cancel_are_durable() {
-    let ledger = ledger(&request("unused"), 0);
+    let ledger = ledger();
     let registration = registration("monitor");
     ledger
         .monitor_existing_job(registration.clone(), 100)
@@ -73,7 +73,7 @@ fn plugin_monitor_exact_job_identity_exclusive_claim_and_cancel_are_durable() {
 
 #[test]
 fn plugin_monitor_stop_fences_late_completion_without_fabricating_provider_cancellation() {
-    let ledger = ledger(&request("unused"), 0);
+    let ledger = ledger();
     let registration = registration("held");
     ledger
         .monitor_existing_job(registration.clone(), 100)
@@ -100,7 +100,7 @@ fn plugin_monitor_stop_fences_late_completion_without_fabricating_provider_cance
 
 #[test]
 fn plugin_monitor_rejects_replacement_jobs_and_scopes_and_bounds() {
-    let ledger = ledger(&request("unused"), 0);
+    let ledger = ledger();
     let registration = registration("exact");
     ledger
         .monitor_existing_job(registration.clone(), 100)
@@ -122,7 +122,7 @@ fn plugin_monitor_rejects_replacement_jobs_and_scopes_and_bounds() {
 
 #[test]
 fn plugin_monitor_inflight_worker_excludes_same_plugin_after_persisted_lease_expiry() {
-    let ledger = ledger(&request("unused"), 0);
+    let ledger = ledger();
     ledger
         .monitor_existing_job(registration("first"), 100)
         .unwrap();
@@ -176,7 +176,7 @@ fn plugin_monitor_origin_receipt_survives_restart_and_retains_one_exact_job() {
 
 #[test]
 fn plugin_monitor_cancel_dispatch_is_once_and_an_orphan_only_reconciles() {
-    let ledger = ledger(&request("unused"), 0);
+    let ledger = ledger();
     let registration = registration("cancel");
     ledger
         .monitor_existing_job(registration.clone(), 100)
@@ -196,7 +196,7 @@ fn plugin_monitor_cancel_dispatch_is_once_and_an_orphan_only_reconciles() {
 
 #[test]
 fn plugin_monitor_deadline_fences_all_busy_workers_without_false_cancellation() {
-    let ledger = ledger(&request("unused"), 0);
+    let ledger = ledger();
     let mut claims = Vec::new();
     for index in 0..4 {
         let mut registration = registration(&format!("busy-{index}"));
@@ -225,40 +225,4 @@ fn plugin_monitor_deadline_fences_all_busy_workers_without_false_cancellation() 
         assert_eq!(record.state, OperationState::Unknown);
         assert_eq!(record.stopped, Some(MonitorStop::Deadline));
     }
-}
-
-#[test]
-fn plugin_steps_run_view_labels_are_host_stamped_stable_and_scoped() {
-    let ledger = ledger(&request("unused"), 0);
-    let mut scope = request("unused").context.scope;
-    let first = ledger
-        .run_view(&scope, "owner", "blueprint", "Studio\nBlueprint")
-        .unwrap();
-    assert_eq!(first.label, "StudioBlueprint run #1");
-    assert_eq!(
-        ledger
-            .run_view(&scope, "owner", "blueprint", "Renamed")
-            .unwrap(),
-        first
-    );
-    assert_eq!(ledger.resolve_run_view(&first.reference).unwrap(), first);
-    assert!(ledger
-        .run_view(&scope, "foreign", "blueprint", "Renamed")
-        .is_err());
-    scope.run = "second".into();
-    assert_eq!(
-        ledger
-            .run_view(&scope, "owner", "blueprint", "StudioBlueprint")
-            .unwrap()
-            .ordinal,
-        2
-    );
-    scope.workspace = "foreign".into();
-    assert_eq!(
-        ledger
-            .run_view(&scope, "owner", "blueprint", "StudioBlueprint")
-            .unwrap()
-            .ordinal,
-        1
-    );
 }

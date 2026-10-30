@@ -30,8 +30,6 @@ window.ct.host=(function(){function ask(action,args){var id=++s;return new Promi
  saveAs:function(handle,suggestedName){return ask('saveAs',{handle:handle,suggestedName:suggestedName});},
  reveal:function(handle){return ask('reveal',{handle:handle});},
  pickFile:function(options){var o=options||{};return ask('pickFile',{accept:o.accept,multiple:o.multiple===true});}};})();
-window.ct.openRun=function(reference){var id=++s;return new Promise(function(res,rej){p[id]={resolve:res,reject:rej};send({__ctOpenRun:id,reference:reference});});};
-window.ct.decideOperation=function(decision){var id=++s;return new Promise(function(res,rej){p[id]={resolve:res,reject:rej};send({__ctDecideOperation:id,decision:decision});});};
 window.ct.onSurfaceStateChanged=function(fn){if(typeof fn!=="function")throw new Error("callback required");subscribers.add(fn);return function(){subscribers.delete(fn);};};
 window.ct.__reportUiState=function(state){send({__ctUiState:state});};
 window.dispatchEvent(new Event('ct-bridge-ready'));

@@ -102,10 +102,6 @@ pub trait ChatBackendProvider: Send + Sync {
         false
     }
 
-    fn agent_task_media(&self) -> Vec<crate::agent_task::AgentTaskMediaKind> {
-        Vec::new()
-    }
-
     fn run_agent_task(
         &self,
         _request: &crate::agent_task::AgentTaskRequest,

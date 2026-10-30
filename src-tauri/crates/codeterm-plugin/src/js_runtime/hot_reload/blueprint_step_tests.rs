@@ -7,7 +7,7 @@ fn manifest() -> PluginManifest {
     serde_json::from_value(json!({"id":"fixture","version":"0","displayName":"Fixture","hostApi":crate::js_runtime::host_api::HOST_API_VERSION,"entry":"plugin.js",
         "capabilities":{"graphNodes":{"steps":[{"contractVersion":1,"revision":1,"id":"fixture.generate","title":"Generate","description":"Fixture",
             "params":{"type":"object","properties":{}},"inputs":{},"outputs":{},"outcomes":["done","failed"],
-            "effects":{"sideEffects":true,"potentiallyPaid":true},"lifecycle":{"reconcile":true,"cancel":true}}]}}})).unwrap()
+            "effects":{"sideEffects":true},"lifecycle":{"reconcile":true,"cancel":true}}]}}})).unwrap()
 }
 
 #[test]
@@ -48,7 +48,6 @@ fn plugin_steps_registration_requires_declared_exports_and_revokes_snapshots() {
         super::super::PluginVm::from_source(
             "fixture",
             r#"module.exports={
-        blueprintEstimate:()=>({amount:0,unit:'credits',validUntilMs:100}),
         blueprintSubmit:()=>({job:'job',state:'queued',outcome:null,outputs:{}}),
         blueprintReconcile:()=>({job:'job',state:'running',outcome:null,outputs:{}}),
         blueprintCancel:()=>({job:'job',state:'canceled',outcome:null,outputs:{}})
@@ -72,8 +71,6 @@ fn plugin_steps_registration_requires_declared_exports_and_revokes_snapshots() {
             node: "node".into(),
             attempt: "attempt".into(),
             operation: "operation".into(),
-            run_view: String::new(),
-            run_label: String::new(),
             node_label: String::new(),
             input_lineage: vec![],
         },
@@ -81,8 +78,6 @@ fn plugin_steps_registration_requires_declared_exports_and_revokes_snapshots() {
         revision: 1,
         params: json!({}),
         inputs: Default::default(),
-        unit: "credits".into(),
-        step_allowance: 0,
     };
     let call = StepCall {
         request: &request,

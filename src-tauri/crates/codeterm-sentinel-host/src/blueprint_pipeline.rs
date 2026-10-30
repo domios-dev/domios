@@ -62,8 +62,29 @@ impl BlueprintExt for ServiceContext {
     fn blueprint_pipeline_validate(
         &self,
         caller: &crate::service_adapter::SentinelCaller,
-        spec: BlueprintSpec,
+        mut spec: BlueprintSpec,
     ) -> Result<PipelinePreview, String> {
+        for step in &mut spec.steps {
+            if let StepKind::Plugin {
+                node_type,
+                revision,
+                outcomes,
+                ..
+            } = &mut step.kind
+            {
+                if *revision == 0 {
+                    if let Some(registered) = self
+                        .ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>()
+                        .step(node_type)
+                    {
+                        *revision = registered.descriptor.revision;
+                        if outcomes.is_empty() {
+                            *outcomes = registered.descriptor.outcomes;
+                        }
+                    }
+                }
+            }
+        }
         let errors = self.pipeline_validation_errors(&spec)?;
         let trigger_available = match &spec.trigger {
             Trigger::Event { kind, .. } => self

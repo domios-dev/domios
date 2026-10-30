@@ -2,7 +2,7 @@ use super::review_verdict;
 use serde_json::json;
 
 #[test]
-fn agent_review_routes_only_closed_bounded_verdicts() {
+fn plugin_steps_agent_review_routes_only_closed_bounded_verdicts() {
     for verdict in ["pass", "retry"] {
         assert_eq!(
             review_verdict(&json!({"verdict":verdict,"notes":"review notes"})).unwrap(),

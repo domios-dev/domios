@@ -1,63 +1,49 @@
 use super::*;
 use codeterm_plugin::{blueprint_step::*, graph_nodes::GraphNodeRegistry};
-use std::{collections::BTreeMap, sync::Arc};
+use std::sync::Arc;
 
 pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<ValidationError> {
     let registry = service.ext::<Arc<GraphNodeRegistry>>();
     let mut errors = Vec::new();
-    let mut ceilings = BTreeMap::new();
     for (index, step) in spec.steps.iter().enumerate() {
-        if let StepKind::Agent { provider, .. } = &step.kind {
-            for binding in step
-                .execution
-                .as_ref()
-                .into_iter()
-                .flat_map(|execution| execution.input_bindings.values())
-            {
-                let Ok(binding) =
-                    codeterm_blueprint_types::blueprint_document::bindings::parse(binding)
-                else {
-                    continue;
-                };
-                let Some(source) = spec.steps.iter().find(|source| source.name == binding.node)
-                else {
-                    continue;
-                };
-                let StepKind::Plugin { node_type, .. } = &source.kind else {
-                    continue;
-                };
-                let Some(source) = registry.step(node_type) else {
-                    continue;
-                };
-                let Some(port) = source.descriptor.outputs.get(binding.selection) else {
-                    continue;
-                };
-                let modality = match port.kind {
-                    PortKind::Image => Some(codeterm_plugin::agent_task::AgentTaskMediaKind::Image),
-                    PortKind::Audio => Some(codeterm_plugin::agent_task::AgentTaskMediaKind::Audio),
-                    PortKind::Video => Some(codeterm_plugin::agent_task::AgentTaskMediaKind::Video),
-                    PortKind::File => Some(codeterm_plugin::agent_task::AgentTaskMediaKind::File),
-                    _ => None,
-                };
-                if modality.is_some_and(|modality| {
-                    service
-                        .chatbackend_registry
-                        .get(provider)
-                        .is_none_or(|backend| !backend.agent_task_media().contains(&modality))
-                }) {
-                    errors.push(ValidationError::new(
-                        ValidationPath::Step {
-                            index,
-                            field: StepField::Parameters("agent".into()),
-                        },
-                        "agent backend does not accept the bound media modality",
-                    ));
+        if !matches!(step.kind, StepKind::Plugin { .. }) {
+            if let Some(contract) = &step.execution {
+                for binding in contract
+                    .input_binding
+                    .iter()
+                    .chain(contract.input_bindings.values())
+                {
+                    let Ok(binding) =
+                        codeterm_blueprint_types::blueprint_document::bindings::parse(binding)
+                    else {
+                        continue;
+                    };
+                    let Some(source) = spec.steps[..index]
+                        .iter()
+                        .find(|source| source.name == binding.node)
+                    else {
+                        continue;
+                    };
+                    let StepKind::Plugin { node_type, .. } = &source.kind else {
+                        continue;
+                    };
+                    if registry.step(node_type).is_none_or(|source| {
+                        !source.descriptor.outputs.contains_key(binding.selection)
+                    }) {
+                        errors.push(ValidationError::new(
+                            ValidationPath::Step {
+                                index,
+                                field: StepField::Common("bind".into()),
+                            },
+                            "undeclared plugin output port",
+                        ));
+                    }
                 }
             }
         }
         let StepKind::Plugin {
             node_type,
-            config,
+            revision,
             params,
             outcomes,
         } = &step.kind
@@ -76,18 +62,7 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
             continue;
         };
         let descriptor = &registered.descriptor;
-        if descriptor
-            .inputs
-            .values()
-            .chain(descriptor.outputs.values())
-            .any(|port| port.kind == PortKind::File)
-        {
-            errors.push(ValidationError::new(
-                field.clone(),
-                "plugin file media delivery is unavailable",
-            ));
-        }
-        if descriptor.revision != config.revision {
+        if *revision != 0 && descriptor.revision != *revision {
             errors.push(ValidationError::new(
                 field.clone(),
                 "plugin_step_revision_changed",
@@ -106,15 +81,6 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
             errors.push(ValidationError::new(
                 field.clone(),
                 "plugin_step_outcome_not_declared",
-            ));
-        }
-        if ceilings
-            .insert(&config.spending.unit, config.spending.run_ceiling)
-            .is_some_and(|ceiling| ceiling != config.spending.run_ceiling)
-        {
-            errors.push(ValidationError::new(
-                field.clone(),
-                "run ceilings for the same unit must agree",
             ));
         }
         let bindings = step
