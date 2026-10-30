@@ -142,20 +142,37 @@ Run the resulting image only through `.github/workflows/docker-smoke.yml`.
 
 ## Rebuild cost
 
-Named `dev` and `dev-server` compile incrementally (owner rule): the one warm DEV
-target per checkout rebuilds only what changed. The portable compiler-cache wrapper
-still serves dependencies. Cargo retains the machine's configured build directory,
-and final artifacts remain under `src-tauri/target/dev-instances/<name>`. Reuse one
-instance name per checkout (AGENTS.md); a new name compiles cold.
-Cargo-fresh intermediates can retain metadata from the previous wrapper policy.
-For an approved before/after measurement, invalidate only the affected packages
-in the selected inactive instance through the gateway before seeding both
-checkouts. Do not delete the machine cache or another checkout's intermediates.
-Newly compiled matching Rust libraries can then hit across checkouts through
-the gateway. Instance identity, frontend URL and browser/CDP settings are applied
-at runtime in debug Development launches; source and CLI artifact changes can
-still relink the roots. Use normal named operations; canonical QA
-and lane-check retain their own profile and isolation policies.
+Named `dev` and `dev-server` compile incrementally (owner rule). Every named
+instance of a checkout shares the one warm DEV target `src-tauri/target/named-dev`,
+which rebuilds only what changed. They run with `CARGO_INCREMENTAL=1`, without
+the portable wrapper, and with `RUSTC_WRAPPER=` set empty so the machine-level
+`build.rustc-wrapper = "sccache"` does not apply. sccache rejects an explicit
+`CARGO_INCREMENTAL=1`, and incremental crates are uncacheable anyway. Release,
+CI, `install-local` and `worktree-check` keep `CARGO_INCREMENTAL=0` with sccache.
+Several instances run from the one build (`dev-prebuilt`); `dev`/`dev-server`
+refuse while another DEV from it runs. Never use a new instance name to get a
+fresh target (AGENTS.md). The dev-run skill covers instance identity, the shared
+build record and kill scoping.
+
+Fingerprints when switching an existing target to this policy (verified with
+Cargo 1.99 on a scratch crate): Cargo's unit fingerprint hashes neither
+`RUSTC_WRAPPER` nor wrapper-added rustc flags such as `--remap-path-prefix`.
+Cargo forces `incremental=false` for non-path (registry/git) packages, so
+dropping the wrapper and enabling incremental keeps every registry dependency
+`Fresh`. Moving the target directory also keeps them `Fresh`; Cargo rewrites a
+moved `OUT_DIR` in build-script output. Only path packages (workspace members,
+`workspace-hack`, local path dependencies) recompile, once, to seed their
+incremental state. A build script that declared
+`rerun-if-env-changed=RUSTC_WRAPPER` or `CARGO_INCREMENTAL`, or an absolute
+`rerun-if-changed` into the old target, would rerun after the switch. The warm
+qa8 target had none (`grep` over `debug/build/*/output`); recheck before
+relying on another target.
+
+The one-time adoption renames a warm legacy `src-tauri/target/dev-instances/<name>`
+to `named-dev` (dev-run skill). Instance identity, frontend URL and browser/CDP
+settings are applied at runtime in debug Development launches; source and CLI
+artifact changes can still relink the roots. Canonical QA and lane-check retain
+their own profile and isolation policies.
 
 DEV pins the configured public QA project once across CLI, server and client
 Cargo phases. Shared entitlement code otherwise flips between absent and

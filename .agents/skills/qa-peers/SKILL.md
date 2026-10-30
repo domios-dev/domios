@@ -21,7 +21,7 @@ Both select `DOMIOS_ACCOUNT_TARGET=qa`. State remains separate in `~/.domios-dev
 Both persistent DEV owners must export `CODETERM_DEV_WATCH=0` before `dev` or
 `dev-prebuilt`. This skips only the bundle watcher; static serving, provenance
 validation and native attachment remain required. A watcher rebuild mutates the
-recorded artifact tree and invalidates cross-instance staging, even at unchanged
+shared artifact tree and invalidates the other peer's provenance, even at unchanged
 source. Keep the candidate frontend immutable throughout QA; rebuild and restage
 through the supported flow after any change, never recapture changed live bytes
 to bypass a provenance refusal.
@@ -53,16 +53,23 @@ After both are proven down, require a clean checkout, run `git checkout --detach
 
 Preserve `DEV process changed before shutdown` or `Uncertain DEV instance identity; refusing shutdown`; do not retry or weaken the guard. The authorized DEV owner must independently verify the current processes, not reuse old PIDs:
 
+Both peers run from the same executables, so an image path never identifies a peer. Start from each peer's own API listener and its own provenance and data root:
+
 ```powershell
+$qaPeers = @(@{ Name = 'acceptance-r161'; Port = 7707 }, @{ Name = 'curated'; Port = 7697 })
+foreach ($qaPeer in $qaPeers) {
+  $qaRecord = Get-Content "$env:USERPROFILE/.domios-dev-$($qaPeer.Name)/dev-build-provenance.json" -Raw | ConvertFrom-Json
+  $qaHealth = try { Invoke-RestMethod "http://127.0.0.1:$($qaPeer.Port)/api/health" -TimeoutSec 2 } catch { $null }
+  $qaOwner = @(Get-NetTCPConnection -State Listen -LocalPort $qaPeer.Port -ErrorAction SilentlyContinue).OwningProcess
+  [pscustomobject]@{ Peer = $qaPeer.Name; RecordPort = $qaRecord.instance.apiPort; Server = $qaRecord.artifacts.server.path
+    HealthInstance = $qaHealth.instance.name; ListenerPid = $qaOwner }
+}
 Get-NetTCPConnection -State Listen |
   Where-Object LocalPort -in 7685,7707,7697,15007,14997,9407,9397 |
   Select-Object LocalAddress,LocalPort,OwningProcess
-Get-CimInstance Win32_Process |
-  Where-Object { $_.ExecutablePath -like 'C:\Developer\codeterm\codeterm-candidate\src-tauri\target\dev-instances\*' } |
-  Select-Object ProcessId,ParentProcessId,CreationDate,ExecutablePath,CommandLine
 ```
 
-Compare current listener owners and process creation times/paths with that instance's schema3 `dev-build-provenance.json`, native locator and attachment receipt. Verify selected data/config paths, API, client and server; inspect frontend watcher/static-server ownership separately. Exclude the owner of 7685 and foreign process trees. Recheck each identity immediately before `Stop-Process -Id <VERIFIED_NUMERIC_PID>`; stop only those verified processes, then confirm their listeners/processes absent. Uncertain identity requires owner resolution. Never kill by image name, kill an entire discovery filter, or touch production 7685.
+A peer is running only when its listener answers health as that peer on the port its own record names. Take that listener's process, its ancestors and descendants from `Get-CimInstance Win32_Process` (`ProcessId`, `ParentProcessId`, `CreationDate`), and the client named by the peer's native locator and attachment receipt. Verify selected data/config paths, API, client and server; inspect frontend watcher/static-server ownership separately. Exclude the owner of 7685, the other peer's tree and foreign process trees. Recheck each identity immediately before `Stop-Process -Id <VERIFIED_NUMERIC_PID>`; stop only those verified processes, then confirm their listeners/processes absent. Uncertain identity requires owner resolution. Never kill by image name or image directory, kill an entire discovery filter, or touch production 7685.
 
 ### Build A once
 
@@ -73,75 +80,22 @@ export CODETERM_DEV_WATCH=0
 bash ./build.sh dev --wait --wait-build
 ```
 
-Retain gateway job/log and raw exit; with `tee`, capture `${PIPESTATUS[0]}`. Require gateway release and exact A native READY before staging B. Do not compile B again or share a final Cargo target directory.
+Retain gateway job/log and raw exit; with `tee`, capture `${PIPESTATUS[0]}`. Require gateway release and exact A native READY before starting B. Both peers share the candidate's one DEV target `src-tauri/target/named-dev`; never compile B separately.
 
-### Stage B from A and launch without Cargo
+`dev` and `dev-server` refuse to compile while any DEV started from that target is running. The refusal names each running peer and its exact `kill` command. Windows locks a running executable, so a rebuild under a live peer cannot replace it. Stop both peers first; never work around the refusal with another instance name or target directory.
 
-The Windows recipe below follows Witness's successful `45bd-stage-B-from-A.ps1`. Older per-peer `dev` launchers compiled twice. B must already be stopped; verify A's successful gateway/native receipt first. Set the approved full SHA, then run PowerShell:
+### Start B from A's build without Cargo
 
-```powershell
-$ErrorActionPreference = 'Stop'
-$qaRepo = 'C:/Developer/codeterm/codeterm-candidate'
-$qaPin = '<FULL_CANDIDATE_SHA>'
-if ((& git -C $qaRepo rev-parse HEAD).Trim() -ne $qaPin) { throw 'Candidate drift' }
-$qaA = Get-Content "$env:USERPROFILE/.domios-dev-acceptance-r161/dev-build-provenance.json" -Raw | ConvertFrom-Json
-if ($qaA.schema -ne 3 -or $qaA.buildSha -ne $qaPin -or $qaA.instance.name -ne 'acceptance-r161' -or [int]$qaA.instance.apiPort -ne 7707) { throw 'A provenance mismatch' }
-$qaSource = [IO.Path]::GetFullPath($qaA.artifacts.resources.path).TrimEnd('\')
-$qaExpected = [IO.Path]::GetFullPath("$qaRepo/src-tauri/target/dev-instances/acceptance-r161/debug").TrimEnd('\')
-$qaTarget = [IO.Path]::GetFullPath("$qaRepo/src-tauri/target/dev-instances/curated/debug").TrimEnd('\')
-$qaBin = "$env:USERPROFILE/.domios-dev-curated/bin"
-$qaRecord = "$env:USERPROFILE/.domios-dev-curated/dev-build-provenance.json"
-if ($qaSource -ne $qaExpected) { throw 'Unexpected staging root' }
-if (@(Get-NetTCPConnection -State Listen -LocalPort 7697 -ErrorAction SilentlyContinue).Count) { throw 'B listening' }
-$qaBusy = Get-CimInstance Win32_Process | Where-Object {
-  $_.ExecutablePath -and ($_.ExecutablePath.StartsWith($qaTarget+'\',[StringComparison]::OrdinalIgnoreCase) -or
-    $_.ExecutablePath.StartsWith([IO.Path]::GetFullPath($qaBin)+'\',[StringComparison]::OrdinalIgnoreCase))
-}
-if (@($qaBusy).Count) { throw 'B artifacts in use' }
-New-Item -ItemType Directory -Force -Path $qaTarget,$qaBin | Out-Null
-foreach ($qaRoot in @($qaSource,$qaTarget,$qaBin)) {
-  if ((Get-Item -LiteralPath $qaRoot).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Root link refused' }
-}
-foreach ($qaName in @('cli','skills','conpty','dist','domios-server')) {
-  $qaTo = [IO.Path]::GetFullPath((Join-Path $qaTarget $qaName))
-  if (-not $qaTo.StartsWith($qaTarget+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe staging path' }
-  if (Test-Path -LiteralPath $qaTo) {
-    if ((Get-Item -LiteralPath $qaTo).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Artifact link refused' }
-    Remove-Item -LiteralPath $qaTo -Recurse -Force
-  }
-  Copy-Item -LiteralPath (Join-Path $qaSource $qaName) -Destination $qaTo -Recurse -Force
-}
-foreach ($qaName in @('domios-dev-app.exe','server-component.json','LICENSE','NOTICE')) {
-  Copy-Item -LiteralPath (Join-Path $qaSource $qaName) -Destination (Join-Path $qaTarget $qaName) -Force
-}
-foreach ($qaName in @('codeterm.exe','domios.exe')) {
-  Copy-Item -LiteralPath $qaA.artifacts.cli.path -Destination (Join-Path $qaBin $qaName) -Force
-}
-# Preserve existing B provenance in the private run evidence before replacing it.
-Push-Location $qaRepo
-try {
-  $qaArgs = @('--record',$qaRecord,'--build-sha',$qaPin,
-    '--app',"$qaTarget/domios-dev-app.exe",'--cli',"$qaBin/codeterm.exe",
-    '--frontend',"$qaTarget/dist",'--instance','curated','--api-port','7697',
-    '--vite-port','14997','--cdp-port','9397','--identifier','com.domios.dev.curated')
-  & node scripts/dev-prep.mjs --write-provenance @qaArgs
-  if ($LASTEXITCODE -ne 0) { throw 'Provenance write refused' }
-  & node scripts/dev-prep.mjs --check-provenance @qaArgs
-  if ($LASTEXITCODE -ne 0) { throw 'Provenance check refused' }
-} finally { Pop-Location }
-$qaB = Get-Content -LiteralPath $qaRecord -Raw | ConvertFrom-Json
-foreach ($qaName in @('app','cli','frontend','server','inventory','resources')) {
-  if ($qaB.artifacts.$qaName.sha256 -ne $qaA.artifacts.$qaName.sha256 -or
-      $qaB.artifacts.$qaName.bytes -ne $qaA.artifacts.$qaName.bytes) { throw "Artifact mismatch: $qaName" }
-}
-```
-
-Retain all six artifact comparisons and exits. This official writer records a verified same-source transfer; never use it to bypass stale source or changed bytes, or hand-edit its JSON. Select B's four explicit variables plus `DOMIOS_ACCOUNT_TARGET=qa`, then:
+A's `dev` wrote the shared build record `src-tauri/target/named-dev/dev-build-provenance.json`. B must already be stopped. Select B's four explicit variables plus `DOMIOS_ACCOUNT_TARGET=qa`, then:
 
 ```bash
 export CODETERM_DEV_WATCH=0
 bash ./build.sh dev-prebuilt --wait
 ```
+
+Without a current record of its own, B's `dev-prebuilt` validates the shared record against HEAD, the build inputs and every artifact hash. It then installs the built CLI into `~/.domios-dev-curated/bin`, writes B's own provenance (B's name, ports and identifier) and launches from the shared artifacts. A stale or changed shared build is a refusal: rebuild through A's `dev` after stopping both peers. Never copy artifacts or hand-write provenance. Retain the `[named-dev] instance 'curated' adopted the shared build` line and the raw exit.
+
+The first named `dev` after this layout landed renames one warm legacy `src-tauri/target/dev-instances/<name>` to `named-dev` (newest instance record wins; others stay). It refuses while a DEV still runs from that legacy target.
 
 ## Qualification and frontend recovery
 
@@ -176,4 +130,4 @@ Raw artifacts and ownership manifests go under `target-check/evals/qa/<stamp>/<C
 
 Restore owned temporary policies/limits; reconcile jobs, tabs, files and pending messages against the manifest. Close only owned Browser profiles via the Browser plugin and close completed timeout utilities immediately. When the owner ends the peers' phase, stop both through explicit named `build.sh kill`, confirm their selected processes/listeners absent, then close persistent DEV/controller utilities. Retain the shared candidate checkout/account state unless removal is explicitly requested. Never delete unrelated tabs or another worker's evidence.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -74,7 +74,10 @@ if ($Operation -eq 'StopTree') {
     }
     foreach ($proc in $pinned) { [DevRebuildProcess]::Stop($proc, 10000) }
     $after = Snapshot
-    if (@($after.processes | Where-Object { Selected-Image $_.executable }).Count) {
+    # A named instance shares its tree with other named instances; only its pinned incarnations must be gone.
+    $pinnedIdentity = @($request.processes | ForEach-Object { "$($_.pid):$($_.created)" })
+    if (@($after.processes | Where-Object { (Selected-Image $_.executable) -and
+        (-not $request.onlyPinned -or "$($_.pid):$($_.created)" -in $pinnedIdentity) }).Count) {
       throw 'DEV instance tree still has processes; refusing staging'
     }
     @{ stopped = @($request.processes) } | ConvertTo-Json -Depth 5 -Compress

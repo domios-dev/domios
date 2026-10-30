@@ -37,7 +37,7 @@ function fixture() {
   for (const dir of ['scripts', clientDebug, 'data/bin', 'dist']) {
     fs.mkdirSync(path.join(checkout, dir), { recursive: true });
   }
-  for (const name of ['dev-prep.mjs', 'server-readiness.mjs', 'dev-native-layout.mjs', 'dev-reload-inputs.cjs', 'crate-layers.json', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs']) {
+  for (const name of ['dev-prep.mjs', 'server-readiness.mjs', 'dev-native-layout.mjs', 'dev-reload-inputs.cjs', 'crate-layers.json', 'dev-app-process.mjs', 'dev-runtime-environment.mjs', 'windows-dev-app.ps1', 'windows-dev-app.cs', 'windows-dev-desktop.cs', 'build-identity.cjs', 'dev-launch-owner.mjs', 'dev-launch-file-lock.mjs']) {
     fs.copyFileSync(path.join(root, 'scripts', name), path.join(checkout, 'scripts', name));
   }
   const exe = process.platform === 'win32' ? '.exe' : '';
@@ -75,20 +75,20 @@ ${operation} "$4"
 `, '--', cwd, checkout, target, sha, launchSha, instance], { encoding: 'utf8' });
 }
 
-test('two named instances persist and validate their own checkout artifact provenance', () => {
+test('named instances share one checkout build and keep their own provenance and CLI', () => {
   const { directory, checkout, sha } = fixture();
   try {
     fs.writeFileSync(path.join(checkout, '.gitignore'), 'src-tauri/target/\n');
     const exe = process.platform === 'win32' ? '.exe' : '';
+    const app = path.join(checkout, 'src-tauri/target/named-dev', process.platform === 'win32' ? `debug/domios-dev-app${exe}` : `debug/.domios-dev-runtime/${process.platform === 'darwin' ? 'Domios.app/Contents/MacOS' : 'bin'}/domios-dev-app${exe}`);
+    fs.mkdirSync(path.dirname(app), { recursive: true });
+    fs.writeFileSync(app, 'shared build', { mode: 0o755 });
+    splitResources(process.platform === 'win32' ? path.dirname(app) : path.resolve(path.dirname(app), process.platform === 'darwin' ? '../Resources' : '../lib/codeterm'), process.platform === 'darwin');
     const records = [];
     for (const instance of ['meshqa', 'welcomeqa']) {
-      const app = path.join(checkout, 'src-tauri/target/dev-instances', instance, process.platform === 'win32' ? `debug/domios-dev-app${exe}` : `debug/.domios-dev-runtime/${process.platform === 'darwin' ? 'Domios.app/Contents/MacOS' : 'bin'}/domios-dev-app${exe}`);
       const cli = path.join(checkout, 'data', instance, `bin/codeterm${exe}`);
-      for (const file of [app, cli]) {
-        fs.mkdirSync(path.dirname(file), { recursive: true });
-        fs.writeFileSync(file, instance, { mode: 0o755 });
-      }
-      splitResources(process.platform === 'win32' ? path.dirname(app) : path.resolve(path.dirname(app), process.platform === 'darwin' ? '../Resources' : '../lib/codeterm'), process.platform === 'darwin');
+      fs.mkdirSync(path.dirname(cli), { recursive: true });
+      fs.writeFileSync(cli, instance, { mode: 0o755 });
       const written = provenance(checkout, checkout, checkout, sha, 'write_dev_provenance', '', instance);
       assert.equal(written.status, 0, written.stderr);
       const checked = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', instance);
@@ -98,13 +98,30 @@ test('two named instances persist and validate their own checkout artifact prove
       assert.equal(record.artifacts.app.path, fs.realpathSync.native(app));
       records.push(record);
     }
-    assert.notEqual(records[0].artifacts.app.path, records[1].artifacts.app.path);
-    fs.appendFileSync(records[1].artifacts.app.path, 'changed');
+    assert.equal(records[0].artifacts.app.path, records[1].artifacts.app.path);
+    assert.notEqual(records[0].artifacts.cli.path, records[1].artifacts.cli.path);
+    fs.appendFileSync(records[1].artifacts.cli.path, 'changed');
     const unaffected = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', 'meshqa');
     assert.equal(unaffected.status, 0, unaffected.stderr);
     const changed = provenance(checkout, checkout, checkout, sha, 'validate_dev_provenance', '', 'welcomeqa');
     assert.equal(changed.status, 1);
-    assert.match(changed.stderr, /app artifact content mismatch/);
+    assert.match(changed.stderr, /CLI artifact content mismatch/);
+
+    const shared = path.join(checkout, 'src-tauri/target/named-dev/dev-build-provenance.json');
+    const builtCli = path.join(checkout, `src-tauri/target/named-dev/debug/codeterm${exe}`);
+    fs.writeFileSync(builtCli, 'built cli', { mode: 0o755 });
+    const sharedOperation = `CT_DEV_PROVENANCE_RECORD='${shared}' CT_DEV_PROVENANCE_CLI='${builtCli}'`;
+    const recorded = provenance(checkout, checkout, checkout, sha, `${sharedOperation} write_dev_provenance`, '', 'meshqa');
+    assert.equal(recorded.status, 0, recorded.stderr);
+    const foreign = provenance(checkout, checkout, checkout, sha, `${sharedOperation} validate_dev_provenance`, '', 'thirdqa');
+    assert.equal(foreign.status, 1);
+    assert.match(foreign.stderr, /recorded instance does not match/);
+    const adopted = provenance(checkout, checkout, checkout, sha, `${sharedOperation} CT_DEV_PROVENANCE_SHARED=1 validate_dev_provenance`, '', 'thirdqa');
+    assert.equal(adopted.status, 0, adopted.stderr);
+    fs.appendFileSync(app, 'rebuilt');
+    const stale = provenance(checkout, checkout, checkout, sha, `${sharedOperation} CT_DEV_PROVENANCE_SHARED=1 validate_dev_provenance`, '', 'thirdqa');
+    assert.equal(stale.status, 1);
+    assert.match(stale.stderr, /app artifact content mismatch/);
   } finally {
     fs.rmSync(directory, { recursive: true, force: true });
   }
