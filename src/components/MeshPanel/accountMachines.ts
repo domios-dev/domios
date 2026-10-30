@@ -116,8 +116,8 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "key_conflict": return "This machine has a different installation key from the account registry. Rejoin mesh.";
     case "generation_mismatch": return "This machine's key is out of date. Rejoin mesh.";
     case "challenge_invalid": return "The installation challenge was rejected. Try enrolling this machine again.";
-    case "enrollment_budget": return failure.retry_after_seconds != null
-      ? `Enrollment limit reached; retry after ${new Date((retryAt ?? Math.floor(Date.now() / 1000) + failure.retry_after_seconds) * 1000).toISOString()}`
+    case "enrollment_budget": return failure.retry_after_seconds != null && failure.retry_after_seconds > 0
+      ? `Account enrollment limit reached. Try again in ${Math.ceil(failure.retry_after_seconds / 60)} min.`
       : "Account enrollment limit reached, retrying automatically";
     case "proof_invalid": return "This build cannot join this account's mesh (proof rejected)." + (devBuild ? " DEV builds use the QA target." : "");
     case "mesh.machines": return `Your plan allows ${failure.limit} machines.`;

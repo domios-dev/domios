@@ -6,6 +6,7 @@ import type { NeighborList } from "./neighborModel";
 import type { NeighborClient } from "./neighborClient";
 import { createRoot } from "react-dom/client";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
+import { resetNeighborReads } from "./neighborReads";
 import { missingConciergeLine } from "./useConciergeStatus";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import { createNeighborsViewFixture } from "./neighborsView.testdata";
@@ -43,13 +44,14 @@ it("keeps the sidebar Neighbors section away until there is a Neighbor", async (
   expect(document.querySelector('section[aria-label="Neighbors"]')).toBeNull();
 });
 
-it("updates the sidebar immediately from an own-account push and removes its subscription on unmount", async () => {
+it("updates the sidebar from an account push and removes the shared subscription on account reset", async () => {
   await renderSection([]);
   const list = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   await act(async () => { emit("neighbors-changed", { uid: "owner", list }); });
   await expandSection();
   expect(hasButton("Open Ada")).toBe(true);
   await act(async () => mounted.current!.root.unmount());
+  resetNeighborReads();
   expect(bridge.handlers["neighbors-changed"]).toBeUndefined();
   mounted.current!.host.remove();
   mounted.current = null;
