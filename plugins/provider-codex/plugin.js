@@ -2854,6 +2854,22 @@ function capText(value, cap) {
   const body = value.startsWith(TRUNCATED) ? value.slice(TRUNCATED.length) : value;
   return TRUNCATED + body.slice(body.length - (cap - TRUNCATED.length));
 }
+function capAgentPayload(input, cap) {
+  const bounded2 = { ...input };
+  const fields = ["agent_result", "agent_description"].filter((key) => typeof input[key] === "string" && input[key].length > 0).sort((a, b) => input[b].length - input[a].length);
+  for (const key of fields) {
+    if (utf8Bytes3(JSON.stringify(bounded2)) <= cap) break;
+    const text7 = bounded2[key];
+    const body = text7.startsWith(TRUNCATED) ? text7.slice(TRUNCATED.length) : text7;
+    const room = cap - utf8Bytes3(JSON.stringify({ ...bounded2, [key]: "" })) - utf8Bytes3(JSON.stringify(TRUNCATED));
+    const keep = Math.max(0, Math.floor(room / 6));
+    let start = Math.max(0, body.length - keep);
+    const unit = body.charCodeAt(start), previous = body.charCodeAt(start - 1);
+    if (unit >= 56320 && unit <= 57343 && previous >= 55296 && previous <= 56319) start++;
+    bounded2[key] = TRUNCATED + body.slice(start);
+  }
+  return bounded2;
+}
 function capRow(row3, cap) {
   let capped;
   for (const key of HEAVY) {
@@ -2862,9 +2878,14 @@ function capRow(row3, cap) {
     capped ?? (capped = { ...row3 });
     capped[key] = capText(value, cap);
   }
-  if (row3.toolInput !== void 0 && JSON.stringify(row3.toolInput).length > cap) {
-    capped ?? (capped = { ...row3 });
-    delete capped.toolInput;
+  if (row3.toolInput !== void 0) {
+    const serialized = JSON.stringify(row3.toolInput);
+    const agentInput = row3.toolKind === "agent" && row3.toolName === "agent_activity" && row3.toolInput !== null && typeof row3.toolInput === "object" && !Array.isArray(row3.toolInput);
+    if ((agentInput ? utf8Bytes3(serialized) : serialized.length) > cap) {
+      capped ?? (capped = { ...row3 });
+      if (agentInput) capped.toolInput = capAgentPayload(row3.toolInput, cap);
+      else delete capped.toolInput;
+    }
   }
   return capped ?? row3;
 }
