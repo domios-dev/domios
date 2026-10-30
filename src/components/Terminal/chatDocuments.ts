@@ -1,4 +1,4 @@
-import { attachmentPreviewKind, parseAttachmentMarkers, parseDomiosMessage, parseDsBlocks, type LocalArtifactKind, type MessageSegment } from "@codeterm/chat-core";
+import { attachmentPreviewKind, parseAttachmentMarkers, parseDomiosMessage, parseDsBlocks, rawEnvelopeExclusions, type LocalArtifactKind, type MessageSegment } from "@codeterm/chat-core";
 
 export interface ChatDocument { path: string; kind: LocalArtifactKind; name: string; shownAt: string | number | null; }
 interface TranscriptMessage { content: string; timestamp?: string | number | null; type?: string; inboundKind?: string; segments?: readonly MessageSegment[] | null }
@@ -25,13 +25,13 @@ function directivesOf(message: TranscriptMessage): { kind: LocalArtifactKind; pa
         && Object.entries(routed.attrs).every(([key, value]) => frame.attrs[key] === value)
         && displayedFrameBody(routed.body) === frame.body
       : displayedFrameBody(message.content) === frame.body);
-  const claimsRoute = routed !== null || message.segments?.some((part) => part.type === "frame") || message.inboundKind !== undefined;
-  const directMetadata = message.segments?.length && message.segments.every((part) => part.type === "text" || part.type === "attachment");
-  const direct = !claimsRoute && (!message.content.startsWith("<domios") || Boolean(directMetadata));
-  const trusted = Boolean(direct || matchingHostSource) && !untrustedSegments(message.segments ?? []) && !message.content.includes("<pasted_content");
+  const claimsHostRoute = message.segments?.some((part) => part.type === "frame") || message.inboundKind !== undefined;
+  const direct = !claimsHostRoute;
+  const trusted = Boolean(direct || matchingHostSource) && !untrustedSegments(message.segments ?? []);
   const source = matchingHostSource && routed ? routed.body : message.content;
+  const exclusions = rawEnvelopeExclusions(source);
   return parseDsBlocks(source, { id: "documents", trusted }).flatMap<{ kind: LocalArtifactKind; path: string }>((segment) => {
-    if (segment.type !== "block") return [];
+    if (segment.type !== "block" || exclusions.some((range) => segment.start < range.end && range.start < segment.end)) return [];
     const block = segment.block;
     if (block.kind === "page" || block.kind === "document") return [{ kind: block.kind, path: block.src }];
     return block.kind === "image" ? block.sources.map((path) => ({ kind: "image" as const, path })) : [];
