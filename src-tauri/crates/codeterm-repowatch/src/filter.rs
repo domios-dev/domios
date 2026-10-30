@@ -104,6 +104,9 @@ fn is_ignored(
     if tracked.contains_or_descendant(&rel) {
         return false;
     }
+    if codeterm_util::watch_plan::is_heavy_path(&rel) {
+        return true;
+    }
     // Collapse a burst first: one directory probe answers every file under an
     // ignored tree, so a 500-file `target/` churn costs one ignore match.
     if let Some(parent) = rel.parent() {
