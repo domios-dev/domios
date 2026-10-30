@@ -365,8 +365,8 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     };
     let (method, params) = request(
         action,
-        std::env::var("CODETERM_TAB_ID").ok(),
-        std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
+        crate::nonempty_env("CODETERM_TAB_ID"),
+        crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE"),
     )
     .unwrap_or_else(|error| {
         if let Some(source) = apply_source.as_deref() {

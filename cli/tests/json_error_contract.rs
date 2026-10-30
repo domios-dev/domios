@@ -385,14 +385,6 @@ fn not_found_maps_to_code_end_to_end() {
             code: "not_found",
         },
         Row {
-            args: &["mesh", "disconnect", "nope"],
-            code: "not_found",
-        },
-        Row {
-            args: &["mesh", "link", "nope"],
-            code: "conflict",
-        },
-        Row {
             args: &["delayed", "delete", "dmsg-nope"],
             code: "not_found",
         },

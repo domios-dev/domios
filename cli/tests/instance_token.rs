@@ -1,5 +1,7 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
+#[path = "support/json_output.rs"]
+mod json_output;
 
 fn command(root: &std::path::Path) -> std::process::Command {
     let mut command = std::process::Command::new(codeterm_bin::codeterm_bin());
@@ -24,9 +26,14 @@ fn instance_token_command_prints_only_local_authority_without_a_daemon() {
         vec!["system", "api-token"],
         vec!["--json", "system", "api-token"],
     ] {
+        let json = flags.contains(&"--json");
         let output = command(dir.path()).args(flags).output().unwrap();
         assert!(output.status.success());
-        assert_eq!(output.stdout, b"isolated-authority");
+        if json {
+            assert_eq!(json_output::result(&output.stdout), "isolated-authority");
+        } else {
+            assert_eq!(output.stdout, b"isolated-authority");
+        }
         assert!(output.stderr.is_empty());
     }
 }

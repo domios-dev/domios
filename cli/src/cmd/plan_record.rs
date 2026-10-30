@@ -33,7 +33,7 @@ fn implicit_key(plan_id: &str, seed: &Value) -> String {
     let mut hasher = DefaultHasher::new();
     plan_id.hash(&mut hasher);
     seed.to_string().hash(&mut hasher);
-    std::env::var("CODETERM_TAB_ID")
+    crate::nonempty_env("CODETERM_TAB_ID")
         .unwrap_or_default()
         .hash(&mut hasher);
     let minute = SystemTime::now()
@@ -139,9 +139,9 @@ pub fn record(
             "kind": kind,
             "text": text,
             "from": {
-                "tab_id": std::env::var("CODETERM_TAB_ID").ok(),
-                "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-                "title": std::env::var("CODETERM_TAB_TITLE").ok(),
+                "tab_id": crate::nonempty_env("CODETERM_TAB_ID"),
+                "session_id": crate::nonempty_env("CODETERM_SESSION_ID"),
+                "title": crate::nonempty_env("CODETERM_TAB_TITLE"),
             },
         }));
     }

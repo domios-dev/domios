@@ -335,7 +335,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(team_id) = team {
                     body["team_id"] = serde_json::Value::String(team_id.clone());
-                    if let Ok(creator_tab_id) = std::env::var("CODETERM_TAB_ID") {
+                    if let Some(creator_tab_id) = crate::nonempty_env("CODETERM_TAB_ID") {
                         body["creator_tab_id"] = serde_json::Value::String(creator_tab_id);
                     }
                 }

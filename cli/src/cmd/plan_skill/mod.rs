@@ -47,7 +47,7 @@ fn record_stride(
         "plan_id": plan_id,
         "kind": "skill",
         "text": text,
-        "from": { "tab_id": std::env::var("CODETERM_TAB_ID").ok() },
+        "from": { "tab_id": crate::nonempty_env("CODETERM_TAB_ID") },
     });
     match client.call("plan.stride.add", Some(params)) {
         Ok(_) => true,
@@ -249,7 +249,7 @@ fn render_skill_list(response: &Value) -> Result<String, String> {
 }
 
 fn identity_env(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|v| !v.trim().is_empty())
+    crate::nonempty_env(key)
 }
 
 // Every launched tab (owner, Planner, or task-bound Worker) exports a

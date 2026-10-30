@@ -384,9 +384,9 @@ pub(super) fn handle(
             "brief": task.unwrap_or_default(),
             "execution_intent": "mutating",
             "tags": tags,
-            "caller_tab_id": std::env::var("CODETERM_TAB_ID").ok(),
-            "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-            "session_binding_nonce": std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
+            "caller_tab_id": crate::nonempty_env("CODETERM_TAB_ID"),
+            "session_id": crate::nonempty_env("CODETERM_SESSION_ID"),
+            "session_binding_nonce": crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE"),
         });
         if let Some(sandbox) = sandbox {
             params["sandbox"] = serde_json::json!(sandbox);
@@ -560,7 +560,7 @@ pub(super) fn handle(
         body["plan_task"] = serde_json::json!(pt);
     }
     if let Some(team_id) = team.as_deref() {
-        match team_spawn_fields(team_id, std::env::var("CODETERM_TAB_ID").ok().as_deref()) {
+        match team_spawn_fields(team_id, crate::nonempty_env("CODETERM_TAB_ID").as_deref()) {
             Ok((team_id, creator_tab_id)) => {
                 body["team_id"] = serde_json::json!(team_id);
                 body["creator_tab_id"] = serde_json::json!(creator_tab_id);
@@ -581,7 +581,7 @@ pub(super) fn handle(
         body["audience"] = serde_json::json!("automation");
     }
     // Record the spawner's tab for report-routing fallback.
-    if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(spawner) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !spawner.is_empty() {
             body["spawned_by_tab_id"] = serde_json::json!(spawner);
         }

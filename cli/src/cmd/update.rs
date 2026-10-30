@@ -387,13 +387,13 @@ pub fn handle_update(
                     no_continue,
                     continue_prompt,
                     continue_tab,
-                    std::env::var("CODETERM_TAB_ID").ok(),
+                    crate::nonempty_env("CODETERM_TAB_ID"),
                 );
                 if no_continue {
                     if let Err(error) = save_session_with_suppression(
                         &http,
                         &base_url,
-                        std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                        crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
                     ) {
                         crate::cmd::print::fail(
                             1,
@@ -428,7 +428,7 @@ pub fn handle_update(
             if auto {
                 params.push(("method", "auto".into()));
             }
-            let caller_tab = std::env::var("CODETERM_TAB_ID").ok();
+            let caller_tab = crate::nonempty_env("CODETERM_TAB_ID");
             if let Err(error) =
                 validate_auto_continue_tab(auto, continue_tab.as_deref(), caller_tab.as_deref())
             {
@@ -438,7 +438,7 @@ pub fn handle_update(
                 if let Err(error) = save_session_with_suppression(
                     &http,
                     &base_url,
-                    std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                    crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
                 ) {
                     crate::cmd::print::fail(
                         1,

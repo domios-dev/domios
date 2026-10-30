@@ -118,12 +118,12 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
     let output: Value = serde_json::from_slice(&out).expect("one JSON error envelope");
     assert_eq!(output["ok"], false);
     assert_eq!(output["kind"], "error");
-    assert_eq!(output["data"]["type"], "invalid_model");
-    assert_eq!(output["data"]["provider"], "codex");
-    assert_eq!(output["data"]["requested_model"], "gpt-9-bogus");
-    assert_eq!(output["data"]["valid_model_ids"][0], "gpt-6-sol");
+    assert_eq!(output["result"]["type"], "invalid_model");
+    assert_eq!(output["result"]["provider"], "codex");
+    assert_eq!(output["result"]["requested_model"], "gpt-9-bogus");
+    assert_eq!(output["result"]["valid_model_ids"][0], "gpt-6-sol");
     assert_eq!(
-        output["data"]["refresh_command"],
+        output["result"]["refresh_command"],
         "domios agent models codex"
     );
     assert_eq!(output["error"]["rpc_code"], -32602);

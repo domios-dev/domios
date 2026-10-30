@@ -135,7 +135,7 @@ fn queue_message(
         "text": text,
         "scheduledAtMs": scheduled_at_ms,
     });
-    if let Ok(creator) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(creator) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !creator.trim().is_empty() {
             body["createdByTab"] = serde_json::json!(creator);
         }

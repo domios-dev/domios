@@ -411,9 +411,7 @@ fn send_text_to_targets(
     let mut pending: Vec<String> = Vec::new();
     let mut pending_written: Vec<String> = Vec::new();
     let mut pad_files: Vec<serde_json::Value> = Vec::new();
-    let source_tab = std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|t| !t.is_empty());
+    let source_tab = crate::nonempty_env("CODETERM_TAB_ID");
     for tab_id in targets {
         if !resolved_text.trim().is_empty() {
             let kind = match probe_tab_kind(client, tab_id) {
@@ -628,7 +626,7 @@ pub fn handle_send_text(
         "text": resolved_text,
     });
 
-    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(my_tab) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !my_tab.is_empty() {
             params["source_tab"] = serde_json::json!(my_tab);
         }
@@ -746,7 +744,7 @@ fn send_composite_over_mesh(
         );
         return;
     }
-    let source_tab = std::env::var("CODETERM_TAB_ID").ok();
+    let source_tab = crate::nonempty_env("CODETERM_TAB_ID");
     let mut body = remote_send_body(
         &resolved_text,
         parsed_actions.as_deref(),
@@ -960,7 +958,7 @@ fn send_actions_via_socket(
     if !text.is_empty() {
         body["text"] = serde_json::json!(text);
     }
-    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(my_tab) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !my_tab.is_empty() {
             body["source_tab"] = serde_json::json!(my_tab);
         }

@@ -90,11 +90,11 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                             "{}",
                             crate::cmd::output::compact_list(
                                 &value,
-                                std::env::var("CODETERM_TAB_ID").ok().as_deref()
+                                crate::nonempty_env("CODETERM_TAB_ID").as_deref()
                             )
                         );
                     } else {
-                        let current_tab = std::env::var("CODETERM_TAB_ID").ok();
+                        let current_tab = crate::nonempty_env("CODETERM_TAB_ID");
                         print!(
                             "{}",
                             render_tab_tree_with_scope(
@@ -173,9 +173,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             }
             // Caller identity lets the daemon inherit the calling tab's own
             // workspace instead of falling back to the focused one.
-            let caller_tab_id = std::env::var("CODETERM_TAB_ID")
-                .ok()
-                .filter(|value| !value.trim().is_empty());
+            let caller_tab_id = crate::nonempty_env("CODETERM_TAB_ID");
             if let Some(caller) = caller_tab_id.as_deref() {
                 body["creator_tab_id"] = serde_json::Value::String(caller.to_string());
             }
@@ -236,7 +234,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             // The env var is the tab this RUNS IN; focus is whatever the human
             // looks at. Adopting focus inside a tab mis-parents the caller.
             if !last {
-                if let Ok(own) = std::env::var("CODETERM_TAB_ID") {
+                if let Some(own) = crate::nonempty_env("CODETERM_TAB_ID") {
                     if !own.trim().is_empty() {
                         println!("{}", own.trim());
                         return;

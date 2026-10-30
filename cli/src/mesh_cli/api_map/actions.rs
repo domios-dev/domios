@@ -88,7 +88,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
-    let source = std::env::var("CODETERM_TAB_ID").unwrap_or_default();
+    let source = crate::nonempty_env("CODETERM_TAB_ID");
     let (body_text, input_source) = match resolve_send_text_input(
         text.clone(),
         from_file.clone(),
@@ -260,7 +260,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         MemAction::Area { action: crate::args::mem::MemAreaAction::Merge { from, into, dry_run } } => (
             "POST".into(), "/api/mem/area/merge".into(),
             Some(json!({ "from": from, "into": into, "dry_run": dry_run,
-                "worker_id": std::env::var("CODETERM_WORKER_ID").ok() }).to_string()),
+                "worker_id": crate::nonempty_env("CODETERM_WORKER_ID") }).to_string()),
         ),
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {
@@ -859,9 +859,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 body["plan_id"] = serde_json::json!(pl);
             }
             let report_to = report_to.clone().or_else(|| {
-                std::env::var("CODETERM_TAB_ID")
-                    .ok()
-                    .filter(|s| !s.is_empty())
+                crate::nonempty_env("CODETERM_TAB_ID")
             });
             if let Some(rt) = report_to {
                 body["report_to"] = serde_json::json!(rt);
