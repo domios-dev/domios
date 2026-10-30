@@ -216,7 +216,8 @@ fn unsupported_schema_is_refused_without_changing_data() {
         let conn = Connection::open(&db).unwrap();
         assert_eq!(OrchestrationLedger::user_version(&conn).unwrap(), version);
         assert_eq!(
-            conn.query_row("SELECT value FROM preserved", [], |row| row.get::<_, String>(0))
+            conn.query_row("SELECT value FROM preserved", [], |row| row
+                .get::<_, String>(0))
                 .unwrap(),
             "history"
         );

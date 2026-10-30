@@ -278,4 +278,3 @@ fn radar_refuses_ids_that_are_not_item_names() {
     }
     assert!(root.path().join("outside.json").exists());
 }
-

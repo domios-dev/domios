@@ -248,9 +248,6 @@ fn duplicate_task_ids_are_refused_without_changing_stored_rows() {
         .unwrap_err()
         .to_string();
     assert!(error.contains("duplicate task id"), "{error}");
-    assert_eq!(
-        (plan_row(&path, &original.id), row_counts(&path)),
-        before
-    );
+    assert_eq!((plan_row(&path, &original.id), row_counts(&path)), before);
     assert_eq!(database.load_plan(&original.id).unwrap(), Some(original));
 }
