@@ -2,11 +2,10 @@ param([ValidateSet('Inspect', 'Stop', 'StopTree')][string] $Operation)
 $ErrorActionPreference = 'Stop'
 $request = [Console]::In.ReadToEnd() | ConvertFrom-Json
 Add-Type -Path (Join-Path $PSScriptRoot 'windows-dev-rebuild-process.cs')
+. (Join-Path $PSScriptRoot 'windows-dev-listeners.ps1')
 
 function Snapshot {
-  $listeners = @(Get-NetTCPConnection -State Listen -ErrorAction Stop |
-    ForEach-Object { [pscustomobject]@{ port = [int]$_.LocalPort; pid = [int]$_.OwningProcess } } |
-    Sort-Object port, pid -Unique)
+  $listeners = @(Get-DevTcpListeners)
   $processes = @(Get-CimInstance Win32_Process | ForEach-Object {
     $created = ''
     $imageIdentity = ''

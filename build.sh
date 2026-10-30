@@ -2609,7 +2609,8 @@ dev_listener_pid() {
   if [[ "$OSTYPE" == darwin* ]] || [[ "$OSTYPE" == linux* ]]; then
     lsof -tiTCP:"$CT_PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true
   else
-    netstat -ano 2>/dev/null | grep ":$CT_PORT.*LISTEN" | awk '{print $5}' | head -1 || true
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/windows-dev-listeners.ps1 \
+      -Port "$CT_PORT" -ServerImage "$(dev_resource_dir)/domios-server/domios-server.exe"
   fi
 }
 
