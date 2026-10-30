@@ -10,7 +10,7 @@ export function planMentionSource(read: (query: string, context: import("../comp
       const { scope, signal } = context;
       signal.throwIfAborted();
       return (await read(query, context)).filter((plan) => planInMentionScope(plan, scope)).map((plan) => ({
-        id: `plans:${plan.id}`, label: plan.title, group: "Plans",
+        kind: "plan" as const, id: `plans:${plan.id}`, label: plan.title, group: "Plans",
         description: `${plan.id} · ${plan.mode ?? plan.status}`,
         insertText: canonicalMentionText("plan", plan.title, plan.id),
         match: mentionMatch(query, [plan.id, plan.title]),
