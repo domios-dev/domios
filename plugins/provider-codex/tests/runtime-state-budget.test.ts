@@ -433,6 +433,7 @@ check("completed child retention preserves emitted terminal identity under decla
   assert.equal(retention.suffix.length,5);
   for (const report of retention.reportChars) {
     let context: RuntimeContext = JSON.parse(JSON.stringify(retention.context));
+    const terminalSnapshots: {row:ChatMsg; serialized:string}[] = [];
     let state = retentionStep(context,null,retentionFrame(context,"turn/started",{turn:{id:context.activeTurnId}})).state;
     let seeded = 0;
     for (const age of retention.ages) {
@@ -443,6 +444,8 @@ check("completed child retention preserves emitted terminal identity under decla
         const completed = retentionStep(context,state,childSpawn(context,seeded,report,true));
         const emitted = rows([...completed.events],`opaque-spawn-${String(seeded).padStart(2,"0")}:${child}`).at(-1);
         assert.equal((emitted?.toolInput as Record<string,JsonValue>)?.agent_result,"r".repeat(report),"terminal event emits the supplied full report before scratch compaction");
+        assert.ok(emitted);
+        terminalSnapshots.push({row:freezeInput(emitted),serialized:JSON.stringify(emitted)});
         state = completed.state;
         seeded++;
       }
@@ -481,7 +484,15 @@ check("completed child retention preserves emitted terminal identity under decla
         assert.equal(input.agent_id,"opaque-child-00"); assert.equal(input.agent_parent_thread_id,context.threadId);
         assert.equal(input.agent_ordinal,1); assert.equal(input.agent_binding_nonce,context.bindingNonce);
         assert.equal(input.agent_runtime_epoch,context.epoch);
+        const full = "r".repeat(report), actual = input.agent_result;
+        assert.equal(typeof actual,"string","late activity retains a truthful bounded report");
+        if (typeof actual === "string" && actual !== full) {
+          const marker = "[earlier output truncated]\n";
+          assert.ok(actual.startsWith(marker) && full.endsWith(actual.slice(marker.length)) && actual.length < full.length);
+          assert.ok(!actual.startsWith(marker + marker),"repeat compaction must not stack truncation markers");
+        }
       }
+      terminalSnapshots.forEach(({row,serialized})=>assert.equal(JSON.stringify(row),serialized,"later scratch pressure cannot mutate prior full terminal events"));
     }
   }
 });

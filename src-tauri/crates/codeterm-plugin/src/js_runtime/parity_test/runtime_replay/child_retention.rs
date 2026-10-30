@@ -174,6 +174,13 @@ async fn checkpoint(provider: &JsProvider, spec: &Spec, context: &RuntimeContext
         assert_eq!(input["agent_ordinal"], 1);
         assert_eq!(input["agent_binding_nonce"], json!(context.binding_nonce));
         assert_eq!(input["agent_runtime_epoch"], json!(context.epoch));
+        let full = "r".repeat(report);
+        let actual = input["agent_result"].as_str().expect("late activity retains a truthful bounded report");
+        if actual != full.as_str() {
+            let marker = "[earlier output truncated]\n";
+            assert!(actual.starts_with(marker) && full.ends_with(&actual[marker.len()..]) && actual.len() < full.len());
+            assert!(!actual[marker.len()..].starts_with(marker), "repeat compaction must not stack truncation markers");
+        }
     }
 }
 
