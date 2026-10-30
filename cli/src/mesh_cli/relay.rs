@@ -187,7 +187,7 @@ impl MeshSpawnFailure {
     /// testable without ending the test process.
     pub(crate) fn print_and_exit(&self, json_mode: bool) -> ! {
         if json_mode {
-            println!("{}", serde_json::to_string_pretty(&self.to_json()).unwrap());
+            println!("{}", crate::cmd::output::encode(&self.to_json()).unwrap());
         } else {
             eprintln!(
                 "Error: mesh request to '{}' failed: {}\nhint: {}",
@@ -342,6 +342,9 @@ pub(crate) fn mesh_relay_invoke_with_peer(
 /// Name the answering peer on stderr in human mode, when the caller addressed
 /// it by something other than its exact id.
 pub(crate) fn announce_answering_peer(target: &str, peer: Option<&AnsweringPeer>) {
+    if !crate::cmd::output::verbose() {
+        return;
+    }
     if let Some(peer) = peer.filter(|p| p.instance_id != target) {
         eprintln!("answered by {} ({})", peer.instance_name, peer.short_id());
     }
@@ -464,7 +467,7 @@ pub fn mesh_relay_generic(
     if json_mode {
         // Unwrap envelope so `--json` output matches local CLI shape.
         let data = with_answering_peer(data, peer.as_ref());
-        println!("{}", serde_json::to_string_pretty(&data).unwrap());
+        println!("{}", crate::cmd::output::encode(&data).unwrap());
         return;
     }
     announce_answering_peer(target, peer.as_ref());
@@ -586,7 +589,7 @@ pub fn mesh_spawn_and_register(target: &str, body: Option<&str>, json_mode: bool
     };
 
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(&data).unwrap());
+        println!("{}", crate::cmd::output::encode(&data).unwrap());
     } else if let Some(pid) = data.get("tab_id").and_then(|v| v.as_str()) {
         let title = data.get("title").and_then(|v| v.as_str()).unwrap_or("?");
         println!("Spawned: {} (Tab {}) on {}", title, pid, target);
@@ -638,7 +641,7 @@ pub fn mesh_close_tab_and_forget_remote_worker(
     }
 
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(&data).unwrap());
+        println!("{}", crate::cmd::output::encode(&data).unwrap());
     } else {
         crate::cmd::print::print_human(&data);
     }

@@ -20,11 +20,11 @@ MARKER="RESTORE-MARKER-DEBUG-$RUN"
 mkdir -p "$CWD"
 
 echo "== create workspace $WS_NAME"
-WS_ID=$(dc workspace create "$WS_NAME" --cwd "$WS_BASE" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['id'])")
+WS_ID=$(dc workspace create "$WS_NAME" --cwd "$WS_BASE" --json | python3 -c "import json,sys;print(json.load(sys.stdin)['result']['id'])")
 echo "ws=$WS_ID"
 
 echo "== spawn claude tab (haiku)"
-TAB=$(dc agent spawn claude --workspace "$WS_ID" --cwd "$CWD" --title rm-claude-1 --model haiku --json | python3 -c "import json,sys;print(json.load(sys.stdin)['tab_id'])")
+TAB=$(dc agent spawn claude --workspace "$WS_ID" --cwd "$CWD" --title rm-claude-1 --model haiku --json | python3 -c "import json,sys;print(json.load(sys.stdin)['result']['tab_id'])")
 echo "tab=$TAB"
 
 echo "== send marker prompt"

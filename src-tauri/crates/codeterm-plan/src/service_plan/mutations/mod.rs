@@ -459,7 +459,7 @@ fn validate_task_status_transition_for(
     if matches!(current, TaskStatus::InReview) && matches!(next, TaskStatus::Paused) {
         return Err(PlanError::ReviewHoldRequired);
     }
-    if matches!(current, TaskStatus::InReview) {
+    if matches!(current, TaskStatus::InReview) && !matches!(next, TaskStatus::Cancelled) {
         return Err(PlanError::TransitionDenied {
             from: current.clone(),
             to: next.clone(),

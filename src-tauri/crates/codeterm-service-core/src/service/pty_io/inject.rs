@@ -85,14 +85,14 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn submit_restarted_shell_command(
+    pub(crate) fn submit_shell_command_with_receipt(
         &self,
         tab_id: &str,
         pty_id: &str,
         command: &str,
     ) -> Result<crate::service::ShellCommandSubmission, String> {
         if self.resolve_pty_id(tab_id)?.as_str() != pty_id {
-            return Err("restart PTY changed before submission".into());
+            return Err("shell PTY changed before submission".into());
         }
         crate::service::ShellCommandSubmission::attempt(pty_id, |queued| {
             self.submit_utility_shell_command(pty_id, command, Some(&|bytes| queued.set(bytes)))

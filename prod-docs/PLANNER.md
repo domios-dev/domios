@@ -55,7 +55,7 @@ domios plan section add <plan> --title "..." --body "..."   # HOW / phases
 domios plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
     --body "..." --criterion "..." --test-plan "..." --correctness "..." \
     --sections <sec_id> --model <provider>:<model> \
-    --executor-role <role> --personality <name> --role-guidance "You are ..."   # all three required
+    --executor-role <role> --personality <name> --role-guidance "You are ..."   # persona is optional
 domios plan doctor <plan> --kind quality          # self-review before handing back
 domios plan get <plan> --sections                 # structure only, cheap
 domios task show <task_id>                         # one task, cheap
@@ -165,4 +165,6 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 32 -->
+Task creation reports required-field errors together. Supply name, executor role and role guidance. Omit personality to derive it from the task name; the sole plan section is the default when no area matches. A missing work tag is inferred with a warning. Correctness remains optional with a quality warning. A bare provider such as `--model codex` is resolved at dispatch.
+
+<!-- revision: 33 -->

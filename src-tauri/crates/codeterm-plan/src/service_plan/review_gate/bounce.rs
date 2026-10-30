@@ -403,7 +403,18 @@ impl PlanStore {
                 });
                 return Ok(());
             }
-            require_in_review(&p.tasks[idx])?;
+            let was_in_review = p.tasks[idx].status == TaskStatus::InReview;
+            let reported_partial = p.tasks[idx].status == TaskStatus::InProgress
+                && exact_review_continuation_attempt(&p.tasks[idx]).is_some_and(|index| {
+                    p.tasks[idx].execution_attempts[index]
+                        .report
+                        .as_ref()
+                        .and_then(|report| report.status.as_deref())
+                        == Some("partial")
+                });
+            if !reported_partial {
+                require_in_review(&p.tasks[idx])?;
+            }
             let open_attempts = p.tasks[idx]
                 .execution_attempts
                 .iter()
@@ -488,7 +499,9 @@ impl PlanStore {
                     now_ms,
                 ));
             }
-            earn_review_credit(&mut p.review_policy);
+            if was_in_review {
+                earn_review_credit(&mut p.review_policy);
+            }
             result = Some(ReviewTransitionResult {
                 plan_id: p.id.clone(),
                 task_id: p.tasks[idx].id.clone(),

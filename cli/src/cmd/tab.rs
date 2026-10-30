@@ -56,13 +56,20 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         exit_with_cli_error(json, &CliError::new(error));
     }
     match action {
+        TabAction::SendStatus { send_id } => {
+            let result = client.call(
+                "tab.send_status",
+                Some(serde_json::json!({"send_id": send_id})),
+            );
+            handle_result(json, result);
+        }
         TabAction::List {
             workspace,
             all_workspaces,
             agents,
         } => {
             let requested_workspace = workspace.clone();
-            if !json && requested_workspace.is_none() {
+            if !json && crate::cmd::output::verbose() && requested_workspace.is_none() {
                 if let Err(error) = workspace_topology::print_local_workspace_map(client, agents) {
                     crate::cmd::print::fail(1, error.to_string());
                 }
@@ -82,6 +89,14 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                             list.clone(),
                             requested_workspace.as_deref(),
                         ));
+                    } else if !crate::cmd::output::verbose() {
+                        print!(
+                            "{}",
+                            crate::cmd::output::compact_list(
+                                &value,
+                                std::env::var("CODETERM_TAB_ID").ok().as_deref()
+                            )
+                        );
                     } else {
                         let current_tab = std::env::var("CODETERM_TAB_ID").ok();
                         print!(

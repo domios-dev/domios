@@ -86,7 +86,7 @@ domios mem calibration sweep [--force]
 domios mem dream                   # SQL phases + spawn REM worker
 ```
 
-`domios mem search --json` keeps hit payloads compact: an item id (or a documentation pointer), source/via, baseline score, and Supporter relevance. It omits titles, bodies, summaries, and tags. Fetch a complete memory record with `domios mem get <id> --json`.
+`domios mem search <query>` prints compact rows with 80-character snippets; `--verbose` includes scores, relevance and recall diagnostics. `domios mem search <query> --json` returns hit rows under `result`, with recall metadata under `meta` and warnings under `warnings`. It keeps hit payloads compact: an item id (or a documentation pointer), source/via, baseline score, and Supporter relevance. It omits titles, bodies, summaries, and tags. Fetch a complete memory record with `domios mem get <id> --json`.
 
 Save identity is the exact kind and title. Saving an unchanged body after whitespace normalization reports `unchanged`, increments `recurrence_count`, and does not start extraction. A different body reports `updated`, preserves the item's id, uid, and creation time, and records the previous body and changed fields in history. A first save reports `created`. `--replace` uses the same in-place update and history behavior.
 
@@ -158,4 +158,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

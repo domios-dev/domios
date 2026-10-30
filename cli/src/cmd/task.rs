@@ -135,7 +135,7 @@ fn empty_task_list_message(val: &Value) -> String {
 
 pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
     if json {
-        println!("{}", serde_json::to_string_pretty(val).unwrap());
+        println!("{}", crate::cmd::output::encode(val).unwrap());
         return;
     }
 

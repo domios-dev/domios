@@ -211,7 +211,7 @@ dev_resolve_identity() {
   fi
   if ! parsed="$(printf '%s\n' "$output" | python3 -c '
 import json, sys
-connection = json.load(sys.stdin)["connection"]
+connection = json.load(sys.stdin)["result"]["connection"]
 values = [
     connection["data_dir"],
     connection["host"],
@@ -776,9 +776,9 @@ assert_atomic_save_clean() {
 plan_ids() {
   dc plan list --json 2>/dev/null | python3 -c '
 import json,sys
-try: d=json.load(sys.stdin)
-except Exception: d=[]
-for p in (d if isinstance(d,list) else d.get("plans",[])):
+try: rows=json.load(sys.stdin)["result"]
+except Exception: rows=[]
+for p in rows:
     pid=p.get("plan_id") or p.get("id") or ""
     if pid: print(pid)
 ' 2>/dev/null
@@ -820,10 +820,10 @@ plan_sweep_new() {
 plan_junk_titles() {
   dc plan list --json 2>/dev/null | python3 -c '
 import json,re,sys
-try: d=json.load(sys.stdin)
-except Exception: d=[]
+try: rows=json.load(sys.stdin)["result"]
+except Exception: rows=[]
 pat=re.compile(r"^(orchestration|\d{1,2}:\d{2})$", re.I)
-for p in (d if isinstance(d,list) else d.get("plans",[])):
+for p in rows:
     t=(p.get("title") or "").strip()
     if t=="" or pat.match(t) or "orchmatrix" in t.lower():
         print("%s\t%r" % (p.get("plan_id") or p.get("id") or "?", t))
@@ -857,7 +857,7 @@ new_workspace() {
   local name="$1" cwd="$2"
   mkdir -p "$cwd" 2>/dev/null
   dc workspace create "$name" --cwd "$cwd" --json 2>/dev/null \
-    | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))"
+    | python3 -c "import json,sys; print(json.load(sys.stdin)['result'].get('id',''))"
 }
 
 # Workspace whose directory the daemon creates, so agents started in it get directory trust.
@@ -865,14 +865,14 @@ new_workspace() {
 new_provisioned_workspace() {
   local name="$1"
   dc workspace create "$name" --provision --json 2>/dev/null \
-    | python3 -c "import json,sys; w=json.load(sys.stdin); print(w.get('id','') + '\t' + w.get('cwd',''))"
+    | python3 -c "import json,sys; w=json.load(sys.stdin)['result']; print(w.get('id','') + '\t' + w.get('cwd',''))"
 }
 
 # Spawn a plain shell tab in the given workspace. Echoes tab_id.
 new_shell_tab() {
   local ws="$1" cwd="$2" title="${3:-shell}"
   dc tab new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
-    | python3 -c "import json,sys; print(json.load(sys.stdin).get('tab_id',''))"
+    | python3 -c "import json,sys; print(json.load(sys.stdin)['result'].get('tab_id',''))"
 }
 
 # Spawn an agent tab of the given provider. Echoes tab_id.
@@ -892,8 +892,8 @@ new_agent_tab() {
 # Read the spawned tab id from `agent spawn --json`; human output is not a contract.
 spawned_tab_id() {
   python3 -c 'import json,sys
-d = json.load(sys.stdin)
-print(d.get("tab_id") or (d.get("data") or {}).get("tab_id") or "")'
+d = json.load(sys.stdin)["result"]
+print(d.get("tab_id") or "")'
 }
 
 # Spawn a claude tab in the given workspace. Echoes tab_id.

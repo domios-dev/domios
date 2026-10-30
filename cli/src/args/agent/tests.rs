@@ -396,17 +396,21 @@ fn agent_spawn_unplanned_parses_reason() {
         "--unplanned",
         "--reason",
         "urgent probe",
+        "--tag",
+        "work:qa",
     ])
     .expect("unplanned Worker spawn parses");
     match action {
         AgentAction::Spawn {
             role,
             unplanned,
+            tags,
             reason,
             ..
         } => {
             assert!(matches!(role, Some(SpawnRole::Worker)));
             assert!(unplanned);
+            assert_eq!(tags, vec!["work:qa"]);
             assert_eq!(reason.as_deref(), Some("urgent probe"));
         }
         _ => panic!("expected agent spawn"),

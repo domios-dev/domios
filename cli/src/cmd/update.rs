@@ -352,7 +352,7 @@ pub fn handle_update(
                     if json {
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&body).unwrap_or_default()
+                            crate::cmd::output::encode(&body).unwrap_or_default()
                         );
                     } else {
                         for item in body["items"].as_array().into_iter().flatten() {
@@ -481,7 +481,7 @@ pub fn handle_update(
                     if json {
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&body).unwrap_or_default()
+                            crate::cmd::output::encode(&body).unwrap_or_default()
                         );
                         return;
                     }

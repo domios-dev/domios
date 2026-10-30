@@ -1,14 +1,20 @@
-//! `--personality` is a creation contract: a task cannot be created without an
-//! explicit one-word executor persona. `plan task update` still sets it on
-//! existing tasks, so legacy tasks without one stay repairable.
+//! Explicit personas stay validated; omitted personas are derived by the daemon.
 
 use clap::Parser;
 
 use crate::{Cli, Commands, PlanAction};
 
 #[test]
-fn personality_required_add_refuses_a_task_without_one_and_names_the_flag() {
-    let error = Cli::try_parse_from([
+fn ease_task_add_defers_missing_required_fields_to_the_aggregate_validator() {
+    let parsed = Cli::try_parse_from(["domios", "plan", "task", "add", "pl_1"]).unwrap();
+    assert!(matches!(parsed.command, Commands::Plan {
+        action: PlanAction::Task { action: crate::args::plan::PlanTaskAction::Add { name, executor_role, role_guidance: None, .. } }
+    } if name.is_empty() && executor_role.is_empty()));
+}
+
+#[test]
+fn ease_personality_add_allows_omission_for_daemon_derivation() {
+    let parsed = Cli::try_parse_from([
         "codeterm",
         "plan",
         "task",
@@ -21,15 +27,10 @@ fn personality_required_add_refuses_a_task_without_one_and_names_the_flag() {
         "--role-guidance",
         "focused worker",
     ])
-    .err()
-    .expect("plan task add must not create a task with no executor persona");
-
-    let rendered = error.to_string();
-    assert!(rendered.contains("--personality"), "{rendered}");
-    assert!(
-        rendered.to_lowercase().contains("persona"),
-        "the refusal must name the expected shape: {rendered}"
-    );
+    .expect("the daemon derives an omitted executor persona");
+    assert!(matches!(parsed.command, Commands::Plan {
+        action: PlanAction::Task { action: crate::args::plan::PlanTaskAction::Add { personality, .. } }
+    } if personality.is_empty()));
 }
 
 #[test]

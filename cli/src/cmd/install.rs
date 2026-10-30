@@ -132,10 +132,9 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
     }
 
     if json_output {
-        println!(
-            "{{\"status\":\"helper_detached\",\"log\":\"{}\"}}",
-            log_path.display().to_string().replace('\\', "\\\\")
-        );
+        crate::cmd::print::print_json(&serde_json::json!({
+            "status": "helper_detached", "log": log_path.display().to_string()
+        }));
     }
 
     let _ = std::io::stdout().flush();
@@ -225,10 +224,9 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<
         .spawn()
         .map_err(|e| format!("Failed to spawn self-install helper: {e}"))?;
     if json_output {
-        println!(
-            "{{\"status\":\"helper_detached\",\"log\":\"{}\"}}",
-            log.display()
-        );
+        crate::cmd::print::print_json(&serde_json::json!({
+            "status": "helper_detached", "log": log.display().to_string()
+        }));
     }
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();

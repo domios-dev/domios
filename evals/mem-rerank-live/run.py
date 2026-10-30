@@ -92,19 +92,20 @@ def run_dc(lib_path: Path, instance: str, args: list[str]) -> tuple[dict[str, An
     started = time.perf_counter()
     output = run_dc_command(lib_path, instance, args)
     latency_ms = (time.perf_counter() - started) * 1000.0
-    value = json.loads(output)
+    response = json.loads(output)
+    value = {**response.get("meta", {}), "hits": response["result"]}
     if not isinstance(value, dict) or not isinstance(value.get("hits"), list):
         raise RuntimeError("mem search returned an unexpected JSON shape")
     return value, latency_ms
 
 
 def ensure_supporter_connected(lib_path: Path, instance: str) -> None:
-    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))
+    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))["result"]
     adapter = status.get("adapter")
     if not isinstance(adapter, str) or not adapter:
         raise RuntimeError("select a registered Supporter adapter before the live eval")
     run_dc_command(lib_path, instance, ["supporter", "use", adapter])
-    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))
+    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))["result"]
     token = status.get("token", {})
     connected = status.get("connected", status.get("adapter_registered") is True and (
         status.get("token_mode") in ("optional", "none") or (
@@ -119,7 +120,7 @@ def read_docs_config(lib_path: Path, instance: str) -> int:
         instance,
         ["config", "get", DOCS_CONFIG_KEY, "--json"],
     )
-    value = json.loads(output).get("value", 0)
+    value = json.loads(output)["result"].get("value", 0)
     if type(value) is not int or not 0 <= value <= 10:
         raise RuntimeError(f"unexpected docs config value: {value!r}")
     return value
@@ -131,7 +132,7 @@ def read_sessions_config(lib_path: Path, instance: str) -> int:
         instance,
         ["config", "get", SESSIONS_CONFIG_KEY, "--json"],
     )
-    value = json.loads(output).get("value", 0)
+    value = json.loads(output)["result"].get("value", 0)
     if type(value) is not int or not 0 <= value <= 5:
         raise RuntimeError(f"unexpected sessions config value: {value!r}")
     return value
@@ -485,7 +486,7 @@ def run_evaluation(args: argparse.Namespace) -> tuple[Path, Path, str]:
 
     lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
     ensure_supporter_connected(lib_path, args.dev_instance)
-    status_before = json.loads(run_dc_command(lib_path, args.dev_instance, ["supporter", "status", "--json"]))
+    status_before = json.loads(run_dc_command(lib_path, args.dev_instance, ["supporter", "status", "--json"]))["result"]
     if args.docs is None and args.sessions is None:
         records = evaluate_records(questions, item_map, lib_path, args.dev_instance)
     else:
@@ -511,7 +512,7 @@ def run_evaluation(args: argparse.Namespace) -> tuple[Path, Path, str]:
                 if previous_sessions is not None:
                     write_sessions_config(lib_path, args.dev_instance, previous_sessions)
 
-    status_after = json.loads(run_dc_command(lib_path, args.dev_instance, ["supporter", "status", "--json"]))
+    status_after = json.loads(run_dc_command(lib_path, args.dev_instance, ["supporter", "status", "--json"]))["result"]
     before_calls = status_before.get("calls_last_day")
     after_calls = status_after.get("calls_last_day")
     call_delta = after_calls - before_calls if isinstance(before_calls, int) and isinstance(after_calls, int) else None
@@ -580,7 +581,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
         return run_evaluation(args)
     lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
     key = "supporter.memory_rerank.request_mode"
-    previous = json.loads(run_dc_command(lib_path, args.dev_instance, ["config", "get", key, "--json"])).get("value")
+    previous = json.loads(run_dc_command(lib_path, args.dev_instance, ["config", "get", key, "--json"]))["result"].get("value")
     if previous not in {"per_candidate", "shared_state"}:
         raise RuntimeError("request-mode selection requires the multi-question build")
     try:

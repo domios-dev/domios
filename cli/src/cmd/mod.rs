@@ -35,6 +35,7 @@ pub mod model_provider;
 pub mod notify;
 pub mod orchestrator;
 pub mod pad;
+pub mod output;
 pub mod paste;
 pub mod payload_source;
 pub mod persona;

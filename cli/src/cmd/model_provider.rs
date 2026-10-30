@@ -28,7 +28,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: ModelProvid
     match run(client, action, std::io::stdin()) {
         Ok(value) if json_output => println!(
             "{}",
-            serde_json::to_string_pretty(&value).unwrap_or_default()
+            crate::cmd::output::encode(&value).unwrap_or_default()
         ),
         Ok(value) => crate::cmd::print::print_object(&value),
         Err(error) => crate::cmd::print::fail_with(1, &error),

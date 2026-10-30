@@ -117,7 +117,7 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
   while [ "$DEV_NOTIFY_INDEX" -lt "${#DEV_NOTIFY_ARGS[@]}" ]; do
     DEV_NOTIFY_ARG="${DEV_NOTIFY_ARGS[$DEV_NOTIFY_INDEX]}"
     case "$DEV_NOTIFY_ARG" in
-      --wait|--wait-build)
+      --wait|--wait-build|--queue)
         CT_DEV_WAIT=1
         DEV_NOTIFY_INDEX=$((DEV_NOTIFY_INDEX + 1))
         ;;
@@ -708,7 +708,7 @@ if [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then
 else
   BUILD_ARGS=()
   for arg in "${@:2}"; do
-    if [ "$arg" = "--wait-build" ]; then
+    if [ "$arg" = "--wait-build" ] || [ "$arg" = "--queue" ]; then
       export CODETERM_BUILD_GATEWAY_MODE=queue
     else
       BUILD_ARGS+=("$arg")
@@ -2835,8 +2835,8 @@ inside Domios. --notify-tab <tab> or BUILD_NOTIFY_TAB overrides the recipient.
   build-history [--last N] [--verb V] [--json]  Build durations, cache hits and rebuild reasons
   gc [--dry-run]              Reclaim expired build caches and sweep checkout targets
 
-Gateway-backed commands fail fast when the slot is busy. Add --wait-build only
-when blocking this terminal is intentional.
+Gateway-backed commands fail fast when the slot is busy. Add --queue (or
+--wait-build) to wait on the gateway event and run when the slot is available.
 EOF
     ;;
   env)

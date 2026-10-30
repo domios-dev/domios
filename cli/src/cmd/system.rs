@@ -669,6 +669,7 @@ pub fn handle_api_token(remote: bool) {
             token.ok_or_else(|| "No local instance API credential; start Domios first".into())
         });
     match token {
+        Ok(token) if crate::cmd::error_contract::json_mode() => crate::cmd::print::print_json(&serde_json::json!(token)),
         Ok(token) => print!("{token}"),
         Err(error) => crate::cmd::print::fail(if remote { 7 } else { 1 }, error),
     }

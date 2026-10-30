@@ -230,4 +230,6 @@ Session changes retain caller and binding checks. Provider hook ingress methods:
 | POST | `/api/workspaces/{id}/tabs/display-order` | Set workspace tab display order. |
 | POST | `/api/workspaces/{id}/tabs/reorder` | Reorder workspace tabs. |
 
-<!-- revision: 67 -->
+`POST /api/tabs` with `cmd` returns the created tab id and `command_submission`. `submitted` is backed by a shell command-start mark. Once bytes are queued, absent confirmation returns success with `submit_unconfirmed`, `bytes_written: true` and the exact PTY id; never replay it. Proven pre-write failure remains an error. Use `tab exec` for final completion and exit status.
+
+<!-- revision: 68 -->

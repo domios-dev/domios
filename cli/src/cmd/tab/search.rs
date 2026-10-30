@@ -10,6 +10,10 @@ pub fn print_tab_find_results(json: bool, pattern: &str, tabs: &[serde_json::Val
     if json {
         let out = serde_json::Value::Array(scored.into_iter().map(|(_, p)| p.clone()).collect());
         print_json(&out);
+    } else if !crate::cmd::output::verbose() {
+        for (_, row) in &scored {
+            print!("{}", crate::cmd::output::compact_row(row, None));
+        }
     } else if scored.is_empty() {
         println!("No tabs match: {}", pattern);
     } else {

@@ -56,6 +56,13 @@ pub(super) fn render_adopt_report(value: &Value) -> String {
 }
 
 pub(super) fn render_plan_search(value: &Value) -> String {
+    if !crate::cmd::output::verbose() {
+        return crate::cmd::output::compact_list(value, None);
+    }
+    render_plan_search_verbose(value)
+}
+
+fn render_plan_search_verbose(value: &Value) -> String {
     let hits = value
         .get("hits")
         .and_then(|v| v.as_array())

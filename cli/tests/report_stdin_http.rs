@@ -166,7 +166,7 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
             String::from_utf8_lossy(&output.stderr)
         );
         let delivered: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(delivered["state"], "delivered");
+        assert_eq!(delivered["result"]["state"], "delivered");
         assert_eq!(observed.unwrap()["params"]["message"], REPORT);
     }
 }

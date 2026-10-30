@@ -34,7 +34,7 @@ need() {
 }
 
 json_get() {
-  dc --json plan get "$1"
+  dc --json plan get "$1" | jq .result
 }
 
 assert_jq() {
@@ -137,12 +137,12 @@ assert_jq "$PLAN_JSON" \
   '.tasks[] | select(.id == $task) | .status == "done"'
 
 # A terminal group holds the next frontier until its retrospective stride exists.
-STATE_JSON="$(dc --json plan state "$PLAN_ID")"
+STATE_JSON="$(dc --json plan state "$PLAN_ID" | jq .result)"
 assert_jq "$STATE_JSON" \
   "terminal group requires a retrospective" \
   '.pending_group_retrospectives | map(.key) | index("lifecycle") != null'
 dc plan groups close "$PLAN_ID" lifecycle --note="Lifecycle fixture retrospective" >/dev/null
-STATE_JSON="$(dc --json plan state "$PLAN_ID")"
+STATE_JSON="$(dc --json plan state "$PLAN_ID" | jq .result)"
 assert_jq "$STATE_JSON" \
   "group retrospective clears the frontier gate" \
   '.pending_group_retrospectives | length == 0'

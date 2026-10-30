@@ -266,6 +266,44 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
 }
 
 #[test]
+fn ease_unplanned_worker_keeps_explicit_work_tags_and_infers_missing_tags() {
+    for explicit in [true, false] {
+        let harness = fixture();
+        harness
+            .fixture
+            .service
+            .plan_store
+            .with_plan(&harness.plan_id, 3, |plan| {
+                plan.tag_facets.push(codeterm_service_core::plan::TagFacet {
+                    key: "work".into(),
+                    label: None,
+                    color_lane: false,
+                    values: vec![],
+                });
+                Ok(())
+            })
+            .unwrap();
+        let mut request = params(&harness, "urgent probe").unwrap();
+        if explicit {
+            request["tags"] = json!(["work:qa"]);
+        }
+        let response = dispatch(&harness, &Some(request)).unwrap();
+        let task = harness
+            .fixture
+            .service
+            .plan_store
+            .show_task(response["task_id"].as_str().unwrap())
+            .unwrap()
+            .task;
+        assert!(task
+            .tags
+            .iter()
+            .any(|tag| tag == if explicit { "work:qa" } else { "work:backend" }));
+        assert!(task.tags.iter().any(|tag| tag == "unplanned"));
+    }
+}
+
+#[test]
 fn dispatch_refuses_model_absent_from_free_form_providers_live_list() {
     let harness = fixture();
     let provider_id = "live-dispatch-fixture";

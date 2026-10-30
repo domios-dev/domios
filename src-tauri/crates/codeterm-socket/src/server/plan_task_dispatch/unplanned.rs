@@ -105,6 +105,19 @@ where
             )
             .map_err(plan_rpc_err)?,
     };
+    let mut tags: Vec<String> = p
+        .and_then(|params| params.get("tags"))
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| invalid_dispatch(&format!("invalid --tag values: {error}")))?
+        .unwrap_or_default();
+    tags.push("unplanned".into());
+    let inferred_work = codeterm_types::plan::work_facet::infer_work_tag(
+        plan.tag_facets.iter().map(|facet| facet.key.as_str()),
+        &mut tags,
+        &task_body,
+    );
     let task_id = svc
         .plan_store
         .add_task(
@@ -115,7 +128,7 @@ where
                 body: task_body,
                 executor_role: Some("Worker".into()),
                 parent_task_id,
-                tags: vec!["unplanned".into()],
+                tags,
                 section_ids: vec![section_id],
                 acceptance_criteria: vec![acceptance.clone()],
                 correctness: Some(acceptance),
@@ -159,5 +172,12 @@ where
         }
     }
     emit_plan_changed(svc, &plan_id);
-    dispatched
+    dispatched.map(|mut result| {
+        if let Some(tag) = inferred_work {
+            result["warnings"] = json!([format!(
+                "WARNING: inferred {tag}; pass --tag explicitly to override"
+            )]);
+        }
+        result
+    })
 }

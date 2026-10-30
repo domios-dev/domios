@@ -31,6 +31,20 @@ fn add_ready_task(store: &PlanStore, plan_id: &str, name: &str, now: u64) -> Str
         .unwrap()
 }
 
+#[test]
+fn ease_cancelled_update_closes_review_and_returns_credit() {
+    let (_dir, store, plan_id) = setup();
+    let task_id = add_ready_task(&store, &plan_id, "Cancel review", 2);
+    set_status(&store, &plan_id, &task_id, "in_review", 3).unwrap();
+    let before = store.get(&plan_id).unwrap().review_policy.credit;
+    set_status(&store, &plan_id, &task_id, "cancelled", 4).unwrap();
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status,
+        TaskStatus::Cancelled
+    );
+    assert!(store.get(&plan_id).unwrap().review_policy.credit > before);
+}
+
 fn set_status(
     store: &PlanStore,
     plan_id: &str,

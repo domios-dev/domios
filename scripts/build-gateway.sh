@@ -572,7 +572,7 @@ ct_gateway_acquire() {
       blocker_owner="$(node -e 'try{process.stdout.write(require(process.argv[1]).owner||"unknown")}catch{process.stdout.write("unknown")}' "$blocker_record")"
       ct_gateway_mutex_release "$dir" || return $?
       echo "Build gateway busy: job=$blocker_job owner=$blocker_owner command=$blocker_command" >&2
-      echo "Command '$command' was not started. Re-run with --wait-build only when blocking is intentional." >&2
+      echo "Command '$command' was not started. Re-run with --queue (or --wait-build) to wait for the slot." >&2
       return 75
     fi
     if [ -n "${CODETERM_INSTANCE:-}" ] && [ "$queued_notice" = 0 ] &&

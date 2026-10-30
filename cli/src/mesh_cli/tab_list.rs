@@ -35,7 +35,7 @@ pub(super) fn rendering_for(cli: &Cli) -> Option<TabListRendering> {
 /// builds. Takes the body by reference: the REST response is not rewritten.
 #[cfg(test)]
 pub(super) fn json_envelope(relayed: &serde_json::Value) -> serde_json::Value {
-    tab_list_json_envelope(relayed.as_array().cloned().unwrap_or_default())
+    crate::cmd::output::collection_envelope(&tab_list_json_envelope(relayed.as_array().cloned().unwrap_or_default()))
 }
 
 pub(super) fn print(
@@ -51,6 +51,9 @@ pub(super) fn print(
                 requested_workspace,
             );
             print_json(&super::relay::with_answering_peer(envelope, answered_by));
+        }
+        TabListRendering::Tree if !crate::cmd::output::verbose() => {
+            print!("{}", crate::cmd::output::compact_list(relayed, None));
         }
         TabListRendering::Tree => {
             let tabs = relayed.as_array().cloned().unwrap_or_default();

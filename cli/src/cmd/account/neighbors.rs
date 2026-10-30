@@ -29,7 +29,7 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
     let result: Value =
         serde_json::from_str(&body).unwrap_or_else(|_| fail(1, "Invalid Neighbor response"));
     if json_mode {
-        println!("{result}");
+        crate::cmd::print::print_json(&result);
     } else if listing {
         println!("{}", render_list(&result));
     } else {

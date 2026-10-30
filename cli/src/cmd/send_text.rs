@@ -83,7 +83,10 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
         let message = value
             .get("send_id")
             .and_then(serde_json::Value::as_str)
-            .map_or_else(|| message.clone(), |id| format!("send_id={id}: {message}"));
+            .map_or_else(
+                || message.clone(),
+                |id| format!("send_id={id}: {message}\ninspect: domios tab send-status {id}"),
+            );
         return SendTextOutcome::Error {
             msg: message,
             exit_code: crate::cmd::print::CLI_ERROR_EXIT_CODE,
@@ -183,7 +186,7 @@ pub fn handle_send_text_result(
             }
             if json {
                 let value = send_text_json_response(value, &outcome, resolved_text);
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                println!("{}", crate::cmd::output::encode(&value).unwrap());
                 return;
             }
             let pad_file = pad_file_path(&value);
@@ -487,7 +490,7 @@ fn send_text_to_targets(
                 Some(&serde_json::json!({ "code": "refused" })),
             );
         }
-        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        println!("{}", crate::cmd::output::encode(&report).unwrap());
     } else {
         for tab_id in &delivered {
             println!("OK (sent) {tab_id}");

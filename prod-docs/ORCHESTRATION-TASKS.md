@@ -34,7 +34,7 @@ any open state → cancelled
   in-review task to a direct child QA with `domios plan review delegate`;
   that QA may accept or bounce only the handed task and must attach its
   evidence note. A QA cannot hold, dispatch, or transition any other task.
-  `hold` preserves assignment and lane; `bounce` resumes the Worker when its
+  `plan task update --status cancelled` closes a review and returns its review credit. A Worker Partial report stays in progress; `plan review bounce` can return its note to that same bound Worker. `hold` preserves assignment and lane; `bounce` resumes the Worker when its
   continuation is available, or reopens a gone Worker task as pending while
   preserving the note, attempt history, and lane for redispatch.
 - `paused` is a system hold, never an agent verb: a decision gate (`gate:<id>:`
@@ -65,7 +65,7 @@ Before a wave:
 2. Define a disjoint lane map: task, files, branch/worktree, expected output,
    focused oracle, and central gates requested.
 3. Run plan doctor.
-4. Default to an authored task and dispatch it through `domios plan task dispatch`; use `domios agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Lanes by default,
+4. Default to an authored task and dispatch it through `domios plan task dispatch`; use `domios agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Supply `--tag work:<value>` or let the missing work tag be inferred with a warning. Lanes by default,
    `--canonical-writer` only by deliberate choice (operations playbook). Add
    `--kind qa` or `--kind release_manager` to a canonical dispatch when the
    Worker needs that built-in prompt; it does not change `executor_role` or
@@ -102,8 +102,8 @@ whole list as a JSON array to your pad and declare it:
 domios todo write --from-pad todos.json
 ```
 
-Each entry is `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "id?", "link?", "reason?" }`.
-The first write creates the checklist. Later writes reconcile it: an entry
+Each entry is `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm?", "id?", "link?", "reason?" }`.
+New items may omit `activeForm`; it defaults to `content`. Invalid JSON fields are reported together with the accepted schema, including on `todo amend`. The first write creates the checklist. Later writes reconcile it: an entry
 matches by `id` from `domios todo list`, falling back to exact `content` title matching.
 `id` names an existing item only; a new item omits `id`, and an unknown `id` is refused with `todo item not found`. An id entry may omit `content` and `activeForm`; it changes only status/reason,
 preserving the title, links, attempts and history. A new
@@ -163,4 +163,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `domios plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

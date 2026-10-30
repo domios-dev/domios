@@ -500,6 +500,10 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         );
         return;
     }
+    if method == "blueprint.list" && !crate::cmd::output::verbose() {
+        print!("{}", crate::cmd::output::compact_list(&result, None));
+        return;
+    }
     if let Some(jobs) = result.as_array() {
         if jobs.is_empty() {
             println!("No blueprints.");
@@ -689,7 +693,10 @@ fn request(
         | BlueprintAction::Project { .. }
         | BlueprintAction::Schema
         | BlueprintAction::Tags => return Err("Blueprint command is handled offline".into()),
-        BlueprintAction::List => "blueprint.list",
+        BlueprintAction::List { all } => {
+            params["all"] = json!(all);
+            "blueprint.list"
+        }
         BlueprintAction::Input {
             id,
             from_pad,

@@ -229,27 +229,40 @@ fn write_if_changed(path: &std::path::Path, contents: &str) -> std::io::Result<(
 
 pub fn handle(write: bool, markdown: bool) {
     if markdown {
-        print!("{}", to_markdown());
+        if crate::cmd::error_contract::json_mode() {
+            crate::cmd::print::print_json(&serde_json::json!(to_markdown()));
+        } else {
+            print!("{}", to_markdown());
+        }
         return;
     }
     if !write {
-        print!("{}", to_json());
+        crate::cmd::print::print_json(&serde_json::to_value(build()).expect("serialize manifest"));
         return;
     }
     let manifest = output_path("cli-manifest.json");
     write_if_changed(&manifest, &to_json()).expect("write cli-manifest.json");
-    println!("wrote {}", manifest.display());
+    if !crate::cmd::error_contract::json_mode() {
+        println!("wrote {}", manifest.display());
+    }
 
     let cli_md = output_path("cli.md");
     let md = std::fs::read_to_string(&cli_md).expect("read generated/cli/cli.md");
     let spliced = render_document(&md, MD_PREAMBLE, &to_markdown())
         .expect("invalid generated CLI document markers");
     write_if_changed(&cli_md, &spliced).expect("write generated/cli/cli.md");
-    println!("wrote {}", cli_md.display());
+    if !crate::cmd::error_contract::json_mode() {
+        println!("wrote {}", cli_md.display());
+    }
 
     let command_paths = repo_path("packages/chat-ui/src/codeterm/commandPaths.ts");
     write_if_changed(&command_paths, &to_command_paths()).expect("write commandPaths.ts");
-    println!("wrote {}", command_paths.display());
+    if !crate::cmd::error_contract::json_mode() {
+        println!("wrote {}", command_paths.display());
+    }
+    if crate::cmd::error_contract::json_mode() {
+        crate::cmd::print::print_json(&serde_json::json!({"written":[manifest, cli_md, command_paths]}));
+    }
 }
 
 #[cfg(test)]

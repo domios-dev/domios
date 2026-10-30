@@ -79,7 +79,7 @@ EOF
   MARKERS=""
   fi
 else
-WORKSPACE_ID="$(dc workspace create "$WORKSPACE_NAME" --json   | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+WORKSPACE_ID="$(dc workspace create "$WORKSPACE_NAME" --json   | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["id"])')"
 echo ">>> workspace $WORKSPACE_ID ($WORKSPACE_NAME)"
 MARKERS=""
 NONCE="$(date +%s)-$$"
@@ -90,7 +90,7 @@ MARKER_INDEX=0
 for _ in $(seq 1 "$TABCOUNT"); do
   MARKER_INDEX=$((MARKER_INDEX + 1))
   MARK="WMSMARK-${NONCE}-${MARKER_INDEX}"
-  id="$(dc tab new --workspace "$WORKSPACE_ID" --cmd "echo $MARK" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+  id="$(dc tab new --workspace "$WORKSPACE_ID" --cmd "echo $MARK" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["id"])')"
   TAB_IDS="${TAB_IDS:+$TAB_IDS,}$id"
   MARKERS="${MARKERS:+$MARKERS,}$id=$MARK"
 done

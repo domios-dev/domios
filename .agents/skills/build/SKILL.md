@@ -1439,7 +1439,9 @@ Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
-<!-- revision: 57 -->
+For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). Lane checks honor the same mode by blocking on the shared intermediate file lock; the default refuses a busy lock. CLI and app workspace crates require separate lane-check invocations. The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
+
+<!-- revision: 59 -->
 
 ### Lane and batch scopes
 
@@ -1519,9 +1521,9 @@ closures before and after: no new crate may appear, and `check-crate-layering.sh
 
 ## Lane crate checks and shared intermediates
 
-Before committing, run `./build.sh lane-check <package>... [--tests]` once for all touched packages on every platform. It checks them in one Cargo invocation, stages frontend/sidecar resources without building them, and takes no gateway slot or sccache action. `codeterm-cli` selects `cli/Cargo.toml` and `--bin codeterm` and cannot mix with app workspace packages; library packages select the app manifest and `--lib`.
+Before committing, run `./build.sh lane-check <package>... [--tests]` once for all touched packages on every platform. It checks them in one Cargo invocation, stages frontend/sidecar resources without building them, and defaults to no gateway slot or sccache action. Explicit `--wait-build`/`--queue` acquires the gateway before waiting for the lane lock. `codeterm-cli` selects `cli/Cargo.toml` and `--bin codeterm` and cannot mix with app workspace packages; library packages select the app manifest and `--lib`.
 
-`lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. An OS-backed nonblocking lock serializes the entire lane Cargo invocation across final targets; a competing lane exits 75 without compiling. Python is required for this lock. Final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
+`lane-check` exports `CARGO_BUILD_BUILD_DIR=$CODETERM_RUST_CACHE_ROOT/lanes` inside its own subshell, falling back to `${CARGO_HOME:-$HOME/.cargo}/codeterm-lanes`. Repository Cargo configuration and canonical gateway operations never select this shared directory. An OS-backed lock serializes the entire lane Cargo invocation across final targets. By default a competing lane exits 75 without compiling; `--wait-build`/`--queue` waits on the lock without polling. Python is required for this lock. Final targets remain per worktree. `source build.sh env` loads the toolchain without changing this cache policy. Builds and tests retain the gateway; check-queue remains the committed integration/clippy gate.
 
 Lane-check and retention resolve the shared directory with `scripts/lane-build-dir.mjs`: `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`). GC adds that directory explicitly, independently of canonical/gateway Cargo metadata, and trims it once under Cargo locks. Its `CACHEDIR.TAG`, fixed basename and direct-child boundary are required; links and busy locks refuse trimming. Existing two-level hash directories retain their guarded collector. Verify with `node --test scripts/cargo-build-gc.test.mjs scripts/tests/lane-check.test.mjs`.
 
