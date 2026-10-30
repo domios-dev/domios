@@ -93,6 +93,7 @@ impl PlanCache {
         slots.entries.remove(id).map(|slot| slot.plan)
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn clear(&self) {
         let mut slots = self.slots.lock();
         slots.epoch += 1;
