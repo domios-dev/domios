@@ -216,6 +216,9 @@ under `~/.domios-dev-<instance-key>`.
   instance, never from executable paths. The refusal lists each instance and its
   exact `CODETERM_DEV_INSTANCE=... CODETERM_DEV_API_PORT=... ./build.sh kill`.
   The selected instance itself is still replaced (or server-swapped) as before.
+  Named `dev` checks before taking the instance launch lock, so with several
+  instances running it prints this refusal, not `DEV launch owner unavailable`.
+  It also reports the selected instance and its own `kill` command.
 - **`kill` stops only the selected instance.** The image path only bounds the
   candidates to the shared target. The instance's own API-port listener and its
   authenticated quit snapshot (data root plus port) seed the selection, and that

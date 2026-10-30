@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import http from 'node:http';
+import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { adoptLegacyTarget, refusal, runningFromTarget, stopCommand } from '../dev-named-target.mjs';
 
 function fixture() {
@@ -98,4 +101,34 @@ test('running DEVs are those whose own provenance names the target and whose por
   assert.match(message, new RegExp(`alpha \\(api 17811, data ${alpha.replaceAll('\\', '\\\\')}\\)`));
   assert.ok(message.includes(stopCommand(running[0])));
   assert.equal(refusal(shared, 'rebuild (dev)', []), null);
+});
+
+test('with both instances running, dev for either names the other, its kill command and the selected instance', async t => {
+  const { root, home, instance, shared } = fixture();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const servers = await Promise.all(['alpha', 'beta'].map(name => new Promise(resolve => {
+    const server = http.createServer((request, response) => {
+      response.setHeader('content-type', 'application/json');
+      response.end(JSON.stringify({ instance: { name, api_port: String(server.address().port), identifier: `com.domios.dev.${name}` } }));
+    });
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  })));
+  t.after(() => servers.forEach(server => server.close()));
+  const [alphaPort, betaPort] = servers.map(server => server.address().port);
+  instance('alpha', alphaPort, shared);
+  instance('beta', betaPort, shared);
+  const script = fileURLToPath(new URL('../dev-named-target.mjs', import.meta.url));
+  for (const [self, other, otherPort, selfPort] of [['alpha', 'beta', betaPort, alphaPort], ['beta', 'alpha', alphaPort, betaPort]]) {
+    const result = await new Promise(resolve => execFile(process.execPath, [script, 'refuse-running', shared, home, self, 'rebuild (dev)'],
+      (error, stdout, stderr) => resolve({ status: error?.code ?? 0, stderr })));
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, new RegExp(`- ${other} \\(api ${otherPort},`));
+    assert.ok(result.stderr.includes(`CODETERM_DEV_INSTANCE='${other}' CODETERM_DEV_API_PORT='${otherPort}' ./build.sh kill`));
+    assert.match(result.stderr, new RegExp(`selected instance ${self} \\(api ${selfPort}\\) is also running`));
+    assert.ok(result.stderr.includes(`CODETERM_DEV_INSTANCE='${self}' CODETERM_DEV_API_PORT='${selfPort}' ./build.sh kill`));
+  }
+  servers[1].close();
+  const alone = await new Promise(resolve => execFile(process.execPath, [script, 'refuse-running', shared, home, 'alpha', 'rebuild (dev)'],
+    (error, stdout, stderr) => resolve({ status: error?.code ?? 0, stderr })));
+  assert.deepEqual(alone, { status: 0, stderr: '' });
 });

@@ -229,3 +229,26 @@ done
     }
   });
 }
+
+for (const [command, instance, refused] of [['dev', 'alpha', true], ['dev', 'alpha', false], ['dev', '', false], ['dev-prebuilt', 'alpha', false]]) {
+  test(`launch-owner entry names running DEVs before the instance lock refuses; ${command} instance=${instance || 'default'} refused=${refused}`, () => {
+    const entry = source.slice(source.indexOf('case "$CMD" in\n  dev|dev-prebuilt)\n'), source.indexOf('esac\n', source.indexOf('case "$CMD" in\n  dev|dev-prebuilt)\n')) + 5);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-launch-entry-'));
+    let result;
+    try {
+      result = spawnSync(bash, ['-c', `set -euo pipefail
+named_dev_isolated() { [ -n "$CT_INSTANCE" ]; }
+refuse_named_dev_rebuild_while_running() { echo refusal-check; [ "$REFUSED" = false ]; }
+CMD="$1" CT_INSTANCE="$2" REFUSED="$3" CT_DATA_DIR="$4"
+printf '#!/bin/sh\\necho "launch-owner $1"\\n' > "$CT_DATA_DIR/node"
+chmod +x "$CT_DATA_DIR/node"
+PATH="$CT_DATA_DIR:$PATH"
+${entry}
+`, '--', command, instance, String(refused), directory], { encoding: 'utf8' });
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+    const checked = command === 'dev' && Boolean(instance);
+    assert.equal(result.status, refused ? 2 : 0, result.stderr);
+    assert.deepEqual(result.stdout.trim().split('\n'), [...(checked ? ['refusal-check'] : []),
+      ...(refused ? [] : ['launch-owner scripts/dev-launch-owner.mjs'])]);
+  });
+}

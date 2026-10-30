@@ -59,12 +59,15 @@ export function stopCommand(instance) {
   return `CODETERM_DEV_INSTANCE='${instance.name}' CODETERM_DEV_API_PORT='${instance.port}' ./build.sh kill`;
 }
 
-export function refusal(target, operation, running) {
+// Only other instances refuse; a running selected instance is reported because the rebuild replaces it.
+export function refusal(target, operation, running, selected = null) {
   if (!running.length) return null;
   return [`ERROR: refusing ${operation}: DEV instances started from ${target} are running.`,
     ...running.map(instance => `  - ${instance.name} (api ${instance.port}, data ${instance.data})`),
     'Stop each one from this checkout first (Windows locks a running executable), then rerun:',
-    ...running.map(instance => `  ${stopCommand(instance)}`)].join('\n');
+    ...running.map(instance => `  ${stopCommand(instance)}`),
+    ...(selected ? [`The selected instance ${selected.name} (api ${selected.port}) is also running. The rebuild replaces it`
+      + ' once the others are stopped; if its launcher still owns it, stop it first with:', `  ${stopCommand(selected)}`] : [])].join('\n');
 }
 
 // One-time move of the warm per-instance target into the shared one; never copies or deletes.
@@ -99,8 +102,9 @@ async function main() {
     await adoptLegacyTarget(path.resolve(args[0]), path.resolve(args[1]));
   } else if (operation === 'refuse-running') {
     const [target, home, self, label] = args;
-    const running = (await runningFromTarget(target, path.resolve(home))).filter(instance => instance.name !== self);
-    const message = refusal(target, label, running);
+    const running = await runningFromTarget(target, path.resolve(home));
+    const message = refusal(target, label, running.filter(instance => instance.name !== self),
+      running.find(instance => instance.name === self));
     if (message) {
       console.error(message);
       process.exitCode = 2;
