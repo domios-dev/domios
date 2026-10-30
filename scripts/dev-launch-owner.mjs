@@ -121,7 +121,13 @@ export async function releaseTargetReservation(environment = process.env) {
 
 async function withTargetReservation() {
   const [root, shell, ...args] = process.argv.slice(3);
-  const owner = await acquireLaunchOwner(root, { releaseOnReady: true });
+  let owner;
+  try { owner = await acquireLaunchOwner(root, { releaseOnReady: true }); }
+  catch (error) {
+    if (error.code !== 'DEV_LAUNCH_BUSY') throw error;
+    throw Object.assign(Error(`Checkout target ${root} is reserved by another named DEV build or launch. Wait for its native READY or exit, then rerun this command.`),
+      { code: 'DEV_TARGET_BUSY', exitCode: 75 });
+  }
   const child = spawn(shell, args, { stdio: 'inherit', windowsHide: true, env: { ...process.env,
     CODETERM_DEV_TARGET_CHILD: '1', CODETERM_DEV_TARGET_SOCKET: owner.environment.CODETERM_DEV_LAUNCH_SOCKET,
     CODETERM_DEV_TARGET_TOKEN: owner.environment.CODETERM_DEV_LAUNCH_TOKEN } });
@@ -153,7 +159,7 @@ async function main() {
       const deadline = setTimeout(() => { broker.kill(); reject(Error('DEV launch owner handoff deadline')); }, 5000);
       broker.once('message', message => {
         clearTimeout(deadline);
-        if (message.error) reject(Error(message.error));
+        if (message.error) reject(Object.assign(Error(message.error), { code: message.code, exitCode: message.exitCode }));
         else resolve(message);
       });
       broker.once('error', error => { clearTimeout(deadline); reject(error); });
@@ -202,8 +208,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     : process.argv[2] === '--target-reservation' ? withTargetReservation
       : process.argv[2] === '--validate-target-reservation' ? () => validateTargetReservation(process.argv[3]) : main;
   operation().catch(error => {
-    if (process.connected) process.send({ error: error.message }, () => process.disconnect());
-    else console.error(error.message);
-    process.exitCode = 1;
+    if (process.connected) process.send({ error: error.message, code: error.code, exitCode: error.exitCode }, () => process.disconnect());
+    else console.error(`${error.exitCode === 75 ? `${error.code}: ` : ''}${error.message}`);
+    process.exitCode = error.exitCode ?? 1;
   });
 }
