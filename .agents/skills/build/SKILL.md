@@ -5,6 +5,8 @@ description: "Choose and run Domios build operations, including dev work, local 
 
 # Domios — Build Guide
 
+Shared Workers use `./build.sh fmt --paths <owned-files>` after declaring edit paths; repository-wide formatting belongs to the integrator. Local mutating dispatch shares canonical by default, selecting a lane for overlap or `build-breaking` work. Stage and commit only owned paths. Shared compile failures identify foreign source paths without changing their nonzero exit. Remaining lanes retain the serialized shared intermediate cache and separate final targets. Sccache's Rust cwd hashing is not normalized by `SCCACHE_BASEDIRS`; do not claim equal worktree keys from that setting. DEV policy remains incremental without sccache.
+
 ## Prerequisites
 
 ### Windows
@@ -1441,7 +1443,7 @@ entitlement refresh when integrating either external service.
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
 For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). Lane checks honor the same mode by blocking on the shared intermediate file lock; the default refuses a busy lock. CLI and app workspace crates require separate lane-check invocations. The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->
 
 ### Lane and batch scopes
 

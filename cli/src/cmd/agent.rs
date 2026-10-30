@@ -653,7 +653,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             };
             let canonical_writer = task_scope
                 .as_ref()
-                .is_some_and(|scope| scope.canonical_writer);
+                .is_some_and(|scope| scope.canonical_writer || scope.shared);
             let base_for_report = if canonical_writer {
                 None
             } else {

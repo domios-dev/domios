@@ -53,6 +53,7 @@ pub mod search_index;
 pub mod search_related;
 pub mod section_links;
 pub mod section_queries;
+pub mod shared_checkout;
 pub mod skill_registry;
 pub mod spec;
 pub mod spec_render;

@@ -114,6 +114,7 @@ pub(super) fn handles(method: &str) -> bool {
             | "plan.task.add"
             | "plan.task.split"
             | "plan.task.update"
+            | "plan.task.extend_files"
             | "plan.task.link"
             | "plan.task.relink"
             | "plan.task.assign"
@@ -146,6 +147,28 @@ pub(super) fn dispatch(
         super::plan_task_authority::verify_remote_worker_binding(params, svc)?;
     }
     match method {
+        "plan.task.extend_files" => {
+            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
+            let edit = p
+                .and_then(|params| params.get("edit"))
+                .cloned()
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: "edit paths required".into(),
+                    data: None,
+                })?;
+            let paths =
+                serde_json::from_value::<Vec<String>>(edit).map_err(|error| JsonRpcError {
+                    code: -32602,
+                    message: error.to_string(),
+                    data: None,
+                })?;
+            store
+                .extend_task_edit_files(&plan_id, &task_id, paths, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(svc, &plan_id);
+            Ok(json!({"plan_id": plan_id, "task_id": task_id, "extended": true}))
+        }
         "plan.task.adopt_checkpoint" => {
             let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
             let tab_id = get_string_param(params, "caller_tab_id")?;

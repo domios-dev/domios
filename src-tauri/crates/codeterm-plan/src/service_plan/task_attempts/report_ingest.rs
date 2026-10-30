@@ -63,7 +63,7 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
         from: &AgentRef,
-        report: BoundWorkerReport,
+        mut report: BoundWorkerReport,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
         let Some(reporter_tab) = from.tab_id.as_deref() else {
@@ -137,6 +137,22 @@ impl PlanStore {
                 transition
             };
             let committed_review = accepted_transition == Some(TaskStatus::InReview);
+            if committed_review {
+                let task = &plan.tasks[task_index];
+                if let Some(attempt) = task.execution_attempts.iter().rfind(|attempt| {
+                    attempt.executor_tab_id == reporter_tab
+                        && attempt.closed_at.is_none()
+                        && attempt.retired_at.is_none()
+                        && attempt.placement == crate::plan::WorkerPlacement::Shared
+                }) {
+                    report.changed_files = super::super::shared_checkout::validate_shared_report(
+                        task,
+                        attempt,
+                        report.sha.as_deref(),
+                    )
+                    .map_err(PlanError::InvalidPlanText)?;
+                }
+            }
             if let Some(next) = accepted_transition
                 .as_ref()
                 .filter(|next| *next != &current)

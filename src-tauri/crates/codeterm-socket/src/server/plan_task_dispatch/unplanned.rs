@@ -144,6 +144,7 @@ where
     dispatch_params["plan_id"] = json!(plan_id.clone());
     dispatch_params["task_id"] = json!(task_id.clone());
     dispatch_params["execution_intent"] = json!("mutating");
+    dispatch_params["placement"] = json!("lane");
     let dispatched = dispatch_with_spawn_approval_exemption(
         &Some(dispatch_params),
         svc,

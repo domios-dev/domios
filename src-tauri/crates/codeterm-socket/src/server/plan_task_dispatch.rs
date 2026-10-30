@@ -496,8 +496,13 @@ where
             ))
         }
     };
-    let placement =
-        canonical_writer::dispatch_worker_placement(p, &execution_intent, &detail.task)?;
+    let (placement, placement_reason) = canonical_writer::resolve_placement(
+        p,
+        &execution_intent,
+        &detail.task,
+        &plan,
+        &store.list_full(),
+    )?;
     let worker_profile = codeterm_service_core::service::role_profile::dispatch_worker_profile(
         detail.task.executor_role.as_deref(),
         owned_str(p, "worker_kind").as_deref(),
@@ -597,7 +602,7 @@ where
                 spawn_cwd: canonical_cwd.clone(),
                 existing: None,
             })
-        } else if placement == codeterm_service_core::plan::WorkerPlacement::CanonicalWriter {
+        } else if !placement.is_isolated_lane() {
             canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
             Some(lane_resolution::DispatchLaneResolution {
                 spawn_cwd: canonical_cwd.clone(),
@@ -688,7 +693,7 @@ where
         } else {
             HashMap::new()
         };
-    if requires_repository {
+    if requires_repository && placement != codeterm_service_core::plan::WorkerPlacement::Shared {
         preflight_dispatch_placement(
             &plan,
             &task_id,
@@ -1127,6 +1132,7 @@ where
         "agent": resolved_provider,
         "authorized_gates": authorized_gates,
         "placement": placement,
+        "placement_reason": placement_reason,
     });
     if let Some(provenance) = initial_provenance.as_ref() {
         result["lane"] = dispatch_response_lane(provenance, &canonical_cwd, &lane_for_commit);

@@ -10,7 +10,7 @@
 
 - Read `essences/begin_here.md`, then `vision.md`, `capabilities.md`, and `core.md`; preserve their observable contracts without forcing code to mirror the map.
 - Verify observable behavior with focused checks per completed batch and one broad release gate.
-- Orchestrators coordinate; Planners shape tasks; Workers implement in isolated lanes. Integrate through real merges and canonical verification.
+- Orchestrators coordinate; Planners shape tasks; Workers share canonical with disjoint declared edit paths, using lanes for overlap or build-breaking work. Integrate lanes through real merges and canonical verification.
 - Keep owner rules in `codeterm mem`, decisions/evidence in plan strides, stable contracts in `essences/`, procedures in `.agents/skills/`, and embedded help in `prod-docs/`.
 
 ## Hard rules
@@ -51,7 +51,7 @@
 ## Lane integration preserves ancestry
 
 - Never cherry-pick, squash, replay, or patch-copy lane work. Real-merge it; delete only after `git merge-base --is-ancestor <lane-tip> <target-tip>` succeeds.
-- Canonical has one writer/integrator. Parallel source writers use separate lanes.
+- Canonical has one integrator; shared Workers stage and commit only owned paths, and format with `build.sh fmt --paths <files>`. Use lanes for overlap or build-breaking work.
 - Before debugging, compare `/api/health` build with the intended source SHA. Use the dev-run skill to stop/restart stale DEV; never prod. Keep one foreground dev/build owner.
 
 ## Testing
@@ -172,4 +172,4 @@ Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N
 - `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/TAB-LIFECYCLE.md`. Its audience is a production agent using Domios; a doc about Domios's own source (prompt sources, detection internals, file layout) is useless there because that agent cannot edit the binary, so it lives in `.agents/skills/` or `essences/`.
 - `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
 
-<!-- revision: 45 -->
+<!-- revision: 46 -->

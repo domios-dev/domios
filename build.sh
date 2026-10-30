@@ -2777,7 +2777,7 @@ Domios build commands
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package>... [--tests] [--timings]  Type-check touched packages in one Cargo check with four jobs
-  fmt [--base REF]          Format changed Rust and apply changed-file Biome safe fixes
+  fmt [--base REF | --paths FILE...]  Format owned files or changed Rust/JS files
   lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
   cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
