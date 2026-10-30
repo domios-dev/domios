@@ -30,6 +30,7 @@ pub mod tcp_listener;
 pub mod terminal;
 pub mod test_env;
 pub mod user_path;
+pub mod watch_plan;
 pub mod windows_env;
 #[cfg(windows)]
 pub mod windows_job;
