@@ -491,9 +491,14 @@ export function useChatSession({
           `tab-chat-msg-${tabId}`,
           (ev) => {
             if (cancelled) return;
-            const traceAuthority = { tab: tabId, session: ev.payload.source_session_id, nonce: ev.payload.session_binding_nonce,
+            const traceAuthority = { tab: ev.payload.tab_id, session: ev.payload.source_session_id, nonce: ev.payload.session_binding_nonce,
               epoch: (ev.payload as ChatMsgEvent & { diagnostic_epoch?: number }).diagnostic_epoch, generation: listenerGeneration };
-            if (DEV_BUILD) chatResponsivenessTrace.observe("frontend_arrival", traceAuthority, ev.payload.messages);
+            if (DEV_BUILD) {
+              const current = ev.payload.tab_id === tabId && ev.payload.source_session_id === agentSessionIdRef.current
+                && ev.payload.session_binding_nonce === (sessionBindingNonceRef.current ?? null);
+              const live = (ev.payload as ChatMsgEvent & { diagnostic_live?: { kind?: string; turn?: string } }).diagnostic_live;
+              chatResponsivenessTrace.arrival(traceAuthority, ev.payload.messages, current ? live : undefined);
+            }
             const diagnosticBase = {
               tabId,
               sourceSessionId: ev.payload.source_session_id,

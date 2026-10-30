@@ -605,6 +605,66 @@ async function testActivationRemountIntegration(): Promise<void> {
   (bridge as never as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(null as never);
 }
 
+function testResponsivenessPrearmRequiresProvenLiveOwnAssistant(): void {
+  let now = 0;
+  const trace = new ChatResponsivenessTrace(() => ++now, () => 1234);
+  const authority = { tab: "tab", session: "session", nonce: "nonce", epoch: 7, generation: 3 };
+  const binding = { trace: "opaque-prearm", ...authority, body: "opaque-private-extra" };
+  const row = { id: "first", type: "assistant", toolFlowId: "turn", content: "opaque-private-body" };
+  const origin = { kind: "runtime_live", turn: "turn" };
+  trace.arm(binding);
+  assert(trace.snapshot().armed?.epoch === 7 && trace.snapshot().selection === null, "arm has exact authority and no invented item/turn");
+  let refused = false;
+  try { trace.arm({ ...binding, nonce: "x".repeat(129) }); } catch { refused = true; }
+  assert(refused && trace.snapshot().armed?.nonce === "nonce", "invalid oversized arm is refused before replacing the valid observer");
+  assert(!trace.eligible(authority), "armed observer cannot scan rendered rows before a real live item");
+  trace.observe("layout_commit", authority, [row]);
+  trace.arrival(authority, [row]);
+  trace.arrival(authority, [row], { kind: "cache", turn: "turn" });
+  for (const incoming of [{ ...authority, tab: "foreign" }, { ...authority, session: "foreign" },
+    { ...authority, nonce: "foreign" }, { ...authority, epoch: 8 }, { ...authority, epoch: undefined }]) {
+    trace.arrival(incoming, [row], origin);
+  }
+  for (const type of ["user", "tool_call", "thinking", "system"]) trace.arrival(authority, [{ ...row, type }], origin);
+  trace.arrival(authority, [{ ...row, toolFlowId: "stale-turn" }], origin);
+  trace.arrival(authority, [{ ...row, id: "x".repeat(129) }], origin);
+  trace.arrival(authority, [row], { kind: "runtime_live", turn: "" });
+  assert(trace.snapshot().selection === null && trace.snapshot().records.length === 0, "history/cache/foreign/stale/non-assistant/invalid arrivals cannot select");
+  trace.arrival(authority, [row, { ...row, id: "later" }], origin);
+  let snapshot = trace.snapshot();
+  assert(snapshot.selection?.item === "first" && snapshot.selection.turn === "turn" && snapshot.armed === null, "first exact eligible arrival chooses only its real ids");
+  assert(snapshot.records.length === 1 && snapshot.records[0]!.stage === "frontend_arrival", "selection synchronously records that very first arrival");
+  assert(snapshot.records[0]!.epochVerified && snapshot.records[0]!.listenerGeneration === 3 && snapshot.records[0]!.observerMs > 0, "first record retains provenance and measures selection work");
+  assert(!JSON.stringify(snapshot).includes("opaque-private"), "selection/snapshot retain no row bodies or extra caller fields");
+  trace.arrival(authority, [{ ...row, id: "later" }], origin);
+  trace.arrival(authority, [row]);
+  assert(trace.snapshot().records.length === 1 && trace.snapshot().selection?.item === "first", "selection never follows another item or unproven history");
+  trace.arrival(authority, [{ ...row, content: row.content + "-growth" }], origin);
+  assert(trace.snapshot().records[1]!.contentUnits > snapshot.records[0]!.contentUnits, "later proven growth records the same item");
+  for (let index = 0; index < 2050; index++) trace.arrival(authority, [row], origin);
+  const reads = hitCounter();
+  const tracked = new Proxy([row], { get(target, key, receiver) { if (key === "0") reads.hit(); return Reflect.get(target, key, receiver); } });
+  trace.arrival(authority, tracked, origin);
+  snapshot = trace.snapshot();
+  assert(snapshot.records.length === 2048 && snapshot.dropped > 0 && reads.count() === 0, "exhausted arrival cap rejects before row lookup");
+  trace.arm(binding);
+  const large = new Proxy(Array.from({ length: 2000 }, () => ({ ...row, type: "tool_call" })), {
+    get(target, key, receiver) { if (typeof key === "string" && /^\d+$/.test(key)) reads.hit(); return Reflect.get(target, key, receiver); },
+  });
+  trace.arrival(authority, large, origin);
+  assert(reads.count() === 1024 && trace.snapshot().armed !== null && trace.snapshot().dropped === 1, "pending selection scans at most1024 entries and counts a capped attempt");
+  trace.arm(binding);
+  trace.arrival(authority, [row, ...large], origin);
+  assert(trace.snapshot().records.length === 1, "first eligible entry in a large batch is recorded without a second tail scan");
+  trace.arm(binding);
+  trace.bind({ ...authority, epoch: 8 });
+  assert(!trace.snapshot().active, "authority replacement disposes a pending arm");
+  trace.arm(binding);
+  trace.release("tab");
+  trace.arrival(authority, [row], origin);
+  assert(!trace.snapshot().active && trace.snapshot().records.length === 0, "disposal/unmount cancels pending selection");
+}
+
 function testResponsivenessTraceSelectionGrowthBoundsAndDisposal(): void {
   let now = 0;
   const trace = new ChatResponsivenessTrace(() => ++now, () => 1234);
@@ -723,6 +783,7 @@ function testResponsivenessRenderedEligibilityAndMeasuredBoundedLookup(): void {
   }
 }
 async function main(): Promise<void> {
+  testResponsivenessPrearmRequiresProvenLiveOwnAssistant();
   testResponsivenessRenderedEligibilityAndMeasuredBoundedLookup();
   testResponsivenessTraceSelectionGrowthBoundsAndDisposal();
   testStageDistinction();

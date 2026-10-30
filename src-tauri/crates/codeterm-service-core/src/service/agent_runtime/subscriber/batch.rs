@@ -224,7 +224,7 @@ pub(super) async fn handle(
     }
     *session.hook_state.lock() = reduced.state;
     if let Err(reason) =
-        super::apply::publish_events(svc, session, epoch, reduced.events, received_at).await
+        super::apply::publish_live_events(svc, session, epoch, reduced.events, received_at).await
     {
         return match reason {
             RuntimeFailure::Superseded => Step::Break,

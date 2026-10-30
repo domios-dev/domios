@@ -25,6 +25,8 @@ pub trait StructuredSink: Send + Sync {
 struct ChatMsgEvent<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     diagnostic_epoch: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic_live: Option<&'a LiveRuntimeOrigin>,
     tab_id: &'a str,
     messages: &'a [ChatMsg],
     cursor: Option<&'a str>,
@@ -36,6 +38,29 @@ struct ChatMsgEvent<'a> {
     session_binding_nonce: Option<&'a str>,
 }
 
+#[derive(serde::Serialize)]
+pub(crate) struct LiveRuntimeOrigin {
+    kind: &'static str,
+    turn: String,
+}
+
+pub(crate) fn live_runtime_origin(
+    live: bool,
+    before: &codeterm_plugin::agent_runtime::RuntimeContext,
+    current: &codeterm_plugin::agent_runtime::RuntimeContext,
+    thread: &str,
+    item: &ChatMsg,
+) -> Option<LiveRuntimeOrigin> {
+    let turn = current.active_turn_id.as_deref()?;
+    (live && !current.tab_id.is_empty() && !current.binding_nonce.is_empty() && current.epoch > 0 && !thread.is_empty()
+        && before.tab_id == current.tab_id && before.epoch == current.epoch
+        && before.binding_nonce == current.binding_nonce && before.thread_id == current.thread_id
+        && current.thread_id.as_deref() == Some(thread) && !turn.is_empty() && turn.len() <= 128
+        && !turn.bytes().any(|byte| byte.is_ascii_control())
+        && item.tool_flow_id.as_deref() == Some(turn) && item.inherited_from_session_id.is_none())
+        .then(|| LiveRuntimeOrigin { kind: "runtime_live", turn: turn.to_owned() })
+}
+
 pub fn emit_chat_msgs(
     ui: &dyn UiEvents,
     tab_id: &str,
@@ -43,6 +68,29 @@ pub fn emit_chat_msgs(
     cursor: Option<&str>,
     source_session_id: Option<&str>,
     session_binding_nonce: Option<&str>,
+) {
+    emit_chat_msgs_with_origin(ui, tab_id, messages, cursor, source_session_id, session_binding_nonce, None);
+}
+
+pub(crate) fn emit_live_runtime_chat_msg(
+    ui: &dyn UiEvents,
+    tab_id: &str,
+    message: &ChatMsg,
+    source_session_id: Option<&str>,
+    session_binding_nonce: Option<&str>,
+    origin: Option<&LiveRuntimeOrigin>,
+) {
+    emit_chat_msgs_with_origin(ui, tab_id, std::slice::from_ref(message), None, source_session_id, session_binding_nonce, origin);
+}
+
+fn emit_chat_msgs_with_origin(
+    ui: &dyn UiEvents,
+    tab_id: &str,
+    messages: &[ChatMsg],
+    cursor: Option<&str>,
+    source_session_id: Option<&str>,
+    session_binding_nonce: Option<&str>,
+    origin: Option<&LiveRuntimeOrigin>,
 ) {
     let mut messages: Vec<_> = messages
         .iter()
@@ -63,6 +111,7 @@ pub fn emit_chat_msgs(
     );
     let payload = ChatMsgEvent {
         diagnostic_epoch: trace.and_then(|trace| trace.epoch()),
+        diagnostic_live: trace.and(origin),
         tab_id,
         messages: &messages,
         cursor,
