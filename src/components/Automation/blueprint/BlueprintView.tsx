@@ -23,6 +23,7 @@ import { layoutBlueprint } from "./layout";
 import { BlueprintNodeDetails } from "./NodeDetails";
 import { useBlueprintGraph } from "./useBlueprintGraph";
 import { createAutomationCamera, type AutomationCamera } from "./viewport";
+import { singleCadence } from "./triggerModel";
 
 const DRAWER_MOTION: PresenceMotion = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
 const cameras = new Map<string, AutomationCamera>();
@@ -217,7 +218,7 @@ export function BlueprintView({ pipeline, initialRunId, initialRoute, onRouteCha
       {trail.length ? <BackPill label={scopeTitles[trail.length - 1]} onBack={() => enter(trail.slice(0, -1))} /> : onBack && <BackPill label={backLabel} onBack={onBack} />}
       <span className="ct-card__icon" style={{ "--ct-card-tone": AUTOMATION_TONE.blueprint } as CSSProperties}><Network size={14} aria-hidden="true" /></span>
       <Heading className="min-w-0 flex-[1_1_12rem] break-words text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{pipeline.name}</Heading>
-      <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(pipeline.state)}`} aria-hidden="true" />{pipeline.call_graph?.kind ?? "Blueprint"} · {pipeline.state}</span>
+      <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(pipeline.state)}`} aria-hidden="true" />{pipeline.call_graph?.kind ?? "Blueprint"} · {pipeline.state === "idle" ? singleCadence(pipeline.call_graph) ?? pipeline.state : pipeline.state}</span>
       {loadHistory && <button type="button" className={AUTOMATION_TOOL} aria-expanded={diffOpen} onClick={() => { if (!diffOpen) { camera.selected = null; setSelected(null); } setDiffOpen(!diffOpen); }}><GitCompare size={13} aria-hidden="true" />Semantic diff</button>}
       {actions}
       {exportTarget && <BlueprintExportButton workspaceId={exportTarget.workspaceId} teamId={exportTarget.teamId} id={exportTarget.id} />}

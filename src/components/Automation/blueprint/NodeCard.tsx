@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { HEADER_HEIGHT, STATUS_HEIGHT, type LaidOutBlueprintNode } from "./layout";
+import { HEADER_HEIGHT, STATUS_HEIGHT, TRIGGER_HEIGHT, type LaidOutBlueprintNode } from "./layout";
 import type { BlueprintPin, NodeEvidence } from "./graphModel";
 import { stateTone } from "../styles";
 
@@ -51,6 +51,7 @@ export function BlueprintNodeCard({ laid, watch }: { laid: LaidOutBlueprintNode;
         <span className="bp-node__subtitle">{node.callee ? `${node.kindLabel} · ${node.callee.name}` : node.kindLabel}{node.callPath.length ? ` · in ${node.callPath.join(" / ")}` : ""}</span>
       </span>
     </span>
+    {node.trigger && <span className="bp-node__trigger" role="note" aria-label={node.trigger.label} title={node.trigger.label} style={{ height: TRIGGER_HEIGHT }}><span aria-hidden="true">⟳</span><span>{node.trigger.badge}</span></span>}
     {node.evidence && <span className="bp-node__status" data-state={node.evidence.state} style={{ height: statusHeight || STATUS_HEIGHT }}>
       <span className={`bp-node__dot ${stateTone(node.evidence.state)}`} aria-hidden="true" />
       <span className="bp-node__status-text">{evidenceText(node.evidence)}</span>

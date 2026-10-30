@@ -53,6 +53,16 @@ export function BlueprintNodeDetails({ node, model, call, expanded, onExpand, on
         <PinValueBody value={pinValue(model, node, pin) ?? { kind: "none" }} />
       </li>)}</ul>
     </section>}
+    {node.trigger && <section aria-label="Trigger" className="ct-detail__block">
+      <h4 className={SECTION}>Trigger</h4>
+      <Facts>
+        <dt>Cadence</dt><dd>{node.trigger.badge}</dd>
+        {node.trigger.timeout && <><dt>Timeout</dt><dd>{node.trigger.timeout}</dd></>}
+        <dt>Expires</dt><dd>{eventTime(node.trigger.runtime?.expiresAt ?? null) ?? "Not recorded"}</dd>
+        <dt>Next scheduled run</dt><dd>{eventTime(node.trigger.runtime?.nextAt ?? null) ?? (node.trigger.runtime ? "Not scheduled" : "Not recorded")}</dd>
+        <dt>Last probe</dt><dd>{eventTime(node.trigger.runtime?.lastAt ?? null) ?? "Not recorded"}</dd>
+      </Facts>
+    </section>}
     {definition?.does && <p className="ct-detail__prose m-0">{definition.does}</p>}
     {node.body && !definition?.does && node.body.kind === "text" && <p className="ct-detail__prose m-0">{node.body.text}</p>}
     {definition && <Facts>
