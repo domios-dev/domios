@@ -12,7 +12,7 @@ export function fileMentionSource(read: (path: string, signal: AbortSignal) => P
       const files = await read(path, signal);
       signal.throwIfAborted();
       return files.map(file => ({
-        id: `files:${file.path}`, label: file.name, group: "Files", description: file.path.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, ""),
+        kind: "file" as const, id: `files:${file.path}`, label: file.name, group: "Files", description: file.path.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, ""),
         insertText: JSON.stringify(file.path), match: mentionMatch(query, [file.name]),
       }));
     },

@@ -30,7 +30,7 @@ function Harness() {
     picker.syncSelection(editor);
   };
   return <><textarea ref={ref} value={draft} onChange={(event) => { setDraft(event.currentTarget.value); picker.syncSelection(event.currentTarget); }} onSelect={(event) => picker.syncSelection(event.currentTarget)} onKeyDown={picker.handleKey} />
-    <ComposerMentionPicker {...picker} onHighlight={picker.setHighlighted} onPick={picker.pick} onClose={picker.close} triggerRef={ref} /></>;
+    <ComposerMentionPicker key={picker.session} {...picker} onHighlight={picker.setHighlighted} onPick={picker.pick} onClose={picker.close} triggerRef={ref} /></>;
 }
 async function main() {
   const host = document.createElement("div"); document.body.append(host);
@@ -60,7 +60,7 @@ async function main() {
     assert.equal(input.value, "@");
     await act(async () => { change("@ @"); });
     await act(async () => { input.setSelectionRange(3, 3); input.dispatchEvent(new browser.Event("select", { bubbles: true }) as unknown as Event); });
-    const option = document.querySelector<HTMLButtonElement>('[role="option"]'); assert.ok(option);
+    const option = document.querySelector<HTMLDivElement>('[role="option"]'); assert.ok(option);
     await act(async () => { option.dispatchEvent(new browser.PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }) as unknown as Event); option.click(); });
     assert.equal(input.value, "@ @Rivet (tab a) ");
     const position = anchoredPopoverPosition({ left: 8, right: 382, top: 310, bottom: 350 }, { width: 374, height: 264 }, { width: 390, height: 370 }, MENTION_PICKER_LAYOUT.placement, { keepSide: true });

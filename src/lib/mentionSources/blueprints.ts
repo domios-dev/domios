@@ -20,7 +20,7 @@ export function blueprintMentionSource(read: (ctx: MentionContext) => Promise<Au
       const graph = await read(ctx);
       ctx.signal.throwIfAborted();
       return graph.nodes.filter((node) => blueprintInMentionScope(node, ctx, tabs())).map((node) => ({
-        id: `blueprints:${node.identity.id}`, label: node.name, group: "Blueprints",
+        kind: "blueprint" as const, id: `blueprints:${node.identity.id}`, label: node.name, group: "Blueprints",
         description: `${node.identity.id} · ${node.state ?? "idle"} · ${node.purpose ?? ""}`,
         insertText: canonicalMentionText("blueprint", node.name, node.identity.id),
         match: mentionMatch(query, [node.identity.id, node.name, node.purpose ?? ""]),
