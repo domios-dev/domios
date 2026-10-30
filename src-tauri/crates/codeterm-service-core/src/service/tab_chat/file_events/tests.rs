@@ -55,9 +55,21 @@ fn source_subscriptions_descend_nonrecursively_with_injected_backend() {
     let (commands, _) = mpsc::channel();
     let (wake, changes) = mpsc::sync_channel(1);
     let first = registry
-        .subscribe(source.clone(), wake.clone(), &commands)
+        .subscribe(
+            source.clone(),
+            wake.clone(),
+            Arc::new(AtomicBool::new(true)),
+            &commands,
+        )
         .unwrap();
-    let second = registry.subscribe(source.clone(), wake, &commands).unwrap();
+    let second = registry
+        .subscribe(
+            source.clone(),
+            wake,
+            Arc::new(AtomicBool::new(true)),
+            &commands,
+        )
+        .unwrap();
     assert_eq!(*backend.started.lock(), vec![root.clone()]);
     for (old, next) in [(&root, &project), (&project, &session)] {
         backend.directories.lock().insert(next.clone());
