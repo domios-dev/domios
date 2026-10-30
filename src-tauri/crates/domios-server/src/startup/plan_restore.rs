@@ -29,17 +29,25 @@ pub fn restore(service: &ServiceContext) {
     let step = Instant::now();
     let mut loaded_project = false;
     for cwd in &workspace_cwds {
+        let project = Instant::now();
         match service.load_plan_project_deferring_team_reconcile(Path::new(cwd)) {
             Ok(newly_loaded) => loaded_project |= newly_loaded,
             Err(error) => log::warn!("[plan] startup scan failed for {cwd}: {error}"),
         }
+        log::debug!(
+            "[boot-operation] plan restore project={cwd} elapsed_ms={}",
+            project.elapsed().as_millis()
+        );
     }
+    log_step("project loading", step);
+
+    let step = Instant::now();
     if loaded_project {
         if let Err(error) = reconcile_dangling_team_plan_bindings_now(service) {
             log::warn!("[plan] startup scan failed: {error}");
         }
     }
-    log_step("project loading", step);
+    log_step("project team binding reconciliation", step);
 
     let step = Instant::now();
     if let Err(error) = service.recover_close_inventories() {
