@@ -659,8 +659,6 @@ case "$CMD" in
     CT_CDP_PORT="${CODETERM_DEV_CDP_PORT:-}"
     export CODETERM_DEV_INSTANCE="$CT_INSTANCE"
     export CODETERM_DEV_API_PORT="$CT_PORT"
-    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR \
-      CODETERM_TAB_ID CODETERM_PARENT_TAB_ID CODETERM_SESSION_BINDING_NONCE CODETERM_SESSION_ID
     ;;
 esac
 if [ -n "$CT_INSTANCE" ]; then
@@ -733,8 +731,15 @@ case "$CMD" in
       mkdir -p "$launch_root"
       launch_shell="$BASH"
       if command -v cygpath >/dev/null 2>&1; then launch_shell="$(cygpath -w "$BASH")"; fi
-      exec node scripts/dev-launch-owner.mjs "$launch_root" "$launch_shell" ./build.sh "$@"
+      exec node scripts/dev-launch-owner.mjs "$launch_root" "$launch_shell" "$0" "$@"
     fi
+    ;;
+esac
+
+case "$CMD" in
+  dev|dev-prebuilt|dev-server|dev-front|kill|e2e|e2e:llm)
+    unset CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR \
+      CODETERM_TAB_ID CODETERM_PARENT_TAB_ID CODETERM_SESSION_BINDING_NONCE CODETERM_SESSION_ID
     ;;
 esac
 

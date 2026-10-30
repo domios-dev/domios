@@ -689,6 +689,9 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
       CODETERM_TAB_ID: "parent-caller",
       CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
       CODETERM_TEST_SEND_PARENT_REPORT: "1",
+      CODETERM_PARENT_TAB_ID: "parent-owner",
+      CODETERM_SESSION_BINDING_NONCE: "parent-nonce",
+      CODETERM_SESSION_ID: "parent-session",
     };
     mkdirSync(env.HOME, { recursive: true });
     const result = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
@@ -704,6 +707,9 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     assert.equal(sent[0].env.CODETERM_SOCKET_PATH, "parent.sock");
     assert.equal(sent[0].env.CODETERM_DATA_DIR, path.join(h.dir, "parent-data"));
     assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
+    assert.equal(sent[0].env.CODETERM_PARENT_TAB_ID, "parent-owner");
+    assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "parent-nonce");
+    assert.equal(sent[0].env.CODETERM_SESSION_ID, "parent-session");
     assert.equal(records(h.devRecord).length, 0);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
@@ -984,6 +990,9 @@ test("prebuilt_dev_survives_a_failed_readiness_notice_after_proving_readiness", 
     const killLog = path.join(h.dir, "kill.log");
     const stubs = path.join(h.dir, "prebuilt-stubs.sh");
     writeFileSync(stubs, [
+      'for selector in CODETERM_API_URL CODETERM_API_TOKEN CODETERM_SOCKET_PATH CODETERM_DATA_DIR CODETERM_TAB_ID CODETERM_PARENT_TAB_ID CODETERM_SESSION_BINDING_NONCE CODETERM_SESSION_ID; do',
+      '  if [ -n "${!selector+x}" ]; then echo "parent selector leaked into DEV: $selector" >&2; exit 98; fi',
+      'done',
       "run_prebuilt_preflight() { :; }",
       "stop_dev_before_replacement() { echo stop >> " + shellQuote(killLog) + "; }",
       "kill_dev() { echo kill >> " + shellQuote(killLog) + "; }",
@@ -1008,6 +1017,9 @@ test("prebuilt_dev_survives_a_failed_readiness_notice_after_proving_readiness", 
       CODETERM_DEV_API_PORT: "7695",
       BUILD_NOTIFICATION_PREBUILT_STUBS: stubs,
       BUILD_NOTIFICATION_SEND_EXIT: "1",
+      CODETERM_API_URL: "http://127.0.0.1:7685",
+      CODETERM_TAB_ID: "parent-caller",
+      CODETERM_SESSION_BINDING_NONCE: "parent-nonce",
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     const output = result.stdout + result.stderr;
@@ -1018,6 +1030,9 @@ test("prebuilt_dev_survives_a_failed_readiness_notice_after_proving_readiness", 
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1, JSON.stringify(sent));
     assert.match(sent[0].body, /^READY instance=notifyfx api_port=7695 build=[0-9a-f]{40}\n$/);
+    assert.equal(sent[0].env.CODETERM_API_URL, "http://127.0.0.1:7685");
+    assert.equal(sent[0].env.CODETERM_TAB_ID, "parent-caller");
+    assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "parent-nonce");
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }
