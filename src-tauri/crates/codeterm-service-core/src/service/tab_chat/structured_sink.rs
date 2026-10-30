@@ -23,6 +23,8 @@ pub trait StructuredSink: Send + Sync {
 
 #[derive(serde::Serialize)]
 struct ChatMsgEvent<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostic_epoch: Option<u64>,
     tab_id: &'a str,
     messages: &'a [ChatMsg],
     cursor: Option<&'a str>,
@@ -54,7 +56,9 @@ pub fn emit_chat_msgs(
         &mut messages,
     );
     let event = format!("tab-chat-msg-{}", tab_id);
+    let trace = crate::service::agent_runtime::model::responsiveness::binding(tab_id, source_session_id, session_binding_nonce);
     let payload = ChatMsgEvent {
+        diagnostic_epoch: trace.and_then(|trace| trace.epoch()),
         tab_id,
         messages: &messages,
         cursor,
@@ -63,10 +67,16 @@ pub fn emit_chat_msgs(
         source_session_id,
         session_binding_nonce,
     };
+    if let Some(trace) = trace {
+        for row in &messages { trace.row("host_emit_begin", row); }
+    }
     ui.emit(
         &event,
         serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
     );
+    if let Some(trace) = trace {
+        for row in &messages { trace.row("host_emit_end", row); }
+    }
 }
 
 pub struct TauriStructuredSink {
@@ -353,6 +363,7 @@ impl FlattenDeltaSink {
         );
         let event = format!("tab-chat-msg-{}", tab_id);
         let payload = ChatMsgEvent {
+            diagnostic_epoch: None,
             tab_id,
             messages: &out,
             cursor: cursor.as_deref(),
@@ -1124,3 +1135,4 @@ mod tests {
         ));
     }
 }
+
