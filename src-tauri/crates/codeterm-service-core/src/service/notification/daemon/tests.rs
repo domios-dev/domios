@@ -108,3 +108,5 @@ fn daemon_owner_question_claims_exclude_concurrent_choices_and_release_on_drop()
     drop(claim);
     assert!(questions.claim("one").is_some());
 }
+
+mod channel_tests;

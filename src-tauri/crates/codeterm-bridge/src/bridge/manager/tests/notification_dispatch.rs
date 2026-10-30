@@ -101,6 +101,7 @@ struct NotificationBridgeTab {
     threads: Arc<crate::bridge::threads::ThreadService>,
     tabs: NotificationTabs,
     placements: PLMutex<Vec<(PlacementReceipt, String)>>,
+    answer: Option<Result<(), String>>,
 }
 
 impl crate::ports::BridgeTabPort for NotificationBridgeTab {
@@ -141,8 +142,8 @@ impl crate::ports::BridgeTabPort for NotificationBridgeTab {
         unreachable!()
     }
 
-    fn claim_channel_answer(&self, _callback_data: &str) -> bool {
-        false
+    fn claim_channel_answer(&self, _callback_data: &str) -> Option<Result<(), String>> {
+        self.answer.clone()
     }
 
     fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str) {
@@ -179,6 +180,7 @@ async fn failed_notification_does_not_fall_through_to_raw_chat_send() {
         threads,
         tabs: NotificationTabs,
         placements: PLMutex::new(Vec::new()),
+        answer: None,
     });
     let bridge_tab: Arc<dyn crate::ports::BridgeTabPort> = tab.clone();
     let captured = Arc::new(PLMutex::new(Vec::new()));
@@ -245,6 +247,7 @@ async fn tab_notification_edits_use_the_regular_rewrite_route() {
         threads,
         tabs: NotificationTabs,
         placements: PLMutex::new(Vec::new()),
+        answer: None,
     });
     let bridge_tab: Arc<dyn crate::ports::BridgeTabPort> = tab.clone();
     let captured = Arc::new(PLMutex::new(Vec::new()));
@@ -287,3 +290,66 @@ async fn tab_notification_edits_use_the_regular_rewrite_route() {
 }
 
 mod media_delivery;
+
+#[tokio::test]
+async fn refused_channel_answer_replies_in_the_tapped_chat_and_thread() {
+    for thread_id in [None, Some(321)] {
+        for answer in [None, Some(Ok(())), Some(Err("opaque refusal".into()))] {
+            let captured = Arc::new(PLMutex::new(Vec::new()));
+            let base = spawn_fake_telegram_with_methods(captured.clone()).await;
+            let tab: Arc<dyn crate::ports::BridgeTabPort> = Arc::new(NotificationBridgeTab {
+                threads: Arc::new(crate::bridge::threads::ThreadService::new(
+                    crate::bridge::threads::ThreadRegistry::in_memory(),
+                )),
+                tabs: NotificationTabs,
+                placements: Default::default(),
+                answer: answer.clone(),
+            });
+            let mut message = text_msg();
+            message.callback_data = Some("opaque-token".into());
+            message.reply_ctx = ReplyContext::Telegram {
+                chat_id: NOTIFICATION_CHAT,
+                thread_id,
+                reply_to_message_id: None,
+            };
+            assert_eq!(
+                super::super::channel_answers::claim(
+                    &tab,
+                    &message,
+                    &reqwest::Client::new(),
+                    &base,
+                    "FAKETOKEN"
+                )
+                .await,
+                answer.is_some()
+            );
+            let requests = captured.lock();
+            if answer.is_some_and(|result| result.is_err()) {
+                assert_eq!(requests.len(), 1);
+                assert!(requests[0].0.ends_with("/sendMessage"));
+                assert_eq!(requests[0].1["chat_id"], NOTIFICATION_CHAT);
+                assert_eq!(
+                    requests[0].1.get("message_thread_id").is_some(),
+                    thread_id.is_some()
+                );
+                assert_eq!(
+                    requests[0]
+                        .1
+                        .get("message_thread_id")
+                        .and_then(|id| id.as_i64()),
+                    thread_id
+                );
+                assert_eq!(
+                    requests[0].1["reply_to_message_id"],
+                    message.message_id.unwrap()
+                );
+                assert!(requests[0].1["text"]
+                    .as_str()
+                    .unwrap()
+                    .contains("opaque refusal"));
+            } else {
+                assert!(requests.is_empty());
+            }
+        }
+    }
+}

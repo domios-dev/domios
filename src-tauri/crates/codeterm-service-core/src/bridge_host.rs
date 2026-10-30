@@ -116,7 +116,7 @@ impl BridgeTabPort for ServiceBridgeTabPort {
         codeterm_bridge::bridge::inbound_buffer::push(tab_id, prefixed);
     }
 
-    fn claim_channel_answer(&self, callback_data: &str) -> bool {
+    fn claim_channel_answer(&self, callback_data: &str) -> Option<Result<(), String>> {
         self.0.claim_channel_answer(callback_data)
     }
 

@@ -226,8 +226,8 @@ impl BridgeTabPort for TestTab {
         unreachable!()
     }
 
-    fn claim_channel_answer(&self, _callback_data: &str) -> bool {
-        false
+    fn claim_channel_answer(&self, _callback_data: &str) -> Option<Result<(), String>> {
+        None
     }
 
     fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str) {

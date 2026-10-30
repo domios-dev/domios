@@ -161,9 +161,9 @@ impl BridgeManager {
                 }
                 Some(msg) = rx.recv() => {
                     // It is offered whole and unmerged: an answer is one event, and debouncing it into neighbouring text would paste the token into a tab instead of answering with it.
-                    if msg.callback_data.as_deref().is_some_and(|data| tab.claim_channel_answer(data)) {
+                    if channel_answers::claim(&tab, &msg, &client, &api_base, &token).await {
                         tab.telegram_used();
-                        log::info!("[bridge] inbound tap answered a notification");
+                        log::debug!("[bridge] inbound notification tap handled");
                         continue;
                     }
                     // Debounce: collect rapid-fire messages (user splitting text, Telegram auto-split)
@@ -173,7 +173,13 @@ impl BridgeManager {
                         let remaining = debounce_until.saturating_duration_since(tokio::time::Instant::now());
                         if remaining.is_zero() { break; }
                         match tokio::time::timeout(remaining, rx.recv()).await {
-                            Ok(Some(next)) => messages.push(next),
+                            Ok(Some(next)) => {
+                                if channel_answers::claim(&tab, &next, &client, &api_base, &token).await {
+                                    tab.telegram_used();
+                                } else {
+                                    messages.push(next);
+                                }
+                            },
                             _ => break,
                         }
                     }
@@ -870,3 +876,5 @@ mod off_runtime_tests;
 
 mod request;
 pub use request::outbound_content;
+
+mod channel_answers;

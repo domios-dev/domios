@@ -387,36 +387,21 @@ impl ServiceContext {
         }
     }
 
-    /// An answer arrived on a push channel. The token names a position on one
-    /// record; the label is resolved off that record and then walks the very
-    /// same answer path an in-app tap walks, so the tapped label returns to the
-    /// tab that asked and no second answer route exists. `false` means this was
-    /// ordinary channel traffic and nothing was claimed.
-    pub fn claim_channel_answer(&self, callback_data: &str) -> bool {
-        let Some(tapped) = channel_ask::decode(callback_data) else {
-            return false;
-        };
-        // The guard is taken and dropped before the answer path runs: that path
-        // takes the same store lock, and parking_lot is not reentrant.
-        let resolved = {
-            self.notif
-                .lock()
-                .offered_choice(&tapped.notification_id, tapped.index)
-        };
-        let Some(label) = resolved else {
-            log::warn!(
-                "[notify-answer] a channel tap named no offered choice on {}",
-                tapped.notification_id
-            );
-            return true;
-        };
-        if let Err(reason) = self.answer_notification(&tapped.notification_id, &label) {
-            log::warn!(
-                "[notify-answer] a channel tap on {} was refused: {reason}",
-                tapped.notification_id
-            );
-        }
-        true
+    /// Answer a bridge-verified owner's tap after resolving its token against this record's choices.
+    /// None leaves unrelated traffic unclaimed; a refusal must be shown in the channel.
+    pub fn claim_channel_answer(&self, callback_data: &str) -> Option<Result<(), String>> {
+        let tapped = channel_ask::decode(callback_data)?;
+        // Drop the guard before answering: the answer path takes this same store lock.
+        let resolved = self
+            .notif
+            .lock()
+            .offered_choice(&tapped.notification_id, tapped.index);
+        Some(match resolved {
+            Some(label) => self
+                .answer_notification_as_owner(&tapped.notification_id, &label)
+                .map(|_| ()),
+            None => Err("That notification choice is no longer available".into()),
+        })
     }
 
     /// Apply whatever this record offered, and only when the tapped label is
