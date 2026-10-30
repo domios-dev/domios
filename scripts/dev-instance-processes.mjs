@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
+import { LEGACY_TARGETS, SHARED_TARGET, readRecord } from './dev-named-target.mjs';
 
 const normalize = (value, windows) => {
   if (typeof value !== 'string' || !value) return '';
@@ -25,8 +26,10 @@ export function canonicalRuntimeImages(root, windows = process.platform === 'win
   return relative.map(name => `${root}/${name}`);
 }
 
+const namedTree = (root, windows) => /\/(?:named-dev|dev-instances\/[^/]+)$/.test(normalize(root, windows));
+
 export function instanceTreePlan({ root, processes, listeners, port, windows = process.platform === 'win32',
-  images = normalize(root, windows).includes('/dev-instances/') ? null : canonicalRuntimeImages(root, windows) }) {
+  images = namedTree(root, windows) ? null : canonicalRuntimeImages(root, windows) }) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7685) throw Error('Refusing production or invalid DEV port');
   const tree = normalize(root, windows);
   if (!tree || !(windows ? path.win32 : path.posix).isAbsolute(root)) throw Error('DEV instance tree must be absolute');
@@ -37,6 +40,27 @@ export function instanceTreePlan({ root, processes, listeners, port, windows = p
   const ids = new Set(selected.map(row => row.pid));
   if (listeners.some(row => row.port === 7685 && ids.has(row.pid))) throw Error('DEV image owns production port 7685; refusing cleanup');
   return selected;
+}
+
+// Named instances share one target, so the image path only bounds candidates; the instance's own API
+// listener and its verified quit snapshot seed the selection, extended through the process tree.
+export function namedInstancePlan({ root, processes, listeners, port, seeds = [], windows = process.platform === 'win32' }) {
+  const candidates = instanceTreePlan({ root, processes, listeners, port, windows, images: null });
+  const byPid = new Map(candidates.map(row => [row.pid, row]));
+  const selected = new Set([...listeners.filter(row => row.port === port).map(row => row.pid), ...seeds]
+    .filter(pid => byPid.has(pid)));
+  for (const pid of [...selected]) {
+    for (let parent = byPid.get(pid)?.parent; byPid.has(parent) && !selected.has(parent); parent = byPid.get(parent).parent) {
+      selected.add(parent);
+    }
+  }
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const row of candidates) {
+      if (!selected.has(row.pid) && selected.has(row.parent)) { selected.add(row.pid); grew = true; }
+    }
+  }
+  return candidates.filter(row => selected.has(row.pid));
 }
 
 function helper(operation, input) {
@@ -96,23 +120,41 @@ export async function gracefulQuit({ processes, listeners, data, port }, { run =
   } catch { return dispatched; }
 }
 
+// A named instance not yet moved to the shared target still runs from its legacy target, which its own record names.
+export function namedInstanceRoot(checkout, data) {
+  const shared = path.join(checkout, SHARED_TARGET);
+  const legacy = path.join(checkout, LEGACY_TARGETS, path.basename(data).replace(/^\.domios-dev-/, ''));
+  const server = data ? readRecord(path.join(data, 'dev-build-provenance.json'))?.artifacts.server.path : null;
+  const windows = process.platform === 'win32';
+  return server && existsSync(legacy) && normalize(server, windows).startsWith(`${normalize(realpathSync.native(legacy), windows)}/`)
+    ? legacy : shared;
+}
+
 export async function stopInstanceTree(root, port, instance, data) {
-  const absolute = path.resolve(root);
+  const checkout = realpathSync.native(process.cwd());
+  const absolute = instance ? namedInstanceRoot(checkout, data) : path.resolve(root);
   if (!existsSync(absolute)) return;
   const physical = realpathSync.native(absolute);
-  const target = path.join(realpathSync.native(process.cwd()), 'src-tauri/target');
-  const expected = instance
-    ? path.join(target, 'dev-instances', path.basename(absolute))
-    : path.join(target, process.env.CARGO_BUILD_TARGET ?? '', 'debug');
-  if (normalize(physical, process.platform === 'win32') !== normalize(expected, process.platform === 'win32')) {
+  const target = path.join(checkout, 'src-tauri/target');
+  const expected = instance ? [path.join(checkout, SHARED_TARGET), path.join(checkout, LEGACY_TARGETS, path.basename(absolute))]
+    : [path.join(target, process.env.CARGO_BUILD_TARGET ?? '', 'debug')];
+  if (!expected.some(value => normalize(physical, process.platform === 'win32') === normalize(value, process.platform === 'win32'))) {
     throw Error('DEV instance tree is aliased; refusing cleanup');
   }
-  const snapshot = helper('Inspect', {});
-  const images = instance ? null : canonicalRuntimeImages(physical);
-  const processes = instanceTreePlan({ root: physical, port, images, ...snapshot });
-  const gracefulPids = await gracefulQuit({ ...snapshot, processes, data, port });
-  const result = helper('StopTree', { root: physical, port, processes, images, gracefulPids });
-  for (const row of result.stopped) console.log(`Stopped DEV pid=${row.pid} created=${row.created} image=${row.executable}`);
+  const snapshot = helper('Inspect', instance ? { ports: [port] } : {});
+  if (!instance) {
+    const images = canonicalRuntimeImages(physical);
+    const processes = instanceTreePlan({ root: physical, port, images, ...snapshot });
+    const gracefulPids = await gracefulQuit({ ...snapshot, processes, data, port });
+    const result = helper('StopTree', { root: physical, port, processes, images, gracefulPids });
+    for (const row of result.stopped) console.log(`Stopped DEV pid=${row.pid} created=${row.created} image=${row.executable}`);
+    return;
+  }
+  const candidates = instanceTreePlan({ root: physical, port, images: null, ...snapshot });
+  const gracefulPids = await gracefulQuit({ ...snapshot, processes: candidates, data, port });
+  const processes = namedInstancePlan({ root: physical, port, seeds: gracefulPids, ...snapshot });
+  const result = helper('StopTree', { root: physical, port, processes, images: null, gracefulPids, onlyPinned: true });
+  for (const row of result.stopped) console.log(`Stopped DEV instance=${instance} pid=${row.pid} created=${row.created} image=${row.executable}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

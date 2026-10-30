@@ -90,7 +90,7 @@ test('DEV shutdown ownership selects the exact native path and preserves foreign
 for (const shutdownExit of [0, 19]) {
   test(`Windows kill awaits exact instance shutdown before sidecar cleanup, exit=${shutdownExit}`, { timeout: 10_000 }, () => {
     const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
-    const definition = source.match(/^kill_dev\(\) \{[^]*?^\}/m)[0];
+    const definition = ['kill_dev', 'named_dev_isolated'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
     const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
     const result = spawnSync(bash, ['-c', `set -euo pipefail
 ${definition}
@@ -98,10 +98,10 @@ OSTYPE=msys CT_PORT=17996 CT_VITE_PORT=14996 CT_CDP_PORT=9496
 CT_INSTANCE=selected CT_SUFFIX=-selected CT_DATA_DIR='C:/fixture/.domios-dev-selected'
 DEV_FRONT_EXTERNAL=1
 CODETERM_TEST_KILL_DRY_RUN=0 CODETERM_TEST_KILL_CLEAN_REQUEST_ONLY=0
-dev_provenance_record() { printf '%s' 'C:/fixture/selected/provenance.json'; }
-dev_app_path() { printf '%s' 'C:/fixture/selected/domios-dev-app.exe'; }
+named_dev_target_dir() { printf '%s' 'C:/fixture/src-tauri/target/named-dev'; }
+tauri_debug_dir() { exit 95; }
 node() {
-  if [ "$1" = scripts/dev-rebuild-stop.mjs ]; then
+  if [ "$1" = scripts/dev-instance-processes.mjs ]; then
     printf '%s\\n' "$@"
     return ${shutdownExit}
   fi
@@ -118,8 +118,8 @@ kill_dev
 `], { encoding: 'utf8', timeout: 5_000 });
     assert.equal(result.error, undefined);
     assert.equal(result.status, shutdownExit, result.stderr);
-    const shutdown = ['scripts/dev-rebuild-stop.mjs', 'C:/fixture/selected/provenance.json',
-      'C:/fixture/.domios-dev-selected', '17996', 'selected', 'C:/fixture/selected/domios-dev-app.exe'];
+    const shutdown = ['scripts/dev-instance-processes.mjs', 'C:/fixture/src-tauri/target/named-dev',
+      '17996', 'selected', 'C:/fixture/.domios-dev-selected'];
     assert.deepEqual(result.stdout.trim().split(/\r?\n/), shutdownExit === 0
       ? [...shutdown, 'watcher', 'static', 'leftovers'] : shutdown);
   });
@@ -174,7 +174,7 @@ test('DEV supervisor still sends READY from file output and disconnects exactly 
   const fakeProcess = { env: {}, connected: true, send: value => messages.push(value) };
   const signal = 'DOMIOS_DEV_ATTACHMENT ' + JSON.stringify({ protocol: 2, client_pid: 10, server_pid: 20, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' });
   const script = `const fs=require('node:fs'); if (process.platform !== 'win32' && ![1,2].every(fd => fs.fstatSync(fd).isFile())) process.exit(91); fs.writeSync(2, ${JSON.stringify(signal + '\n')});`;
-  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', 'prebuiltReadinessPhase',
+  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', 'prebuiltReadinessPhase', 'supervisorFailureDetail',
     `${readiness}\n${supervisor}\nreturn supervisePrebuilt;`)(
       options => {
         assert.equal(options.env.CODETERM_DEV_WORKSPACE_ROOT, directory);
@@ -182,7 +182,7 @@ test('DEV supervisor still sends READY from file output and disconnects exactly 
         return runDevApp({ ...options, interactiveDesktop: false, args: ['-e', script] });
       }, fakeProcess,
       () => { if (fakeProcess.connected) { fakeProcess.connected = false; disconnected++; } }, StringDecoder, path.resolve,
-      (options, key) => options.get(key), directory, devRuntimeEnvironment, prebuiltReadinessPhase);
+      (options, key) => options.get(key), directory, devRuntimeEnvironment, prebuiltReadinessPhase, error => error.stack);
   try {
     await execute(new Map([['--app', process.execPath], ['--log', path.join(directory, 'app.log')], ['--api-port', '7786']]));
     assert.deepEqual(messages, [{ type: 'ready', signal }]);
@@ -309,9 +309,9 @@ test('DEV supervisor reports terminal refusal immediately and cannot turn it int
   const state = { env: {}, connected: true, send: value => messages.push(value) };
   const error = { stage: 'startup', status: 'refused', io_kind: null, os_error: null, exit_code: null };
   const ready = { protocol: 2, client_pid: 1, server_pid: 2, epoch: '00000000-0000-0000-0000-000000000001', api_address: '127.0.0.1:7786' };
-  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', 'prebuiltReadinessPhase', `${definitions}\n${supervisor}\nreturn supervisePrebuilt;`)(
+  const execute = new Function('runDevApp', 'process', 'disconnectSupervisor', 'StringDecoder', 'resolve', 'option', 'repo', 'devRuntimeEnvironment', 'prebuiltReadinessPhase', 'supervisorFailureDetail', `${definitions}\n${supervisor}\nreturn supervisePrebuilt;`)(
     async ({ onData }) => { onData(Buffer.from('ERROR: DOMIOS_DEV_FAILURE ' + JSON.stringify(error) + '\nDOMIOS_DEV_ATTACHMENT ' + JSON.stringify(ready) + '\n')); return { code: 0, signal: null }; },
-    state, () => { state.connected = false; }, StringDecoder, path.resolve, (options, key) => options.get(key), process.cwd(), env => env, prebuiltReadinessPhase);
+    state, () => { state.connected = false; }, StringDecoder, path.resolve, (options, key) => options.get(key), process.cwd(), env => env, prebuiltReadinessPhase, error => error.stack);
   await execute(new Map([['--app', process.execPath], ['--log', 'fixture.log'], ['--api-port', '7786']]));
   assert.deepEqual(messages, [{ type: 'failed', error: 'Native client startup refused at startup' }]);
   assert.equal(state.exitCode, 1);
@@ -359,10 +359,22 @@ test('native DEV locator binds active endpoint to selected instance and exact at
   assert.equal(nativeLocatorRecord(line({...event,snapshot:{...snapshot,status:{status:'unsupported'}}}),record,'C:/target/debug/codeterm.exe',attachment).nativeClient,null);
 });
 
+test('macOS native locator accepts seconds:micros creation identity and records no endpoint while disabled',()=>{
+  const record={schema:3,instance:{cdpPort:'9341',apiPort:'7786',vitePort:'1531'}};
+  const app='/repo/src-tauri/target/named-dev/debug/.domios-dev-runtime/Domios.app/Contents/MacOS/domios-dev-app';
+  const attachment={client_pid:12,epoch:'epoch'};
+  const snapshot={client_process:{pid:12,created:'1730000000:123456',executable:app},connection:{server_epoch:'epoch'},status:{status:'disabled'}};
+  const line=value=>'DOMIOS_DEV_NATIVE_LOCATOR '+JSON.stringify(value);
+  const event={snapshot,navigation_generation:1,origin:'http://127.0.0.1:1531'};
+  assert.deepEqual(nativeLocatorRecord(line(event),record,app,attachment),{...record,nativeClient:null});
+  for (const created of ['1730000000:', ':123456', '1730000000:12:3', 'created'])
+    assert.throws(()=>nativeLocatorRecord(line({...event,snapshot:{...snapshot,client_process:{...snapshot.client_process,created}}}),record,app,attachment),/identity mismatch/);
+});
+
 test('native locator provenance clears previous launch and waits exact attachment before atomic adoption',()=>{
   const source=fs.readFileSync(new URL('../dev-prep.mjs',import.meta.url),'utf8').replaceAll('\r\n','\n');
   const definitions=['readinessSignal','nativeLocatorSink'].map(name=>source.match(new RegExp(`^function ${name}\\([^]*?^\\}`, 'm'))[0]).join('\n');
-  const directory=fs.mkdtempSync(path.join(os.tmpdir(),'native-dev-locator-'));
+  const directory=fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(),'native-dev-locator-')));
   const app=path.join(directory,'codeterm.exe'), record=path.join(directory,'provenance.json');
   fs.writeFileSync(app,'fixture');
   fs.writeFileSync(record,JSON.stringify({schema:3,instance:{apiPort:'7786',vitePort:'1531',cdpPort:'9341'},nativeClient:{stale:true}}));
@@ -494,14 +506,14 @@ for (const outcome of ['live-refusal', 'app-exited', 'launch-failed']) {
     const definition = source.match(/^async function supervisePrebuilt\(options\) \{[\s\S]*?^\}/m)[0];
     const messages = [], completion = Promise.withResolvers();
     const supervisorProcess = { env: {}, connected: true, send: message => messages.push(message) };
-    const supervise = new Function('resolve', 'option', 'StringDecoder', 'nativeLocatorSink', 'runDevApp', 'repo', 'devRuntimeEnvironment', 'process', 'prebuiltReadinessPhase', 'startupFailureSignal', 'readinessSignal', 'disconnectSupervisor', `${definition}\nreturn supervisePrebuilt;`)(
+    const supervise = new Function('resolve', 'option', 'StringDecoder', 'nativeLocatorSink', 'runDevApp', 'repo', 'devRuntimeEnvironment', 'process', 'prebuiltReadinessPhase', 'startupFailureSignal', 'readinessSignal', 'disconnectSupervisor', 'supervisorFailureDetail', `${definition}\nreturn supervisePrebuilt;`)(
       path.resolve, (options, key) => options.get(key), StringDecoder, () => () => {},
       async ({ onData }) => {
         if (outcome === 'live-refusal') onData(Buffer.from('refusal fixture\n'));
         if (outcome === 'launch-failed') throw Error('spawn fixture');
         return completion.promise;
       }, '/fixture', () => ({}), supervisorProcess, phase => phase,
-      () => 'refused fixture', () => false, () => { supervisorProcess.connected = false; });
+      () => 'refused fixture', () => false, () => { supervisorProcess.connected = false; }, error => error.stack);
     const pending = supervise(new Map([['--app', '/fixture/app'], ['--log', '/fixture/log'], ['--api-port', '17886']]));
     if (outcome === 'live-refusal') {
       assert.equal(messages[0].type, 'failed');

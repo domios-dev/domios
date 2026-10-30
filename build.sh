@@ -716,17 +716,29 @@ else
   export CODETERM_BUILD_GATEWAY_MODE="${CODETERM_BUILD_GATEWAY_MODE:-fail-fast}"
 fi
 
+# Every named DEV of this checkout shares one incremental target; identity stays in ~/.domios-dev-<instance>.
 named_dev_target_dir() {
-  printf '%s\n' "$(pwd -P)/src-tauri/target/dev-instances/$CT_INSTANCE_KEY"
+  printf '%s\n' "$(pwd -P)/src-tauri/target/named-dev"
 }
 
 named_dev_isolated() {
   [ -n "$CT_INSTANCE" ]
 }
 
+adopt_named_dev_target() {
+  node scripts/dev-named-target.mjs adopt "$(pwd -P)" "$HOME"
+}
+
+# The running instance itself is replaced by dev/dev-server; any other DEV from this build must be stopped first.
+refuse_named_dev_rebuild_while_running() {
+  node scripts/dev-named-target.mjs refuse-running "$(named_dev_target_dir)" "$HOME" "$CT_INSTANCE" "rebuild ($CMD)"
+}
+
 case "$CMD" in
   dev|dev-prebuilt)
     if [ "${CODETERM_DEV_LAUNCH_CHILD:-0}" != 1 ]; then
+      # A running instance's launcher holds its launch lock, so name the running DEVs before that lock refuses.
+      if [ "$CMD" = dev ] && named_dev_isolated; then refuse_named_dev_rebuild_while_running || exit 2; fi
       launch_root="$CT_DATA_DIR"
       mkdir -p "$launch_root"
       launch_shell="$BASH"
@@ -744,16 +756,45 @@ case "$CMD" in
 esac
 
 prepare_named_dev_target() {
+  adopt_named_dev_target || exit 2
+  refuse_named_dev_rebuild_while_running || exit 2
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
   configure_named_dev_cache
   mkdir -p "$CARGO_TARGET_DIR"
   ct_verify_target_dir
-  echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR"
+  echo "[isolated-dev] cargo target=$CARGO_TARGET_DIR incremental=$CARGO_INCREMENTAL"
 }
 
+# Registry dependencies never compile incrementally and their fingerprints ignore the wrapper, so they stay fresh.
 configure_named_dev_cache() {
-  export CARGO_INCREMENTAL=0
-  export CODETERM_PORTABLE_COMPILER_CACHE=1
+  export CARGO_INCREMENTAL=1
+  export CODETERM_USE_SCCACHE=0
+  export RUSTC_WRAPPER=
+  unset CODETERM_PORTABLE_COMPILER_CACHE
+}
+
+# A named instance without its own record starts from the shared build another instance recorded.
+named_dev_build_record() {
+  printf '%s\n' "$(named_dev_target_dir)/dev-build-provenance.json"
+}
+
+named_dev_built_cli() {
+  CARGO_TARGET_DIR="$(named_dev_target_dir)" cli_profile_binary debug
+}
+
+write_named_dev_build_record() {
+  CT_DEV_PROVENANCE_RECORD="$(named_dev_build_record)" CT_DEV_PROVENANCE_CLI="$(named_dev_built_cli)" \
+    write_dev_provenance "$1"
+}
+
+adopt_named_dev_build() {
+  echo "[named-dev] instance '$CT_INSTANCE' has no current record; checking the shared build record $(named_dev_build_record)"
+  CT_DEV_PROVENANCE_RECORD="$(named_dev_build_record)" CT_DEV_PROVENANCE_CLI="$(named_dev_built_cli)" \
+    CT_DEV_PROVENANCE_SHARED=1 validate_dev_provenance || return
+  install_cli_to "$CT_DATA_DIR/bin" "$(named_dev_built_cli)" || return
+  write_dev_provenance "$CODETERM_BUILD_SHA" || return
+  record_dev_target "$(tauri_debug_dir)"
+  echo "[named-dev] instance '$CT_INSTANCE' adopted the shared build at ${CODETERM_BUILD_SHA:0:10}"
 }
 
 if [ "${CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY:-0}" = "1" ]; then
@@ -1518,10 +1559,10 @@ write_dev_provenance() {
   local build_sha="$1"
   node scripts/dev-prep.mjs --write-provenance \
     --launch-sha "$CODETERM_BUILD_SHA" \
-    --record "$(dev_provenance_record)" \
+    --record "${CT_DEV_PROVENANCE_RECORD:-$(dev_provenance_record)}" \
     --build-sha "$build_sha" \
     --app "$(dev_app_path)" \
-    --cli "$(dev_cli_path)" \
+    --cli "${CT_DEV_PROVENANCE_CLI:-$(dev_cli_path)}" \
     --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
@@ -1535,11 +1576,12 @@ validate_dev_provenance() {
   if [ -n "${CT_DEV_PROVENANCE_SHA:-}" ]; then
     launch_args=(--launch-sha "$CT_DEV_PROVENANCE_SHA")
   fi
+  if [ "${CT_DEV_PROVENANCE_SHARED:-0}" = 1 ]; then launch_args+=(--shared-build 1); fi
   node scripts/dev-prep.mjs "${CT_DEV_PROVENANCE_OPERATION:---check-provenance}" \
     "${launch_args[@]}" \
-    --record "$(dev_provenance_record)" \
+    --record "${CT_DEV_PROVENANCE_RECORD:-$(dev_provenance_record)}" \
     --app "$(dev_app_path)" \
-    --cli "$(dev_cli_path)" \
+    --cli "${CT_DEV_PROVENANCE_CLI:-$(dev_cli_path)}" \
     --frontend "$(dev_frontend_dir)" \
     --instance "$CT_INSTANCE" \
     --api-port "$CT_PORT" \
@@ -1596,6 +1638,7 @@ reload_dev_server() {
   node scripts/server-artifact.mjs stage-dev-server "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   write_dev_provenance "$build_sha"
+  if named_dev_isolated; then write_named_dev_build_record "$build_sha"; fi
   CT_DEV_PROVENANCE_SHA="$build_sha" validate_dev_provenance
   release_stable_build_path
   complete_build_gateway_before_handoff
@@ -2235,6 +2278,7 @@ build_and_launch_dev() {
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   dev_build_phase stage.end
   write_dev_provenance "$build_sha"
+  if named_dev_isolated; then write_named_dev_build_record "$build_sha"; fi
   dev_build_phase provenance.end
   retain_dev_pdb "$build_sha"
   dev_build_phase symbols.end
@@ -3786,6 +3830,7 @@ LOCK_STORM_PY
   dev-prebuilt)
     CT_SPLIT_DEV=1
     if named_dev_isolated; then
+      adopt_named_dev_target || exit 2
       export CARGO_TARGET_DIR="$(named_dev_target_dir)"
     fi
     PREBUILT_LOG="/tmp/codeterm-dev-prebuilt${CT_SUFFIX}.log"
@@ -3795,7 +3840,8 @@ LOCK_STORM_PY
     fi
     DEV_NOTIFY_STAGE=preflight
     dev_build_phase provenance-check.begin
-    if ! run_prebuilt_preflight validate_dev_provenance; then
+    if ! run_prebuilt_preflight validate_dev_provenance &&
+        ! { named_dev_isolated && run_prebuilt_preflight adopt_named_dev_build; }; then
       refuse_prebuilt "ERROR: prebuilt dev provenance is absent, stale, or unparseable; refusing before stopping dev." \
         "Run CODETERM_DEV_INSTANCE='$CT_INSTANCE' CODETERM_DEV_API_PORT='$CT_PORT' ./build.sh dev --wait to rebuild and record valid dev provenance."
     fi
