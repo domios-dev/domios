@@ -180,11 +180,10 @@ pub async fn answer_notification(
         .answer_slot(&id)
         .is_some_and(|slot| slot.daemon_request.is_some())
         && !owner
-        && !crate::auth::is_local_caller(&state, &headers)
     {
         return Err((
             StatusCode::FORBIDDEN,
-            "Connection approval requires the receiving machine owner".into(),
+            "Daemon questions require the local owner".into(),
         ));
     }
     blocking_answer(move || {

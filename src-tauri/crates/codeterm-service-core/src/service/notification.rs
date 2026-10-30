@@ -323,9 +323,18 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        if self
+            .notif
+            .lock()
+            .answer_slot(id)
+            .is_some_and(|slot| slot.daemon_request.is_some())
+        {
+            return Err("Daemon questions require the local owner".into());
+        }
         self.answer_notification_inner(id, label)
     }
 
+    /// Trusted owner entry point; callers must authenticate the local owner before invoking it.
     pub fn answer_notification_as_owner(
         &self,
         id: &str,

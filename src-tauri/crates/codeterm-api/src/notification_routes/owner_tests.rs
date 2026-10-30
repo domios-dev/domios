@@ -102,6 +102,30 @@ async fn daemon_question_route_refuses_every_non_owner_identity_before_handler()
                 .service
                 .answer_notification(&id, "Continue")
                 .is_err());
+            assert_eq!(authorization.0.load(Ordering::SeqCst), 0);
+            let slot = fixture
+                .service
+                .notif
+                .lock()
+                .answer_slot(&id)
+                .unwrap()
+                .clone();
+            assert!(slot.answered.is_none());
+            assert!(!slot.delivered);
+            fixture
+                .service
+                .answer_notification_as_owner(&id, "Continue")
+                .unwrap();
+            assert_eq!(authorization.0.load(Ordering::SeqCst), 1);
+            assert!(
+                fixture
+                    .service
+                    .notif
+                    .lock()
+                    .answer_slot(&id)
+                    .unwrap()
+                    .delivered
+            );
         }
     }
 }
