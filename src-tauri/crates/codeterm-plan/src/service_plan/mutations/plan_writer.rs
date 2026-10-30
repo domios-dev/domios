@@ -48,12 +48,7 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<Option<T>, PlanError>,
     {
-        let arc = self
-            .plans
-            .read()
-            .get(id)
-            .cloned()
-            .ok_or(PlanError::NotFound)?;
+        let arc = self.plan_entry(id).ok_or(PlanError::NotFound)?;
         let mut staged = arc.lock().clone();
         let previous = staged.clone();
         let Some(out) = f(&mut staged)? else {

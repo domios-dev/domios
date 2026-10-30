@@ -171,6 +171,10 @@ pub struct PlanStore {
     retention_day: Mutex<Option<u64>>,
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
+    #[cfg(any(test, feature = "test-support"))]
+    full_plan_clones: std::sync::atomic::AtomicUsize,
+    #[cfg(any(test, feature = "test-support"))]
+    plan_touches: Mutex<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -245,6 +249,10 @@ impl PlanStore {
             retention_day: Mutex::new(None),
             #[cfg(test)]
             persistence_hook: RwLock::new(None),
+            #[cfg(any(test, feature = "test-support"))]
+            full_plan_clones: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(any(test, feature = "test-support"))]
+            plan_touches: Mutex::new(Vec::new()),
         };
         for plan in plans {
             let id = plan.id.clone();

@@ -89,6 +89,7 @@ pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
 mod paired_planner;
+mod plan_projects;
 pub mod role_policy;
 mod tab_input_policy;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
@@ -791,50 +792,6 @@ impl ServiceContext {
         for id in pty_ids {
             let _ = manager.kill(id);
         }
-    }
-
-    pub fn ensure_plan_project_loaded(
-        &self,
-        project_path: &std::path::Path,
-    ) -> Result<std::path::PathBuf, crate::service::plan::PlanError> {
-        let project_root = crate::service::plan::paths::project_root(project_path);
-        let should_scan = {
-            let loaded = self.ext::<crate::service::LoadedPlanProjects>().0.lock();
-            !loaded.contains(&project_root)
-        };
-        if should_scan {
-            self.plan_store.scan_project(&project_root)?;
-            self.ext::<crate::service::LoadedPlanProjects>()
-                .0
-                .lock()
-                .insert(project_root.clone());
-            let live_team_ids = team_core::live_team_ids(self);
-            team_core::reconcile_dangling_team_plan_bindings_and_emit(
-                self,
-                &live_team_ids,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-            )?;
-        }
-        let legacy_plans_dir = project_root.join(".domios").join("plans");
-        let mut watchers = self.ext::<crate::service::PlanWatchers>().0.lock();
-        if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
-            match crate::service::plan::watcher::PlanWatcher::watch_project(
-                &project_root,
-                self.plan_store.clone(),
-                std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
-                    self.ui.clone(),
-                )),
-            ) {
-                Ok(watcher) => {
-                    watchers.insert(project_root.clone(), watcher);
-                }
-                Err(e) => log::warn!("[plan] failed to watch {}: {}", project_root.display(), e),
-            }
-        }
-        Ok(project_root)
     }
 
     pub fn plans_startup_loaded(&self) -> bool {
