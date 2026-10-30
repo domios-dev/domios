@@ -17,7 +17,19 @@
             updated_at    TEXT NOT NULL,
             accessed_at   TEXT,
             access_count  INTEGER NOT NULL DEFAULT 0,
-            recurrence_count INTEGER NOT NULL DEFAULT 0
+            recurrence_count INTEGER NOT NULL DEFAULT 0,
+            source_path TEXT,
+            source_size INTEGER,
+            source_mtime TEXT,
+            evidence_count INTEGER NOT NULL DEFAULT 1,
+            false_fire_count INTEGER NOT NULL DEFAULT 0,
+            promotion_threshold INTEGER,
+            is_pinned_wakeup INTEGER NOT NULL DEFAULT 0,
+            seed_fingerprint TEXT,
+            author_kind TEXT NOT NULL DEFAULT 'system' CHECK(author_kind IN ('owner','neighbor','system')),
+            author_uid TEXT,
+            author_friendship TEXT,
+            author_label TEXT DEFAULT 'unscoped'
         );
 
         CREATE INDEX IF NOT EXISTS idx_mem_kind ON mem_items(kind);
@@ -56,6 +68,7 @@
             confidence      REAL NOT NULL DEFAULT 1.0,
             properties_json TEXT NOT NULL DEFAULT '{}',
             created_at      TEXT NOT NULL,
+            reason TEXT,
             UNIQUE(from_id, relation_type, to_id, valid_from)
         );
         CREATE INDEX IF NOT EXISTS idx_relations_from ON relations(from_id);
@@ -97,7 +110,11 @@
             new_importance  REAL,
             old_kind        TEXT,
             new_kind        TEXT,
-            reason          TEXT
+            reason          TEXT,
+            author_kind TEXT NOT NULL DEFAULT 'system' CHECK(author_kind IN ('owner','neighbor','system')),
+            author_uid TEXT,
+            author_friendship TEXT,
+            author_label TEXT DEFAULT 'unscoped'
         );
         CREATE INDEX IF NOT EXISTS idx_history_item ON mem_item_history(item_id, changed_at DESC);
         CREATE INDEX IF NOT EXISTS idx_history_changed_by ON mem_item_history(changed_by);
@@ -111,3 +128,5 @@
             FOREIGN KEY (mem_id) REFERENCES mem_items(id) ON DELETE CASCADE
         );
         
+CREATE INDEX idx_mem_pinned ON mem_items(is_pinned_wakeup) WHERE is_pinned_wakeup = 1;
+CREATE UNIQUE INDEX idx_relations_active_unique ON relations(from_id,relation_type,to_id,scope) WHERE valid_to IS NULL;

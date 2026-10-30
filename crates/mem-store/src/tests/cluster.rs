@@ -6,7 +6,6 @@
 
 use rusqlite::Connection;
 
-use super::init_v1_22_schema;
 
 #[test]
 fn plan_format_round_trip() {
@@ -108,7 +107,6 @@ fn plan_format_handles_malformed_fence_gracefully() {
 #[test]
 fn apply_runs_each_cluster_action() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)

@@ -38,9 +38,9 @@ pub use repositories::cron::{
     MAX_CRON_JOBS,
 };
 pub use repositories::desk::{
-    normalize_legacy_session_id, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields,
+    DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields,
     DeskRepository, DeskSnapshot, DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace,
-    LEGACY_SESSION_ID_FIELD, MAX_DESK_CATALOGUE, MAX_DESK_LAYOUT_DEPTH, MAX_DESK_LAYOUT_NODES,
+    MAX_DESK_CATALOGUE, MAX_DESK_LAYOUT_DEPTH, MAX_DESK_LAYOUT_NODES,
     MAX_DESK_LEAF_BYTES, MAX_DESK_TABS, MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
 };
 pub use repositories::sentinel::{

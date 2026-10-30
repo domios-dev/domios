@@ -134,14 +134,14 @@ fn reembed_plan_counts_real_docs_without_embedding() {
 }
 
 #[test]
-fn recall_reembed_adopts_unstamped_l12_without_relabelling() {
+fn recall_reembed_refuses_unstamped_index_without_relabelling() {
     let conn = connection();
     let legacy = crate::embedder::legacy_identity();
     index::recreate(&conn, &legacy).unwrap();
     conn.execute("DELETE FROM mem_embedder", []).unwrap();
     let other = MockProvider::new("mock-remote", "wide", 16).identity();
-    assert_eq!(index::ensure(&conn, &other, &legacy).unwrap(), legacy);
-    assert_eq!(index::stamp(&conn).unwrap(), Some(legacy.clone()));
+    assert!(index::ensure(&conn, &other).unwrap_err().contains("unstamped vector index refused"));
+    assert_eq!(index::stamp(&conn).unwrap(), None);
     assert!(index::check(&conn, &other).is_err());
-    assert!(index::check(&conn, &legacy).is_ok());
+    assert!(index::check(&conn, &legacy).is_err());
 }

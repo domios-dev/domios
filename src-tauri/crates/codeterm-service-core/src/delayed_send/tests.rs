@@ -527,15 +527,15 @@ fn sending_messages_reset_to_queued_on_open() {
 }
 
 #[test]
-fn open_normalizes_pane_era_records_and_isolates_malformed_siblings() {
+fn open_keeps_current_records_and_isolates_malformed_siblings() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("delayed_send.json");
     let fixture = serde_json::json!({
         "version": 2,
         "messages": [
             {
-                "id": "dmsg-pane-era",
-                "paneId": "target-tab",
+                "id": "dmsg-current",
+                "tabId": "target-tab",
                 "workspaceId": "workspace",
                 "text": "resume",
                 "scheduledAtMs": 200,
@@ -543,14 +543,23 @@ fn open_normalizes_pane_era_records_and_isolates_malformed_siblings() {
                 "state": "queued",
                 "error": null,
                 "sessionIdAtCreate": "session",
-                "createdByPane": "creator-tab",
+                "createdByTab": "creator-tab",
                 "createdByLabel": "Creator",
                 "createdByModel": "model"
             },
             {
                 "id": "dmsg-malformed",
-                "paneId": 42,
+                "tabId": 42,
                 "text": ["not", "a", "message"]
+            },
+            {
+                "id": "dmsg-legacy",
+                "tabId": "target-tab",
+                "createdByPane": "old-creator",
+                "text": "refused",
+                "scheduledAtMs": 200,
+                "createdAtMs": 100,
+                "state": "queued"
             }
         ]
     })
@@ -776,4 +785,12 @@ fn immediate_create_delivers_without_persisting_or_publishing_a_queue_entry() {
     assert_eq!(queue.list(None).len(), 1);
     queue.claim_now(&view.message.id).unwrap();
     assert!(list_views(&fixture.service, Some(tab)).unwrap().is_empty());
+}
+
+#[test]
+fn pane_era_queue_fields_are_refused_even_with_current_fields() {
+    for field in ["paneId", "createdByPane"] {
+        let record = serde_json::json!({"tabId":"target", (field):"old-target"});
+        assert!(reject_legacy_queue_fields(&record).unwrap_err().contains(field));
+    }
 }

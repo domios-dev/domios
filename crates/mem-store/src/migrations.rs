@@ -1,86 +1,39 @@
-use crate::error::MemStoreResult;
+use crate::error::{MemStoreError, MemStoreResult};
 use rusqlite::Connection;
 
 pub const SCHEMA_VERSION: i64 = 2;
 
-type Migration = fn(&Connection) -> MemStoreResult<()>;
-
 pub fn run(conn: &Connection) -> MemStoreResult<()> {
-    run_steps(conn, &[baseline, authorship])
-}
-
-fn run_steps(conn: &Connection, steps: &[Migration]) -> MemStoreResult<()> {
-    for (index, step) in steps.iter().enumerate() {
-        let tx = conn.unchecked_transaction()?;
-        tx.execute_batch("CREATE TABLE IF NOT EXISTS mem_schema_version (version INTEGER NOT NULL);
-            INSERT INTO mem_schema_version(version) SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM mem_schema_version);")?;
-        let version: i64 =
-            tx.query_row("SELECT version FROM mem_schema_version", [], |r| r.get(0))?;
-        let next = index as i64 + 1;
-        if version < next {
-            step(&tx)?;
-            tx.execute("UPDATE mem_schema_version SET version=?1", [next])?;
+    let tx = conn.unchecked_transaction()?;
+    let stamped: bool = tx.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='mem_schema_version')",
+        [], |row| row.get(0),
+    )?;
+    if stamped {
+        let versions = tx.prepare("SELECT version FROM mem_schema_version")?
+            .query_map([], |row| row.get::<_, i64>(0))?
+            .collect::<Result<Vec<_>, _>>()?;
+        if versions != [SCHEMA_VERSION] {
+            return Err(MemStoreError::InvalidArgument(format!(
+                "unsupported memory schema version {versions:?}; expected {SCHEMA_VERSION}; older schemas cannot be upgraded"
+            )));
         }
-        tx.commit()?;
-    }
-    Ok(())
-}
-
-fn columns(conn: &Connection, table: &str) -> MemStoreResult<Vec<String>> {
-    Ok(conn
-        .prepare(&format!("PRAGMA table_info({table})"))?
-        .query_map([], |r| r.get(1))?
-        .collect::<Result<_, _>>()?)
-}
-
-fn baseline(conn: &Connection) -> MemStoreResult<()> {
-    conn.execute_batch(include_str!("baseline.sql"))?;
-    let existing = columns(conn, "mem_items")?;
-    for column in ["graph_x", "graph_y"] {
-        if existing.iter().any(|c| c == column) {
-            conn.execute_batch(&format!("ALTER TABLE mem_items DROP COLUMN {column}"))?;
+    } else {
+        let occupied: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%')",
+            [], |row| row.get(0),
+        )?;
+        if occupied {
+            return Err(MemStoreError::InvalidArgument("unstamped memory schema refused; create a fresh database".into()));
         }
+        tx.execute_batch(include_str!("baseline.sql"))?;
+        tx.execute_batch(include_str!("author_guards.sql"))?;
+        create_graph_purge_log(&tx)?;
+        create_lesson_audit(&tx)?;
+        crate::skill_folders::create_tombstone_table(&tx)?;
+        tx.execute_batch("CREATE TABLE mem_schema_version(version INTEGER NOT NULL); INSERT INTO mem_schema_version VALUES(2);")?;
     }
-    for (name, definition) in [
-        ("access_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("recurrence_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("source_path", "TEXT"),
-        ("source_size", "INTEGER"),
-        ("source_mtime", "TEXT"),
-        ("evidence_count", "INTEGER NOT NULL DEFAULT 1"),
-        ("false_fire_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("promotion_threshold", "INTEGER"),
-        ("is_pinned_wakeup", "INTEGER NOT NULL DEFAULT 0"),
-        ("seed_fingerprint", "TEXT"),
-    ] {
-        if !existing.iter().any(|c| c == name) {
-            conn.execute_batch(&format!(
-                "ALTER TABLE mem_items ADD COLUMN {name} {definition}"
-            ))?;
-        }
-    }
-    if !columns(conn, "relations")?.iter().any(|c| c == "reason") {
-        conn.execute_batch("ALTER TABLE relations ADD COLUMN reason TEXT")?;
-    }
-    create_graph_purge_log(conn)?;
-    create_lesson_audit(conn)?;
-    crate::skill_folders::create_tombstone_table(conn)?;
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_mem_pinned ON mem_items(is_pinned_wakeup) WHERE is_pinned_wakeup = 1;
-        DELETE FROM relations WHERE valid_to IS NULL AND rowid NOT IN (
-            SELECT MIN(rowid) FROM relations WHERE valid_to IS NULL GROUP BY from_id,relation_type,to_id,scope);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_relations_active_unique ON relations(from_id,relation_type,to_id,scope) WHERE valid_to IS NULL;")?;
-    Ok(())
-}
-
-fn authorship(conn: &Connection) -> MemStoreResult<()> {
-    for table in ["mem_items", "mem_item_history"] {
-        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN author_kind TEXT NOT NULL DEFAULT 'system' CHECK(author_kind IN ('owner','neighbor','system'));
-            ALTER TABLE {table} ADD COLUMN author_uid TEXT;
-            ALTER TABLE {table} ADD COLUMN author_friendship TEXT;
-            ALTER TABLE {table} ADD COLUMN author_label TEXT DEFAULT 'unscoped';
-            UPDATE {table} SET author_kind='owner',author_label=NULL;"))?;
-    }
-    conn.execute_batch(include_str!("author_guards.sql"))?;
+    tx.commit()?;
     Ok(())
 }
 

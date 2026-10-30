@@ -18,7 +18,7 @@ fn tab_and_mesh_callers_cannot_read_the_host_store() {
 #[test]
 fn owner_can_read_the_local_instance_credential() {
     let root = tempfile::tempdir().unwrap();
-    codeterm_util::instance_token::initialize_at(root.path(), Some("owner-fixture"), false)
+    codeterm_util::secret_file::SecretFile::new_at(root.path(), "domios.instance").set("api_token", "owner-fixture")
         .unwrap();
     assert_eq!(
         read(root.path(), false, None).unwrap().as_deref(),

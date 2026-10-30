@@ -17,9 +17,7 @@ fn integration_path(value: &str, integration: Option<&str>) -> bool {
         .windows(2)
         .any(|parts| {
             (parts[0] == ".domios"
-                || parts[0].starts_with(".domios-dev")
-                || parts[0] == ".codeterm"
-                || parts[0].starts_with(".codeterm-dev"))
+                || parts[0].starts_with(".domios-dev"))
                 && parts[1] == "shell-integration"
         })
 }

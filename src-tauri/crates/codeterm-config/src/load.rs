@@ -44,13 +44,24 @@ pub(super) fn config_file(path: &Path) -> StateFile {
 }
 
 fn validate_config(text: &str) -> Result<(), String> {
+    reject_legacy_token(text)?;
     super::bounds::validate_config_text(text).map_err(|error| {
         log::warn!("[config] rejecting invalid config: {error}");
         error
     })
 }
 
+fn reject_legacy_token(contents: &str) -> Result<(), String> {
+    if salvaged_critical_values(contents).0.is_some()
+        || contents.parse::<toml::Table>().ok().is_some_and(|table| lookup(&table, &["api", "token"]).is_some())
+    {
+        return Err("Unsupported legacy config field [api].token; use the current protected .secrets credential store".into());
+    }
+    Ok(())
+}
+
 fn parse_config(text: &str) -> Result<(AppConfig, String), String> {
+    reject_legacy_token(text)?;
     let config = toml::from_str::<AppConfig>(text).map_err(|error| error.to_string())?;
     super::bounds::validate_app_config(&config)?;
     Ok((config, text.to_string()))
@@ -122,14 +133,14 @@ fn load_config_uncached_at(
     }
     let cached_token = last_known.as_ref().map(|config| config.api.token.clone());
     if let Ok(contents) = std::fs::read_to_string(path) {
+        reject_legacy_token(&contents)?;
         if is_salvaged_config(&contents) {
             file.hold_for_repair();
-            if let Ok((config, contents)) = parse_config(&contents) {
+            if let Ok((config, _)) = parse_config(&contents) {
                 return finish_loaded(
                     &file,
                     data_root,
                     config,
-                    &contents,
                     TokenPolicy::KeepConfigured,
                     cached_token.as_ref(),
                 );
@@ -137,22 +148,20 @@ fn load_config_uncached_at(
         }
     }
     match file.load(parse_config) {
-        Loaded::Parsed((config, contents)) => finish_loaded(
+        Loaded::Parsed((config, _)) => finish_loaded(
             &file,
             data_root,
             config,
-            &contents,
             TokenPolicy::GenerateWhenMissing,
             cached_token.as_ref(),
         ),
         Loaded::Recovered {
-            value: (config, contents),
+            value: (config, _),
             ..
         } => finish_loaded(
             &file,
             data_root,
             config,
-            &contents,
             TokenPolicy::KeepConfigured,
             cached_token.as_ref(),
         ),
@@ -166,7 +175,6 @@ fn finish_loaded(
     file: &StateFile,
     data_root: &Path,
     mut config: AppConfig,
-    contents: &str,
     tokens: TokenPolicy,
     cached_token: Option<&Option<String>>,
 ) -> Result<AppConfig, String> {
@@ -177,40 +185,11 @@ fn finish_loaded(
         config.mesh.enabled = false;
     }
     log::info!("Config loaded from {}", file.path().display());
-    let migrated_token =
-        match apply_instance_token(data_root, &mut config, contents, tokens, cached_token) {
-            Ok(migrated) => migrated,
-            Err(error) => {
-                file.hold_after_error(&error);
-                credential_failure(config.api.token.as_deref(), error)?;
-                return Ok(config);
-            }
-        };
-    if migrated_token {
-        persist_migrated_config(file, &config, |contents| {
-            if file.held().is_some() {
-                file.replace_held_recovery(&mark_salvaged_config(contents))
-            } else {
-                file.save(contents)
-            }
-        });
+    if let Err(error) = apply_instance_token(data_root, &mut config, tokens, cached_token) {
+        file.hold_after_error(&error);
+        credential_failure(config.api.token.as_deref(), error)?;
     }
     Ok(config)
-}
-
-fn persist_migrated_config(
-    file: &StateFile,
-    config: &AppConfig,
-    write: impl FnOnce(&str) -> Result<(), String>,
-) {
-    let result = toml::to_string_pretty(config)
-        .map_err(|error| error.to_string())
-        .and_then(|contents| write(&contents));
-    if let Err(error) = result {
-        file.hold_after_error(&format!(
-            "Cannot persist migrated config: {error}; runtime credential retained and writes held"
-        ));
-    }
 }
 
 fn create_default(
@@ -223,7 +202,6 @@ fn create_default(
     apply_instance_token(
         data_root,
         &mut config,
-        "",
         TokenPolicy::GenerateWhenMissing,
         cached_token,
     )?;
@@ -246,17 +224,8 @@ fn held_config(
 ) -> Result<AppConfig, String> {
     let cached_token = last_known.as_ref().map(|config| config.api.token.clone());
     let (mut config, contents) = match (last_known, raw) {
-        (Some(config), raw) => {
-            let contents = toml::to_string_pretty(&config).ok().map(|contents| {
-                let legacy = raw.and_then(|raw| salvaged_critical_values(raw).0);
-                if let Some(token) = legacy.filter(|token| config.api.token.as_ref() == Some(token))
-                {
-                    let mut tables = contents.parse::<toml::Table>().unwrap_or_default();
-                    insert_nested_value(&mut tables, &["api", "token"], toml::Value::String(token));
-                    return mark_salvaged_config(&toml::to_string_pretty(&tables).unwrap());
-                }
-                mark_salvaged_config(&contents)
-            });
+        (Some(config), _) => {
+            let contents = toml::to_string_pretty(&config).ok().map(|contents| mark_salvaged_config(&contents));
             (config, contents)
         }
         (None, Some(raw)) => {
@@ -266,23 +235,17 @@ fn held_config(
         }
         (None, None) => (AppConfig::default(), None),
     };
-    let migration = apply_instance_token(
+    let credential = apply_instance_token(
         data_root,
         &mut config,
-        contents.as_deref().unwrap_or(""),
         TokenPolicy::KeepConfigured,
         cached_token.as_ref(),
     );
-    if let Err(error) = &migration {
+    if let Err(error) = &credential {
         file.hold_after_error(error);
         credential_failure(config.api.token.as_deref(), error.clone())?;
     }
     if let Some(contents) = contents {
-        let contents = if migration.is_ok() {
-            remove_legacy_token(&contents)
-        } else {
-            contents
-        };
         if let Err(error) = file.create_held_recovery(&contents) {
             log::warn!("[config] could not write salvaged config: {error}");
         }
@@ -306,10 +269,7 @@ pub(super) fn mark_salvaged_config(contents: &str) -> String {
 
 fn salvage_config(raw: &str) -> Option<(AppConfig, String)> {
     let mut tables = salvage_tables(raw);
-    let (token, full_access) = salvaged_critical_values(raw);
-    if let Some(token) = token {
-        insert_nested_value(&mut tables, &["api", "token"], toml::Value::String(token));
-    }
+    let (_, full_access) = salvaged_critical_values(raw);
     if let Some(full_access) = full_access {
         insert_nested_value(
             &mut tables,
@@ -453,61 +413,20 @@ fn lookup<'a>(table: &'a toml::Table, keys: &[&str]) -> Option<&'a toml::Value> 
 fn apply_instance_token(
     data_root: &Path,
     config: &mut AppConfig,
-    contents: &str,
     policy: TokenPolicy,
     cached_token: Option<&Option<String>>,
-) -> Result<bool, String> {
-    let raw = toml::from_str::<toml::Value>(contents).ok();
-    let legacy = raw
-        .as_ref()
-        .and_then(|value| value.get("api"))
-        .and_then(|api| api.get("token"));
-    let legacy_token = legacy
-        .and_then(toml::Value::as_str)
-        .filter(|token| !token.trim().is_empty());
-    config.api.token = match (cached_token, legacy_token) {
-        (Some(token), _) => token.clone(),
-        (None, Some(legacy_token)) => {
-            match codeterm_util::instance_token::migrate_at(data_root, legacy_token) {
-                Ok(token) => Some(token),
-                Err(error) => {
-                    config.api.token = Some(legacy_token.to_owned());
-                    return Err(format!("Instance API credential rotation failed: {error}; the legacy credential remains active and config writes are held until restart"));
-                }
-            }
-        }
-        (None, None) => codeterm_util::instance_token::initialize_at(
+) -> Result<(), String> {
+    config.api.token = match cached_token {
+        Some(token) => token.clone(),
+        None => codeterm_util::instance_token::initialize_at(
             data_root,
-            None,
             policy == TokenPolicy::GenerateWhenMissing,
-        )
-        .map_err(|error| {
-            format!(
-                "Cannot initialize instance API credential at {}: {error}",
-                data_root.join(".secrets").display()
-            )
-        })?,
+        ).map_err(|error| format!(
+            "Cannot initialize instance API credential at {}: {error}",
+            data_root.join(".secrets").display()
+        ))?,
     };
-    if legacy_token.is_some() && config.api.token.as_deref() == legacy_token {
-        return Err("Instance API credential rotation is pending; the legacy credential remains active and config writes are held until restart".into());
-    }
-    Ok(legacy.is_some())
-}
-
-fn remove_legacy_token(contents: &str) -> String {
-    let Ok(mut value) = contents.parse::<toml::Table>() else {
-        return contents.to_owned();
-    };
-    if let Some(api) = value.get_mut("api").and_then(toml::Value::as_table_mut) {
-        api.remove("token");
-    }
-    let body = toml::to_string_pretty(&value)
-        .unwrap_or_else(|error| panic!("Cannot serialize recovered config: {error}"));
-    if is_salvaged_config(contents) {
-        mark_salvaged_config(&body)
-    } else {
-        body
-    }
+    Ok(())
 }
 
 #[cfg(test)]

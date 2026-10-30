@@ -1,11 +1,9 @@
 use rusqlite::Connection;
 
-use super::init_v1_22_schema;
 
 #[test]
 fn migration_adds_reason_column() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let cols: Vec<String> = conn
         .prepare("PRAGMA table_info(relations)")
@@ -24,7 +22,6 @@ fn migration_adds_reason_column() {
 #[test]
 fn migration_creates_graph_purge_log() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let count: i64 = conn
         .query_row(
@@ -39,89 +36,29 @@ fn migration_creates_graph_purge_log() {
 #[test]
 fn migration_is_idempotent() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     crate::migrations::run(&conn).unwrap();
 }
 
 #[test]
-fn migration_dedups_active_relations_and_adds_partial_unique_index() {
+fn current_schema_preserves_relation_history_and_refuses_active_duplicates() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
-    conn.execute_batch(
-        "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
-            VALUES ('a','X','global','{}','2026-01-01','2026-01-01'),
-                   ('b','X','global','{}','2026-01-01','2026-01-01');
-         INSERT INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
-            VALUES ('a','r','b','global','2026-05-08T14:06:27Z',NULL,1.0,'{}','2026-05-08T14:06:27Z'),
-                   ('a','r','b','global','2026-05-09T03:12:00Z',NULL,1.0,'{}','2026-05-09T03:12:00Z'),
-                   ('a','r','b','global','2026-05-14T03:53:07Z',NULL,1.0,'{}','2026-05-14T03:53:07Z'),
-                   ('a','r','b','global','2025-01-01',           '2025-06-01',1.0,'{}','2025-01-01'),
-                   ('a','r','b','global','2025-07-01',           '2025-12-01',1.0,'{}','2025-07-01');",
-    )
-    .unwrap();
-
-    let before_active: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(before_active, 3, "fixture pre-condition: 3 active dup rows");
-
     crate::migrations::run(&conn).unwrap();
-
-    let after_active: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(
-        after_active, 1,
-        "migration keeps exactly one active row per (from,rel,to,scope)"
-    );
-
-    let history: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NOT NULL",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(
-        history, 2,
-        "historical (invalidated) rows are preserved as edge history"
-    );
-
-    let now = chrono::Utc::now().to_rfc3339();
-    let inserted = conn
-        .execute(
-            "INSERT OR IGNORE INTO relations (from_id,relation_type,to_id,scope,valid_from,valid_to,confidence,properties_json,created_at)
-         VALUES ('a','r','b','global',?1,NULL,1.0,'{}',?1)",
-            rusqlite::params![now],
-        )
-        .unwrap();
-    assert_eq!(
-        inserted, 0,
-        "INSERT OR IGNORE must no-op when an active row for the same key already exists"
-    );
-    let still_one_active: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM relations WHERE from_id='a' AND to_id='b' AND valid_to IS NULL",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(still_one_active, 1);
+    conn.execute_batch("INSERT INTO relations(from_id,relation_type,to_id,scope,valid_from,valid_to,created_at)
+        VALUES ('a','r','b','global','first',NULL,'now'),
+               ('a','r','b','global','past','ended','past');").unwrap();
+    let before = conn.total_changes();
+    crate::migrations::run(&conn).unwrap();
+    assert_eq!(conn.total_changes(), before);
+    assert!(conn.execute("INSERT INTO relations(from_id,relation_type,to_id,scope,valid_from,created_at)
+        VALUES ('a','r','b','global','second','now')", []).is_err());
+    let count: i64 = conn.query_row("SELECT count(*) FROM relations", [], |row| row.get(0)).unwrap();
+    assert_eq!(count, 2);
 }
 
 #[test]
 fn migration_adds_evolution_columns() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let cols: Vec<String> = conn
         .prepare("PRAGMA table_info(mem_items)")
@@ -161,7 +98,6 @@ fn migration_adds_evolution_columns() {
 #[test]
 fn pin_column_added_by_migration() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let cols: Vec<String> = conn
         .prepare("PRAGMA table_info(mem_items)")
@@ -180,7 +116,6 @@ fn pin_column_added_by_migration() {
 #[test]
 fn pin_migration_is_idempotent() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     crate::migrations::run(&conn).unwrap();
     let pinned_cols: i64 = conn
@@ -199,7 +134,6 @@ fn pin_migration_is_idempotent() {
 #[test]
 fn pin_migration_creates_partial_index() {
     let conn = Connection::open_in_memory().unwrap();
-    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let n: i64 = conn
         .query_row(

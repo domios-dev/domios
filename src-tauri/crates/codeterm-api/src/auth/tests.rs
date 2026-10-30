@@ -707,7 +707,7 @@ fn service_push_rejected_on_tab_root() {
 }
 
 #[test]
-fn migrated_instance_refuses_legacy_bearer_and_accepts_persisted_replacement() {
+fn instance_refuses_foreign_bearer_and_accepts_persisted_credential() {
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
 
@@ -715,8 +715,8 @@ fn migrated_instance_refuses_legacy_bearer_and_accepts_persisted_replacement() {
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
     let rotated =
-        codeterm_util::instance_token::migrate_at(fixture.temp.path(), "legacy-instance-bearer")
-            .unwrap();
+        codeterm_util::instance_token::initialize_at(fixture.temp.path(), true)
+            .unwrap().unwrap();
     state.config.lock().api.token = Some(rotated.clone());
     assert!(identify_caller(&state, "Bearer legacy-instance-bearer").is_err());
     assert!(matches!(

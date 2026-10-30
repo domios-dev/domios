@@ -23,7 +23,13 @@ CREATE TABLE mem_items (
     false_fire_count BIGINT NOT NULL DEFAULT 0,
     promotion_threshold BIGINT,
     is_pinned_wakeup BIGINT NOT NULL DEFAULT 0,
-    seed_fingerprint TEXT
+    seed_fingerprint TEXT,
+    author_kind TEXT NOT NULL DEFAULT 'system' CHECK(author_kind IN ('owner','neighbor','system')),
+    author_uid TEXT,
+    author_friendship TEXT,
+    author_label TEXT DEFAULT 'unscoped',
+    CONSTRAINT neighbor_identity CHECK(author_kind != 'neighbor' OR (author_uid IS NOT NULL AND author_friendship IS NOT NULL)),
+    CONSTRAINT neighbor_instructions CHECK(author_kind != 'neighbor' OR (kind NOT IN ('rule','preference','skill') AND is_pinned_wakeup=0))
 );
 CREATE INDEX mem_kind ON mem_items(kind);
 CREATE INDEX mem_scope ON mem_items(scope);
@@ -97,7 +103,12 @@ CREATE TABLE mem_item_history (
     new_importance DOUBLE PRECISION,
     old_kind TEXT,
     new_kind TEXT,
-    reason TEXT
+    reason TEXT,
+    author_kind TEXT NOT NULL DEFAULT 'system' CHECK(author_kind IN ('owner','neighbor','system')),
+    author_uid TEXT,
+    author_friendship TEXT,
+    author_label TEXT DEFAULT 'unscoped',
+    CONSTRAINT neighbor_history_identity CHECK(author_kind != 'neighbor' OR (author_uid IS NOT NULL AND author_friendship IS NOT NULL))
 );
 CREATE INDEX history_item ON mem_item_history(item_id,changed_at DESC);
 CREATE INDEX history_actor ON mem_item_history(changed_by);
@@ -151,3 +162,18 @@ CREATE TABLE mem_shadow (
     target TEXT NOT NULL, unit_key TEXT NOT NULL, text_hash BYTEA NOT NULL, vectors BYTEA,
     PRIMARY KEY(target,unit_key)
 );
+
+CREATE FUNCTION guard_neighbor_update() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF OLD.author_kind='neighbor' THEN
+        IF NEW.kind IN ('rule','preference','skill') OR NEW.is_pinned_wakeup != 0 THEN
+            RAISE EXCEPTION 'neighbor content cannot become instructions or be pinned' USING ERRCODE='23514';
+        END IF;
+        IF OLD.kind='learning' AND NEW.kind='fact' THEN
+            RAISE EXCEPTION 'neighbor learning cannot be promoted' USING ERRCODE='23514';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER mem_neighbor_update_guard BEFORE UPDATE ON mem_items FOR EACH ROW EXECUTE FUNCTION guard_neighbor_update();

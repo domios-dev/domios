@@ -17,13 +17,9 @@ pub enum InsertOutcome {
     ItemGone,
 }
 
-/// Prepare the vector index for `active`: an unstamped legacy table is adopted
-/// as `legacy`, a missing table is created at the stamped dimension, and a
-/// mismatched stamp is left alone (inserts and searches refuse it).
 pub fn ensure(
     conn: &Connection,
     active: &EmbedderIdentity,
-    legacy: &EmbedderIdentity,
 ) -> Result<EmbedderIdentity, String> {
     backend::register(conn)?;
     conn.execute_batch(STAMP_SCHEMA)
@@ -32,9 +28,11 @@ pub fn ensure(
     let stamp = match stamp(conn)? {
         Some(stamp) => stamp,
         None => {
-            let adopted = if table_exists(conn)? { legacy } else { active };
-            write_stamp(conn, adopted)?;
-            adopted.clone()
+            if table_exists(conn)? {
+                return Err("unstamped vector index refused; rebuild the index before use".into());
+            }
+            write_stamp(conn, active)?;
+            active.clone()
         }
     };
     if !table_exists(conn)? {

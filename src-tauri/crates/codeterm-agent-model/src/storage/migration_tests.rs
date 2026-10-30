@@ -135,7 +135,7 @@ const DESK_SOURCE: &str = r#"{
        "split_tree":{"type":"Split","orientation":"horizontal","ratio":0.4,
         "future_split_state":{"flag":true,"nullable":null},"children":[
          {"type":"Leaf","tab_id":"tab-a","cwd":"C:/projects/a","title":null,
-          "agent_type":"provider-unverified","claude_session_id":"session-unverified",
+          "agent_type":"provider-unverified","agent_session_id":"session-unverified",
           "agent_identity":{"session_binding_nonce":"nonce-unverified"},"role":"Worker",
           "role_profile":null,"agent_session_model":null,"can_spawn":true},
          {"type":"Split","orientation":"vertical","ratio":0.7,

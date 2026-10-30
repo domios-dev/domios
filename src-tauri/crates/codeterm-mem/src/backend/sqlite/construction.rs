@@ -67,7 +67,7 @@ impl std::fmt::Display for ReadOnlyOpenError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::SourceSchemaMismatch => f.write_str(
-                "memory_source_schema_mismatch: open the source once with its own Domios before migrating",
+                "memory_source_schema_mismatch: expected current schema version 2; older schemas cannot be upgraded",
             ),
             Self::Storage(error) => write!(f, "memory_source_open: {error}"),
         }
