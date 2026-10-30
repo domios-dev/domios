@@ -102,6 +102,32 @@ it("shows the inventory as unavailable instead of an empty graph when the first 
   }
 });
 
+it("shows a disabled mesh as off with a turn-on action instead of a retryable failure", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: false } } as AppConfig;
+  const updates: AppConfig[] = [];
+  meshData = {
+    thisMachine: { name: "this", ip: "127.0.0.1" }, services: [], peers: [],
+    loading: false, error: "service unavailable", loaded: false, refresh: () => {},
+  };
+  try {
+    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async (next) => { updates.push(next); }} onClose={() => {}} />));
+    const view = host.querySelector('section[aria-label="Mesh inventory"]');
+    const buttons = Array.from(view!.querySelectorAll("button"));
+    expect(buttons.some((button) => button.textContent?.includes("Retry"))).toBe(false);
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).toBeNull();
+    await act(async () => buttons[0]!.click());
+    expect(updates.map((next) => next.mesh.enabled)).toEqual([true]);
+  } finally {
+    meshData = inventory;
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 it("renders a loading header and inventory until cached or live data arrives, never 0 peers", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div");
