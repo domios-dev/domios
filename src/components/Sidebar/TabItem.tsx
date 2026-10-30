@@ -479,6 +479,7 @@ function TabItemInner({
           >
             {rowText.title}
           </span>
+          <TabAttentionMark title={accessibleTitle} attention={attention ?? tabAttention(tab, status, [], isActive)} active={isActive} placement="title" />
           {hasAgent && (
             <TabWorkingActivity activity={tabState} label={tabState.label} />
           )}

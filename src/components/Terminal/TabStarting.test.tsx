@@ -36,6 +36,10 @@ for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as co
   const mark = tabStatusMark(tab.title, attention)!;
   const row = parsed(<TabItem tab={starting} status="Working" hasAgent index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="ws" />);
   assertLoading(row, mark.label);
+  const titleLine = row.querySelector('[data-testid="tab-title"]')?.parentElement;
+  assert.ok(titleLine?.querySelector(`[role="status"][aria-label="${mark.label}"]`), "starting status follows the title in its line");
+  assert.equal(row.querySelector('[data-testid="tab-tab-icon"] [role="status"]'), null, "starting status does not overlap the icon");
+  assert.equal(row.querySelectorAll(`[role="status"][aria-label="${mark.label}"]`).length, 1, "starting status appears once");
   assert.equal(row.querySelector('[data-testid="tab-working-activity"]'), null);
   const rail = parsed(<SidebarCompactRail groups={[{ workspaceId: "ws", label: "group-token", tabs: [starting], activeTabId: null }]} tabStatuses={{ [tab.id]: "Working" }} attentionByTab={{ [tab.id]: attention }} onActivate={() => {}} />);
   assertLoading(rail, mark.label);
