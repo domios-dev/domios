@@ -82,6 +82,12 @@
       "to": [
         "src-tauri/crates/codeterm-pty/src/session/store/legacy_decode.rs"
       ]
+    },
+    {
+      "from": "src-tauri/crates/codeterm-socket/src/server/plan_task_rpc/tests.rs",
+      "to": [
+        "src-tauri/crates/codeterm-socket/src/server/plan_task_rpc/add_fields/tests.rs"
+      ]
     }
   ],
   "entries": [
@@ -9510,7 +9516,7 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/spawn_tests/model_catalogue.rs",
       "token": "claude",
-      "count": 11,
+      "count": 9,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -9559,7 +9565,7 @@
     {
       "file": "src-tauri/crates/codeterm-service-core/src/service/spawn_tests/model_catalogue.rs",
       "token": "codex",
-      "count": 8,
+      "count": 5,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
@@ -10645,20 +10651,6 @@
       "file": "src-tauri/crates/codeterm-socket/src/server/plan_task_dispatch/tests/worker_ack/remote_deadline.rs",
       "token": "codex",
       "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-socket/src/server/plan_task_rpc/tests.rs",
-      "token": "claude",
-      "count": 2,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-socket/src/server/plan_task_rpc/tests.rs",
-      "token": "codex",
-      "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },

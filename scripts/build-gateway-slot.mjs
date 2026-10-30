@@ -8,7 +8,9 @@ export function slotSnapshot(directory) {
     catch (error) { if (['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) return ''; throw error; }
   };
   const tickets = fs.readdirSync(path.join(directory, 'queue')).sort();
-  return JSON.stringify([read(path.join(directory, 'lock', 'job_id')), tickets]);
+  const owner = ['job_id', 'pid', 'start_token', 'pid_namespace', 'native_pid', 'native_start_token']
+    .map(name => read(path.join(directory, 'lock', name)));
+  return JSON.stringify([owner, tickets]);
 }
 
 export async function waitForSlotChange(directory, previous, deadline, { watch = fs.watch } = {}) {

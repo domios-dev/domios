@@ -71,7 +71,15 @@ test('a PowerShell build.ps1 queued waiter survives a native-namespace reap pass
     ct_gateway_finish 0
   `]);
   try {
-    assert.equal((await once(holder.lines, 'line'))[0], 'HOLDER_READY');
+    const ready = await new Promise(resolve => {
+      const observe = line => {
+        if (line !== 'HOLDER_READY') return;
+        holder.lines.off('line', observe);
+        resolve(line);
+      };
+      holder.lines.on('line', observe);
+    });
+    assert.equal(ready, 'HOLDER_READY');
     fs.writeFileSync(path.join(directory, 'build.ps1'), fs.readFileSync(path.join(root, 'build.ps1'), 'utf8'));
     fs.writeFileSync(path.join(directory, 'build.sh'), source + `
       waiter_pid="$BASHPID"

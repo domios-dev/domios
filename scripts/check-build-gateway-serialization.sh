@@ -9,11 +9,23 @@ TEST_ROOT="$ROOT/.research/build-perf/gateway-test-$$"
 # Every assertion here is about a job QUEUEING behind another, the --wait-build
 # contract; the caller default is fail-fast, which refuses instead of queueing.
 export CODETERM_BUILD_GATEWAY_MODE=queue
+export CODETERM_BUILD_GATEWAY_WAIT_SECS=60
 export CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$TEST_ROOT/state"
 export CODETERM_BUILD_GATEWAY_POLL_SECS=0.05
 export CODETERM_GATEWAY_FAKE_EVENTS="$TEST_ROOT/events.log"
 mkdir -p "$TEST_ROOT"
 : > "$CODETERM_GATEWAY_FAKE_EVENTS"
+source scripts/build-gateway.sh
+
+seed_stale_owner() {
+  local directory="$1" job="$2"
+  mkdir -p "$directory"
+  ct_gateway_capture_owner
+  ct_gateway_write_owner "$directory"
+  printf '%s\n' definitely-not-this-process-start > "$directory/start_token"
+  printf '%s\n' definitely-not-this-process-start > "$directory/native_start_token"
+  printf '%s\n' "$job" > "$directory/job_id"
+}
 
 cleanup() {
   local rc="$?" pid
@@ -165,27 +177,21 @@ start_fake after-running-cancel owner-i worktree-i 0.1 success
 after_running_cancel_pid=$STARTED_PID
 wait "$after_running_cancel_pid"
 
-mkdir -p "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/lock"
-printf '%s\n' "$$" > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/lock/pid"
-printf '%s\n' definitely-not-this-process-start > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/lock/start_token"
-printf '%s\n' stale-lock-owner > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/lock/job_id"
+seed_stale_owner "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/lock" stale-lock-owner
 start_fake after-stale-lock owner-g worktree-g 0.1 success
 after_stale_pid=$STARTED_PID
 wait "$after_stale_pid"
 
 stale_queue_key=9999999999999-stale-queue
-mkdir -p "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/queue/$stale_queue_key"
-printf '%s\n' "$$" > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/queue/$stale_queue_key/pid"
-printf '%s\n' definitely-not-this-process-start > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/queue/$stale_queue_key/start_token"
-printf '%s\n' stale-queue-owner > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/queue/$stale_queue_key/job_id"
+seed_stale_owner "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/queue/$stale_queue_key" stale-queue-owner
 node scripts/build-gateway-state.mjs create --dir "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR" \
   --job-id stale-queue-owner --job gateway-fake --command "gateway-fake stale" \
   --owner stale-owner --owner-pid "$$" --owner-start-token definitely-not-this-process-start \
+  --owner-pid-namespace "$CT_GATEWAY_OWNER_NAMESPACE" --owner-native-pid "$CT_GATEWAY_OWNER_NATIVE_PID" \
+  --owner-native-start-token definitely-not-this-process-start \
   --worktree stale-worktree --source-sha stale-source --queue-key "$stale_queue_key" \
   --queued-at 2026-01-01T00:00:00Z --log-path "$TEST_ROOT/stale-queue.log"
-mkdir "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/state.lock"
-printf '%s\n' "$$" > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/state.lock/pid"
-printf '%s\n' definitely-not-this-process-start > "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/state.lock/start_token"
+seed_stale_owner "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR/state.lock" stale-state-owner
 
 ./build.sh gateway-status > "$TEST_ROOT/final-status.json"
 node - <<'JS' "$TEST_ROOT/final-status.json"

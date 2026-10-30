@@ -162,11 +162,12 @@ test('slot wait watches state directories without traversing artifact subtrees',
   }
 });
 
-test('slot wait observes owner metadata without a queue change', async () => {
+for (const field of ['job_id', 'pid', 'start_token', 'pid_namespace', 'native_pid', 'native_start_token'])
+test(`slot wait observes owner ${field} without a queue change`, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-slot-'));
   fs.mkdirSync(path.join(directory, 'queue'));
   fs.mkdirSync(path.join(directory, 'lock'));
-  const owner = path.join(directory, 'lock', 'job_id');
+  const owner = path.join(directory, 'lock', field);
   fs.writeFileSync(owner, 'before');
   try {
     const changed = waitForSlotChange(directory, slotSnapshot(directory), Date.now() + 2000);
