@@ -239,8 +239,10 @@ async fn capacity_retry_persistence_refusal_still_records_completion_once() {
         123,
     )
     .await;
-    assert!(matches!(result, Err(super::super::model::RuntimeFailure::HookFailed(reason))
-        if reason == "injected queue persistence refusal"));
+    assert!(
+        matches!(result, Err(super::super::model::RuntimeFailure::HookFailed(reason))
+        if reason == "injected queue persistence refusal")
+    );
     assert!(scene.session.completions.lock().contains("thread", "turn"));
     assert_eq!(scene.session.completions.lock().sequence(), before + 1);
     assert!(changes.has_changed().unwrap());
