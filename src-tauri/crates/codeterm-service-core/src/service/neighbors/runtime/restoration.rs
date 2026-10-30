@@ -4,7 +4,6 @@ use super::*;
 type WatchStartup<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, String>> + Send + 'a>>;
 
-
 #[derive(Default)]
 struct RestorationRearm(Arc<super::super::recovery::Rearm>);
 

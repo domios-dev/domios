@@ -165,9 +165,7 @@ impl Calls {
         }
         if matches!(
             route,
-            "friendsEnrollVerifierKey"
-                | "friendsRevokeVerifierKey"
-                | "friendsSetFriendReceiver"
+            "friendsEnrollVerifierKey" | "friendsRevokeVerifierKey" | "friendsSetFriendReceiver"
         ) {
             self.own_keys.lock().await.take();
             self.receiver_status.lock().await.take();

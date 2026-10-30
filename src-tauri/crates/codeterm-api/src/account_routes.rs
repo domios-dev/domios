@@ -329,9 +329,7 @@ fn file_failure(message: &str) -> Option<Response> {
         "file_daily_limit" | "sender_quota" | "file_rate_limited" => StatusCode::TOO_MANY_REQUESTS,
         "file_not_found" => StatusCode::NOT_FOUND,
         "files_disabled" | "entitlements_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
-        "file_not_ready" | "upload_mismatch" => {
-            StatusCode::CONFLICT
-        }
+        "file_not_ready" | "upload_mismatch" => StatusCode::CONFLICT,
         _ => return None,
     };
     let mut details = serde_json::from_str::<serde_json::Value>(detail).ok()?;

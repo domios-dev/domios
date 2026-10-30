@@ -63,7 +63,6 @@ async fn friend_receiver_fence_requires_current_enabled_installation_and_revisio
         receiver_machine_label: Some("Desk".into()),
         receiving_enabled: true,
         is_me: true,
-
     };
     for (is_me, enabled, revision, allowed) in [
         (true, true, 8, true),

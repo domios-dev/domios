@@ -44,7 +44,8 @@ impl ServiceContext {
         }
         if receivers.values().any(|receiver| {
             receiver.status.receiving_here()
-                && (local_key.is_none() || receiver.status.receiver_encryption_key_id.as_deref() != local_key)
+                && (local_key.is_none()
+                    || receiver.status.receiver_encryption_key_id.as_deref() != local_key)
         }) {
             return Err(Error::LocalKeyUnavailable.to_string());
         }
@@ -144,7 +145,9 @@ impl ServiceContext {
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
         let lifecycle = InstallationKeys {
-            store: &self.neighbor_key_store().map_err(|error| error.to_string())?,
+            store: &self
+                .neighbor_key_store()
+                .map_err(|error| error.to_string())?,
             registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,
@@ -165,9 +168,7 @@ impl ServiceContext {
         };
         self.require_neighbor_generation(generation)?;
         self.remember_neighbor_names(&list);
-        let local_id = local
-            .as_ref()
-            .map(|keys| keys.encryption_key_id());
+        let local_id = local.as_ref().map(|keys| keys.encryption_key_id());
         drop(local);
         self.reconcile_neighbor_friend_receiver_rows(
             &metadata,
@@ -203,7 +204,9 @@ impl ServiceContext {
             else {
                 continue;
             };
-            if local_id.as_deref() != receiver.receiver_encryption_key_id.as_deref() || local_id.is_none() {
+            if local_id.as_deref() != receiver.receiver_encryption_key_id.as_deref()
+                || local_id.is_none()
+            {
                 self.forget_neighbor_friend_receivers();
                 self.stop_neighbor_listeners();
                 return Err(Error::LocalKeyUnavailable.to_string());

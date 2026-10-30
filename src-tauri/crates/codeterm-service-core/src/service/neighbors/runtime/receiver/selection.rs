@@ -26,7 +26,9 @@ struct RelaySelection<'a> {
 #[async_trait::async_trait]
 impl SelectionPort for RelaySelection<'_> {
     async fn enroll(&self) -> codeterm_neighbors::Result<()> {
-        self.service.require_neighbor_generation(self.generation).map_err(|_| Error::Revoked)?;
+        self.service
+            .require_neighbor_generation(self.generation)
+            .map_err(|_| Error::Revoked)?;
         let registry = self.registry;
         let registration = self.service.extensions.get_or_init(Registration::default);
         let mut registered = registration.0.lock().await;
@@ -42,14 +44,23 @@ impl SelectionPort for RelaySelection<'_> {
             Some(keys) => {
                 let id = keys.verifier_key_id(&registry.uid);
                 if registered.as_ref() != Some(&(self.generation, id.clone())) {
-                    let enrolled = codeterm_neighbors::keys::KeyRegistry::enroll(registry, &keys.signing_spki(), &keys.encryption_spki()).await?;
-                    if enrolled != id { return Err(Error::InvalidKey); }
+                    let enrolled = codeterm_neighbors::keys::KeyRegistry::enroll(
+                        registry,
+                        &keys.signing_spki(),
+                        &keys.encryption_spki(),
+                    )
+                    .await?;
+                    if enrolled != id {
+                        return Err(Error::InvalidKey);
+                    }
                 }
                 keys
             }
             None => lifecycle.enroll(&mut rand::rngs::OsRng).await?,
         };
-        self.service.require_neighbor_generation(self.generation).map_err(|_| Error::Revoked)?;
+        self.service
+            .require_neighbor_generation(self.generation)
+            .map_err(|_| Error::Revoked)?;
         *registered = Some((self.generation, keys.verifier_key_id(&registry.uid)));
         Ok(())
     }
@@ -139,33 +150,43 @@ impl ServiceContext {
         .await?;
         self.require_neighbor_generation(generation)
             .map_err(|_| Error::Revoked)?;
-        let row: codeterm_neighbors::adapter::FriendReceiverRow = serde_json::from_value(result["receiver"].clone()).map_err(|_| Error::InvalidEnvelope)?;
-        if result["schema_version"] != 1 || row.friendship_id != friendship || row.revision < expected_revision {
+        let row: codeterm_neighbors::adapter::FriendReceiverRow =
+            serde_json::from_value(result["receiver"].clone())
+                .map_err(|_| Error::InvalidEnvelope)?;
+        if result["schema_version"] != 1
+            || row.friendship_id != friendship
+            || row.revision < expected_revision
+        {
             return Err(Error::InvalidEnvelope);
         }
         let list = registry.calls.invoke("friendsList", json!({})).await?;
-        let projection = list["friends"].as_array().and_then(|rows| rows.iter().find(|row| row["friendship_id"] == friendship))
-            .and_then(|row| row.get("my_receiver")).ok_or(Error::InvalidEnvelope)?;
+        let projection = list["friends"]
+            .as_array()
+            .and_then(|rows| rows.iter().find(|row| row["friendship_id"] == friendship))
+            .and_then(|row| row.get("my_receiver"))
+            .ok_or(Error::InvalidEnvelope)?;
         let receiver = super::friends::FriendReceiver::from_projection(
             serde_json::from_value(projection.clone()).map_err(|_| Error::InvalidEnvelope)?,
             &registry.installation_id,
-        ).map_err(|_| Error::InvalidEnvelope)?;
-        if receiver.status.receiver_revision < row.revision { return Err(Error::ReceiverRevisionStale); }
+        )
+        .map_err(|_| Error::InvalidEnvelope)?;
+        if receiver.status.receiver_revision < row.revision {
+            return Err(Error::ReceiverRevisionStale);
+        }
         self.stop_neighbor_concierge_listener(friendship);
         self.forget_neighbor_registry();
         if receiver.status.receiving_here() {
             let local = InstallationKeys {
-                store: &self.neighbor_key_store().map_err(|_| Error::LocalKeyUnavailable)?,
+                store: &self
+                    .neighbor_key_store()
+                    .map_err(|_| Error::LocalKeyUnavailable)?,
                 registry,
                 scope: scope.clone(),
                 uid: &registry.uid,
             }
             .load()
             .await?;
-            if local
-                .as_ref()
-                .map(|key| key.encryption_key_id())
-                .as_deref()
+            if local.as_ref().map(|key| key.encryption_key_id()).as_deref()
                 != receiver.status.receiver_encryption_key_id.as_deref()
                 || local.is_none()
             {

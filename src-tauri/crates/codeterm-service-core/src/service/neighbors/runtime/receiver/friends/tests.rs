@@ -8,7 +8,6 @@ fn status(here: bool, revision: u64) -> FriendReceiver {
         receiver_machine_label: Some("Desk".into()),
         receiving_enabled: true,
         is_me: here,
-
     })
 }
 
@@ -225,23 +224,59 @@ impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
 
 #[tokio::test]
 async fn receiver_rows_are_per_friend_and_missing_projections_never_inherit_authority() {
-    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
     let service = &fixture.service;
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
-    let registry = FirebaseRegistry { calls: Arc::new(NoCalls), uid: "owner".into(), installation_id: "here".into(), machine_label: "Desk".into() };
+    let registry = FirebaseRegistry {
+        calls: Arc::new(NoCalls),
+        uid: "owner".into(),
+        installation_id: "here".into(),
+        machine_label: "Desk".into(),
+    };
     let generation = service.neighbor_history_generation();
     let first = "a".repeat(64);
     let second = "b".repeat(64);
-    let projection = |here: bool, revision| json!({"installation_id":if here {"here"} else {"elsewhere"},
-        "enc_key_id":"ek_receiver","machine_label":"Desk","revision":revision,"receiving":true});
+    let projection = |here: bool, revision| {
+        json!({"installation_id":if here {"here"} else {"elsewhere"},
+        "enc_key_id":"ek_receiver","machine_label":"Desk","revision":revision,"receiving":true})
+    };
     let list = json!({"friends":[{"friendship_id":first,"my_receiver":projection(false,9)},{"friendship_id":second,"my_receiver":projection(true,2)}]});
-    service.reconcile_neighbor_friend_receiver_rows(&metadata,&registry,&list,Some("ek_receiver"),generation).await.unwrap();
+    service
+        .reconcile_neighbor_friend_receiver_rows(
+            &metadata,
+            &registry,
+            &list,
+            Some("ek_receiver"),
+            generation,
+        )
+        .await
+        .unwrap();
     assert!(!service.neighbor_friend_receiving_here(&first));
     assert!(service.neighbor_friend_receiving_here(&second));
-    let (_,version) = service.neighbor_friend_receiver_snapshot();
-    service.reconcile_neighbor_friend_receiver_rows(&metadata,&registry,&list,Some("ek_receiver"),generation).await.unwrap();
-    assert_eq!(service.neighbor_friend_receiver_snapshot().1,version);
-    assert!(service.reconcile_neighbor_friend_receiver_rows(&metadata,&registry,&json!({"friends":[{"friendship_id":first}]}),None,generation).await.is_err());
+    let (_, version) = service.neighbor_friend_receiver_snapshot();
+    service
+        .reconcile_neighbor_friend_receiver_rows(
+            &metadata,
+            &registry,
+            &list,
+            Some("ek_receiver"),
+            generation,
+        )
+        .await
+        .unwrap();
+    assert_eq!(service.neighbor_friend_receiver_snapshot().1, version);
+    assert!(service
+        .reconcile_neighbor_friend_receiver_rows(
+            &metadata,
+            &registry,
+            &json!({"friends":[{"friendship_id":first}]}),
+            None,
+            generation
+        )
+        .await
+        .is_err());
 }
 
 #[tokio::test]

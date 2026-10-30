@@ -706,7 +706,6 @@ fn unknown_receiver_cache_is_not_a_confirmed_empty_receiver_projection() {
         receiver_machine_label: None,
         receiving_enabled: false,
         is_me: false,
-
     };
     assert_eq!(
         receiver_authority(Some(&status)),

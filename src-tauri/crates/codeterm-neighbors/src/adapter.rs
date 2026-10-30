@@ -115,12 +115,14 @@ pub struct FirebaseRegistry {
 
 #[async_trait]
 impl KeyRegistry for FirebaseRegistry {
-    async fn enroll(
-        &self,
-        signing_spki: &str,
-        encryption_spki: &str,
-    ) -> Result<String> {
-        let body = self.calls.invoke("friendsEnrollVerifierKey", self.enrollment_data(signing_spki, encryption_spki)).await?;
+    async fn enroll(&self, signing_spki: &str, encryption_spki: &str) -> Result<String> {
+        let body = self
+            .calls
+            .invoke(
+                "friendsEnrollVerifierKey",
+                self.enrollment_data(signing_spki, encryption_spki),
+            )
+            .await?;
         body.get("verifier_key_id")
             .and_then(Value::as_str)
             .map(str::to_owned)

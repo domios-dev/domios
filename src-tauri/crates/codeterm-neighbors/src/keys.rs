@@ -55,11 +55,7 @@ pub trait KeyStore: Send + Sync {
 
 #[async_trait]
 pub trait KeyRegistry: Send + Sync {
-    async fn enroll(
-        &self,
-        signing_spki: &str,
-        encryption_spki: &str,
-    ) -> Result<String>;
+    async fn enroll(&self, signing_spki: &str, encryption_spki: &str) -> Result<String>;
     async fn revoke(&self, verifier_key_id: &str) -> Result<()>;
     async fn active_key_ids(&self) -> Result<Vec<String>>;
 }
@@ -176,10 +172,7 @@ impl InstallationKeys<'_> {
             .transpose()
     }
 
-    pub async fn enroll(
-        &self,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<PrivateKeys> {
+    pub async fn enroll(&self, rng: &mut (impl RngCore + CryptoRng)) -> Result<PrivateKeys> {
         if self
             .store
             .load(&self.scope, Slot::Candidate)
@@ -223,10 +216,7 @@ impl InstallationKeys<'_> {
         self.promote_candidate(rng).await
     }
 
-    async fn promote_candidate(
-        &self,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<PrivateKeys> {
+    async fn promote_candidate(&self, rng: &mut (impl RngCore + CryptoRng)) -> Result<PrivateKeys> {
         let candidate = match self.store.load(&self.scope, Slot::Candidate).await? {
             Some(bytes) => PrivateKeys::from_storage(&bytes)?,
             None => {
@@ -239,10 +229,7 @@ impl InstallationKeys<'_> {
         };
         let id = self
             .registry
-            .enroll(
-                &candidate.signing_spki(),
-                &candidate.encryption_spki(),
-            )
+            .enroll(&candidate.signing_spki(), &candidate.encryption_spki())
             .await?;
         if id != candidate.verifier_key_id(self.uid) {
             return Err(Error::InvalidKey);

@@ -34,7 +34,6 @@ fn receiving() -> ReceiverStatus {
         receiver_machine_label: Some("Here".into()),
         receiving_enabled: true,
         is_me: true,
-
     }
 }
 
@@ -130,7 +129,7 @@ async fn missing_concierge_never_admits_acknowledges_or_advances_a_cursor() {
             uid: "owner".into(),
             installation_id: "machine".into(),
             machine_label: "Here".into(),
-            }),
+        }),
         scope: KeyScope::installation("machine", "owner").unwrap(),
         metadata: metadata.clone(),
         friendship: friendship.clone(),

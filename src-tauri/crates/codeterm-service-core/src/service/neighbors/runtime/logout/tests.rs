@@ -251,7 +251,7 @@ async fn logout(
                 uid: "owner".into(),
                 installation_id: "machine".into(),
                 machine_label: "Fixture".into(),
-                    }),
+            }),
         })
         .ok()
         .unwrap();

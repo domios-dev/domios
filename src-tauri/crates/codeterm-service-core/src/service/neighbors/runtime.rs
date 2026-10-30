@@ -392,7 +392,9 @@ impl ServiceContext {
         }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
         let mutation_friend = match &command {
-            NeighborRuntimeCommand::SetFriendReceiver { friendship_id, .. } => Some(friendship_id.clone()),
+            NeighborRuntimeCommand::SetFriendReceiver { friendship_id, .. } => {
+                Some(friendship_id.clone())
+            }
             _ => None,
         };
         let friend_mutation = mutation_friend.is_some();
@@ -661,8 +663,14 @@ impl ServiceContext {
                     if error == Error::ReceiverElsewhere {
                         if let Some(friendship) = mutation_friend.as_deref() {
                             if let Some(status) = self.neighbor_friend_receiver(friendship) {
-                                let name = self.neighbor_cell_names().get(friendship).cloned().unwrap_or_else(|| "This friend".into());
-                                return Err(first_action::receiver_refusal(friendship, &name, &status));
+                                let name = self
+                                    .neighbor_cell_names()
+                                    .get(friendship)
+                                    .cloned()
+                                    .unwrap_or_else(|| "This friend".into());
+                                return Err(first_action::receiver_refusal(
+                                    friendship, &name, &status,
+                                ));
                             }
                         }
                     }

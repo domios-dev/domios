@@ -28,11 +28,7 @@ impl PeerKeys {
             {
                 Err(Error::NotReceiver)
             }
-            Some(receiver)
-                if receiver.enc_key_id.is_none() =>
-            {
-                Err(Error::InvalidEnvelope)
-            }
+            Some(receiver) if receiver.enc_key_id.is_none() => Err(Error::InvalidEnvelope),
             Some(_) => Ok(()),
             None => Err(Error::NotReceiver),
         }

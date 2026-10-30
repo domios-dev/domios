@@ -112,10 +112,20 @@ async fn enrollment_registers_only_the_installation_key_without_receiver_state()
             assert!(data["operation_id"].as_str().is_some());
             Ok(json!({"verifier_key_id":"vk_registered"}))
         }
-        async fn id_token(&self) -> Result<Zeroizing<String>> { panic!("no authentication") }
+        async fn id_token(&self) -> Result<Zeroizing<String>> {
+            panic!("no authentication")
+        }
     }
-    let registry = FirebaseRegistry { calls: Arc::new(EnrollCalls), uid: "owner".into(), installation_id: "machine".into(), machine_label: "Desk".into() };
-    assert_eq!(registry.enroll("signing", "encryption").await.unwrap(), "vk_registered");
+    let registry = FirebaseRegistry {
+        calls: Arc::new(EnrollCalls),
+        uid: "owner".into(),
+        installation_id: "machine".into(),
+        machine_label: "Desk".into(),
+    };
+    assert_eq!(
+        registry.enroll("signing", "encryption").await.unwrap(),
+        "vk_registered"
+    );
 }
 
 #[tokio::test]
@@ -128,10 +138,20 @@ async fn uncertain_key_enrollment_is_never_replayed() {
             self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Err(Error::Transport)
         }
-        async fn id_token(&self) -> Result<Zeroizing<String>> { panic!("no authentication") }
+        async fn id_token(&self) -> Result<Zeroizing<String>> {
+            panic!("no authentication")
+        }
     }
     let calls = Arc::new(Uncertain(0.into()));
-    let registry = FirebaseRegistry { calls: calls.clone(), uid: "owner".into(), installation_id: "machine".into(), machine_label: "Desk".into() };
-    assert_eq!(registry.enroll("signing", "encryption").await, Err(Error::Transport));
+    let registry = FirebaseRegistry {
+        calls: calls.clone(),
+        uid: "owner".into(),
+        installation_id: "machine".into(),
+        machine_label: "Desk".into(),
+    };
+    assert_eq!(
+        registry.enroll("signing", "encryption").await,
+        Err(Error::Transport)
+    );
     assert_eq!(calls.0.load(std::sync::atomic::Ordering::Relaxed), 1);
 }

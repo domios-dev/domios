@@ -137,34 +137,6 @@
               "subcommands": []
             },
             {
-              "name": "enroll",
-              "about": "Receive all friends here (account takeover); use receive-here to move only one friend",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "confirm-takeover",
-                  "positional": false,
-                  "required": true,
-                  "value_name": "CONFIRM_TAKEOVER",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "expected-receiver-revision",
-                  "positional": false,
-                  "required": true,
-                  "value_name": "EXPECTED_RECEIVER_REVISION",
-                  "possible_values": [],
-                  "default": null,
-                  "help": "Receiver revision shown by status; refresh and confirm again if stale",
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
               "name": "flag",
               "about": "Locally flag a suspicious incoming message for the owner without replying",
               "aliases": [],

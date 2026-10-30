@@ -33,8 +33,7 @@ impl FriendReceiver {
     ) -> Result<Self, String> {
         if receiver.revision > codeterm_neighbors::wire::MAX_SAFE_INTEGER
             || receiver.receiving
-                && (receiver.installation_id.is_none()
-                    || receiver.enc_key_id.is_none())
+                && (receiver.installation_id.is_none() || receiver.enc_key_id.is_none())
         {
             return Err(Error::InvalidEnvelope.to_string());
         }
@@ -52,7 +51,6 @@ impl FriendReceiver {
             binding,
         })
     }
-
 }
 
 pub(in crate::service::neighbors) struct Change {
@@ -291,7 +289,6 @@ impl ServiceContext {
                             receiver_machine_label: Some("Fixture".into()),
                             receiving_enabled: true,
                             is_me: here,
-
                         },
                     },
                 },

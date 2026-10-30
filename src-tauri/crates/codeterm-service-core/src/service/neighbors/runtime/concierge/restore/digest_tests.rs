@@ -270,7 +270,6 @@ async fn resumable_providers_keep_unchanged_sessions_but_start_fresh_for_changed
             receiver_machine_label: Some("Here".into()),
             receiving_enabled: true,
             is_me: true,
-
         };
         let status = service.neighbor_concierge_view(&friend, &saved, &receiver);
         assert_eq!(

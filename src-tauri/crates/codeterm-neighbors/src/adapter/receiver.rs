@@ -40,10 +40,25 @@ impl super::FirebaseRegistry {
     pub async fn receiver_status(&self) -> crate::Result<Vec<FriendReceiverRow>> {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
-        struct Status { schema_version: u8, receivers: Vec<FriendReceiverRow> }
-        let value = self.calls.invoke("friendsReceiverStatus", serde_json::json!({"installation_id":self.installation_id})).await?;
-        let status: Status = serde_json::from_value(value).map_err(|_| crate::Error::InvalidEnvelope)?;
-        if status.schema_version != 1 || status.receivers.iter().any(|row| !crate::wire::hex_id(&row.friendship_id,64) || row.revision > crate::wire::MAX_SAFE_INTEGER) {
+        struct Status {
+            schema_version: u8,
+            receivers: Vec<FriendReceiverRow>,
+        }
+        let value = self
+            .calls
+            .invoke(
+                "friendsReceiverStatus",
+                serde_json::json!({"installation_id":self.installation_id}),
+            )
+            .await?;
+        let status: Status =
+            serde_json::from_value(value).map_err(|_| crate::Error::InvalidEnvelope)?;
+        if status.schema_version != 1
+            || status.receivers.iter().any(|row| {
+                !crate::wire::hex_id(&row.friendship_id, 64)
+                    || row.revision > crate::wire::MAX_SAFE_INTEGER
+            })
+        {
             return Err(crate::Error::InvalidEnvelope);
         }
         Ok(status.receivers)

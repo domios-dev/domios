@@ -26,7 +26,10 @@ fn sealing_uses_the_effective_friend_key_instead_of_the_newest_account_key() {
     let mut peers = peers();
     assert_eq!(peers.receiver_key().unwrap().enc_key_id, "ek_friend_target");
     peers.peer_receiver = None;
-    assert!(matches!(peers.receiver_key(), Err(Error::RecipientNotReceiving)));
+    assert!(matches!(
+        peers.receiver_key(),
+        Err(Error::RecipientNotReceiving)
+    ));
 }
 
 #[test]

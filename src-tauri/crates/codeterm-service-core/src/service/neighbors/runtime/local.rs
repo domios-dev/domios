@@ -108,8 +108,11 @@ impl ServiceContext {
                 let notification_preferences =
                     Self::neighbor_notification_preferences(&settings, &friends);
                 let key = friend_receivers.as_object().and_then(|friends| {
-                    friends.keys().find_map(|id| self.neighbor_friend_receiver(id)
-                        .filter(|receiver| receiver.receiving_here()).and_then(|receiver| receiver.receiver_encryption_key_id))
+                    friends.keys().find_map(|id| {
+                        self.neighbor_friend_receiver(id)
+                            .filter(|receiver| receiver.receiving_here())
+                            .and_then(|receiver| receiver.receiver_encryption_key_id)
+                    })
                 });
                 let states = self.neighbor_cell().states.lock().clone();
                 let failures = self.neighbor_cell().failures.lock().clone();

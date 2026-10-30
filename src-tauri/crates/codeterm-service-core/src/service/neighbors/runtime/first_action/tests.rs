@@ -13,15 +13,31 @@ fn setup_reads_only_the_named_friend_without_an_account_fallback() {
     let status = friend_status(&list(None), "friend", "here").unwrap();
     assert_eq!(status.receiver_revision, 9);
     assert!(!status.receiving_here());
-    assert_eq!(friend_status(&list(None), "foreign", "here"), Err(Error::FriendshipEnded));
-    assert_eq!(friend_status(&json!({"friends":[{"friendship_id":"friend"}]}), "friend", "here"), Err(Error::InvalidEnvelope));
+    assert_eq!(
+        friend_status(&list(None), "foreign", "here"),
+        Err(Error::FriendshipEnded)
+    );
+    assert_eq!(
+        friend_status(
+            &json!({"friends":[{"friendship_id":"friend"}]}),
+            "friend",
+            "here"
+        ),
+        Err(Error::InvalidEnvelope)
+    );
 }
 
 #[test]
 fn another_friends_receiver_does_not_block_setup() {
     let mut list = list(None);
-    list["friends"].as_array_mut().unwrap().push(json!({"friendship_id":"other", "my_receiver":{}}));
-    assert!(friend_status(&list, "friend", "here").unwrap().receiver_installation_id.is_none());
+    list["friends"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"friendship_id":"other", "my_receiver":{}}));
+    assert!(friend_status(&list, "friend", "here")
+        .unwrap()
+        .receiver_installation_id
+        .is_none());
 }
 
 #[test]

@@ -64,8 +64,7 @@ impl ServiceContext {
             NeighborRuntimeCommand::SetFriendReceiver {
                 receiver_operation: receiver::selection::Selection::Reset,
                 ..
-            }
-                | NeighborRuntimeCommand::Rotate
+            } | NeighborRuntimeCommand::Rotate
                 | NeighborRuntimeCommand::Revoke
         ) {
             return Err(DENIED.into());
