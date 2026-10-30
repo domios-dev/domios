@@ -221,7 +221,10 @@ fn plugin_steps_file_and_text_ports_feed_next_steps() {
         )))
         .is_ok());
     let adapter = Arc::new(Adapter {
-        service: Arc::downgrade(&service.service),
+        service: service
+            .service
+            .ext::<std::sync::Weak<ServiceContext>>()
+            .clone(),
         plugin: id.clone(),
         submits: AtomicUsize::new(0),
         reads: AtomicUsize::new(0),
