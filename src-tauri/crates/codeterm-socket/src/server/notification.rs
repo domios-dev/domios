@@ -156,9 +156,12 @@ pub(super) fn dispatch(
         "notification.resolve" => {
             let id = get_string_param(params, "id")?;
             let caller = string_at(params, "caller_tab_id");
-            svc.resolve_notification(&id, caller.as_deref()).map_err(|message| JsonRpcError {
-                code: -32602, message, data: None,
-            })?;
+            svc.resolve_notification(&id, caller.as_deref())
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
             Ok(serde_json::json!({"ok": true}))
         }
 

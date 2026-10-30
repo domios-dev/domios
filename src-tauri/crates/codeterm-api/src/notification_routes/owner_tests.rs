@@ -16,25 +16,64 @@ struct Authorization(AtomicUsize);
 
 #[tokio::test]
 async fn notify_resolve_route_closes_only_the_callers_question() {
-    use codeterm_notification_core::{contract::NotificationAction, store::{Ask, NotificationProvenance, NotificationSeverity}};
+    use codeterm_notification_core::{
+        contract::NotificationAction,
+        store::{Ask, NotificationProvenance, NotificationSeverity},
+    };
     let (mut mux, asker) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&asker).unwrap();
     let other = mux.create_tab(&workspace).unwrap();
     let fixture = ServiceFixture::new(mux);
-    let question = fixture.service.notif.lock().add_ext("opaque question".into(), None, NotificationSeverity::Info,
-        NotificationProvenance { tab_id: Some(asker.clone()), ..Default::default() },
-        Ask::offering(Some(vec![NotificationAction::Answer { label: "opaque answer".into() }])), None, None);
+    let question = fixture.service.notif.lock().add_ext(
+        "opaque question".into(),
+        None,
+        NotificationSeverity::Info,
+        NotificationProvenance {
+            tab_id: Some(asker.clone()),
+            ..Default::default()
+        },
+        Ask::offering(Some(vec![NotificationAction::Answer {
+            label: "opaque answer".into(),
+        }])),
+        None,
+        None,
+    );
     let state = crate::test_support::app_state(&fixture);
-    let router = Router::new().route("/api/notifications/{id}/resolve", post(resolve_notification)).with_state(state);
+    let router = Router::new()
+        .route(
+            "/api/notifications/{id}/resolve",
+            post(resolve_notification),
+        )
+        .with_state(state);
     for (tab, expected) in [(&other, StatusCode::CONFLICT), (&asker, StatusCode::OK)] {
-        let token = fixture.service.frontend_pty_env(Some(tab)).remove("CODETERM_API_TOKEN").unwrap();
-        let response = router.clone().oneshot(Request::builder().method("POST")
-            .uri(format!("/api/notifications/{question}/resolve"))
-            .header("authorization", format!("Bearer {token}"))
-            .body(Body::empty()).unwrap()).await.unwrap();
+        let token = fixture
+            .service
+            .frontend_pty_env(Some(tab))
+            .remove("CODETERM_API_TOKEN")
+            .unwrap();
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/notifications/{question}/resolve"))
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
         assert_eq!(response.status(), expected);
     }
-    assert!(fixture.service.notif.lock().notification(&question).unwrap().resolved);
+    assert!(
+        fixture
+            .service
+            .notif
+            .lock()
+            .notification(&question)
+            .unwrap()
+            .resolved
+    );
 }
 impl DaemonQuestionHandler for Authorization {
     fn answer(&self, _: &str, _: &str) -> Option<Result<serde_json::Value, String>> {

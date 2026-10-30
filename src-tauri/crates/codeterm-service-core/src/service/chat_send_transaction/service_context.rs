@@ -30,8 +30,16 @@ impl crate::service::ServiceContext {
     ) -> Result<ChatSendStatus, String> {
         let tab_id = capture.identity.tab_id.clone();
         let sent_at = chrono::Utc::now().timestamp_millis().max(0) as u64;
-        let result = self.start_chat_send_with_capture(&tab_id, text, None, Some(client_token), Some(capture));
-        if result.is_ok() { self.answer_notification_questions_in_chat(&tab_id, sent_at); }
+        let result = self.start_chat_send_with_capture(
+            &tab_id,
+            text,
+            None,
+            Some(client_token),
+            Some(capture),
+        );
+        if result.is_ok() {
+            self.answer_notification_questions_in_chat(&tab_id, sent_at);
+        }
         result
     }
 
@@ -266,7 +274,9 @@ impl crate::service::ServiceContext {
         }
         let send_id = reservation.send_id.clone();
         let result = self.admit_prepared_user_send(reservation, &original, &prepared, body);
-        if result.is_ok() { self.answer_notification_questions_in_chat(&tab_id, sent_at); }
+        if result.is_ok() {
+            self.answer_notification_questions_in_chat(&tab_id, sent_at);
+        }
         if result
             .as_ref()
             .err()

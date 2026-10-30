@@ -285,9 +285,10 @@ impl ServiceContext {
                     let job_running = existing
                         .as_ref()
                         .is_some_and(|job| cron.lock().is_job_running(&job.id));
-                    if !job_running && existing
-                        .as_ref()
-                        .is_none_or(|job| job.next_run != Some(next) || !job.enabled)
+                    if !job_running
+                        && existing
+                            .as_ref()
+                            .is_none_or(|job| job.next_run != Some(next) || !job.enabled)
                     {
                         let workspace = plan
                             .team_id

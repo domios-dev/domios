@@ -11,7 +11,9 @@ use crate::{Cli, Commands};
 #[test]
 fn notify_resolve_requires_one_notification_id() {
     let cli = Cli::try_parse_from(["domios", "notify", "resolve", "question-id"]).unwrap();
-    assert!(matches!(cli.command, Commands::Notify { action: NotifyAction::Resolve { id } } if id == "question-id"));
+    assert!(
+        matches!(cli.command, Commands::Notify { action: NotifyAction::Resolve { id } } if id == "question-id")
+    );
     assert!(Cli::try_parse_from(["domios", "notify", "resolve"]).is_err());
 }
 

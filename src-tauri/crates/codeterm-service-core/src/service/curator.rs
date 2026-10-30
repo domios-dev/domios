@@ -27,11 +27,13 @@ mod events;
 mod manual;
 mod movement_sources;
 pub(crate) mod policy;
+mod reconciliation;
 mod scheduling;
-#[cfg(test)]
-mod tests;
+pub(crate) use reconciliation::CuratorReconciliations;
 #[cfg(test)]
 mod notification_tests;
+#[cfg(test)]
+mod tests;
 pub use authority::CuratorIdentity;
 pub(crate) use events::CuratorTabs;
 
