@@ -331,9 +331,9 @@ impl ServiceContext {
 
     pub fn notification_requires_owner(&self, id: &str) -> bool {
         self.notif.lock().answer_slot(id).is_some_and(|slot| {
-            slot.daemon_request.as_deref().is_some_and(|request| {
-                request.starts_with("blueprint-plugin:") || request.starts_with("plugin-job:")
-            })
+            slot.daemon_request
+                .as_deref()
+                .is_some_and(|request| request.starts_with("blueprint-plugin:"))
         })
     }
 

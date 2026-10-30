@@ -100,6 +100,3 @@ fn native_and_js_plugin_job_lifecycle_observe_the_same_existing_identity_and_nev
     .unwrap()
     .valid_for("exact-existing-job"));
 }
-
-#[path = "job_spend.rs"]
-mod job_spend;

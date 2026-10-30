@@ -111,7 +111,6 @@ pub enum Input {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum InputBody {
-    Json { value: serde_json::Value },
     File { file: Input },
     Multipart { parts: Vec<Part> },
 }

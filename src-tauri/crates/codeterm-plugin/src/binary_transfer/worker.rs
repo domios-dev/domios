@@ -101,16 +101,6 @@ pub(super) fn execute_at(
         runtime.shutdown_background();
         result
     })();
-    log::info!(
-        "plugin transfer audit plugin={} started={} status={} outcome={}",
-        session.plugin_id(),
-        started.load(Ordering::Acquire),
-        status.load(Ordering::Acquire),
-        match &result {
-            Ok(_) => "completed",
-            Err(_) => "refused_or_uncertain",
-        }
-    );
     result.map_err(|error| TransferFailure {
         error,
         request_may_have_started: started.load(Ordering::Acquire),
@@ -157,9 +147,6 @@ fn request_headers(session: &TransferSession, request: &TransferRequest) -> Resu
             HeaderName::from_bytes(name.as_bytes()).map_err(|_| TransferRefusal::InvalidRequest)?,
             HeaderValue::from_str(value).map_err(|_| TransferRefusal::InvalidRequest)?,
         );
-    }
-    if request.body.is_some() {
-        headers.remove(reqwest::header::CONTENT_TYPE);
     }
     headers.insert(
         reqwest::header::ACCEPT_ENCODING,

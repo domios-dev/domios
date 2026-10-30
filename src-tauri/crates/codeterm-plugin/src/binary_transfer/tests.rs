@@ -18,8 +18,6 @@ mod authority;
 mod confinement;
 #[path = "tests/failure.rs"]
 mod failure;
-#[path = "tests/json.rs"]
-mod json;
 #[path = "tests/response.rs"]
 mod response;
 

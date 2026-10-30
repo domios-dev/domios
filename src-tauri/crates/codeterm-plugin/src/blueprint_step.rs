@@ -1,7 +1,6 @@
 mod descriptor;
 mod history;
 mod input_scope;
-mod job_spend;
 mod ledger;
 mod media;
 mod media_files;
@@ -15,7 +14,6 @@ pub use codeterm_blueprint_types::plugin_schema::PluginSchema as StepSchema;
 pub use descriptor::*;
 pub use history::*;
 pub use input_scope::*;
-pub use job_spend::*;
 pub use ledger::*;
 pub use media::*;
 pub use media_files::*;
