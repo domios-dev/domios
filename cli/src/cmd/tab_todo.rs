@@ -14,7 +14,9 @@ const MAX_TODO_INPUT_BYTES: usize = 64 * 1024;
 const WRITE_SCHEMA: &str = "Accepted schema: [{id?: string, content?: string, status: pending|in_progress|completed|blocked|skipped, activeForm?: string, link?: string, reason?: string}]. New items require content; activeForm defaults to content; blocked/skipped require reason.";
 
 fn parse_write_items(value: Value) -> Result<Vec<AgentTodoWriteItem>, String> {
-    let items = value.as_array().ok_or_else(|| format!("todo input must be an array. {WRITE_SCHEMA}"))?;
+    let items = value
+        .as_array()
+        .ok_or_else(|| format!("todo input must be an array. {WRITE_SCHEMA}"))?;
     let mut errors = Vec::new();
     let mut parsed = Vec::new();
     for (index, value) in items.iter().enumerate() {
@@ -24,35 +26,67 @@ fn parse_write_items(value: Value) -> Result<Vec<AgentTodoWriteItem>, String> {
         };
         let before = errors.len();
         for (field, value) in fields {
-            if !matches!(field.as_str(), "id" | "content" | "status" | "activeForm" | "link" | "reason") {
+            if !matches!(
+                field.as_str(),
+                "id" | "content" | "status" | "activeForm" | "link" | "reason"
+            ) {
                 errors.push(format!("item[{index}].{field}: unknown field"));
-            } else if !value.is_string() && !(value.is_null() && matches!(field.as_str(), "id" | "link" | "reason")) {
+            } else if !value.is_string()
+                && !(value.is_null() && matches!(field.as_str(), "id" | "link" | "reason"))
+            {
                 errors.push(format!("item[{index}].{field}: expected a string"));
             }
         }
-        if !fields.get("status").and_then(Value::as_str).is_some_and(|status| matches!(status, "pending" | "in_progress" | "completed" | "blocked" | "skipped")) {
-            errors.push(format!("item[{index}].status: expected pending|in_progress|completed|blocked|skipped"));
+        if !fields
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| {
+                matches!(
+                    status,
+                    "pending" | "in_progress" | "completed" | "blocked" | "skipped"
+                )
+            })
+        {
+            errors.push(format!(
+                "item[{index}].status: expected pending|in_progress|completed|blocked|skipped"
+            ));
         }
-        if !fields.get("id").is_some_and(Value::is_string) && !fields.get("content").and_then(Value::as_str).is_some_and(|content| !content.trim().is_empty()) {
+        if !fields.get("id").is_some_and(Value::is_string)
+            && !fields
+                .get("content")
+                .and_then(Value::as_str)
+                .is_some_and(|content| !content.trim().is_empty())
+        {
             errors.push(format!("item[{index}].content: required for a new item"));
         }
-        if fields.get("status").and_then(Value::as_str).is_some_and(|status| matches!(status, "blocked" | "skipped"))
-            && !fields.get("reason").and_then(Value::as_str).is_some_and(|reason| !reason.trim().is_empty()) {
-            errors.push(format!("item[{index}].reason: blocked/skipped needs a reason"));
+        if fields
+            .get("status")
+            .and_then(Value::as_str)
+            .is_some_and(|status| matches!(status, "blocked" | "skipped"))
+            && !fields
+                .get("reason")
+                .and_then(Value::as_str)
+                .is_some_and(|reason| !reason.trim().is_empty())
+        {
+            errors.push(format!(
+                "item[{index}].reason: blocked/skipped needs a reason"
+            ));
         }
         if errors.len() == before {
             match serde_json::from_value::<AgentTodoWriteItem>(value.clone()) {
-                Ok(item) => {
-                    match write_entry(item.clone()) {
-                        Ok(_) => parsed.push(item),
-                        Err(error) => errors.push(format!("item[{index}]: {error}")),
-                    }
-                }
+                Ok(item) => match write_entry(item.clone()) {
+                    Ok(_) => parsed.push(item),
+                    Err(error) => errors.push(format!("item[{index}]: {error}")),
+                },
                 Err(error) => errors.push(format!("item[{index}]: {error}")),
             }
         }
     }
-    if errors.is_empty() { Ok(parsed) } else { Err(format!("{}\n{WRITE_SCHEMA}", errors.join("\n"))) }
+    if errors.is_empty() {
+        Ok(parsed)
+    } else {
+        Err(format!("{}\n{WRITE_SCHEMA}", errors.join("\n")))
+    }
 }
 
 fn write_entries(input: Vec<AgentTodoWriteItem>) -> Result<Vec<TabTodoWriteEntry>, String> {
@@ -64,7 +98,11 @@ fn write_entries(input: Vec<AgentTodoWriteItem>) -> Result<Vec<TabTodoWriteEntry
             Err(error) => errors.push(format!("item[{index}]: {error}")),
         }
     }
-    if errors.is_empty() { Ok(entries) } else { Err(format!("{}\n{WRITE_SCHEMA}", errors.join("\n"))) }
+    if errors.is_empty() {
+        Ok(entries)
+    } else {
+        Err(format!("{}\n{WRITE_SCHEMA}", errors.join("\n")))
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -528,7 +566,10 @@ fn print_value(value: &Value, json_output: bool) {
         );
         return;
     }
-    if !crate::cmd::output::verbose() && crate::cmd::output::is_collection() && crate::cmd::output::has_collection(value) {
+    if !crate::cmd::output::verbose()
+        && crate::cmd::output::is_collection()
+        && crate::cmd::output::has_collection(value)
+    {
         print!("{}", crate::cmd::output::compact_list(value, None));
         return;
     }

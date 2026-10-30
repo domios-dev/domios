@@ -104,7 +104,6 @@ fn validate_task_update_params(p: Option<&Value>) -> Result<(), JsonRpcError> {
     })
 }
 
-
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,

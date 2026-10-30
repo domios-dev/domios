@@ -27,17 +27,22 @@ pub(super) fn dispatch(
     match method {
         "tab.send_status" => {
             let send_id = get_string_param(params, "send_id")?;
-            let retained = svc.chat_send_ledger.status(&send_id).ok_or_else(|| JsonRpcError {
-                code: -32602,
-                message: format!("retained send not found: {send_id}"),
-                data: None,
-            })?;
-            let statuses = svc.reconcile_user_send_statuses(&retained.tab_id).map_err(|message| JsonRpcError {
-                code: -32603, message, data: None,
-            })?;
-            let status = statuses.into_iter().find(|status| status.send_id == send_id).unwrap_or(retained);
+            let status = svc
+                .inspect_retained_send(&send_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: format!("retained send not found: {send_id}"),
+                    data: None,
+                })?;
             serde_json::to_value(status).map_err(|error| JsonRpcError {
-                code: -32603, message: error.to_string(), data: None,
+                code: -32603,
+                message: error.to_string(),
+                data: None,
             })
         }
         "tab.shells" => {

@@ -696,7 +696,7 @@ fn request(
         BlueprintAction::List { all } => {
             params["all"] = json!(all);
             "blueprint.list"
-        },
+        }
         BlueprintAction::Input {
             id,
             from_pad,

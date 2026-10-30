@@ -12,7 +12,11 @@ pub fn infer_work_tag<'a>(
     area: &str,
 ) -> Option<String> {
     if !facet_keys.into_iter().any(|key| key == "work")
-        || tags.iter().any(|tag| tag.split_once(':').is_some_and(|(key, _)| key.trim() == "work")) {
+        || tags.iter().any(|tag| {
+            tag.split_once(':')
+                .is_some_and(|(key, _)| key.trim() == "work")
+        })
+    {
         return None;
     }
     let area = area.to_ascii_lowercase();
@@ -23,8 +27,10 @@ pub fn infer_work_tag<'a>(
         ("infra", ["scripts/", "build.sh", "gateway"]),
         ("qa", ["tests/", "test", "verification"]),
         ("design", ["design", "figma", "mockup"]),
-    ].into_iter().find(|(_, hints)| hints.iter().any(|hint| area.contains(*hint)))
-        .map_or("backend", |(work, _)| work);
+    ]
+    .into_iter()
+    .find(|(_, hints)| hints.iter().any(|hint| area.contains(*hint)))
+    .map_or("backend", |(work, _)| work);
     let tag = format!("work:{work}");
     tags.push(tag.clone());
     Some(tag)

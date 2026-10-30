@@ -607,8 +607,7 @@ pub(super) fn run_task(
         } => {
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
-            let role_guidance_text =
-                resolve_text(role_guidance, role_guidance_file)?;
+            let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let test_plan = resolve_text(test_plan, test_plan_file)?;

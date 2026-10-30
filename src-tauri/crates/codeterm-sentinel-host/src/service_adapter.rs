@@ -382,7 +382,9 @@ impl SentinelExt for ServiceContext {
     }
 
     fn sentinel_inspect(&self, caller: &SentinelCaller, id: &str) -> Result<Sentinel, String> {
-        self.sentinel_list(caller)?.into_iter().find(|job| job.id == id)
+        self.sentinel_list(caller)?
+            .into_iter()
+            .find(|job| job.id == id)
             .ok_or_else(|| format!("blueprint not found for this reader: {id}"))
     }
 

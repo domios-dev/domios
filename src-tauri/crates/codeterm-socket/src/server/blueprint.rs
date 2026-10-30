@@ -213,9 +213,16 @@ pub(super) fn dispatch(
                 .map_err(|e| error(e.to_string()))
         }
         "blueprint.list" => {
-            if params.as_ref().and_then(|params| params.get("all")).and_then(Value::as_bool) == Some(true)
-                && !svc.sentinel_read_all_authority(&caller).map_err(error)? {
-                return Err(error("blueprint list --all requires owner or Orchestrator authority"));
+            if params
+                .as_ref()
+                .and_then(|params| params.get("all"))
+                .and_then(Value::as_bool)
+                == Some(true)
+                && !svc.sentinel_read_all_authority(&caller).map_err(error)?
+            {
+                return Err(error(
+                    "blueprint list --all requires owner or Orchestrator authority",
+                ));
             }
             let mut listed = serde_json::to_value(svc.sentinel_list(&caller).map_err(error)?)
                 .map_err(|e| error(e.to_string()))?;

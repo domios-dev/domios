@@ -15,7 +15,10 @@ fn role_guidance_add_defers_absence_to_daemon_and_update_refuses_blank() {
         "--executor-role",
         "dev",
     ]);
-    assert!(missing.is_ok(), "draft validation aggregates required fields in the daemon");
+    assert!(
+        missing.is_ok(),
+        "draft validation aggregates required fields in the daemon"
+    );
 
     let parsed = Cli::try_parse_from([
         "codeterm",

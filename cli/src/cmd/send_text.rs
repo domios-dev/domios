@@ -83,7 +83,10 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
         let message = value
             .get("send_id")
             .and_then(serde_json::Value::as_str)
-            .map_or_else(|| message.clone(), |id| format!("send_id={id}: {message}\ninspect: domios tab send-status {id}"));
+            .map_or_else(
+                || message.clone(),
+                |id| format!("send_id={id}: {message}\ninspect: domios tab send-status {id}"),
+            );
         return SendTextOutcome::Error {
             msg: message,
             exit_code: crate::cmd::print::CLI_ERROR_EXIT_CODE,

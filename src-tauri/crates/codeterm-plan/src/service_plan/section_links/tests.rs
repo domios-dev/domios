@@ -42,11 +42,21 @@ fn add_task_auto_links_by_group() {
 #[test]
 fn ease_task_uses_the_only_section_when_no_area_matches() {
     let (store, plan_id) = store_with_backend_section();
-    let task_id = store.add_task(&plan_id, NewTask {
-        name: "Unrelated task".into(), ..Default::default()
-    }, 3).unwrap();
+    let task_id = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Unrelated task".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
     let plan = store.get(&plan_id).unwrap();
-    assert_eq!(store.show_task(&task_id).unwrap().task.section_ids, vec![plan.sections[0].id.clone()]);
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.section_ids,
+        vec![plan.sections[0].id.clone()]
+    );
 }
 
 #[test]

@@ -9,9 +9,12 @@ fn ease_created_tab_response_preserves_unconfirmed_command_and_tab_identity() {
         "status":"submit_unconfirmed", "bytes_written":true, "bytes_queued":71,
         "pty_id":"exact-pty", "evidence":"pty_write_queue"
     });
-    let result = created_tab_response(serde_json::json!({
-        "tab_id":"created-tab", "pty_id":"exact-pty", "command_submission":receipt,
-    }), true);
+    let result = created_tab_response(
+        serde_json::json!({
+            "tab_id":"created-tab", "pty_id":"exact-pty", "command_submission":receipt,
+        }),
+        true,
+    );
     assert_eq!(result["id"], "created-tab");
     assert_eq!(result["tab_id"], "created-tab");
     assert_eq!(result["command_submission"], receipt);

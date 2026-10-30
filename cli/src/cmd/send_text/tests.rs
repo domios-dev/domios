@@ -11,14 +11,17 @@ mod neighbor_refusal;
 #[test]
 fn ease_retained_send_refusal_prints_the_exact_inspection_command() {
     use clap::Parser;
-    let parsed = crate::Cli::try_parse_from(["domios", "tab", "send-status", "retained-1"]).unwrap();
+    let parsed =
+        crate::Cli::try_parse_from(["domios", "tab", "send-status", "retained-1"]).unwrap();
     assert!(matches!(parsed.command, crate::Commands::Tab {
         action: crate::TabAction::SendStatus { send_id }
     } if send_id == "retained-1"));
     let outcome = analyze_send_text_response(&serde_json::json!({
         "ok":true, "bytes_written":false, "send_id":"retained-1"
     }));
-    let SendTextOutcome::Error { msg, .. } = outcome else { panic!("expected retained refusal") };
+    let SendTextOutcome::Error { msg, .. } = outcome else {
+        panic!("expected retained refusal")
+    };
     assert!(msg.contains("domios tab send-status retained-1"));
 }
 

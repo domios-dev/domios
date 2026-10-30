@@ -6,11 +6,32 @@ use codeterm_service_core::service::plan::PlanStore;
 fn ease_task_add_aggregates_errors_and_derives_optional_fields() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
-    let mut plan = Plan::new("Draft".into(), dir.path().display().to_string(), OrchestratorRef::default());
-    plan.tag_facets.push(TagFacet { key: "work".into(), label: None, color_lane: false, values: vec![] });
+    let mut plan = Plan::new(
+        "Draft".into(),
+        dir.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    plan.tag_facets.push(TagFacet {
+        key: "work".into(),
+        label: None,
+        color_lane: false,
+        values: vec![],
+    });
     store.save(&mut plan, 1).unwrap();
-    let error = normalize(&Some(json!({"personality":"two words", "sections":"missing", "tags":["work:nope"]})), &store, &plan.id).unwrap_err();
-    for field in ["--name", "--executor-role", "--role-guidance", "--personality", "--sections", "--tag"] {
+    let error = normalize(
+        &Some(json!({"personality":"two words", "sections":"missing", "tags":["work:nope"]})),
+        &store,
+        &plan.id,
+    )
+    .unwrap_err();
+    for field in [
+        "--name",
+        "--executor-role",
+        "--role-guidance",
+        "--personality",
+        "--sections",
+        "--tag",
+    ] {
         assert!(error.message.contains(field), "{}", error.message);
     }
     assert!(store.get(&plan.id).unwrap().tasks.is_empty());
@@ -18,6 +39,9 @@ fn ease_task_add_aggregates_errors_and_derives_optional_fields() {
     assert_eq!(draft["personality"], "CLI");
     assert_eq!(draft["model"], "codex");
     assert_eq!(draft["tags"], json!(["work:backend"]));
-    assert!(draft["inferred_work_warning"].as_str().unwrap().contains("WARNING:"));
+    assert!(draft["inferred_work_warning"]
+        .as_str()
+        .unwrap()
+        .contains("WARNING:"));
     assert!(draft.get("correctness").is_none());
 }

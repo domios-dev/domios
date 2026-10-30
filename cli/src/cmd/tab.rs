@@ -57,7 +57,10 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
     }
     match action {
         TabAction::SendStatus { send_id } => {
-            let result = client.call("tab.send_status", Some(serde_json::json!({"send_id": send_id})));
+            let result = client.call(
+                "tab.send_status",
+                Some(serde_json::json!({"send_id": send_id})),
+            );
             handle_result(json, result);
         }
         TabAction::List {
@@ -87,7 +90,13 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                             requested_workspace.as_deref(),
                         ));
                     } else if !crate::cmd::output::verbose() {
-                        print!("{}", crate::cmd::output::compact_list(&value, std::env::var("CODETERM_TAB_ID").ok().as_deref()));
+                        print!(
+                            "{}",
+                            crate::cmd::output::compact_list(
+                                &value,
+                                std::env::var("CODETERM_TAB_ID").ok().as_deref()
+                            )
+                        );
                     } else {
                         let current_tab = std::env::var("CODETERM_TAB_ID").ok();
                         print!(

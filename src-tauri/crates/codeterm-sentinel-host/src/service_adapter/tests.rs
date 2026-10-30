@@ -8,23 +8,43 @@ fn ease_blueprint_global_read_authority_follows_live_role_without_mutation_grant
     mux.get_tab_mut(&tab).unwrap().cwd = Some("/repo".into());
     let fixture = ServiceFixture::new(mux);
     let caller = fixture.service.sentinel_caller(&tab, None).unwrap();
-    assert!(!fixture.service.sentinel_read_all_authority(&caller).unwrap());
+    assert!(!fixture
+        .service
+        .sentinel_read_all_authority(&caller)
+        .unwrap());
     {
         let mut mux = fixture.service.mux.write();
         mux.set_orchestrator_role(&tab).unwrap();
         mux.resolve_or_mint_team_for_parent(&tab).unwrap();
     }
     let caller = fixture.service.sentinel_caller(&tab, None).unwrap();
-    assert!(fixture.service.sentinel_read_all_authority(&caller).unwrap());
+    assert!(fixture
+        .service
+        .sentinel_read_all_authority(&caller)
+        .unwrap());
     {
         let mut mux = fixture.service.mux.write();
-        codeterm_service_core::service::general_agent::identity::apply_general_agent_kind(mux.get_tab_mut(&tab).unwrap());
+        codeterm_service_core::service::general_agent::identity::apply_general_agent_kind(
+            mux.get_tab_mut(&tab).unwrap(),
+        );
         mux.get_tab_mut(&tab).unwrap().team_id = None;
     }
     let caller = fixture.service.sentinel_caller(&tab, None).unwrap();
-    assert!(fixture.service.sentinel_read_all_authority(&caller).unwrap());
-    fixture.service.mux.write().get_tab_mut(&tab).unwrap().session_binding_nonce = Some("new-session".into());
-    assert!(fixture.service.sentinel_read_all_authority(&caller).is_err());
+    assert!(fixture
+        .service
+        .sentinel_read_all_authority(&caller)
+        .unwrap());
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab)
+        .unwrap()
+        .session_binding_nonce = Some("new-session".into());
+    assert!(fixture
+        .service
+        .sentinel_read_all_authority(&caller)
+        .is_err());
 }
 
 #[test]
@@ -66,7 +86,11 @@ fn sentinel_creator_team_and_workspace_scope_all_read_and_stop_operations() {
         ..caller.clone()
     };
     assert!(owner.may_list(&job, true));
-    let foreign_reader = SentinelCaller { team: Some("foreign".into()), workspace: "foreign".into(), ..owner.clone() };
+    let foreign_reader = SentinelCaller {
+        team: Some("foreign".into()),
+        workspace: "foreign".into(),
+        ..owner.clone()
+    };
     assert!(foreign_reader.may_inspect(&job, true, false));
     assert!(!foreign_reader.may_inspect(&job, false, false));
     assert!(!foreign_reader.owns(&job));

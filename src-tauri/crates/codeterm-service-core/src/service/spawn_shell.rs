@@ -217,7 +217,9 @@ impl ServiceContext {
                     return Err(format!("Tab {tab_id} command failed: {error}"));
                 }
             }
-        } else { None };
+        } else {
+            None
+        };
         if reused.is_none() {
             self.record_kpi_tab_created(
                 &tab_id,

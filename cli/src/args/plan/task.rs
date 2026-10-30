@@ -51,9 +51,16 @@ pub enum PlanTaskAction {
         name: String,
         #[arg(long = "type", allow_hyphen_values = true)]
         kind: Option<String>,
-        #[arg(long, help = "Section selectors; omission uses area matching or the plan's sole section")]
+        #[arg(
+            long,
+            help = "Section selectors; omission uses area matching or the plan's sole section"
+        )]
         sections: Option<String>,
-        #[arg(long, allow_hyphen_values = true, help = "Provider:model, model id, or bare provider resolved at dispatch")]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Provider:model, model id, or bare provider resolved at dispatch"
+        )]
         model: Option<String>,
         #[arg(
             long,

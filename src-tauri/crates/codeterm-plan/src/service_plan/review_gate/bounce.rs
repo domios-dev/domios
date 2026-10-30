@@ -406,8 +406,11 @@ impl PlanStore {
             let was_in_review = p.tasks[idx].status == TaskStatus::InReview;
             let reported_partial = p.tasks[idx].status == TaskStatus::InProgress
                 && exact_review_continuation_attempt(&p.tasks[idx]).is_some_and(|index| {
-                    p.tasks[idx].execution_attempts[index].report.as_ref()
-                        .and_then(|report| report.status.as_deref()) == Some("partial")
+                    p.tasks[idx].execution_attempts[index]
+                        .report
+                        .as_ref()
+                        .and_then(|report| report.status.as_deref())
+                        == Some("partial")
                 });
             if !reported_partial {
                 require_in_review(&p.tasks[idx])?;

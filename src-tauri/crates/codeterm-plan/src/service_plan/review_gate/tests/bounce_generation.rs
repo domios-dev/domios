@@ -71,24 +71,66 @@ fn real_ingest_fixture() -> (
 #[test]
 fn ease_partial_report_bounces_to_the_bound_worker_without_earning_credit() {
     let (_dir, store, plan_id, task_id, attempt_id, authority) = real_ingest_fixture();
-    store.with_plan(&plan_id, 6, |plan| {
-        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
-        task.status = TaskStatus::InProgress;
-        task.status_label = None;
-        Ok(())
-    }).unwrap();
+    store
+        .with_plan(&plan_id, 6, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.status = TaskStatus::InProgress;
+            task.status_label = None;
+            Ok(())
+        })
+        .unwrap();
     let mut report = bound_report(authority, "partial work remains");
     report.status = Some(ReportStatus::Partial);
-    store.ingest_bound_worker_report(&plan_id, &task_id, &AgentRef::from_tab("worker"), report, 7).unwrap();
+    store
+        .ingest_bound_worker_report(&plan_id, &task_id, &AgentRef::from_tab("worker"), report, 7)
+        .unwrap();
     let before = store.get(&plan_id).unwrap().review_policy.credit;
-    let result = store.bounce_review(&plan_id, &task_id, "finish remaining work", true, false, AgentRef::from_tab("orch"), 8).unwrap();
+    let result = store
+        .bounce_review(
+            &plan_id,
+            &task_id,
+            "finish remaining work",
+            true,
+            false,
+            AgentRef::from_tab("orch"),
+            8,
+        )
+        .unwrap();
     let continuation = result.continuation.unwrap();
     assert_eq!(continuation.attempt_id, attempt_id);
     assert_eq!(store.get(&plan_id).unwrap().review_policy.credit, before);
-    assert_eq!(store.show_task(&task_id).unwrap().task.review_evidence.last().unwrap().note, "finish remaining work");
-    store.claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, continuation.epoch, 9).unwrap();
-    assert!(store.finish_review_continuation(&plan_id, &task_id, &attempt_id, continuation.epoch, true, 10).unwrap());
-    assert_eq!(store.show_task(&task_id).unwrap().task.status, TaskStatus::InProgress);
+    assert_eq!(
+        store
+            .show_task(&task_id)
+            .unwrap()
+            .task
+            .review_evidence
+            .last()
+            .unwrap()
+            .note,
+        "finish remaining work"
+    );
+    store
+        .claim_review_continuation_delivery(&plan_id, &task_id, &attempt_id, continuation.epoch, 9)
+        .unwrap();
+    assert!(store
+        .finish_review_continuation(
+            &plan_id,
+            &task_id,
+            &attempt_id,
+            continuation.epoch,
+            true,
+            10
+        )
+        .unwrap());
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task.status,
+        TaskStatus::InProgress
+    );
 }
 
 #[test]

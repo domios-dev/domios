@@ -439,7 +439,10 @@ pub async fn create_shell_tab(
             (status, error)
         })?;
 
-    Ok(Json(created_tab_response(serde_json::to_value(handle).unwrap_or_default(), utility_shell)))
+    Ok(Json(created_tab_response(
+        serde_json::to_value(handle).unwrap_or_default(),
+        utility_shell,
+    )))
 }
 
 fn created_tab_response(mut response: serde_json::Value, utility_shell: bool) -> serde_json::Value {

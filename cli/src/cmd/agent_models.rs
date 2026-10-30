@@ -228,4 +228,5 @@ fn format_reasoning_efforts(target: &serde_json::Value) -> String {
 }
 
 #[cfg(test)]
+#[path = "agent_models/tests.rs"]
 mod tests;
