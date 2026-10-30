@@ -129,3 +129,129 @@ async fn daemon_question_route_refuses_every_non_owner_identity_before_handler()
         }
     }
 }
+
+#[tokio::test]
+async fn tab_cannot_repackage_a_listed_daemon_answer_as_a_bridge_button() {
+    let fixture = ServiceFixture::new(MultiplexerState::new().0);
+    let handler = Arc::new(Authorization(AtomicUsize::new(0)));
+    assert!(fixture
+        .service
+        .register_host_extension(Arc::new(DaemonQuestions::new(handler.clone())))
+        .is_ok());
+    let id = fixture
+        .service
+        .publish_daemon_question(
+            "fixture:listed".into(),
+            "Question".into(),
+            "Opaque".into(),
+            vec!["Continue".into()],
+        )
+        .unwrap();
+    fixture
+        .service
+        .notif
+        .lock()
+        .remember_channel_placement(&id, "telegram", "42:7");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    *fixture.service.bridge_outbound.lock() = Some(tx);
+    let router = Router::new()
+        .route("/api/notifications", axum::routing::get(list_notifications))
+        .route(
+            "/api/bridge/send",
+            post(crate::config_routes::bridge_send_api),
+        )
+        .with_state(crate::test_support::app_state(&fixture))
+        .layer(Extension(CallerIdentity::Tab(
+            codeterm_service_core::service::tab_credentials::TabCaller {
+                tab_id: "worker".into(),
+                binding_nonce: "bound".into(),
+            },
+        )));
+    let listed = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/notifications")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(listed.status(), StatusCode::OK);
+    let records: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(listed.into_body(), 1024 * 1024)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    let record = records
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|record| record["id"] == id)
+        .unwrap();
+    let token = format!("na:{}:0", record["id"].as_str().unwrap());
+    let other = fixture
+        .service
+        .publish_daemon_question(
+            "fixture:other-listed".into(),
+            "Other".into(),
+            "Opaque".into(),
+            vec!["Continue".into()],
+        )
+        .unwrap();
+    fixture
+        .service
+        .notif
+        .lock()
+        .remember_channel_placement(&other, "telegram", "42:99");
+    fixture
+        .service
+        .notif
+        .lock()
+        .remember_channel_placement(&id, "other-channel", "42:99");
+    for key in ["data", "callback_data"] {
+        let mut button = serde_json::json!({"text":"Show log"});
+        button[key] = token.clone().into();
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/bridge/send")
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::json!({"chat_id":42,"text":"Log","buttons":[[button]]})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    assert!(rx.try_recv().is_err());
+    for (chat, message) in [(42, Some(99)), (43, Some(7)), (42, None)] {
+        assert!(fixture
+            .service
+            .claim_channel_answer(&token, chat, message)
+            .unwrap()
+            .is_err());
+        assert_eq!(handler.0.load(Ordering::SeqCst), 0);
+        assert!(fixture
+            .service
+            .notif
+            .lock()
+            .answer_slot(&id)
+            .unwrap()
+            .answered
+            .is_none());
+    }
+    for _ in 0..2 {
+        assert_eq!(
+            fixture.service.claim_channel_answer(&token, 42, Some(7)),
+            Some(Ok(()))
+        );
+    }
+    assert_eq!(handler.0.load(Ordering::SeqCst), 1);
+}

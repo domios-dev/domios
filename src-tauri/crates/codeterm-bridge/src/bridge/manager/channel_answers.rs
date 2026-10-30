@@ -7,10 +7,11 @@ pub(super) async fn claim(
     api_base: &str,
     token: &str,
 ) -> bool {
+    let ReplyContext::Telegram { chat_id, .. } = &message.reply_ctx;
     let Some(result) = message
         .callback_data
         .as_deref()
-        .and_then(|data| tab.claim_channel_answer(data))
+        .and_then(|data| tab.claim_channel_answer(data, *chat_id, message.message_id))
     else {
         return false;
     };

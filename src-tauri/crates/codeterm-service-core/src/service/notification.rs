@@ -387,15 +387,33 @@ impl ServiceContext {
         }
     }
 
-    /// Answer a bridge-verified owner's tap after resolving its token against this record's choices.
+    /// Answer a bridge-verified owner's tap only from this notification's delivered message.
     /// None leaves unrelated traffic unclaimed; a refusal must be shown in the channel.
-    pub fn claim_channel_answer(&self, callback_data: &str) -> Option<Result<(), String>> {
+    pub fn claim_channel_answer(
+        &self,
+        callback_data: &str,
+        chat_id: i64,
+        message_id: Option<i64>,
+    ) -> Option<Result<(), String>> {
         let tapped = channel_ask::decode(callback_data)?;
+        let locator = message_id.map(|id| codeterm_bridge::bridge::telegram::locator(chat_id, id));
         // Drop the guard before answering: the answer path takes this same store lock.
-        let resolved = self
-            .notif
-            .lock()
-            .offered_choice(&tapped.notification_id, tapped.index);
+        let resolved = {
+            let store = self.notif.lock();
+            if !store
+                .channel_placements(&tapped.notification_id)
+                .iter()
+                .any(|placement| {
+                    placement.service == "telegram"
+                        && Some(placement.locator.as_str()) == locator.as_deref()
+                })
+            {
+                return Some(Err(
+                    "This message did not carry that notification question".into()
+                ));
+            }
+            store.offered_choice(&tapped.notification_id, tapped.index)
+        };
         Some(match resolved {
             Some(label) => self
                 .answer_notification_as_owner(&tapped.notification_id, &label)

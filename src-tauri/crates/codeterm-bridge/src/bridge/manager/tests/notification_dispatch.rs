@@ -142,7 +142,16 @@ impl crate::ports::BridgeTabPort for NotificationBridgeTab {
         unreachable!()
     }
 
-    fn claim_channel_answer(&self, _callback_data: &str) -> Option<Result<(), String>> {
+    fn claim_channel_answer(
+        &self,
+        _callback_data: &str,
+        chat_id: i64,
+        message_id: Option<i64>,
+    ) -> Option<Result<(), String>> {
+        if self.answer.is_some() {
+            assert_eq!(chat_id, NOTIFICATION_CHAT);
+            assert_eq!(message_id, Some(12345));
+        }
         self.answer.clone()
     }
 
@@ -352,4 +361,85 @@ async fn refused_channel_answer_replies_in_the_tapped_chat_and_thread() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn caller_bridge_buttons_cannot_use_notification_tokens_but_push_receipts_can() {
+    for trusted_push in [false, true] {
+        let captured = Arc::new(PLMutex::new(Vec::new()));
+        let base = spawn_fake_telegram_with_methods(captured.clone()).await;
+        let host = Arc::new(NotificationBridgeTab {
+            threads: Arc::new(crate::bridge::threads::ThreadService::new(
+                crate::bridge::threads::ThreadRegistry::in_memory(),
+            )),
+            tabs: NotificationTabs,
+            placements: Default::default(),
+            answer: None,
+        });
+        let tab: Arc<dyn crate::ports::BridgeTabPort> = host.clone();
+        let (completion, result) = std::sync::mpsc::sync_channel(1);
+        let message = OutboundMessage {
+            user_id: Some(NOTIFICATION_CHAT),
+            content: OutboundContent::Text {
+                text: "Question".into(),
+            },
+            append: false,
+            buttons: Some(vec![vec![crate::bridge::traits::InlineButton {
+                text: "Continue".into(),
+                data: Some("na:question:0".into()),
+                url: None,
+            }]]),
+            edit: None,
+            receipt: trusted_push.then(|| PlacementReceipt {
+                service: "telegram".into(),
+                tag: "question".into(),
+            }),
+            completion: Some(completion),
+            route: OutboundRoute::Chat,
+        };
+        threaded::send_outbound(
+            &tab,
+            &reqwest::Client::new(),
+            &base,
+            "FAKETOKEN",
+            NOTIFICATION_CHAT,
+            &message,
+            &mut HashMap::new(),
+        )
+        .await;
+        if trusted_push {
+            assert_eq!(captured.lock().len(), 1);
+            assert_eq!(
+                host.placements.lock()[0].1,
+                crate::bridge::telegram::locator(NOTIFICATION_CHAT, 42)
+            );
+        } else {
+            assert!(result.try_recv().unwrap().is_err());
+            assert!(captured.lock().is_empty());
+            assert!(host.placements.lock().is_empty());
+        }
+    }
+    let transport = Arc::new(FailingNotificationTransport::default());
+    let threads = crate::bridge::threads::ThreadService::new(
+        crate::bridge::threads::ThreadRegistry::in_memory(),
+    );
+    threads.attach(transport.clone(), 77_700);
+    assert!(threads
+        .route_text(
+            &NotificationTabs,
+            crate::bridge::threads::TabText {
+                tab_id: NOTIFICATION_TAB.into(),
+                chat_id: NOTIFICATION_CHAT,
+                markdown: "Log".into(),
+                append: false,
+                buttons: Some(vec![vec![crate::bridge::traits::InlineButton {
+                    text: "Show log".into(),
+                    data: Some("na:question:0".into()),
+                    url: None
+                }]])
+            }
+        )
+        .await
+        .is_none());
+    assert!(transport.sends.lock().is_empty());
 }

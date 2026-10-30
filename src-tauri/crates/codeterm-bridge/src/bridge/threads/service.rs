@@ -296,6 +296,7 @@ impl ThreadService {
     /// cannot carry it, with its sender header. Returns the
     /// message that carries the buttons.
     pub async fn route_text(&self, tabs: &dyn ThreadTabs, text: TabText) -> Option<i64> {
+        crate::bridge::traits::validate_caller_buttons(text.buttons.as_ref()).ok()?;
         let attached = self.attached()?;
         if text.append {
             if let Some(message_id) = self.append_to_recent(&attached, &text).await {

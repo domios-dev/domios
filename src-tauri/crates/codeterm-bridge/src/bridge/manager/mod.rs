@@ -875,6 +875,6 @@ mod tests;
 mod off_runtime_tests;
 
 mod request;
-pub use request::outbound_content;
+pub use request::{caller_buttons, outbound_content};
 
 mod channel_answers;

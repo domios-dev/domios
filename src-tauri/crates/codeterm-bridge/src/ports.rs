@@ -37,7 +37,12 @@ pub trait BridgeTabPort: Send + Sync {
     /// Offer a bridge-authenticated user's opaque button payload to the daemon.
     /// Some claims the tap, carrying its result for a visible channel reply on refusal;
     /// None leaves ordinary channel traffic unclaimed. Never call this from a Tab route.
-    fn claim_channel_answer(&self, callback_data: &str) -> Option<Result<(), String>>;
+    fn claim_channel_answer(
+        &self,
+        callback_data: &str,
+        chat_id: i64,
+        message_id: Option<i64>,
+    ) -> Option<Result<(), String>>;
     /// A send that carried a receipt has landed. The locator is the channel's
     /// own address for that message; the daemon stores it and hands it back to
     /// the same channel later, never reading it.
