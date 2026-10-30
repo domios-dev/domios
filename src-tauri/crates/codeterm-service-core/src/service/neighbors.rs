@@ -18,8 +18,8 @@ mod notifications;
 mod pause;
 mod removal;
 pub use notifications::NeighborNotify;
-mod reception;
 mod projection;
+mod reception;
 pub(crate) mod runtime;
 mod storage;
 mod toggle;
@@ -82,9 +82,16 @@ impl ServiceContext {
         &self,
         command: NeighborCommand,
     ) -> Result<Value, String> {
-        if self.neighbor_access_locked().await && !matches!(&command, NeighborCommand::List {} | NeighborCommand::Refresh {}) {
+        if self.neighbor_access_locked().await
+            && !matches!(
+                &command,
+                NeighborCommand::List {} | NeighborCommand::Refresh {}
+            )
+        {
             return match command {
-                NeighborCommand::List {} | NeighborCommand::Refresh {} => Ok(backend_reads::locked_list()),
+                NeighborCommand::List {} | NeighborCommand::Refresh {} => {
+                    Ok(backend_reads::locked_list())
+                }
                 _ => Err(codeterm_neighbors::Error::Locked.to_string()),
             };
         }
@@ -163,7 +170,9 @@ impl ServiceContext {
             let settings = metadata.settings().await.map_err(|e| e.to_string())?;
             annotate_list(&mut result, &settings)?;
             self.project_neighbor_pauses(&mut result, &settings);
-            self.project_neighbor_send_counts(&metadata, &mut result).await.map_err(|error| error.to_string())?;
+            self.project_neighbor_send_counts(&metadata, &mut result)
+                .await
+                .map_err(|error| error.to_string())?;
             self.remember_neighbor_names(&result);
             if self.require_neighbors_enabled().is_ok() {
                 self.end_missing_neighbor_friendships(&metadata, &result, history_generation)

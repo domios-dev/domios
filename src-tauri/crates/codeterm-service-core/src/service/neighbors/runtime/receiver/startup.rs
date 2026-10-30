@@ -151,7 +151,10 @@ impl ServiceContext {
             }
         };
         if !super::super::super::updates::receives_friends(&list, &registry.installation_id) {
-            self.reconcile_neighbor_friend_receiver_rows(&metadata, &registry, &list, None, generation).await?;
+            self.reconcile_neighbor_friend_receiver_rows(
+                &metadata, &registry, &list, None, generation,
+            )
+            .await?;
             self.stop_neighbor_listeners();
             return Ok(());
         }

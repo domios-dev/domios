@@ -1,5 +1,6 @@
 mod delivery;
 mod notifications;
+mod ports;
 mod read;
 #[cfg(test)]
 mod tests;
@@ -68,7 +69,10 @@ impl ServiceContext {
     {
         let cell = self.neighbor_updates();
         let mut slot = cell.task.lock();
-        if slot.as_ref().is_some_and(|handle| !handle.task.is_finished()) {
+        if slot
+            .as_ref()
+            .is_some_and(|handle| !handle.task.is_finished())
+        {
             return;
         }
         let (stop, receiver) = watch::channel(false);
@@ -111,7 +115,9 @@ struct Session {
     account: Arc<codeterm_account::Account>,
     expected: codeterm_account::Session,
     generation: u64,
-    transport: FirebaseTransport,
+    transport: Arc<FirebaseTransport>,
+    ports: Arc<dyn ports::SessionPorts>,
+    clock: Arc<dyn codeterm_neighbors::supervisor::RetryClock>,
     metadata: Metadata,
     progress: AtomicU64,
 }
@@ -137,42 +143,92 @@ impl Session {
         }
     }
 
-    async fn project(&self, snapshot: codeterm_neighbors::state::Snapshot, seen: &mut notifications::Seen) -> Result<()> {
+    async fn project(
+        &self,
+        snapshot: codeterm_neighbors::state::Snapshot,
+        seen: &mut notifications::Seen,
+    ) -> Result<()> {
         self.current()?;
-        if !same_session(self.account.session().await.as_ref(), &self.expected) { return Err(Error::Revoked); }
-        let previous = self.service.peek_neighbor_projection(&self.transport.uid, self.expected.login_generation, "friendsList", &self.transport.installation_id);
-        self.service.consume_neighbor_projection(&self.transport.uid, self.expected.login_generation, snapshot, |mut list| async move {
+        if !same_session(self.account.session().await.as_ref(), &self.expected) {
+            return Err(Error::Revoked);
+        }
+        let previous = self.service.peek_neighbor_projection(
+            &self.transport.uid,
+            self.expected.login_generation,
+            "friendsList",
+            &self.transport.installation_id,
+        );
+        self.service
+            .consume_neighbor_projection(
+                &self.transport.uid,
+                self.expected.login_generation,
+                snapshot,
+                |list| async move { self.ports.reconcile(self, list, previous, seen).await },
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn reconcile(
+        &self,
+        mut list: serde_json::Value,
+        previous: Option<serde_json::Value>,
+        seen: &mut notifications::Seen,
+    ) -> Result<()> {
         let history_generation = self.service.neighbor_history_generation();
         let pause_versions = self.service.neighbor_cell().pauses.snapshot();
-        self.service.reconcile_neighbor_pauses(&self.transport.uid, &list, &pause_versions)?;
-        self.service.end_missing_neighbor_friendships(&self.metadata, &list, history_generation).await?;
+        self.service
+            .reconcile_neighbor_pauses(&self.transport.uid, &list, &pause_versions)?;
+        self.service
+            .end_missing_neighbor_friendships(&self.metadata, &list, history_generation)
+            .await?;
         let settings = self.metadata.settings().await?;
         annotate_list(&mut list, &settings).map_err(|_| Error::InvalidEnvelope)?;
         self.service.project_neighbor_pauses(&mut list, &settings);
-        self.service.project_neighbor_send_counts(&self.metadata, &mut list).await?;
+        self.service
+            .project_neighbor_send_counts(&self.metadata, &mut list)
+            .await?;
         self.service.remember_neighbor_names(&list);
         let accepted = accepted_connections(previous.as_ref(), &list);
         let notices = notifications::changes(seen, &list, &accepted)?;
-        self.metadata.write("registry-notifications.json".into(), serde_json::to_value(&*seen).map_err(|_| Error::CursorStore)?).await?;
+        self.metadata
+            .write(
+                "registry-notifications.json".into(),
+                serde_json::to_value(&*seen).map_err(|_| Error::CursorStore)?,
+            )
+            .await?;
         self.current()?;
         self.service.remember_neighbor_registry(&list);
         if list["access"] != "paid" || self.service.neighbor_access_locked().await {
             self.service.pause_neighbor_reception();
         } else {
-            self.service.refresh_neighbor_registry_listeners().await.map_err(|_| Error::Transport)?;
+            self.service
+                .refresh_neighbor_registry_listeners()
+                .await
+                .map_err(|_| Error::Transport)?;
         }
         self.current()?;
-        if !same_session(self.account.session().await.as_ref(), &self.expected) { return Err(Error::Revoked); }
-        self.service.ui.emit("neighbors-changed", json!({"uid":self.transport.uid,"list":list}));
+        if !same_session(self.account.session().await.as_ref(), &self.expected) {
+            return Err(Error::Revoked);
+        }
+        self.service.ui.emit(
+            "neighbors-changed",
+            json!({"uid":self.transport.uid,"list":list}),
+        );
         for notice in notices {
-            self.service.create_in_app_notice_record(crate::service::notification::InAppNotice::neighbor_connection(
-                notice.title, format!("neighbor:{}:{}", codeterm_neighbors::crypto::sha256_hex(self.transport.uid.as_bytes()), notice.event_id)));
+            self.service.create_in_app_notice_record(
+                crate::service::notification::InAppNotice::neighbor_connection(
+                    notice.title,
+                    format!(
+                        "neighbor:{}:{}",
+                        codeterm_neighbors::crypto::sha256_hex(self.transport.uid.as_bytes()),
+                        notice.event_id
+                    ),
+                ),
+            );
         }
         Ok(())
-        }).await?;
-        Ok(())
     }
-
 }
 
 async fn stopped(receiver: &mut watch::Receiver<bool>) {
@@ -212,7 +268,7 @@ async fn run(
         .map_err(|_| Error::Transport)?
         .as_str()
         .to_owned();
-    let transport = FirebaseTransport {
+    let transport = Arc::new(FirebaseTransport {
         installation_id,
         project: if endpoints.qa {
             "domios-signin-qa"
@@ -226,9 +282,11 @@ async fn run(
             uid,
             generation: expected.login_generation,
         }),
-    };
+    });
     service.select_neighbor_projection(&expected.identity.uid, expected.login_generation);
     let session = Session {
+        ports: Arc::new(ports::LivePorts(transport.clone())),
+        clock: Arc::new(codeterm_neighbors::supervisor::RuntimeClock),
         service,
         account,
         expected,
@@ -253,7 +311,7 @@ impl ReceptionEvents for Session {
         self.service.neighbor_watch_failure("account", error);
     }
     async fn retry_after_failure(&self, attempt: usize) -> Result<()> {
-        codeterm_neighbors::supervisor::reconnect_backoff(attempt).await;
+        codeterm_neighbors::supervisor::reconnect_backoff_with(self.clock.as_ref(), attempt).await;
         self.current()
     }
 }
@@ -273,14 +331,22 @@ impl DocumentSession for Session {
             .read("registry-notifications.json".into())
             .await?
             .unwrap_or_default();
-        let mut listener = match self.transport.listen_state().await {
+        let mut listener = match self.ports.listen_state().await {
             Ok(listener) => listener,
-            Err(error) => { self.fallback().await; return Err(error); }
+            Err(error) => {
+                self.fallback().await;
+                return Err(error);
+            }
         };
         let mut signals: Option<Box<dyn codeterm_neighbors::registry::RegistryListener>> = None;
         let mut revisions = delivery::Revisions::default();
+        let mut health = codeterm_neighbors::supervisor::StreamHealth::default();
+        let mut received_snapshot = false;
         loop {
-            enum Event { State(Option<codeterm_neighbors::state::StateEvent>), Signal(Option<RegistrySignal>) }
+            enum Event {
+                State(Option<codeterm_neighbors::state::StateEvent>),
+                Signal(Option<RegistrySignal>),
+            }
             let next = tokio::select! {
                 state = listener.next() => state.map(Event::State),
                 signal = async {
@@ -291,58 +357,174 @@ impl DocumentSession for Session {
                 } => signal.map(Event::Signal),
             };
             self.current()?;
+            let mut incremental = false;
+            let mut observe_health = false;
             match next {
-                Ok(Event::State(Some(codeterm_neighbors::state::StateEvent::Snapshot(snapshot)))) => {
+                Ok(Event::State(Some(codeterm_neighbors::state::StateEvent::Snapshot(
+                    snapshot,
+                )))) => {
+                    incremental = received_snapshot
+                        && self
+                            .service
+                            .neighbor_projection_version(
+                                &self.transport.uid,
+                                self.expected.login_generation,
+                            )
+                            .is_some_and(|version| snapshot.version > version);
+                    received_snapshot = true;
+                    observe_health = true;
                     self.project(snapshot, &mut seen).await?;
-                    let list = self.service.peek_neighbor_projection(&self.transport.uid, self.expected.login_generation, "friendsList", &self.transport.installation_id);
-                    let receiving = list.as_ref().is_some_and(|list| receives_friends(list, &self.transport.installation_id));
-                    if receiving && signals.is_none() { signals = Some(self.transport.listen_registry().await?); }
-                    if !receiving { signals = None; revisions = delivery::Revisions::default(); }
+                    let list = self.service.peek_neighbor_projection(
+                        &self.transport.uid,
+                        self.expected.login_generation,
+                        "friendsList",
+                        &self.transport.installation_id,
+                    );
+                    let receiving = list.as_ref().is_some_and(|list| {
+                        receives_friends(list, &self.transport.installation_id)
+                    });
+                    if receiving && signals.is_none() {
+                        signals = Some(self.ports.listen_signals().await?);
+                    }
+                    if !receiving {
+                        signals = None;
+                        revisions = delivery::Revisions::default();
+                    }
                 }
                 Ok(Event::State(Some(codeterm_neighbors::state::StateEvent::Missing))) => {
                     self.service.neighbor_projection_missing();
-                    self.service.pause_neighbor_reception();
+                    self.ports.stop_receiving(self);
                     signals = None;
+                    health = codeterm_neighbors::supervisor::StreamHealth::default();
+                    received_snapshot = false;
                     self.fallback().await;
                 }
                 Ok(Event::Signal(Some(signal))) => {
-                    if let Some(catch_up) = revisions.observe(signal.revision) { self.delivery(&signal, catch_up).await?; }
+                    if let Some(catch_up) = revisions.observe(signal.revision) {
+                        incremental =
+                            !catch_up && (signal.delivery.is_some() || signal.read.is_some());
+                        observe_health = received_snapshot;
+                        self.delivery(&signal, catch_up).await?;
+                    }
                 }
-                Ok(Event::State(None) | Event::Signal(None)) => { self.fallback().await; return Err(Error::Transport); }
-                Err(error) => { self.fallback().await; return Err(error); }
+                Ok(Event::State(None) | Event::Signal(None)) => {
+                    self.fallback().await;
+                    return Err(Error::Transport);
+                }
+                Err(error) => {
+                    self.fallback().await;
+                    return Err(error);
+                }
             }
-            self.progress.fetch_add(1, Ordering::AcqRel);
-            if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() { handle.rearm.success(); }
+            if observe_health && health.observe(self.clock.now(), incremental) {
+                self.progress.fetch_add(1, Ordering::AcqRel);
+                if let Some(handle) = self.service.neighbor_updates().task.lock().as_ref() {
+                    handle.rearm.success();
+                }
+            }
             self.state(ListenerState::Receiving);
         }
     }
 }
 
-
-pub(in crate::service::neighbors) fn receives_friends(list: &serde_json::Value, installation: &str) -> bool {
-    list["access"] == "paid" && list["friends"].as_array().is_some_and(|friends| {
-        friends.iter().any(|friend| friend["my_receiver"]["receiving"] == true
-            && friend["my_receiver"]["installation_id"] == installation)
-    })
+pub(in crate::service::neighbors) fn receives_friends(
+    list: &serde_json::Value,
+    installation: &str,
+) -> bool {
+    list["access"] == "paid"
+        && list["friends"].as_array().is_some_and(|friends| {
+            friends.iter().any(|friend| {
+                friend["my_receiver"]["receiving"] == true
+                    && friend["my_receiver"]["installation_id"] == installation
+            })
+        })
 }
-
 
 impl Session {
     async fn fallback(&self) {
         self.service.neighbor_projection_unavailable();
+        if self
+            .service
+            .peek_neighbor_projection(
+                &self.transport.uid,
+                self.expected.login_generation,
+                "friendsList",
+                &self.transport.installation_id,
+            )
+            .is_some()
+        {
+            return;
+        }
         if self.current().is_ok() && self.service.begin_neighbor_fallback() {
-            if let Err(error) = self.service.neighbor_registry_owned(super::NeighborCommand::List {}).await {
-                log::debug!("[neighbors] initial projection fallback unavailable: {error}");
+            match self.transport.calls.invoke("friendsList", json!({})).await {
+                Ok(mut list) => {
+                    let publish = async {
+                        let settings = self.metadata.settings().await?;
+                        annotate_list(&mut list, &settings).map_err(|_| Error::InvalidEnvelope)?;
+                        self.service
+                            .project_neighbor_send_counts(&self.metadata, &mut list)
+                            .await?;
+                        self.current()?;
+                        if !same_session(self.account.session().await.as_ref(), &self.expected) {
+                            return Err(Error::Revoked);
+                        }
+                        self.service.ui.emit(
+                            "neighbors-changed",
+                            json!({"uid":self.transport.uid,"list":list}),
+                        );
+                        Ok::<(), Error>(())
+                    }
+                    .await;
+                    if let Err(error) = publish {
+                        log::debug!("[neighbors] fallback display unavailable: {error}");
+                    }
+                }
+                Err(error) => {
+                    log::debug!("[neighbors] initial projection fallback unavailable: {error}")
+                }
             }
         }
     }
 }
 
-fn accepted_connections(previous: Option<&serde_json::Value>, list: &serde_json::Value) -> Vec<notifications::Acceptance> {
-    let Some(previous) = previous else { return vec![]; };
-    list["friends"].as_array().into_iter().flatten().filter(|friend| {
-        !previous["friends"].as_array().into_iter().flatten().any(|old| old["friendship_id"] == friend["friendship_id"])
-            && friend["email"].as_str().is_some_and(|email| previous["outgoing"].as_array().into_iter().flatten().any(|invite| invite["typed_email"].as_str().is_some_and(|invited| invited.eq_ignore_ascii_case(email))))
-    }).filter_map(|friend| Some(notifications::Acceptance { friendship_id: friend["friendship_id"].as_str()?.into(),
-        event_id: format!("projection:{}:{}", friend["friendship_id"].as_str()?, friend["since"].as_u64()?) })).collect()
+fn accepted_connections(
+    previous: Option<&serde_json::Value>,
+    list: &serde_json::Value,
+) -> Vec<notifications::Acceptance> {
+    let Some(previous) = previous else {
+        return vec![];
+    };
+    list["friends"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|friend| {
+            !previous["friends"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|old| old["friendship_id"] == friend["friendship_id"])
+                && friend["email"].as_str().is_some_and(|email| {
+                    previous["outgoing"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|invite| {
+                            invite["typed_email"]
+                                .as_str()
+                                .is_some_and(|invited| invited.eq_ignore_ascii_case(email))
+                        })
+                })
+        })
+        .filter_map(|friend| {
+            Some(notifications::Acceptance {
+                friendship_id: friend["friendship_id"].as_str()?.into(),
+                event_id: format!(
+                    "projection:{}:{}",
+                    friend["friendship_id"].as_str()?,
+                    friend["since"].as_u64()?
+                ),
+            })
+        })
+        .collect()
 }

@@ -210,7 +210,15 @@ impl Calls {
         };
         self.validate_session(&session).await?;
         let result = body.get("result").cloned().ok_or(Error::Transport)?;
-        if matches!(route, "friendsEnrollVerifierKey" | "friendsRevokeVerifierKey" | "friendsSetFriendReceiver" | "friendsSetPaused" | "friendsSetDailyLimit" | "friendsSetFileDailyLimit") {
+        if matches!(
+            route,
+            "friendsEnrollVerifierKey"
+                | "friendsRevokeVerifierKey"
+                | "friendsSetFriendReceiver"
+                | "friendsSetPaused"
+                | "friendsSetDailyLimit"
+                | "friendsSetFileDailyLimit"
+        ) {
             self.service.invalidate_neighbor_list();
             self.service.forget_neighbor_registry();
         }

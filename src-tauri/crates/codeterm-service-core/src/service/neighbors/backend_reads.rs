@@ -1,22 +1,17 @@
 use crate::service::ServiceContext;
 use codeterm_neighbors::{Error, Result};
 use serde_json::Value;
-use std::{
-    future::Future,
-    sync::atomic::{AtomicU64, Ordering},
-};
+use std::future::Future;
 
 #[derive(Default)]
 struct State {
     key: Option<(String, u64)>,
     result: Option<Result<Value>>,
-    rearmed: u64,
 }
 
 #[derive(Default)]
 struct ReadGate {
     state: tokio::sync::Mutex<State>,
-    rearmed: AtomicU64,
 }
 
 impl ReadGate {
@@ -30,23 +25,17 @@ impl ReadGate {
             return Err(Error::Locked);
         }
         let mut state = self.state.lock().await;
-        let rearmed = self.rearmed.load(Ordering::Acquire);
         if state.key.as_ref() != Some(&key) {
             *state = State {
                 key: Some(key),
                 ..State::default()
             };
         } else if let Some(result) = &state.result {
-            if rearmed == state.rearmed { return result.clone(); }
+            return result.clone();
         }
-        state.rearmed = rearmed;
         let result = load.await;
         state.result = Some(result.clone());
         result
-    }
-
-    fn rearm(&self) {
-        self.rearmed.fetch_add(1, Ordering::AcqRel);
     }
 }
 
@@ -112,8 +101,15 @@ impl ServiceContext {
         generation: u64,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
-        if let Some(value) = self.neighbor_projection_read(uid, generation, route).await? { return Ok(value); }
-        if matches!(route, "friendsOwnKeys" | "friendsReceiverStatus") { return Err(Error::Transport); }
+        if let Some(value) = self
+            .neighbor_projection_read(uid, generation, route)
+            .await?
+        {
+            return Ok(value);
+        }
+        if matches!(route, "friendsOwnKeys" | "friendsReceiverStatus") {
+            return Err(Error::Transport);
+        }
         let locked = self.neighbor_access_locked().await && route != "friendsList";
         let reads = self.extensions.get_or_init(Reads::default);
         let gate = match route {
@@ -126,21 +122,14 @@ impl ServiceContext {
                 }
             }
         };
-        gate.read(
-            (uid.to_owned(), generation),
-            locked,
-            load,
-        )
-        .await
+        gate.read((uid.to_owned(), generation), locked, load).await
     }
 
     pub(in crate::service::neighbors) fn invalidate_neighbor_list(&self) {
-        self.extensions.get_or_init(Reads::default).list.rearm();
+        self.forget_neighbor_registry();
     }
 
     pub(crate) fn rearm_neighbor_reads(&self) {
-        let reads = self.extensions.get_or_init(Reads::default);
-        reads.list.rearm();
         self.rearm_neighbor_updates();
         self.rearm_neighbor_restoration();
     }
