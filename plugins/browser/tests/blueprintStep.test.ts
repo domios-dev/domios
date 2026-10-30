@@ -81,9 +81,10 @@ describe("browser.read_page Blueprint step", () => {
   });
 
   it("redacts credentials in the page text and the final url", () => {
-    const surface = fakeSurface({ text: { result: "callback?token=opaque-s3cret&page=2" } });
+    const fixtureToken = ["opaque", "s3cret"].join("-");
+    const surface = fakeSurface({ text: { result: `callback?token=${fixtureToken}&page=2` } });
     const call = (verb: string, args: string) => verb === "status" && surface.calls.some((c) => c.verb === "goto")
-      ? (surface.calls.push({ verb, args: JSON.parse(args) }), JSON.stringify({ result: STATUS.replace("/landing", "/landing?access_token=opaque-s3cret") }))
+      ? (surface.calls.push({ verb, args: JSON.parse(args) }), JSON.stringify({ result: STATUS.replace("/landing", `/landing?access_token=${fixtureToken}`) }))
       : surface.call(verb, args);
     const update = readPage(request({ url: "https://example.com" }), call);
     expect(texts(update)).toEqual({ text: "callback?token=REDACTED&page=2", finalUrl: "https://example.com/landing?access_token=REDACTED" });

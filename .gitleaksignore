@@ -1,4 +1,5 @@
 # Commit-pinned baseline for historic findings; every entry is triaged in the secret-audit report. Do not add entries without triage.
+# Browser fixture triage addendum: docs/release/secret-audit.md
 
 # Dev-instance (127.0.0.1:7686) API tokens committed in a handoff and an eval script; escalated to owner for rotation decision
 12e8f5f1b0ca3021e6638de4909b5b2e718e3f19:evals/mem-recall/run.sh:generic-api-key:9
@@ -25,3 +26,6 @@ c8d1c90f50189e882ebec53c13494dda5f9c0dd0:src-tauri/crates/codeterm-account/src/a
 8f7288e59fadf88f0a5f0087ad7844bbc7603ab0:src/components/MemoryPanel/DecisionRerankCard.test.tsx:generic-api-key:11
 c26d40b2069d84884e6808915a4eec11fe2e4aba:evals/plan-authorized-reporting/run.sh:generic-api-key:163
 d85f53e76230bec2b2806cf77f8f998d7b302dd8:src-tauri/src/service/analytics/tests/outcomes.rs:generic-api-key:369
+
+# synthetic redaction fixture in a Browser node test, never a credential
+e8a91318bfd8c897e8e88dbc122ebe05bc06e7be:plugins/browser/tests/blueprintStep.test.ts:generic-api-key:72
