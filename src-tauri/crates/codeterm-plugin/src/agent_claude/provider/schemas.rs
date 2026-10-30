@@ -158,7 +158,7 @@ pub(super) fn settings_schema() -> Vec<SettingField> {
             fields: vec![
                 SettingField::PathLink {
                     label: "Rule file".into(),
-                    path: "~/.claude/rules/domios.md".into(),
+                    path: "~/.claude/rules/codeterm.md".into(),
                     open: PathOpenKind::OpenFolder,
                 },
                 SettingField::Badge {
@@ -215,8 +215,8 @@ pub(crate) fn install_bridge_rule_at(
     std::fs::create_dir_all(rules_dir)
         .map_err(|e| format!("create {}: {}", rules_dir.display(), e))?;
 
-    let final_path = rules_dir.join("domios.md");
-    let tmp_path = rules_dir.join("domios.md.tmp");
+    let final_path = rules_dir.join("codeterm.md");
+    let tmp_path = rules_dir.join("codeterm.md.tmp");
     let content = owned_rule_content(payload);
     if final_path.exists() {
         let installed = std::fs::read_to_string(&final_path).unwrap_or_default();
@@ -290,7 +290,7 @@ pub(super) fn uninstall_bridge_rule() -> Result<(), String> {
         .ok_or_else(|| "no home directory".to_string())?
         .join(".claude")
         .join("rules")
-        .join("domios.md");
+        .join("codeterm.md");
     let removable = std::fs::read_to_string(&path).is_ok_and(|content| {
         content.contains("<!-- codeterm-owner -->")
             && (!content.contains("<!-- codeterm-channel: prod -->") || !cfg!(debug_assertions))
