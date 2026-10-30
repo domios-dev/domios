@@ -145,7 +145,8 @@ Run the resulting image only through `.github/workflows/docker-smoke.yml`.
 Named `dev` and `dev-server` select nonincremental compilation and the portable
 compiler-cache wrapper automatically. Incremental workspace libraries otherwise
 bypass sccache entirely. Cargo retains the machine's configured build directory,
-and final artifacts remain under `src-tauri/target/dev-instances/<name>`.
+and final artifacts remain under `src-tauri/target/dev-instances/<name>`. Reuse one
+instance name per checkout (AGENTS.md); a new name compiles cold.
 Cargo-fresh intermediates can retain metadata from the previous wrapper policy.
 For an approved before/after measurement, invalidate only the affected packages
 in the selected inactive instance through the gateway before seeding both
