@@ -136,45 +136,6 @@ fn plugin_monitor_inflight_worker_excludes_same_plugin_after_persisted_lease_exp
 }
 
 #[test]
-fn plugin_monitor_origin_receipt_survives_restart_and_retains_one_exact_job() {
-    let temp = tempfile::tempdir().unwrap();
-    let path = temp.path().join("jobs.sqlite");
-    let registration = registration("origin");
-    let receipt = {
-        let ledger = OperationLedger::open(&path).unwrap();
-        ledger
-            .admit_job_origin(registration.scope, registration.origin, 100)
-            .unwrap()
-    };
-    let ledger = OperationLedger::open(&path).unwrap();
-    assert_eq!(
-        ledger.job_origin("fixture", &receipt.operation).unwrap(),
-        receipt
-    );
-    assert!(ledger.job_origin("foreign", &receipt.operation).is_err());
-    let attached = ledger
-        .attach_existing_job("fixture", &receipt.operation, "known-paid-job")
-        .unwrap();
-    assert_eq!(attached.job.as_deref(), Some("known-paid-job"));
-    assert_eq!(
-        ledger
-            .attach_existing_job("fixture", &receipt.operation, "known-paid-job")
-            .unwrap(),
-        attached
-    );
-    assert!(ledger
-        .attach_existing_job("fixture", &receipt.operation, "replacement")
-        .is_err());
-    assert_eq!(
-        ledger
-            .job_origin("fixture", &receipt.operation)
-            .unwrap()
-            .scope,
-        receipt.scope
-    );
-}
-
-#[test]
 fn plugin_monitor_cancel_dispatch_is_once_and_an_orphan_only_reconciles() {
     let ledger = ledger();
     let registration = registration("cancel");

@@ -36,7 +36,7 @@ fn fixture() -> (ServiceFixture, String, String, String) {
 }
 
 #[test]
-fn declared_view_verbs_stamp_two_agent_context_and_only_safe_activity() {
+fn plain_view_dispatches_declared_verbs_without_job_capability() {
     for visitor in [false, true] {
         let (fixture, owner, actor, tab) = fixture();
         let caller = if visitor { &actor } else { &owner };
@@ -58,7 +58,9 @@ fn declared_view_verbs_stamp_two_agent_context_and_only_safe_activity() {
             json!({"surface":"board","instance":"instance-one","tab":tab,
             "owner":owner,"actor":caller,"actorLabel":if visitor {"Visitor"} else {"Owner"}})
         );
+        assert_eq!(dispatch["verb"], "submit");
         assert_eq!(dispatch["args"], json!(["opaque-private-input"]));
+        assert!(dispatch.get("invocation").is_none());
         let events = fixture.ui.0.lock();
         let activity = events
             .iter()
