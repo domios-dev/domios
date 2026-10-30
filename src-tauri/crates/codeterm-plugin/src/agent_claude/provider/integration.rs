@@ -1,7 +1,7 @@
 //! CodeTerm integration with Claude Code — hooks installed into
 //! `~/.claude/settings.json` so Claude POSTs back to CodeTerm on
 //! permission prompts, task completion, and session start. Also owns the
-//! project-rule (`~/.claude/rules/domios.md`) install/check logic.
+//! project-rule (`~/.claude/rules/codeterm.md`) install/check logic.
 //!
 //! Everything here was previously in `commands/hooks.rs` and
 //! `commands/agent.rs` with hardcoded `claude_*` names. It moved into
@@ -40,7 +40,7 @@ fn claude_settings_path() -> Result<std::path::PathBuf, String> {
 
 fn claude_rule_path() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or("Cannot find home directory")?;
-    Ok(home.join(".claude").join("rules").join("domios.md"))
+    Ok(home.join(".claude").join("rules").join("codeterm.md"))
 }
 
 fn backup_path(path: &std::path::Path) -> std::path::PathBuf {
@@ -527,7 +527,7 @@ pub fn ensure_integration_on_startup(api_port: u16) {
     let _ = check_integration();
 }
 
-// ── Project rule (~/.claude/rules/domios.md) ──
+// ── Project rule (~/.claude/rules/codeterm.md) ──
 
 fn extract_revision(content: &str) -> u32 {
     for line in content.lines() {

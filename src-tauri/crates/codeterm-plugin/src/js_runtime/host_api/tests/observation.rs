@@ -128,13 +128,16 @@ fn durable_media_observation_cannot_consume_or_close_an_admitted_effect_receipt(
     {
         let _scope = RequestScope::observation_only(Instant::now() + Duration::from_secs(2));
         assert!(call_json::<bool>(&vm, "close", &[json!(job)]).unwrap());
-        for method in ["poll", "await"] {
-            let refused: serde_json::Value = call_json(&vm, method, &[json!(job)]).unwrap();
-            assert_eq!(
-                refused["error"],
-                "effect job unavailable during observation"
-            );
-        }
+        let refused: serde_json::Value = call_json(&vm, "poll", &[json!(job)]).unwrap();
+        assert_eq!(
+            refused["error"],
+            "effect job unavailable during observation"
+        );
+        let refused = call_json::<serde_json::Value>(&vm, "await", &[json!(job)]).unwrap_err();
+        assert!(
+            matches!(refused, crate::js_runtime::vm::VmError::Script(ref message)
+            if message == "await job is foreign, unavailable or denied")
+        );
     }
     let pending: serde_json::Value =
         serde_json::from_str(&host_exec::poll("lookup-effects-receipt", &job)).unwrap();

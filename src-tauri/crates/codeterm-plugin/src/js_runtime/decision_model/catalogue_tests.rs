@@ -48,10 +48,7 @@ fn cold_catalogue_shares_one_discovery_without_blocking_cheap_vm_calls() {
         let source = prefix
             + &source
             + "; module.exports.default.discoveryCount = function () { return starts; };";
-        let vm = Arc::new(
-            PluginVm::from_source_with(&format!("catalogue-{}", manifest.id), source, Some(raw))
-                .unwrap(),
-        );
+        let vm = Arc::new(PluginVm::from_source_with(&manifest.id, source, Some(raw)).unwrap());
         let model = Arc::new(JsDecisionModel::new(
             vm.clone(),
             manifest.id,
