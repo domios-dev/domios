@@ -7,6 +7,9 @@ use serde::Serialize;
 
 use crate::args::cli::Cli;
 
+#[cfg(test)]
+mod personality_tests;
+
 #[derive(Serialize, PartialEq, Debug)]
 pub struct ManifestArg {
     pub name: String,
@@ -546,8 +549,8 @@ mod tests {
             assert!(has_long(add, flag), "plan task add lost --{flag}");
         }
         assert!(
-            required_long(add, "personality"),
-            "plan task add must require --personality: a worker dispatched from a task without one falls back to the title 'Worker'"
+            !required_long(add, "personality"),
+            "plan task add must allow the task name to supply the personality"
         );
         assert!(
             !has_long(add, "acceptance"),
