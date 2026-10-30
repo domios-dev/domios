@@ -5,6 +5,21 @@ use std::collections::BTreeSet;
 #[derive(Default)]
 pub(crate) struct CuratorTabs(pub parking_lot::RwLock<std::collections::BTreeMap<String, String>>);
 
+/// Active plans, and any plan whose control loop still holds a run, cron job or
+/// wake time to settle; other plans have no curator state to reconcile.
+pub(crate) fn curator_bootstrap_ids(store: &crate::service::plan::PlanStore) -> BTreeSet<String> {
+    use crate::service::plan::PlanMatch;
+    store
+        .plan_ids_matching(&PlanMatch::Any(vec![
+            PlanMatch::active(),
+            PlanMatch::HeaderSet("$.control_loop.running"),
+            PlanMatch::HeaderSet("$.control_loop.cron_id"),
+            PlanMatch::HeaderSet("$.control_loop.next_at"),
+        ]))
+        .into_iter()
+        .collect()
+}
+
 impl ServiceContext {
     #[cfg(any(test, feature = "test-support"))]
     pub fn reconcile_curator_for_test(&self, id: &str, now: u64) {
@@ -19,12 +34,7 @@ impl ServiceContext {
         self.rt.spawn(async move {
             let bootstrap = service.clone();
             let mut plans = match tokio::task::spawn_blocking(move || {
-                bootstrap
-                    .plan_store
-                    .list_full()
-                    .into_iter()
-                    .map(|plan| plan.id)
-                    .collect::<BTreeSet<_>>()
+                curator_bootstrap_ids(&bootstrap.plan_store)
             })
             .await
             {

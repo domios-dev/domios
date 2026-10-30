@@ -260,6 +260,8 @@ pub use task_lane_guard::{
 #[cfg(any(test, feature = "test-support"))]
 pub use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
+mod consumer_load_tests;
+#[cfg(test)]
 mod persistence_roundtrip_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;
@@ -453,12 +455,6 @@ pub struct MuxEmitPending(pub Arc<AtomicBool>);
 
 pub(crate) struct PublishedTabStatuses(
     pub(crate) Arc<parking_lot::Mutex<HashMap<String, crate::agent::status::TabStatus>>>,
-);
-
-pub struct PlanWatchers(
-    pub  Arc<
-        parking_lot::Mutex<HashMap<std::path::PathBuf, crate::service::plan::watcher::PlanWatcher>>,
-    >,
 );
 
 pub struct LoadedPlanProjects(

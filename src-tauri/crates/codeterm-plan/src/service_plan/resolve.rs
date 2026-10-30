@@ -349,18 +349,17 @@ impl PlanStore {
     }
 
     pub fn resolve_loop_id(&self, reference: &str) -> Result<String, ResolveError> {
-        let mut items = Vec::new();
-        for p in self.list_full() {
-            for l in &p.loops {
-                items.push(MatchItem {
-                    id: l.id.clone(),
-                    key: None,
-                    handle: None,
-                    label: l.target.clone(),
-                    plan_id: Some(p.id.clone()),
-                });
-            }
-        }
+        let items = self
+            .loop_rows()
+            .into_iter()
+            .map(|(plan_id, id, target)| MatchItem {
+                id,
+                key: None,
+                handle: None,
+                label: target,
+                plan_id: Some(plan_id),
+            })
+            .collect();
         pick(items, reference, RefKind::Loop).map(|m| m.id)
     }
 
@@ -435,12 +434,21 @@ impl PlanStore {
             .unwrap_or_default()
     }
 
+    /// Read from the task rows; no plan is loaded.
     fn task_items_all(&self) -> Vec<MatchItem> {
-        let mut out = Vec::new();
-        for p in self.list_full() {
-            out.extend(p.tasks.iter().map(|t| MatchItem::task(t, &p.id)));
-        }
-        out
+        self.task_ref_rows()
+            .into_iter()
+            .map(|row| MatchItem {
+                key: Some(
+                    row.key
+                        .unwrap_or_else(|| crate::plan::task_key::fallback_key(&row.task_id)),
+                ),
+                id: row.task_id,
+                handle: row.handle,
+                label: row.name,
+                plan_id: Some(row.plan_id),
+            })
+            .collect()
     }
 
     fn section_items_for_plan(&self, plan_id: &str) -> Vec<MatchItem> {
@@ -463,22 +471,18 @@ impl PlanStore {
             .unwrap_or_default()
     }
 
+    /// Read from the section rows, nested subsections included; no plan is loaded.
     fn section_items_all(&self) -> Vec<MatchItem> {
-        let mut out = Vec::new();
-        for p in self.list_full() {
-            let mut flat = Vec::new();
-            flatten(&p.sections, &mut flat);
-            for s in flat {
-                out.push(MatchItem {
-                    id: s.id.clone(),
-                    key: None,
-                    handle: s.handle.clone(),
-                    label: s.title.clone(),
-                    plan_id: Some(p.id.clone()),
-                });
-            }
-        }
-        out
+        self.section_ref_rows()
+            .into_iter()
+            .map(|row| MatchItem {
+                id: row.section_id,
+                key: None,
+                handle: row.handle,
+                label: row.title,
+                plan_id: Some(row.plan_id),
+            })
+            .collect()
     }
 }
 

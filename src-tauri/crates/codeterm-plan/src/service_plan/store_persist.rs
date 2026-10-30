@@ -151,53 +151,6 @@ impl PlanStore {
             &spec.id,
         ))
     }
-
-    fn note_write(&self, path: &Path) {
-        // Canonicalize so the key is stable across \\?\ vs plain-drive representations on Windows.
-        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        if let Ok(meta) = std::fs::metadata(&key) {
-            if let Ok(modified) = meta.modified() {
-                self.last_writes.write().insert(key, modified);
-            }
-        }
-    }
-
-    pub(super) fn note_plan_write(&self, plan: &Plan, path: &Path) {
-        self.note_write(path);
-        // Track the v2 yaml files this plan writes, so the watcher recognizes
-        // its own writes and does not reconcile-storm on them.
-        if let Ok(dir) = store_v2::plan_state_dir(plan) {
-            self.note_write(&store_v2::plan_yaml_path(&dir));
-            self.note_write(&store_v2::goal_yaml_path(&dir));
-            for task in &plan.tasks {
-                self.note_write(&store_v2::task_yaml_path(&dir, task));
-            }
-        }
-        // Legacy body paths too, harmless while both formats can exist on disk.
-        if let Ok(body_paths) = body_files::body_paths(plan) {
-            for path in body_paths {
-                self.note_write(&path);
-            }
-        }
-    }
-
-    pub(super) fn note_spec_write(&self, _spec: &Spec, path: &Path) {
-        self.note_write(path);
-    }
-
-    pub fn is_own_recent_write(&self, path: &Path) -> bool {
-        let key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-        let Ok(meta) = std::fs::metadata(&key) else {
-            return false;
-        };
-        let Ok(modified) = meta.modified() else {
-            return false;
-        };
-        self.last_writes
-            .read()
-            .get(&key)
-            .is_some_and(|last| *last == modified)
-    }
 }
 
 pub(super) fn index_scope(

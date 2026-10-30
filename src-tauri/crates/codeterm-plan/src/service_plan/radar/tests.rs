@@ -47,7 +47,7 @@ fn github_source(number: u64) -> RadarSource {
 #[test]
 fn radar_item_persists_without_creating_a_plan() {
     let (root, store) = store();
-    let plans_before = store.list_full().len();
+    let plans_before = store.all_plans_for_test().len();
     let mut new = new_item(&project(&root), "Flaky reconnect");
     new.body = "seen twice".into();
     new.tags = vec!["Mesh".into(), "mesh".into()];
@@ -58,7 +58,7 @@ fn radar_item_persists_without_creating_a_plan() {
     assert!(is_radar_item_id(&added.item.id));
     assert_eq!(added.item.status, RadarStatus::Open);
     assert_eq!(added.item.tags, vec!["mesh".to_string()]);
-    assert_eq!(store.list_full().len(), plans_before);
+    assert_eq!(store.all_plans_for_test().len(), plans_before);
     let reopened = PlanStore::open(store.database_path_for_test()).unwrap();
     assert_eq!(reopened.radar().get(&added.item.id).unwrap(), added.item);
 }

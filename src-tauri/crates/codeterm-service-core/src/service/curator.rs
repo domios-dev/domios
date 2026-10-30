@@ -31,6 +31,8 @@ mod scheduling;
 #[cfg(test)]
 mod tests;
 pub use authority::CuratorIdentity;
+#[cfg(test)]
+pub(crate) use events::curator_bootstrap_ids;
 pub(crate) use events::CuratorTabs;
 
 fn curator_envelope() -> crate::service::messenger::MessageEnvelope {

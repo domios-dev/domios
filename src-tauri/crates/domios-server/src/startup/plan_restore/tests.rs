@@ -110,8 +110,8 @@ fn startup_perf_restore_plans_without_cloning_the_plan_store() {
         archived_plan_with_finished_lane(store, &owner, projects[1].path(), None);
     let (settled, _) =
         archived_plan_with_finished_lane(store, &owner, projects[2].path(), Some("removed"));
-    let clones_before = store.full_plan_clones();
     store.take_plan_touches();
+    store.reset_plan_loads_for_test();
 
     super::restore(&fixture.service);
 
@@ -120,10 +120,9 @@ fn startup_perf_restore_plans_without_cloning_the_plan_store() {
         !touched.contains(&settled),
         "startup opened a plan no sweep selects: {touched:?}"
     );
-    assert_eq!(
-        store.full_plan_clones() - clones_before,
-        0,
-        "startup plan restore cloned the whole plan store"
+    assert!(
+        !store.plan_loads_for_test().contains(&settled),
+        "startup plan restore loaded a plan no sweep selects"
     );
     assert_eq!(
         store.get(&dangling.id).unwrap().status,

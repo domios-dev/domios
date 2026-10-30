@@ -1977,8 +1977,6 @@ dependencies = [
  "codeterm-util",
  "filetime",
  "log",
- "notify 7.0.0",
- "notify-debouncer-mini",
  "parking_lot 0.12.5",
  "rusqlite",
  "serde",

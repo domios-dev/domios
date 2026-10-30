@@ -24,7 +24,7 @@ impl PlanStore {
         let _writer_turn = self.mutation_writer.enter();
         let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
         let mut ids: Vec<_> = self
-            .list_full()
+            .team_close_plans(team_id, member_tab_ids)
             .into_iter()
             .filter(|plan| has_team_close_work(plan, team_id, &tabs))
             .map(|plan| plan.id)
@@ -203,7 +203,7 @@ impl PlanStore {
     fn restore_team_plan(&self, original: &Plan) -> Result<(), PlanError> {
         let arc = self.plan_arc(&original.id)?;
         let staged = original.clone();
-        let path = self.persist_plan_and_spec(&staged).map_err(|error| {
+        self.persist_plan_and_spec(&staged).map_err(|error| {
             self.plan_cache.evict(&staged.id);
             PlanError::Io(error.to_string())
         })?;
@@ -212,7 +212,6 @@ impl PlanStore {
             *plan = staged.clone();
         }
         self.plan_cache.commit(&staged.id, &arc);
-        self.note_plan_write(&staged, &path);
         self.note_index(&staged);
         Ok(())
     }

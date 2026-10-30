@@ -9,13 +9,10 @@ impl PlanStore {
         *self.task_key_port.write() = Some(port);
     }
 
-    /// Largest stored key number per prefix across every loaded plan.
+    /// Largest stored key number per prefix, read from the task rows; no plan is loaded.
     pub fn task_key_high_water(&self) -> HashMap<String, u64> {
-        let mut keys = Vec::new();
-        for plan in self.list_full() {
-            keys.extend(plan.tasks.iter().filter_map(|task| task.key.clone()));
-        }
-        task_key::high_water(keys.iter().map(String::as_str))
+        let keys = self.task_field_values("$.key");
+        task_key::high_water(keys.iter().map(|row| row.value.as_str()))
     }
 
     /// Must NOT be called while holding a plan mutex: the host port takes the mux lock.

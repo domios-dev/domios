@@ -73,21 +73,17 @@ impl PlanStore {
         super::super::store_index::record_lifecycle_events(&mut staged, Some(&previous), now_ms);
         super::super::tag_model::normalize_plan(&mut staged);
         crate::service_plan::text_bounds::validate_plan(&staged)?;
-        let path = match self.persist_plan_and_spec(&staged) {
-            Ok(path) => path,
-            Err(error) => {
-                // Memory must never differ from disk: the next read reloads the stored row.
-                self.plan_cache.evict(id);
-                return Err(PlanError::Io(error.to_string()));
-            }
-        };
+        if let Err(error) = self.persist_plan_and_spec(&staged) {
+            // Memory must never differ from disk: the next read reloads the stored row.
+            self.plan_cache.evict(id);
+            return Err(PlanError::Io(error.to_string()));
+        }
         let committed = {
             let mut guard = arc.lock();
             *guard = staged;
             guard.clone()
         };
         self.plan_cache.commit(id, &arc);
-        self.note_plan_write(&committed, &path);
         self.record_committed_snapshot(&committed);
         self.note_index(&committed);
         self.reset_bound_tabs(&committed);

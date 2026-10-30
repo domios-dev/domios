@@ -254,7 +254,7 @@ fn external_section_body_edit_reloads_into_full_plan() {
     store.reload_from_disk(&plan.id).unwrap();
 
     let list_plan = store
-        .list_full()
+        .all_plans_for_test()
         .into_iter()
         .find(|p| p.id == plan.id)
         .unwrap();

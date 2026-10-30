@@ -38,16 +38,7 @@ impl ServiceContext {
         {
             return false;
         }
-        self.plan_store.list_full().iter().any(|plan| {
-            plan.tasks.iter().any(|task| {
-                (!task.status.is_terminal()
-                    && (task.assigned_tab_id.as_deref() == Some(worker_tab_id)
-                        || task.lane.tab_id.as_deref() == Some(worker_tab_id)))
-                    || task.execution_attempts.iter().any(|attempt| {
-                        attempt.executor_tab_id == worker_tab_id && attempt.closed_at.is_none()
-                    })
-            })
-        })
+        super::worker_is_task_bound(&self.plan_store, worker_tab_id)
     }
 
     pub fn transfer_task_bound_worker(
@@ -174,19 +165,9 @@ impl ServiceContext {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| "worker transfer refused: live provider is missing".to_string())?;
-        let all_plans = self.plan_store.list_full();
-        let task_bindings = all_plans
-            .iter()
-            .flat_map(|candidate| {
-                candidate.tasks.iter().filter_map(|task| {
-                    (!task.status.is_terminal()
-                        && task.assigned_tab_id.as_deref() == Some(worker_tab_id))
-                    .then_some((candidate.id.as_str(), task.id.as_str()))
-                })
-            })
-            .collect::<Vec<_>>();
+        let task_bindings = worker_task_bindings(&self.plan_store, worker_tab_id);
         if task_bindings.len() != 1
-            || task_bindings[0] != (plan_id, task_id)
+            || task_bindings[0] != (plan_id.to_string(), task_id.to_string())
             || task.lane.tab_id.as_deref() != Some(worker_tab_id)
             || task.lane.workspace_id.as_deref() != Some(worker_workspace.as_str())
             || task.lane.worktree_path.as_deref().is_none_or(str::is_empty)
@@ -311,4 +292,27 @@ fn unique_team_anchor(mux: &MultiplexerState, team_id: &str, manager_tab_id: &st
         .filter(|tab_id| mux.get_tab(tab_id).is_some_and(Tab::anchors_team))
         .collect::<Vec<_>>();
     anchors.len() == 1 && anchors[0] == manager_tab_id
+}
+
+/// `(plan_id, task_id)` of every unfinished task assigned to the Worker, read
+/// around the plan cache because the caller holds the mux lock.
+pub(crate) fn worker_task_bindings(
+    plan_store: &crate::service::plan::PlanStore,
+    worker_tab_id: &str,
+) -> Vec<(String, String)> {
+    let candidates = crate::service::plan::TaskMatch::assigned(
+        worker_tab_id,
+        &crate::service::plan::plan_match::NON_TERMINAL_TASK_STATUSES,
+    );
+    plan_store
+        .stored_plans_matching(&candidates)
+        .iter()
+        .flat_map(|candidate| {
+            candidate.tasks.iter().filter_map(|task| {
+                (!task.status.is_terminal()
+                    && task.assigned_tab_id.as_deref() == Some(worker_tab_id))
+                .then(|| (candidate.id.clone(), task.id.clone()))
+            })
+        })
+        .collect()
 }

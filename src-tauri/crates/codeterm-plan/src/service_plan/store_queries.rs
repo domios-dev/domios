@@ -1,5 +1,6 @@
 use super::*;
 use crate::service_plan::paths;
+use crate::service_plan::plan_match;
 
 impl PlanStore {
     /// codeterm-releases#56: a freshly minted Team never owns a plan, so the
@@ -65,7 +66,7 @@ impl PlanStore {
         id: &str,
     ) -> Option<crate::plan::coverage::SpecCoverageReport> {
         let spec = self.get_spec(id)?;
-        let plans = self.list_full();
+        let plans = self.plans_matching(&PlanMatch::SpecLink(id.to_string()));
         Some(crate::plan::coverage::compute_spec_coverage_report(
             &spec, &plans,
         ))
@@ -140,7 +141,11 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.list_full() {
+        let candidates = PlanMatch::active().and(TaskMatch::assigned(
+            tab_id,
+            &plan_match::NON_TERMINAL_TASK_STATUSES,
+        ));
+        for plan in self.plans_matching(&candidates) {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -188,7 +193,16 @@ impl PlanStore {
             return None;
         }
         let mut matched = None;
-        for plan in self.list_full() {
+        let candidates = PlanMatch::active().and(
+            AttemptMatch {
+                session_id: Some(session_id.to_string()),
+                binding_nonce: Some(session_binding_nonce.to_string()),
+                task_statuses: Some(plan_match::NON_TERMINAL_TASK_STATUSES.to_vec()),
+                ..AttemptMatch::executor(tab_id, AttemptState::Open)
+            }
+            .into_match(),
+        );
+        for plan in self.plans_matching(&candidates) {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -219,7 +233,17 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.list_full() {
+        let candidates = PlanMatch::active()
+            .and(PlanMatch::Mode(PlanMode::Execution))
+            .and(TaskMatch::assigned(
+                tab_id,
+                &[
+                    TaskStatus::Pending,
+                    TaskStatus::InProgress,
+                    TaskStatus::Blocked,
+                ],
+            ));
+        for plan in self.plans_matching(&candidates) {
             if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {
                 continue;
             }
@@ -244,7 +268,10 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.list_full() {
+        let candidates = PlanMatch::active()
+            .and(PlanMatch::Mode(PlanMode::Execution))
+            .and(PlanMatch::owner(tab_id));
+        for plan in self.plans_matching(&candidates) {
             if plan.status != PlanStatus::Active
                 || plan.mode != PlanMode::Execution
                 || plan.owner.tab_id.as_deref() != Some(tab_id)
@@ -264,7 +291,8 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.list_full() {
+        let candidates = PlanMatch::active().and(PlanMatch::Planner(tab_id.to_string()));
+        for plan in self.plans_matching(&candidates) {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -292,7 +320,11 @@ impl PlanStore {
             return Vec::new();
         }
         let mut candidates: Vec<String> = Vec::new();
-        for plan in self.list_full() {
+        let bound = PlanMatch::active().and(PlanMatch::Any(vec![
+            PlanMatch::owner(tab_id).and(PlanMatch::Mode(PlanMode::Execution)),
+            PlanMatch::Planner(tab_id.to_string()),
+        ]));
+        for plan in self.plans_matching(&bound) {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -319,7 +351,14 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return Vec::new();
         }
-        self.list_full()
+        let candidates = PlanMatch::active().and(
+            AttemptMatch {
+                task_statuses: Some(plan_match::NON_TERMINAL_TASK_STATUSES.to_vec()),
+                ..AttemptMatch::executor(tab_id, AttemptState::Unclosed)
+            }
+            .into_match(),
+        );
+        self.plans_matching(&candidates)
             .into_iter()
             .filter(|plan| plan.status == PlanStatus::Active)
             .flat_map(|plan| {
@@ -342,7 +381,11 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return Vec::new();
         }
-        self.list_full()
+        let candidates = PlanMatch::active().and(TaskMatch::assigned(
+            tab_id,
+            &plan_match::NON_TERMINAL_TASK_STATUSES,
+        ));
+        self.plans_matching(&candidates)
             .into_iter()
             .filter(|plan| plan.status == PlanStatus::Active)
             .flat_map(|plan| {
@@ -368,32 +411,159 @@ impl PlanStore {
         self.spec_index.read().values().cloned().collect()
     }
 
-    // removed by the 1.18 consumer task
-    /// Loads every plan one at a time from SQL, bypassing the cache.
-    pub fn list_full(&self) -> Vec<Plan> {
-        #[cfg(any(test, feature = "test-support"))]
-        self.full_plan_clones
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let ids: Vec<String> = self.index.read().keys().cloned().collect();
-        ids.iter().filter_map(|id| self.stream_plan(id)).collect()
+    /// Ids of the plans whose stored rows match, newest first; no plan is loaded.
+    pub fn plan_ids_matching(&self, predicate: &PlanMatch) -> Vec<String> {
+        self.database
+            .plan_ids_matching(predicate)
+            .unwrap_or_else(|error| {
+                log::warn!("[plan.store] plan match query failed: {error}");
+                Vec::new()
+            })
     }
 
-    /// One plan from SQL without caching it; a quarantined plan is logged and skipped.
-    fn stream_plan(&self, id: &str) -> Option<Plan> {
-        match self.load_plan_from_sql(id) {
-            Ok(plan) => plan,
-            Err(error) => {
-                log::warn!("[plan.store] {error}; source left unchanged");
-                None
+    /// Loads, through the cache, only the plans whose stored rows match, newest first.
+    pub fn plans_matching(&self, predicate: &PlanMatch) -> Vec<Plan> {
+        self.plan_ids_matching(predicate)
+            .iter()
+            .filter_map(|id| self.get(id))
+            .collect()
+    }
+
+    /// The stored rows of the matching plans, read from SQL around the cache: for a
+    /// caller holding a plan or mux lock, which taking a cached plan's lock could deadlock.
+    pub fn stored_plans_matching(&self, predicate: &PlanMatch) -> Vec<Plan> {
+        self.plan_ids_matching(predicate)
+            .iter()
+            .filter_map(|id| match self.load_plan_from_sql(id) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    log::warn!("[plan.store] {error}; source left unchanged");
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Every plan, one at a time from SQL and never cached: the session export only.
+    pub fn for_each_plan_uncached(&self, mut visit: impl FnMut(Plan)) {
+        let mut ids: Vec<String> = self.index.read().keys().cloned().collect();
+        ids.sort();
+        for id in ids {
+            match self.load_plan_from_sql(&id) {
+                Ok(Some(plan)) => visit(plan),
+                Ok(None) => {}
+                Err(error) => log::warn!("[plan.store] {error}; source left unchanged"),
             }
         }
     }
 
-    /// How often `list_full` cloned the whole plan set; startup must not pay it.
+    /// Every plan id the index knows; no plan is loaded.
+    pub fn plan_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.index.read().keys().cloned().collect();
+        ids.sort();
+        ids
+    }
+
+    /// `(plan_id, project root)` per plan: the canonical path when set, else the project path.
+    pub fn plan_roots(&self) -> Vec<(String, String)> {
+        self.database.plan_roots().unwrap_or_else(|error| {
+            log::warn!("[plan.store] plan root query failed: {error}");
+            Vec::new()
+        })
+    }
+
+    /// One text field (a JSON path such as `$.lane.worktree_path`) of every task row holding it.
+    pub fn task_field_values(&self, path: &str) -> Vec<TaskFieldRow> {
+        self.database
+            .task_field_values(path)
+            .unwrap_or_else(|error| {
+                log::warn!("[plan.store] task field query failed: {error}");
+                Vec::new()
+            })
+    }
+
+    /// One text field of every attempt row holding it.
+    pub fn attempt_field_values(&self, path: &str) -> Vec<AttemptFieldRow> {
+        self.database
+            .attempt_field_values(path)
+            .unwrap_or_else(|error| {
+                log::warn!("[plan.store] attempt field query failed: {error}");
+                Vec::new()
+            })
+    }
+
+    pub(super) fn task_ref_rows(&self) -> Vec<TaskRefRow> {
+        self.database.task_ref_rows().unwrap_or_else(|error| {
+            log::warn!("[plan.store] task reference query failed: {error}");
+            Vec::new()
+        })
+    }
+
+    pub(super) fn section_ref_rows(&self) -> Vec<SectionRefRow> {
+        self.database.section_ref_rows().unwrap_or_else(|error| {
+            log::warn!("[plan.store] section reference query failed: {error}");
+            Vec::new()
+        })
+    }
+
+    pub(super) fn loop_rows(&self) -> Vec<(String, String, String)> {
+        self.database.loop_rows().unwrap_or_else(|error| {
+            log::warn!("[plan.store] loop query failed: {error}");
+            Vec::new()
+        })
+    }
+
+    /// Active execution plans with unfinished work: the only plans reminder ticks act on.
+    pub fn reminder_candidate_plans(&self) -> Vec<Plan> {
+        self.plans_matching(&reminder_candidates())
+    }
+
+    /// Reminder candidates this tab owns or holds an assignment in.
+    pub fn reminder_candidate_plans_for_tab(&self, tab_id: &str) -> Vec<Plan> {
+        if tab_id.trim().is_empty() {
+            return Vec::new();
+        }
+        self.plans_matching(&reminder_candidates().and(PlanMatch::Any(vec![
+            PlanMatch::owner(tab_id),
+            TaskMatch::assigned(tab_id, &plan_match::NON_TERMINAL_TASK_STATUSES),
+        ])))
+    }
+
+    /// Plans the tab owns or is the bound Planner of.
+    pub fn plans_owned_or_planned_by(&self, tab_id: &str) -> Vec<Plan> {
+        self.plans_matching(&PlanMatch::Any(vec![
+            PlanMatch::owner(tab_id),
+            PlanMatch::Planner(tab_id.to_string()),
+        ]))
+    }
+
+    /// Plans bound to the Team or holding work of one of its member tabs.
+    pub fn team_close_plans(&self, team_id: &str, member_tab_ids: &[String]) -> Vec<Plan> {
+        self.plans_matching(&team_close_candidates(team_id, member_tab_ids))
+    }
+
+    /// A plan bound to the Team, the active one first; read from the index, nothing loaded.
+    pub fn plan_id_for_team(&self, team_id: &str) -> Option<String> {
+        let index = self.index.read();
+        let mut bound: Vec<_> = index
+            .values()
+            .filter(|row| row.team_id.as_deref() == Some(team_id))
+            .collect();
+        bound.sort_by(|left, right| {
+            (right.status == PlanStatus::Active)
+                .cmp(&(left.status == PlanStatus::Active))
+                .then_with(|| right.updated_at.cmp(&left.updated_at))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        bound.first().map(|row| row.id.clone())
+    }
+
+    /// Every stored plan for test oracles; production paths load by match only.
     #[cfg(any(test, feature = "test-support"))]
-    pub fn full_plan_clones(&self) -> usize {
-        self.full_plan_clones
-            .load(std::sync::atomic::Ordering::Relaxed)
+    pub fn all_plans_for_test(&self) -> Vec<Plan> {
+        let mut plans = Vec::new();
+        self.for_each_plan_uncached(|plan| plans.push(plan));
+        plans
     }
 
     /// Plans whose stored rows hold a finished task with a lane that may still
@@ -410,33 +580,6 @@ impl PlanStore {
     /// Judges one plan under its lock without cloning it; unknown is `false`.
     pub fn plan_matches(&self, id: &str, matches: impl FnOnce(&Plan) -> bool) -> bool {
         self.plan_arc(id).is_ok_and(|plan| matches(&plan.lock()))
-    }
-
-    // removed by the 1.18 consumer task
-    /// Loads only plans the stored rows mark Active with tasks; reminder ticks never
-    /// need archived or empty plans.
-    pub fn list_full_reminder_candidates(&self) -> Vec<Plan> {
-        self.list_index()
-            .into_iter()
-            .filter(|entry| entry.status == PlanStatus::Active && entry.task_count > 0)
-            .filter_map(|entry| self.stream_plan(&entry.plan_id))
-            .collect()
-    }
-
-    // removed by the 1.18 consumer task
-    pub fn list_full_reminder_candidates_for_owner(&self, owner_tab_id: &str) -> Vec<Plan> {
-        if owner_tab_id.trim().is_empty() {
-            return Vec::new();
-        }
-        self.list_index()
-            .into_iter()
-            .filter(|entry| {
-                entry.status == PlanStatus::Active
-                    && entry.task_count > 0
-                    && entry.owner.tab_id.as_deref() == Some(owner_tab_id)
-            })
-            .filter_map(|entry| self.stream_plan(&entry.plan_id))
-            .collect()
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
@@ -488,6 +631,36 @@ impl PlanStore {
             self.spec_index.write().remove(&spec_id);
         }
     }
+}
+
+fn reminder_candidates() -> PlanMatch {
+    PlanMatch::active()
+        .and(PlanMatch::Mode(PlanMode::Execution))
+        .and(TaskMatch::with_status(&[
+            TaskStatus::Pending,
+            TaskStatus::InProgress,
+            TaskStatus::InReview,
+            TaskStatus::Blocked,
+        ]))
+}
+
+pub(super) fn team_close_candidates(team_id: &str, member_tab_ids: &[String]) -> PlanMatch {
+    let tabs = member_tab_ids.to_vec();
+    PlanMatch::Any(vec![
+        PlanMatch::team(team_id),
+        PlanMatch::Task(TaskMatch {
+            assigned_tabs: Some(tabs.clone()),
+            ..Default::default()
+        }),
+        PlanMatch::Task(TaskMatch {
+            lane_tabs: Some(tabs.clone()),
+            ..Default::default()
+        }),
+        PlanMatch::Attempt(AttemptMatch {
+            executor_tabs: Some(tabs),
+            ..Default::default()
+        }),
+    ])
 }
 
 fn unix_time_millis() -> u64 {

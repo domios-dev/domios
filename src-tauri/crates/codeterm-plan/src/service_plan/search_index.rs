@@ -307,7 +307,7 @@ pub(crate) fn flush_index_queue_for_test(_project_root: &Path) {
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
         let _writer_turn = self.mutation_writer.enter();
-        let mut plans = self.list_full();
+        let mut plans = self.project_plans(plan_project_root(plan));
         plans.retain(|stored| stored.id != plan.id);
         plans.push(plan.clone());
         self.enqueue_project_index(plan_project_root(plan), &plans, &self.list_specs_full());
@@ -336,8 +336,24 @@ impl super::PlanStore {
         search_project(project, q, status)
     }
 
+    /// Loads the plan holding `id`, then only the plans its lineage names.
     pub fn related_units(&self, id: &str) -> Vec<RelatedGroup> {
-        super::search_related::related_units(&self.list_full(), &self.list_specs_full(), id)
+        let holder = super::PlanMatch::Any(vec![
+            super::PlanMatch::Ids(vec![id.to_string()]),
+            super::PlanMatch::SectionId(id.to_string()),
+            super::PlanMatch::Task(super::TaskMatch {
+                fields: vec![("$.id", id.to_string())],
+                ..Default::default()
+            }),
+        ]);
+        let mut plans = self.plans_matching(&holder);
+        let lineage: Vec<String> = plans
+            .iter()
+            .flat_map(|plan| plan.lineage.iter().map(|link| link.to.clone()))
+            .filter(|target| plans.iter().all(|plan| plan.id != *target))
+            .collect();
+        plans.extend(self.plans_matching(&super::PlanMatch::Ids(lineage)));
+        super::search_related::related_units(&plans, &self.list_specs_full(), id)
     }
 
     pub fn list_specs_full(&self) -> Vec<Spec> {

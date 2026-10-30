@@ -40,10 +40,6 @@ pub struct PlanIndexHit {
     pub updated_at: String,
 }
 
-pub trait PlanEventSink: Send + Sync {
-    fn emit_plan_changed(&self, plan_id: &str);
-}
-
 pub trait PlanSearchPort: Send + Sync {
     fn data_dir(&self) -> PathBuf;
     fn ensure_embedding_registered(&self);

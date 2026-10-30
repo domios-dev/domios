@@ -174,7 +174,6 @@ impl PlanStore {
         let path = self
             .persist_spec(&guard)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_spec_write(&guard, &path);
         let entry = Self::spec_index_entry(&guard, path);
         self.spec_index.write().insert(guard.id.clone(), entry);
         Ok(out)
@@ -319,7 +318,7 @@ impl PlanStore {
         let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
         // Scrub references from every plan that points at this spec.
         let referencing: Vec<String> = self
-            .list_full()
+            .plans_matching(&super::PlanMatch::SpecRef(spec_id.to_string()))
             .into_iter()
             .filter(|plan| plan.spec_refs.iter().any(|r| r == spec_id))
             .map(|plan| plan.id)
@@ -365,7 +364,7 @@ impl PlanStore {
     }
 
     pub fn list_spec_links(&self, spec_id: &str) -> Vec<(String, SpecLink)> {
-        self.list_full()
+        self.plans_matching(&super::PlanMatch::SpecLink(spec_id.to_string()))
             .into_iter()
             .flat_map(|plan| {
                 plan.spec_links
@@ -714,7 +713,7 @@ mod tests {
                 2,
             )
             .unwrap();
-        assert_eq!(store.list_full().len(), 1);
+        assert_eq!(store.list_index().len(), 1);
 
         let conflict = store.create_plan_from_spec(
             &spec.id,
@@ -725,7 +724,7 @@ mod tests {
         );
         assert!(conflict.is_err(), "second from-spec must be rejected");
         assert_eq!(
-            store.list_full().len(),
+            store.list_index().len(),
             1,
             "spec-conflict must leave zero orphan plans"
         );

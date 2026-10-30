@@ -120,17 +120,6 @@ impl PlanDatabase {
         Ok(row.and_then(|(id, status, columns)| finish_index_row(id, &status, columns)))
     }
 
-    pub(in crate::service_plan) fn plan_row_exists(&self, id: &str) -> Result<bool, PlanError> {
-        let connection = self.connection.lock();
-        connection
-            .query_row(
-                "SELECT EXISTS(SELECT 1 FROM plans WHERE id = ?1)",
-                [id],
-                |row| row.get(0),
-            )
-            .map_err(db_error)
-    }
-
     /// Active plans that are not orphaned: the stored Team binding or an orphan marker decides.
     pub(in crate::service_plan) fn live_active_plan_ids(&self) -> Result<Vec<String>, PlanError> {
         let connection = self.connection.lock();

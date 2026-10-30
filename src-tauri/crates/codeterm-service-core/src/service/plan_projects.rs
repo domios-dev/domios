@@ -40,22 +40,6 @@ impl ServiceContext {
         if should_scan && reconcile_team_bindings {
             team_core::reconcile_dangling_team_plan_bindings_now(self)?;
         }
-        let legacy_plans_dir = project_root.join(".domios").join("plans");
-        let mut watchers = self.ext::<crate::service::PlanWatchers>().0.lock();
-        if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
-            match crate::service::plan::watcher::PlanWatcher::watch_project(
-                &project_root,
-                self.plan_store.clone(),
-                std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
-                    self.ui.clone(),
-                )),
-            ) {
-                Ok(watcher) => {
-                    watchers.insert(project_root.clone(), watcher);
-                }
-                Err(e) => log::warn!("[plan] failed to watch {}: {}", project_root.display(), e),
-            }
-        }
         Ok((project_root, should_scan))
     }
 }

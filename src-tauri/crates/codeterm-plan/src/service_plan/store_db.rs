@@ -518,6 +518,8 @@ fn json_error(error: serde_json::Error) -> PlanError {
 
 mod index_queries;
 pub(super) use index_queries::PlanIndexRow;
+mod match_queries;
+pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]

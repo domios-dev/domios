@@ -105,3 +105,32 @@ fn fixture_import_cannot_reach_production_or_ordinary_dev() {
         "-upgrade-restore-fixture"
     ));
 }
+
+#[test]
+fn exported_plans_streams_every_plan_without_filling_the_cache() {
+    use codeterm_service_core::service::plan::load_audit::{execution_plan, seed, start};
+    let dir = tempfile::tempdir().unwrap();
+    let store = codeterm_service_core::service::plan::PlanStore::new_for_test(dir.path());
+    let first = seed(&store, execution_plan(dir.path(), "first", "owner", vec![]));
+    let second = seed(
+        &store,
+        execution_plan(dir.path(), "second", "owner", vec![]),
+    );
+    start(&store);
+
+    let exported = super::exported_plans(&store).unwrap();
+    let mut ids: Vec<String> = exported
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|plan| plan["id"].as_str().unwrap().to_string())
+        .collect();
+    ids.sort();
+    let mut expected = vec![first, second];
+    expected.sort();
+    assert_eq!(ids, expected);
+    assert!(
+        store.cached_plan_ids_for_test().is_empty(),
+        "the export never fills the plan cache"
+    );
+}

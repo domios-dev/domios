@@ -52,7 +52,9 @@ impl PlanStore {
         let _writer_turn = self.mutation_writer.enter();
         let mut originals = Vec::new();
         let mut staged = Vec::new();
-        let plans = self.list_full();
+        let plans = self.plans_matching(&PlanMatch::Any(
+            changes.iter().map(lifecycle_candidates).collect(),
+        ));
 
         for original in plans {
             let mut candidate = original.clone();
@@ -68,24 +70,20 @@ impl PlanStore {
         }
 
         let changed_plan_ids = staged.iter().map(|plan| plan.id.clone()).collect();
-        let mut paths = Vec::new();
         for (persisted, candidate) in staged.iter().enumerate() {
-            match self.persist_plan_and_spec(candidate) {
-                Ok(path) => paths.push(path),
-                Err(error) => {
-                    for original in originals.iter().take(persisted) {
-                        let _ = self.persist_plan_and_spec(original);
-                    }
-                    // A partly written batch leaves nothing cached that disk may not hold.
-                    for candidate in &staged {
-                        self.plan_cache.evict(&candidate.id);
-                    }
-                    return Err(PlanError::Io(error.to_string()));
+            if let Err(error) = self.persist_plan_and_spec(candidate) {
+                for original in originals.iter().take(persisted) {
+                    let _ = self.persist_plan_and_spec(original);
                 }
+                // A partly written batch leaves nothing cached that disk may not hold.
+                for candidate in &staged {
+                    self.plan_cache.evict(&candidate.id);
+                }
+                return Err(PlanError::Io(error.to_string()));
             }
         }
-        for (candidate, path) in staged.iter().zip(paths) {
-            self.commit_agent_lifecycle_plan(candidate, path)?;
+        for candidate in &staged {
+            self.commit_agent_lifecycle_plan(candidate)?;
         }
 
         Ok(AgentLifecyclePlanTransaction {
@@ -99,37 +97,60 @@ impl PlanStore {
         transaction: AgentLifecyclePlanTransaction,
     ) -> Result<(), PlanError> {
         let _writer_turn = self.mutation_writer.enter();
-        let mut restored = Vec::new();
         for original in &transaction.original_plans {
-            let path = self.persist_plan_and_spec(original).map_err(|error| {
+            self.persist_plan_and_spec(original).map_err(|error| {
                 self.plan_cache.evict(&original.id);
                 PlanError::Io(error.to_string())
             })?;
-            restored.push(path);
         }
-        for (original, path) in transaction.original_plans.iter().zip(restored) {
-            self.commit_agent_lifecycle_plan(original, path)?;
+        for original in &transaction.original_plans {
+            self.commit_agent_lifecycle_plan(original)?;
         }
         Ok(())
     }
 
-    fn commit_agent_lifecycle_plan(
-        &self,
-        staged: &Plan,
-        path: std::path::PathBuf,
-    ) -> Result<(), PlanError> {
+    fn commit_agent_lifecycle_plan(&self, staged: &Plan) -> Result<(), PlanError> {
         let arc = self.plan_arc(&staged.id)?;
         {
             let mut plan = arc.lock();
             *plan = staged.clone();
         }
         self.plan_cache.commit(&staged.id, &arc);
-        self.note_plan_write(staged, &path);
         self.record_committed_snapshot(staged);
         self.note_index(staged);
         self.reset_bound_tabs(staged);
         Ok(())
     }
+}
+
+/// The plans `apply_change` can touch: owned by, planned by or assigned to the
+/// tab, or named by the change's rebind or planner binding.
+fn lifecycle_candidates(change: &AgentLifecyclePlanChange) -> PlanMatch {
+    let tab_id = change.tab_id.as_str();
+    let mut named: Vec<String> = change
+        .plan_rebind
+        .iter()
+        .map(|rebind| rebind.plan_id.clone())
+        .collect();
+    named.extend(
+        change
+            .planner_binding
+            .iter()
+            .map(|(plan_id, _)| plan_id.clone()),
+    );
+    PlanMatch::Any(vec![
+        PlanMatch::owner(tab_id),
+        PlanMatch::Planner(tab_id.to_string()),
+        PlanMatch::Task(TaskMatch {
+            assigned_tabs: Some(vec![tab_id.to_string()]),
+            ..Default::default()
+        }),
+        PlanMatch::Task(TaskMatch {
+            lane_tabs: Some(vec![tab_id.to_string()]),
+            ..Default::default()
+        }),
+        PlanMatch::Ids(named),
+    ])
 }
 
 fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64) {

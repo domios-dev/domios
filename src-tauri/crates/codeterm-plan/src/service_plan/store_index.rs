@@ -142,15 +142,11 @@ impl PlanStore {
 
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
         let (committed, handle) = self.upsert_plan_arc(plan);
-        let path = match self.persist_plan_and_spec(&committed) {
-            Ok(path) => path,
-            Err(error) => {
-                self.plan_cache.evict(&committed.id);
-                return Err(PlanError::Io(error.to_string()));
-            }
-        };
+        if let Err(error) = self.persist_plan_and_spec(&committed) {
+            self.plan_cache.evict(&committed.id);
+            return Err(PlanError::Io(error.to_string()));
+        }
         self.plan_cache.commit(&committed.id, &handle);
-        self.note_plan_write(&committed, &path);
         self.note_index(&committed);
         self.reset_bound_tabs(&committed);
         Ok(())
@@ -161,12 +157,12 @@ impl PlanStore {
         let path = self
             .persist_spec(&committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_spec_write(&committed, &path);
         let entry = Self::spec_index_entry(&committed, path);
         self.spec_index.write().insert(committed.id.clone(), entry);
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn load_file_into_index(
         &self,
         path: PathBuf,
@@ -186,10 +182,8 @@ impl PlanStore {
             let migrated = body_files::hydrate_and_migrate(&mut plan)
                 .map_err(|e| PlanError::Io(e.to_string()))?;
             if migrated {
-                let wp = self
-                    .persist_plan_and_spec(&plan)
+                self.persist_plan_and_spec(&plan)
                     .map_err(|e| PlanError::Io(e.to_string()))?;
-                self.note_plan_write(&plan, &wp);
             }
             plan
         };
@@ -228,6 +222,7 @@ impl PlanStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn load_spec_file_into_index(
         &self,
         path: PathBuf,
@@ -252,7 +247,11 @@ impl PlanStore {
         let _writer_turn = self.mutation_writer.enter();
         let mut updated = Vec::new();
         let mut warnings = Vec::new();
-        for mut plan in self.list_full() {
+        let candidates = PlanMatch::Any(vec![
+            PlanMatch::Owners(tab_ids.to_vec()),
+            PlanMatch::Teams(team_ids.to_vec()),
+        ]);
+        for mut plan in self.plans_matching(&candidates) {
             let bound = plan
                 .owner
                 .tab_id
@@ -324,13 +323,10 @@ impl PlanStore {
         };
         record_lifecycle_events(&mut staged, previous.as_ref(), now_ms);
         *plan = staged.clone();
-        let path = match self.persist_plan_and_spec(&staged) {
-            Ok(path) => path,
-            Err(error) => {
-                self.plan_cache.evict(&id);
-                return Err(error);
-            }
-        };
+        if let Err(error) = self.persist_plan_and_spec(&staged) {
+            self.plan_cache.evict(&id);
+            return Err(error);
+        }
         let handle = match existing {
             Some(arc) => {
                 *arc.lock() = staged.clone();
@@ -339,7 +335,6 @@ impl PlanStore {
             None => Arc::new(Mutex::new(staged.clone())),
         };
         self.plan_cache.commit(&id, &handle);
-        self.note_plan_write(&staged, &path);
         self.note_index(&staged);
         Ok(())
     }
@@ -382,7 +377,6 @@ impl PlanStore {
             let mut guard = arc.lock();
             *guard = staged.clone();
         }
-        self.note_spec_write(&staged, &path);
         self.spec_index
             .write()
             .insert(staged.id.clone(), Self::spec_index_entry(&staged, path));

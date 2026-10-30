@@ -205,15 +205,11 @@ impl PlanStore {
         result.ok_or(PlanError::NotFound)
     }
 
+    /// The header rows name the plan; no plan is loaded.
     fn find_plan_with_loop(&self, loop_id: &str) -> Option<String> {
-        for entry in self.list_index() {
-            if let Some(plan) = self.get(&entry.plan_id) {
-                if plan.loops.iter().any(|l| l.id == loop_id) {
-                    return Some(entry.plan_id);
-                }
-            }
-        }
-        None
+        self.plan_ids_matching(&super::PlanMatch::LoopId(loop_id.to_string()))
+            .into_iter()
+            .next()
     }
 }
 

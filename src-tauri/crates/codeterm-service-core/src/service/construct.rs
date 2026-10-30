@@ -289,9 +289,6 @@ pub fn build_service_context(
     extensions.insert(crate::usage::poller::UsagePollerSlot(Arc::new(
         parking_lot::Mutex::new(None),
     )));
-    extensions.insert(crate::service::PlanWatchers(Arc::new(
-        parking_lot::Mutex::new(std::collections::HashMap::new()),
-    )));
     extensions.insert(crate::service::LoadedPlanProjects(Arc::new(
         parking_lot::Mutex::new(std::collections::HashSet::new()),
     )));

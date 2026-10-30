@@ -140,7 +140,7 @@ fn assert_orchestrator_tuple(fixture: &Fixture) {
         tab.session_binding_nonce,
         tab.reported_session_binding_nonce
     );
-    assert!(!fixture.store.list_full().iter().any(|plan| {
+    assert!(!fixture.store.all_plans_for_test().iter().any(|plan| {
         matches!(
             &plan.planner,
             Some(PlannerRef::Tab { tab_id, .. }) if tab_id == &fixture.target
@@ -411,7 +411,7 @@ fn rebind_moves_owner_and_team_atomically() {
     assert_eq!(plan.team_id.as_deref(), Some(destination_team.as_str()));
     assert!(!fixture
         .store
-        .list_full()
+        .all_plans_for_test()
         .iter()
         .any(|candidate| candidate.id == fixture.plan_id
             && candidate.team_id.as_deref() == Some(old_team.as_str())));
@@ -777,7 +777,7 @@ fn rebind_rolls_back_on_injected_failure() {
         .unwrap()
         .report_target_tab_id = Some("stale-owner".into());
     let before_mux = mux_state_without_generation(&fixture.mux);
-    let before_plans = fixture.store.list_full();
+    let before_plans = fixture.store.all_plans_for_test();
 
     let error = execute_transition(
         &mut fixture.mux,
@@ -796,7 +796,7 @@ fn rebind_rolls_back_on_injected_failure() {
 
     assert!(error.contains("injected"));
     assert_eq!(mux_state_without_generation(&fixture.mux), before_mux);
-    assert_eq!(fixture.store.list_full(), before_plans);
+    assert_eq!(fixture.store.all_plans_for_test(), before_plans);
 }
 
 #[test]
@@ -843,7 +843,7 @@ fn rebind_is_idempotent_and_single_owner() {
         thread.join().unwrap().unwrap();
     }
 
-    let plans = store.list_full();
+    let plans = store.all_plans_for_test();
     let bindings = plans
         .iter()
         .filter(|plan| {
