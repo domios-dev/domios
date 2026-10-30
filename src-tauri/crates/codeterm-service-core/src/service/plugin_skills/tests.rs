@@ -100,7 +100,7 @@ fn messaging_user_messages_recall_plugin_with_state_and_next_command() {
 }
 
 #[test]
-fn installed_manifest_index_tracks_login_upgrade_and_uninstall() {
+fn index_sync_makes_zero_plugin_calls_and_tracks_login_upgrade_and_uninstall() {
     use codeterm_plugin::agent_commands::AgentCommandProvider;
     use codeterm_plugin::js_runtime::{catalog_from_manifest, JsAgentCommandHandler, PluginVm};
     use codeterm_plugin::plugin_index::{plan_plugin_index_sync, ExistingPluginIndexEntry};
@@ -111,19 +111,19 @@ fn installed_manifest_index_tracks_login_upgrade_and_uninstall() {
     let path = plugin_dir.join("plugin.json");
     let manifest_json = serde_json::json!({
         "id":"opaque-client", "version":"1.0.0", "displayName":"Teams Fixture",
-        "description":"Read Teams messages", "agentVerbs":["health", "login", "logout"],
+        "description":"Read Teams messages", "agentVerbs":["health", "login", "login-status", "logout"],
         "capabilities":{"agentProvider":false}
     });
     std::fs::write(&path, manifest_json.to_string()).unwrap();
     let manifest = PluginManifest::load(&path).unwrap();
     let vm = Arc::new(PluginVm::from_source("opaque-client", r#"
         let signedIn = false;
-        let healthCalls = 0;
+        let commandCalls = 0;
         module.exports = {onAgentCommand(ctx) {
-            if (ctx.verb === 'health') healthCalls++;
+            commandCalls++;
             if (ctx.verb === 'login') signedIn = true;
             return {result: JSON.stringify({state:signedIn?'logged-in':'logged-out', deviceCode:'private-code'})};
-        }, healthCalls() {return healthCalls;}};
+        }, commandCalls() {return commandCalls;}};
     "#.into()).unwrap());
     let handler = Arc::new(
         JsAgentCommandHandler::new(vm.clone(), "opaque-client", true)
@@ -131,17 +131,25 @@ fn installed_manifest_index_tracks_login_upgrade_and_uninstall() {
     );
     let registry = super::AgentCommandRegistry::new();
     registry.register("opaque-client", handler.clone());
-    super::refresh_connection_states(&registry);
-    super::refresh_connection_states(&registry);
+    let mem = crate::mem::MemManager::open_in_memory().unwrap();
+    super::sync_at(&mem, &registry, root.path());
+    super::sync_at(&mem, &registry, root.path());
     assert_eq!(
-        codeterm_plugin::js_runtime::call_json::<usize>(&vm, "healthCalls", &[]).unwrap(),
-        1
+        codeterm_plugin::js_runtime::call_json::<usize>(&vm, "commandCalls", &[]).unwrap(),
+        0
     );
     let before = super::installed_plugin_entries_at(root.path(), &registry).unwrap();
-    assert_eq!(before.len(), 4);
-    assert!(before
+    assert_eq!(before.len(), 5);
+    assert!(before.iter().all(|entry| entry.body.starts_with(
+        "Teams Fixture: state unknown — run `domios plugin opaque-client login-status`"
+    )));
+    let persisted = mem
+        .list_by_source_prefix("skill", "plugin-agent-verbs:")
+        .unwrap();
+    assert_eq!(persisted.len(), 5);
+    assert!(persisted
         .iter()
-        .all(|entry| entry.body.starts_with("Teams Fixture: not signed in.")));
+        .all(|entry| entry.body.contains("state unknown")));
     let existing: Vec<_> = before
         .iter()
         .map(|entry| ExistingPluginIndexEntry {
@@ -152,6 +160,18 @@ fn installed_manifest_index_tracks_login_upgrade_and_uninstall() {
         })
         .collect();
     handler.on_agent_command("tab", "login", &[], None).unwrap();
+    super::sync_at(&mem, &registry, root.path());
+    let persisted = mem
+        .list_by_source_prefix("skill", "plugin-agent-verbs:")
+        .unwrap();
+    assert_eq!(persisted.len(), 5);
+    assert!(persisted
+        .iter()
+        .all(|entry| entry.body.starts_with("Teams Fixture: signed in.")));
+    assert_eq!(
+        codeterm_plugin::js_runtime::call_json::<usize>(&vm, "commandCalls", &[]).unwrap(),
+        1
+    );
     let after = super::installed_plugin_entries_at(root.path(), &registry).unwrap();
     assert!(after
         .iter()
@@ -173,6 +193,15 @@ fn installed_manifest_index_tracks_login_upgrade_and_uninstall() {
     let upgraded = super::installed_plugin_entries_at(root.path(), &registry).unwrap();
     assert!(upgraded[0].body.contains("Read Teams messages and files"));
     std::fs::remove_file(path).unwrap();
+    super::sync_at(&mem, &registry, root.path());
+    assert!(mem
+        .list_by_source_prefix("skill", "plugin-agent-verbs:")
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        codeterm_plugin::js_runtime::call_json::<usize>(&vm, "commandCalls", &[]).unwrap(),
+        1
+    );
     let removed = super::installed_plugin_entries_at(root.path(), &registry).unwrap();
     assert!(removed.is_empty());
     assert_eq!(

@@ -13,6 +13,13 @@ pub enum PluginConnectionState {
 
 impl PluginConnectionState {
     pub fn from_response(response: &Value) -> Option<Self> {
+        if let Some(state) = response
+            .get("error")
+            .and_then(Value::as_str)
+            .and_then(Self::from_error)
+        {
+            return Some(state);
+        }
         if let Some(result) = response.get("result").and_then(Value::as_str) {
             if let Some(state) = serde_json::from_str(result)
                 .ok()
@@ -21,7 +28,7 @@ impl PluginConnectionState {
                 return Some(state);
             }
         }
-        let state = match response.get("state").and_then(Value::as_str).unwrap_or("") {
+        match response.get("state").and_then(Value::as_str).unwrap_or("") {
             "logged-in" => Some(Self::SignedIn),
             "logged-out"
             | "not-logged-in"
@@ -32,13 +39,7 @@ impl PluginConnectionState {
             "not-installed" => Some(Self::RuntimeMissing),
             "awaiting-user" | "install-in-progress" | "password-required" => Some(Self::Pending),
             _ => None,
-        };
-        state.or_else(|| {
-            response
-                .get("error")
-                .and_then(Value::as_str)
-                .and_then(Self::from_error)
-        })
+        }
     }
 
     pub fn from_error(error: &str) -> Option<Self> {
@@ -55,7 +56,7 @@ impl PluginConnectionState {
             Self::SignedOut => "not signed in",
             Self::RuntimeMissing => "client not installed; not signed in",
             Self::Pending => "sign-in pending",
-            Self::Unknown => "login state unknown",
+            Self::Unknown => "state unknown",
         }
     }
 }
@@ -90,12 +91,14 @@ pub fn recall_line(catalog: &AgentVerbCatalog) -> String {
         .unwrap_or(PluginConnectionState::Unknown);
     let next = match state {
         PluginConnectionState::SignedIn => format!("`{help}`"),
-        PluginConnectionState::Unknown | PluginConnectionState::Pending
-            if catalog.verbs.iter().any(|usage| usage == "health") =>
-        {
-            format!("`domios plugin {} health`", catalog.id)
+        PluginConnectionState::Unknown | PluginConnectionState::Pending => {
+            return format!(
+                "{}: {} — run `domios plugin {} login-status`.",
+                catalog.display_name,
+                state.label(),
+                catalog.id
+            );
         }
-        PluginConnectionState::Unknown | PluginConnectionState::Pending => format!("`{help}`"),
         _ => format!("Offer sign-in: `{login}`"),
     };
     format!("{}: {}. {next}.", catalog.display_name, state.label())

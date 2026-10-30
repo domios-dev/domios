@@ -6,7 +6,12 @@ fn catalog() -> AgentVerbCatalog {
         "opaque-messenger",
         "Fixture Messenger",
         Some("Read messages"),
-        &["login".into(), "health".into(), "chats [query]".into()],
+        &[
+            "login".into(),
+            "login-status".into(),
+            "health".into(),
+            "chats [query]".into(),
+        ],
         None,
         &[],
     )
@@ -71,7 +76,7 @@ fn recall_action_fits_existing_default_snippet_budget() {
         (PluginConnectionState::SignedIn, "--help"),
         (PluginConnectionState::SignedOut, "login"),
         (PluginConnectionState::RuntimeMissing, "login"),
-        (PluginConnectionState::Unknown, "health"),
+        (PluginConnectionState::Unknown, "login-status"),
     ] {
         catalog.connection_state = Some(state);
         let line = recall_line(&catalog);
@@ -79,4 +84,28 @@ fn recall_action_fits_existing_default_snippet_budget() {
         assert!(line.contains(&format!("`domios plugin opaque-messenger {command}`")));
         assert!(line.chars().count() <= 140);
     }
+}
+
+#[test]
+fn auth_refusal_takes_precedence_over_signed_in_state() {
+    for response in [
+        json!({"state":"logged-in", "error":"not-logged-in: connect first"}),
+        json!({"state":"logged-in", "error":"reauth-needed: expired"}),
+        json!({"result":"{\"state\":\"logged-in\"}", "error":"not-logged-in: connect first"}),
+    ] {
+        assert_eq!(
+            PluginConnectionState::from_response(&response),
+            Some(PluginConnectionState::SignedOut)
+        );
+        let mut catalog = catalog();
+        catalog.connection_state = PluginConnectionState::from_response(&response);
+        assert!(recall_line(&catalog)
+            .contains("not signed in. Offer sign-in: `domios plugin opaque-messenger login`"));
+    }
+    assert_eq!(
+        PluginConnectionState::from_response(
+            &json!({"state":"logged-in", "error":"upstream-rejected: offline"})
+        ),
+        Some(PluginConnectionState::SignedIn)
+    );
 }

@@ -42,10 +42,14 @@ fn to_new_item(item: PluginIndexEntry) -> NewMemItem {
 }
 
 pub fn sync(mem: &MemManager, registry: &AgentCommandRegistry) {
+    let root = codeterm_paths::data_dir().join("plugins");
+    sync_at(mem, registry, &root);
+}
+
+fn sync_at(mem: &MemManager, registry: &AgentCommandRegistry, root: &Path) {
     crate::mem::store::with_default_system_author("plugin-skills", || {
         let _serial = SYNC_LOCK.lock();
-        refresh_connection_states(registry);
-        let desired = match installed_plugin_entries(registry) {
+        let desired = match installed_plugin_entries_at(root, registry) {
             Ok(entries) => entries,
             Err(error) => {
                 log::warn!("[plugin-index] load installed manifests failed: {error}");
@@ -95,30 +99,6 @@ pub fn spawn_sync(
     registry: crate::agent_commands::AgentCommandRegistryHandle,
 ) {
     crate::async_runtime::spawn_blocking(move || sync(&mem, &registry));
-}
-
-fn refresh_connection_states(registry: &AgentCommandRegistry) {
-    for handler in registry.active() {
-        if !handler.granted() {
-            continue;
-        }
-        let Some(catalog) = handler.catalog() else {
-            continue;
-        };
-        if catalog.connection_state.is_none()
-            && codeterm_plugin::plugin_connection::login_command(&catalog).is_some()
-            && catalog.verbs.iter().any(|usage| usage == "health")
-        {
-            let _ = handler.on_agent_command("", "health", &[], None);
-        }
-    }
-}
-
-fn installed_plugin_entries(
-    registry: &AgentCommandRegistry,
-) -> Result<Vec<PluginIndexEntry>, String> {
-    let root = codeterm_paths::data_dir().join("plugins");
-    installed_plugin_entries_at(&root, registry)
 }
 
 fn installed_plugin_entries_at(
