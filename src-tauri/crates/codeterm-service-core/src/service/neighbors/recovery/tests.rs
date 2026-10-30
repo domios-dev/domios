@@ -4,6 +4,7 @@ use super::*;
 fn startup_string_boundary_keeps_permanent_refusals_and_retries_setup_outages() {
     for error in [
         Error::Locked,
+        Error::Unavailable,
         Error::PermissionDenied,
         Error::SessionRevoked,
         Error::Disabled,

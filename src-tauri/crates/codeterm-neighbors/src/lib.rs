@@ -36,6 +36,7 @@ pub enum Error {
     LocalKeyUnavailable,
     SecretStore,
     Transport,
+    Unavailable,
     Http {
         status: u16,
         retry_after_seconds: u64,
@@ -166,6 +167,7 @@ impl std::fmt::Display for Error {
             Self::LocalKeyUnavailable => "Neighbor recipient key recovery required",
             Self::SecretStore => "Neighbor OS secret store unavailable",
             Self::Transport => "Neighbor transport unavailable",
+            Self::Unavailable => "Neighbor callable unavailable",
             Self::Http { .. } => unreachable!(),
             Self::CursorStore => "Neighbor cursor storage unavailable",
             Self::Gateway => "Neighbor gateway unavailable",
