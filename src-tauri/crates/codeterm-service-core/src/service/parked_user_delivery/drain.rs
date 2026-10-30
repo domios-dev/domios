@@ -163,13 +163,13 @@ impl super::super::ServiceContext {
                 }
             };
             let text = store.prepared(&head)?;
-            let separator_before = if head.held_before_readiness {
-                self.chat_send_ledger
-                    .has_held_user_send_before(&head.authority, head.ledger_sequence)
-            } else {
-                self.chat_send_ledger
-                    .has_unsettled_user_send_before(&head.authority, head.ledger_sequence)
-            };
+            let separator_before = self
+                .chat_send_ledger
+                .has_unsettled_user_send_before(&head.authority, head.ledger_sequence)
+                || (head.held_before_readiness
+                    && self
+                        .chat_send_ledger
+                        .has_held_user_send_before(&head.authority, head.ledger_sequence));
             let text = if separator_before {
                 format!("\n\n{text}")
             } else {

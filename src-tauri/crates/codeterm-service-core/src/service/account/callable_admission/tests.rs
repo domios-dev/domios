@@ -12,7 +12,7 @@ struct Credentials;
 #[async_trait::async_trait]
 impl codeterm_account::CredentialStore for Credentials {
     async fn load(&self, _: &str) -> codeterm_account::Result<Option<codeterm_account::Secret>> {
-        Ok(Some(codeterm_account::Secret::new("fixture-refresh")))
+        Ok(Some(codeterm_account::Secret::new("fake-refresh")))
     }
     async fn save(&self, _: &str, _: &codeterm_account::Secret) -> codeterm_account::Result<()> {
         Ok(())

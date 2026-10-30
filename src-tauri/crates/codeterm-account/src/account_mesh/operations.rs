@@ -143,6 +143,9 @@ impl AccountMesh {
 
     /// Captures the session only if it still belongs to the signed-in account of `epoch`.
     pub(super) async fn signed(&self, epoch: Option<u64>) -> Outcome<Signed> {
+        if self.state().last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
+            return Err(AccountMeshRefusal::ReauthRequired);
+        }
         let trust = self
             .config
             .trust
@@ -317,7 +320,18 @@ impl AccountMesh {
         Ok(Some(slot_revision))
     }
 
-    pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
+    pub(super) async fn enroll_once(&self, epoch: u64, trigger: EnrollTrigger) -> Outcome<()> {
+        match self.enroll_attempt(epoch, trigger).await {
+            Err(
+                AccountMeshRefusal::Forbidden
+                | AccountMeshRefusal::GenerationMismatch
+                | AccountMeshRefusal::ReauthRequired,
+            ) => Err(self.require_sign_in(epoch).await),
+            result => result,
+        }
+    }
+
+    async fn enroll_attempt(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
         self.with(|inner| {
             if inner.rejoin_authorized

@@ -103,8 +103,10 @@ async fn reopen_tab_and_group_routes_preserve_locked_workspace_refusals() {
     mux.close_tab(&closed).unwrap();
     let locked_group = mux.snapshot().recently_closed[0].group_id.clone();
     let fixture = ServiceFixture::new(mux);
-    let gate = fixture.service.limit_gate();
-    fixture.service.mux.write().set_limit_gate(gate);
+    fixture.set_limit_gate(codeterm_service_core::service::billing::LimitGate::new(
+        codeterm_entitlements::compiled_free(),
+        true,
+    ));
     assert!(fixture
         .service
         .mux

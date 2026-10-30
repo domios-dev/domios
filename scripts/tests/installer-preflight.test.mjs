@@ -1,8 +1,39 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+
+const windowsPowerShell = process.platform === 'win32'
+  ? path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe')
+  : 'powershell.exe';
+
+test('NSIS preflight loads its native holder discovery in Windows PowerShell 5.1', { skip: process.platform !== 'win32' }, () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'domios installer preflight '));
+  try {
+    const entry = fileURLToPath(new URL('../../src-tauri/windows/installer-preflight.ps1', import.meta.url));
+    const result = spawnSync(windowsPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', entry, '-InstallRoot', root], { encoding: 'utf8', timeout: 30_000 });
+    assert.equal(result.status, 0, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
+  } finally {
+    assert.equal(path.dirname(root), path.resolve(tmpdir()));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('all NSIS PowerShell sources parse in the hook runtime without executing firewall actions', { skip: process.platform !== 'win32' }, () => {
+  const fixture = fileURLToPath(new URL('./fixtures/installer-hook-syntax.ps1', import.meta.url));
+  const result = spawnSync(windowsPowerShell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', fixture], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(result.status, 0, `${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
+  const actual = JSON.parse(result.stdout.replace(/^\uFEFF/, ''));
+  assert.deepEqual({ ...actual, scripts: actual.scripts.sort() }, {
+    edition: 'Desktop', version: '5.1', scripts: [
+      'account-mesh-firewall.ps1', 'installer-preflight-flow.ps1',
+      'installer-preflight.ps1', 'installer-process-model.ps1',
+    ],
+  });
+});
 
 test('NSIS embeds preflight before replacement and aborts on unsafe shutdown', () => {
   const hooks = readFileSync(new URL('../../src-tauri/windows/installer-hooks.nsh', import.meta.url), 'utf8');

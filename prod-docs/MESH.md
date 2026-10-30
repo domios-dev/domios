@@ -2,7 +2,9 @@
 
 ## Account mesh
 
-Sign in to Domios on each machine with the same account. Active account installations connect automatically when both machines have current membership and a reachable published endpoint. There is no per-connection Add, approval, or Disconnect action. To remove a machine, use **Remove from mesh** on its account card; this revokes its slot. A fresh sign-in rejoins a removed installation.
+Sign in to Domios on each machine with the same account. Active account installations connect automatically when both machines have current membership and a reachable published endpoint. There is no per-connection Add, approval, or Disconnect action. To remove a machine, use **Remove from mesh** on its account card; this revokes its slot. A fresh sign-in rejoins a removed installation. Removed-machine actions say **Sign in and rejoin** only when the registry reports this installation inactive; a refusal alone asks for sign-in without claiming removal.
+
+A terminal admission refusal stops background enrollment and asks for a fresh sign-in. Restarting Domios or refreshing credentials does not clear that gate. Transient recovery continues only inside the bounded fresh-sign-in recovery window.
 
 The account registry is the only source of machines in Mesh and `domios mesh peers`. Each installation appears once, identified by installation ID. Equal names do not merge installations. An expired endpoint stays visible as stale and can be removed explicitly. A signed-out or revoked installation session says **Sign in on NAME**; its last heartbeat does not authorize access.
 
@@ -154,4 +156,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->

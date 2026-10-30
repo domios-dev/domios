@@ -302,11 +302,11 @@ describe("Mesh canvas wiring", () => {
   });
 
   it("signs in and rejoins a removed machine with one action", async () => {
-    const client = new FakeAccountMeshClient(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "revoked" } }));
+    const client = new FakeAccountMeshClient(snapshot({ registry: { observed_at: NOW, rows: [{ ...selfRow, active: false }] }, enrollment: "refused", last_refusal: { reason: "revoked" } }));
     await mount(client);
     const group = host.querySelector('[role="group"][aria-label="Rejoin your mesh"]');
     expect(group).not.toBeNull();
-    await click(group!.querySelector("button"));
+    await click([...group!.querySelectorAll("button")].find(element => element.textContent === "Sign in and rejoin") ?? null);
     expect(presence.signIns).toBe(1);
     expect(client.enrollCalls).toBe(0);
     expect(selected).toBe(0);

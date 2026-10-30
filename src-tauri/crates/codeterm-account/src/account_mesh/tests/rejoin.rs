@@ -87,9 +87,13 @@ async fn account_mesh_rejoin_registry_reconciles_persisted_revocation_without_ke
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
+    harness
+        .mesh
+        .revoke(row(PEER, 0, None).target())
+        .await
+        .unwrap();
     {
         let mut record = harness.store.record.lock().unwrap();
-        record.revoked_installations.insert(PEER.into());
         record.peer_keys.clear();
         record.peer_presence.clear();
     }

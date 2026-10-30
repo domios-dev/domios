@@ -190,6 +190,9 @@ impl Billing {
         }
         snapshot.checking = cache.uid.is_some() && current.is_none() && !cache.neighbors_free
             || self.checking(cache);
+        if snapshot.checking && snapshot.entitlements.plan == Plan::Free {
+            snapshot.entitlements.plan = Plan::Paid("unavailable".into());
+        }
         snapshot
     }
     fn checking(&self, cache: &Cache) -> bool {
@@ -599,8 +602,14 @@ impl Billing {
                 }) => {
                     refreshed = true;
                     cache.observed = true;
-                    cache.neighbors_free =
-                        entitlements.plan == Plan::Free && access.authority == Authority::Free;
+                    cache.neighbors_free = entitlements.plan == Plan::Free
+                        && access.authority == Authority::Free
+                        && !cache.verified.as_ref().is_some_and(|grant| {
+                            let verdict = grant.verdict(self.now());
+                            verdict.state.retains_grant()
+                                && verdict.effective().authority
+                                    != codeterm_entitlements::Authority::Free
+                        });
                     cache.snapshot = Snapshot {
                         entitlements,
                         stale: false,
