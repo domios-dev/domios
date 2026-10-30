@@ -153,7 +153,7 @@ jobs:
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && (vars.CI_LINUX_RUST_FULL_RUNNER == 'hosted')
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
@@ -166,7 +166,7 @@ jobs:
           components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037
         with:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
@@ -384,7 +384,7 @@ jobs:
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && (matrix.os == 'macOS' && vars.CI_MACOS_RUST_RUNNER == 'macos-15')
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
@@ -397,7 +397,7 @@ jobs:
           components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037
         with:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
@@ -603,7 +603,7 @@ jobs:
           restore-keys: ${{ format('cargo-{0}-{1}-', runner.os, runner.arch) }}
       - name: Hosted sccache
         if: runner.environment == 'github-hosted' && ((vars.CI_MACOS_EMBEDDINGS_RUNNER || 'macos-15') == 'macos-15')
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
         env:
           SCCACHE_GHA_ENABLED: "true"
       - name: Prepare compile fixtures
@@ -616,7 +616,7 @@ jobs:
           components: clippy,rustfmt
         if: runner.environment == 'github-hosted'
       - name: Install pinned nextest prerequisite
-        uses: taiki-e/install-action@1168f6810a3cb30a3514bf5756a3b7f0422c6df8
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037
         with:
           tool: cargo-nextest@0.9.148
         if: runner.environment == 'github-hosted'
