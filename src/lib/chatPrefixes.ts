@@ -212,12 +212,6 @@ function collectSlashCommands(content: string): PrefixMatch | null {
     .filter((t) => t.kind === "local-command-stdout")
     .map((t) => t.value.trim())
     .filter(Boolean);
-  const cmdNameTags = tags
-    .filter((t) => t.kind === "command-name")
-    .map((t) => t.value.trim());
-  const argTags = tags
-    .filter((t) => t.kind === "command-args")
-    .map((t) => t.value.trim());
 
   let commands: SlashCommand[];
   if (inlineCommands.length > 0) {
@@ -230,13 +224,6 @@ function collectSlashCommands(content: string): PrefixMatch | null {
     for (let i = inlineCommands.length; i < stdouts.length; i++) {
       commands.push({ name: "local-command-stdout", stdout: stdouts[i] });
     }
-  } else if (cmdNameTags.length > 0) {
-    // Old format: tag-wrapped commands.
-    commands = cmdNameTags.map((name, i) => ({
-      name: name.startsWith("/") ? name : `/${name}`,
-      args: argTags[i] || undefined,
-      stdout: stdouts[i] || undefined,
-    }));
   } else if (stdouts.length > 0) {
     // Orphan stdouts with no command association.
     commands = stdouts.map((s) => ({ name: "local-command-stdout", stdout: s }));

@@ -23,26 +23,13 @@ fn brief_restore_decision(
 fn restore_frame_and_payload(
     original: &str,
 ) -> Option<(crate::service::messenger::FramedDelivery, String)> {
-    use codeterm_wire::domios::{DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
+    use codeterm_wire::domios::DOMIOS_CLOSE_TAG;
     let body = original.strip_suffix(DOMIOS_CLOSE_TAG)?;
-    let body = body
-        .strip_suffix(&format!(" <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>"))
-        .unwrap_or(body);
     let body = codeterm_wire::domios::strip_plain_typed_tail(body).to_string();
     let payload = format!("{body}{DOMIOS_CLOSE_TAG}");
     Some((
         crate::service::messenger::Messenger::restore_framed_delivery(original).ok()?,
         payload,
-    ))
-}
-
-/// Briefs delivered before the tip form still sit in live transcripts; matching
-/// them keeps a restart from replaying a written brief.
-fn with_legacy_typed_instruction(payload: &str) -> Option<String> {
-    use codeterm_wire::domios::{DOMIOS_CLOSE_TAG, DOMIOS_LEGACY_TYPED_INSTRUCTION};
-    let body = payload.strip_suffix(DOMIOS_CLOSE_TAG)?;
-    Some(format!(
-        "{body} <tip>{DOMIOS_LEGACY_TYPED_INSTRUCTION}</tip>{DOMIOS_CLOSE_TAG}"
     ))
 }
 
@@ -52,7 +39,6 @@ fn restore_payload_candidates(payload: &str, typed_tail: bool) -> Vec<String> {
     }
     [
         codeterm_wire::domios::with_pasted_marker(payload),
-        with_legacy_typed_instruction(payload),
         (!payload.contains('\n')).then(|| payload.to_string()),
     ]
     .into_iter()
@@ -513,18 +499,14 @@ mod tests {
         let (frame, payload) = restore_frame_and_payload(original).unwrap();
         assert_eq!(frame.to_message(), original);
         assert_eq!(payload, original);
-        for tail in [
-            with_legacy_typed_instruction(original).unwrap(),
-            codeterm_wire::domios::with_pasted_marker(original).unwrap(),
-        ] {
-            let (tail_frame, tail_payload) = restore_frame_and_payload(&tail).unwrap();
-            assert_eq!(tail_frame.to_message(), tail);
-            assert_eq!(tail_payload, payload);
-        }
+        let tail = codeterm_wire::domios::with_pasted_marker(original).unwrap();
+        let (tail_frame, tail_payload) = restore_frame_and_payload(&tail).unwrap();
+        assert_eq!(tail_frame.to_message(), tail);
+        assert_eq!(tail_payload, payload);
         assert_eq!(restore_payload_candidates(original, false), [original]);
         let typed = restore_payload_candidates(original, true);
         let plain_allowed = !original.contains('\n');
-        assert_eq!(typed.len(), 2 + usize::from(plain_allowed));
+        assert_eq!(typed.len(), 1 + usize::from(plain_allowed));
         assert_eq!(
             typed.iter().any(|candidate| candidate == original),
             plain_allowed

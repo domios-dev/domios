@@ -43,7 +43,6 @@ import {
   isLargeArtifact,
   renderUserContent,
 } from "./MarkdownBody";
-import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 import { pickUiFontScaleValue } from "./uiFontScale";
 import { ToolOutputContent } from "./ToolOutputContent";
@@ -108,7 +107,6 @@ interface MessageBubbleProps {
   onJumpToMessage?: (messageId: string) => void;
 }
 
-const INTERACTIVE_QUESTIONS_ENABLED = false;
 const BLOCK_GAP = "\n\n";
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
@@ -141,7 +139,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, onContentLayout, userFooter, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, onContentLayout, userFooter, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
   const renderedText = useDeferredValue(message.content);
   useLayoutEffect(() => { onContentLayout?.(); });
   recordBubbleRender(message.id);
@@ -555,21 +553,6 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             </pre>
           )}
         </div>
-      </div>
-    );
-  }
-
-  if (INTERACTIVE_QUESTIONS_ENABLED && message.interactive && message.interactive.length > 0) {
-    return (
-      <div className="w-full">
-        {message.interactive.map((el) => (
-          <InteractiveElementRenderer
-            key={el.id}
-            element={el}
-            onAnswer={onAnswerInteractive}
-            answered={answeredInteractiveIds?.has(el.id)}
-          />
-        ))}
       </div>
     );
   }

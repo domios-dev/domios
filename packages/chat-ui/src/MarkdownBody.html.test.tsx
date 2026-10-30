@@ -345,7 +345,7 @@ test("a denied gallery image leaves the allowed image visible with an unavailabl
   }
 });
 
-test("standalone ct artifact directives render pages, images, and documents", async () => {
+test("standalone ds artifact directives render pages, images, and documents", async () => {
   const pagePath = "C:\\Users\\dev\\Desktop\\view.html";
   const imagePath = "C:\\Users\\dev\\Desktop\\preview.png";
   const documentPath = "C:\\Users\\dev\\Desktop\\notes.md";
@@ -366,18 +366,18 @@ test("standalone ct artifact directives render pages, images, and documents", as
   });
 
   assert(parseLocalArtifactDirective(`@ds-page "${pagePath}"`)?.path === pagePath, "quoted ds-page parses");
-  assert(parseLocalArtifactDirective(`@ct-image ${imagePath}`)?.kind === "image", "legacy ct-image parses");
+  assert(parseLocalArtifactDirective(`@ct-image ${imagePath}`) === null, "old directive spelling is rejected");
   {
-    const { host: legacy } = await render(
-      <RichMarkdown text={isolateBlockDirectives(`@ct-page ${pagePath}\n@ct-image ${imagePath}\n@ct-document ${documentPath}`)} />,
+    const { host: consecutive } = await render(
+      <RichMarkdown text={isolateBlockDirectives(`@ds-page ${pagePath}\n@ds-image ${imagePath}\n@ds-document ${documentPath}`)} />,
     );
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    assert(legacy.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Page from file"), "consecutive legacy ct-page renders in the HTML sandbox");
-    assert(legacy.querySelector('[data-testid="chat-ds-image"]'), "consecutive legacy ct-image renders an image block");
-    assert(legacy.querySelector('[data-testid="chat-ds-document"]'), "consecutive legacy ct-document renders a document block");
+    assert(consecutive.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Page from file"), "consecutive ds-page renders in the HTML sandbox");
+    assert(consecutive.querySelector('[data-testid="chat-ds-image"]'), "consecutive ds-image renders an image block");
+    assert(consecutive.querySelector('[data-testid="chat-ds-document"]'), "consecutive ds-document renders a document block");
   }
   const { host } = await render(
     <RichMarkdown text={`@ds-page ${pagePath}\n\n@ds-image ${imagePath}\n\n@ds-document ${documentPath}`} />,

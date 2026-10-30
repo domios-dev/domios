@@ -68,7 +68,7 @@ function indexEntry(overrides: Partial<PlanIndexEntry> = {}): PlanIndexEntry {
   return {
     plan_id: FIXTURE_PLAN.id,
     file_path: `/repo/hub/.domios/plans/active/${FIXTURE_PLAN.id}/plan.json`,
-    canonical_project_path: "",
+    canonical_project_path: "/repo/hub",
     owner: FIXTURE_PLAN.owner,
     title: FIXTURE_PLAN.title,
     status: "active",
@@ -95,19 +95,19 @@ test("deriveWorkspacePlanEntries matches project-local plans", () => {
   assert(entries[0].plan_id === FIXTURE_PLAN.id, "fixture plan id");
 });
 
-test("deriveWorkspacePlanEntries reaches file-backed fallback when canonical ownership is omitted", () => {
+test("deriveWorkspacePlanEntries rejects file-backed entries when canonical ownership is omitted", () => {
   const { canonical_project_path: _canonicalProjectPath, ...legacyEntry } = indexEntry();
   const entries = deriveWorkspacePlanEntries([legacyEntry], workspace, tabs);
-  assert(entries.length === 1, "omitted canonical ownership reaches legacy file-backed matching");
+  assert(entries.length === 0, "omitted canonical ownership is refused");
 });
 
-test("deriveWorkspacePlanEntries reaches file-backed fallback when canonical ownership is blank", () => {
+test("deriveWorkspacePlanEntries rejects file-backed entries when canonical ownership is blank", () => {
   const entries = deriveWorkspacePlanEntries(
     [indexEntry({ canonical_project_path: "  " })],
     workspace,
     tabs,
   );
-  assert(entries.length === 1, "blank canonical ownership reaches legacy file-backed matching");
+  assert(entries.length === 0, "blank canonical ownership is refused");
 });
 
 test("deriveWorkspacePlanEntries matches Windows verbatim canonical ownership", () => {
@@ -195,6 +195,7 @@ test("deriveWorkspacePlanEntries ignores archived plans", () => {
 test("deriveWorkspacePlanEntries ignores assigned plans from another project", () => {
   const assigned = indexEntry({
     plan_id: "plan-worker",
+    canonical_project_path: "/repo/other",
     file_path: "/repo/other/.domios/plans/active/plan-worker/plan.json",
     owner: { tab_id: "other-orch", session_id: null, title: null },
     assigned_tab_ids: ["worker-1"],
@@ -206,6 +207,7 @@ test("deriveWorkspacePlanEntries ignores assigned plans from another project", (
 test("deriveWorkspacePlanEntries does not leak foreign project plans through owner Tabs", () => {
   const foreign = indexEntry({
     plan_id: "plan-foreign",
+    canonical_project_path: "/repo/other",
     file_path: "/repo/other/.domios/plans/active/plan-foreign/plan.json",
     owner: { tab_id: "orch-1", session_id: null, title: null },
     assigned_tab_ids: [],
@@ -247,6 +249,7 @@ test("deriveWorkspacePlanEntries hides empty project plans without Tab assignmen
 test("deriveWorkspacePlanEntries hides plans outside workspace project path", () => {
   const foreign = indexEntry({
     file_path: "/other/repo/.domios/plans/active/plan/plan.json",
+    canonical_project_path: "/other/repo",
     owner: { tab_id: "foreign-orch", session_id: null, title: null },
     assigned_tab_ids: [],
   });
@@ -410,7 +413,7 @@ test("canvasFitContextKey encodes workspace target fields", () => {
 test("deriveWorkspacePlanEntries cumulatively includes root and nested-root plans, excludes siblings and outside roots", () => {
   const ws = { ...workspace, cwd: "/repo/hub", tabs: [] };
   const mk = (planId: string, filePath: string, updatedAt: number) =>
-    indexEntry({ plan_id: planId, file_path: filePath, updated_at: updatedAt });
+    indexEntry({ plan_id: planId, file_path: filePath, canonical_project_path: filePath.split("/.domios/")[0], updated_at: updatedAt });
   const index = [
     mk("A1", "/repo/hub/.domios/plans/active/A1/plan.json", 40),
     mk("A2", "/repo/hub/.domios/plans/active/A2/plan.json", 30),
@@ -466,6 +469,7 @@ test("deriveWorkspacePlanEntries updates the same surface in place on a nested p
   });
   const nested = indexEntry({
     plan_id: "p1",
+    canonical_project_path: "/repo/hub/packages/p1",
     file_path: "/repo/hub/packages/p1/.domios/plans/active/p1/plan.json",
     updated_at: 5,
   });
