@@ -4,6 +4,7 @@ import type { PipelineView } from "../pipelineModel";
 import { blueprintNodeKey, type BlueprintExpansion } from "../blueprintExpansion";
 import { blueprintJournalNodes } from "../blueprintPipelineOutcome";
 import { blueprintNodeKinds, irNodeKind, triggerIcon, type BlueprintNodeType, type NodeIcon } from "./kinds";
+import { nodeTrigger, type BlueprintNodeTrigger } from "./triggerModel";
 
 export type PinKind = "exec" | "data";
 
@@ -49,6 +50,7 @@ export interface BlueprintGraphNode {
   scope: string;
   definition?: BlueprintIrNode;
   control?: "trigger" | "result" | "stop";
+  trigger?: BlueprintNodeTrigger;
   routes: { outcome: string; target: string }[];
   evidence: NodeEvidence | null;
   /** A call node's sub-graph: the callee's name and whether its body is here to open. */
@@ -295,6 +297,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
 
     if (document.trigger) {
       const trigger = control("$trigger", "Trigger", "trigger", "trigger", triggerIcon((document.trigger as Readonly<Record<string, unknown>>).type));
+      trigger.trigger = nodeTrigger(document.trigger, true, path.length ? null : pipeline.triggerRuntime ?? null);
       trigger.body = { kind: "text", text: blueprintTriggerSummary(document.trigger) };
       trigger.outputs.push(pin("next", "exec", "out", ""));
       const fields = document.trigger as Readonly<Record<string, BlueprintValue>>;
@@ -307,6 +310,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
       const node: BlueprintGraphNode = {
         key, id: definition.id, type: kind.type, icon: kind.icon, kindLabel: kind.label, title: definition.name ?? definition.id,
         body: bodyOf(definition), inputs: [pin("in", "exec", "in", "")], outputs: [], callPath: path, scope, definition, routes: [], evidence: evidenceFor(key),
+        trigger: nodeTrigger(definition, document.kind === "watch" && index === 0, !path.length && document.kind === "watch" && index === 0 ? pipeline.triggerRuntime ?? null : null),
         callee: definition.call ? calleeOf(definition.call, calls.find((entry) => entry.node === definition.id)) : undefined,
       };
       const bound = bindings(definition);

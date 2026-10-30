@@ -27,6 +27,7 @@ export interface PipelineViewEdge {
 }
 
 export interface PipelineView extends BlueprintProjection {
+  triggerRuntime?: import("./blueprint/triggerModel").BlueprintTriggerRuntime | null;
   retained?: import("./blueprint/runEvidence").RetainedRun;
   runId?: string | null;
   closed?: boolean;

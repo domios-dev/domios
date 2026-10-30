@@ -117,7 +117,7 @@ ${callout.detail}` : callout.reason}
             data-lit={litNodes.has(node.key) || undefined}
             aria-pressed={selected === node.key}
             aria-label={`Node ${nodeLabel(node)}`}
-            aria-description={[node.callee ? `Sub-graph ${node.callee.name}${node.callee.openable && onOpen ? ", double-click or Enter to open" : ""}` : null, node.evidence ? evidenceText(node.evidence) : null].filter(Boolean).join(". ") || undefined}
+            aria-description={[node.trigger?.label, node.callee ? `Sub-graph ${node.callee.name}${node.callee.openable && onOpen ? ", double-click or Enter to open" : ""}` : null, node.evidence ? evidenceText(node.evidence) : null].filter(Boolean).join(". ") || undefined}
             style={{ left: box.x, top: box.y, width: box.width, height: box.height }}
             onFocus={(event) => { if (keyboardFocus(event.currentTarget)) viewport.reveal(box); }}
             aria-keyshortcuts={onOpen && node.type === "call" ? "Enter" : undefined}
