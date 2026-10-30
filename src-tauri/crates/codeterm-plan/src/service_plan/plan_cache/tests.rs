@@ -43,20 +43,11 @@ fn open_builds_the_index_without_parsing_any_plan_row() {
     let database_path = store.database_path_for_test();
     drop(store);
 
-    // Generated columns refuse a non-JSON header, so a row damaged outside the daemon is
-    // stood in for by swapping the generated owner column for a plain one.
     let connection = Connection::open(&database_path).unwrap();
-    connection
-        .execute_batch(
-            "DROP INDEX plans_owner_tab_id;
-             ALTER TABLE plans DROP COLUMN owner_tab_id;
-             ALTER TABLE plans ADD COLUMN owner_tab_id TEXT;",
-        )
-        .unwrap();
     connection
         .execute(
             "INSERT INTO plans(id, title, status, team_id, project_path, updated_at, header_json)
-             VALUES ('pl_corrupt', 'Corrupt', 'active', NULL, ?1, 2, 'this is not json')",
+             VALUES ('pl_corrupt', 'Corrupt', 'active', NULL, ?1, 2, '\"this is not a plan\"')",
             [dir.path().display().to_string()],
         )
         .unwrap();

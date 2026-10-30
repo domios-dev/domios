@@ -72,18 +72,26 @@ impl PlanStore {
         let changed_plan_ids = staged.iter().map(|plan| plan.id.clone()).collect();
         for (persisted, candidate) in staged.iter().enumerate() {
             if let Err(error) = self.persist_plan_and_spec(candidate) {
+                let mut failures = vec![error.to_string()];
                 for original in originals.iter().take(persisted) {
-                    let _ = self.persist_plan_and_spec(original);
+                    if let Err(error) = self.persist_plan_and_spec(original) {
+                        failures.push(format!("restore {}: {error}", original.id));
+                    }
                 }
-                // A partly written batch leaves nothing cached that disk may not hold.
-                for candidate in &staged {
-                    self.plan_cache.evict(&candidate.id);
+                if let Err(error) = self.refresh_lifecycle_plans(&originals) {
+                    failures.push(error.to_string());
                 }
-                return Err(PlanError::Io(error.to_string()));
+                return Err(PlanError::Io(failures.join("; ")));
             }
         }
         for candidate in &staged {
-            self.commit_agent_lifecycle_plan(candidate)?;
+            if let Err(error) = self.commit_agent_lifecycle_plan(candidate) {
+                let mut failures = vec![error.to_string()];
+                if let Err(error) = self.refresh_lifecycle_plans(&originals) {
+                    failures.push(error.to_string());
+                }
+                return Err(PlanError::Io(failures.join("; ")));
+            }
         }
 
         Ok(AgentLifecyclePlanTransaction {
@@ -97,16 +105,58 @@ impl PlanStore {
         transaction: AgentLifecyclePlanTransaction,
     ) -> Result<(), PlanError> {
         let _writer_turn = self.mutation_writer.enter();
+        let mut failures = Vec::new();
         for original in &transaction.original_plans {
-            self.persist_plan_and_spec(original).map_err(|error| {
-                self.plan_cache.evict(&original.id);
-                PlanError::Io(error.to_string())
-            })?;
+            if let Err(error) = self.persist_plan_and_spec(original) {
+                failures.push(format!("restore {}: {error}", original.id));
+            }
         }
-        for original in &transaction.original_plans {
-            self.commit_agent_lifecycle_plan(original)?;
+        if let Err(error) = self.refresh_lifecycle_plans(&transaction.original_plans) {
+            failures.push(error.to_string());
+        }
+        if !failures.is_empty() {
+            return Err(PlanError::Io(failures.join("; ")));
         }
         Ok(())
+    }
+
+    fn refresh_lifecycle_plans(&self, affected: &[Plan]) -> Result<(), PlanError> {
+        let handles = affected
+            .iter()
+            .map(|plan| (plan.id.as_str(), self.plan_cache.evict(&plan.id)))
+            .collect::<Vec<_>>();
+        let mut failures = Vec::new();
+        for (id, handle) in handles {
+            match self.database.load_index_row(id) {
+                Ok(Some(row)) => {
+                    self.index.write().insert(id.to_string(), row);
+                }
+                Ok(None) => {
+                    self.index.write().remove(id);
+                }
+                Err(error) => {
+                    self.index.write().remove(id);
+                    failures.push(format!("refresh index {id}: {error}"));
+                }
+            }
+            match self.load_plan_from_sql(id) {
+                Ok(Some(plan)) => {
+                    if let Some(handle) = handle {
+                        *handle.lock() = plan.clone();
+                        self.plan_cache.commit(id, &handle);
+                    }
+                    self.record_committed_snapshot(&plan);
+                    self.reset_bound_tabs(&plan);
+                }
+                Ok(None) => {}
+                Err(error) => failures.push(format!("refresh plan {id}: {error}")),
+            }
+        }
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(PlanError::Io(failures.join("; ")))
+        }
     }
 
     fn commit_agent_lifecycle_plan(&self, staged: &Plan) -> Result<(), PlanError> {
@@ -122,6 +172,9 @@ impl PlanStore {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// The plans `apply_change` can touch: owned by, planned by or assigned to the
 /// tab, or named by the change's rebind or planner binding.

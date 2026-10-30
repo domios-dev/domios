@@ -2,7 +2,7 @@ use super::store_rows;
 use super::store_sync::{self, RowWrites, StoredStrides};
 use super::{Plan, PlanError, Spec};
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::PathBuf;
 
 /// `PRAGMA user_version` of the 1.18 row schema; older databases are converted once on open.
@@ -74,9 +74,19 @@ impl PlanDatabase {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(io_error)?;
         }
-        let mut connection = Connection::open(&path).map_err(db_error)?;
+        let mut connection = if path.exists() {
+            Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        } else {
+            Connection::open_in_memory()
+        }
+        .map_err(db_error)?;
+        super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(db_error)?;
+        create_schema(&connection).map_err(db_error)?;
+        connection
+            .pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(db_error)?;
         connection
             .execute_batch(
@@ -85,18 +95,6 @@ impl PlanDatabase {
                  PRAGMA foreign_keys = ON;",
             )
             .map_err(db_error)?;
-        let version: i64 = connection
-            .query_row("PRAGMA user_version", [], |row| row.get(0))
-            .map_err(db_error)?;
-        if version < SCHEMA_VERSION {
-            super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
-        }
-        create_schema(&connection).map_err(db_error)?;
-        if version < SCHEMA_VERSION {
-            connection
-                .pragma_update(None, "user_version", SCHEMA_VERSION)
-                .map_err(db_error)?;
-        }
         connection
             .execute(
                 "UPDATE plan_operations SET state = 'failed', finished_at = submitted_at, error = 'daemon restarted before commit' WHERE state IN ('queued', 'running')",
@@ -516,6 +514,7 @@ fn json_error(error: serde_json::Error) -> PlanError {
     PlanError::Io(error.to_string())
 }
 
+pub(super) mod admission;
 mod index_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod match_queries;

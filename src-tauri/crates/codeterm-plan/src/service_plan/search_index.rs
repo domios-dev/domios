@@ -255,9 +255,14 @@ fn index_queue() -> Arc<IndexQueue> {
 }
 
 #[cfg(test)]
+thread_local! {
+    static TEST_INDEX_QUEUE: std::cell::RefCell<Arc<IndexQueue>> =
+        std::cell::RefCell::new(Arc::new(IndexQueue::default()));
+}
+
+#[cfg(test)]
 fn index_queue() -> Arc<IndexQueue> {
-    thread_local! { static QUEUE: Arc<IndexQueue> = Arc::new(IndexQueue::default()); }
-    QUEUE.with(Arc::clone)
+    TEST_INDEX_QUEUE.with(|queue| queue.borrow().clone())
 }
 
 fn run_job(job: &IndexJob) -> Result<(), String> {

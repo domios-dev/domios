@@ -221,7 +221,7 @@ fn a_declared_input_created_under_a_new_directory_is_observed() {
     let registry = ProviderBinaryWatchers::default();
     let (tx, rx) = std::sync::mpsc::channel();
     registry.watch(
-        "new-input".into(),
+        registry.admit("new-input".into()),
         vec![target.clone()],
         Arc::new(move || {
             let _ = tx.send(());
@@ -238,7 +238,11 @@ fn repeated_install_keeps_one_watcher_and_updates_callback() {
     let target = dir.path().join("input.json");
     let registry = ProviderBinaryWatchers::default();
     assert_eq!(
-        registry.watch("provider".into(), vec![target.clone()], Arc::new(|| {})),
+        registry.watch(
+            registry.admit("provider".into()),
+            vec![target.clone()],
+            Arc::new(|| {})
+        ),
         WatchInstall::Installed(target.clone())
     );
     let first = registry.watchers.lock()["provider"].callback.clone();
@@ -247,7 +251,7 @@ fn repeated_install_keeps_one_watcher_and_updates_callback() {
         let calls = calls.clone();
         assert_eq!(
             registry.watch(
-                "provider".into(),
+                registry.admit("provider".into()),
                 vec![target.clone(), target.clone()],
                 Arc::new(move || {
                     calls.fetch_add(1, Ordering::SeqCst);
@@ -259,7 +263,7 @@ fn repeated_install_keeps_one_watcher_and_updates_callback() {
     let current = registry.watchers.lock();
     assert_eq!(current.len(), 1);
     assert!(Arc::ptr_eq(&first, &current["provider"].callback));
-    let callback = first.lock().clone();
+    let callback = first.lock().clone().unwrap();
     drop(current);
     callback();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -270,14 +274,18 @@ fn changed_targets_replace_the_watch() {
     let dir = tempfile::tempdir().unwrap();
     let registry = ProviderBinaryWatchers::default();
     registry.watch(
-        "provider".into(),
+        registry.admit("provider".into()),
         vec![dir.path().join("old")],
         Arc::new(|| {}),
     );
     let first = registry.watchers.lock()["provider"].callback.clone();
     let target = dir.path().join("new");
     assert_eq!(
-        registry.watch("provider".into(), vec![target.clone()], Arc::new(|| {})),
+        registry.watch(
+            registry.admit("provider".into()),
+            vec![target.clone()],
+            Arc::new(|| {})
+        ),
         WatchInstall::Installed(target)
     );
     assert!(!Arc::ptr_eq(
@@ -285,7 +293,7 @@ fn changed_targets_replace_the_watch() {
         &registry.watchers.lock()["provider"].callback
     ));
     assert_eq!(registry.watchers.lock().len(), 1);
-    registry.watch("provider".into(), vec![], Arc::new(|| {}));
+    registry.watch(registry.admit("provider".into()), vec![], Arc::new(|| {}));
     assert!(registry.watchers.lock().is_empty());
 }
 
@@ -342,4 +350,149 @@ fn stamps_ignore_reads_but_detect_creation_write_and_removal() {
     assert!(input_stamps(&targets) != created);
     std::fs::remove_file(&target).unwrap();
     assert!(input_stamps(&targets) == missing);
+}
+
+type Handlers = Arc<Mutex<Vec<StreamHandler>>>;
+
+fn recording(
+    handlers: &Handlers,
+) -> impl Fn(&[(PathBuf, bool)], StreamHandler) -> Option<Box<dyn Send>> + '_ {
+    move |_: &[(PathBuf, bool)], handler: StreamHandler| {
+        handlers.lock().push(handler);
+        Some(Box::new(()))
+    }
+}
+
+fn counted() -> (Arc<AtomicUsize>, OnChange) {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let on_change: OnChange = Arc::new(move || {
+        counter.fetch_add(1, Ordering::SeqCst);
+    });
+    (calls, on_change)
+}
+
+fn deliver_change(handlers: &Handlers, index: usize, target: &std::path::Path, contents: &[u8]) {
+    std::fs::write(target, contents).unwrap();
+    let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+        .add_path(target.to_path_buf());
+    let mut handlers = handlers.lock();
+    let handler = &mut handlers[index];
+    handler(Ok(event));
+}
+
+fn published_callback(registry: &ProviderBinaryWatchers) -> OnChange {
+    registry.watchers.lock()["provider"]
+        .callback
+        .lock()
+        .clone()
+        .expect("published watch has an active callback")
+}
+
+#[test]
+fn startup_perf_slow_old_watch_install_never_replaces_newer_same_target_watch() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("input.json");
+    std::fs::write(&target, b"initial").unwrap();
+    let registry = Arc::new(ProviderBinaryWatchers::default());
+    let handlers: Handlers = Arc::default();
+    let (old_calls, old_change) = counted();
+    let (new_calls, new_change) = counted();
+    let (building_tx, building_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+
+    let old_admission = registry.admit("provider".into());
+    let old = std::thread::spawn({
+        let registry = registry.clone();
+        let handlers = handlers.clone();
+        let target = target.clone();
+        move || {
+            let slow = |_: &[(PathBuf, bool)], handler: StreamHandler| {
+                handlers.lock().push(handler);
+                deliver_change(&handlers, 0, &target, b"while building");
+                building_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+                Some(Box::new(()) as Box<dyn Send>)
+            };
+            registry.watch_with(old_admission, vec![target.clone()], old_change, &slow)
+        }
+    });
+    building_rx
+        .recv_timeout(WATCH_DEADLINE)
+        .expect("old install reached its stream start");
+
+    let new_admission = registry.admit("provider".into());
+    assert_eq!(
+        registry.watch_with(
+            new_admission,
+            vec![target.clone()],
+            new_change,
+            &recording(&handlers)
+        ),
+        WatchInstall::Installed(target.clone())
+    );
+    release_tx.send(()).unwrap();
+    assert_eq!(old.join().unwrap(), WatchInstall::Superseded);
+
+    published_callback(&registry)();
+    assert_eq!(new_calls.load(Ordering::SeqCst), 1);
+    deliver_change(&handlers, 1, &target, b"after publish");
+    assert_eq!(new_calls.load(Ordering::SeqCst), 2);
+    deliver_change(&handlers, 0, &target, b"late event on the dropped stream");
+    assert_eq!(
+        old_calls.load(Ordering::SeqCst),
+        0,
+        "a stream that never published never calls out"
+    );
+}
+
+#[test]
+fn startup_perf_slow_old_unavailable_install_never_removes_newer_watch() {
+    let dir = tempfile::tempdir().unwrap();
+    let target = dir.path().join("input.json");
+    let registry = Arc::new(ProviderBinaryWatchers::default());
+    let handlers: Handlers = Arc::default();
+    let (old_calls, old_change) = counted();
+    let (new_calls, new_change) = counted();
+    let (probed_tx, probed_rx) = std::sync::mpsc::channel::<()>();
+
+    let old_admission = registry.admit("provider".into());
+    let stale_reuse = registry.admit("provider".into());
+    let old = std::thread::spawn({
+        let registry = registry.clone();
+        let handlers = handlers.clone();
+        let old_change = old_change.clone();
+        move || {
+            // Still resolving its inputs when the newer request publishes.
+            probed_rx.recv().unwrap();
+            registry.watch_with(old_admission, vec![], old_change, &recording(&handlers))
+        }
+    });
+
+    let new_admission = registry.admit("provider".into());
+    assert_eq!(
+        registry.watch_with(
+            new_admission,
+            vec![target.clone()],
+            new_change,
+            &recording(&handlers)
+        ),
+        WatchInstall::Installed(target.clone())
+    );
+    probed_tx.send(()).unwrap();
+    assert_eq!(old.join().unwrap(), WatchInstall::Superseded);
+    assert_eq!(
+        registry.watch_with(
+            stale_reuse,
+            vec![target.clone()],
+            old_change,
+            &recording(&handlers)
+        ),
+        WatchInstall::Superseded
+    );
+
+    assert_eq!(registry.watchers.lock().len(), 1);
+    published_callback(&registry)();
+    assert_eq!(new_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(old_calls.load(Ordering::SeqCst), 0);
 }

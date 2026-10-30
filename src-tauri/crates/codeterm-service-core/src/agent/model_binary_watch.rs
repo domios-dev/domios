@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use notify::event::{MetadataKind, ModifyKind};
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
@@ -20,17 +20,28 @@ use codeterm_plugin::provider::AgentProvider;
 use crate::agent::model_catalog;
 
 /// Keeps one watcher per provider alive for the daemon's lifetime.
+// Lock order: `watchers` before `admitted`.
 #[derive(Default)]
 pub struct ProviderBinaryWatchers {
     watchers: Mutex<HashMap<String, InputWatch>>,
+    admitted: Mutex<HashMap<String, u64>>,
 }
 
 type OnChange = Arc<dyn Fn() + Send + Sync>;
+type StreamHandler = Box<dyn FnMut(notify::Result<Event>) + Send>;
+type StartStream<'a> = &'a dyn Fn(&[(PathBuf, bool)], StreamHandler) -> Option<Box<dyn Send>>;
 
 struct InputWatch {
     targets: Vec<PathBuf>,
-    callback: Arc<Mutex<OnChange>>,
-    _watcher: RecommendedWatcher,
+    /// `None` until the install publishes, so a superseded stream never calls out.
+    callback: Arc<Mutex<Option<OnChange>>>,
+    _stream: Box<dyn Send>,
+}
+
+/// One install's place in its key's request order; only the newest publishes.
+struct Admission {
+    key: String,
+    generation: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -38,6 +49,7 @@ enum WatchInstall {
     Installed(PathBuf),
     Reused,
     Unavailable,
+    Superseded,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -132,22 +144,57 @@ fn accept_input_event(
 }
 
 impl ProviderBinaryWatchers {
+    fn admit(&self, key: String) -> Admission {
+        let mut admitted = self.admitted.lock();
+        let generation = admitted.entry(key.clone()).or_default();
+        *generation += 1;
+        Admission {
+            key,
+            generation: *generation,
+        }
+    }
+
+    /// Runs `publish` under the registry lock only while `admission` is still
+    /// the newest request for its key; a superseded install changes nothing.
+    fn publish<T>(
+        &self,
+        admission: &Admission,
+        publish: impl FnOnce(&mut HashMap<String, InputWatch>) -> T,
+    ) -> Option<T> {
+        let mut watchers = self.watchers.lock();
+        let newest = self.admitted.lock().get(&admission.key) == Some(&admission.generation);
+        newest.then(|| publish(&mut watchers))
+    }
+
     fn watch(
         &self,
-        key: String,
+        admission: Admission,
+        targets: Vec<PathBuf>,
+        on_change: OnChange,
+    ) -> WatchInstall {
+        self.watch_with(admission, targets, on_change, &start_stream)
+    }
+
+    fn watch_with(
+        &self,
+        admission: Admission,
         mut targets: Vec<PathBuf>,
-        on_change: Arc<dyn Fn() + Send + Sync>,
+        on_change: OnChange,
+        start: StartStream<'_>,
     ) -> WatchInstall {
         targets.sort();
         targets.dedup();
-        if let Some(existing) = self
-            .watchers
-            .lock()
-            .get(&key)
-            .filter(|watch| watch.targets == targets)
-        {
-            *existing.callback.lock() = on_change;
-            return WatchInstall::Reused;
+        let reused = self.publish(&admission, |watchers| {
+            let existing = watchers
+                .get(&admission.key)
+                .filter(|watch| watch.targets == targets)?;
+            *existing.callback.lock() = Some(on_change.clone());
+            Some(())
+        });
+        match reused {
+            None => return WatchInstall::Superseded,
+            Some(Some(())) => return WatchInstall::Reused,
+            Some(None) => {}
         }
         let watch_dirs: Vec<(PathBuf, bool)> = targets
             .iter()
@@ -160,19 +207,26 @@ impl ProviderBinaryWatchers {
             .into_iter()
             .collect();
         if watch_dirs.is_empty() {
-            let removed = self.watchers.lock().remove(&key);
-            drop(removed);
-            return WatchInstall::Unavailable;
+            return match self.publish(&admission, |watchers| watchers.remove(&admission.key)) {
+                Some(removed) => {
+                    drop(removed);
+                    WatchInstall::Unavailable
+                }
+                None => WatchInstall::Superseded,
+            };
         }
         let watched_targets = targets.clone();
-        let watch_key = key.clone();
-        let callback = Arc::new(Mutex::new(on_change));
+        let watch_key = admission.key.clone();
+        let callback: Arc<Mutex<Option<OnChange>>> = Arc::new(Mutex::new(None));
         let event_callback = callback.clone();
-        let role = format!("catalogue-watch:{key}");
+        let role = format!("catalogue-watch:{}", admission.key);
         let mut stamps = input_stamps(&targets);
-        let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        let handler: StreamHandler = Box::new(move |event: notify::Result<Event>| {
             let _role = codeterm_util::named_thread::Scope::enter(&role);
             let Ok(event) = event else { return };
+            let Some(on_change) = event_callback.lock().clone() else {
+                return;
+            };
             if !accept_input_event(&event, &watched_targets, &mut stamps) {
                 if changes_input(&event, &watched_targets) {
                     log::debug!(
@@ -189,35 +243,46 @@ impl ProviderBinaryWatchers {
                 event.kind,
                 event.paths
             );
-            let on_change = event_callback.lock().clone();
             on_change();
         });
-        let Ok(mut watcher) = watcher else {
+        let Some(stream) = start(&watch_dirs, handler) else {
             return WatchInstall::Unavailable;
         };
-        for (dir, recursive) in watch_dirs {
-            let mode = if recursive {
-                RecursiveMode::Recursive
-            } else {
-                RecursiveMode::NonRecursive
-            };
-            if watcher.watch(&dir, mode).is_err() {
-                return WatchInstall::Unavailable;
-            }
-        }
+        let mut pending = Some(InputWatch {
+            targets: targets.clone(),
+            callback: callback.clone(),
+            _stream: stream,
+        });
+        let replaced = self.publish(&admission, |watchers| {
+            *callback.lock() = Some(on_change);
+            watchers.insert(
+                admission.key.clone(),
+                pending.take().expect("published once"),
+            )
+        });
+        let published = replaced.is_some();
         // Starting and stopping an FSEvents stream takes seconds under load, so
         // neither happens while other providers wait on this registry lock.
-        let replaced = self.watchers.lock().insert(
-            key,
-            InputWatch {
-                targets: targets.clone(),
-                callback,
-                _watcher: watcher,
-            },
-        );
-        drop(replaced);
-        WatchInstall::Installed(targets.remove(0))
+        drop((pending, replaced));
+        if published {
+            WatchInstall::Installed(targets.remove(0))
+        } else {
+            WatchInstall::Superseded
+        }
     }
+}
+
+fn start_stream(dirs: &[(PathBuf, bool)], handler: StreamHandler) -> Option<Box<dyn Send>> {
+    let mut watcher = notify::recommended_watcher(handler).ok()?;
+    for (dir, recursive) in dirs {
+        let mode = if *recursive {
+            RecursiveMode::Recursive
+        } else {
+            RecursiveMode::NonRecursive
+        };
+        watcher.watch(dir, mode).ok()?;
+    }
+    Some(Box::new(watcher))
 }
 
 #[cfg(test)]
@@ -265,7 +330,10 @@ pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
             );
             let _ = model_catalog::refresh_models(provider.clone(), force).await;
             let watched = provider.clone();
-            let _ = crate::async_runtime::spawn_blocking(move || install(watched)).await;
+            let admission = watchers().admit(pty_key(watched.as_ref()));
+            let _ =
+                crate::async_runtime::spawn_blocking(move || install_admitted(watched, admission))
+                    .await;
             let next = refresh_requests().lock().next(provider.id());
             let Some(queued) = next else { break };
             force = queued;
@@ -308,9 +376,18 @@ fn watchers() -> &'static ProviderBinaryWatchers {
     WATCHERS.get_or_init(ProviderBinaryWatchers::default)
 }
 
+fn pty_key(provider: &dyn AgentProvider) -> String {
+    format!("pty:{}", provider.id())
+}
+
 /// Install the watch and the refresh it triggers. A provider whose CLI is not
 /// installed is simply not watched; the next forced refresh resolves it.
 pub fn install(provider: Arc<dyn AgentProvider>) {
+    let admission = watchers().admit(pty_key(provider.as_ref()));
+    install_admitted(provider, admission);
+}
+
+fn install_admitted(provider: Arc<dyn AgentProvider>, admission: Admission) {
     let started = std::time::Instant::now();
     let mut targets = provider
         .model_catalogue_capability()
@@ -327,11 +404,10 @@ pub fn install(provider: Arc<dyn AgentProvider>) {
         targets.push(binary.clone());
     }
     let watched_provider = provider.clone();
-    let key = format!("pty:{}", provider.id());
     let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         on_catalogue_input_changed(watched_provider.clone());
     });
-    let installed = watchers().watch(key, targets, on_change);
+    let installed = watchers().watch(admission, targets, on_change);
     log::debug!(
         "[boot-operation] catalogue watch provider={} fingerprint_files_ms={} probe_bin_ms={} watch_ms={} outcome={:?}",
         provider.id(),
@@ -348,26 +424,32 @@ pub fn install(provider: Arc<dyn AgentProvider>) {
         WatchInstall::Unavailable => {
             log::debug!("[model_catalog] no declared catalogue inputs to watch")
         }
-        WatchInstall::Reused => {}
+        WatchInstall::Reused | WatchInstall::Superseded => {}
     }
 }
 
 /// Install on the blocking pool: callers on the async runtime, an FSEvents run
-/// loop or the startup path must never wait for a stream to start.
+/// loop or the startup path must never wait for a stream to start. Admission
+/// happens here, so a later request wins however the pool orders the work.
 pub fn install_in_background(provider: Arc<dyn AgentProvider>) {
-    crate::async_runtime::spawn_blocking(move || install(provider));
+    let admission = watchers().admit(pty_key(provider.as_ref()));
+    crate::async_runtime::spawn_blocking(move || install_admitted(provider, admission));
 }
 
 pub fn install_chatbackend_in_background(
     provider: Arc<dyn ChatBackendProvider>,
     registry: crate::chatbackend::ChatBackendRegistryHandle,
 ) {
-    crate::async_runtime::spawn_blocking(move || install_chatbackend(provider, registry));
+    let admission = watchers().admit(format!("chatbackend:{}", provider.id()));
+    crate::async_runtime::spawn_blocking(move || {
+        install_chatbackend_admitted(provider, registry, admission)
+    });
 }
 
-pub fn install_chatbackend(
+fn install_chatbackend_admitted(
     provider: Arc<dyn ChatBackendProvider>,
     registry: crate::chatbackend::ChatBackendRegistryHandle,
+    admission: Admission,
 ) {
     let id = provider.id().to_string();
     let targets = provider.model_catalogue_input_files();
@@ -377,7 +459,7 @@ pub fn install_chatbackend(
         model_catalog::invalidate(&refresh_id);
         let _ = refresh_registry.refresh_provider(&refresh_id);
     });
-    match watchers().watch(format!("chatbackend:{id}"), targets, on_change) {
+    match watchers().watch(admission, targets, on_change) {
         WatchInstall::Installed(path) => log::info!(
             "[model_catalog] watching catalogue input {}",
             path.display()
@@ -385,7 +467,7 @@ pub fn install_chatbackend(
         WatchInstall::Unavailable => {
             log::debug!("[model_catalog] no declared chatBackend catalogue inputs to watch")
         }
-        WatchInstall::Reused => {}
+        WatchInstall::Reused | WatchInstall::Superseded => {}
     }
 }
 

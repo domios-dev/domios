@@ -3,7 +3,7 @@
 
 use super::store_db::{self, SCHEMA_VERSION};
 use super::store_rows::{self, join_plan, StoredTask};
-use super::store_sync::{grouped_documents, parse};
+use super::store_sync::parse;
 use super::{Plan, PlanError};
 use rusqlite::{params, Connection, DatabaseName, OptionalExtension, TransactionBehavior};
 use serde_json::Value;
@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 const BACKUP_SUFFIX: &str = ".pre-1.18";
+mod schema;
+use schema::LEGACY_SCHEMA;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ConversionReport {
@@ -19,13 +21,17 @@ pub(super) struct ConversionReport {
     pub(super) quarantined: usize,
 }
 
-/// Backs a legacy database up beside itself, then converts it in one transaction.
-/// A database without the legacy plans table is fresh and left to the schema setup.
+/// Admits complete known schemas before backing up and converting a legacy store.
 pub(super) fn convert_legacy_database(
     connection: &mut Connection,
     path: &Path,
 ) -> Result<Option<ConversionReport>, PlanError> {
-    if !has_legacy_plans(connection).map_err(db_error)? {
+    let legacy = admit(connection)?;
+    *connection = Connection::open(path).map_err(db_error)?;
+    if admit(connection)? != legacy {
+        return Err(PlanError::Io("plan schema changed during admission".into()));
+    }
+    if !legacy {
         return Ok(None);
     }
     let started = Instant::now();
@@ -40,6 +46,39 @@ pub(super) fn convert_legacy_database(
     Ok(Some(report))
 }
 
+fn admit(connection: &Connection) -> Result<bool, PlanError> {
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(db_error)?;
+    let empty: bool = connection
+        .query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM sqlite_schema)",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if version == 0 && empty {
+        return Ok(false);
+    }
+    let expected = Connection::open_in_memory().map_err(db_error)?;
+    match version {
+        SCHEMA_VERSION => {
+            store_db::create_schema(&expected).map_err(db_error)?;
+            store_db::admission::validate(connection, &expected)?;
+            return Ok(false);
+        }
+        0 => expected.execute_batch(LEGACY_SCHEMA).map_err(db_error)?,
+        _ => {
+            return Err(PlanError::Io(format!(
+                "unsupported plan database version {version}"
+            )));
+        }
+    }
+    store_db::admission::validate(connection, &expected)?;
+    Ok(true)
+}
+
+#[cfg(test)]
 fn has_legacy_plans(connection: &Connection) -> rusqlite::Result<bool> {
     connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM pragma_table_info('plans') WHERE name = 'document_json')",
@@ -171,22 +210,23 @@ fn read_legacy_plans(
     let ids = statement
         .query_map([], |row| row.get::<_, String>(0))?
         .collect::<rusqlite::Result<Vec<_>>>()?;
-    Ok(ids
-        .into_iter()
+    ids.into_iter()
         .map(|id| {
-            let plan = read_legacy_plan(connection, &id);
-            (id, plan)
+            let plan = read_legacy_plan(connection, &id)?;
+            Ok((id, plan))
         })
-        .collect())
+        .collect()
 }
 
 /// The 1.17 load of one plan: the conversion input and the round-trip oracle.
-fn read_legacy_plan(connection: &Connection, plan_id: &str) -> Result<Plan, String> {
-    let document = plan_document(connection, plan_id)
-        .map_err(|error| error.to_string())?
-        .ok_or_else(|| format!("plan row {plan_id} is missing"))?;
+fn read_legacy_plan(
+    connection: &Connection,
+    plan_id: &str,
+) -> rusqlite::Result<Result<Plan, String>> {
+    let document =
+        plan_document(connection, plan_id)?.ok_or(rusqlite::Error::QueryReturnedNoRows)?;
     let value = load_plan_value(connection, plan_id, &document)?;
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    Ok(value.and_then(|value| serde_json::from_value(value).map_err(|error| error.to_string())))
 }
 
 fn read_legacy_specs(connection: &Connection) -> rusqlite::Result<Vec<LegacySpec>> {
@@ -208,45 +248,63 @@ fn db_error(error: rusqlite::Error) -> PlanError {
     PlanError::Io(error.to_string())
 }
 
-// The 1.17 legacy reader, moved from store_sync unchanged except visibility.
-
 /// Joins a plan row with its task rows into the full plan document.
 fn load_plan_value(
     connection: &Connection,
     plan_id: &str,
     document: &str,
-) -> Result<Value, String> {
-    let plan: Value = serde_json::from_str(document).map_err(|error| error.to_string())?;
-    let mut milestones = grouped_documents(
+) -> rusqlite::Result<Result<Value, String>> {
+    let milestones = raw_rows(
         connection,
         "SELECT task_id, document_json FROM plan_task_milestones WHERE plan_id = ?1 ORDER BY task_id, seq",
         plan_id,
     )?;
-    let mut attempts = grouped_documents(
+    let attempts = raw_rows(
         connection,
         "SELECT task_id, document_json FROM plan_task_attempts WHERE plan_id = ?1 ORDER BY task_id, position",
         plan_id,
     )?;
-    let mut statement = connection
-        .prepare_cached(
-            "SELECT task_id, document_json FROM plan_tasks WHERE plan_id = ?1 ORDER BY position",
-        )
-        .map_err(|error| error.to_string())?;
-    let rows = statement
-        .query_map([plan_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|error| error.to_string())?;
-    let mut tasks = Vec::new();
-    for row in rows {
-        let (task_id, document) = row.map_err(|error| error.to_string())?;
-        tasks.push(StoredTask {
-            document: parse(&document)?,
-            milestones: milestones.remove(&task_id).unwrap_or_default(),
-            attempts: attempts.remove(&task_id).unwrap_or_default(),
-        });
+    let tasks = raw_rows(
+        connection,
+        "SELECT task_id, document_json FROM plan_tasks WHERE plan_id = ?1 ORDER BY position",
+        plan_id,
+    )?;
+    Ok((|| {
+        let plan = parse(document)?;
+        let mut milestones = parsed_groups(milestones)?;
+        let mut attempts = parsed_groups(attempts)?;
+        let tasks = tasks
+            .into_iter()
+            .map(|(task_id, document)| {
+                Ok(StoredTask {
+                    document: parse(&document)?,
+                    milestones: milestones.remove(&task_id).unwrap_or_default(),
+                    attempts: attempts.remove(&task_id).unwrap_or_default(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        join_plan(plan, tasks)
+    })())
+}
+
+fn raw_rows(
+    connection: &Connection,
+    sql: &str,
+    id: &str,
+) -> rusqlite::Result<Vec<(String, String)>> {
+    let mut statement = connection.prepare_cached(sql)?;
+    let rows = statement.query_map([id], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    rows.collect()
+}
+
+fn parsed_groups(
+    rows: Vec<(String, String)>,
+) -> Result<std::collections::HashMap<String, Vec<Value>>, String> {
+    let mut grouped = std::collections::HashMap::<String, Vec<Value>>::new();
+    for (id, document) in rows {
+        grouped.entry(id).or_default().push(parse(&document)?);
     }
-    join_plan(plan, tasks)
+    Ok(grouped)
 }
 
 fn plan_document(connection: &Connection, plan_id: &str) -> rusqlite::Result<Option<String>> {
@@ -259,5 +317,7 @@ fn plan_document(connection: &Connection, plan_id: &str) -> rusqlite::Result<Opt
         .optional()
 }
 
+#[cfg(test)]
+mod admission_tests;
 #[cfg(test)]
 mod tests;
