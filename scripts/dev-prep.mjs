@@ -73,6 +73,7 @@ const inputPathspecs = [
   "scripts/dev-launch-file-lock.py",
   "scripts/windows-dev-launch-file-lock.ps1",
   "scripts/windows-dev-rebuild-stop.ps1",
+  "scripts/windows-dev-listeners.ps1",
   "scripts/windows-dev-rebuild-process.cs",
   "scripts/dev-server-bootstrap.ps1",
   "scripts/server-artifact.mjs",
