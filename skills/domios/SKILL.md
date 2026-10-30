@@ -85,4 +85,4 @@ The always-on protocol lives in your provider rules and fires regardless of whic
 
 Task drafting, retained-send inspection and checklist schemas follow the shared CLI reference above. `blueprint list --all` requires owner or Orchestrator authority; cross-scope inspection does not authorize mutation.
 
-<!-- revision: 90 -->
+<!-- revision: 91 -->

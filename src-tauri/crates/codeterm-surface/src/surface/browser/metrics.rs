@@ -143,9 +143,9 @@ impl BrowserRuntime {
             Ok(json!({"path":path.to_string_lossy(),"layoutWidth":metrics.pointer("/cssLayoutViewport/clientWidth"),"contentWidth":metrics.pointer("/cssContentSize/width"),"metrics":metrics,"restored":options.restore}).to_string())
         } else {
             Ok(format!(
-                "saved {} (show it with @ds-image {})",
+                "saved {} (show it with <ds-image src=\"{}\" />)",
                 path.display(),
-                path.display()
+                path.to_string_lossy().replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
             ))
         }
     }

@@ -333,6 +333,7 @@ pub(super) fn quoted_end(text: &str, offset: usize) -> Option<usize> {
             }
         }
     }
+    if let Some(end) = context_end(rest) { return Some(offset + end); }
     for tag in ["tool_result", "tool_output", "transcript"] {
         if rest.starts_with(&format!("<{tag}>")) || rest.starts_with(&format!("<{tag} ")) {
             let close = format!("</{tag}>");
@@ -350,4 +351,85 @@ pub(super) fn quoted_end(text: &str, offset: usize) -> Option<usize> {
             .map(|end| offset + count + end + count);
     }
     None
+}
+
+const CONTEXT_TAGS: &[&str] = &[
+    "context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff",
+    "environment_context", "system-reminder", "instructions", "INSTRUCTIONS", "previous_messages", "conversation_history",
+];
+
+fn quoted_tag_end(text: &str) -> Option<usize> {
+    let mut quote = None;
+    for (at, c) in text.char_indices() {
+        if let Some(open) = quote { if c == open { quote = None; } }
+        else if matches!(c, '\'' | '"') { quote = Some(c); }
+        else if c == '>' { return Some(at + 1); }
+    }
+    None
+}
+
+fn tag_name(text: &str) -> Option<(&str, bool)> {
+    let rest = text.strip_prefix('<')?;
+    let closing = rest.starts_with('/');
+    let rest = rest.strip_prefix('/').unwrap_or(rest);
+    if !rest.as_bytes().first()?.is_ascii_alphabetic() { return None; }
+    let width = rest.bytes().take_while(|b| b.is_ascii_alphanumeric() || matches!(*b, b'-' | b'_')).count();
+    if width == 0 || !rest.as_bytes().get(width).is_some_and(|b| b.is_ascii_whitespace() || matches!(*b, b'/' | b'>')) { return None; }
+    Some((&rest[..width], closing))
+}
+
+fn context_end(text: &str) -> Option<usize> {
+    let (name, closing) = tag_name(text)?;
+    if closing || !CONTEXT_TAGS.contains(&name) { return None; }
+    let Some(mut at) = quoted_tag_end(text) else { return Some(text.len()); };
+    if text[..at].ends_with("/>") { return Some(at); }
+    let mut stack = vec![name];
+    while at < text.len() {
+        let rest = &text[at..];
+        if rest.starts_with("<!--") {
+            if rest.starts_with("<!-->") { at += 5; continue; }
+            let close = ["-->", "--!>"].into_iter().filter_map(|end| rest.find(end).map(|index| index + end.len())).min();
+            let Some(close) = close else { return Some(text.len()); };
+            at += close; continue;
+        }
+        if rest.starts_with("<![CDATA[") {
+            let Some(end) = rest.find("]]>") else { return Some(text.len()); };
+            at += end + 3; continue;
+        }
+        if rest.starts_with("<!") || rest.starts_with("<?") {
+            let Some(end) = quoted_tag_end(rest) else { return Some(text.len()); };
+            at += end; continue;
+        }
+        if rest.starts_with('`') {
+            let width = rest.bytes().take_while(|b| *b == b'`').count();
+            if width < 3 {
+                if let Some(end) = rest[width..].find(&rest[..width]) { at += width + end + width; continue; }
+            }
+            at += width; continue;
+        }
+        let Some((inner, closing)) = tag_name(rest) else {
+            at += rest.chars().next()?.len_utf8(); continue;
+        };
+        let Some(end) = quoted_tag_end(rest) else { return Some(text.len()); };
+        let token = &rest[..end];
+        if CONTEXT_TAGS.contains(&inner) {
+            if closing {
+                if stack.last() != Some(&inner) || !token[2 + inner.len()..token.len()-1].trim().is_empty() { return Some(text.len()); }
+                stack.pop();
+                if stack.is_empty() { return Some(at + end); }
+            } else if !token.ends_with("/>") { stack.push(inner); }
+        } else if !closing && ["script", "style", "title", "textarea", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"].iter().any(|name| inner.eq_ignore_ascii_case(name)) {
+            if inner.eq_ignore_ascii_case("plaintext") { return Some(text.len()); }
+            let tail = &rest[end..];
+            let close = tail.char_indices().find_map(|(index, _)| {
+                let (name, closing) = tag_name(&tail[index..])?;
+                (closing && name.eq_ignore_ascii_case(inner)).then_some(index)
+            });
+            let Some(close) = close else { return Some(text.len()); };
+            let Some(close_end) = quoted_tag_end(&tail[close..]) else { return Some(text.len()); };
+            at += end + close + close_end; continue;
+        }
+        at += end;
+    }
+    Some(text.len())
 }

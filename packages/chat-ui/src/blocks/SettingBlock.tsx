@@ -20,7 +20,6 @@ import {
 const LOADING: SettingBlockState = { kind: "loading" };
 const SENSITIVE: SettingBlockState = { kind: "refused", reason: "sensitive" };
 
-/** `@ds-setting <config.key>`: one real setting inline, rendered and written through its settings schema. */
 export function SettingBlock({ settingKey, source }: { settingKey: string; source: string }) {
   const host = useChatBlockHost().settings;
   const sensitive = isSensitiveKey(settingKey);

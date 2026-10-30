@@ -122,13 +122,13 @@ it("keyboard navigation selects ordered parts and Escape clears", async () => {
   expect(toolbar()).toBeNull();
 });
 
-it("retains original ranges through directive isolation and HTML normalization in the actual bubble", async () => {
-  const html = "<div>First\r\n\r\nsecond</div>";
-  const source = `Lead.\r\n@ds-plugin example\r\n\r\n${html}\r\n\r\nTail.`;
+it("retains original ranges through canonical block projection in the actual bubble", async () => {
+  const html = "<ds-html><div>First\r\n\r\nsecond</div></ds-html>";
+  const source = `Lead.\r\n<ds-plugin id='example' />\r\n\r\n${html}\r\n\r\nTail.`;
   await render([{ id: "normalized", type: "assistant", content: source }]);
   expect(parts()).toHaveLength(4);
   const spans = parts().map((element) => source.slice(Number(element.dataset.srcStart), Number(element.dataset.srcEnd)));
-  expect(spans).toEqual(["Lead.", "@ds-plugin example", html, "Tail."]);
+  expect(spans).toEqual(["Lead.", "<ds-plugin id='example' />", html, "Tail."]);
   await target(2); await click("Copy");
   expect(written[DOMIOS_TEXT_MIME]).toBe(html);
   await click("Ask about this");
