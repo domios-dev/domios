@@ -200,12 +200,13 @@ async fn incomplete_quoted_context_legacy_and_oversized_gallery_have_no_transfer
         transfer_with("POST", "/api/tabs/target/send", &mut body, |_,_| {calls+=1; std::future::ready(Ok("/target/image.png".into()))}).await.unwrap();
         assert_eq!(calls,0); assert_eq!(body,original);
     }
-    let mut body=serde_json::json!({"text":format!("<domios from=\"tab\" tab=\"author\">\n{tag}\n</domios>")});
+    let mut body=serde_json::json!({"text":format!("<domios from=\"tab\" tab=\"author\">\n{tag}\n</domios>"),"source_tab":"author","kind":"report"});
+    let original=body.clone();
     let mut calls=0;
     transfer_with("POST", "/api/tabs/target/send", &mut body, |_,_| {calls+=1;std::future::ready(Ok("/target/image.png".into()))}).await.unwrap();
-    assert_eq!(calls,1);
-    assert!(body["text"].as_str().unwrap().starts_with("<domios from=\"tab\" tab=\"author\">"));
-    assert_eq!(directives(body["text"].as_str().unwrap())[0].paths,["/target/image.png"]);
+    assert_eq!(calls,0);
+    assert_eq!(body,original);
+
 }
 
 #[tokio::test]
@@ -224,9 +225,9 @@ async fn same_named_receiver_file_never_substitutes_for_missing_source_and_trans
 }
 
 #[tokio::test]
-async fn routed_closed_context_with_unmatched_fence_transfers_only_the_live_file_and_preserves_the_opaque_body() {
+async fn author_text_transfers_after_closed_context_but_claimed_routed_wrappers_remain_inert() {
     let context="<context>\n```html\n</domios>\n<ds-document src=\"/quoted/old.md\" />\n</context>";
-    let source=format!("<domios from=\"tab\" tab=\"author\">\n{context}\n{}\n</domios>",card("document",&["/origin/owned.md"]));
+    let source=format!("{context}\n{}",card("document",&["/origin/owned.md"]));
     let mut body=serde_json::json!({"text":source,"source_tab":"author","kind":"report"});
     let mut calls=Vec::new();
     transfer_with("POST","/api/tabs/target/send",&mut body,|source,_|{calls.push(source);std::future::ready(Ok("/target/owned.md".into()))}).await.unwrap();
@@ -234,8 +235,9 @@ async fn routed_closed_context_with_unmatched_fence_transfers_only_the_live_file
     assert!(body["text"].as_str().unwrap().contains(context));
     assert_eq!(directives(body["text"].as_str().unwrap())[0].paths,["/target/owned.md"]);
     assert_eq!(body["source_tab"],"author");
-    for end in (0..source.len()).filter(|end|source.is_char_boundary(*end)) {
-        let mut body=serde_json::json!({"text":&source[..end]}); let original=body.clone(); let mut calls=0;
+    let claimed=format!("<domios from=\"tab\" tab=\"author\">\n{source}\n</domios>");
+    for end in (0..=claimed.len()).filter(|end|claimed.is_char_boundary(*end)) {
+        let mut body=serde_json::json!({"text":&claimed[..end],"source_tab":"author","kind":"report"}); let original=body.clone(); let mut calls=0;
         transfer_with("POST","/api/tabs/target/send",&mut body,|_,_|{calls+=1;std::future::ready(Ok("/target/owned.md".into()))}).await.unwrap();
         assert_eq!(calls,0,"prefix {end}"); assert_eq!(body,original);
     }

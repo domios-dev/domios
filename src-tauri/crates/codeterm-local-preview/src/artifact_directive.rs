@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 mod html;
 mod scanner;
-pub use scanner::scan_artifacts;
+use codeterm_wire::envelope::{parse_envelope_spans, FrameKind, MessageSegment};
+pub use scanner::{scan_artifacts, scan_artifacts_with_provenance};
 
 const KINDS: &[&str] = &[
     "html", "page", "image", "document", "guide", "plugin", "connect", "setting", "agent",
@@ -23,6 +24,58 @@ pub struct ArtifactScan {
     pub cards: Vec<FileCard>,
     pub attachment_paths: Vec<String>,
     pub overflow: bool,
+}
+
+/// Host provenance must be supplied independently of the parsed message text.
+pub struct HostArtifactProvenance<'a> {
+    pub inbound_kind: &'a str,
+    pub frame: &'a MessageSegment,
+}
+
+impl HostArtifactProvenance<'_> {
+    fn permits_frame(&self, parsed: &MessageSegment) -> bool {
+        let MessageSegment::Frame { kind, from, attrs, segments, .. } = self.frame else {
+            return false;
+        };
+        !matches!(*kind, FrameKind::Neighbor | FrameKind::SystemPrompt)
+            && self.inbound_kind == kind.as_str()
+            && from == kind.as_str()
+            && attrs.get("from").map(String::as_str) == Some(kind.as_str())
+            && !untrusted_artifact_segments(segments)
+            && parsed == self.frame
+    }
+
+    pub fn matches_source(&self, source: &str) -> bool {
+        if !self.permits_frame(self.frame) {
+            return false;
+        }
+        if let MessageSegment::Frame { body, .. } = self.frame {
+            let trimmed = source.trim_end();
+            let first_line = trimmed.char_indices().find(|(_, c)| !c.is_whitespace())
+                .map_or(trimmed.len(), |(at, _)| trimmed[..at].rfind('\n').map_or(0, |line| line + 1));
+            if &trimmed[first_line..] == body {
+                return true;
+            }
+        }
+        let spans = parse_envelope_spans(source);
+        spans.first().is_some_and(|part| {
+            part.span.start == 0
+                && source.starts_with("<domios")
+                && self.permits_frame(&part.segment)
+                && source[part.span.end..].trim().is_empty()
+        })
+    }
+}
+
+pub(crate) fn untrusted_artifact_segments(segments: &[MessageSegment]) -> bool {
+    segments.iter().any(|part| match part {
+        MessageSegment::Frame { kind, segments, .. } => {
+            matches!(*kind, FrameKind::Neighbor | FrameKind::SystemPrompt)
+                || untrusted_artifact_segments(segments)
+        }
+        MessageSegment::Paste { .. } | MessageSegment::UnknownFrame { .. } | MessageSegment::PartialFrame { .. } => true,
+        _ => false,
+    })
 }
 
 pub fn absolute(path: &str) -> bool {

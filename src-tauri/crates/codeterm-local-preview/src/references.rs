@@ -3,7 +3,8 @@ use std::path::Path;
 
 use crate::html_preview::checked_path;
 use codeterm_types::agent::chat_types::ChatMsg;
-use codeterm_wire::envelope::{FrameKind, MessageSegment};
+use codeterm_wire::envelope::MessageSegment;
+use crate::artifact_directive::{scan_artifacts, scan_artifacts_with_provenance, untrusted_artifact_segments, ArtifactScan, HostArtifactProvenance};
 
 pub fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");
@@ -43,20 +44,22 @@ fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {
     }
 }
 
-fn untrusted_segments(segments: &[MessageSegment]) -> bool {
-    segments.iter().any(|part| match part {
-        MessageSegment::Frame { kind, segments, .. } => matches!(*kind, FrameKind::Neighbor | FrameKind::SystemPrompt) || untrusted_segments(segments),
-        MessageSegment::Paste { .. } | MessageSegment::UnknownFrame { .. } | MessageSegment::PartialFrame { .. } => true,
-        _ => false,
-    })
-}
-
 pub fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashSet<String> {
     let mut paths = HashSet::new();
     for message in messages {
-        let trusted = message.inbound_kind.as_deref() != Some("neighbor")
-            && !message.segments.as_deref().is_some_and(untrusted_segments);
-        let scan = crate::artifact_directive::scan_artifacts(&message.content, trusted);
+        let segments = message.segments.as_deref().unwrap_or_default();
+        let scan = if untrusted_artifact_segments(segments) {
+            ArtifactScan::default()
+        } else if let Some(inbound_kind) = message.inbound_kind.as_deref() {
+            match segments.split_first() {
+                Some((frame @ MessageSegment::Frame { .. }, tail)) if tail.iter().all(|part| matches!(part, MessageSegment::Text { text } if text.trim().is_empty())) =>
+                    scan_artifacts_with_provenance(&message.content, &HostArtifactProvenance { inbound_kind, frame }),
+                _ => ArtifactScan::default(),
+            }
+        } else {
+            let direct = !segments.iter().any(|part| matches!(part, MessageSegment::Frame { .. }));
+            scan_artifacts(&message.content, direct)
+        };
         for card in scan.cards {
             for path in card.paths { insert(&mut paths, &path, None); }
         }

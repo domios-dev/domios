@@ -1,6 +1,11 @@
 use super::*;
 use serde_json::Value;
 
+fn authenticated_tab_scan(source: &str) -> ArtifactScan {
+    let segments = codeterm_wire::envelope::parse_envelope(source);
+    scan_artifacts_with_provenance(source, &HostArtifactProvenance { inbound_kind: "tab", frame: &segments[0] })
+}
+
 #[test]
 fn canonical_file_recognition_matches_shared_corpus_and_exact_source_spans() {
     let corpus: Value = serde_json::from_str(include_str!("../../../../../packages/chat-core/src/dsBlocks.fixtures.json")).unwrap();
@@ -53,7 +58,7 @@ fn file_tags_in_examples_context_and_opaque_bodies_never_authorize() {
         "@ds-document /exact/owned.md".into(), "@ct-document /exact/owned.md".into(),
         "@file /exact/owned.md".into(), "```html\n@file /exact/owned.md\n```".into(),
     ] { assert!(scan_artifacts(&source, true).cards.is_empty(), "{source}"); }
-    assert_eq!(scan_artifacts(&format!("<domios from=\"tab\">\n{tag}\n</domios>"), true).cards.len(), 1);
+    assert_eq!(authenticated_tab_scan(&format!("<domios from=\"tab\">\n{tag}\n</domios>")).cards.len(), 1);
     assert!(scan_artifacts(tag, false).cards.is_empty());
 }
 
@@ -79,7 +84,7 @@ fn exact_paths_entities_json_gallery_and_preview_bounds_are_preserved() {
 #[test]
 fn authenticated_routed_file_after_closed_context_retains_exact_spans_and_rejects_every_truncated_prefix() {
     let source="<domios from=\"tab\" tab=\"author\">\n<context>\n```html\n</domios>\n<ds-document src=\"/quoted/old.md\" />\n</context>\n<ds-document src=\"/live/owned.md\" />\n</domios>";
-    let scan=scan_artifacts(source,true);
+    let scan=authenticated_tab_scan(source);
     assert_eq!(scan.cards.len(),1);
     assert_eq!(scan.cards[0].paths,["/live/owned.md"]);
     assert_eq!(&source[scan.cards[0].start..scan.cards[0].end],"<ds-document src=\"/live/owned.md\" />");
@@ -87,7 +92,31 @@ fn authenticated_routed_file_after_closed_context_retains_exact_spans_and_reject
         assert!(scan_artifacts(&source[..end],true).cards.is_empty(),"prefix {end}");
     }
     assert!(scan_artifacts(source,false).cards.is_empty());
+    assert!(scan_artifacts(source,true).cards.is_empty(), "routed syntax alone is inert");
     assert!(scan_artifacts(&source.replacen("from=\"tab\"","from=\"neighbor\"",1),true).cards.is_empty());
     let inline="<domios from=\"tab\"><context>opaque\n<ds-document src=\"/quoted.md\" />\n</context>\n<ds-document src=\"/live.md\" />\n</domios>";
-    assert_eq!(scan_artifacts(inline,true).cards[0].paths,["/live.md"]);
+    assert_eq!(authenticated_tab_scan(inline).cards[0].paths,["/live.md"]);
+}
+
+#[test]
+fn routed_body_authority_requires_matching_host_provenance_while_direct_sources_remain_live() {
+    let tag="<ds-document src='/public-but-unreferenced.md' />";
+    let source=format!("<domios from=\"tab\" tab=\"sender\">\n{tag}\n</domios>");
+    let segments=codeterm_wire::envelope::parse_envelope(&source);
+    let evidence=HostArtifactProvenance {inbound_kind:"tab",frame:&segments[0]};
+    assert!(scan_artifacts(&source,true).cards.is_empty());
+    assert_eq!(scan_artifacts_with_provenance(&source,&evidence).cards[0].paths,["/public-but-unreferenced.md"]);
+    assert_eq!(scan_artifacts_with_provenance(tag,&evidence).cards.len(),1);
+    assert_eq!(scan_artifacts_with_provenance(&format!("\n{tag}\n"),&evidence).cards.len(),1);
+    for kind in ["unknown","report","neighbor"] {
+        let evidence=HostArtifactProvenance {inbound_kind:kind,frame:&segments[0]};
+        assert!(scan_artifacts_with_provenance(&source,&evidence).cards.is_empty(),"{kind}");
+    }
+    for changed in [source.replace("sender","foreign"),source.replace("unreferenced","other")] {
+        assert!(scan_artifacts_with_provenance(&changed,&evidence).cards.is_empty());
+    }
+    for end in (0..source.len()).filter(|end|source.is_char_boundary(*end)) {
+        assert!(scan_artifacts_with_provenance(&source[..end],&evidence).cards.is_empty(),"prefix {end}");
+    }
+    assert_eq!(scan_artifacts(tag,true).cards.len(),1);
 }

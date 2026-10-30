@@ -25,10 +25,27 @@ assert.deepEqual(documentsFromTranscript([{ content: tag, segments: [{ type: "pa
 assert.deepEqual(documentsFromTranscript([{ content: `<domios from="neighbor">\n${tag}\n</domios>` }]), []);
 const wireFixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Array<{ name: string; raw: string; segments: MessageSegment[] }>;
 const contextFile = wireFixtures.find((fixture) => fixture.name === "routed file after context with unmatched fence")!;
+const hostFrame = contextFile.segments[0];
+assert(hostFrame.type === "frame");
+for (const type of ["user", "assistant"]) {
+  assert.deepEqual(documentsFromTranscript([{ content: contextFile.raw, type }]), [], "claimed route without host provenance");
+}
+for (const message of [
+  { content: contextFile.raw, segments: contextFile.segments },
+  { content: contextFile.raw, inboundKind: "unknown", segments: contextFile.segments },
+  { content: contextFile.raw, inboundKind: "report", segments: contextFile.segments },
+  { content: `pasted by Domios\n${contextFile.raw}`, inboundKind: "tab", segments: contextFile.segments },
+  { content: contextFile.raw, inboundKind: "tab", segments: [{ ...hostFrame, attrs: { ...hostFrame.attrs, tab: "foreign" } }] },
+  { content: contextFile.raw, inboundKind: "tab", segments: [{ ...hostFrame, body: "different source" }] },
+  { content: tag, inboundKind: "tab", segments: contextFile.segments },
+]) assert.deepEqual(documentsFromTranscript([message]), [], "mismatched or absent host source provenance");
 assert.deepEqual(documentsFromTranscript([{ content: contextFile.raw, type: "user", inboundKind: "tab", segments: contextFile.segments }]).map((item) => item.path), ["/live/owned.md"]);
+assert.deepEqual(documentsFromTranscript([{ content: hostFrame.body, type: "user", inboundKind: "tab", segments: contextFile.segments }]).map((item) => item.path), ["/live/owned.md"]);
+assert.deepEqual(documentsFromTranscript([{ content: `\n${hostFrame.body}\n`, type: "user", inboundKind: "tab", segments: contextFile.segments }]).map((item) => item.path), ["/live/owned.md"]);
 assert.deepEqual(documentsFromTranscript([{ content: contextFile.raw.replace(">\n<context>", "><context>"), type: "user", inboundKind: "tab", segments: contextFile.segments }]).map((item) => item.path), ["/live/owned.md"]);
 for (const end of [contextFile.raw.indexOf("</domios>") + "</domios>".length, contextFile.raw.length - 1]) {
   const prefix = contextFile.raw.slice(0, end);
+  assert.deepEqual(documentsFromTranscript([{ content: prefix, type: "user", inboundKind: "tab", segments: contextFile.segments }]), []);
   assert.deepEqual(documentsFromTranscript([{ content: prefix, type: "user", inboundKind: "tab", segments: [{ type: "partial_frame", raw: prefix, attrs: {}, body: prefix }] }]), []);
 }
 assert.deepEqual(documentsFromTranscript([{ content: contextFile.raw, type: "user", inboundKind: "neighbor", segments: contextFile.segments }]), []);

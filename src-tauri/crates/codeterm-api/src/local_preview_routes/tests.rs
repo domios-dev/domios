@@ -455,7 +455,8 @@ async fn only_complete_live_canonical_tags_grant_exact_own_session_reads() {
         fixture.inbound_content(&fixture.owner,tag.clone(),kind,&wire);
         assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::NOT_FOUND,"{wire}");
     }
-    fixture.content(&fixture.owner, format!("<domios from=\"tab\" tab=\"author\">\n<context>old instructions</context>\n{tag}\n</domios>"));
+    let routed = format!("<domios from=\"tab\" tab=\"author\">\n<context>old instructions</context>\n{tag}\n</domios>");
+    fixture.inbound_content(&fixture.owner, routed.clone(), "tab", &routed);
     let response = fixture.read(&fixture.owner, &path, "document").await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(json(response).await["data"], "owned source bytes");
@@ -512,4 +513,38 @@ async fn authenticated_closed_context_with_unmatched_fence_allows_only_its_live_
         fixture.inbound_content(&fixture.owner,wire.clone(),kind,&wire);
         assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::NOT_FOUND,"{wire}");
     }
+}
+
+#[tokio::test]
+async fn completed_claimed_route_requires_positive_matching_host_source_provenance() {
+    let fixture=Fixture::new();
+    let path=fixture.write("public-but-unreferenced.md","exact own bytes");
+    let escaped=path.to_string_lossy().replace('&',"&amp;").replace('"',"&quot;");
+    let tag=format!("<ds-document src=\"{escaped}\" />");
+    let source=format!("<domios from=\"tab\" tab=\"sender\">\n{tag}\n</domios>");
+    fixture.user_content(&fixture.owner,source.clone());
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::NOT_FOUND);
+    fixture.content(&fixture.owner,source.clone());
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::NOT_FOUND);
+    for (stamp,wire) in [
+        ("unknown",source.clone()),("report",source.clone()),("tab",String::new()),
+        ("tab",source.replace("sender","foreign")),("tab",source.replace("unreferenced","other")),
+        ("tab",format!("<domios from=\"tab\" tab=\"real-source\">{source}</domios>")),
+    ] {
+        fixture.inbound_content(&fixture.owner,source.clone(),stamp,&wire);
+        assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::NOT_FOUND,"{stamp}: {wire}");
+    }
+    fixture.inbound_content(&fixture.owner,tag.clone(),"tab",&source.replace("unreferenced","other"));
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::NOT_FOUND);
+    fixture.inbound_content(&fixture.owner,source.clone(),"tab",&source);
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::OK);
+    assert_eq!(fixture.read(&fixture.sibling,&path,"document").await.status(),StatusCode::NOT_FOUND);
+    fixture.inbound_content(&fixture.owner,tag.clone(),"tab",&source);
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::OK);
+    fixture.inbound_content(&fixture.owner,format!("\n{tag}\n"),"tab",&source);
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::OK);
+    fixture.user_content(&fixture.owner,tag.clone());
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::OK);
+    fixture.content(&fixture.owner,tag);
+    assert_eq!(fixture.read(&fixture.owner,&path,"document").await.status(),StatusCode::OK);
 }

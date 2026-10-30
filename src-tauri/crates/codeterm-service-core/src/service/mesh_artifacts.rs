@@ -27,10 +27,10 @@ fn preview_error(error: String) -> ArtifactError {
     }
 }
 
-use codeterm_local_preview::artifact_directive::{scan_artifacts, serialize_artifact, FileCard};
+use codeterm_local_preview::artifact_directive::{scan_artifacts as scan_author_text, serialize_artifact, FileCard};
 
 #[cfg(test)]
-fn directives(text: &str) -> Vec<FileCard> { scan_artifacts(text, true).cards }
+fn directives(text: &str) -> Vec<FileCard> { scan_author_text(text, true).cards }
 
 fn ingest_path(method: &str, path: &str) -> Option<String> {
     if !method.eq_ignore_ascii_case("POST") {
@@ -160,7 +160,7 @@ where
         .into_iter()
         .filter_map(|pointer| {
             let text = body.pointer(&pointer)?.as_str()?.to_string();
-            let scan = scan_artifacts(&text, true);
+            let scan = scan_author_text(&text, true);
             (!scan.cards.is_empty() || scan.overflow).then_some((pointer, text, scan))
         })
         .collect();

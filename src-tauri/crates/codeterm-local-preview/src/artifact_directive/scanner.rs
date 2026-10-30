@@ -1,7 +1,7 @@
-use super::{file_paths, html::HtmlBoundary, space, ArtifactScan, FileCard, KINDS};
+use super::{file_paths, html::HtmlBoundary, space, ArtifactScan, FileCard, HostArtifactProvenance, KINDS};
 use regex::Regex;
 use std::sync::LazyLock;
-use codeterm_wire::envelope::{parse_envelope_spans, FrameKind, MessageSegment};
+use codeterm_wire::envelope::{parse_envelope_spans, MessageSegment};
 
 const CONTEXTS: &[&str] = &[
     "context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff",
@@ -55,16 +55,28 @@ fn frame_body_start(source: &str) -> usize {
     source.len()
 }
 
+/// Scans direct author text; routed wrappers remain inert without host provenance.
 pub fn scan_artifacts(source: &str, trusted: bool) -> ArtifactScan {
+    scan(source, trusted, None)
+}
+
+/// Scans only the source matched by independently supplied host provenance.
+pub fn scan_artifacts_with_provenance(source: &str, provenance: &HostArtifactProvenance<'_>) -> ArtifactScan {
+    if !provenance.matches_source(source) { return ArtifactScan::default(); }
+    scan(source, true, Some(provenance))
+}
+
+fn scan(source: &str, trusted: bool, provenance: Option<&HostArtifactProvenance<'_>>) -> ArtifactScan {
     let mut result = ArtifactScan::default();
     if !trusted { return result; }
     let mut body_start = 0;
     let excluded: Vec<_> = parse_envelope_spans(source).into_iter().filter_map(|part| {
-        let live = match part.segment {
+        let live = match &part.segment {
             MessageSegment::Text { .. } | MessageSegment::Attachment { .. } => true,
-            MessageSegment::Frame { kind, .. } => {
+            MessageSegment::Frame { .. } => {
                 let live = part.span.start == 0 && source.starts_with("<domios")
-                    && !matches!(kind, FrameKind::Neighbor | FrameKind::SystemPrompt);
+                    && source[part.span.end..].trim().is_empty()
+                    && provenance.is_some_and(|evidence| evidence.permits_frame(&part.segment));
                 if live { body_start = frame_body_start(source); }
                 live
             }

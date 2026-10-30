@@ -221,6 +221,12 @@ impl Fixture {
         }]);
     }
 
+    pub fn user_content(&self, session: &str, content: String) {
+        self.rows.lock().insert(session.into(), vec![ChatMsg {
+            kind: "user".into(), content, ..Default::default()
+        }]);
+    }
+
     pub fn inbound_content(&self, session: &str, content: String, kind: &str, wire: &str) {
         let mut message = ChatMsg { kind: "user".into(), content, inbound_kind: Some(kind.into()), ..Default::default() };
         message.refresh_segments_from(wire);
