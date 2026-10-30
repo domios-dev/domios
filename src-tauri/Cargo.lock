@@ -2195,6 +2195,7 @@ name = "codeterm-repowatch"
 version = "0.0.0"
 dependencies = [
  "codeterm-util",
+ "fsevent-sys",
  "git2",
  "log",
  "notify 8.2.0",

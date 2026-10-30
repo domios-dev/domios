@@ -11,9 +11,7 @@ pub(crate) fn expand(specs: &[WatchSpec]) -> Result<BTreeMap<PathBuf, bool>, Str
             continue;
         }
         if spec.partitioned {
-            let repo = git2::Repository::open(&spec.path).map_err(|error| error.to_string())?;
-            let tracked = crate::tracked::paths(&repo)?;
-            for watch in codeterm_util::watch_plan::covering_set_preserving(&spec.path, &tracked)? {
+            for watch in crate::ignore_plan::plan(&spec.path)?.watches {
                 desired.insert(watch.path, watch.recursive);
             }
         } else {
