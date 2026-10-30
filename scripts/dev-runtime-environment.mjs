@@ -2,7 +2,8 @@
 import { join } from 'node:path';
 
 export function devRuntimeEnvironment(inherited, physicalRepo) {
-  const runtime = Object.fromEntries(Object.entries(inherited).filter(([key]) => !key.startsWith('CODETERM_DEV_LAUNCH_')));
+  const runtime = Object.fromEntries(Object.entries(inherited).filter(([key]) =>
+    !key.startsWith('CODETERM_DEV_LAUNCH_') && !key.startsWith('CODETERM_DEV_TARGET_')));
   return {
     ...runtime,
     CODETERM_DEV_WORKSPACE_ROOT: physicalRepo,

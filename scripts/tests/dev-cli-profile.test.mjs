@@ -105,7 +105,7 @@ ${helpers}
 ${layout}
 cd "$1"
 OSTYPE="$2" CARGO_BUILD_TARGET="$3"
-app_target="$PWD/target/dev-instances/opaque-instance"
+app_target="$PWD/target/named-dev"
 export CARGO_TARGET_DIR="$app_target"
 cargo() {
   [ "$CARGO_TARGET_DIR" = "$app_target" ]
@@ -161,12 +161,12 @@ for (const target of ['', 'aarch64-apple-darwin']) {
       .map(name => source.match(new RegExp(`^${name}\\(\\) \\{[^]*?^\\}`, 'm'))[0]).join('\n');
     const result = spawnSync(bash, ['-c', `set -eu
 ${layout}
-OSTYPE=darwin CARGO_TARGET_DIR='cache root/dev-instances/macdev-fix' CARGO_BUILD_TARGET="$1"
+OSTYPE=darwin CARGO_TARGET_DIR='cache root/named-dev' CARGO_BUILD_TARGET="$1"
 CODETERM_DEV_INSTANCE=macdev-fix
 printf '%s\\n' "$(dev_built_app_path)" "$(dev_app_path)" "$(dev_resource_dir)"
 `, '--', target], { cwd: root, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
-    const debug = `cache root/dev-instances/macdev-fix/${target ? target + '/' : ''}debug`;
+    const debug = `cache root/named-dev/${target ? target + '/' : ''}debug`;
     assert.deepEqual(result.stdout.trim().split(/\r?\n/), [
       `${debug}/domios-app`,
       `${debug}/.domios-dev-runtime/Domios.app/Contents/MacOS/domios-dev-app`,

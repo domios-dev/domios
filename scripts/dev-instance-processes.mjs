@@ -2,7 +2,9 @@ import path from 'node:path';
 import { existsSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { inspectInstanceProcesses } from './dev-instance-inspect.mjs';
 import { isDeepStrictEqual } from 'node:util';
+import { LEGACY_TARGETS, SHARED_TARGET, readRecord } from './dev-named-target.mjs';
 
 const normalize = (value, windows) => {
   if (typeof value !== 'string' || !value) return '';
@@ -25,8 +27,10 @@ export function canonicalRuntimeImages(root, windows = process.platform === 'win
   return relative.map(name => `${root}/${name}`);
 }
 
+const namedTree = (root, windows) => /\/(?:named-dev|dev-instances\/[^/]+)$/.test(normalize(root, windows));
+
 export function instanceTreePlan({ root, processes, listeners, port, windows = process.platform === 'win32',
-  images = normalize(root, windows).includes('/dev-instances/') ? null : canonicalRuntimeImages(root, windows) }) {
+  images = namedTree(root, windows) ? null : canonicalRuntimeImages(root, windows) }) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 || port === 7685) throw Error('Refusing production or invalid DEV port');
   const tree = normalize(root, windows);
   if (!tree || !(windows ? path.win32 : path.posix).isAbsolute(root)) throw Error('DEV instance tree must be absolute');
@@ -39,15 +43,18 @@ export function instanceTreePlan({ root, processes, listeners, port, windows = p
   return selected;
 }
 
-function helper(operation, input) {
-  const windows = process.platform === 'win32';
-  const script = fileURLToPath(new URL(windows ? './windows-dev-rebuild-stop.ps1' : './unix-dev-instance-processes.py', import.meta.url));
-  const result = spawnSync(windows ? 'powershell.exe' : 'python3', windows
-    ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Operation', operation]
-    : [script, operation], { input: JSON.stringify(input), encoding: 'utf8', windowsHide: true, timeout: 55_000 });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw Error(result.stderr.trim() || 'DEV instance cleanup refused');
-  return JSON.parse(result.stdout);
+// Shared images bound candidates; only authenticated exact-instance evidence authorizes cleanup.
+export function namedInstancePlan({ root, processes, listeners, port, seeds = [], windows = process.platform === 'win32' }) {
+  const candidates = instanceTreePlan({ root, processes, listeners, port, windows, images: null });
+  const byPid = new Map(candidates.map(row => [row.pid, row]));
+  const selected = new Set(seeds.filter(pid => byPid.has(pid)));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const row of candidates) {
+      if (!selected.has(row.pid) && selected.has(row.parent)) { selected.add(row.pid); grew = true; }
+    }
+  }
+  return candidates.filter(row => selected.has(row.pid));
 }
 
 export function verifiedQuitProcesses(quit, { processes, listeners, data, port, windows = process.platform === 'win32' }) {
@@ -96,29 +103,55 @@ export async function gracefulQuit({ processes, listeners, data, port }, { run =
   } catch { return dispatched; }
 }
 
-export async function stopInstanceTree(root, port, instance, data) {
-  const absolute = path.resolve(root);
+// A named instance not yet moved to the shared target still runs from its legacy target, which its own record names.
+export function namedInstanceRoot(checkout, data) {
+  const shared = path.join(checkout, SHARED_TARGET);
+  const legacy = path.join(checkout, LEGACY_TARGETS, path.basename(data).replace(/^\.domios-dev-/, ''));
+  const server = data ? readRecord(path.join(data, 'dev-build-provenance.json'))?.artifacts.server.path : null;
+  const windows = process.platform === 'win32';
+  return server && existsSync(legacy) && normalize(server, windows).startsWith(`${normalize(realpathSync.native(legacy), windows)}/`)
+    ? legacy : shared;
+}
+
+export async function stopInstanceTree(root, port, instance, data, { inspect = inspectInstanceProcesses, quit = gracefulQuit, checkout = process.cwd() } = {}) {
+  checkout = realpathSync.native(checkout);
+  const absolute = instance ? namedInstanceRoot(checkout, data) : path.resolve(root);
   if (!existsSync(absolute)) return;
   const physical = realpathSync.native(absolute);
-  const target = path.join(realpathSync.native(process.cwd()), 'src-tauri/target');
-  const expected = instance
-    ? path.join(target, 'dev-instances', path.basename(absolute))
-    : path.join(target, process.env.CARGO_BUILD_TARGET ?? '', 'debug');
-  if (normalize(physical, process.platform === 'win32') !== normalize(expected, process.platform === 'win32')) {
+  const target = path.join(checkout, 'src-tauri/target');
+  const expected = instance ? [path.join(checkout, SHARED_TARGET), path.join(checkout, LEGACY_TARGETS, path.basename(absolute))]
+    : [path.join(target, process.env.CARGO_BUILD_TARGET ?? '', 'debug')];
+  if (!expected.some(value => normalize(physical, process.platform === 'win32') === normalize(value, process.platform === 'win32'))) {
     throw Error('DEV instance tree is aliased; refusing cleanup');
   }
-  const snapshot = helper('Inspect', {});
-  const images = instance ? null : canonicalRuntimeImages(physical);
-  const processes = instanceTreePlan({ root: physical, port, images, ...snapshot });
-  const gracefulPids = await gracefulQuit({ ...snapshot, processes, data, port });
-  const result = helper('StopTree', { root: physical, port, processes, images, gracefulPids });
-  for (const row of result.stopped) console.log(`Stopped DEV pid=${row.pid} created=${row.created} image=${row.executable}`);
+  const snapshot = inspect('Inspect', instance ? { ports: [port] } : {});
+  if (!instance) {
+    const images = canonicalRuntimeImages(physical);
+    const processes = instanceTreePlan({ root: physical, port, images, ...snapshot });
+    const gracefulPids = await quit({ ...snapshot, processes, data, port });
+    const result = inspect('StopTree', { root: physical, port, processes, images, gracefulPids });
+    for (const row of result.stopped) console.log(`Stopped DEV pid=${row.pid} created=${row.created} image=${row.executable}`);
+    return;
+  }
+  const candidates = instanceTreePlan({ root: physical, port, images: null, ...snapshot });
+  if (!candidates.length && !snapshot.listeners.some(row => row.port === port)) return;
+  const gracefulPids = await quit({ ...snapshot, processes: candidates, data, port });
+  if (!gracefulPids.length) {
+    if (!snapshot.listeners.some(row => row.port === port)) {
+      console.log('No selected DEV API listener; refusing force cleanup without exact-instance evidence.');
+      return;
+    }
+    throw Error('Uncertain DEV instance identity; refusing shutdown without authenticated exact-instance evidence');
+  }
+  const processes = namedInstancePlan({ root: physical, port, seeds: gracefulPids, ...snapshot });
+  const result = inspect('StopTree', { root: physical, port, processes, images: null, gracefulPids, onlyPinned: true });
+  for (const row of result.stopped) console.log(`Stopped DEV instance=${instance} pid=${row.pid} created=${row.created} image=${row.executable}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const operation = process.argv[2] === '--frontend'
     ? async () => {
-      const result = helper('StopFrontend', { repo: realpathSync.native(process.argv[3]), port: Number(process.argv[4]) });
+      const result = inspectInstanceProcesses('StopFrontend', { repo: realpathSync.native(process.argv[3]), port: Number(process.argv[4]) });
       for (const row of result.stopped) console.log(`Stopped DEV frontend pid=${row.pid} created=${row.created} image=${row.executable}`);
     }
     : () => stopInstanceTree(process.argv[2], Number(process.argv[3]), process.argv[4], process.argv[5]);
