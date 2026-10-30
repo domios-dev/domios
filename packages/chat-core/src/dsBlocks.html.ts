@@ -10,7 +10,10 @@ export class DsHtmlBoundary {
   constructor(private readonly outerName = "ds-html") {}
   get inData(): boolean { return !this.token && !this.raw && !this.probe; }
 
+  fork(): DsHtmlBoundary { return Object.assign(new DsHtmlBoundary(this.outerName), this); }
+
   feed(char: string): boolean {
+    if (this.raw === "plaintext") return false;
     if (this.raw && !this.rawClosing) {
       const expected = `</${this.raw}`;
       if (!this.probe) { if (char === "<") this.probe = char; return false; }
@@ -57,7 +60,7 @@ export class DsHtmlBoundary {
     }
     const name = /^<([a-zA-Z][a-zA-Z0-9-]*)(?=[\t\n\f\r />])/.exec(token)?.[1]?.toLowerCase();
     if (name === this.outerName) { this.invalid = true; if (!token.endsWith("/>")) this.depth++; }
-    if (name && ["script", "style", "title", "textarea"].includes(name)) this.raw = name;
+    if (name && ["script", "style", "title", "textarea", "xmp", "iframe", "noembed", "noframes", "noscript", "plaintext"].includes(name)) this.raw = name;
     return false;
   }
 }

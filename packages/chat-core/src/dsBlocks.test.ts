@@ -27,6 +27,15 @@ for (const fixture of corpus.fixtures) {
       for (const part of committed(scanner.segments)) {
         assert.ok(committed(whole).some((full) => JSON.stringify(full) === JSON.stringify(part)), `premature effect at UTF-16 split ${split}`);
       }
+      const prefixView = JSON.stringify(scanner.segments);
+      const branch = scanner.fork();
+      branch.append(fixture.source.slice(split));
+      assert.deepEqual(committed(branch.finish(fixture.lifecycle)), committed(whole), `isolated fork split ${split}`);
+      scanner.fork().finish("ended");
+      scanner.fork().finish("cancelled");
+      assert.equal(scanner.text, fixture.source.slice(0, split));
+      assert.equal(scanner.state, "streaming");
+      assert.equal(JSON.stringify(scanner.segments), prefixView, `speculative fork mutated committed view at ${split}`);
       scanner.append(fixture.source.slice(split));
       scanner.finish(fixture.lifecycle);
       assert.deepEqual(committed(scanner.segments), committed(whole), `UTF-16 split ${split}`);
@@ -94,4 +103,46 @@ test("dsBlocks enforces file, gallery, label and HTML bounds", () => {
     assert.equal(blocks(parseDsBlocks(serializeDsBlock({ kind: "choice", options }))).length, 0);
   }
   assert.equal(blocks(parseDsBlocks(`<ds-html>${"x".repeat(200_001)}</ds-html>`)).length, 0);
+});
+
+
+test("dsBlocks fork views share committed identities and isolate subsequent updates in either branch", () => {
+  const source = Array.from({ length: 128 }, (_, index) => `<ds-plugin id="plugin-${index}" />`).join("\n");
+  const scanner = new DsBlockScanner({ id: "fork", trusted: true });
+  scanner.append(source);
+  const view = scanner.segments;
+  const first = view[0];
+  const length = view.length;
+  assert.ok(Array.isArray(view));
+  assert.equal(Object.keys(view).length, length);
+  assert.equal(Object.getOwnPropertyDescriptor(view, "length")?.value, length);
+  assert.deepEqual(view.slice(0, 3), [view[0], view[1], view[2]]);
+  assert.equal(JSON.parse(JSON.stringify(view)).length, length);
+  assert.equal(Reflect.set(view, "0", { type: "malformed" }), false);
+  const abandoned = scanner.fork();
+  abandoned.append('\n<ds-html><input/></ds-html>');
+  const actual = scanner.fork();
+  actual.append('\nactual suffix');
+  assert.equal(scanner.text, source);
+  assert.equal(view.length, length);
+  assert.equal(actual.segments[0], first);
+  assert.equal(abandoned.segments[0], first);
+  const forkSource = actual.text;
+  scanner.append('\nother source suffix');
+  assert.equal(actual.text, forkSource);
+  assert.equal(actual.segments[0], first);
+});
+
+
+test("dsBlocks forked pending Markdown fence metadata remains isolated when the original completes", () => {
+  const scanner = new DsBlockScanner({ id: "fence-fork", trusted: true });
+  scanner.append('```\ngraph TD\n A-->B\n');
+  const branch = scanner.fork();
+  const before = JSON.stringify(branch.segments);
+  scanner.append('```\n');
+  assert.equal(JSON.stringify(branch.segments), before);
+  branch.finish("cancelled");
+  const segment = branch.segments[0];
+  assert.equal(segment.type, "markdown");
+  if (segment.type === "markdown") assert.equal(segment.fences.length, 0);
 });

@@ -353,23 +353,114 @@ test("dsBlocks public whole-text adapters replace longer non-prefix snapshots un
   } } finally { await view.close(); configureHtmlFileLoader(null); }
 });
 
-test("dsBlocks aborted React work cannot reset the last committed frame or fullscreen state", async () => {
+test("dsBlocks direct abandoned suffix to different actual suffix preserves committed effects and fullscreen", async () => {
+  const view = await mount();
+  const pending = new Promise<void>(() => {});
+  let suspended = 0; let reads = 0;
+  const plugins = binding({ kind: "loading" } as const);
+  const value: ChatBlockHost = { plugins: { binding: plugins.source, run: async () => {}, openView() {}, openInPlugins() {} } };
+  configureHtmlFileLoader(async () => { reads++; return '<b>Committed local page</b>'; });
+  function Wait(): React.ReactNode { suspended++; throw pending; }
+  const committed = html + '\n<ds-plugin id="git" />\n<ds-page src="/committed.html" />';
+  const render = (text: string, suspend = false) => <ChatBlockHostProvider value={value}><React.Suspense fallback={<span>Deferred</span>}><RichMarkdown text={text} sourceIdentity="concurrent" streaming />{suspend && <Wait />}</React.Suspense></ChatBlockHostProvider>;
+  try {
+    await view.render(render(committed));
+    const frames = [...view.host.querySelectorAll('iframe')]; assert.equal(frames.length, 2);
+    const documents = frames.map((frame) => frame.getAttribute('srcdoc'));
+    assert.equal(reads, 1); assert.equal(plugins.counts.starts, 1); assert.equal(plugins.counts.live, 1);
+    const open = view.host.querySelector<HTMLButtonElement>('button[title="Open in fullscreen"]'); assert.ok(open); await act(async () => open.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]'); assert.ok(dialog);
+    await view.transition(render(committed + '\n\nabandoned suffix', true));
+    assert.ok(suspended > 0);
+    let actual = committed + '\n\ndifferent actual suffix';
+    for (let after = 0; after < 20; after++) {
+      await view.render(render(actual));
+      assert.deepEqual([...view.host.querySelectorAll('iframe')], frames);
+      assert.deepEqual(frames.map((frame) => frame.getAttribute('srcdoc')), documents);
+      assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]'), dialog);
+      assert.equal(reads, 1); assert.equal(plugins.counts.starts, 1); assert.equal(plugins.counts.live, 1);
+      actual += `\n\ncontinuation ${after}`;
+    }
+  } finally { await view.close(); configureHtmlFileLoader(null); }
+});
+
+test("dsBlocks user task snapshots obey explicit trust and committed stream lifecycle without a parallel extractor", async () => {
+  const view = await mount();
+  const { DsRenderContext } = await import("./blocks/DsRenderContext");
+  let reads = 0; let pageReads = 0;
+  const tasks = binding({ kind: "loading" } as const);
+  const read = tasks.source.read;
+  const value: ChatBlockHost = { tasks: { binding: { ...tasks.source, read(key) { reads++; return read(key); } }, openPlan() {}, openTask() {} } };
+  configureHtmlFileLoader(async () => { pageReads++; return '<b>Existing page</b>'; });
+  const prefix = '<ds-tasks plan="pl_x">{"title":"X","items":[]}';
+  const source = prefix + '</ds-tasks>';
+  const render = (text: string, id: string, trusted = true, streaming = true, cancelled = false) => view.render(<ChatBlockHostProvider value={value}><DsRenderContext.Provider value={{ authority: id, trusted, streaming, cancelled }}><MessageBubble message={{ id, type: "user", content: text }} streaming={streaming} /></DsRenderContext.Provider></ChatBlockHostProvider>);
+  try {
+    await render(source, 'untrusted-snapshot', false);
+    assert.equal(tasks.counts.starts, 0); assert.equal(reads, 0); assert.equal(pageReads, 0);
+    assert.equal(view.host.querySelectorAll('[data-chat-block="tasks"],iframe').length, 0);
+    for (const lifecycle of ['ended', 'cancelled'] as const) {
+      await render(prefix, lifecycle);
+      await render(prefix, lifecycle, true, lifecycle !== 'ended', lifecycle === 'cancelled');
+      await render(source, lifecycle, true, true, lifecycle === 'cancelled');
+      assert.equal(tasks.counts.starts, 0); assert.equal(reads, 0); assert.equal(pageReads, 0);
+      assert.equal(view.host.querySelectorAll('[data-chat-block="tasks"],iframe').length, 0);
+    }
+    const page = '<ds-page src="/existing-page.html" />\n';
+    await render(page + prefix, 'trusted-snapshot');
+    const frame = view.host.querySelector('iframe'); assert.ok(frame); assert.equal(pageReads, 1);
+    assert.equal(tasks.counts.starts, 0); assert.equal(reads, 0);
+    await render(page + source, 'trusted-snapshot');
+    assert.equal(view.host.querySelector('iframe'), frame); assert.equal(pageReads, 1);
+    assert.equal(view.host.querySelectorAll('[data-chat-block="tasks"]').length, 1);
+    assert.equal(tasks.counts.starts, 1); assert.equal(tasks.counts.live, 1); assert.ok(reads > 0);
+    for (let after = 0; after < 20; after++) {
+      await render(page + source + '\n\n' + 'later '.repeat(after + 1), 'trusted-snapshot');
+      assert.equal(view.host.querySelector('iframe'), frame); assert.equal(pageReads, 1); assert.equal(tasks.counts.starts, 1); assert.equal(tasks.counts.live, 1);
+    }
+  } finally { await view.close(); configureHtmlFileLoader(null); }
+});
+
+test("dsBlocks HTML text states cannot expose a nested file or frame before the true data-state close", async () => {
+  const view = await mount();
+  let reads = 0;
+  configureHtmlFileLoader(async () => { reads++; return '<b>Forbidden nested file</b>'; });
+  try {
+    for (const kind of ['xmp', 'iframe', 'noembed', 'noframes', 'noscript']) {
+      const prefix = `<ds-html><${kind}>\n</ds-html>\n<ds-page src="/private-example.html" />\n</${kind}>\n`;
+      const closer = '</ds-html>';
+      for (let end = 0; end < closer.length; end++) {
+        await view.render(<RichMarkdown key={kind} text={prefix + closer.slice(0, end)} sourceIdentity={kind} streaming />);
+        assert.equal(reads, 0); assert.equal(view.host.querySelectorAll('iframe').length, 0);
+      }
+      await view.render(<RichMarkdown key={kind} text={prefix + '</ds-html>'} sourceIdentity={kind} streaming />);
+      assert.equal(reads, 0); assert.equal(view.host.querySelectorAll('iframe').length, 1);
+      assert.ok(view.host.querySelector('iframe')?.getAttribute('srcdoc')?.includes('/private-example.html'));
+    }
+    const plaintext = '<ds-html><plaintext>\n</ds-html>\n<ds-page src="/private-example.html" />\n</plaintext>\n</ds-html>';
+    await view.render(<RichMarkdown key="plaintext" text={plaintext} streaming />);
+    await view.render(<RichMarkdown key="plaintext" text={plaintext} streaming={false} />);
+    assert.equal(reads, 0); assert.equal(view.host.querySelectorAll('iframe').length, 0);
+    assert.ok(view.host.querySelector('[data-ds-state="malformed"]'));
+  } finally { await view.close(); configureHtmlFileLoader(null); }
+});
+
+test("dsBlocks abandoned finish or cancellation cannot poison a committed pending candidate", async () => {
   const view = await mount();
   const pending = new Promise<void>(() => {});
   let suspended = 0;
   function Wait(): React.ReactNode { suspended++; throw pending; }
-  const render = (text: string, suspend = false) => <React.Suspense fallback={<span>Deferred</span>}><RichMarkdown text={text} sourceIdentity="concurrent" streaming />{suspend && <Wait />}</React.Suspense>;
+  const prefix = '<ds-html><input/>';
+  const render = (id: string, text: string, streaming: boolean, cancelled: boolean, suspend = false) => <React.Suspense fallback={<span>Deferred</span>}><RichMarkdown key={id} text={text} sourceIdentity={id} streaming={streaming} cancelled={cancelled} />{suspend && <Wait />}</React.Suspense>;
   try {
-    await view.render(render(html));
-    const frame = view.host.querySelector('iframe'); assert.ok(frame); const srcDoc = frame.getAttribute('srcdoc');
-    const open = view.host.querySelector<HTMLButtonElement>('button[title="Open in fullscreen"]'); assert.ok(open); await act(async () => open.click());
-    const dialog = document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]'); assert.ok(dialog);
-    await view.transition(render(html + '\n\nabandoned suffix', true));
-    assert.ok(suspended > 0);
-    await view.render(render(html));
-    assert.equal(view.host.querySelector('iframe'), frame); assert.equal(frame.getAttribute('srcdoc'), srcDoc);
-    assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]'), dialog);
-    await view.render(render(html + '\n\ncommitted suffix'));
-    assert.equal(view.host.querySelector('iframe'), frame); assert.equal(frame.getAttribute('srcdoc'), srcDoc);
+    for (const lifecycle of ['ended', 'cancelled'] as const) {
+      await view.render(render(lifecycle, prefix, true, false));
+      const count = suspended;
+      await view.transition(render(lifecycle, prefix, lifecycle !== 'ended', lifecycle === 'cancelled', true));
+      assert.ok(suspended > count);
+      await view.render(render(lifecycle, prefix + '</ds-html>', true, false));
+      assert.equal(view.host.querySelectorAll('iframe').length, 1);
+      assert.ok(view.host.querySelector('iframe')?.getAttribute('srcdoc')?.includes('<input/>'));
+    }
   } finally { await view.close(); }
 });
