@@ -4,6 +4,43 @@ use crate::service::tab_chat::{session_window, structured_sink};
 use std::io::Write;
 use std::sync::mpsc;
 
+const PROVIDER_ID: &str = "fixture";
+
+fn registry_with_provider_at(path: &std::path::Path) -> Arc<AgentRegistry> {
+    let manifest = serde_json::from_value(serde_json::json!({
+        "id": PROVIDER_ID,
+        "version": "0.1.0",
+        "displayName": "Fixture",
+        "capabilities": {"recordSources": {"sessionTranscript": {
+            "format": "jsonl",
+            "filter": {"type": {"path": ["type"], "in": ["user", "assistant"]}}
+        }}}
+    }))
+    .unwrap();
+    let source = format!(
+        r#"module.exports = {{
+            sessionJsonlPath() {{ return {}; }},
+            parseSessionRecords(records, meta) {{
+                return {{
+                    new_offset: meta.newOffset,
+                    messages: records.map(record => ({{
+                        role: record.value.type,
+                        uuid: record.value.uuid,
+                        recordIndex: record.row,
+                        blocks: [{{kind: "text", data: {{text: record.value.message.content}}}}]
+                    }}))
+                }};
+            }}
+        }};"#,
+        serde_json::json!(path.to_string_lossy())
+    );
+    let vm = crate::plugin::js_runtime::PluginVm::from_source(PROVIDER_ID, source).unwrap();
+    let provider = crate::plugin::js_runtime::JsProvider::new(manifest, Arc::new(vm));
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(provider));
+    Arc::new(registry)
+}
+
 fn append(path: &std::path::Path, bytes: &[u8]) -> u64 {
     let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
     file.write_all(bytes).unwrap();
@@ -59,8 +96,8 @@ fn session_streams_silent_ranges_and_rows_after_reload(large: bool) {
     file.flush().unwrap();
     drop(file);
 
-    let registry = registry_with_claude_at(root.path());
-    let snapshot = session_window::try_snapshot(&registry, "claude", &path).unwrap();
+    let registry = registry_with_provider_at(&path);
+    let snapshot = session_window::try_snapshot(&registry, PROVIDER_ID, &path).unwrap();
     if large {
         assert!(snapshot.total > 20_000_000);
         assert!(snapshot.start_offset > 0);
@@ -93,7 +130,7 @@ fn session_streams_silent_ranges_and_rows_after_reload(large: bool) {
     let handle = super::super::tailer::spawn_tailer_with_ready(
         TailConfig {
             tab_id: tab.clone(),
-            provider_id: "claude".into(),
+            provider_id: PROVIDER_ID.into(),
             cwd: "/proj/large-session".into(),
             session_id: "large-session".into(),
             start_offset: snapshot.end_offset,
@@ -138,7 +175,7 @@ fn session_streams_silent_ranges_and_rows_after_reload(large: bool) {
     let detached_end = append(&path, detached);
     let event = received.recv_timeout(Duration::from_secs(30)).unwrap();
     assert_eq!(event["messages"][0]["content"], "while detached");
-    let reload = session_window::try_snapshot(&registry, "claude", &path).unwrap();
+    let reload = session_window::try_snapshot(&registry, PROVIDER_ID, &path).unwrap();
     assert_eq!(reload.end_offset, detached_end);
     assert!(reload
         .messages
