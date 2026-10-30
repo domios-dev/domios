@@ -55,18 +55,19 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
   const callbacks = useRef({ onViewport, onHidden, onError });
   callbacks.current = { onViewport, onHidden, onError };
 
-  const paint = () => {
+  const paint = (): boolean => {
     const canvas = canvasRef.current;
     const decoded = frame.current;
-    if (!canvas) return;
+    if (!canvas) return false;
     drawCss.current = letterboxRect(decoded ?? { width: 0, height: 0 }, css.current);
-    if (!decoded) return;
+    if (!decoded) return false;
     if (canvas.width !== decoded.width) canvas.width = decoded.width;
     if (canvas.height !== decoded.height) canvas.height = decoded.height;
     const context = canvas.getContext("2d");
-    if (!context) return;
+    if (!context) return false;
     context.imageSmoothingQuality = "high";
     context.drawImage(decoded.image, 0, 0, decoded.width, decoded.height);
+    return true;
   };
   const paintRef = useRef(paint);
   paintRef.current = paint;
@@ -92,8 +93,8 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
       frame.current?.close();
       frame.current = decoded;
       meta.current = next.metadata;
-      paintRef.current();
-      if (DEV_BUILD) capture.current?.capture(next, decoded, css.current, reported.current, dpr.current);
+      const drawn = paintRef.current();
+      if (DEV_BUILD && drawn) capture.current?.capture(next, decoded, css.current, reported.current, dpr.current);
     }, (error) => callbacks.current.onError(error));
     const unsubscribe = frames.subscribe((next) => queue.push(next));
     return () => {

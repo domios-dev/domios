@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import { createElement } from "react";
 import { createStreamFrameCapture } from "./streamFrameCapture";
-import type { DecodedFrame } from "./frameFeed";
+import { createFrameFeed, type DecodedFrame } from "./frameFeed";
 import type { StreamFrame } from "./surfaceStreamTransport";
-import { testSuite } from "./surfaceTestDom.testdata";
+import { flushAsync, render, testSuite } from "./surfaceTestDom.testdata";
 
 const suite = testSuite("streamFrameCapture");
 const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 11, 8, 0, 6, 0, 8, 1, 1, 0x11, 0, 0xff, 0xd9]);
@@ -19,9 +20,9 @@ function fixture() {
   canvas.getBoundingClientRect = () => new DOMRect(10, 20, 400, 300);
   stage.append(canvas);
   document.body.append(stage);
-  let snapshot: BlobCallback | null = null;
+  const callbacks: BlobCallback[] = [];
   let snapshots = 0;
-  canvas.toBlob = (callback) => { snapshots += 1; snapshot = callback; };
+  canvas.toBlob = (callback) => { snapshots += 1; callbacks.push(callback); };
   const originalCreate = URL.createObjectURL;
   const originalRevoke = URL.revokeObjectURL;
   const blobs = new Map<string, Blob>();
@@ -39,7 +40,7 @@ function fixture() {
     stage, capture, blobs, revoked,
     arm: () => (buttons[0] as HTMLButtonElement).click(),
     discard: () => (buttons[1] as HTMLButtonElement).click(),
-    finish: (blob: Blob | null = new Blob(["png"], { type: "image/png" })) => { assert.ok(snapshot); snapshot(blob); },
+    finish: (blob: Blob | null = new Blob(["png"], { type: "image/png" }), index = callbacks.length - 1) => { assert.ok(callbacks[index]); callbacks[index](blob); },
     snapshots: () => snapshots,
     cleanup() { capture.dispose(); stage.remove(); URL.createObjectURL = originalCreate; URL.revokeObjectURL = originalRevoke; },
   };
@@ -111,6 +112,26 @@ suite.test("discard cancels a pending snapshot and a fresh arm owns its own resu
   } finally { f.cleanup(); }
 });
 
+suite.test("an old PNG callback cannot consume a fresh armed capture", async () => {
+  const f = fixture();
+  try {
+    f.arm();
+    f.capture.capture(next(), decoded, css, viewport, 2);
+    f.discard();
+    f.arm();
+    const fresh = next();
+    fresh.metadata.timestamp = 456;
+    f.capture.capture(fresh, decoded, css, viewport, 2);
+    f.finish(new Blob(["old PNG"], { type: "image/png" }), 0);
+    assert.equal(f.blobs.size, 0, "the obsolete completion cannot publish or consume the fresh JPEG");
+    f.finish(new Blob(["fresh PNG"], { type: "image/png" }), 1);
+    const [, png, json] = [...f.blobs.values()];
+    assert.equal(await png.text(), "fresh PNG");
+    assert.equal(JSON.parse(await json.text()).metadata.timestamp, 456);
+    assert.equal(f.blobs.size, 3);
+  } finally { f.cleanup(); }
+});
+
 suite.test("unmount releases all artifact URLs and refuses late snapshots", () => {
   const f = fixture();
   try {
@@ -155,6 +176,87 @@ suite.test("snapshot failure exports no partial artifacts and malformed JPEG siz
     assert.equal(metrics.encoded, null);
     assert.equal(metrics.requestedViewport, null);
   } finally { f.cleanup(); }
+});
+
+async function hookFixture(mode: "draw" | "missing-canvas" | "null-context" | "throw") {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "__CODETERM_DEV__");
+  Object.defineProperty(globalThis, "__CODETERM_DEV__", { value: true, configurable: true });
+  const { useStreamCanvas } = await import("./useStreamCanvas");
+  if (previous) Object.defineProperty(globalThis, "__CODETERM_DEV__", previous);
+  else Reflect.deleteProperty(globalThis, "__CODETERM_DEV__");
+  const stage = document.createElement("div");
+  const canvas = document.createElement("canvas");
+  stage.append(canvas);
+  document.body.append(stage);
+  const canvasRef: { current: HTMLCanvasElement | null } = { current: canvas };
+  const stageRef = { current: stage };
+  const frames = createFrameFeed();
+  const calls: string[] = [];
+  const errors: unknown[] = [];
+  const failure = new Error("draw failed");
+  let closed = 0;
+  const image = {} as CanvasImageSource;
+  const context = {
+    drawImage(source: CanvasImageSource) {
+      assert.equal(source, image);
+      calls.push("draw");
+      if (mode === "throw") throw failure;
+      queueMicrotask(() => calls.push("after-draw-microtask"));
+    },
+  };
+  Object.defineProperty(canvas, "getContext", { value: () => mode === "null-context" ? null : context });
+  canvas.toBlob = () => { calls.push("readback"); };
+  const decode = async () => ({ width: 16, height: 12, image, close: () => { closed += 1; } });
+  function Harness() {
+    useStreamCanvas({ visible: false, canvasRef, stageRef, frames, decode, onViewport: () => undefined, onError: (error) => errors.push(error) });
+    return null;
+  }
+  const view = await render(createElement(Harness));
+  const arm = stage.querySelector("button");
+  assert.ok(arm, "the actual hook must install its DEV capture before the negative path is exercised");
+  arm.click();
+  if (mode === "missing-canvas") canvasRef.current = null;
+  return {
+    calls, errors, failure,
+    async publish() { frames.publish(next()); await flushAsync(); },
+    async cleanup() { await view.unmount(); stage.remove(); assert.equal(closed, 1); },
+  };
+}
+
+suite.test("the actual hook does not read back a new decode without a canvas", async () => {
+  const f = await hookFixture("missing-canvas");
+  try {
+    await f.publish();
+    assert.deepEqual(f.calls, []);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.cleanup(); }
+});
+
+suite.test("the actual hook does not read back a new decode without a 2D context", async () => {
+  const f = await hookFixture("null-context");
+  try {
+    await f.publish();
+    assert.deepEqual(f.calls, []);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.cleanup(); }
+});
+
+suite.test("the actual hook draws before synchronously requesting its paired PNG", async () => {
+  const f = await hookFixture("draw");
+  try {
+    await f.publish();
+    assert.deepEqual(f.calls, ["draw", "readback", "after-draw-microtask"]);
+    assert.deepEqual(f.errors, []);
+  } finally { await f.cleanup(); }
+});
+
+suite.test("the actual hook preserves draw exceptions and never reads back a failed draw", async () => {
+  const f = await hookFixture("throw");
+  try {
+    await f.publish();
+    assert.deepEqual(f.calls, ["draw"]);
+    assert.deepEqual(f.errors, [f.failure]);
+  } finally { await f.cleanup(); }
 });
 
 void suite.run();
