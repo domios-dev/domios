@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, test } from 'node:test';
-import { argumentBatches, biomeCommand, defaultBase, collectChangedFiles, formatChangedFiles } from '../format-changed.mjs';
+import { argumentBatches, biomeCommand, defaultBase, collectChangedFiles, formatChangedFiles, parseArgs, scopedFiles } from '../format-changed.mjs';
 
 const temporaryDirectories = [];
 
@@ -98,6 +98,34 @@ test('missing Biome names the lane and gives an installation hint', () => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'fmt-no-biome-'));
   temporaryDirectories.push(root);
   assert.throws(() => biomeCommand(root), error => error.message.includes(root) && error.message.includes('pnpm install --frozen-lockfile'));
+});
+
+test('explicit paths exclude foreign changes and reject traversal or an empty selection', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'fmt-owned-'));
+  temporaryDirectories.push(root);
+  write(root, 'owned.rs');
+  write(root, 'foreign.rs');
+  assert.deepEqual(scopedFiles(root, ['owned.rs', 'owned.rs']), ['owned.rs']);
+  assert.deepEqual(parseArgs(['--paths', 'owned.rs']), { baseRef: undefined, paths: ['owned.rs'] });
+  for (const args of [['--paths'], ['--base', 'HEAD', '--paths', 'owned.rs'], ['--paths', '--base']]) {
+    assert.throws(() => parseArgs(args));
+  }
+  for (const file of ['../foreign.rs', '/outside.rs', 'C:/outside.rs', 'missing.rs']) {
+    assert.throws(() => scopedFiles(root, [file]));
+  }
+});
+
+test('path-scoped Rust formatting leaves another Worker bytes unchanged', () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'fmt-owned-rust-'));
+  temporaryDirectories.push(root);
+  write(root, 'Cargo.toml', '[package]\nname="owned-fmt"\nversion="0.0.0"\nedition="2021"\n');
+  write(root, 'src/lib.rs', 'pub fn owned()->u32{42}\n');
+  const foreign = 'pub fn foreign()->u32{99}\n';
+  write(root, 'src/foreign.rs', foreign);
+  const result = formatChangedFiles(root, undefined, ['src/lib.rs']);
+  assert.deepEqual(result.rustFiles, ['src/lib.rs']);
+  assert.match(readFileSync(path.join(root, 'src/lib.rs'), 'utf8'), /pub fn owned\(\) -> u32/);
+  assert.equal(readFileSync(path.join(root, 'src/foreign.rs'), 'utf8'), foreign);
 });
 
 test('default base follows canonical HEAD instead of a stale remote', () => {

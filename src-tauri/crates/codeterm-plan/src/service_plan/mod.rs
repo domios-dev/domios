@@ -53,6 +53,7 @@ pub mod search_index;
 pub mod search_related;
 pub mod section_links;
 pub mod section_queries;
+pub mod shared_checkout;
 pub mod skill_registry;
 pub mod spec;
 pub mod spec_render;
@@ -175,6 +176,8 @@ pub struct PlanStore {
     full_plan_clones: std::sync::atomic::AtomicUsize,
     #[cfg(any(test, feature = "test-support"))]
     plan_touches: Mutex<Vec<String>>,
+    #[cfg(test)]
+    shared_git_observer: RwLock<Option<Arc<dyn Fn(&str, &[&str]) + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -253,6 +256,8 @@ impl PlanStore {
             full_plan_clones: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(any(test, feature = "test-support"))]
             plan_touches: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            shared_git_observer: RwLock::new(None),
         };
         for plan in plans {
             let id = plan.id.clone();

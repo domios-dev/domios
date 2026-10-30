@@ -134,7 +134,7 @@ esac
     assert.equal(result.status, 0, result.stderr);
     const app = result.stdout.split('\n').find(line => line.startsWith('tree=')).slice(5);
     if (instance) {
-      assert.ok(app.endsWith(`/src-tauri/target/dev-instances/${instance}`), app);
+      assert.ok(app.endsWith('/src-tauri/target/named-dev'), app);
       assert.ok(!app.includes('foreign-target'), app);
     } else {
       assert.equal(app, 'src-tauri/target/debug');
@@ -143,8 +143,8 @@ esac
 }
 
 for (const platform of ['windows','linux']) for (const wait of [0, 1]) {
-  test(`named DEV build and standalone prebuilt use checkout artifacts; platform=${platform}, wait=${wait}`, () => {
-    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-named-target-'));
+  test(`named DEV instances build and start from one incremental checkout target; platform=${platform}, wait=${wait}`, () => {
+    const directory = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'dev-named-target-')));
     try {
       const exe = platform === 'windows' ? '.exe' : '';
       const defaultApp = path.join(directory, `src-tauri/target/debug/domios-app${exe}`);
@@ -163,13 +163,18 @@ ct_verify_target_dir() { :; }
 kill_dev() { :; }
 stop_dev_before_replacement() { :; }
 enter_cargo_gateway() { :; }
+adopt_named_dev_target() { printf '%s\\n' "$CMD:$CT_INSTANCE" >> "$PWD/adoptions"; }
+refuse_named_dev_rebuild_while_running() { printf '%s\\n' "$CT_INSTANCE" >> "$PWD/refusal-checks"; }
 ct_configure_dev_qa_project() { export DOMIOS_QA_PROJECT_ID=opaque-shared-project; }
 prepare_dev_frontend_dist() { :; }
 ensure_deps() { :; }
+export RUSTC_WRAPPER=inherited-wrapper CODETERM_PORTABLE_COMPILER_CACHE=1 CARGO_INCREMENTAL=0
 cargo() {
-  [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/dev-instances/$CT_INSTANCE_KEY" ]
-  [ "$CARGO_INCREMENTAL" = 0 ]
-  [ "$CODETERM_PORTABLE_COMPILER_CACHE" = 1 ]
+  [ "$CARGO_TARGET_DIR" = "$PWD/src-tauri/target/named-dev" ]
+  [ "$CARGO_INCREMENTAL" = 1 ]
+  [ "\${RUSTC_WRAPPER-unset}" = "" ]
+  [ "$CODETERM_USE_SCCACHE" = 0 ]
+  [ -z "\${CODETERM_PORTABLE_COMPILER_CACHE+x}" ]
   [ "$DOMIOS_QA_PROJECT_ID" = opaque-shared-project ]
 }
 cli_profile_binary() { echo unused; }
@@ -207,16 +212,66 @@ ${prebuilt}
 done
 ` });
       assert.equal(result.status, 0, result.stderr);
+      const app = path.join(directory, 'src-tauri/target/named-dev', `debug/domios-app${exe}`);
+      assert.equal(fs.readFileSync(app, 'utf8'), 'welcomeqa');
+      const staged = platform === 'windows' ? path.join(path.dirname(app), 'domios-dev-app.exe') : path.join(path.dirname(app),'.domios-dev-runtime/bin/domios-dev-app');
+      assert.equal(fs.readFileSync(staged, 'utf8'), 'welcomeqa');
       for (const instance of ['meshqa', 'welcomeqa']) {
-        const app = path.join(directory, 'src-tauri/target/dev-instances', instance, `debug/domios-app${exe}`);
-        assert.equal(fs.readFileSync(app, 'utf8'), instance);
-        const staged = platform === 'windows' ? path.join(path.dirname(app), 'domios-dev-app.exe') : path.join(path.dirname(app),'.domios-dev-runtime/bin/domios-dev-app');
-        assert.equal(fs.readFileSync(staged, 'utf8'), instance);
+        const recorded = fs.readFileSync(path.join(directory, `data-${instance}/built-app`), 'utf8').trim();
+        const native = process.platform === 'win32' ? spawnSync(bash, ['-c', 'cygpath -w "$1"', '--', recorded], { encoding: 'utf8' }).stdout.trim() : recorded;
+        assert.equal(path.normalize(native), staged);
         assert.equal(fs.existsSync(path.join(directory, `data-${instance}/target`)), false);
       }
+      assert.equal(fs.existsSync(path.join(directory, 'src-tauri/target/dev-instances')), false);
+      assert.deepEqual(fs.readFileSync(path.join(directory, 'refusal-checks'), 'utf8').trim().split('\n'), ['meshqa', 'welcomeqa']);
+      assert.deepEqual(fs.readFileSync(path.join(directory, 'adoptions'), 'utf8').trim().split('\n'), ['dev:meshqa', 'dev:meshqa', 'dev:welcomeqa', 'dev:welcomeqa']);
       assert.equal(fs.readFileSync(defaultApp, 'utf8'), 'default running artifact');
     } finally {
       fs.rmSync(directory, { recursive: true, force: true });
     }
+  });
+}
+
+for (const command of ['dev', 'dev-prebuilt', 'dev-server']) for (const live of [false, true]) {
+  test(`inherited target child marker requires live reservation; command=${command}, live=${live}`, () => {
+    const start = source.indexOf('case "$CMD" in\n  dev|dev-prebuilt|dev-server)\n');
+    const entry = source.slice(start, source.indexOf('esac\n', start) + 5);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-reservation-entry-'));
+    try {
+      const result = spawnSync(bash, ['-c', `set -euo pipefail
+cd "$1"
+CMD="$2"
+export CODETERM_DEV_TARGET_CHILD=1
+named_dev_isolated() { return 0; }
+node() { echo lease-checked; [ "$1" = scripts/dev-launch-owner.mjs ]; [ "$2" = --validate-target-reservation ]; return ${live ? 0 : 1}; }
+${entry}
+echo admitted
+`, '--', directory, command], { encoding: 'utf8' });
+      assert.equal(result.status, live ? 0 : 2, result.stderr);
+      assert.deepEqual(result.stdout.trim().split('\n'), live ? ['lease-checked', 'admitted'] : ['lease-checked']);
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+  });
+}
+
+for (const [command, instance, refused] of [['dev', 'alpha', true], ['dev', 'alpha', false], ['dev', '', false], ['dev-prebuilt', 'alpha', false]]) {
+  test(`launch-owner entry names running DEVs before the instance lock refuses; ${command} instance=${instance || 'default'} refused=${refused}`, () => {
+    const entry = source.slice(source.indexOf('case "$CMD" in\n  dev|dev-prebuilt)\n'), source.indexOf('esac\n', source.indexOf('case "$CMD" in\n  dev|dev-prebuilt)\n')) + 5);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-launch-entry-'));
+    let result;
+    try {
+      result = spawnSync(bash, ['-c', `set -euo pipefail
+named_dev_isolated() { [ -n "$CT_INSTANCE" ]; }
+refuse_named_dev_rebuild_while_running() { echo refusal-check; [ "$REFUSED" = false ]; }
+CMD="$1" CT_INSTANCE="$2" REFUSED="$3" CT_DATA_DIR="$4"
+printf '#!/bin/sh\\necho "launch-owner $1"\\n' > "$CT_DATA_DIR/node"
+chmod +x "$CT_DATA_DIR/node"
+PATH="$CT_DATA_DIR:$PATH"
+${entry}
+`, '--', command, instance, String(refused), directory], { encoding: 'utf8' });
+    } finally { fs.rmSync(directory, { recursive: true, force: true }); }
+    const checked = command === 'dev' && Boolean(instance);
+    assert.equal(result.status, refused ? 2 : 0, result.stderr);
+    assert.deepEqual(result.stdout.trim().split('\n'), [...(checked ? ['refusal-check'] : []),
+      ...(refused ? [] : ['launch-owner scripts/dev-launch-owner.mjs'])]);
   });
 }

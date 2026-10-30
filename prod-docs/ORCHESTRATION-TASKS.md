@@ -62,11 +62,11 @@ Before a wave:
 
 1. Check provider headroom; near 95%, reuse live Workers instead of spawning
    cold duplicates.
-2. Define a disjoint lane map: task, files, branch/worktree, expected output,
+2. Define disjoint declared edit files, placement, expected output,
    focused oracle, and central gates requested.
 3. Run plan doctor.
-4. Default to an authored task and dispatch it through `domios plan task dispatch`; use `domios agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Supply `--tag work:<value>` or let the missing work tag be inferred with a warning. Lanes by default,
-   `--canonical-writer` only by deliberate choice (operations playbook). Add
+4. Default to an authored task and dispatch it through `domios plan task dispatch`; use `domios agent spawn --role Worker --unplanned --reason "<why>"` only for small, urgent, or exploratory work. Supply `--tag work:<value>` or let the missing work tag be inferred with a warning. Shared checkout by default,
+   `--placement lane` for isolation and `--canonical-writer` only for exclusive canonical work. Shared checkout is the default after file declaration; overlap or `build-breaking` automatically selects a lane. Add
    `--kind qa` or `--kind release_manager` to a canonical dispatch when the
    Worker needs that built-in prompt; it does not change `executor_role` or
    replace parent authorization. Direct task-bound spawn cannot reserve canonical.
@@ -163,4 +163,4 @@ A provider access-loss incident sends a `[provider access lost]` system notice t
 
 Archive succeeds without a retrospective and reports the optional `plan.retrospective_unrecorded` advisory; record a durable note at wrap-up with `domios plan retrospective <plan> --body-file <pad-relative-path>`.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

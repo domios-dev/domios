@@ -5,6 +5,8 @@ description: "Choose and run Domios build operations, including dev work, local 
 
 # Domios — Build Guide
 
+Shared Workers use `./build.sh fmt --paths <owned-files>` after declaring edit paths; repository-wide formatting belongs to the integrator. Local mutating dispatch shares canonical by default, selecting a lane for overlap or `build-breaking` work. Stage and commit only owned paths. Shared compile failures identify foreign source paths without changing their nonzero exit. Remaining lanes retain the serialized shared intermediate cache and separate final targets. Sccache's Rust cwd hashing is not normalized by `SCCACHE_BASEDIRS`; do not claim equal worktree keys from that setting. DEV policy remains incremental without sccache.
+
 ## Prerequisites
 
 ### Windows
@@ -142,19 +144,37 @@ Run the resulting image only through `.github/workflows/docker-smoke.yml`.
 
 ## Rebuild cost
 
-Named `dev` and `dev-server` select nonincremental compilation and the portable
-compiler-cache wrapper automatically. Incremental workspace libraries otherwise
-bypass sccache entirely. Cargo retains the machine's configured build directory,
-and final artifacts remain under `src-tauri/target/dev-instances/<name>`.
-Cargo-fresh intermediates can retain metadata from the previous wrapper policy.
-For an approved before/after measurement, invalidate only the affected packages
-in the selected inactive instance through the gateway before seeding both
-checkouts. Do not delete the machine cache or another checkout's intermediates.
-Newly compiled matching Rust libraries can then hit across checkouts through
-the gateway. Instance identity, frontend URL and browser/CDP settings are applied
-at runtime in debug Development launches; source and CLI artifact changes can
-still relink the roots. Use normal named operations; canonical QA
-and lane-check retain their own profile and isolation policies.
+Named `dev` and `dev-server` compile incrementally (owner rule). Every named
+instance of a checkout shares the one warm DEV target `src-tauri/target/named-dev`,
+which rebuilds only what changed. They run with `CARGO_INCREMENTAL=1`, without
+the portable wrapper, and with `RUSTC_WRAPPER=` set empty so the machine-level
+`build.rustc-wrapper = "sccache"` does not apply. sccache rejects an explicit
+`CARGO_INCREMENTAL=1`, and incremental crates are uncacheable anyway. Release,
+CI, `install-local` and `worktree-check` keep `CARGO_INCREMENTAL=0` with sccache.
+Several instances run from the one build (`dev-prebuilt`); `dev`/`dev-server`
+refuse while another DEV from it runs. Never use a new instance name to get a
+fresh target (AGENTS.md). The dev-run skill covers instance identity, the shared
+build record and kill scoping.
+
+Fingerprints when switching an existing target to this policy (verified with
+Cargo 1.99 on a scratch crate): Cargo's unit fingerprint hashes neither
+`RUSTC_WRAPPER` nor wrapper-added rustc flags such as `--remap-path-prefix`.
+Cargo forces `incremental=false` for non-path (registry/git) packages, so
+dropping the wrapper and enabling incremental keeps every registry dependency
+`Fresh`. Moving the target directory also keeps them `Fresh`; Cargo rewrites a
+moved `OUT_DIR` in build-script output. Only path packages (workspace members,
+`workspace-hack`, local path dependencies) recompile, once, to seed their
+incremental state. A build script that declared
+`rerun-if-env-changed=RUSTC_WRAPPER` or `CARGO_INCREMENTAL`, or an absolute
+`rerun-if-changed` into the old target, would rerun after the switch. The warm
+qa8 target had none (`grep` over `debug/build/*/output`); recheck before
+relying on another target.
+
+The one-time adoption renames a warm legacy `src-tauri/target/dev-instances/<name>`
+to `named-dev` (dev-run skill). Instance identity, frontend URL and browser/CDP
+settings are applied at runtime in debug Development launches; source and CLI
+artifact changes can still relink the roots. Canonical QA and lane-check retain
+their own profile and isolation policies.
 
 DEV pins the configured public QA project once across CLI, server and client
 Cargo phases. Shared entitlement code otherwise flips between absent and
@@ -1441,7 +1461,7 @@ entitlement refresh when integrating either external service.
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
 For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). Lane checks honor the same mode by blocking on the shared intermediate file lock; the default refuses a busy lock. CLI and app workspace crates require separate lane-check invocations. The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
 
-<!-- revision: 59 -->
+<!-- revision: 60 -->
 
 ### Lane and batch scopes
 

@@ -5,7 +5,7 @@ Utility shells: `domios tab new --team <team-id> --purpose build|qa|dev`; build/
 - Resolve symbols through code indexes or source search; never guess paths or APIs. Missing skill/path: report and stop; no home/root-wide `find`.
 - Fix small, understood, low-risk defects with regression proof; otherwise report options and a recommendation.
 - Separate source facts, executed results and hypotheses. Prove the end state (stable DOM, delivered thread, persisted result), not an intermediate log. Report unrun checks honestly.
-- Lanes: `git add -A` after reading `git diff`; one commit for the finished task and one per review round, never per step. Shared checkouts: stage owned paths only; unsafe overlap is a `partial` naming the paths.
+- Shared checkout is the default: edit, stage and commit only declared owned paths (`git commit -- <paths>`); request extensions with `domios plan task extend-files --edit-file PATH`. Keep the tree compiling and report foreign compiler failures. Lanes isolate overlap or build-breaking changes; read `git diff` before staging. One commit per finished task and one per review round.
 - Batch bounce: real-merge its integration SHA (never rebase/squash), repair owned code, recheck, commit the fix separately and keep the bounce SHA in the report.
 
 Deliver each result once via `domios agent report`, never also `domios send`. Send your parent short progress or questions when useful; after a report, send only what changed. The report is your final deliverable: your last message is at most one short line, never a second copy or expansion of it unless asked.
@@ -28,3 +28,5 @@ domios agent report --status partial --from-pad report.md
 domios agent report --status blocked --from-pad report.md
 
 A `blocked` report only proposes a block; the owner or Planner decides. The Orchestrator closes tasks; never report `done`. Reread the assignment with `domios task show "$CODETERM_TASK_ID"`; without exported plan/task IDs, pass `--plan`/`--task` for `--status`. Read-only verifiers own no task: run only `## Authorized gates` and report to the parent without `--status`.
+
+<!-- revision: 1 -->

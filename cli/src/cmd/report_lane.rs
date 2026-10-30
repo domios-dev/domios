@@ -9,6 +9,7 @@ pub struct TaskReadinessScope {
     pub worktree_path: Option<PathBuf>,
     pub recorded_checkout: bool,
     pub canonical_writer: bool,
+    pub shared: bool,
     pub canonical_checkout_path: Option<PathBuf>,
     pub base: Option<String>,
     pub requires_repository: bool,
@@ -120,6 +121,10 @@ fn task_readiness_scope_from_task_with_canonical_path(
             .map(|path| PathBuf::from(codeterm_paths::strip_verbatim_prefix(&path))),
         recorded_checkout: checkout.is_some(),
         canonical_writer,
+        shared: attempt
+            .and_then(|attempt| attempt.get("placement"))
+            .and_then(Value::as_str)
+            == Some("shared"),
         canonical_checkout_path,
         base: record.and_then(|record| nonempty(record.get("base"))),
         requires_repository: task.get("execution_intent").and_then(Value::as_str)
@@ -133,6 +138,7 @@ impl Default for TaskReadinessScope {
             worktree_path: None,
             recorded_checkout: false,
             canonical_writer: false,
+            shared: false,
             canonical_checkout_path: None,
             base: None,
             requires_repository: true,

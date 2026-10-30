@@ -6,8 +6,10 @@ import { MeshPanel } from "./MeshPanel";
 import { webUiSnapshot } from "./webUiFixture.testdata";
 import { GeneralInventorySections } from "../Sidebar/GeneralInventory";
 import { daemon, schedule, shell, tabs, teams, workspaces } from "../General/generalOverview.testdata";
-import type { MeshDataResult } from "./useMeshData";
+import type { MeshDataResult, PeerStatus } from "./useMeshData";
 import { ServiceDrawer } from "./ServiceDrawer";
+import { accountCanvas } from "./accountCanvas";
+import type { CanvasAccount } from "./MeshCanvas";
 
 const inventory: MeshDataResult = {
   thisMachine: { name: "Local", ip: "127.0.0.1" },
@@ -23,7 +25,21 @@ const meshListeners = new Set<() => void>();
 
 vi.mock("./useMeshData", () => ({ useMeshData: (refreshKey: number) => { refreshKeys.push(refreshKey); return meshData; } }));
 vi.mock("../Jobs/JobsView", () => ({ JobsView: () => <section aria-label="Jobs" /> }));
-vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (_peers: unknown, _changed: unknown, key: number) => { registryRefreshKeys.push(key); return undefined; } }));
+vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (peers: readonly PeerStatus[], _changed: unknown, key: number): CanvasAccount => {
+  registryRefreshKeys.push(key);
+  return {
+    canvas: accountCanvas({
+      view: { kind: "account", reauthRequired: false, self: null, saved: [], notes: [], machines: peers.map(peer => ({
+        key: peer.instance_id, name: peer.name, status: "linked", detail: "Connected", online: peer.online,
+        target: null, controls: { revoke: null }, pairInstanceId: peer.instance_id, lastSeenAt: null,
+      })) },
+      peers, loadFailed: false, listFailed: false, failures: new Map(),
+    }),
+    now: 0, busy: null, signingIn: false,
+    actions: { onPlans: () => {}, onDismiss: () => {} },
+    onSignIn: () => {}, onRetry: () => {},
+  };
+} }));
 vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
@@ -95,6 +111,32 @@ it("shows the inventory as unavailable instead of an empty graph when the first 
     expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
     expect(host.textContent).toContain("1 peer");
+  } finally {
+    meshData = inventory;
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+it("shows a disabled mesh as off with a turn-on action instead of a retryable failure", async () => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: false } } as AppConfig;
+  const updates: AppConfig[] = [];
+  meshData = {
+    thisMachine: { name: "this", ip: "127.0.0.1" }, services: [], peers: [],
+    loading: false, error: "service unavailable", loaded: false, refresh: () => {},
+  };
+  try {
+    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async (next) => { updates.push(next); }} onClose={() => {}} />));
+    const view = host.querySelector('section[aria-label="Mesh inventory"]');
+    const buttons = Array.from(view!.querySelectorAll("button"));
+    expect(buttons.some((button) => button.textContent?.includes("Retry"))).toBe(false);
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).toBeNull();
+    await act(async () => buttons[0]!.click());
+    expect(updates.map((next) => next.mesh.enabled)).toEqual([true]);
   } finally {
     meshData = inventory;
     await act(async () => root.unmount());
