@@ -454,7 +454,7 @@ it("projects sleeping, restoring and failed snapshots without a wake control", a
 });
 
 it("refreshes only its chat attachment while retaining draft, authority, transcript and detached scroll", async () => {
-  const tab: Tab = {
+  let tab: Tab = {
     id: "header-refresh-own", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
     backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "refresh-session" },
     agent_session_id: "refresh-session", session_binding_nonce: "refresh-binding", boot_stage: "agent_ready",
@@ -550,14 +550,16 @@ it("refreshes only its chat attachment while retaining draft, authority, transcr
     expect(scroll.scrollTop).toBe(200);
     expect(calls.some(call => ["chat_send_text", "chat_send_raw", "send_text", "restart_agent_tab", "agent_runtime_retry"].includes(call.command))).toBe(false);
 
-    tab.agent_runtime_state = { state: "degraded", epoch: 2, reason: "Deadline: opaque" };
+    tab = { ...tab, agent_runtime_state: { state: "degraded", epoch: 2, reason: "Deadline: opaque" } };
+    state.tabs[tab.id] = tab;
     await act(async () => store.notify());
     await render();
     const restoring = ownSurface().querySelector('[role="status"][aria-label="Restoring…"]');
     expect(restoring === null || restoring.closest('[aria-hidden="true"]') !== null).toBe(true);
     expect(ownSurface().querySelector('[aria-label="Agent runtime is taking longer than usual"]')).not.toBeNull();
     expect(ownSurface().querySelector("textarea")).toBe(composer);
-    tab.agent_runtime_state = { state: "degraded", epoch: 3, reason: "ProcessExited: opaque" };
+    tab = { ...tab, agent_runtime_state: { state: "degraded", epoch: 3, reason: "ProcessExited: opaque" } };
+    state.tabs[tab.id] = tab;
     await act(async () => store.notify());
     await render();
     expect(ownSurface().querySelector('[aria-label="Agent runtime unavailable"]')).not.toBeNull();

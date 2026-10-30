@@ -98,7 +98,7 @@ async function main() {
     assert.equal(editor.getAttribute("aria-activedescendant"), activeId);
     await key("Tab");
     assert.equal(editor.value, "@River (tab River) ");
-    assert.equal(editor.selectionStart, editor.value.length);
+    assert.equal(editor.selectionStart, editor.textLength);
     assert.equal(document.activeElement, editor);
     assert.equal(subscriptions, 0);
     assert.equal(editor.getAttribute("aria-expanded"), "false");
@@ -175,7 +175,7 @@ async function main() {
     await act(async () => { mouseOption.dispatchEvent(mouse as unknown as Event); mouseOption.click(); });
     assert.equal(mouse.defaultPrevented, true);
     assert.equal(editor.value, "@Mouse (tab Mouse) ");
-    assert.equal(editor.selectionStart, editor.value.length);
+    assert.equal(editor.selectionStart, editor.textLength);
     assert.equal(document.activeElement, editor);
     await act(async () => change("@"));
     await act(async () => document.querySelector<HTMLElement>('[aria-label="Close mentions"]')!.click());
