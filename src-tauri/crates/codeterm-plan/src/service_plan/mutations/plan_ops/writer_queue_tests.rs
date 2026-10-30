@@ -140,6 +140,6 @@ fn concurrent_team_plan_writes_all_commit_through_one_queue() {
         .collect::<Vec<_>>();
 
     assert_eq!(plans.len(), workers);
-    assert_eq!(store.list_full().len(), workers);
+    assert_eq!(store.all_plans_for_test().len(), workers);
     assert_eq!(store.operation_count_for_test(None), workers);
 }

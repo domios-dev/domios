@@ -65,7 +65,7 @@ fn cases() -> Vec<Case> {
 fn stored_shape(connection: &rusqlite::Connection, plan_id: &str) -> (Option<String>, i64) {
     connection
         .query_row(
-            "SELECT json_type(document_json, '$.tasks'),
+            "SELECT json_type(header_json, '$.tasks'),
                     (SELECT count(*) FROM plan_tasks WHERE plan_id = ?1)
              FROM plans WHERE id = ?1",
             [plan_id],

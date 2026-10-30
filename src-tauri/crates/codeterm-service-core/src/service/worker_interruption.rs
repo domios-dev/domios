@@ -99,9 +99,15 @@ impl super::ServiceContext {
     }
 
     pub fn signal_provider_exhaustion(&self, provider: &str) -> usize {
+        let candidates = crate::service::plan::AttemptMatch {
+            state: crate::service::plan::AttemptState::Unclosed,
+            fields: vec![("$.provider", provider.to_string())],
+            ..Default::default()
+        }
+        .into_match();
         let tabs = self
             .plan_store
-            .list_full()
+            .plans_matching(&candidates)
             .into_iter()
             .flat_map(|plan| plan.tasks)
             .flat_map(|task| {
@@ -130,9 +136,16 @@ impl super::ServiceContext {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
+        let candidates = crate::service::plan::PlanMatch::Task(crate::service::plan::TaskMatch {
+            fields: vec![(
+                "$.status_label",
+                crate::service::plan::interruption::PROVIDER_EXHAUSTED_LABEL.to_string(),
+            )],
+            ..Default::default()
+        });
         let targets = self
             .plan_store
-            .list_full()
+            .plans_matching(&candidates)
             .into_iter()
             .flat_map(|plan| {
                 let plan_id = plan.id.clone();
@@ -262,51 +275,68 @@ impl super::ServiceContext {
         {
             return true;
         }
-        let owned = self.plan_store.list_full().into_iter().find_map(|plan| {
-            let plan_id = plan.id.clone();
-            let repo_path = if plan.canonical_project_path.trim().is_empty() {
-                plan.project_path.clone()
-            } else {
-                plan.canonical_project_path.clone()
-            };
-            plan.tasks.into_iter().find_map(|task| {
-                let owner = &task.interruption;
-                if owner.execution_intent != crate::plan::ExecutionIntent::Mutating
-                    || owner.owner_tab_id.as_deref() != Some(tab_id)
-                    || owner.handoff_required
-                {
-                    return None;
-                }
-                let attempt = task.execution_attempts.iter().find(|attempt| {
-                    attempt.executor_tab_id == tab_id
-                        && attempt.closed_at.is_none()
-                        && attempt_is_active_for_interruption(&task.status, attempt)
-                        && attempt.interruption.owner_epoch == owner.owner_epoch
-                })?;
-                Some(WorkerInterruptionRequest {
-                    plan_id: plan_id.clone(),
-                    task_id: task.id.clone(),
-                    attempt_id: attempt.id.clone(),
-                    tab_id: tab_id.to_string(),
-                    session_id: owner.owner_session_id.clone()?,
-                    owner_epoch: owner.owner_epoch,
-                    repo_path: PathBuf::from(&repo_path),
-                    worktree_path: PathBuf::from(task.lane.worktree_path.as_deref()?),
-                    base_head: task.lane.base.clone().unwrap_or_else(|| "HEAD".into()),
-                    completed_tests: vec![],
-                    unresolved_work: "Worker interrupted before an accepted report".into(),
-                    next_acceptance_gate: task
-                        .test_plan
-                        .clone()
-                        .unwrap_or_else(|| "Review the sealed checkpoint before continuing".into()),
-                    event,
-                    occurred_at: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64,
+        let candidates = crate::service::plan::PlanMatch::Task(crate::service::plan::TaskMatch {
+            fields: vec![
+                ("$.interruption.owner_tab_id", tab_id.to_string()),
+                ("$.interruption.execution_intent", "mutating".into()),
+            ],
+            ..Default::default()
+        })
+        .and(
+            crate::service::plan::AttemptMatch::executor(
+                tab_id,
+                crate::service::plan::AttemptState::Unclosed,
+            )
+            .into_match(),
+        );
+        let owned = self
+            .plan_store
+            .plans_matching(&candidates)
+            .into_iter()
+            .find_map(|plan| {
+                let plan_id = plan.id.clone();
+                let repo_path = if plan.canonical_project_path.trim().is_empty() {
+                    plan.project_path.clone()
+                } else {
+                    plan.canonical_project_path.clone()
+                };
+                plan.tasks.into_iter().find_map(|task| {
+                    let owner = &task.interruption;
+                    if owner.execution_intent != crate::plan::ExecutionIntent::Mutating
+                        || owner.owner_tab_id.as_deref() != Some(tab_id)
+                        || owner.handoff_required
+                    {
+                        return None;
+                    }
+                    let attempt = task.execution_attempts.iter().find(|attempt| {
+                        attempt.executor_tab_id == tab_id
+                            && attempt.closed_at.is_none()
+                            && attempt_is_active_for_interruption(&task.status, attempt)
+                            && attempt.interruption.owner_epoch == owner.owner_epoch
+                    })?;
+                    Some(WorkerInterruptionRequest {
+                        plan_id: plan_id.clone(),
+                        task_id: task.id.clone(),
+                        attempt_id: attempt.id.clone(),
+                        tab_id: tab_id.to_string(),
+                        session_id: owner.owner_session_id.clone()?,
+                        owner_epoch: owner.owner_epoch,
+                        repo_path: PathBuf::from(&repo_path),
+                        worktree_path: PathBuf::from(task.lane.worktree_path.as_deref()?),
+                        base_head: task.lane.base.clone().unwrap_or_else(|| "HEAD".into()),
+                        completed_tests: vec![],
+                        unresolved_work: "Worker interrupted before an accepted report".into(),
+                        next_acceptance_gate: task.test_plan.clone().unwrap_or_else(|| {
+                            "Review the sealed checkpoint before continuing".into()
+                        }),
+                        event,
+                        occurred_at: std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
+                    })
                 })
-            })
-        });
+            });
         let Some(request) = owned else {
             return false;
         };

@@ -298,10 +298,21 @@ fn log_loss_delivery(loss: &WorkerLoss, delivery: &str) {
 impl ServiceContext {
     pub(crate) fn in_progress_assignments_for_tab(&self, tab_id: &str) -> Vec<WorkerLoss> {
         in_progress_losses(
-            &self.plan_store.list_full(),
+            &self.in_progress_plans_for_tab(tab_id),
             tab_id,
             WorkerLossCause::TabGone,
         )
+    }
+
+    fn in_progress_plans_for_tab(&self, tab_id: &str) -> Vec<Plan> {
+        let tab_id = tab_id.trim();
+        if tab_id.is_empty() {
+            return Vec::new();
+        }
+        self.plan_store
+            .plans_matching(&crate::service::plan::PlanMatch::active().and(
+                crate::service::plan::TaskMatch::held_by(tab_id, &[TaskStatus::InProgress]),
+            ))
     }
 
     pub(crate) fn worker_losses_for_tab(
@@ -309,7 +320,7 @@ impl ServiceContext {
         tab_id: &str,
         cause: WorkerLossCause,
     ) -> Vec<WorkerLoss> {
-        let mut losses = in_progress_losses(&self.plan_store.list_full(), tab_id, cause);
+        let mut losses = in_progress_losses(&self.in_progress_plans_for_tab(tab_id), tab_id, cause);
         for loss in &mut losses {
             loss.lane = probe_lane_state(loss.worktree_path.as_deref());
         }

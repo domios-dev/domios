@@ -50,7 +50,8 @@ interprocess = { version = "2", features = ["tokio"] }
 libc = { version = "0.2", features = ["extra_traits"] }
 log = { version = "0.4", default-features = false, features = ["release_max_level_info", "std"] }
 memchr = { version = "2" }
-notify = { version = "8" }
+notify-15128469a54ed75a = { package = "notify", version = "7" }
+notify-181b0d20215bb231 = { package = "notify", version = "8" }
 num-traits = { version = "0.2", features = ["i128", "libm"] }
 once_cell = { version = "1" }
 percent-encoding = { version = "2" }

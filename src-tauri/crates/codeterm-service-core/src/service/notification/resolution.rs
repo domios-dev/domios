@@ -29,8 +29,8 @@ impl ServiceContext {
 
     pub(in crate::service) fn reconcile_notification_questions(&self) {
         let Ok(now) = self.curator_now() else { return };
-        for plan in self.plan_store.list_full() {
-            self.reconcile_curator_id(&plan.id, now);
+        for id in crate::service::curator::curator_bootstrap_ids(&self.plan_store) {
+            self.reconcile_curator_id(&id, now);
         }
     }
 }

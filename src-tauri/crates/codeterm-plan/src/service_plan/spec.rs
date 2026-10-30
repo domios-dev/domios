@@ -1,7 +1,7 @@
 use super::mutations::{
     has_section, push_subsection, rm_section_tree, update_section_fields, update_section_tags,
 };
-use super::{PlanError, PlanStore};
+use super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::{EffortLink, EffortLinkRel, PlanStatus, Section, Spec, SpecLink};
 
 fn gen_id(prefix: &str) -> String {
@@ -158,25 +158,40 @@ impl PlanStore {
     where
         F: FnOnce(&mut Spec) -> Result<T, PlanError>,
     {
+        let turn = self.mutation_writer.enter();
+        self.with_spec_in_writer(&turn, id, now_ms, f)
+    }
+
+    fn with_spec_in_writer<T, F>(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        id: &str,
+        now_ms: u64,
+        f: F,
+    ) -> Result<T, PlanError>
+    where
+        F: FnOnce(&mut Spec) -> Result<T, PlanError>,
+    {
+        turn.assert_store(self);
         let arc = self
             .specs
             .read()
             .get(id)
             .cloned()
             .ok_or(PlanError::NotFound)?;
-        let mut guard = arc.lock();
-        let out = f(&mut guard)?;
-        guard.updated_at = now_ms;
-        if guard.canonical_project_path.trim().is_empty() {
-            guard.canonical_project_path = guard.project_path.clone();
+        let mut staged = arc.lock().clone();
+        let out = f(&mut staged)?;
+        staged.updated_at = now_ms;
+        if staged.canonical_project_path.trim().is_empty() {
+            staged.canonical_project_path = staged.project_path.clone();
         }
-        super::tag_model::normalize_sections_for_spec(&mut guard.sections);
+        super::tag_model::normalize_sections_for_spec(&mut staged.sections);
         let path = self
-            .persist_spec(&guard)
+            .persist_spec_in_writer(turn, &staged)
             .map_err(|e| PlanError::Io(e.to_string()))?;
-        self.note_spec_write(&guard, &path);
-        let entry = Self::spec_index_entry(&guard, path);
-        self.spec_index.write().insert(guard.id.clone(), entry);
+        let entry = Self::spec_index_entry(&staged, path);
+        self.spec_index.write().insert(staged.id.clone(), entry);
+        *arc.lock() = staged;
         Ok(out)
     }
 
@@ -316,17 +331,17 @@ impl PlanStore {
     }
 
     pub fn delete_spec(&self, spec_id: &str, now_ms: u64) -> Result<(), PlanError> {
+        let turn = self.mutation_writer.enter();
         let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
         // Scrub references from every plan that points at this spec.
         let referencing: Vec<String> = self
-            .plans
-            .read()
-            .iter()
-            .filter(|(_, plan)| plan.lock().spec_refs.iter().any(|r| r == spec_id))
-            .map(|(id, _)| id.clone())
+            .plans_matching(&super::PlanMatch::SpecRef(spec_id.to_string()))
+            .into_iter()
+            .filter(|plan| plan.spec_refs.iter().any(|r| r == spec_id))
+            .map(|plan| plan.id)
             .collect();
         for plan_id in referencing {
-            self.with_plan(&plan_id, now_ms, |plan| {
+            self.with_plan_in_writer(&turn, &plan_id, now_ms, |plan| {
                 plan.spec_refs.retain(|r| r != spec_id);
                 plan.spec_links.retain(|l| l.spec_id != spec_id);
                 if plan.primary_spec_id.as_deref() == Some(spec_id) {
@@ -340,6 +355,7 @@ impl PlanStore {
         self.remove_test_spec_sidecars(&spec)?;
         self.specs.write().remove(spec_id);
         self.spec_index.write().remove(spec_id);
+        super::search_index::remove_spec_from_index(&turn, spec);
         Ok(())
     }
 
@@ -366,11 +382,9 @@ impl PlanStore {
     }
 
     pub fn list_spec_links(&self, spec_id: &str) -> Vec<(String, SpecLink)> {
-        self.plans
-            .read()
-            .values()
+        self.plans_matching(&super::PlanMatch::SpecLink(spec_id.to_string()))
+            .into_iter()
             .flat_map(|plan| {
-                let plan = plan.lock();
                 plan.spec_links
                     .iter()
                     .filter(|link| link.spec_id == spec_id)
@@ -717,7 +731,7 @@ mod tests {
                 2,
             )
             .unwrap();
-        assert_eq!(store.list_full().len(), 1);
+        assert_eq!(store.list_index().len(), 1);
 
         let conflict = store.create_plan_from_spec(
             &spec.id,
@@ -728,7 +742,7 @@ mod tests {
         );
         assert!(conflict.is_err(), "second from-spec must be rejected");
         assert_eq!(
-            store.list_full().len(),
+            store.list_index().len(),
             1,
             "spec-conflict must leave zero orphan plans"
         );

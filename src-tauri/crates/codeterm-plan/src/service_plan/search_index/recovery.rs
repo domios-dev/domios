@@ -1,29 +1,14 @@
 use super::*;
 
 impl super::super::PlanStore {
-    pub(crate) fn seed_search_indexes(&self) {
-        let plans = self.list_full();
-        let specs = self.list_specs_full();
-        let roots = plans
-            .iter()
-            .map(|plan| super::super::paths::project_root(plan_project_root(plan)))
-            .chain(
-                specs
-                    .iter()
-                    .map(|spec| super::super::paths::project_root(spec_project_root(spec))),
-            )
-            .collect::<HashSet<_>>();
-        for root in roots {
-            self.enqueue_project_index(&root, &plans, &specs);
-        }
-    }
-
     pub(super) fn enqueue_project_index(
         &self,
+        turn: &super::super::MutationWriterTurn<'_>,
         root: &Path,
         plans: &[Plan],
         specs: &[Spec],
     ) -> PlanReindexResult {
+        turn.assert_store(self);
         let (result, jobs) = project_jobs(root, plans, specs);
         for job in jobs {
             index_queue().enqueue(job);
@@ -32,9 +17,73 @@ impl super::super::PlanStore {
     }
 
     pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let root = super::super::paths::project_root(project);
-        Ok(self.enqueue_project_index(&root, &self.list_full(), &self.list_specs_full()))
+        Ok(self.enqueue_project_index(
+            &writer_turn,
+            &root,
+            &self.project_plans(&root),
+            &self.list_specs_full(),
+        ))
+    }
+
+    /// Plans whose project scope is this root's, chosen from the stored roots and loaded through the cache.
+    pub(super) fn project_plans(&self, root: &Path) -> Vec<Plan> {
+        let ids = self.project_plan_ids(&project_scope(root));
+        self.plans_matching(&super::super::PlanMatch::Ids(ids))
+    }
+
+    fn project_plan_ids(&self, scope: &str) -> Vec<String> {
+        let mut scopes = std::collections::HashMap::<String, String>::new();
+        self.plan_roots()
+            .into_iter()
+            .filter(|(_, root)| {
+                scopes
+                    .entry(root.clone())
+                    .or_insert_with(|| project_scope(Path::new(root)))
+                    == scope
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// Builds the search index of every project that has none yet, one project at a
+    /// time from SQL without filling the plan cache. Startup runs it off the open path.
+    pub fn seed_missing_search_indexes(&self) {
+        self.seed_missing_search_indexes_observed(|_| {});
+    }
+
+    fn seed_missing_search_indexes_observed(&self, snapshot_ready: impl Fn(&Path)) {
+        let roots = self
+            .plan_roots()
+            .into_iter()
+            .map(|(_, root)| super::super::paths::project_root(Path::new(&root)))
+            .chain(
+                self.list_specs_full()
+                    .iter()
+                    .map(|spec| super::super::paths::project_root(spec_project_root(spec))),
+            )
+            .collect::<std::collections::BTreeSet<_>>();
+        for root in roots {
+            let writer_turn = self.mutation_writer.enter();
+            if project_index_path(&root).exists() {
+                continue;
+            }
+            let ids = self.project_plan_ids(&project_scope(&root));
+            let plans: Vec<Plan> = ids
+                .iter()
+                .filter_map(|id| match self.load_plan_from_sql(id) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        log::warn!("[plan.search] {error}; left out of the seeded index");
+                        None
+                    }
+                })
+                .collect();
+            let specs = self.list_specs_full();
+            snapshot_ready(&root);
+            self.enqueue_project_index(&writer_turn, &root, &plans, &specs);
+        }
     }
 }
 
@@ -163,5 +212,7 @@ fn purge_entities(db: &Path, entities: &HashSet<&str>) -> Result<(), String> {
     tx.commit().map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
+mod seed_tests;
 #[cfg(test)]
 mod tests;

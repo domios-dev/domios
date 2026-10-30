@@ -25,7 +25,7 @@ fn chat_snapshot_is_bounded_scoped_and_omits_task_bodies() {
         )
         .unwrap();
     let task = store.get(&plan.id).unwrap().tasks.remove(0);
-    store.plans.read()[&plan.id].lock().tasks = (0..55)
+    store.plan_arc_for_test(&plan.id).lock().tasks = (0..55)
         .map(|index| {
             let mut task = task.clone();
             task.id = format!("task_{index}");

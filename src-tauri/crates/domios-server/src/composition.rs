@@ -523,6 +523,10 @@ pub(crate) fn compose_observed(
     codeterm_service_core::async_runtime::spawn_blocking(move || {
         lane_watch_service.restore_lane_watches();
     });
+    let search_seed_store = std::sync::Arc::clone(&service_state.plan_store);
+    codeterm_service_core::async_runtime::spawn_blocking(move || {
+        search_seed_store.seed_missing_search_indexes();
+    });
     codeterm_service_core::delayed_send::start_scheduler(service_state.clone());
     codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());
     drop(startup_step);

@@ -32,7 +32,7 @@ impl PlanStore {
         canonical: &str,
         now_ms: u64,
     ) -> Result<PlanProjectUpdate, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let mut plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let update = project_path_update(
             &plan.id,
@@ -45,7 +45,7 @@ impl PlanStore {
             plan.project_path = update.project_path.clone();
             plan.canonical_project_path = update.canonical_project_path.clone();
             let now_ms = now_ms.max(plan.updated_at);
-            self.save_in_writer(&mut plan, now_ms)
+            self.save_in_writer(&writer_turn, &mut plan, now_ms)
                 .map_err(|error| PlanError::Io(error.to_string()))?;
         }
         Ok(update)

@@ -110,11 +110,14 @@ pub fn render_worker_charter(
     out
 }
 
+const PENDING_REPORT_STATUSES: [TaskStatus; 3] = [
+    TaskStatus::Pending,
+    TaskStatus::InProgress,
+    TaskStatus::Blocked,
+];
+
 fn report_is_pending(status: &TaskStatus) -> bool {
-    matches!(
-        status,
-        TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
-    )
+    PENDING_REPORT_STATUSES.contains(status)
 }
 
 impl PlanStore {
@@ -124,7 +127,22 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        let mut plans = self.list_full();
+        let candidates = super::PlanMatch::active()
+            .and(super::PlanMatch::Mode(PlanMode::Execution))
+            .and(super::PlanMatch::Any(vec![
+                super::TaskMatch::assigned(tab_id, &PENDING_REPORT_STATUSES),
+                super::PlanMatch::Task(super::TaskMatch {
+                    statuses: Some(PENDING_REPORT_STATUSES.to_vec()),
+                    lane_tabs: Some(vec![tab_id.to_string()]),
+                    ..Default::default()
+                }),
+                super::AttemptMatch {
+                    task_statuses: Some(PENDING_REPORT_STATUSES.to_vec()),
+                    ..super::AttemptMatch::executor(tab_id, super::AttemptState::Unclosed)
+                }
+                .into_match(),
+            ]));
+        let mut plans = self.plans_matching(&candidates);
         plans.sort_by_key(|plan| std::cmp::Reverse(plan.updated_at));
         for plan in plans {
             if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {

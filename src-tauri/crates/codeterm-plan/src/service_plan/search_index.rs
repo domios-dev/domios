@@ -8,6 +8,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::ports::{PlanIndexHit, PlanIndexQuery, PlanSearchPort};
+use super::MutationWriterTurn;
 use crate::plan::{Milestone, Plan, PlanStatus, Section, Spec, Task};
 
 pub use super::search_related::{RelatedGroup, RelatedUnit};
@@ -97,6 +98,7 @@ enum IndexJob {
     DeletePlan(Plan),
     PurgePlan(Plan, Vec<Spec>),
     Spec(Spec),
+    DeleteSpec(Spec),
 }
 
 impl IndexJob {
@@ -107,7 +109,7 @@ impl IndexJob {
             Self::Plan(plan, _) | Self::DeletePlan(plan) => {
                 format!("{}:plan:{}", self.project_key(), plan.id)
             }
-            Self::Spec(spec) => {
+            Self::Spec(spec) | Self::DeleteSpec(spec) => {
                 format!("{}:spec:{}", self.project_key(), spec.id)
             }
             Self::PurgePlan(plan, _) => format!("{}:purge:{}", self.project_key(), plan.id),
@@ -120,7 +122,7 @@ impl IndexJob {
             Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
                 project_scope(plan_project_root(plan))
             }
-            Self::Spec(spec) => project_scope(spec_project_root(spec)),
+            Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
         }
     }
 
@@ -164,12 +166,14 @@ impl IndexQueue {
         let key = job.key();
         let mut state = self.state.lock();
         let job = match state.latest.remove(&key) {
-            Some(queued) => job.absorb(queued),
-            None => {
-                state.order.push_back(key.clone());
-                job
+            Some(queued) => {
+                // Replaced payloads follow earlier prunes, which cannot know their newly created units.
+                state.order.retain(|queued| queued != &key);
+                job.absorb(queued)
             }
+            None => job,
         };
+        state.order.push_back(key.clone());
         let job = if state.needs_full.contains(&key) {
             job.full()
         } else {
@@ -255,9 +259,14 @@ fn index_queue() -> Arc<IndexQueue> {
 }
 
 #[cfg(test)]
+thread_local! {
+    static TEST_INDEX_QUEUE: std::cell::RefCell<Arc<IndexQueue>> =
+        std::cell::RefCell::new(Arc::new(IndexQueue::default()));
+}
+
+#[cfg(test)]
 fn index_queue() -> Arc<IndexQueue> {
-    thread_local! { static QUEUE: Arc<IndexQueue> = Arc::new(IndexQueue::default()); }
-    QUEUE.with(Arc::clone)
+    TEST_INDEX_QUEUE.with(|queue| queue.borrow().clone())
 }
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
@@ -273,24 +282,39 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
         IndexJob::Spec(spec) => {
             embedding::queue_changed(spec_project_root(spec), mirror_spec(spec, false))
         }
+        IndexJob::DeleteSpec(spec) => {
+            delete_units(spec_project_root(spec), &format!("planunit_{}_%", spec.id))
+        }
     }
 }
 
-pub(super) fn enqueue_plan_index(plan: Plan, scope: PlanIndexScope) {
+pub(super) fn enqueue_plan_index(
+    _turn: &MutationWriterTurn<'_>,
+    plan: Plan,
+    scope: PlanIndexScope,
+) {
     index_queue().enqueue(IndexJob::Plan(plan, scope));
 }
 
-pub(super) fn enqueue_spec_index(spec: Spec) {
+pub(super) fn enqueue_spec_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
     index_queue().enqueue(IndexJob::Spec(spec));
 }
 
-pub(super) fn remove_plan_from_index(plan: Plan, specs: &[Spec]) -> Result<(), String> {
+pub(super) fn remove_plan_from_index(
+    _turn: &MutationWriterTurn<'_>,
+    plan: Plan,
+    specs: &[Spec],
+) -> Result<(), String> {
     index_queue().enqueue(IndexJob::PurgePlan(plan, specs.to_vec()));
     Ok(())
 }
 
-pub(super) fn enqueue_plan_removal(plan: Plan) {
+pub(super) fn enqueue_plan_removal(_turn: &MutationWriterTurn<'_>, plan: Plan) {
     index_queue().enqueue(IndexJob::DeletePlan(plan));
+}
+
+pub(super) fn remove_spec_from_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
+    index_queue().enqueue(IndexJob::DeleteSpec(spec));
 }
 
 #[cfg(test)]
@@ -306,16 +330,22 @@ pub(crate) fn flush_index_queue_for_test(_project_root: &Path) {
 
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
-        let _writer_turn = self.mutation_writer.enter();
-        let mut plans = self.list_full();
+        let writer_turn = self.mutation_writer.enter();
+        let mut plans = self.project_plans(plan_project_root(plan));
         plans.retain(|stored| stored.id != plan.id);
         plans.push(plan.clone());
-        self.enqueue_project_index(plan_project_root(plan), &plans, &self.list_specs_full());
+        self.enqueue_project_index(
+            &writer_turn,
+            plan_project_root(plan),
+            &plans,
+            &self.list_specs_full(),
+        );
         Ok(())
     }
 
     pub fn mirror_spec_index(&self, spec: &Spec) -> Result<(), String> {
-        enqueue_spec_index(spec.clone());
+        let turn = self.mutation_writer.enter();
+        enqueue_spec_index(&turn, spec.clone());
         Ok(())
     }
 
@@ -336,8 +366,24 @@ impl super::PlanStore {
         search_project(project, q, status)
     }
 
+    /// Loads the plan holding `id`, then only the plans its lineage names.
     pub fn related_units(&self, id: &str) -> Vec<RelatedGroup> {
-        super::search_related::related_units(&self.list_full(), &self.list_specs_full(), id)
+        let holder = super::PlanMatch::Any(vec![
+            super::PlanMatch::Ids(vec![id.to_string()]),
+            super::PlanMatch::SectionId(id.to_string()),
+            super::PlanMatch::Task(super::TaskMatch {
+                fields: vec![("$.id", id.to_string())],
+                ..Default::default()
+            }),
+        ]);
+        let mut plans = self.plans_matching(&holder);
+        let lineage: Vec<String> = plans
+            .iter()
+            .flat_map(|plan| plan.lineage.iter().map(|link| link.to.clone()))
+            .filter(|target| plans.iter().all(|plan| plan.id != *target))
+            .collect();
+        plans.extend(self.plans_matching(&super::PlanMatch::Ids(lineage)));
+        super::search_related::related_units(&plans, &self.list_specs_full(), id)
     }
 
     pub fn list_specs_full(&self) -> Vec<Spec> {
@@ -405,7 +451,7 @@ fn mirror_spec(spec: &Spec, sync_embed: bool) -> Result<Vec<Unit>, String> {
     replace_units(root, &format!("planunit_{}_%", spec.id), units, sync_embed)
 }
 
-pub fn delete_plan_units(plan: &Plan) -> Result<(), String> {
+fn delete_plan_units(plan: &Plan) -> Result<(), String> {
     delete_units(plan_project_root(plan), &format!("planunit_{}_%", plan.id))
 }
 

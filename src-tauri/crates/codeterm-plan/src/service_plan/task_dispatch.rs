@@ -524,7 +524,7 @@ impl PlanStore {
             } else {
                 None
             };
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         if let Some(inspected) = shared_binding.as_ref() {
             let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
             let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
@@ -546,7 +546,7 @@ impl PlanStore {
             )
             .map_err(PlanError::InvalidPlanText)?;
         }
-        let write = self.with_plan_in_writer(plan_id, now_ms, |plan| {
+        let write = self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let dispatch_status = task_startup_status(&plan.tasks[task_index].status)?;

@@ -10,7 +10,7 @@ impl PlanStore {
         now: u64,
     ) -> Result<(), PlanError> {
         let files = files.validated().map_err(PlanError::InvalidPlanText)?;
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
@@ -34,7 +34,7 @@ impl PlanStore {
             )
             .map_err(PlanError::InvalidPlanText)?;
         }
-        self.with_plan_in_writer(plan_id, now, |plan| {
+        self.with_plan_in_writer(&writer_turn, plan_id, now, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             task.files = files;

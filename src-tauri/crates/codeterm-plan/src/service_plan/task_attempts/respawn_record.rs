@@ -11,7 +11,7 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         if draft.source_attempt.placement == crate::plan::WorkerPlacement::Shared {
             let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
             let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
@@ -24,7 +24,7 @@ impl PlanStore {
             )
             .map_err(PlanError::InvalidPlanText)?;
         }
-        self.with_plan_in_writer(plan_id, now_ms, |plan| {
+        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             super::super::task_dispatch::task_respawn_status(&plan.tasks[task_index].status)?;

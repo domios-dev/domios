@@ -22,6 +22,8 @@ pub mod interruption;
 pub mod lane_cleanup;
 mod lane_metadata;
 pub mod lifecycle;
+#[cfg(any(test, feature = "test-support"))]
+pub mod load_audit;
 pub mod locate;
 pub mod loop_mutations;
 pub mod milestone_gates;
@@ -31,6 +33,8 @@ pub mod paths;
 pub mod pause;
 pub mod pause_operation;
 pub mod peer_mandate;
+mod plan_cache;
+pub mod plan_match;
 pub mod plan_skills;
 pub mod planner_replay;
 pub mod planner_requests;
@@ -59,6 +63,7 @@ pub mod spec;
 pub mod spec_render;
 pub mod spec_store;
 pub mod state;
+mod store_convert_118;
 mod store_db;
 mod store_index;
 mod store_persist;
@@ -66,7 +71,6 @@ mod store_queries;
 mod store_rows;
 mod store_sync;
 pub mod store_v2;
-mod store_watch;
 pub mod stride_context;
 pub mod stride_log;
 pub mod tag_model;
@@ -83,7 +87,6 @@ mod task_speed;
 mod text_bounds;
 mod types;
 pub mod usage_digest;
-pub mod watcher;
 pub mod worker_charter;
 pub mod worker_identity;
 
@@ -96,6 +99,10 @@ mod attachment_tests;
 mod body_file_tests;
 #[cfg(test)]
 mod canonical_path_tests;
+#[cfg(test)]
+mod consumer_load_tab_tests;
+#[cfg(test)]
+mod consumer_load_tests;
 #[cfg(test)]
 mod core_tests;
 #[cfg(test)]
@@ -126,23 +133,21 @@ pub mod test_support;
 mod tests;
 #[cfg(test)]
 mod timestamp_tests;
-#[cfg(test)]
-mod watch_reconcile_tests;
 
 use crate::plan::{Plan, PlanLifecycleEvent, PlanMode, PlanStatus, Spec, TaskStatus};
 use parking_lot::{Condvar, Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
 
+pub use plan_match::{AttemptMatch, AttemptState, PlanMatch, TaskMatch};
 pub use relink::relink_to_owner;
 pub use state::{
     build_plan_state_snapshot, planning_approval_blockers, HeartbeatSnapshot, LiveAgent,
     LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
     TaskPresentation,
 };
-pub use store_watch::WatchOutcome;
+pub use store_db::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
     DispatchStartupOwner, LiveTabAttempt, TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS,
@@ -157,11 +162,11 @@ pub use types::{
 
 pub struct PlanStore {
     product_observer: RwLock<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
-    plans: RwLock<HashMap<String, Arc<Mutex<Plan>>>>,
+    plan_cache: plan_cache::PlanCache,
     specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
-    index: RwLock<HashMap<String, IndexEntry>>,
+    /// Id, status, team, project, title and update time of every plan row, read from SQL columns.
+    index: RwLock<HashMap<String, store_db::PlanIndexRow>>,
     spec_index: RwLock<HashMap<String, SpecIndexEntry>>,
-    last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
     task_key_port: RwLock<Option<Arc<dyn ports::TaskKeyPort>>>,
     reseed_prepare_lock: Mutex<()>,
@@ -173,9 +178,9 @@ pub struct PlanStore {
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
     #[cfg(any(test, feature = "test-support"))]
-    full_plan_clones: std::sync::atomic::AtomicUsize,
-    #[cfg(any(test, feature = "test-support"))]
     plan_touches: Mutex<Vec<String>>,
+    #[cfg(any(test, feature = "test-support"))]
+    plan_loads: Mutex<Vec<String>>,
     #[cfg(test)]
     shared_git_observer: RwLock<Option<Arc<dyn Fn(&str, &[&str]) + Send + Sync>>>,
 }
@@ -211,6 +216,12 @@ struct MutationWriterTurn<'a> {
     writer: &'a MutationWriter,
 }
 
+impl MutationWriterTurn<'_> {
+    fn assert_store(&self, store: &PlanStore) {
+        assert!(std::ptr::eq(self.writer, &store.mutation_writer));
+    }
+}
+
 impl Drop for MutationWriterTurn<'_> {
     fn drop(&mut self) {
         let mut state = self.writer.state.lock();
@@ -233,16 +244,22 @@ impl PlanStore {
         Self::open(path).expect("open test PlanStore database")
     }
 
+    /// Reads the plan index from SQL columns and the specs; no plan row is parsed.
     pub fn open(database_path: PathBuf) -> Result<Self, PlanError> {
         let database = Arc::new(store_db::PlanDatabase::open(database_path)?);
-        let (plans, specs) = database.load_snapshots()?;
+        let index_rows = database.load_index_rows()?;
+        let specs = database.load_specs()?;
         let store = Self {
             product_observer: RwLock::new(None),
-            plans: RwLock::new(HashMap::new()),
+            plan_cache: plan_cache::PlanCache::new(plan_cache::PLAN_CACHE_CAPACITY),
             specs: RwLock::new(HashMap::new()),
-            index: RwLock::new(HashMap::new()),
+            index: RwLock::new(
+                index_rows
+                    .into_iter()
+                    .map(|row| (row.id.clone(), row))
+                    .collect(),
+            ),
             spec_index: RwLock::new(HashMap::new()),
-            last_writes: RwLock::new(HashMap::new()),
             turn_counter: RwLock::new(None),
             task_key_port: RwLock::new(None),
             reseed_prepare_lock: Mutex::new(()),
@@ -253,21 +270,12 @@ impl PlanStore {
             #[cfg(test)]
             persistence_hook: RwLock::new(None),
             #[cfg(any(test, feature = "test-support"))]
-            full_plan_clones: std::sync::atomic::AtomicUsize::new(0),
-            #[cfg(any(test, feature = "test-support"))]
             plan_touches: Mutex::new(Vec::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            plan_loads: Mutex::new(Vec::new()),
             #[cfg(test)]
             shared_git_observer: RwLock::new(None),
         };
-        for plan in plans {
-            let id = plan.id.clone();
-            let entry = Self::index_entry(&plan, store.database.path());
-            store
-                .plans
-                .write()
-                .insert(id.clone(), Arc::new(Mutex::new(plan)));
-            store.index.write().insert(id, entry);
-        }
         for spec in specs {
             let id = spec.id.clone();
             let entry = Self::spec_index_entry(&spec, store.database.path());
@@ -277,7 +285,6 @@ impl PlanStore {
                 .insert(id.clone(), Arc::new(Mutex::new(spec)));
             store.spec_index.write().insert(id, entry);
         }
-        store.seed_search_indexes();
         Ok(store)
     }
 

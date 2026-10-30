@@ -713,3 +713,79 @@ fn cleanup_status_done_clears_removed_worktree_with_merged_branch_kept() {
     assert!(task.lane.branch.is_none());
     assert_eq!(task.lane.cleanup_status.as_deref(), Some("done"));
 }
+
+mod consumer_loads {
+    use super::*;
+    use codeterm_plan::plan::TaskStatus;
+    use codeterm_plan::service_plan::load_audit::{
+        assert_never_loaded, attempt, execution_plan, seed, start, task,
+    };
+
+    /// One plan whose task records the removed lane and one recording another lane.
+    fn seeded(dir: &Path, removed: &str) -> (PlanStore, String, String) {
+        let store = PlanStore::new_for_test(dir);
+        let mut holder = task("task_h", TaskStatus::Done, None);
+        holder.lane.worktree_path = Some(removed.into());
+        let holder = seed(&store, execution_plan(dir, "holder", "owner", vec![holder]));
+        let mut other = task("task_o", TaskStatus::InProgress, Some("worker"));
+        other.lane.worktree_path = Some(format!("{removed}-sibling"));
+        let mut other_attempt = attempt("att_o", "worker");
+        other_attempt.worktree_path = Some(format!("{removed}-sibling"));
+        other.execution_attempts.push(other_attempt);
+        let other = seed(&store, execution_plan(dir, "other", "owner", vec![other]));
+        start(&store);
+        (store, holder, other)
+    }
+
+    fn outcome(dir: &Path, removed: &str) -> LaneRemovalOutcome {
+        LaneRemovalOutcome {
+            canonical_cwd: dir.display().to_string(),
+            worktree_path: removed.into(),
+            branch: None,
+            worktree_already_removed: true,
+            branch_already_removed: true,
+        }
+    }
+
+    #[test]
+    fn project_for_recorded_lane_never_loads_unmatched_plans() {
+        let dir = tempfile::tempdir().unwrap();
+        let removed = dir.path().join("lane").display().to_string();
+        let (store, holder, other) = seeded(dir.path(), &removed);
+
+        assert_eq!(
+            project_for_recorded_lane(&store, &removed),
+            Some(dir.path().display().to_string())
+        );
+        assert_eq!(store.plan_loads_for_test(), vec![holder]);
+        assert_never_loaded(&store, &[&other]);
+    }
+
+    #[test]
+    fn clear_removed_task_lane_references_never_loads_unmatched_plans() {
+        let dir = tempfile::tempdir().unwrap();
+        let removed = dir.path().join("lane").display().to_string();
+        let (store, holder, other) = seeded(dir.path(), &removed);
+
+        clear_removed_task_lane_references(&store, &outcome(dir.path(), &removed)).unwrap();
+        assert!(store.get(&holder).unwrap().tasks[0]
+            .lane
+            .worktree_path
+            .is_none());
+        assert_never_loaded(&store, &[&other]);
+    }
+
+    #[test]
+    fn finalize_lane_removal_never_loads_unmatched_plans() {
+        let dir = tempfile::tempdir().unwrap();
+        let removed = dir.path().join("lane").display().to_string();
+        let (store, holder, other) = seeded(dir.path(), &removed);
+
+        finalize_lane_removal(&store, &repo_watch(), &outcome(dir.path(), &removed)).unwrap();
+        assert!(store.get(&holder).unwrap().tasks[0]
+            .lane
+            .worktree_path
+            .is_none());
+        assert_never_loaded(&store, &[&other]);
+    }
+}

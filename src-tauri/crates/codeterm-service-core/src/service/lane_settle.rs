@@ -447,7 +447,14 @@ impl ServiceContext {
 
     /// A closed tab may have been the only thing keeping a finished lane in place.
     pub fn settle_lanes_held_by_closed_tab(&self, tab_id: &str) {
-        for plan in self.plan_store.list_full() {
+        let candidates = crate::service::plan::TaskMatch::held_by(
+            tab_id,
+            &[
+                crate::plan::TaskStatus::Done,
+                crate::plan::TaskStatus::Cancelled,
+            ],
+        );
+        for plan in self.plan_store.plans_matching(&candidates) {
             for task_id in held_by_tab(&plan, tab_id) {
                 self.enqueue_settlement(&plan, &task_id, SettleTrigger::HolderClosed);
             }

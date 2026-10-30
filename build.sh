@@ -478,7 +478,12 @@ run_nextest_scope() {
     usage|codeterm-usage) package="codeterm-usage"; targets+=(--lib) ;;
     account|codeterm-account) package="codeterm-account"; targets+=(--lib) ;;
     repowatch|codeterm-repowatch) package="codeterm-repowatch"; targets+=(--lib) ;;
-    plan|codeterm-plan) package="codeterm-plan"; targets+=(--lib) ;;
+    plan|codeterm-plan)
+      package="codeterm-plan"; targets+=(--lib)
+      if [ -n "${DOMIOS_PLAN_SNAPSHOT:-}" ]; then
+        run_ignored_args=(--run-ignored all)
+      fi
+      ;;
     pty|codeterm-pty) package="codeterm-pty" ;;
     util|codeterm-util) package="codeterm-util"; targets+=(--lib) ;;
     browser|codeterm-browser) package="codeterm-browser"; targets+=(--lib) ;;

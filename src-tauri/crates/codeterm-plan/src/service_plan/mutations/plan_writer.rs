@@ -1,4 +1,4 @@
-use super::super::{PlanError, PlanStore};
+use super::super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::Plan;
 
 impl PlanStore {
@@ -6,14 +6,15 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         Ok(self
-            .with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
+            .with_plan_if_changed_in_writer(&writer_turn, id, now_ms, |plan| f(plan).map(Some))?
             .expect("unconditional plan mutation returns a value"))
     }
 
     pub(in crate::service_plan) fn with_plan_in_writer<T, F>(
         &self,
+        turn: &MutationWriterTurn<'_>,
         id: &str,
         now_ms: u64,
         f: F,
@@ -22,7 +23,7 @@ impl PlanStore {
         F: FnOnce(&mut Plan) -> Result<T, PlanError>,
     {
         Ok(self
-            .with_plan_if_changed_in_writer(id, now_ms, |plan| f(plan).map(Some))?
+            .with_plan_if_changed_in_writer(turn, id, now_ms, |plan| f(plan).map(Some))?
             .expect("unconditional plan mutation returns a value"))
     }
 
@@ -35,12 +36,13 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<Option<T>, PlanError>,
     {
-        let _writer_turn = self.mutation_writer.enter();
-        self.with_plan_if_changed_in_writer(id, now_ms, f)
+        let writer_turn = self.mutation_writer.enter();
+        self.with_plan_if_changed_in_writer(&writer_turn, id, now_ms, f)
     }
 
     fn with_plan_if_changed_in_writer<T, F>(
         &self,
+        turn: &MutationWriterTurn<'_>,
         id: &str,
         now_ms: u64,
         f: F,
@@ -48,7 +50,9 @@ impl PlanStore {
     where
         F: FnOnce(&mut Plan) -> Result<Option<T>, PlanError>,
     {
-        let arc = self.plan_entry(id).ok_or(PlanError::NotFound)?;
+        turn.assert_store(self);
+        // Load (cache or SQL) before the plan lock; the held handle pins it in the cache for the whole turn.
+        let arc = self.plan_arc(id)?;
         let mut staged = arc.lock().clone();
         let previous = staged.clone();
         let Some(out) = f(&mut staged)? else {
@@ -72,18 +76,19 @@ impl PlanStore {
         super::super::store_index::record_lifecycle_events(&mut staged, Some(&previous), now_ms);
         super::super::tag_model::normalize_plan(&mut staged);
         crate::service_plan::text_bounds::validate_plan(&staged)?;
-        let path = self
-            .persist_plan_and_spec(&staged)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
+        if let Err(error) = self.persist_plan_and_spec_in_writer(turn, &staged) {
+            // Memory must never differ from disk: the next read reloads the stored row.
+            self.plan_cache.evict(id);
+            return Err(PlanError::Io(error.to_string()));
+        }
         let committed = {
             let mut guard = arc.lock();
             *guard = staged;
             guard.clone()
         };
-        self.note_plan_write(&committed, &path);
+        self.plan_cache.commit(id, &arc);
         self.record_committed_snapshot(&committed);
-        let entry = Self::index_entry(&committed, path);
-        self.index.write().insert(committed.id.clone(), entry);
+        self.note_index(&committed);
         self.reset_bound_tabs(&committed);
         Ok(Some(out))
     }

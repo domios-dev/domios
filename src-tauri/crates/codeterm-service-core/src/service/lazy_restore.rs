@@ -38,7 +38,10 @@ pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
 }
 
 pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
-    let continuing = policy::continuing_tabs(&svc.plan_store.list_full());
+    let continuing = policy::continuing_tabs(
+        &svc.plan_store
+            .plans_matching(&policy::continuing_candidates()),
+    );
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

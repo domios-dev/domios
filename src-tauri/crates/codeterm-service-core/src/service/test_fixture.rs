@@ -615,9 +615,6 @@ impl ServiceFixture {
         extensions.insert(crate::usage::poller::UsagePollerSlot(Arc::new(Mutex::new(
             None,
         ))));
-        extensions.insert(crate::service::PlanWatchers(Arc::new(Mutex::new(
-            HashMap::new(),
-        ))));
         extensions.insert(crate::service::LoadedPlanProjects(Arc::new(Mutex::new(
             HashSet::new(),
         ))));

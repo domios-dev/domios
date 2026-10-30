@@ -14,6 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod approval;
 #[cfg(test)]
 mod approval_tests;
+#[cfg(test)]
+mod consumer_load_tests;
 mod projection;
 
 pub(crate) use projection::{project_for_tab, ProjectedHeartbeat, ProjectedTick};
@@ -492,7 +494,7 @@ impl ReminderHost for LiveHost<'_> {
     fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> R {
         match self.plans {
             Some(plans) => read(plans),
-            None => read(&self.svc.plan_store.list_full_reminder_candidates()),
+            None => read(&self.svc.plan_store.reminder_candidate_plans()),
         }
     }
 
@@ -638,7 +640,7 @@ impl ServiceContext {
             self.plan_turn_counter.clear_time_reminders();
             return;
         }
-        let plans = self.plan_store.list_full_reminder_candidates();
+        let plans = self.plan_store.reminder_candidate_plans();
         let host = LiveHost {
             svc: self,
             interval: cfg.nudge_interval_secs,
@@ -665,7 +667,7 @@ impl ServiceContext {
     /// ineligible (paused, complete, parked/closed with no open work, or
     /// archived). Active execution owners keep their original deadline.
     pub fn reconcile_time_reminder_eligibility(&self) {
-        let plans = self.plan_store.list_full_reminder_candidates();
+        let plans = self.plan_store.reminder_candidate_plans();
         let counter = &self.plan_turn_counter;
         counter.retain_time_reminders(&deadline_tabs(&plans, counter));
     }

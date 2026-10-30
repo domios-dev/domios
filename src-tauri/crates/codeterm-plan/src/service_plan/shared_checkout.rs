@@ -1,4 +1,4 @@
-use super::{PlanError, PlanStore};
+use super::{AttemptMatch, AttemptState, PlanError, PlanMatch, PlanStore};
 use crate::plan::{Plan, Task, TaskFiles, WorkerPlacement};
 mod inspection;
 mod report;
@@ -11,6 +11,10 @@ fn canonical(plan: &Plan) -> String {
     } else {
         &plan.canonical_project_path
     };
+    canonical_path(path)
+}
+
+fn canonical_path(path: &str) -> String {
     let resolved = std::fs::canonicalize(path).ok();
     codeterm_paths::normalize_cwd(
         resolved
@@ -183,8 +187,25 @@ pub fn choose_placement(
 }
 
 impl PlanStore {
-    pub fn checkout_peer_plans(&self, _plan: &Plan) -> Vec<Plan> {
-        self.list_full()
+    pub fn checkout_peer_plans(&self, plan: &Plan) -> Vec<Plan> {
+        let checkout = canonical(plan);
+        let ids = self
+            .plan_roots()
+            .into_iter()
+            .filter(|(_, root)| canonical_path(root) == checkout)
+            .map(|(id, _)| id)
+            .collect();
+        let placements = ["shared", "canonical_writer"]
+            .into_iter()
+            .map(|placement| {
+                PlanMatch::Attempt(AttemptMatch {
+                    state: AttemptState::Open,
+                    fields: vec![("$.placement", placement.to_string())],
+                    ..Default::default()
+                })
+            })
+            .collect();
+        self.plans_matching(&PlanMatch::Ids(ids).and(PlanMatch::Any(placements)))
     }
     pub fn extend_task_edit_files(
         &self,
@@ -193,7 +214,7 @@ impl PlanStore {
         paths: Vec<String>,
         now: u64,
     ) -> Result<(), PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let task = plan
             .tasks
@@ -210,7 +231,7 @@ impl PlanStore {
         let files = files.validated().map_err(PlanError::InvalidPlanText)?;
         validate_shared_files(&self.checkout_peer_plans(&plan), &plan, task, &files)
             .map_err(PlanError::InvalidPlanText)?;
-        self.with_plan_in_writer(plan_id, now, |plan| {
+        self.with_plan_in_writer(&writer_turn, plan_id, now, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             task.files = files;

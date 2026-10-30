@@ -413,13 +413,13 @@ fn plan_pause_resume_paused_plan_suppresses_reminders_heartbeat_and_notices_only
             .map(|target| target.tab_id)
             .collect()
     };
-    let before = tabs(&w.store.list_full());
+    let before = tabs(&w.store.all_plans_for_test());
     assert!(before.contains(&w.orchestrator));
     assert!(before.contains(&w.worker));
 
     pause(&w);
 
-    let after = tabs(&w.store.list_full());
+    let after = tabs(&w.store.all_plans_for_test());
     assert!(!after.contains(&w.orchestrator));
     assert!(!after.contains(&w.worker));
     assert!(after.contains(&w.foreign));

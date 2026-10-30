@@ -232,7 +232,7 @@ fn an_archived_plan_reports_archived_not_a_missing_project() {
 #[test]
 fn a_plan_without_tasks_reports_an_empty_plan_not_a_filter_miss() {
     let (store, _, _) = store_with_task(&["status_update"]);
-    let project = store.list_full().remove(0).project_path;
+    let project = store.all_plans_for_test().remove(0).project_path;
     let empty = store
         .create_plan(
             "Empty".into(),

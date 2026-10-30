@@ -106,7 +106,7 @@ impl ServiceContext {
         };
         let now_ms = epoch_ms();
 
-        for plan in self.plan_store.list_full() {
+        for plan in self.plan_store.plans_owned_or_planned_by(tab_id) {
             if plan.owner.tab_id.as_deref() == Some(tab_id) {
                 self.plan_store
                     .refresh_owner_session(

@@ -68,7 +68,7 @@ pub fn list_views(svc: &ServiceContext, tab_id: &str) -> Result<Vec<DelayedMessa
 
 pub(super) fn views_for_tab(svc: &ServiceContext, tab_id: &str) -> Vec<DelayedMessageView> {
     let cfg = svc.configuration().orchestration;
-    let plans = svc.plan_store.list_full_reminder_candidates();
+    let plans = svc.plan_store.reminder_candidate_plans_for_tab(tab_id);
     let projected = project_for_tab(
         &plans,
         tab_id,
