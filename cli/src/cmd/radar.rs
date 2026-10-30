@@ -52,7 +52,7 @@ pub fn handle_radar(client: &mut dyn RpcClient, json: bool, action: RadarAction)
     let val =
         run_radar(client, action).unwrap_or_else(|e| exit_with_cli_error(json, &CliError::new(e)));
     if json {
-        println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+        println!("{}", crate::cmd::output::encode(&val).unwrap_or_default());
     } else {
         print!("{}", render_radar_result(&val));
     }

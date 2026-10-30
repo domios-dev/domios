@@ -30,6 +30,15 @@ export function parseTabListTree(result: string): TabWorkspace[] {
   const workspaces: TabWorkspace[] = [];
   let workspace: TabWorkspace | undefined;
   for (const line of treeLines(result)) {
+    const compact = /^(\S+)  (.+?) — (.*)$/.exec(line);
+    if (compact) {
+      if (!workspace) {
+        workspace = { name: "Tabs", rows: [] };
+        workspaces.push(workspace);
+      }
+      workspace.rows.push({ id: compact[1], title: compact[2], status: compact[3] || undefined, depth: 0 });
+      continue;
+    }
     if (!/^\s/.test(line)) {
       workspace = { name: line.trim().split(/\s{2,}/)[0] || "(detached)", rows: [] };
       workspaces.push(workspace);

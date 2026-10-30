@@ -36,7 +36,7 @@ pub(crate) fn print_or_exit<T: serde::Serialize>(result: Result<T, String>) -> !
                 }
             };
             obj.insert("ok".into(), serde_json::Value::Bool(true));
-            println!("{}", serde_json::Value::Object(obj));
+            crate::cmd::print::print_json(&serde_json::Value::Object(obj));
             std::process::exit(0);
         }
         Err(e) => {

@@ -36,7 +36,7 @@ pub fn handle(json_mode: bool, action: AccountAction) {
     let value: serde_json::Value =
         serde_json::from_str(&body).unwrap_or_else(|_| fail(1, "invalid account status response"));
     if json_mode {
-        println!("{value}");
+        crate::cmd::print::print_json(&value);
     } else {
         print_human(&value);
     }

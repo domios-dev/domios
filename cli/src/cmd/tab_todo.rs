@@ -471,8 +471,12 @@ fn print_value(value: &Value, json_output: bool) {
     if json_output {
         println!(
             "{}",
-            serde_json::to_string_pretty(value).unwrap_or_else(|_| "null".into())
+            crate::cmd::output::encode(value).unwrap_or_else(|_| "null".into())
         );
+        return;
+    }
+    if !crate::cmd::output::verbose() && crate::cmd::output::is_collection() && crate::cmd::output::has_collection(value) {
+        print!("{}", crate::cmd::output::compact_list(value, None));
         return;
     }
     if let Some(checklist) = value.get("checklist") {

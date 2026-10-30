@@ -69,7 +69,7 @@ export function dc(args, { asTab, stdin, timeoutMs = 120_000, env = {} } = {}) {
   });
 }
 
-export const unwrap = (value) => (value && typeof value === "object" && "data" in value && value.data !== undefined ? value.data : value);
+export const unwrap = (value) => value.result;
 
 export async function dcJson(args, options) {
   const result = await dc([...args, "--json"], options);

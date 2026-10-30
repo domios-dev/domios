@@ -39,7 +39,7 @@ pub fn handle_usage(
                 .and_then(|r| r.error_for_status())
                 .and_then(|r| r.json::<serde_json::Value>())
             {
-                Ok(v) if json_mode => println!("{}", serde_json::to_string(&v).unwrap_or_default()),
+                Ok(v) if json_mode => println!("{}", crate::cmd::output::encode(&v).unwrap_or_default()),
                 Ok(v) => render_rebuild(&v),
                 Err(e) => {
                     crate::cmd::print::fail(1, e.to_string());
@@ -65,7 +65,7 @@ pub fn handle_usage(
             {
                 Ok(v) => {
                     if json_mode {
-                        println!("{}", serde_json::to_string(&v).unwrap_or_default());
+                        println!("{}", crate::cmd::output::encode(&v).unwrap_or_default());
                     } else {
                         println!("queued: refresh probe for {}", provider);
                     }
@@ -115,7 +115,7 @@ fn get_json<F: FnOnce(&serde_json::Value)>(
         }
     };
     if json_mode {
-        println!("{}", serde_json::to_string(&v).unwrap_or_default());
+        println!("{}", crate::cmd::output::encode(&v).unwrap_or_default());
     } else {
         render(&v);
     }

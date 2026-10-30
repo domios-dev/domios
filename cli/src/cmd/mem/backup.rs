@@ -6,7 +6,7 @@ use codeterm_paths::instance_identity::ResolvedInstancePaths;
 
 pub(crate) fn handle(json: bool, action: MemBackupAction) {
     match run(action) {
-        Ok(value) if json => println!("{value}"),
+        Ok(value) if json => crate::cmd::print::print_json(&value),
         Ok(value) => print_human(&value),
         Err(error) => fail(1, error),
     }

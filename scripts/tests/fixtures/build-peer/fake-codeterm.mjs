@@ -7,7 +7,7 @@ const lockHeld = fs.existsSync('.git/codeterm-peer-job.lock');
 fs.appendFileSync(process.env.FAKE_CODETERM_LOG, `${JSON.stringify({ args, stdin, lockHeld })}\n`);
 const statuses = JSON.parse(process.env.FAKE_PEER_STATUS ?? '{}');
 const mesh = args.includes('--mesh') ? args[args.indexOf('--mesh') + 1] : null;
-const out = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
+const out = (value) => process.stdout.write(`${JSON.stringify({result:value})}\n`);
 
 if (args[0] === 'mesh' && args[1] === 'status') {
   out({ instance_id: 'a35724e2-c7e3-486b-95d1-5edaa7f8d749', instance_name: 'BLACKSTAR' });
@@ -17,10 +17,10 @@ if (args[0] === 'mesh' && args[1] === 'status') {
     process.stderr.write('peer_unroutable\n');
     process.exit(1);
   }
-  out({ tabs: status === 'not_setup' ? [] : [{ id: `status-${mesh}`, title: 'Buildpeer' }] });
+  out(status === 'not_setup' ? [] : [{ id: `status-${mesh}`, title: 'Buildpeer' }]);
 } else if (args[0] === 'tab' && args[1] === 'exec') {
   const status = statuses[mesh];
-  if (status === 'exec_timeout') out({ data: { completion: 'timeout', output: '' }, ok: false });
+  if (status === 'exec_timeout') out({ completion: 'timeout', output: '', ok: false });
   else if (status?.late) out({ completion: 'timeout', exit_code: null, output: `$ ./build.sh peer-status
 PEER_STATUS ${JSON.stringify(status.late)}
 $ ` });

@@ -109,7 +109,7 @@ fn ok_body_or_exit(reply: Reply, secret: Option<&str>) -> Value {
 
 fn emit(json_mode: bool, body: &Value, human: impl FnOnce(&Value) -> String) {
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(body).unwrap_or_default());
+        println!("{}", crate::cmd::output::encode(body).unwrap_or_default());
     } else if body.is_object() {
         print!("{}", human(body));
     } else {
@@ -236,7 +236,7 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
                 if json_mode {
                     println!(
                         "{}",
-                        serde_json::to_string_pretty(&tokens).unwrap_or_default()
+                        crate::cmd::output::encode(&tokens).unwrap_or_default()
                     );
                 } else if tokens.is_empty() {
                     println!("no Supporter Agent adapters registered");

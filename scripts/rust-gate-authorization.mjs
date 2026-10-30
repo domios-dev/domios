@@ -65,7 +65,7 @@ function readTasklessWorkerRecord(env, run) {
   if (!env.CODETERM_TAB_ID) return null;
   const result = JSON.parse(run('codeterm', ['--json', 'tab', 'inspect', '--tab', env.CODETERM_TAB_ID],
     { encoding: 'utf8', env }));
-  const rows = result.data ?? result;
+  const rows = result.result;
   const record = Array.isArray(rows) ? rows.find(tab => tab?.id === env.CODETERM_TAB_ID) : rows;
   return tasklessWorkerRecordMatches(env.CODETERM_TAB_ID, record) ? record : null;
 }
@@ -101,7 +101,7 @@ function readGateProofFromHost(env, run = execFileSync) {
   if (!env.CODETERM_TASK_ID) return null;
   const shown = JSON.parse(run('codeterm', ['plan', 'task', 'show', env.CODETERM_PLAN_ID, env.CODETERM_TASK_ID, '--json'],
     { encoding: 'utf8', env }));
-  const task = shown.data?.task ?? shown.data ?? shown.task ?? shown;
+  const task = shown.result?.task ?? shown.result;
   return { plan: { id: env.CODETERM_PLAN_ID }, tasks: [task] };
 }
 

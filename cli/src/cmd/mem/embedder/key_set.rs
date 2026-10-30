@@ -12,7 +12,7 @@ pub(crate) fn handle(json_mode: bool, provider: &str) {
     );
     let stdin = std::io::stdin();
     match set(&root, provider, stdin.lock(), stdin.is_terminal()) {
-        Ok(value) if json_mode => println!("{value}"),
+        Ok(value) if json_mode => crate::cmd::print::print_json(&value),
         Ok(value) => println!(
             "Stored embedder key at {}",
             value["path"].as_str().unwrap_or_default()

@@ -5,7 +5,7 @@ ROOT="$(git rev-parse --show-toplevel)"
 source "$ROOT/evals/_lib/lib.sh"
 SPEC="$ROOT/evals/blueprint-pipeline/echo.yaml"
 AUTH="$(dev_auth_header)"
-OWNER_TAB="$(dc tab new --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tab_id") or d.get("id"))')"
+OWNER_TAB="$(dc tab new --json | python3 -c 'import json,sys; d=json.load(sys.stdin)["result"]; print(d.get("tab_id") or d.get("id"))')"
 [[ -n "$OWNER_TAB" ]] || { echo "Could not create the owner tab." >&2; exit 1; }
 API="$(dev_api_url)"
 

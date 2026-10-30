@@ -19,7 +19,7 @@ preset_show() {
 
 preset_field() {
   local key="$1"
-  python3 -c "import json,sys; print(json.load(sys.stdin).get('$key',''))"
+  python3 -c "import json,sys; print(json.load(sys.stdin)['result'].get('$key',''))"
 }
 
 # Exact text one occasion emits, straight from the shared resolver.
@@ -27,7 +27,7 @@ preset_occasion_text() {
   local occasion="$1"
   python3 -c "
 import json, sys
-view = json.load(sys.stdin)
+view = json.load(sys.stdin)['result']
 for entry in view.get('occasions', []):
     if entry.get('occasion') == '$occasion':
         sys.stdout.write(entry.get('text', ''))
@@ -40,7 +40,7 @@ preset_occasion_emission() {
   local occasion="$1"
   python3 -c "
 import json, sys
-view = json.load(sys.stdin)
+view = json.load(sys.stdin)['result']
 for entry in view.get('occasions', []):
     if entry.get('occasion') == '$occasion':
         print(entry.get('emission', ''))
@@ -52,7 +52,7 @@ raise SystemExit('occasion $occasion missing from the rendered view')
 preset_fragment_sources() {
   python3 -c "
 import json, sys
-view = json.load(sys.stdin)
+view = json.load(sys.stdin)['result']
 print(' '.join(f.get('source', '') for f in view.get('fragments', [])))
 "
 }
@@ -78,7 +78,7 @@ assert_planner_team_authority() {
   listing="$(dc persona list --json)"
   python3 - "$listing" <<'PY'
 import json, sys
-kinds = {k["kind_id"]: k for k in json.loads(sys.argv[1])["kinds"]}
+kinds = {k["kind_id"]: k for k in json.loads(sys.argv[1])["result"]["kinds"]}
 assert kinds["planner"]["team_authority"], "planner lost Team authority"
 assert not kinds["planner"]["anchors_team"], "planner must not anchor a Team"
 assert kinds["orchestrator"]["anchors_team"], "orchestrator lost anchoring"

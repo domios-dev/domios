@@ -93,7 +93,7 @@ pub(super) fn handle_report_refusal(
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&report_refusal_json(
+            crate::cmd::output::encode(&report_refusal_json(
                 &refusal,
                 sent,
                 target_tab_id,

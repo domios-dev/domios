@@ -43,7 +43,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     Err(error) => serde_json::json!({ "status_error": error }),
                 };
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    println!("{}", crate::cmd::output::encode(&val).unwrap());
                 } else {
                     let name = val
                         .get("instance_name")
@@ -71,7 +71,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         MeshAction::Peers => match client.call("mesh.peers", None) {
             Ok(val) => {
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    println!("{}", crate::cmd::output::encode(&val).unwrap());
                 } else {
                     if let Some(paired) = val.get("paired").and_then(|v| v.as_array()) {
                         if !paired.is_empty() {
@@ -131,7 +131,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
             match result {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         println!(
                             "Waiting for approval on {}. Open Mesh for the result.",
@@ -159,7 +159,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
             match result {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         println!("Disconnected from {}", instance_id);
                     }
@@ -184,7 +184,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
             match result {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         println!("Revocation lifted for {}", instance_id);
                     }
@@ -198,7 +198,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
             Ok(resp) if resp.status().is_success() => {
                 let val: serde_json::Value = resp.json().unwrap_or_default();
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    println!("{}", crate::cmd::output::encode(&val).unwrap());
                 } else {
                     let ts = val
                         .get("tailscale_ip")
@@ -256,7 +256,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 Ok(resp) if resp.status().is_success() => {
                     let val: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         let rep = val
                             .get("report")
@@ -312,7 +312,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                     Ok(resp) if resp.status().is_success() => {
                         let val: serde_json::Value = resp.json().unwrap_or_default();
                         if json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            println!("{}", crate::cmd::output::encode(&val).unwrap());
                         } else {
                             let prev = val
                                 .get("previous")
@@ -380,7 +380,7 @@ fn set_mesh_enabled(
         Ok(r) if r.status().is_success() => {
             if json {
                 let val: serde_json::Value = r.json().unwrap_or_default();
-                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                println!("{}", crate::cmd::output::encode(&val).unwrap());
             } else if enabled {
                 println!("mesh: ONLINE — peers will see us within ~15s");
             } else {

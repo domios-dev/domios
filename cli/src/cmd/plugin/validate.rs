@@ -105,7 +105,7 @@ pub fn run(json: bool, dir: &Path) {
             if json {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&report.to_json()).unwrap()
+                    crate::cmd::output::encode(&report.to_json()).unwrap()
                 );
             } else {
                 print!("{}", report.render(dir));

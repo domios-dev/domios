@@ -273,7 +273,7 @@ await (async () => {
   const event: ToolEvent = {
     id: "narrow-send", phase: "result", status: "success", kind: "codeterm",
     summary: message.toolInput.command, detail: message.toolInput.command,
-    result: JSON.stringify({ delivery: "sent", sent_message: { text: body, truncated: false } }),
+    result: JSON.stringify({ result: { delivery: "sent", sent_message: { text: body, truncated: false } } }),
     message,
   };
   const host = await render(<CodetermActionCard event={event} expanded={false} onToggle={() => {}} resolveTabName={(ref) => ref === "915fae8e" ? "Courier · Launch" : undefined} />);

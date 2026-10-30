@@ -14,6 +14,7 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
 
     let Cli {
         json,
+        verbose,
         mesh,
         command,
     } = cli;
@@ -74,6 +75,7 @@ pub(crate) fn dispatch(cli: Cli) -> Option<Cli> {
             }
             Some(Cli {
                 json,
+                verbose,
                 mesh,
                 command: Commands::Mem {
                     action: MemAction::Graph { action },
@@ -173,7 +175,7 @@ fn handle_config(json_output: bool, action: &ConfigAction) {
     match result {
         Ok(value) => {
             if json_output {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                println!("{}", crate::cmd::output::encode(&value).unwrap());
             } else {
                 if let Some(v) = value.get("value") {
                     match v {

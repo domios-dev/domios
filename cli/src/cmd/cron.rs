@@ -44,7 +44,9 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             match client.call("cron.list", Some(params)) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
+                    } else if !crate::cmd::output::verbose() {
+                        print!("{}", crate::cmd::output::compact_list(&val, None));
                     } else if let Some(arr) = val.as_array() {
                         if arr.is_empty() {
                             println!("No cron jobs.");
@@ -195,7 +197,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             match client.call("cron.update", Some(params)) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         println!(
                             "Updated: {}",
@@ -236,7 +238,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             match client.call("cron.trigger", Some(serde_json::json!({"id": id}))) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         println!(
                             "Triggered: tab={}",
@@ -253,7 +255,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             match client.call("cron.cancel", Some(serde_json::json!({"id": id}))) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         let n = val.get("cancelled").and_then(|v| v.as_u64()).unwrap_or(0);
                         if n == 0 {
@@ -272,7 +274,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
             match client.call("cron.history", Some(serde_json::json!({"id": id}))) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else if let Some(arr) = val.as_array() {
                         if arr.is_empty() {
                             println!("No runs yet.");

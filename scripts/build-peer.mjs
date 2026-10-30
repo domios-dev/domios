@@ -78,7 +78,7 @@ async function probePeer(peer, statusTabTitle) {
   if (list.status !== 0) return { peer, status: null, error: 'unreachable' };
   let tab;
   try {
-    tab = (parseJson(list.stdout, 'tab list').tabs ?? []).find((t) => t.title === statusTabTitle);
+    tab = (parseJson(list.stdout, 'tab list').result ?? []).find((t) => t.title === statusTabTitle);
   } catch {
     return { peer, status: null, error: 'bad_tab_list' };
   }
@@ -88,7 +88,7 @@ async function probePeer(peer, statusTabTitle) {
   let data;
   try {
     const body = parseJson(exec.stdout, 'tab exec');
-    data = body.data ?? body;
+    data = body.result;
   } catch {
     return { peer, status: null, error: 'exec_failed' };
   }
@@ -117,7 +117,7 @@ function resolveSha(ref) {
 function originIdentity() {
   const mesh = cli(['mesh', 'status', '--json']);
   if (mesh.status !== 0) throw new Refusal(`mesh status failed: ${mesh.stderr.trim()}`);
-  const body = parseJson(mesh.stdout, 'mesh status');
+  const body = parseJson(mesh.stdout, 'mesh status').result;
   if (!body.instance_id) throw new Refusal('mesh status has no instance_id');
   return { id: body.instance_id, name: body.instance_name ?? body.instance_id };
 }
@@ -141,7 +141,7 @@ function launch({ config, peer, verb, sha, runnerTail, deadlineSecs, replyTab, c
   tabArgs.push('--cmd', command);
   const created = cli(tabArgs, { timeoutMs: 60000 });
   if (created.status !== 0) throw new Refusal(`peer ${peer.name} refused the job tab: ${(created.stderr || created.stdout).trim().slice(0, 300)}`);
-  const tab = parseJson(created.stdout, 'tab new');
+  const tab = parseJson(created.stdout, 'tab new').result;
   const record = { job_id: jobId, peer: peer.name, verb, sha, remote_tab: tab.tab_id ?? tab.id, reply_tab: replyTab,
     deadline_secs: deadlineSecs, dispatched_at: new Date().toISOString(), prerequisite: prereq ? { file: prereq.file, sha256: prereq.sha256 } : null };
   for (const name of [jobId, ...recordNames]) writeRecord(stateDir, name, record);
@@ -333,14 +333,14 @@ async function runSeriesJob(argv) {
 
 function ensureStatusTab(title, shell) {
   const list = cli(['tab', 'list', '--json']);
-  const existing = list.status === 0 ? (parseJson(list.stdout, 'tab list').tabs ?? []).find((t) => t.title === title) : null;
+  const existing = list.status === 0 ? (parseJson(list.stdout, 'tab list').result ?? []).find((t) => t.title === title) : null;
   if (existing) return existing.id;
   const args = ['tab', 'new', '--json', '--no-team', '--purpose', 'shell', '--title', title,
     '--description', 'Peer build gateway status probe', '--cwd', process.cwd()];
   if (shell) args.push('--shell', shell);
   const created = cli(args, { timeoutMs: 60000 });
   if (created.status !== 0) return null;
-  const tab = parseJson(created.stdout, 'tab new');
+  const tab = parseJson(created.stdout, 'tab new').result;
   return tab.tab_id ?? tab.id ?? null;
 }
 

@@ -28,7 +28,8 @@
     ]}
   ],
   "flags": [
-    { "name": "--json", "description": "Output raw JSON" },
+    { "name": "--json", "description": "Output JSON with the payload under result" },
+    { "name": "--verbose", "description": "Include detailed diagnostics, scores and warnings" },
     { "name": "--help", "short": "-h", "description": "Show help" }
   ]
 }

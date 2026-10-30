@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { taskStatus, restoredOnNewBuild } from './observations.mjs';
 
-test('durable ACK is read from the CLI data envelope', () => {
-  assert.equal(taskStatus({ data: { task: { status: 'in_progress' } } }), 'in_progress');
-  assert.equal(taskStatus({ task: { status: 'pending' } }), 'pending');
+test('durable ACK is read from the CLI result envelope', () => {
+  assert.equal(taskStatus({ result: { task: { status: 'in_progress' } } }), 'in_progress');
+  assert.equal(taskStatus({ result: { task: { status: 'pending' } } }), 'pending');
 });
 
 test('new build restores exact loaded chat thread even when its nonce persists', () => {
@@ -66,15 +66,15 @@ test('approval selection requires the owned action and current epoch/nonce and g
     backing: { kind: 'chat_backend' }, agent_runtime_state: { state: 'loaded', epoch: 4 } };
   const prompt = { request_id: JSON.stringify([4, 'owned-nonce', 9]), question: `write ${target} ${marker}`,
     options: [{ label: 'Approve for session', value: 'broad' }, { label: 'Approve', value: 'one-shot' }] };
-  assert.deepEqual(turnApproval(tab, { data: { pending_prompt: prompt } }, target, marker), {
+  assert.deepEqual(turnApproval(tab, { result: { pending_prompt: prompt } }, target, marker), {
     prompt, option: prompt.options[1], index: 2,
   });
   for (const request_id of [JSON.stringify([3, 'owned-nonce', 9]), JSON.stringify([4, 'foreign-nonce', 9]), 'invalid']) {
-    assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, request_id } }, target, marker), null);
+    assert.equal(turnApproval(tab, { result: { pending_prompt: { ...prompt, request_id } } }, target, marker), null);
   }
-  assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, question: '/foreign/file injected-token' } }, target, marker), null);
-  assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, question: `write ${target} wrong-token` } }, target, marker), null);
-  assert.equal(turnApproval(tab, { pending_prompt: { ...prompt, options: [prompt.options[0]] } }, target, marker), null);
+  assert.equal(turnApproval(tab, { result: { pending_prompt: { ...prompt, question: '/foreign/file injected-token' } } }, target, marker), null);
+  assert.equal(turnApproval(tab, { result: { pending_prompt: { ...prompt, question: `write ${target} wrong-token` } } }, target, marker), null);
+  assert.equal(turnApproval(tab, { result: { pending_prompt: { ...prompt, options: [prompt.options[0]] } } }, target, marker), null);
 });
 
 test('approval action matching accepts provider shell escaping of an owned Windows path', async () => {
@@ -85,5 +85,5 @@ test('approval action matching accepts provider shell escaping of an owned Windo
   const prompt = { request_id: JSON.stringify([1, 'own', 'request']),
     question: `writeFileSync(${JSON.stringify(target)}, ${JSON.stringify(marker)})`,
     options: [{ label: 'Grant for turn', value: 'turn-scope' }] };
-  assert.equal(turnApproval(tab, { pending_prompt: prompt }, target, marker)?.index, 1);
+  assert.equal(turnApproval(tab, { result: { pending_prompt: prompt } }, target, marker)?.index, 1);
 });

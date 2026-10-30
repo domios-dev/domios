@@ -256,7 +256,11 @@ fn print_delayed_deleted(json: bool, id: &str, record: serde_json::Value) {
 
 pub(crate) fn print_delayed_result(json: bool, value: serde_json::Value) {
     if json {
-        println!("{}", serde_json::to_string_pretty(&value).unwrap());
+        println!("{}", crate::cmd::output::encode(&value).unwrap());
+        return;
+    }
+    if !crate::cmd::output::verbose() && crate::cmd::output::is_collection() {
+        print!("{}", crate::cmd::output::compact_list(&value, None));
         return;
     }
     if let Some(arr) = value.as_array() {

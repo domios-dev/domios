@@ -230,7 +230,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
     }
 
     // Human list views reuse local formatters over remote state.
-    if workspace_topology::should_render(&cli.command, cli.json) {
+    if cli.verbose && workspace_topology::should_render(&cli.command, cli.json) {
         workspace_topology::print_remote_workspace_topology(target);
         return;
     }

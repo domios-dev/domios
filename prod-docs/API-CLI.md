@@ -1,6 +1,10 @@
 # CLI and environment API
 
-Immediate `domios send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. With `--json`, the error envelope preserves the daemon receipt in `data`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
+Every `--json` command returns one object with its payload under `result`: an array for a list/search, an object for a record, or a scalar/null. Optional `meta` retains list metadata, `next` carries pagination and `warnings` carries diagnostics. Failures also include `ok:false` and `error`; their daemon receipt is under `result`. Read `result` directly; do not guess `data`, `results`, `hits`, `tasks` or `tabs` envelopes.
+
+Search/list output defaults to one line per record: `id  title — short snippet` (80 characters, one line). Known omitted counts end with `N more — refine the query or use --limit`. Use `--verbose` for scores, relevance, warnings and detailed views.
+
+Immediate `domios send` exits 1 with its reason on stderr whenever the result is `ok:false` or `bytes_written:false`, including retained pre-ready input. With `--json`, the error envelope preserves the daemon receipt in `result`. A retained `send_id` or queued delivery requires status or exact own-session transcript inspection; never replay held, written or uncertain input.
 
 Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion and schedule/task edits; use `domios cron enable <id>` or `domios cron disable <id>` to control them.
 
@@ -11,7 +15,7 @@ Use `domios <command> --help` for the installed CLI contract. `codeterm` remains
 
 ### Startup readiness
 
-With the socket unavailable, credentialed CLI fallback probes RPC directly. A `starting` reply waits on startup events for up to 30 seconds before repeating the identify probe and submitting the first command. Without credentials, discovery checks the selected instance's loopback health first. REST recovery refuses immediately. Errors name the phase; JSON codes `starting`/`startup_failed` preserve `data.startup`. Fallback uses the selected local secret-store credential when absent from the environment. Commands never replay.
+With the socket unavailable, credentialed CLI fallback probes RPC directly. A `starting` reply waits on startup events for up to 30 seconds before repeating the identify probe and submitting the first command. Without credentials, discovery checks the selected instance's loopback health first. REST recovery refuses immediately. Errors name the phase; JSON codes `starting`/`startup_failed` preserve `result.startup`. Fallback uses the selected local secret-store credential when absent from the environment. Commands never replay.
 
 ### Remote task locations
 
@@ -65,7 +69,7 @@ Message and pad file options accept `-` as UTF-8 stdin, including `plan task rem
 
 ### Plugin update diagnostics
 
-`domios plugin list` shows `update=<reason>` and `channel_version=<version>`. With `--json`, each installed row includes `update.availability` (the shared item below), `update.available`, `update.reason`, `update.channel`, `update.remote_version`, and `update.basis` (`channel_cache`). Listing is offline: refresh a named channel with `domios plugin channel refresh <name>` to check its current offer. `domios plugin update <id>` refreshes the recorded channel and installs only a newer compatible semantic version whose channel and plugin manifests agree. Bulk update skips plugins that are not updatable.
+`domios plugin list --verbose` shows `update=<reason>` and `channel_version=<version>`. With `--json`, each installed row includes `update.availability` (the shared item below), `update.available`, `update.reason`, `update.channel`, `update.remote_version`, and `update.basis` (`channel_cache`). Listing is offline: refresh a named channel with `domios plugin channel refresh <name>` to check its current offer. `domios plugin update <id>` refreshes the recorded channel and installs only a newer compatible semantic version whose channel and plugin manifests agree. Bulk update skips plugins that are not updatable.
 
 Same-version manifest hash drift remains a diagnostic in `plugin channel diff`; it does not produce an UPDATE badge or count. Local directory installs and source tree plugins have no channel update. Reinstall local changes with `domios plugin install --from-dir <path>`. Unknown install provenance or a missing channel cannot authorize an update. `plugin update-system` remains the explicit system synchronization and same-version repair operation; it preserves newer installed versions.
 
@@ -77,13 +81,13 @@ Official system plugins have independent release versions. Their `minCodeterm` d
 
 ### CLI JSON ID Contract
 
-Planner mutation commands emit one JSON envelope: `{ok, kind, id, data, hints?, error?}`. `id` is the primary created or mutated entity id, and `data` contains the raw daemon payload with typed fields such as `plan_id`, `task_id`, `spec_id`, and `section_id`. For example, `spec create --json` returns `kind == "spec"` and `id == spec_id`, `plan create --json` returns `kind == "plan"` and `id == plan_id`, and `plan task add --json` returns `kind == "task"` and `id == task_id`.
+Mutation ids are in `result.id` and their named identity field, such as `result.task_id`.
 
 `plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` starts origin-owned remote work. The Worker ACKs and reports to that attempt; after the Orchestrator accepts the report, run `plan task merge-remote-lane <plan> <task> <attempt>` on the origin to fetch the authenticated peer lane at the accepted report SHA and create a real merge commit into the clean dispatch-time branch.
 
 ### CLI JSON Errors
 
-With `--json` commands print exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. The local-only `domios system api-token` success output is an exception: it always prints only the credential, without a newline or JSON wrapper. A failure is `{"ok":false,"kind":"error","id":null,"data":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `data`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
+With `--json` commands print exactly one JSON object on stdout for success and for failure, including argument errors; stderr stays empty. A failure is `{"ok":false,"kind":"error","id":null,"result":...,"hints":[],"error":{"code","message","hint","rpc_code"}}` and the command exits non-zero. `error.code` is one of `not_found`, `invalid_argument`, `conflict`, `rate_limited`, `refused`, `unavailable`, `internal`, or a command-specific snake_case code; a missing tab, plan, cron job, peer, or plugin is always `not_found`. `rpc_code` is the raw daemon code or null. Exit codes: `0` success, `1` failure, `2` invalid arguments, and the command-specific codes named in `SECRETS` and `MESH-BRIDGE`. Structured daemon error data stays under `result`, including `invalid_model` fields such as the provider, requested id, closest catalogue ids, and refresh command. An ambiguous bare id uses `ambiguous_model` with the provider choices and a message asking for `--agent`. Mesh relay failures keep the peer's own delivery `code` inside `error`.
 
 ### Sandboxed CLI transport
 
@@ -196,4 +200,4 @@ One flow per provider; cancel before retry. Verified completion resumes the same
 thread without replay. **Send to my phone** requests one `action_needed` push;
 saved sessions and notifications omit login values.
 
-<!-- revision: 66 -->
+<!-- revision: 67 -->
