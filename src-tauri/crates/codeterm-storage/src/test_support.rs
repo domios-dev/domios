@@ -14,7 +14,8 @@ pub fn seed_empty_root(root: &Path) {
             .shutdown()
             .wait(Duration::from_secs(30))
             .expect("close storage schema template");
-        std::fs::read(Layout::of_root(template.path()).database).expect("read closed storage schema")
+        std::fs::read(Layout::of_root(template.path()).database)
+            .expect("read closed storage schema")
     });
     let directory = root.join("storage");
     std::fs::create_dir_all(root).expect("storage fixture root");
