@@ -1,3 +1,4 @@
+use crate::assets::Layout;
 use crate::{Storage, StorageConfig};
 use std::path::Path;
 use std::sync::OnceLock;
@@ -13,10 +14,11 @@ pub fn seed_empty_root(root: &Path) {
             .shutdown()
             .wait(Duration::from_secs(30))
             .expect("close storage schema template");
-        std::fs::read(Storage::database_path(template.path())).expect("read closed storage schema")
+        std::fs::read(Layout::of_root(template.path()).database)
+            .expect("read closed storage schema")
     });
     let directory = root.join("storage");
     std::fs::create_dir_all(root).expect("storage fixture root");
     std::fs::create_dir(&directory).expect("storage fixture must be fresh");
-    std::fs::write(Storage::database_path(root), schema).expect("copy storage schema template");
+    std::fs::write(Layout::of_root(root).database, schema).expect("copy storage schema template");
 }
