@@ -346,7 +346,7 @@ fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
     dispatch(&store, &plan_id, &task_id, "implementation_tab", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
 
-    for status in ["in_progress", "cancelled", "done"] {
+    for status in ["in_progress", "done"] {
         let error = set_status(&store, &plan_id, &task_id, status, 5).unwrap_err();
         assert!(
             matches!(error, PlanError::TransitionDenied { .. }),

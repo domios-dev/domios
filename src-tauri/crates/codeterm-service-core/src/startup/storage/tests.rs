@@ -50,8 +50,7 @@ fn unavailable_authority_returns_a_typed_error() {
 #[test]
 fn current_db_restores_workspace_cwd_without_reading_stale_json() {
     let root = tempfile::tempdir().unwrap();
-    let first =
-        StorageAuthority::Ready(Storage::open(root.path(), StorageConfig::default()).unwrap());
+    let first = open_instance_storage_at(root.path());
     let adapter = StorageDeskAdapter::from_storage(first.storage().unwrap().clone());
     let state = adapter.state().unwrap();
     let mut snapshot = adapter.snapshot().unwrap();
