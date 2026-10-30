@@ -13,7 +13,7 @@ use std::time::Instant;
 
 const BACKUP_SUFFIX: &str = ".pre-1.18";
 mod schema;
-use schema::LEGACY_SCHEMA;
+use schema::{LEGACY_IMPORTS_SCHEMA, LEGACY_SCHEMA};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(super) struct ConversionReport {
@@ -67,7 +67,14 @@ fn admit(connection: &Connection) -> Result<bool, PlanError> {
             store_db::admission::validate(connection, &expected)?;
             return Ok(false);
         }
-        0 => expected.execute_batch(LEGACY_SCHEMA).map_err(db_error)?,
+        0 => {
+            expected.execute_batch(LEGACY_SCHEMA).map_err(db_error)?;
+            if has_table(connection, "legacy_imports").map_err(db_error)? {
+                expected
+                    .execute_batch(LEGACY_IMPORTS_SCHEMA)
+                    .map_err(db_error)?;
+            }
+        }
         _ => {
             return Err(PlanError::Io(format!(
                 "unsupported plan database version {version}"
@@ -76,6 +83,14 @@ fn admit(connection: &Connection) -> Result<bool, PlanError> {
     }
     store_db::admission::validate(connection, &expected)?;
     Ok(true)
+}
+
+fn has_table(connection: &Connection, name: &str) -> rusqlite::Result<bool> {
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = ?1)",
+        [name],
+        |row| row.get(0),
+    )
 }
 
 #[cfg(test)]
@@ -138,7 +153,8 @@ fn convert(connection: &mut Connection) -> Result<ConversionReport, PlanError> {
              DROP TABLE plan_task_attempts;
              DROP TABLE plan_tasks;
              DROP TABLE specs;
-             DROP TABLE plans;",
+             DROP TABLE plans;
+             DROP TABLE IF EXISTS legacy_imports;",
         )
         .map_err(db_error)?;
     store_db::create_schema(&transaction).map_err(db_error)?;

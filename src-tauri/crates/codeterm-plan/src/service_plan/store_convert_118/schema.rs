@@ -62,3 +62,11 @@ pub(super) const LEGACY_SCHEMA: &str = r#"
         FOREIGN KEY (plan_id, task_id) REFERENCES plan_tasks(plan_id, task_id) ON DELETE CASCADE
     );
 "#;
+
+/// Pre-1.17 startup imports left this optional table in owner databases; 1.18 has no reader.
+pub(super) const LEGACY_IMPORTS_SCHEMA: &str = r#"
+    CREATE TABLE legacy_imports (
+        root TEXT PRIMARY KEY,
+        imported_at INTEGER NOT NULL
+    );
+"#;
