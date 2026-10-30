@@ -3232,6 +3232,7 @@ EOF
     node scripts/release-arm64-handoff.mjs pack "$CARGO_BUILD_TARGET" "${2:?tag required}" "${3:?source SHA required}" "${4:?archive required}"
     ;;
   release-preflight)
+    node scripts/release-stage.mjs check-server-features
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     ensure_deps
