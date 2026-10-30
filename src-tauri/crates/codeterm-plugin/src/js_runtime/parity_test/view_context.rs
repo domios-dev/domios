@@ -44,7 +44,6 @@ async fn native_and_js_view_callbacks_use_host_context_before_owner_scoped_looku
     context.instance = Some("instance".into());
     context.workspace = Some("workspace".into());
     context.frame = Some("non-secret-frame".into());
-    context.job_context = Some("headless-logical-context".into());
     let args =
         json!({"result_owner":"owner-one","context":{"owner":"attacker"},"actor":"attacker"});
     assert_eq!(

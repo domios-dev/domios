@@ -109,7 +109,7 @@ pub(crate) fn caller_surface_tab(
         .map(|tab| tab.id.clone())
 }
 
-pub(super) fn is_agent_tab(tab: &Tab) -> bool {
+fn is_agent_tab(tab: &Tab) -> bool {
     tab.surface().is_none()
         && (tab.agent_type.is_some() || tab.role.is_some() || tab.roleless_tracked)
 }
@@ -191,7 +191,6 @@ pub(crate) enum CallPlan {
         actor: Option<String>,
     },
     Open,
-    Headless,
     Close {
         tab_id: String,
     },
@@ -224,12 +223,6 @@ pub(crate) fn plan_agent_call(
                 actor: None,
             }),
             (None, "open") => Ok(CallPlan::Open),
-            (None, _)
-                if surface.renderer == codeterm_plugin::surfaces::SurfaceRenderer::View
-                    && surface.agent_verbs.iter().any(|declared| declared == verb) =>
-            {
-                Ok(CallPlan::Headless)
-            }
             (None, "status") => Ok(CallPlan::Answer(format!(
                 "no {noun} open; run `open` first"
             ))),
@@ -323,15 +316,6 @@ impl ServiceContext {
         }?;
         let noun = surface.title.to_lowercase();
         let (tab_id, actor) = match plan {
-            CallPlan::Headless => {
-                return self.headless_surface_dispatch(
-                    plugin_id,
-                    &surface.id,
-                    &caller_tab,
-                    verb,
-                    &args,
-                )
-            }
             CallPlan::Answer(text) => return Ok(json!({"result":text})),
             CallPlan::Close { tab_id } => {
                 self.note_surface_activity(&tab_id, verb, None);
@@ -359,7 +343,7 @@ impl ServiceContext {
                     .job_lifecycle()
                     .is_some_and(|descriptor| descriptor.valid())
             });
-            let (mut context, mut invocation) = {
+            let (context, invocation) = {
                 let mux = self.mux.read();
                 let context =
                     super::view::view_context(&mux, plugin_id, &surface.id, &tab_id, &caller_tab)?;
@@ -384,16 +368,6 @@ impl ServiceContext {
                     .flatten();
                 (context, invocation)
             };
-            if let Some(owner) = context["owner"].as_str().map(str::to_string) {
-                if let Ok(logical) = self.plugin_agent_invocation(plugin_id, &surface.id, &owner) {
-                    context["jobContext"] = json!(logical.instance);
-                    context["workspace"] = json!(logical.workspace);
-                    context["team"] = json!(logical.team);
-                    if owner == caller_tab {
-                        invocation = Some(logical);
-                    }
-                }
-            }
             self.note_surface_activity(&tab_id, verb, actor.as_deref());
             if !surface.agent_verbs.iter().any(|v| v == verb) {
                 return Ok(json!({"result":format!("opened {noun} {tab_id}")}));

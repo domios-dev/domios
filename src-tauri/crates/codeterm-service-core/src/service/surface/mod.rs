@@ -3,7 +3,6 @@
 mod activity;
 mod agent_call;
 mod exit;
-mod headless;
 mod host;
 mod model;
 mod ops;

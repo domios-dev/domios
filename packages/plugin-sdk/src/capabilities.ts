@@ -1032,7 +1032,6 @@ export interface SurfaceViewBridge {
 
 /** Authoritative context of this registered UI document; no run/budget or private lease. */
 export interface ViewCallContext {
-  jobContext?: string;
   plugin: string;
   origin: "document" | "remote_task" | "recording_setup";
   surface: string | null;
@@ -1046,10 +1045,6 @@ export interface ViewCallContext {
 }
 
 export interface SurfaceCallContext {
-  jobContext?: string;
-  workspace?: string;
-  team?: string | null;
-  headless?: boolean;
   surface: string;
   instance: string;
   tab: string;

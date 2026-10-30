@@ -4,7 +4,6 @@ import type { BlueprintStepContext, BlueprintStepEstimate, BlueprintOperationApp
 export interface JobLifecycleDescriptor { contractVersion: 1; reconcile: true; cancel: boolean; }
 export interface PluginJobScope { plugin: string; workspace: string; team: string | null; owner: string; }
 export type PluginJobOrigin =
-  | {kind: "agent_command"; surface: string; context: string; tab: string; registration: string}
   | {kind: "studio_view"; surface: string; instance: string; tab: string; frame: string}
   | {kind: "studio_agent"; surface: string; instance: string; tab: string; actor: string}
   | {kind: "blueprint"; blueprint: string; run: string; node: string; attempt: string};

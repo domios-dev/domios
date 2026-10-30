@@ -18,12 +18,6 @@ pub struct PluginJobScope {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum PluginJobOrigin {
-    AgentCommand {
-        surface: String,
-        context: String,
-        tab: String,
-        registration: String,
-    },
     StudioView {
         surface: String,
         instance: String,
@@ -438,12 +432,6 @@ fn write_monitor(
 impl PluginJobRegistration {
     pub(super) fn valid_identity(&self) -> bool {
         let fields = match &self.origin {
-            PluginJobOrigin::AgentCommand {
-                surface,
-                context,
-                tab,
-                registration,
-            } => [surface, context, tab, registration],
             PluginJobOrigin::StudioView {
                 surface,
                 instance,

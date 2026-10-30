@@ -325,29 +325,3 @@ sqlite or secret-store access is added to plugin code. `requestBinding` is pure;
 consume a current, scoped host authorization. The SDK types alone do not prove
 that a running host has these capabilities; consumers require the implementing
 host build and must raise their own `minCodeterm` when adopting them.
-
-### Headless agent job contexts
-
-A declared agent verb on a view with `jobLifecycle` can run through
-`host.surface.dispatch` without opening a rendered surface first. The host
-returns `SurfaceCallContext` with `headless: true`, the calling agent as
-`tab`/`owner`/`actor`, its real workspace/Team and an opaque `jobContext`.
-`instance` in this headless dispatch is the logical context identifier, not a
-rendered tab. No UI tab, filesystem access or ambient caller setter is created.
-
-The identifier binds plugin registration, declared surface, agent tab,
-workspace, Team and host session binding. A later view owned by that agent gets
-the same `jobContext` in its trusted `ViewCallContext`; rendered agent calls
-also carry it. Store plugin job state by that logical context, rather than a
-rendered instance. `jobs.admit` records `origin.kind: "agent_command"` and
-its host context, tab and registration. Existing prepare/enter scope checks,
-quotes, owner approval/allowance, entry-day reservations and one-shot entry
-remain in force. An attached current owner view can inspect and continue the
-same receipt; another tab, including a rendered `--of` caller, cannot borrow its
-context. Session/scope or plugin-registration replacement requires a fresh
-admission for paid entry. Opaque context identifiers are not bearer authority.
-
-This extends the existing confined dispatch ticket and continuation path, not
-a raw callable plugin export. Undeclared verbs, non-agent callers, missing job
-lifecycle capabilities and stale scopes refuse. The existing rendered stream
-surface lifecycle retains its open/status behavior.
