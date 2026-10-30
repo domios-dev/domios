@@ -21,6 +21,7 @@
     "check:plugin-bundles": "node scripts/check-plugin-bundles.mjs",
     "test:pw": "playwright test -c tests/playwright",
     "test:sidebar-hover-webkit": "node scripts/test-sidebar-hover-webkit.mjs",
+    "test:sidebar-scroll-webkit": "node scripts/test-sidebar-scroll-webkit.mjs",
     "test:pw:smoke": "playwright test -c tests/playwright --project=smoke",
     "test:pw:golden": "playwright test -c tests/playwright --project=golden",
     "test:pw:perf": "playwright test -c tests/playwright --project=perf",
