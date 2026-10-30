@@ -220,7 +220,7 @@ export {
 export { parseLocalArtifactDirective, localArtifactTextParts, localArtifactFromBlock } from "./localArtifactDirective";
 export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";
 
-export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";
+export { inlineArtifactParts, inlineArtifactBlockBoundary, type InlineArtifactPart } from "./inlineArtifactParts";
 
 export { splitExactSendTexts, projectMessageParts, projectTranscriptParts, type ExactSendText } from "./messageParts";
 

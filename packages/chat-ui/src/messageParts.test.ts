@@ -50,3 +50,13 @@ test("messageParts separates whole-source caches from leading Markdown fragments
   markdownMessageParts("shared", "Lead\n", 0);
   assert.equal(messageParts("shared", source), whole);
 });
+
+test("messageParts keeps paragraph AST ranges distinct from whole-source whitespace with CRLF", () => {
+  const fragment = "  One block.\r\n";
+  assert.deepEqual(messageParts("whole-crlf", fragment).map(({ start, end }) => [start, end]), [[0, fragment.length]]);
+  assert.deepEqual(markdownMessageParts("whole-crlf", fragment, 0).map(({ start, end, renderedStart, renderedEnd }) => [start, end, renderedStart, renderedEnd]), [[2, 12, 2, 12]]);
+  const lead = "Lead.\r\n";
+  const tail = "\r\n\r\nTail.";
+  assert.deepEqual(markdownMessageParts("projected", lead, 0).map(({ start, end }) => [start, end]), [[0, 5]]);
+  assert.deepEqual(markdownMessageParts("projected", tail, 80).map(({ start, end, renderedStart, renderedEnd }) => [start, end, renderedStart, renderedEnd]), [[84, 89, 4, 9]]);
+});

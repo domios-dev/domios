@@ -24,18 +24,18 @@ const MESSAGE_PARTS_CACHE_CHARS = 2_000_000;
 const cache = new Map<string, { scanner: DsBlockScanner; parts: MessagePart[] }>();
 let cachedChars = 0;
 export function messageParts(id: string, source: string, baseOffset = 0): MessagePart[] {
-  return cachedMessageParts(`source:${id}:${baseOffset}`, id, source, baseOffset);
+  return cachedMessageParts(`source:${id}:${baseOffset}`, id, source, baseOffset, true);
 }
 export function markdownMessageParts(id: string, source: string, baseOffset: number): MessagePart[] {
-  return cachedMessageParts(`markdown:${id}:${baseOffset}`, id, source, baseOffset);
+  return cachedMessageParts(`markdown:${id}:${baseOffset}`, id, source, baseOffset, false);
 }
-function cachedMessageParts(key: string, id: string, source: string, baseOffset: number): MessagePart[] {
+function cachedMessageParts(key: string, id: string, source: string, baseOffset: number, wholeSource: boolean): MessagePart[] {
   let entry = cache.get(key);
   if (entry?.scanner.text === source) { cache.delete(key); cache.set(key, entry); return entry.parts; }
   if (entry) { cachedChars -= entry.scanner.text.length; cache.delete(key); }
   if (!entry || !source.startsWith(entry.scanner.text)) entry = { scanner: new DsBlockScanner({ id: key, trusted: true }), parts: [] };
   entry.scanner.append(source.slice(entry.scanner.text.length));
-  entry.parts = parseParts(id, source, entry.scanner.segments, baseOffset);
+  entry.parts = parseParts(id, source, entry.scanner.segments, baseOffset, wholeSource);
   if (source.length <= MESSAGE_PARTS_CACHE_CHARS) {
     cache.set(key, entry); cachedChars += source.length;
     while (cache.size > 256 || cachedChars > MESSAGE_PARTS_CACHE_CHARS) {
@@ -46,7 +46,7 @@ function cachedMessageParts(key: string, id: string, source: string, baseOffset:
   }
   return entry.parts;
 }
-function parseParts(id: string, source: string, segments: readonly DsSegment[], base: number): MessagePart[] {
+function parseParts(id: string, source: string, segments: readonly DsSegment[], base: number, wholeSource: boolean): MessagePart[] {
   const ranges: Array<{ start: number; end: number; renderedStart: number; renderedEnd: number }> = [];
   for (const segment of segments) {
     if (segment.type !== "markdown") {
@@ -65,7 +65,7 @@ function parseParts(id: string, source: string, segments: readonly DsSegment[], 
       if (block.type === "heading" && blocks[index + 1]?.type === "paragraph") end = blocks[++index].position?.end.offset ?? end;
       prose.push({ start: segment.start + normalized.start(start), end: segment.start + normalized.end(end), renderedStart: segment.start + start, renderedEnd: segment.start + end });
     }
-    if (prose.length === 1 && segments.length === 1) {
+    if (wholeSource && prose.length === 1 && segments.length === 1) {
       prose[0] = { start: 0, end: source.length, renderedStart: 0, renderedEnd: normalized.text.length };
     }
     for (const range of prose) ranges.push(range);

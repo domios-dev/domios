@@ -1,7 +1,16 @@
 import type { AttachmentSegment } from "./attachmentMarker";
-import { localArtifactTextParts, type LocalArtifactDirective } from "./localArtifactDirective";
+import { parseDsBlocks } from "./dsBlocks";
+import { localArtifactFromBlock, type LocalArtifactDirective } from "./localArtifactDirective";
 
 export type InlineArtifactPart = AttachmentSegment | { directive: LocalArtifactDirective };
+
+export function inlineArtifactBlockBoundary(source: string, start: number, end: number, attachmentOffsets: readonly number[]): boolean {
+  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
+  const newline = source.indexOf("\n", end);
+  const lineEnd = newline < 0 ? source.length : newline;
+  for (const offset of attachmentOffsets) if (offset >= lineStart && offset < lineEnd) return false;
+  return true;
+}
 
 export function inlineArtifactParts(segments: AttachmentSegment[]): InlineArtifactPart[] {
   let source = "";
@@ -13,12 +22,14 @@ export function inlineArtifactParts(segments: AttachmentSegment[]): InlineArtifa
       source += "\0";
     }
   }
+  const attachmentOffsets = [...attachments.keys()];
   const result: InlineArtifactPart[] = [];
-  let offset = 0;
-  for (const part of localArtifactTextParts(source)) {
-    const end = offset + part.text.length;
+  for (const part of parseDsBlocks(source)) {
+    const offset = part.start;
+    const end = part.end;
     const capsules = [...attachments].filter(([at]) => at >= offset && at < end);
-    if (part.directive && capsules.length === 0) result.push({ directive: part.directive });
+    const directive = part.type === "block" && inlineArtifactBlockBoundary(source, offset, end, attachmentOffsets) ? localArtifactFromBlock(part.block) : null;
+    if (directive && capsules.length === 0) result.push({ directive });
     else {
       let cursor = offset;
       for (const [at, capsule] of capsules) {
@@ -28,7 +39,6 @@ export function inlineArtifactParts(segments: AttachmentSegment[]): InlineArtifa
       }
       if (cursor < end) result.push({ text: source.slice(cursor, end) });
     }
-    offset = end;
   }
   return result;
 }
