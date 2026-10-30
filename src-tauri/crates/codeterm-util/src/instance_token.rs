@@ -21,10 +21,7 @@ pub fn read_at(data_root: &Path) -> Result<Option<String>, String> {
     }
 }
 
-pub fn initialize_at(
-    data_root: &Path,
-    generate: bool,
-) -> Result<Option<String>, String> {
+pub fn initialize_at(data_root: &Path, generate: bool) -> Result<Option<String>, String> {
     if let Some(token) = read_at(data_root)? {
         return Ok(Some(token));
     }

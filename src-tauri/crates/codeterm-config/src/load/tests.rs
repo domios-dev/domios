@@ -289,7 +289,9 @@ fn unreadable_token_is_never_generated_after_a_parse_error() {
 fn runtime_parse_error_keeps_last_known_config_and_holds_writes() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");
-    codeterm_util::secret_file::SecretFile::new_at(tmp.path(), "domios.instance").set("api_token", "tok-original").unwrap();
+    codeterm_util::secret_file::SecretFile::new_at(tmp.path(), "domios.instance")
+        .set("api_token", "tok-original")
+        .unwrap();
     std::fs::write(&path, VALID).unwrap();
     let cache: ConfigCache = Mutex::new(None);
     assert_eq!(
@@ -328,7 +330,9 @@ fn runtime_parse_error_keeps_last_known_config_and_holds_writes() {
 fn config_bounds_invalid_load_keeps_last_known_config() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("config.toml");
-    codeterm_util::secret_file::SecretFile::new_at(tmp.path(), "domios.instance").set("api_token", "tok-original").unwrap();
+    codeterm_util::secret_file::SecretFile::new_at(tmp.path(), "domios.instance")
+        .set("api_token", "tok-original")
+        .unwrap();
     std::fs::write(&path, VALID).unwrap();
     let cache: ConfigCache = Mutex::new(None);
     let first = load_config_cached(&path, &cache);
@@ -407,7 +411,10 @@ fn startup_does_not_rewrite_retired_config_or_override_explicit_kpi_opt_out() {
 
 #[test]
 fn legacy_config_token_is_refused_without_writing_or_rotating() {
-    for raw in ["[api]\ntoken = 'old-authority'\n", "[api]\ntoken = 'old-authority'\n[[["] {
+    for raw in [
+        "[api]\ntoken = 'old-authority'\n",
+        "[api]\ntoken = 'old-authority'\n[[[",
+    ] {
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("config.toml");
         let token = codeterm_util::instance_token::initialize_at(root.path(), true).unwrap();
@@ -415,6 +422,9 @@ fn legacy_config_token_is_refused_without_writing_or_rotating() {
         let error = load_config_cached_at(&path, root.path(), &Mutex::new(None)).unwrap_err();
         assert!(error.contains("Unsupported legacy config field [api].token"));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), raw);
-        assert_eq!(codeterm_util::instance_token::read_at(root.path()).unwrap(), token);
+        assert_eq!(
+            codeterm_util::instance_token::read_at(root.path()).unwrap(),
+            token
+        );
     }
 }

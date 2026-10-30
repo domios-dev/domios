@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 
+use super::init_v1_22_schema;
 
 fn seed_two_invalidated_one_active(conn: &Connection) {
     conn.execute_batch(
@@ -17,6 +18,7 @@ fn seed_two_invalidated_one_active(conn: &Connection) {
 #[test]
 fn introduce_topic_repeated_call_does_not_duplicate_edges() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -67,6 +69,7 @@ fn introduce_topic_repeated_call_does_not_duplicate_edges() {
 #[test]
 fn purge_invalidated_dry_run_reports_count_without_deleting() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     seed_two_invalidated_one_active(&conn);
 
@@ -94,6 +97,7 @@ fn purge_invalidated_dry_run_reports_count_without_deleting() {
 #[test]
 fn purge_invalidated_actually_deletes_and_audits() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     seed_two_invalidated_one_active(&conn);
 
@@ -122,6 +126,7 @@ fn purge_invalidated_actually_deletes_and_audits() {
 #[test]
 fn purge_invalidated_filters_by_reason_substring() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -156,6 +161,7 @@ fn purge_invalidated_filters_by_reason_substring() {
 #[test]
 fn route_invalidates_direct_creates_two_segments() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -211,6 +217,7 @@ fn route_invalidates_direct_creates_two_segments() {
 #[test]
 fn route_returns_not_found_when_no_active_direct_edge() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -238,6 +245,7 @@ fn route_returns_not_found_when_no_active_direct_edge() {
 #[test]
 fn revive_broken_restores_relations_with_existing_endpoints() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -291,6 +299,7 @@ fn revive_broken_restores_relations_with_existing_endpoints() {
 #[test]
 fn revive_broken_is_idempotent() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -323,6 +332,7 @@ fn revive_broken_is_idempotent() {
 #[test]
 fn revive_broken_reopens_one_row_from_closed_duplicate_cluster() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -376,6 +386,7 @@ fn revive_broken_reopens_one_row_from_closed_duplicate_cluster() {
 #[test]
 fn revive_broken_skips_closed_dup_when_active_twin_exists() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -414,6 +425,7 @@ fn revive_broken_skips_closed_dup_when_active_twin_exists() {
 #[test]
 fn introduce_topic_creates_topic_routes_sources_invalidates_direct() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -472,6 +484,7 @@ fn introduce_topic_creates_topic_routes_sources_invalidates_direct() {
 #[test]
 fn introduce_topic_conflicts_when_existing_entity_has_different_type() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -502,6 +515,7 @@ fn introduce_topic_conflicts_when_existing_entity_has_different_type() {
 #[test]
 fn introduce_topic_handles_existing_entity_idempotently() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -536,6 +550,7 @@ fn introduce_topic_handles_existing_entity_idempotently() {
 #[test]
 fn canonicalize_relation_types_renames_and_drops_duplicates() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -589,6 +604,7 @@ fn canonicalize_relation_types_renames_and_drops_duplicates() {
 #[test]
 fn list_entities_with_degree_counts_active_relations_only() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -622,6 +638,7 @@ fn list_entities_with_degree_counts_active_relations_only() {
 #[test]
 fn cleanup_orphan_entities_skips_protected_types_and_recent_entities() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let old = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
     let recent = (chrono::Utc::now() - chrono::Duration::days(1)).to_rfc3339();
@@ -670,6 +687,7 @@ fn cleanup_orphan_entities_skips_protected_types_and_recent_entities() {
 #[test]
 fn invalidate_broken_relations_targets_only_truly_broken() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -697,6 +715,7 @@ fn invalidate_broken_relations_targets_only_truly_broken() {
 #[test]
 fn add_alias_with_rewire_merges_relations_and_deletes_alias() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn.execute_batch(
         "INSERT INTO entities (id,entity_type,scope,properties_json,created_at,updated_at)
@@ -765,6 +784,7 @@ fn add_alias_with_rewire_merges_relations_and_deletes_alias() {
 #[test]
 fn add_alias_with_rewire_rejects_self_alias() {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     let err = crate::graph::add_alias_with_rewire(&conn, "x", "x").unwrap_err();
     assert!(matches!(

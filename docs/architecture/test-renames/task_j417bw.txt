@@ -3,5 +3,3 @@ load::tests::migration_removes_config_token_and_never_rereads_credential_on_relo
 delayed_send::tests::open_normalizes_pane_era_records_and_isolates_malformed_siblings -> delayed_send::tests::open_keeps_current_records_and_isolates_malformed_siblings
 session::store::tests::stored_legacy_desk_field_restores_agent_session_id -> session::store::tests::stored_current_desk_field_restores_agent_session_id
 embedder::tests::embedder_switch::recall_reembed_adopts_unstamped_l12_without_relabelling -> embedder::tests::embedder_switch::recall_reembed_refuses_unstamped_index_without_relabelling
-store::tests::migrations::versioned_legacy_and_fresh_converge_and_backfill_owner -> store::tests::migrations::fresh_and_current_reopen_keep_complete_schema
-tests::migrations::migration_dedups_active_relations_and_adds_partial_unique_index -> tests::migrations::current_schema_preserves_relation_history_and_refuses_active_duplicates

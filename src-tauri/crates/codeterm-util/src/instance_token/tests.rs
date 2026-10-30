@@ -15,17 +15,16 @@ fn initialization_preserves_existing_authority_and_other_services() {
     SecretFile::new_at(root.path(), "other")
         .set("key", "other-value")
         .unwrap();
-    store(root.path()).unwrap().set(ACCOUNT, "existing-bearer").unwrap();
+    store(root.path())
+        .unwrap()
+        .set(ACCOUNT, "existing-bearer")
+        .unwrap();
     assert_eq!(
-        initialize_at(root.path(), false)
-            .unwrap()
-            .as_deref(),
+        initialize_at(root.path(), false).unwrap().as_deref(),
         Some("existing-bearer")
     );
     assert_eq!(
-        initialize_at(root.path(), false)
-            .unwrap()
-            .as_deref(),
+        initialize_at(root.path(), false).unwrap().as_deref(),
         Some("existing-bearer")
     );
     assert_eq!(
@@ -38,12 +37,18 @@ fn initialization_preserves_existing_authority_and_other_services() {
 fn explicit_dev_identity_never_falls_back_to_inherited_production_token() {
     let prod = tempfile::tempdir().unwrap();
     let dev = tempfile::tempdir().unwrap();
-    store(prod.path()).unwrap().set(ACCOUNT, "production").unwrap();
+    store(prod.path())
+        .unwrap()
+        .set(ACCOUNT, "production")
+        .unwrap();
     assert_eq!(
         resolve_at(dev.path(), Some("production"), true).unwrap(),
         None
     );
-    store(dev.path()).unwrap().set(ACCOUNT, "development").unwrap();
+    store(dev.path())
+        .unwrap()
+        .set(ACCOUNT, "development")
+        .unwrap();
     assert_eq!(
         resolve_at(dev.path(), Some("production"), true)
             .unwrap()
@@ -76,4 +81,3 @@ fn held_config_without_credential_does_not_generate_one() {
     assert_eq!(initialize_at(root.path(), false).unwrap(), None);
     assert!(!root.path().join(".secrets").exists());
 }
-

@@ -1,9 +1,11 @@
 use rusqlite::Connection;
 
+use super::init_v1_22_schema;
 use crate::lesson::{promote_high_confidence_lessons, DEFAULT_PROMOTION_THRESHOLD};
 
 fn fresh_conn() -> Connection {
     let conn = Connection::open_in_memory().unwrap();
+    init_v1_22_schema(&conn);
     crate::migrations::run(&conn).unwrap();
     conn
 }

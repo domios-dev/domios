@@ -791,6 +791,8 @@ fn immediate_create_delivers_without_persisting_or_publishing_a_queue_entry() {
 fn pane_era_queue_fields_are_refused_even_with_current_fields() {
     for field in ["paneId", "createdByPane"] {
         let record = serde_json::json!({"tabId":"target", (field):"old-target"});
-        assert!(reject_legacy_queue_fields(&record).unwrap_err().contains(field));
+        assert!(reject_legacy_queue_fields(&record)
+            .unwrap_err()
+            .contains(field));
     }
 }

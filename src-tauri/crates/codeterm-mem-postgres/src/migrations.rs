@@ -32,6 +32,11 @@ pub(crate) fn verify_version(
     Ok(())
 }
 
+const STEPS: &[&str] = &[
+    include_str!("migrations/001_storage.sql"),
+    include_str!("migrations/002_authorship.sql"),
+];
+
 pub(crate) fn run(
     client: &mut Client,
     schema: &str,
@@ -55,29 +60,30 @@ pub(crate) fn run(
         "CREATE SCHEMA IF NOT EXISTS {schema}; SET LOCAL search_path TO {schema}, public;"
     ))
     .map_err(db_error)?;
-    let stamped: bool = tx.query_one(
-        "SELECT to_regclass($1) IS NOT NULL", &[&format!("{schema}.mem_schema_version")],
-    ).map_err(db_error)?.get(0);
-    if stamped {
-        let versions: Vec<i64> = tx.query(&format!("SELECT version FROM {schema}.mem_schema_version FOR UPDATE"), &[])
-            .map_err(db_error)?.into_iter().map(|row| row.get(0)).collect();
-        if versions != [VERSION] {
-            return Err(format!("unsupported Postgres memory schema version {versions:?}; expected {VERSION}; older schemas cannot be upgraded"));
-        }
-    } else {
-        let occupied: bool = tx.query_one(
-            "SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1)",
-            &[&schema],
-        ).map_err(db_error)?.get(0);
-        if occupied {
-            return Err("unstamped Postgres memory schema refused; create a fresh schema".into());
-        }
-        tx.batch_execute("CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;")
-            .map_err(db_error)?;
-        tx.batch_execute(include_str!("migrations/001_storage.sql")).map_err(db_error)?;
-        tx.batch_execute("CREATE TABLE mem_schema_version (
+    tx.batch_execute(
+        "CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
+         CREATE TABLE IF NOT EXISTS mem_schema_version (
             singleton BIGINT PRIMARY KEY CHECK(singleton=1), version BIGINT NOT NULL);
-            INSERT INTO mem_schema_version VALUES(1,2);").map_err(db_error)?;
+         INSERT INTO mem_schema_version VALUES (1,0) ON CONFLICT DO NOTHING;",
+    )
+    .map_err(db_error)?;
+    let version: i64 = tx
+        .query_one(
+            "SELECT version FROM mem_schema_version WHERE singleton=1 FOR UPDATE",
+            &[],
+        )
+        .map_err(db_error)?
+        .get(0);
+    if version < 0 || version as usize > STEPS.len() {
+        return Err("unsupported Postgres memory schema version".into());
+    }
+    for (index, sql) in STEPS.iter().enumerate().skip(version as usize) {
+        tx.batch_execute(sql).map_err(db_error)?;
+        tx.execute(
+            "UPDATE mem_schema_version SET version=$1 WHERE singleton=1",
+            &[&((index + 1) as i64)],
+        )
+        .map_err(db_error)?;
     }
     tx.commit().map_err(db_error)
 }

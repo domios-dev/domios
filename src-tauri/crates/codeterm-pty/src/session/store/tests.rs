@@ -819,8 +819,16 @@ fn legacy_desk_session_field_is_refused_without_adoption() {
     let snapshot = desk(&[("ws", &["tab-a"])]);
     let mut tab = serde_json::to_value(&snapshot.workspaces[0].tabs[0]).unwrap();
     tab["split_tree"]["claude_session_id"] = serde_json::json!("old-session");
-    assert!(super::legacy_decode::reject_legacy_session_id(&tab).unwrap_err().contains("claude_session_id"));
+    assert!(super::legacy_decode::reject_legacy_session_id(&tab)
+        .unwrap_err()
+        .contains("claude_session_id"));
     assert!(parse_tab_record(std::path::Path::new("isolated/last.json"), "ws", 0, tab).is_none());
-    let fields = codeterm_storage::DeskLeafFields { values: serde_json::json!({"claude_session_id":"old-session"}) };
-    assert!(fields.validate().unwrap_err().to_string().contains("claude_session_id"));
+    let fields = codeterm_storage::DeskLeafFields {
+        values: serde_json::json!({"claude_session_id":"old-session"}),
+    };
+    assert!(fields
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("claude_session_id"));
 }

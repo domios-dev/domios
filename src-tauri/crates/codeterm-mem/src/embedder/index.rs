@@ -17,27 +17,29 @@ pub enum InsertOutcome {
     ItemGone,
 }
 
-pub fn ensure(
-    conn: &Connection,
-    active: &EmbedderIdentity,
-) -> Result<EmbedderIdentity, String> {
+pub fn ensure(conn: &Connection, active: &EmbedderIdentity) -> Result<EmbedderIdentity, String> {
     backend::register(conn)?;
-    conn.execute_batch(STAMP_SCHEMA)
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin index initialization: {e}"))?;
+    tx.execute_batch(STAMP_SCHEMA)
         .map_err(|e| format!("create mem_embedder: {e}"))?;
-    super::pending::init(conn)?;
-    let stamp = match stamp(conn)? {
+    super::pending::init(&tx)?;
+    let stamp = match stamp(&tx)? {
         Some(stamp) => stamp,
         None => {
-            if table_exists(conn)? {
+            if table_exists(&tx)? {
                 return Err("unstamped vector index refused; rebuild the index before use".into());
             }
-            write_stamp(conn, active)?;
+            write_stamp(&tx, active)?;
             active.clone()
         }
     };
-    if !table_exists(conn)? {
-        create_table(conn, stamp.dimension)?;
+    if !table_exists(&tx)? {
+        create_table(&tx, stamp.dimension)?;
     }
+    tx.commit()
+        .map_err(|e| format!("commit index initialization: {e}"))?;
     Ok(stamp)
 }
 

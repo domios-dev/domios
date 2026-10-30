@@ -714,9 +714,9 @@ fn instance_refuses_foreign_bearer_and_accepts_persisted_credential() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
-    let rotated =
-        codeterm_util::instance_token::initialize_at(fixture.temp.path(), true)
-            .unwrap().unwrap();
+    let rotated = codeterm_util::instance_token::initialize_at(fixture.temp.path(), true)
+        .unwrap()
+        .unwrap();
     state.config.lock().api.token = Some(rotated.clone());
     assert!(identify_caller(&state, "Bearer legacy-instance-bearer").is_err());
     assert!(matches!(

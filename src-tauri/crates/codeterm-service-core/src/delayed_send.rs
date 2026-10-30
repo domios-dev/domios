@@ -631,7 +631,9 @@ fn parse_queue_record(
 fn reject_legacy_queue_fields(record: &serde_json::Value) -> Result<(), String> {
     for field in ["paneId", "createdByPane"] {
         if record.get(field).is_some() {
-            return Err(format!("unsupported legacy delayed-send field {field}; use current tab fields"));
+            return Err(format!(
+                "unsupported legacy delayed-send field {field}; use current tab fields"
+            ));
         }
     }
     Ok(())

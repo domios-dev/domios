@@ -235,7 +235,9 @@ fn dev_tab_environment_is_usable_without_reading_the_secret_store() {
 #[test]
 fn explicit_dev_with_default_port_cannot_inherit_production_authority() {
     let root = tempfile::tempdir().unwrap();
-    codeterm_util::secret_file::SecretFile::new_at(root.path(), "domios.instance").set("api_token", "selected-dev").unwrap();
+    codeterm_util::secret_file::SecretFile::new_at(root.path(), "domios.instance")
+        .set("api_token", "selected-dev")
+        .unwrap();
     let require_stored = requires_stored_token(
         true,
         Some("http://127.0.0.1:7685"),

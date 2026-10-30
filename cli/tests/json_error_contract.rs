@@ -44,7 +44,8 @@ struct CliEnv {
 impl CliEnv {
     fn new(stub_port: Option<u16>) -> Self {
         let data_dir = tempfile::tempdir().expect("temp data dir");
-        codeterm_util::secret_file::SecretFile::new_at(data_dir.path(), "domios.instance").set("api_token", "stub-token")
+        codeterm_util::secret_file::SecretFile::new_at(data_dir.path(), "domios.instance")
+            .set("api_token", "stub-token")
             .expect("isolated instance credential");
         Self {
             data_dir,

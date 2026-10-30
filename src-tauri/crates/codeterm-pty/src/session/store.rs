@@ -914,7 +914,9 @@ fn parse_tab_record(
         .unwrap_or("<unknown>")
         .to_string();
     if let Err(error) = legacy_decode::reject_legacy_session_id(&tab) {
-        log::error!("[session] quarantined tab {workspace_id}/{tab_id}: {error}; source left unchanged");
+        log::error!(
+            "[session] quarantined tab {workspace_id}/{tab_id}: {error}; source left unchanged"
+        );
         return None;
     }
     let normalized = match codeterm_types::startup_records::normalize_pane_id_fields(&mut tab) {

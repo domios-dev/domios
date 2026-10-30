@@ -53,7 +53,10 @@ fn validate_config(text: &str) -> Result<(), String> {
 
 fn reject_legacy_token(contents: &str) -> Result<(), String> {
     if salvaged_critical_values(contents).0.is_some()
-        || contents.parse::<toml::Table>().ok().is_some_and(|table| lookup(&table, &["api", "token"]).is_some())
+        || contents
+            .parse::<toml::Table>()
+            .ok()
+            .is_some_and(|table| lookup(&table, &["api", "token"]).is_some())
     {
         return Err("Unsupported legacy config field [api].token; use the current protected .secrets credential store".into());
     }
@@ -156,8 +159,7 @@ fn load_config_uncached_at(
             cached_token.as_ref(),
         ),
         Loaded::Recovered {
-            value: (config, _),
-            ..
+            value: (config, _), ..
         } => finish_loaded(
             &file,
             data_root,
@@ -225,7 +227,9 @@ fn held_config(
     let cached_token = last_known.as_ref().map(|config| config.api.token.clone());
     let (mut config, contents) = match (last_known, raw) {
         (Some(config), _) => {
-            let contents = toml::to_string_pretty(&config).ok().map(|contents| mark_salvaged_config(&contents));
+            let contents = toml::to_string_pretty(&config)
+                .ok()
+                .map(|contents| mark_salvaged_config(&contents));
             (config, contents)
         }
         (None, Some(raw)) => {
@@ -421,10 +425,13 @@ fn apply_instance_token(
         None => codeterm_util::instance_token::initialize_at(
             data_root,
             policy == TokenPolicy::GenerateWhenMissing,
-        ).map_err(|error| format!(
-            "Cannot initialize instance API credential at {}: {error}",
-            data_root.join(".secrets").display()
-        ))?,
+        )
+        .map_err(|error| {
+            format!(
+                "Cannot initialize instance API credential at {}: {error}",
+                data_root.join(".secrets").display()
+            )
+        })?,
     };
     Ok(())
 }

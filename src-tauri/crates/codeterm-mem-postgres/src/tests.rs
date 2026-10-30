@@ -157,8 +157,6 @@ fn postgres_read_only_open_and_version_refusal() {
             expected: migrations::VERSION
         })
     ));
-    assert!(migrations::run(&mut client, &fixture.options.schema, None)
-        .unwrap_err().contains("unsupported Postgres memory schema version"));
     let version: i64 = client
         .query_one(
             &format!(
@@ -314,23 +312,4 @@ fn postgres_limit_saturates_at_signed_maximum() {
         assert_eq!(pg_limit(max), i64::MAX);
         assert_eq!(pg_limit(max + 1), i64::MAX);
     }
-}
-
-#[test]
-#[ignore = "requires disposable pgvector and DOMIOS_TEST_POSTGRES_URL"]
-fn postgres_bootstrap_refuses_unstamped_schema_and_keeps_author_guards() {
-    let fixture = Fixture::new();
-    let schema = &fixture.options.schema;
-    let mut client = fixture.client();
-    client.batch_execute(&format!("INSERT INTO {schema}.mem_items(id,uid,kind,scope,title,created_at,updated_at,author_kind,author_uid,author_friendship)
-        VALUES ('neighbor','neighbor','learning','global','preserved','now','now','neighbor','uid','friendship')")).unwrap();
-    for assignment in ["kind='rule'", "kind='fact'", "is_pinned_wakeup=1", "author_uid=NULL"] {
-        assert!(client.execute(&format!("UPDATE {schema}.mem_items SET {assignment} WHERE id='neighbor'"), &[]).is_err());
-    }
-    let before = export_all(fixture.store());
-    let reopened = PostgresMemStore::connect(&fixture.url, fixture.options.clone()).unwrap();
-    assert_eq!(export_all(&reopened), before);
-    client.batch_execute(&format!("DROP TABLE {schema}.mem_schema_version")).unwrap();
-    assert!(migrations::run(&mut client, schema, None).unwrap_err().contains("unstamped Postgres memory schema refused"));
-    assert_eq!(export_all(&reopened), before);
 }
