@@ -477,6 +477,15 @@ ct_gateway_metadata_abort() {
   return 74
 }
 
+ct_gateway_report_queued_owner() {
+  local dir="$1" blocker_job="$2" blocker_record blocker_command blocker_owner
+  blocker_record="$dir/jobs/$blocker_job.json"
+  blocker_command="$(node -e 'try{process.stdout.write(require(process.argv[1]).command||"unknown")}catch{process.stdout.write("unknown")}' "$blocker_record")"
+  blocker_owner="$(node -e 'try{process.stdout.write(require(process.argv[1]).owner||"unknown")}catch{process.stdout.write("unknown")}' "$blocker_record")"
+  printf 'Build gateway queued: instance=%s job=%s behind job=%s owner=%s command=%s\n' \
+    "$CODETERM_INSTANCE" "$CT_BUILD_JOB_ID" "$blocker_job" "$blocker_owner" "$blocker_command" >&2
+}
+
 ct_gateway_acquire() {
   local command="$1" dir lock wait_mode deadline first owner job log queued_at source_sha worktree owner_command
   local blocker_job blocker_command blocker_owner blocker_record slot_snapshot queued_notice=0
@@ -533,6 +542,10 @@ ct_gateway_acquire() {
     --worktree "$recorded_worktree" \
     --source-sha "$source_sha" --queue-key "$CT_BUILD_QUEUE_KEY" --queued-at "$queued_at" \
     --log-path "$log" --crates "${CT_BUILD_CRATES:-}" --touched-files-count "${CT_BUILD_TOUCHED_FILES_COUNT:-}" || { ct_gateway_metadata_abort "$dir" "queued job record"; return $?; }
+  if [ "$wait_mode" != "fail-fast" ] && [ -n "${CODETERM_INSTANCE:-}" ] && [ -d "$lock" ]; then
+    ct_gateway_report_queued_owner "$dir" "$(cat "$lock/job_id" 2>/dev/null || echo unknown)"
+    queued_notice=1
+  fi
   ct_gateway_mutex_release "$dir" || return $?
   CT_GATEWAY_QUEUE_CREATED=0
   CT_GATEWAY_ACTIVE=1
@@ -582,11 +595,7 @@ ct_gateway_acquire() {
       else
         blocker_job="$(cat "$dir/queue/$first/job_id" 2>/dev/null || echo unknown)"
       fi
-      blocker_record="$dir/jobs/$blocker_job.json"
-      blocker_command="$(node -e 'try{process.stdout.write(require(process.argv[1]).command||"unknown")}catch{process.stdout.write("unknown")}' "$blocker_record")"
-      blocker_owner="$(node -e 'try{process.stdout.write(require(process.argv[1]).owner||"unknown")}catch{process.stdout.write("unknown")}' "$blocker_record")"
-      printf 'Build gateway queued: instance=%s job=%s behind job=%s owner=%s command=%s\n' \
-        "$CODETERM_INSTANCE" "$CT_BUILD_JOB_ID" "$blocker_job" "$blocker_owner" "$blocker_command" >&2
+      ct_gateway_report_queued_owner "$dir" "$blocker_job"
       queued_notice=1
     fi
     slot_snapshot="$(node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-slot.mjs" snapshot "$dir")" || { ct_gateway_metadata_abort "$dir" "queue snapshot"; return $?; }

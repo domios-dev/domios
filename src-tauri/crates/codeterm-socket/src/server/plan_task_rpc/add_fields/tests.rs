@@ -35,9 +35,9 @@ fn ease_task_add_aggregates_errors_and_derives_optional_fields() {
         assert!(error.message.contains(field), "{}", error.message);
     }
     assert!(store.get(&plan.id).unwrap().tasks.is_empty());
-    let draft = normalize(&Some(json!({"name":"CLI defaults", "executor_role":"Engineer", "role_guidance":"Own the CLI", "model":"codex"})), &store, &plan.id).unwrap();
+    let draft = normalize(&Some(json!({"name":"CLI defaults", "executor_role":"Engineer", "role_guidance":"Own the CLI", "model":"provider-fixture"})), &store, &plan.id).unwrap();
     assert_eq!(draft["personality"], "CLI");
-    assert_eq!(draft["model"], "codex");
+    assert_eq!(draft["model"], "provider-fixture");
     assert_eq!(draft["tags"], json!(["work:backend"]));
     assert!(draft["inferred_work_warning"]
         .as_str()
