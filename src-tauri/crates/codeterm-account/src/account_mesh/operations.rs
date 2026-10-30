@@ -243,7 +243,8 @@ impl AccountMesh {
         let request = InstallationEnrollment { body, proof };
         let enrolled = self
             .call(self.ports.registry.enroll_key(&signed.session, &request))
-            .await.map_err(|refusal| match refusal {
+            .await
+            .map_err(|refusal| match refusal {
                 AccountMeshRefusal::Conflict => AccountMeshRefusal::KeyConflict,
                 other => other,
             })?;
@@ -319,7 +320,13 @@ impl AccountMesh {
     pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
         self.with(|inner| {
-            if inner.rejoin_authorized && inner.record.keys.get(&signed.account).is_some_and(|binding| binding.key_id != signed.key.key_id()) {
+            if inner.rejoin_authorized
+                && inner
+                    .record
+                    .keys
+                    .get(&signed.account)
+                    .is_some_and(|binding| binding.key_id != signed.key.key_id())
+            {
                 inner.rejoin_required = true;
             }
         });
@@ -363,10 +370,11 @@ impl AccountMesh {
                 Ok(result) => result,
                 Err(AccountMeshRefusal::Revoked) => self.rejoin(&mut signed).await?,
                 Err(AccountMeshRefusal::GenerationMismatch | AccountMeshRefusal::KeyConflict)
-                    if self.with(|inner| inner.rejoin_authorized) => {
-                        self.with(|inner| inner.rejoin_required = true);
-                        self.rejoin(&mut signed).await?
-                    },
+                    if self.with(|inner| inner.rejoin_authorized) =>
+                {
+                    self.with(|inner| inner.rejoin_required = true);
+                    self.rejoin(&mut signed).await?
+                }
                 Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden) => {
                     match self.reconcile_slot(&signed).await {
                         Ok(Some(slot_revision)) => {
@@ -486,9 +494,14 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         self.persist().await;
-        if result.operation == MembershipOperation::Recover && self.with(|inner| inner.rotation_attempt == Some(epoch)) {
+        if result.operation == MembershipOperation::Recover
+            && self.with(|inner| inner.rotation_attempt == Some(epoch))
+        {
             let observed = self.read_registry(&signed).await;
-            self.ports.transport.installation_revoked(&installation).await;
+            self.ports
+                .transport
+                .installation_revoked(&installation)
+                .await;
             observed?;
         }
         let unchanged = reuse_registry && self.with(|inner| !inner.sync_pending);

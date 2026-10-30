@@ -1,6 +1,8 @@
+use super::{
+    Clock, Engine, FakeRegistry, InstallationProof, RegistryRefusal, RegistryResult, Session,
+    Signature, EPOCH, INSTALLATION, PROJECT, STANDARD, URL_SAFE_NO_PAD,
+};
 use serde_json::json;
-use super::{FakeRegistry, Session, RegistryResult, RegistryRefusal, InstallationProof,
-    STANDARD, URL_SAFE_NO_PAD, Engine, Signature, PROJECT, INSTALLATION, EPOCH, Clock};
 use std::collections::HashMap;
 
 #[derive(Default)]
@@ -18,7 +20,9 @@ impl ProofChallenges {
     }
 
     pub fn expired(&self, nonce: &str, now: u64) -> bool {
-        self.bodies.get(nonce).is_some_and(|(issued, _)| now >= issued.saturating_add(120))
+        self.bodies
+            .get(nonce)
+            .is_some_and(|(issued, _)| now >= issued.saturating_add(120))
     }
 
     pub fn accepts(&self, body: &serde_json::Value, nonce: &str) -> bool {
@@ -36,15 +40,28 @@ impl FakeRegistry {
         spki: Option<&str>,
     ) -> RegistryResult<()> {
         let body = serde_json::to_value(body).unwrap();
-        if endpoint == "meshAdmission" && body["operation"] == "recover"
-            && self.challenged.lock().unwrap().expired(&proof.nonce, self.clock.now()) {
+        if endpoint == "meshAdmission"
+            && body["operation"] == "recover"
+            && self
+                .challenged
+                .lock()
+                .unwrap()
+                .expired(&proof.nonce, self.clock.now())
+        {
             return Err(RegistryRefusal::ChallengeInvalid);
         }
         if !self.challenged.lock().unwrap().accepts(&body, &proof.nonce) {
             return Err(RegistryRefusal::Conflict);
         }
         let uid = &session.identity.uid;
-        if spki.is_none() && self.accounts.lock().unwrap().get(uid).is_some_and(|account| account.key_generation != proof.generation) {
+        if spki.is_none()
+            && self
+                .accounts
+                .lock()
+                .unwrap()
+                .get(uid)
+                .is_some_and(|account| account.key_generation != proof.generation)
+        {
             return Err(RegistryRefusal::GenerationMismatch);
         }
         let spki = match spki {
@@ -79,5 +96,4 @@ impl FakeRegistry {
             && proof.key_id == crate::account_mesh::key::sha256_hex(&der);
         valid.then_some(()).ok_or(RegistryRefusal::Forbidden)
     }
-
 }

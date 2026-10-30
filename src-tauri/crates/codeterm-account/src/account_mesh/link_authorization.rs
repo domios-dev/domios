@@ -31,12 +31,25 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Invalid);
         }
         let resolved = self.with(|inner| {
-            inner.resolved.get(&request.peer_installation_id).cloned().or_else(|| {
-                inner.state.registry.as_ref()?.rows.iter()
-                    .find(|row| row.installation_id == request.peer_installation_id && row.active
-                        && row.eligibility == Eligibility::Eligible && row.presence == RegistryPresence::Present)
-                    .map(|row| row.target())
-            })
+            inner
+                .resolved
+                .get(&request.peer_installation_id)
+                .cloned()
+                .or_else(|| {
+                    inner
+                        .state
+                        .registry
+                        .as_ref()?
+                        .rows
+                        .iter()
+                        .find(|row| {
+                            row.installation_id == request.peer_installation_id
+                                && row.active
+                                && row.eligibility == Eligibility::Eligible
+                                && row.presence == RegistryPresence::Present
+                        })
+                        .map(|row| row.target())
+                })
         });
         // A responder authorizes on the initiator's slot identity; it never dials that peer.
         let cached = resolved.is_some();
@@ -59,8 +72,12 @@ impl AccountMesh {
         };
         let result = match self.admission(&signed, operation(peer)).await {
             Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden) if cached => {
-                self.with(|inner| { inner.resolved.remove(&request.peer_installation_id); });
-                let peer = self.resolve_link_identity(&request.peer_installation_id).await?;
+                self.with(|inner| {
+                    inner.resolved.remove(&request.peer_installation_id);
+                });
+                let peer = self
+                    .resolve_link_identity(&request.peer_installation_id)
+                    .await?;
                 self.admission(&signed, operation(peer)).await?
             }
             result => result?,
@@ -78,5 +95,4 @@ impl AccountMesh {
         }
         Ok(membership_token(&result.permit))
     }
-
 }

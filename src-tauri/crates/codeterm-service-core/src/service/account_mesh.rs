@@ -415,7 +415,9 @@ impl ServiceContext {
                 let previous = mesh.lock().account_mesh_pairs();
                 codeterm_mesh::account_mesh::link::on_account_state_applied(mesh.clone()).await;
                 if previous != mesh.lock().account_mesh_pairs() {
-                    service.ui.emit(ACCOUNT_MESH_CHANGED, serde_json::Value::Null);
+                    service
+                        .ui
+                        .emit(ACCOUNT_MESH_CHANGED, serde_json::Value::Null);
                 }
                 if states.changed().await.is_err() {
                     return;

@@ -40,7 +40,8 @@ impl AccountMesh {
     async fn registry_list(&self, allow_cached: bool) -> Outcome {
         let signed = self.signed(None).await?;
         if let Some(cached) = self.with(|inner| {
-            (allow_cached && inner.is_current(signed.epoch)
+            (allow_cached
+                && inner.is_current(signed.epoch)
                 && inner.state.enrollment == super::state::Enrollment::Refused
                 && matches!(
                     inner.state.last_refusal,

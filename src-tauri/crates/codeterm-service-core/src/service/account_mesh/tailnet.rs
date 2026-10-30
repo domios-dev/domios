@@ -101,7 +101,10 @@ impl Serving {
         };
         if let Some(address) = address {
             self.sockets.remove(&address);
-            self.failed.entry(address).or_default().record(tokio::time::Instant::now(), format!("listener {address} exited"));
+            self.failed.entry(address).or_default().record(
+                tokio::time::Instant::now(),
+                format!("listener {address} exited"),
+            );
         }
     }
 
@@ -133,19 +136,38 @@ impl Serving {
     }
 
     fn ready(&self) -> Vec<SocketAddr> {
-        self.sockets.keys().chain(self.reused.iter()).copied().collect()
+        self.sockets
+            .keys()
+            .chain(self.reused.iter())
+            .copied()
+            .collect()
     }
 
     fn retry_now(&mut self) {
-        for failure in self.failed.values_mut() { failure.reset_deadline(); }
+        for failure in self.failed.values_mut() {
+            failure.reset_deadline();
+        }
     }
 
-    async fn reconcile(&mut self, desired: &[SocketAddr], router: &axum::Router, primary: &[SocketAddr]) {
-        self.reconcile_with_bind(desired, router, primary, codeterm_util::tcp_listener::bind).await;
+    async fn reconcile(
+        &mut self,
+        desired: &[SocketAddr],
+        router: &axum::Router,
+        primary: &[SocketAddr],
+    ) {
+        self.reconcile_with_bind(desired, router, primary, codeterm_util::tcp_listener::bind)
+            .await;
     }
 
-    async fn reconcile_with_bind(&mut self, desired: &[SocketAddr], router: &axum::Router, primary: &[SocketAddr], mut bind: impl FnMut(SocketAddr) -> std::io::Result<std::net::TcpListener>) {
-        self.reused.retain(|address| primary.iter().any(|bind| covers(*bind, *address)));
+    async fn reconcile_with_bind(
+        &mut self,
+        desired: &[SocketAddr],
+        router: &axum::Router,
+        primary: &[SocketAddr],
+        mut bind: impl FnMut(SocketAddr) -> std::io::Result<std::net::TcpListener>,
+    ) {
+        self.reused
+            .retain(|address| primary.iter().any(|bind| covers(*bind, *address)));
         self.withdraw(desired).await;
         while let Some(result) = self.tasks.try_join_next() {
             self.stopped(result);
@@ -154,7 +176,11 @@ impl Serving {
             if self.sockets.contains_key(address) || self.reused.contains(address) {
                 continue;
             }
-            if self.failed.get(address).is_some_and(|failure| !failure.due(tokio::time::Instant::now())) {
+            if self
+                .failed
+                .get(address)
+                .is_some_and(|failure| !failure.due(tokio::time::Instant::now()))
+            {
                 continue;
             }
             let listener = match bind(*address) {
@@ -165,7 +191,10 @@ impl Serving {
                     continue;
                 }
                 Err(error) => {
-                    self.failed.entry(*address).or_default().record(tokio::time::Instant::now(), format!("bind {address}: {}", error.kind()));
+                    self.failed.entry(*address).or_default().record(
+                        tokio::time::Instant::now(),
+                        format!("bind {address}: {}", error.kind()),
+                    );
                     continue;
                 }
             };
@@ -186,7 +215,10 @@ impl Serving {
                 }
                 Err(error) => {
                     task.abort();
-                    self.failed.entry(address).or_default().record(tokio::time::Instant::now(), error);
+                    self.failed
+                        .entry(address)
+                        .or_default()
+                        .record(tokio::time::Instant::now(), error);
                 }
             }
         }
@@ -235,8 +267,14 @@ pub(super) async fn run_with_network(
         let port = control.bound_addr().map_or(0, |address| address.port());
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
         let desired = network.selected(enabled && listening, port).await;
-        let primary = if listening { control.listeners.primary_ready() } else { Vec::new() };
-        serving.reused.retain(|address| primary.iter().any(|bind| covers(*bind, *address)));
+        let primary = if listening {
+            control.listeners.primary_ready()
+        } else {
+            Vec::new()
+        };
+        serving
+            .reused
+            .retain(|address| primary.iter().any(|bind| covers(*bind, *address)));
         serving.withdraw(&desired).await;
         let retained = serving.ready();
         if published != retained {
@@ -251,7 +289,11 @@ pub(super) async fn run_with_network(
             published = ready;
             service.ui.emit("mesh-state-changed", serde_json::json!({}));
         }
-        let retry_at = serving.failed.values().filter_map(|failure| failure.retry_at()).min();
+        let retry_at = serving
+            .failed
+            .values()
+            .filter_map(|failure| failure.retry_at())
+            .min();
         tokio::select! {
             _ = async {
                 match retry_at {
@@ -282,7 +324,11 @@ pub(super) async fn run_with_network(
     service.ui.emit("mesh-state-changed", serde_json::json!({}));
 }
 
-fn reusable_primary(error: std::io::ErrorKind, primary: &[SocketAddr], address: SocketAddr) -> bool {
+fn reusable_primary(
+    error: std::io::ErrorKind,
+    primary: &[SocketAddr],
+    address: SocketAddr,
+) -> bool {
     error == std::io::ErrorKind::AddrInUse && primary.iter().any(|bind| covers(*bind, address))
 }
 

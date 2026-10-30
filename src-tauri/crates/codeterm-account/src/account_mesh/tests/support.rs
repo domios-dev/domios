@@ -1,5 +1,4 @@
 mod proofs;
-use proofs::ProofChallenges;
 use crate::account_mesh::wire::*;
 use crate::account_mesh::*;
 use crate::{Identity, InstallationId, Secret, Session};
@@ -8,6 +7,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use codeterm_entitlements::{Activation, CompiledKey, DetachedGrant, Mode, PinnedAuthority};
 use ed25519_dalek::{Signature, Signer, SigningKey};
+use proofs::ProofChallenges;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -352,7 +352,11 @@ impl MeshRegistry for FakeRegistry {
                 assert!(request.body.get("requested_membership_seconds").is_none());
             }
         }
-        Ok(self.challenged.lock().unwrap().issue(request.body.clone(), self.clock.now()))
+        Ok(self
+            .challenged
+            .lock()
+            .unwrap()
+            .issue(request.body.clone(), self.clock.now()))
     }
 
     async fn enroll_key(
@@ -365,7 +369,11 @@ impl MeshRegistry for FakeRegistry {
             KeyOperation::Recover => "recover_key",
         };
         self.admit(session, label);
-        self.script.lock().unwrap().key_requests.push(request.clone());
+        self.script
+            .lock()
+            .unwrap()
+            .key_requests
+            .push(request.clone());
         let gate = self.script.lock().unwrap().enrollment_gate.clone();
         if let Some(gate) = gate {
             self.entered.notify_one();
@@ -391,15 +399,20 @@ impl MeshRegistry for FakeRegistry {
             assert_eq!(request.proof.generation, 0);
             if account.key.as_ref() == Some(&spki) {
                 account.key_generation
-            } else { account.key_generation + 1 }
+            } else {
+                account.key_generation + 1
+            }
         } else {
             let generation = request.body.expected_generation + 1;
             if request.proof.generation != generation {
                 return Err(RegistryRefusal::Invalid);
             }
             match &request.body.operation {
-                KeyOperation::Enroll if account.key.is_none() && request.body.expected_generation == 0 => {},
-                KeyOperation::Recover if account.key.is_some() && account.key_generation == request.body.expected_generation => {},
+                KeyOperation::Enroll
+                    if account.key.is_none() && request.body.expected_generation == 0 => {}
+                KeyOperation::Recover
+                    if account.key.is_some()
+                        && account.key_generation == request.body.expected_generation => {}
                 _ => return Err(RegistryRefusal::Conflict),
             }
             generation
@@ -436,7 +449,11 @@ impl MeshRegistry for FakeRegistry {
         };
         self.admit(session, label);
         if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
-            self.script.lock().unwrap().link_bodies.push(envelope.request.clone());
+            self.script
+                .lock()
+                .unwrap()
+                .link_bodies
+                .push(envelope.request.clone());
         }
         if matches!(envelope.request.operation, MeshOperation::Recover { .. }) {
             let mut script = self.script.lock().unwrap();
@@ -481,7 +498,9 @@ impl MeshRegistry for FakeRegistry {
             };
             let permit = if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
                 script.permit_once.take().or(script.permit)
-            } else { script.permit };
+            } else {
+                script.permit
+            };
             (membership, script.publication, permit, script.issuer_ahead)
         };
         let lost_membership_reply = if membership_op {
@@ -493,9 +512,17 @@ impl MeshRegistry for FakeRegistry {
         let now = self.clock.now() + script.3;
         let mut accounts = self.accounts.lock().unwrap();
         let account = accounts.entry(uid.clone()).or_default();
-        if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+        if matches!(
+            envelope.request.operation,
+            MeshOperation::Recover {
+                target_policy: Some(_),
+                ..
+            }
+        ) {
             if let Some((prepared, result)) = &account.recovery_receipt {
-                if prepared == envelope { return Ok(result.clone()); }
+                if prepared == envelope {
+                    return Ok(result.clone());
+                }
             }
         }
         if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
@@ -538,16 +565,29 @@ impl MeshRegistry for FakeRegistry {
                         expected_slot_revision + 1
                     }
                     MeshOperation::Renew { .. } => return Err(RegistryRefusal::Forbidden),
-                    MeshOperation::Recover { target: RecoveryTarget::Own { installation_id }, target_policy: Some(OwnTargetPolicy::Own) }
-                        if installation_id == INSTALLATION && account.slot.is_some()
-                            && account.slot_key.as_ref().is_some_and(|(_, generation)| proof.generation > *generation) =>
+                    MeshOperation::Recover {
+                        target: RecoveryTarget::Own { installation_id },
+                        target_policy: Some(OwnTargetPolicy::Own),
+                    } if installation_id == INSTALLATION
+                        && account.slot.is_some()
+                        && account
+                            .slot_key
+                            .as_ref()
+                            .is_some_and(|(_, generation)| proof.generation > *generation) =>
                     {
                         account.slot.unwrap() + 1
                     }
-                    MeshOperation::Recover { target: RecoveryTarget::Exact(target), target_policy: None }
-                        if !account.inactive && account.slot == Some(target.slot_revision)
-                            && account.slot_key.as_ref() == Some(&(target.key_id.clone(), target.key_generation))
-                            && proof.generation > target.key_generation => { target.slot_revision + 1 }
+                    MeshOperation::Recover {
+                        target: RecoveryTarget::Exact(target),
+                        target_policy: None,
+                    } if !account.inactive
+                        && account.slot == Some(target.slot_revision)
+                        && account.slot_key.as_ref()
+                            == Some(&(target.key_id.clone(), target.key_generation))
+                        && proof.generation > target.key_generation =>
+                    {
+                        target.slot_revision + 1
+                    }
                     MeshOperation::Recover { .. } => return Err(RegistryRefusal::Forbidden),
                     _ => return Err(RegistryRefusal::Invalid),
                 };
@@ -579,16 +619,30 @@ impl MeshRegistry for FakeRegistry {
                 if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
                     account.renew_receipt = Some((envelope.request.clone(), result.clone()));
                 }
-                if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+                if matches!(
+                    envelope.request.operation,
+                    MeshOperation::Recover {
+                        target_policy: Some(_),
+                        ..
+                    }
+                ) {
                     account.recovery_receipt = Some((envelope.clone(), result.clone()));
                 }
                 if let Some(refusal) = lost_membership_reply {
                     return Err(refusal);
                 }
-                if let (MeshOperation::Recover { target: RecoveryTarget::Exact(_), .. }, MeshResult::Membership(membership)) = (&envelope.request.operation, &result) {
+                if let (
+                    MeshOperation::Recover {
+                        target: RecoveryTarget::Exact(_),
+                        ..
+                    },
+                    MeshResult::Membership(membership),
+                ) = (&envelope.request.operation, &result)
+                {
                     return Ok(MeshResult::Recovered(RecoveredResult {
                         installation_id: membership.installation_id.clone(),
-                        key_id: proof.key_id.clone(), key_generation: proof.generation,
+                        key_id: proof.key_id.clone(),
+                        key_generation: proof.generation,
                         slot_revision: membership.slot_revision,
                         registry_revision: membership.registry_revision,
                         membership: Some(membership.membership.clone()),

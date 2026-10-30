@@ -161,10 +161,16 @@ where
         let service = state.svc.clone();
         codeterm_service_core::async_runtime::spawn(async move {
             let previous = mesh_state.lock().account_mesh_pairs();
-            let _ = codeterm_service_core::mesh::account_mesh::link::adopt_peer(&mesh_state, &peer_id).await;
+            let _ =
+                codeterm_service_core::mesh::account_mesh::link::adopt_peer(&mesh_state, &peer_id)
+                    .await;
             if previous != mesh_state.lock().account_mesh_pairs() {
-                service.ui.emit("account-mesh-changed", serde_json::Value::Null);
-                service.ui.emit("mesh-state-changed", serde_json::Value::Null);
+                service
+                    .ui
+                    .emit("account-mesh-changed", serde_json::Value::Null);
+                service
+                    .ui
+                    .emit("mesh-state-changed", serde_json::Value::Null);
             }
         });
     }

@@ -191,14 +191,23 @@ fn tailnet_health_failures_back_off_and_log_only_changed_states() {
 async fn tailnet_proven_wildcard_is_ready_without_a_second_bind() {
     let address = "100.64.1.2:7685".parse().unwrap();
     let mut serving = Serving {
-        tasks: JoinSet::new(), sockets: BTreeMap::new(),
-        failed: BTreeMap::new(), reused: BTreeSet::new(),
+        tasks: JoinSet::new(),
+        sockets: BTreeMap::new(),
+        failed: BTreeMap::new(),
+        reused: BTreeSet::new(),
     };
     let mut attempts = 0;
-    serving.reconcile_with_bind(&[address], &axum::Router::new(), &["0.0.0.0:7685".parse().unwrap()], |_| {
-        attempts += 1;
-        Err(std::io::Error::from(std::io::ErrorKind::AddrInUse))
-    }).await;
+    serving
+        .reconcile_with_bind(
+            &[address],
+            &axum::Router::new(),
+            &["0.0.0.0:7685".parse().unwrap()],
+            |_| {
+                attempts += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::AddrInUse))
+            },
+        )
+        .await;
     assert_eq!(attempts, 1);
     assert_eq!(serving.ready(), vec![address]);
     assert!(serving.tasks.is_empty());
@@ -211,12 +220,19 @@ async fn tailnet_proven_wildcard_is_ready_without_a_second_bind() {
 async fn tailnet_wildcard_does_not_replace_an_unavailable_dedicated_address() {
     let address = "100.64.1.2:7685".parse().unwrap();
     let mut serving = Serving {
-        tasks: JoinSet::new(), sockets: BTreeMap::new(),
-        failed: BTreeMap::new(), reused: BTreeSet::new(),
+        tasks: JoinSet::new(),
+        sockets: BTreeMap::new(),
+        failed: BTreeMap::new(),
+        reused: BTreeSet::new(),
     };
-    serving.reconcile_with_bind(&[address], &axum::Router::new(), &["0.0.0.0:7685".parse().unwrap()], |_| {
-        Err(std::io::Error::from(std::io::ErrorKind::AddrNotAvailable))
-    }).await;
+    serving
+        .reconcile_with_bind(
+            &[address],
+            &axum::Router::new(),
+            &["0.0.0.0:7685".parse().unwrap()],
+            |_| Err(std::io::Error::from(std::io::ErrorKind::AddrNotAvailable)),
+        )
+        .await;
     assert!(serving.ready().is_empty());
     assert!(serving.failed.contains_key(&address));
 }
@@ -226,8 +242,10 @@ fn tailnet_external_event_resets_deadline_and_retains_backoff_and_diagnostic() {
     let address = "100.64.1.2:7685".parse().unwrap();
     let now = tokio::time::Instant::now();
     let mut serving = Serving {
-        tasks: JoinSet::new(), sockets: BTreeMap::new(),
-        failed: BTreeMap::new(), reused: BTreeSet::new(),
+        tasks: JoinSet::new(),
+        sockets: BTreeMap::new(),
+        failed: BTreeMap::new(),
+        reused: BTreeSet::new(),
     };
     let failure = serving.failed.entry(address).or_default();
     assert!(failure.record(now, "address unavailable".into()));
@@ -236,5 +254,8 @@ fn tailnet_external_event_resets_deadline_and_retains_backoff_and_diagnostic() {
     let failure = serving.failed.get_mut(&address).unwrap();
     assert!(failure.due(now));
     assert!(!failure.record(now, "address unavailable".into()));
-    assert_eq!(failure.retry_at(), Some(now + std::time::Duration::from_secs(60)));
+    assert_eq!(
+        failure.retry_at(),
+        Some(now + std::time::Duration::from_secs(60))
+    );
 }

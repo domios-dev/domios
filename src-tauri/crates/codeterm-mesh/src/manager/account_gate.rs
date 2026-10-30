@@ -11,7 +11,9 @@ use crate::account_mesh::{
 use crate::MeshState;
 
 pub(super) enum AdoptionAttempt {
-    InFlight { failures: u32 },
+    InFlight {
+        failures: u32,
+    },
     Refused {
         account_epoch: u64,
         advertised: Option<String>,
@@ -294,17 +296,29 @@ impl MeshManager {
         };
         let blocked = match self.adoptions.get(peer_id) {
             Some(AdoptionAttempt::InFlight { .. }) => true,
-            Some(AdoptionAttempt::Refused { refusal, retry_at, account_epoch, advertised: seen, .. }) => {
-                if matches!(refusal, AdmissionRefusal::RateLimited { .. } | AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable) {
+            Some(AdoptionAttempt::Refused {
+                refusal,
+                retry_at,
+                account_epoch,
+                advertised: seen,
+                ..
+            }) => {
+                if matches!(
+                    refusal,
+                    AdmissionRefusal::RateLimited { .. }
+                        | AdmissionRefusal::Offline
+                        | AdmissionRefusal::PeerUnreachable
+                ) {
                     now < *retry_at
                 } else {
                     *account_epoch == self.account.account_epoch && *seen == advertised
                 }
-            },
+            }
             None => false,
         };
         if !blocked {
-            self.adoptions.insert(peer_id.to_string(), AdoptionAttempt::InFlight { failures });
+            self.adoptions
+                .insert(peer_id.to_string(), AdoptionAttempt::InFlight { failures });
         }
         !blocked
     }
@@ -329,7 +343,12 @@ impl MeshManager {
                     account_epoch: self.account.account_epoch,
                     advertised: self.advertised_memberships.get(peer_id).cloned(),
                     refusal: refusal.clone(),
-                    retry_at: self.now().saturating_add(match refusal { AdmissionRefusal::RateLimited { retry_after_seconds } => (*retry_after_seconds).max(delay), _ => delay }),
+                    retry_at: self.now().saturating_add(match refusal {
+                        AdmissionRefusal::RateLimited {
+                            retry_after_seconds,
+                        } => (*retry_after_seconds).max(delay),
+                        _ => delay,
+                    }),
                     failures: failures.saturating_add(1),
                 };
                 self.adoptions.insert(peer_id.to_string(), refused);

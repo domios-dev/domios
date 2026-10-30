@@ -117,16 +117,36 @@ impl AccountMesh {
         signed: &Signed,
         operation: MeshOperation,
     ) -> Outcome<MeshResult> {
-        if matches!(operation, MeshOperation::Recover { target_policy: Some(_), .. })
-            && !self.with(|inner| inner.rejoin_window.as_ref().is_some_and(|window| window.live(signed.epoch, self.now()))) {
+        if matches!(
+            operation,
+            MeshOperation::Recover {
+                target_policy: Some(_),
+                ..
+            }
+        ) && !self.with(|inner| {
+            inner
+                .rejoin_window
+                .as_ref()
+                .is_some_and(|window| window.live(signed.epoch, self.now()))
+        }) {
             return Err(AccountMeshRefusal::ReauthRequired);
         }
         let prepared = self.with(|inner| {
-            let window = inner.rejoin_window.as_mut().filter(|window| window.live(signed.epoch, self.now()))?;
-            if window.recovery.as_ref().is_some_and(|prepared| !prepared.replayable(self.now())) {
+            let window = inner
+                .rejoin_window
+                .as_mut()
+                .filter(|window| window.live(signed.epoch, self.now()))?;
+            if window
+                .recovery
+                .as_ref()
+                .is_some_and(|prepared| !prepared.replayable(self.now()))
+            {
                 window.recovery = None;
             }
-            window.recovery.as_ref().filter(|prepared| prepared.envelope.request.operation == operation)
+            window
+                .recovery
+                .as_ref()
+                .filter(|prepared| prepared.envelope.request.operation == operation)
                 .map(|prepared| prepared.envelope.clone())
         });
         if let Some(prepared) = prepared {
@@ -170,10 +190,23 @@ impl AccountMesh {
             request,
             installation_proof,
         };
-        if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+        if matches!(
+            envelope.request.operation,
+            MeshOperation::Recover {
+                target_policy: Some(_),
+                ..
+            }
+        ) {
             self.with(|inner| {
-                if let Some(window) = inner.rejoin_window.as_mut().filter(|window| window.epoch == signed.epoch) {
-                    window.recovery = Some(super::rejoin::PreparedRecovery { envelope: envelope.clone(), issued_at });
+                if let Some(window) = inner
+                    .rejoin_window
+                    .as_mut()
+                    .filter(|window| window.epoch == signed.epoch)
+                {
+                    window.recovery = Some(super::rejoin::PreparedRecovery {
+                        envelope: envelope.clone(),
+                        issued_at,
+                    });
                 }
             });
         }
@@ -195,13 +228,28 @@ impl AccountMesh {
         result
     }
 
-    async fn submit_admission(&self, signed: &Signed, envelope: &SignedEnvelope<MeshAdmissionBody>) -> Outcome<MeshResult> {
-        let result = self.call(self.ports.registry.admission(&signed.session, envelope)).await;
+    async fn submit_admission(
+        &self,
+        signed: &Signed,
+        envelope: &SignedEnvelope<MeshAdmissionBody>,
+    ) -> Outcome<MeshResult> {
+        let result = self
+            .call(self.ports.registry.admission(&signed.session, envelope))
+            .await;
         if matches!(result, Err(AccountMeshRefusal::RateLimited { .. }))
-            && matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+            && matches!(
+                envelope.request.operation,
+                MeshOperation::Recover {
+                    target_policy: Some(_),
+                    ..
+                }
+            )
+        {
             self.with(|inner| {
                 if inner.is_current(signed.epoch) {
-                    if let Some(window) = inner.rejoin_window.as_mut() { window.recovery = None; }
+                    if let Some(window) = inner.rejoin_window.as_mut() {
+                        window.recovery = None;
+                    }
                 }
             });
         }

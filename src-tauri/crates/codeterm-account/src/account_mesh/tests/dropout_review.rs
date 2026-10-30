@@ -50,11 +50,17 @@ async fn account_mesh_stuck_typed_forbidden_backs_off_for_hours_without_repeated
     harness.clock.set(START + 3600);
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Forbidden);
     harness.mesh.enrollment_signed_in();
-    assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Err(AccountMeshRefusal::Forbidden));
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::Forbidden)
+    );
     let before = count(&harness.log, "registry:");
     for delay in [300, 600, 1200, 2400, 4800, 9600, 14400] {
         harness.clock.set(START + 3600 + delay);
-        assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Err(AccountMeshRefusal::Forbidden));
+        assert_eq!(
+            harness.mesh.refresh(EnrollTrigger::Lease).await,
+            Err(AccountMeshRefusal::Forbidden)
+        );
     }
     assert_eq!(count(&harness.log, "registry:"), before);
     assert_eq!(harness.calls("recover_key"), 1);
