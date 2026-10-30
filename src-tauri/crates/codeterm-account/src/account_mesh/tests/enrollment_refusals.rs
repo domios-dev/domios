@@ -139,7 +139,8 @@ async fn budget_timer_fires_once_then_stops_until_explicit_recovery() {
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
         refusal
     );
-    harness.registry.entered.notified().await;
+    assert_eq!(harness.calls("enroll_key"), 1);
+    assert_eq!(harness.state().retry_at, Some(START + 900));
     let mut changed = harness.mesh.subscribe();
     harness.clock.set(START + 900);
     tokio::time::advance(std::time::Duration::from_secs(900)).await;

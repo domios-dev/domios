@@ -331,8 +331,10 @@ impl AccountMesh {
             }
         });
         let observed_registry = self.restore_admission(&signed).await;
-        if !observed_registry && self.with(|inner| inner.record.peer_presence_refresh) {
-            let _ = self.read_registry(&signed).await;
+        if !observed_registry
+            && self.with(|inner| inner.record.peer_presence_refresh && !inner.rejoin_required)
+        {
+            let _ = self.list_fresh().await;
         }
         let now = self.now();
         let current = self.with(|inner| {
