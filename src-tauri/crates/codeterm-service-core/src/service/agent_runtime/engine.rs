@@ -20,7 +20,7 @@ pub struct OutstandingRequest {
 }
 
 pub struct Session {
-    pub(super) capacity_retry: Mutex<super::capacity_retry::Policy>,
+    pub(super) capacity_retry: Mutex<super::capacity_retry::RetryState>,
     pub(super) update_generation: std::sync::atomic::AtomicU64,
     pub(super) update_recovery_available: std::sync::atomic::AtomicBool,
     pub provider: String,

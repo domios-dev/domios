@@ -3,9 +3,6 @@ use crate::service::ServiceState;
 use std::time::Duration;
 
 pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<(), String> {
-    if msg.turn_retry.is_some() {
-        return crate::service::agent_runtime::capacity_retry::deliver(svc, msg).await;
-    }
     let ready = {
         let service = svc.clone();
         let tab_id = msg.tab_id.clone();
@@ -41,16 +38,22 @@ pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<
         .plan_store
         .prepend_worker_charter_for_tab(&tab_id, &body);
     let deliver_tab_id = tab_id.clone();
+    let message_id = msg.id.clone();
     tokio::task::spawn_blocking(move || {
-        svc_for_deliver.gateway_deliver(
-            &deliver_tab_id,
-            envelope,
-            &body,
-            crate::service::message_gateway::DeliveryClass::AgentTraffic,
-        )
+        if crate::service::agent_runtime::capacity_retry::skip_retry(&deliver_tab_id, &message_id) {
+            return Ok(());
+        }
+        // A turn starting after this check may harmlessly receive an extra continue like user input.
+        svc_for_deliver
+            .gateway_deliver(
+                &deliver_tab_id,
+                envelope,
+                &body,
+                crate::service::message_gateway::DeliveryClass::AgentTraffic,
+            )
+            .map(|_| ())
     })
     .await
     .map_err(|e| format!("delayed delivery task failed: {e}"))
     .and_then(|res| res)
-    .map(|_| ())
 }

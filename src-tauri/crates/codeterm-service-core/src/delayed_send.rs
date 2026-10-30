@@ -21,9 +21,7 @@ pub use system_entries::{
 };
 
 mod types;
-pub use types::{
-    DelayedMessage, DelayedMessageState, DelayedMessageView, ReminderCreator, TurnRetry,
-};
+pub use types::{DelayedMessage, DelayedMessageState, DelayedMessageView, ReminderCreator};
 
 const QUEUE_VERSION: u32 = 3;
 
@@ -46,28 +44,6 @@ pub struct DelayedSendQueue {
 }
 
 impl DelayedSendQueue {
-    pub(crate) fn enqueue_turn_retry(
-        &self,
-        tab: &str,
-        text: &str,
-        at: u64,
-        retry: TurnRetry,
-    ) -> Result<DelayedMessage, String> {
-        let mut msg = Self::prepare_message(
-            tab.into(),
-            None,
-            Some(retry.thread_id.clone()),
-            text.into(),
-            Some(at),
-            ReminderCreator::default(),
-            None,
-            None,
-            0,
-        )?;
-        msg.turn_retry = Some(retry);
-        self.insert(msg.clone())?;
-        Ok(msg)
-    }
     pub(crate) fn empty(path: PathBuf) -> Self {
         Self {
             path,
@@ -244,7 +220,6 @@ impl DelayedSendQueue {
             recurrence::validate(rule, scheduled_at_ms)?;
         }
         let msg = DelayedMessage {
-            turn_retry: None,
             id: format!("dmsg-{}", uuid::Uuid::new_v4().simple()),
             tab_id,
             workspace_id,
@@ -851,9 +826,6 @@ pub fn delete_message(
     let msg = svc
         .ext::<crate::delayed_send::DelayedSendQueue>()
         .delete(&id)?;
-    if msg.turn_retry.is_some() {
-        crate::service::agent_runtime::capacity_retry::cancel_message(svc, &msg.tab_id, &msg.id)?;
-    }
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -993,7 +965,7 @@ pub fn start_scheduler(svc: ServiceState) {
     });
 }
 
-async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
+pub(crate) async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
     if !target_tab_exists(svc, &msg.tab_id) {
         let error = format!("recipient tab {} no longer exists", msg.tab_id);
         if msg.recurrence.is_some() {
