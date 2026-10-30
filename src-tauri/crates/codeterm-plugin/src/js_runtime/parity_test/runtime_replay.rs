@@ -1,4 +1,6 @@
 use super::*;
+#[path = "runtime_replay/child_retention.rs"]
+mod child_retention;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
