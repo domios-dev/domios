@@ -164,7 +164,7 @@ fn scan(
     let mut raw_html: Option<HtmlBoundary> = None;
     let mut opaque = false;
     let mut count = 0;
-    let mut consumed = Vec::new();
+    let mut consumed: Vec<std::ops::Range<usize>> = Vec::new();
     while at < source.len() {
         if at > 0 && at != body_start && source.as_bytes()[at - 1] != b'\n' {
             at = source[at..]
