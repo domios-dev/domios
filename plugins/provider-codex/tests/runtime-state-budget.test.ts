@@ -497,4 +497,76 @@ check("completed child retention preserves emitted terminal identity under decla
   }
 });
 
+function assertPayloadSuffix(actual: unknown, full: string): void {
+  const marker = "[earlier output truncated]\n";
+  assert.equal(typeof actual,"string");
+  if (typeof actual !== "string") return;
+  assert.ok(actual.length < full.length && actual.startsWith(marker),"pressure must exercise report compaction");
+  assert.ok(!actual.startsWith(marker + marker));
+  assert.ok(full.endsWith(actual.slice(marker.length)),"retained report is an exact original suffix");
+  for (let index = 0; index < actual.length; index++) {
+    const unit = actual.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = actual.charCodeAt(++index);
+      assert.ok(next >= 0xdc00 && next <= 0xdfff,"no dangling high surrogate at the suffix cut");
+    } else assert.ok(unit < 0xdc00 || unit > 0xdfff,"no dangling low surrogate at the suffix cut");
+  }
+}
+
+function agentPayloadPressure(full: string): void {
+  assert.equal(full.length,8192,"precision variants retain the declared report size");
+  let context: RuntimeContext = JSON.parse(JSON.stringify(retention.context));
+  let state = retentionStep(context,null,retentionFrame(context,"turn/started",{turn:{id:context.activeTurnId}})).state;
+  const originals: {row:ChatMsg; serialized:string}[] = [];
+  for (let index = 0; index < 32; index++) {
+    const child = `opaque-child-${String(index).padStart(2,"0")}`;
+    context = {...context,threadParents:[...context.threadParents,{threadId:child,parentThreadId:context.threadId!}]};
+    state = retentionStep(context,state,childSpawn(context,index,0,false)).state;
+    const frame = childSpawn(context,index,0,true);
+    assert.equal(frame.kind,"notification");
+    if (frame.kind !== "notification") throw new Error("expected child completion notification");
+    const item = (frame.params as Record<string,JsonValue>).item as Record<string,JsonValue>;
+    (item.agentsStates as Record<string,JsonValue>)[child] = {status:"completed",message:full};
+    const completed = retentionStep(context,state,frame);
+    assert.ok(Buffer.byteLength(JSON.stringify(completed)) <= 4194304);
+    assert.ok(Buffer.byteLength(JSON.stringify(completed.state)) <= 192 * 1024);
+    const row = rows([...completed.events],`opaque-spawn-${String(index).padStart(2,"0")}:${child}`).at(-1);
+    assert.ok(row);
+    assert.equal((row.toolInput as Record<string,JsonValue>).agent_result,full);
+    originals.push({row:freezeInput(row),serialized:JSON.stringify(row)});
+    state = completed.state;
+  }
+  for (let repeat = 0; repeat < 3; repeat++) {
+    const saved = state as Record<string,JsonValue>;
+    const scratch = ((saved.items as Record<string,JsonValue>)["opaque-spawn-00:opaque-child-00"] as Record<string,JsonValue>).toolInput as Record<string,JsonValue>;
+    assertPayloadSuffix(scratch.agent_result,full);
+    assert.ok(Buffer.byteLength(JSON.stringify(scratch)) <= 8192,"compacted optional input fits the initial pressure cap");
+    const late = retentionStep(context,state,retentionFrame(context,"item/started",{turnId:context.activeTurnId,
+      item:{id:"opaque-late-start",type:"subAgentActivity",agentThreadId:"opaque-child-00",kind:"started"}}));
+    assert.ok(Buffer.byteLength(JSON.stringify(late.state)) <= 192 * 1024);
+    assert.ok(Buffer.byteLength(JSON.stringify(late)) <= 4194304);
+    const row = rows([...late.events],"opaque-spawn-00:opaque-child-00").at(-1);
+    assert.ok(row);
+    const input = row.toolInput as Record<string,JsonValue>;
+    assert.equal(input.agent_state,"completed"); assert.equal(input.agent_id,"opaque-child-00");
+    assert.equal(input.agent_parent_thread_id,context.threadId); assert.equal(input.agent_ordinal,1);
+    assert.equal(input.agent_binding_nonce,context.bindingNonce); assert.equal(input.agent_runtime_epoch,context.epoch);
+    assertPayloadSuffix(input.agent_result,full);
+    state = late.state;
+    originals.forEach(({row,serialized})=>assert.equal(JSON.stringify(row),serialized,"compaction cannot rewrite full terminal events"));
+  }
+}
+
+check("agent payload supplementary Unicode remains paired at both suffix-cut alignments",()=>{
+  agentPayloadPressure("😀".repeat(4096));
+  agentPayloadPressure("a" + "😀".repeat(4095) + "a");
+});
+check("agent payload JSON-escaped controls quotes and backslashes obey serialized UTF8 limits",()=>{
+  agentPayloadPressure('\u0000\n"\\'.repeat(2048));
+});
+check("agent payload compaction of an already-marked report never stacks markers",()=>{
+  const marker = "[earlier output truncated]\n";
+  agentPayloadPressure(marker + "r".repeat(8192 - marker.length));
+});
+
 console.log(`runtime state budget: ${count} checks passed`);

@@ -225,3 +225,84 @@ async fn runtime_completed_child_retention_policy() {
     }
     assert!(selected > 0, "child retention fixture must be selected");
 }
+
+fn payload_suffix(actual: &Value, full: &str) {
+    let actual = actual.as_str().expect("bounded report remains valid Unicode after native decoding");
+    let marker = "[earlier output truncated]\n";
+    assert!(actual.len() < full.len() && actual.starts_with(marker), "pressure must exercise report compaction");
+    assert!(!actual[marker.len()..].starts_with(marker));
+    assert!(full.ends_with(&actual[marker.len()..]), "retained report is an exact original suffix");
+    assert_eq!(String::from_utf16(&actual.encode_utf16().collect::<Vec<_>>()).unwrap(), actual);
+}
+
+async fn payload_pressure(full: &str) {
+    assert_eq!(full.encode_utf16().count(), 8192, "precision variants retain the declared report size");
+    let mut selected = 0;
+    for input in paths() {
+        let fixture = input.dir.parent().unwrap().join("retention/child-retention.json");
+        if !fixture.is_file() { continue; }
+        selected += 1;
+        let spec: Spec = serde_json::from_str(&std::fs::read_to_string(fixture).unwrap()).unwrap();
+        let provider = load_provider(&input.manifest, &input.declaration);
+        let mut context = spec.context.clone();
+        let (started, _) = step(&provider, &context, &Value::Null, note(&context, "turn/started", json!({"turn":{"id":context.active_turn_id}}))).await;
+        let mut state = started.state;
+        let mut originals = Vec::new();
+        for index in 0..32 {
+            let child = format!("opaque-child-{index:02}");
+            context.thread_parents.push(serde_json::from_value(json!({"threadId":child,"parentThreadId":context.thread_id})).unwrap());
+            let (started, _) = step(&provider, &context, &state, spawn(&context, &spec, index, 0, false)).await;
+            let mut frame = spawn(&context, &spec, index, 0, true);
+            if let RuntimeFrame::Notification { params, .. } = &mut frame {
+                params["item"]["agentsStates"][&child]["message"] = json!(full);
+            } else { panic!("expected child completion notification"); }
+            let (completed, _) = step(&provider, &context, &started.state, frame).await;
+            assert!(serde_json::to_vec(&completed).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
+            assert!(serde_json::to_vec(&completed.state).unwrap().len() <= 192 * 1024);
+            let row = emitted(&completed.events, &format!("opaque-spawn-{index:02}:{child}"));
+            assert_eq!(row["toolInput"]["agent_result"], full);
+            let serialized = serde_json::to_vec(&completed.events).unwrap();
+            originals.push((completed.events, serialized));
+            state = completed.state;
+        }
+        for _ in 0..3 {
+            let scratch = &state["items"]["opaque-spawn-00:opaque-child-00"]["toolInput"];
+            payload_suffix(&scratch["agent_result"], full);
+            assert!(serde_json::to_vec(scratch).unwrap().len() <= 8192, "compacted input fits the initial pressure cap");
+            let (late, _) = step(&provider, &context, &state, note(&context, "item/started", json!({
+                "turnId":context.active_turn_id,"item":{"id":"opaque-late-start","type":"subAgentActivity","agentThreadId":"opaque-child-00","kind":"started"}
+            }))).await;
+            assert!(serde_json::to_vec(&late.state).unwrap().len() <= 192 * 1024);
+            assert!(serde_json::to_vec(&late).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
+            let row = emitted(&late.events, "opaque-spawn-00:opaque-child-00");
+            let input = &row["toolInput"];
+            assert_eq!(input["agent_state"], "completed");
+            assert_eq!(input["agent_id"], "opaque-child-00");
+            assert_eq!(input["agent_parent_thread_id"], json!(context.thread_id));
+            assert_eq!(input["agent_ordinal"], 1);
+            assert_eq!(input["agent_binding_nonce"], context.binding_nonce);
+            assert_eq!(input["agent_runtime_epoch"], context.epoch);
+            payload_suffix(&input["agent_result"], full);
+            state = late.state;
+            for (events, serialized) in &originals { assert_eq!(&serde_json::to_vec(events).unwrap(), serialized); }
+        }
+    }
+    assert!(selected > 0, "agent payload precision fixtures must be selected");
+}
+
+#[tokio::test]
+async fn runtime_child_payload_unicode_suffix() {
+    payload_pressure(&"😀".repeat(4096)).await;
+    payload_pressure(&format!("a{}a", "😀".repeat(4095))).await;
+}
+
+#[tokio::test]
+async fn runtime_child_payload_json_escaping() {
+    payload_pressure(&"\0\n\"\\".repeat(2048)).await;
+}
+
+#[tokio::test]
+async fn runtime_child_payload_repeated_marker() {
+    let marker = "[earlier output truncated]\n";
+    payload_pressure(&format!("{marker}{}", "r".repeat(8192 - marker.len()))).await;
+}
