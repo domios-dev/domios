@@ -24,7 +24,7 @@ impl PlanStore {
         let _writer_turn = self.mutation_writer.enter();
         let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
         let mut ids: Vec<_> = self
-            .list_full()
+            .team_close_plans(team_id, member_tab_ids)
             .into_iter()
             .filter(|plan| has_team_close_work(plan, team_id, &tabs))
             .map(|plan| plan.id)
@@ -94,28 +94,49 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
-        let plans = self.list_full();
-        let mut active_by_team = std::collections::BTreeMap::<String, Vec<&Plan>>::new();
-        let mut archive_ids = Vec::new();
-        for plan in plans
-            .iter()
-            .filter(|plan| plan.status == PlanStatus::Active && !plan.is_orphaned_active())
-        {
-            match plan.team_id.as_deref() {
-                Some(team_id) if live.contains(team_id) => {
-                    active_by_team.entry(team_id.into()).or_default().push(plan);
+        // SQL names the active rows; only those that may be archived are opened.
+        // A live Team's single active plan stays untouched, and the unique
+        // one_active_plan_per_team index makes a second one exceptional.
+        let mut live_team_rows = std::collections::BTreeMap::<String, Vec<String>>::new();
+        let mut unbound = Vec::new();
+        for row in self.database.active_plan_rows()? {
+            match row.team_id {
+                Some(team_id) if live.contains(&team_id) => {
+                    live_team_rows.entry(team_id).or_default().push(row.id)
                 }
-                _ => archive_ids.push(plan.id.clone()),
+                _ => unbound.push(row.id),
+            }
+        }
+        let candidates = unbound.into_iter().chain(
+            live_team_rows
+                .into_values()
+                .filter(|ids| ids.len() > 1)
+                .flatten(),
+        );
+        let active: Vec<(String, Option<String>, u64)> = candidates
+            .filter_map(|id| {
+                let plan = self.plan_arc(&id).ok()?;
+                let plan = plan.lock();
+                (plan.status == PlanStatus::Active && !plan.is_orphaned_active())
+                    .then(|| (plan.id.clone(), plan.team_id.clone(), plan.updated_at))
+            })
+            .collect();
+        let mut active_by_team = std::collections::BTreeMap::<String, Vec<(&str, u64)>>::new();
+        let mut archive_ids = Vec::new();
+        for (id, team_id, updated_at) in &active {
+            match team_id.as_deref() {
+                Some(team_id) if live.contains(team_id) => {
+                    active_by_team
+                        .entry(team_id.into())
+                        .or_default()
+                        .push((id.as_str(), *updated_at));
+                }
+                _ => archive_ids.push(id.clone()),
             }
         }
         for plans in active_by_team.values_mut() {
-            plans.sort_by(|left, right| {
-                right
-                    .updated_at
-                    .cmp(&left.updated_at)
-                    .then_with(|| left.id.cmp(&right.id))
-            });
-            archive_ids.extend(plans.iter().skip(1).map(|plan| plan.id.clone()));
+            plans.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+            archive_ids.extend(plans.iter().skip(1).map(|(id, _)| (*id).to_string()));
         }
         archive_ids.sort();
         let originals: Vec<_> = archive_ids.iter().filter_map(|id| self.get(id)).collect();
@@ -149,11 +170,14 @@ impl PlanStore {
         F: Fn(&str) -> bool,
     {
         let mut ids: Vec<_> = self
-            .list_full()
-            .into_iter()
-            .filter_map(|plan| {
-                let bound_team = plan.team_id.as_deref();
-                bound_team.filter(|team| matches(team)).map(|_| plan.id)
+            .index
+            .read()
+            .values()
+            .filter_map(|row| {
+                let bound_team = row.team_id.as_deref();
+                bound_team
+                    .filter(|team| matches(team))
+                    .map(|_| row.id.clone())
             })
             .collect();
         ids.sort();
@@ -177,24 +201,18 @@ impl PlanStore {
     }
 
     fn restore_team_plan(&self, original: &Plan) -> Result<(), PlanError> {
-        let arc = self
-            .plans
-            .read()
-            .get(&original.id)
-            .cloned()
-            .ok_or(PlanError::NotFound)?;
+        let arc = self.plan_arc(&original.id)?;
         let staged = original.clone();
-        let path = self
-            .persist_plan_and_spec(&staged)
-            .map_err(|error| PlanError::Io(error.to_string()))?;
+        self.persist_plan_and_spec(&staged).map_err(|error| {
+            self.plan_cache.evict(&staged.id);
+            PlanError::Io(error.to_string())
+        })?;
         {
             let mut plan = arc.lock();
             *plan = staged.clone();
         }
-        self.note_plan_write(&staged, &path);
-        self.index
-            .write()
-            .insert(staged.id.clone(), Self::index_entry(&staged, path));
+        self.plan_cache.commit(&staged.id, &arc);
+        self.note_index(&staged);
         Ok(())
     }
 }

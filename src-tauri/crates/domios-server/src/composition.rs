@@ -133,10 +133,12 @@ pub(crate) fn compose_observed(
                         );
                         codeterm_service_core::service::mirror_skills_to_providers();
                         for provider in bridge_registry.all_provider_arcs() {
-                            codeterm_service_core::agent::model_binary_watch::install(provider);
+                            codeterm_service_core::agent::model_binary_watch::install_in_background(
+                                provider,
+                            );
                         }
                         for provider in bridge_chatbackend_registry.active() {
-                            codeterm_service_core::agent::model_binary_watch::install_chatbackend(
+                            codeterm_service_core::agent::model_binary_watch::install_chatbackend_in_background(
                                 provider,
                                 bridge_chatbackend_registry.clone(),
                             );
@@ -475,7 +477,7 @@ pub(crate) fn compose_observed(
             agent_command_registry.clone(),
         );
         for provider in chatbackend_registry.active() {
-            codeterm_service_core::agent::model_binary_watch::install_chatbackend(
+            codeterm_service_core::agent::model_binary_watch::install_chatbackend_in_background(
                 provider,
                 chatbackend_registry.clone(),
             );
@@ -520,6 +522,10 @@ pub(crate) fn compose_observed(
     let lane_watch_service = service_state.clone();
     codeterm_service_core::async_runtime::spawn_blocking(move || {
         lane_watch_service.restore_lane_watches();
+    });
+    let search_seed_store = std::sync::Arc::clone(&service_state.plan_store);
+    codeterm_service_core::async_runtime::spawn_blocking(move || {
+        search_seed_store.seed_missing_search_indexes();
     });
     codeterm_service_core::delayed_send::start_scheduler(service_state.clone());
     codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());

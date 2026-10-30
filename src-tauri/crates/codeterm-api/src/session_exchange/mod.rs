@@ -162,6 +162,22 @@ fn capture_snapshot(
     Ok((safe_snapshot, safe_histories, measurements))
 }
 
+/// The one full plan read: each plan streams from SQL in turn and never enters the plan cache.
+fn exported_plans(
+    store: &codeterm_service_core::service::plan::PlanStore,
+) -> Result<Value, String> {
+    let mut plans = Vec::new();
+    let mut failure = None;
+    store.for_each_plan_uncached(|plan| match serde_json::to_value(&plan) {
+        Ok(value) => plans.push(value),
+        Err(error) => failure = failure.take().or(Some(error.to_string())),
+    });
+    match failure {
+        Some(error) => Err(error),
+        None => Ok(Value::Array(plans)),
+    }
+}
+
 pub async fn export(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -189,9 +205,7 @@ pub async fn export(
             )
             .map(|(messages, _)| messages)
         })?;
-        let plans = sanitize::sanitize_plans(
-            &serde_json::to_value(svc.plan_store.list_full()).map_err(|e| e.to_string())?,
-        )?;
+        let plans = sanitize::sanitize_plans(&exported_plans(&svc.plan_store)?)?;
         serde_json::from_value::<Vec<codeterm_types::plan::Plan>>(plans.clone())
             .map_err(|error| format!("Sanitized plan schema refused: {error}"))?;
         let live = svc.mux.read().snapshot();

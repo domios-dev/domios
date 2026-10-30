@@ -183,7 +183,7 @@ impl PlanStore {
     }
 
     pub fn owner_of(&self, id: &str) -> Option<OrchestratorRef> {
-        self.plans.read().get(id).map(|p| p.lock().owner.clone())
+        self.plan_arc(id).ok().map(|plan| plan.lock().owner.clone())
     }
 
     pub fn add_section(

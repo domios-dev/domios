@@ -208,6 +208,30 @@ fn saved_identity(tab: &crate::multiplexer::types::Tab) -> Option<String> {
     tab.restorable_launch.identity_instructions.clone()
 }
 
+/// The plan a restored tab without a task binding works for: one it owns or
+/// plans, or its Team's plan.
+pub(crate) fn bound_plan_id(
+    store: &crate::service::plan::PlanStore,
+    tab_id: &str,
+    team_id: Option<&str>,
+) -> Option<String> {
+    use crate::service::plan::PlanMatch;
+    let mut bound = vec![
+        PlanMatch::owner(tab_id),
+        PlanMatch::Planner(tab_id.to_string()),
+    ];
+    bound.extend(team_id.map(PlanMatch::team));
+    store
+        .plans_matching(&PlanMatch::Any(bound))
+        .into_iter()
+        .find(|plan| {
+            plan.owner.tab_id.as_deref() == Some(tab_id)
+                || matches!(plan.planner.as_ref(), Some(crate::plan::PlannerRef::Tab { tab_id: planner, .. }) if planner == tab_id)
+                || (team_id.is_some() && plan.team_id.as_deref() == team_id)
+        })
+        .map(|plan| plan.id)
+}
+
 pub fn ensure_tab_runtime_prompt(
     service: &crate::service::ServiceContext,
     tab_id: &str,
@@ -262,11 +286,7 @@ pub fn ensure_tab_runtime_prompt(
         ..Default::default()
     };
     if params.plan_id.is_none() {
-        params.plan_id = service.plan_store.list_full().into_iter().find(|plan| {
-            plan.owner.tab_id.as_deref() == Some(tab_id)
-                || matches!(plan.planner.as_ref(), Some(crate::plan::PlannerRef::Tab { tab_id: planner, .. }) if planner == tab_id)
-                || (tab.team_id.is_some() && plan.team_id == tab.team_id)
-        }).map(|plan| plan.id);
+        params.plan_id = bound_plan_id(&service.plan_store, tab_id, tab.team_id.as_deref());
     }
     prepare_runtime_identity(service, &mut params);
     // A restored thread receives its identity, never a new onboarding turn.

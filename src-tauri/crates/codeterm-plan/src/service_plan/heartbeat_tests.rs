@@ -46,7 +46,7 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
     assert!(duplicate.deduped);
     assert_eq!(duplicate.learning.id, first.learning.id);
 
-    store.plans.write().clear();
+    store.forget_all_plans_for_test();
     store.reload_from_disk(&plan_id).unwrap();
     assert_eq!(store.get(&plan_id).unwrap().heartbeat.learnings.len(), 1);
 

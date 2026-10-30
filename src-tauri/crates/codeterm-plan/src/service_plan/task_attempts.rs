@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::plan::{Task, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus};
 use codeterm_types::agent::ReportStatus;
 
-use super::{PlanError, PlanStore};
+use super::{PlanError, PlanMatch, PlanStore, TaskMatch};
 
 mod launch_binding;
 mod plan_skill_evidence;
@@ -590,8 +590,12 @@ impl PlanStore {
             return Vec::new();
         }
         let target_session = session_id.map(str::trim).filter(|value| !value.is_empty());
+        let candidates = PlanMatch::active().and(PlanMatch::Task(TaskMatch {
+            fields: vec![("$.lane.workspace_id", workspace_id.to_string())],
+            ..Default::default()
+        }));
         let mut entries: Vec<(u64, String)> = self
-            .list_full()
+            .plans_matching(&candidates)
             .into_iter()
             .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
             .flat_map(|plan| plan.tasks.into_iter())

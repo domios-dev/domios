@@ -26,13 +26,11 @@ impl PlanStore {
     pub fn prune_stale_plans(&self, now_ms: u64) -> Vec<PrunedPlan> {
         let cutoff = now_ms.saturating_sub(PLAN_RETENTION_MS);
         let candidates: Vec<String> = self
-            .plans
+            .index
             .read()
             .values()
-            .filter_map(|plan| {
-                let plan = plan.lock();
-                is_stale(plan.updated_at, cutoff).then(|| plan.id.clone())
-            })
+            .filter(|row| is_stale(row.updated_at, cutoff))
+            .map(|row| row.id.clone())
             .collect();
         let mut pruned = Vec::new();
         for id in candidates {

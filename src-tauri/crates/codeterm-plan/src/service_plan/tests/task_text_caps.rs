@@ -76,7 +76,7 @@ fn task_body_cap_and_control_bytes() {
 #[test]
 fn stored_legacy_control_bytes_do_not_block_later_writes() {
     let (store, plan_id, task_id) = store_with_task(&["status_update"]);
-    store.plans.read().get(&plan_id).unwrap().lock().tasks[0].test_plan =
+    store.plan_arc_for_test(&plan_id).lock().tasks[0].test_plan =
         Some("\u{8}ash scripts/check".into());
 
     store
@@ -137,8 +137,8 @@ fn stored_legacy_control_bytes_do_not_block_later_writes() {
 fn a_long_lived_plan_with_many_stored_fields_still_accepts_writes() {
     let (store, plan_id, task_id) = store_with_task(&["status_update"]);
     {
-        let plans = store.plans.read();
-        let mut plan = plans.get(&plan_id).unwrap().lock();
+        let handle = store.plan_arc_for_test(&plan_id);
+        let mut plan = handle.lock();
         let template = plan.tasks[0].clone();
         for index in 0..80 {
             let mut task = template.clone();

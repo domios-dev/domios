@@ -1,23 +1,6 @@
 use super::*;
 
 impl super::super::PlanStore {
-    pub(crate) fn seed_search_indexes(&self) {
-        let plans = self.list_full();
-        let specs = self.list_specs_full();
-        let roots = plans
-            .iter()
-            .map(|plan| super::super::paths::project_root(plan_project_root(plan)))
-            .chain(
-                specs
-                    .iter()
-                    .map(|spec| super::super::paths::project_root(spec_project_root(spec))),
-            )
-            .collect::<HashSet<_>>();
-        for root in roots {
-            self.enqueue_project_index(&root, &plans, &specs);
-        }
-    }
-
     pub(super) fn enqueue_project_index(
         &self,
         root: &Path,
@@ -34,7 +17,61 @@ impl super::super::PlanStore {
     pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
         let _writer_turn = self.mutation_writer.enter();
         let root = super::super::paths::project_root(project);
-        Ok(self.enqueue_project_index(&root, &self.list_full(), &self.list_specs_full()))
+        Ok(self.enqueue_project_index(&root, &self.project_plans(&root), &self.list_specs_full()))
+    }
+
+    /// Plans whose project scope is this root's, chosen from the stored roots and loaded through the cache.
+    pub(super) fn project_plans(&self, root: &Path) -> Vec<Plan> {
+        let ids = self.project_plan_ids(&project_scope(root));
+        self.plans_matching(&super::super::PlanMatch::Ids(ids))
+    }
+
+    fn project_plan_ids(&self, scope: &str) -> Vec<String> {
+        let mut scopes = std::collections::HashMap::<String, String>::new();
+        self.plan_roots()
+            .into_iter()
+            .filter(|(_, root)| {
+                scopes
+                    .entry(root.clone())
+                    .or_insert_with(|| project_scope(Path::new(root)))
+                    == scope
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
+    /// Builds the search index of every project that has none yet, one project at a
+    /// time from SQL without filling the plan cache. Startup runs it off the open path.
+    pub fn seed_missing_search_indexes(&self) {
+        let mut by_root = std::collections::BTreeMap::<std::path::PathBuf, Vec<String>>::new();
+        for (id, root) in self.plan_roots() {
+            by_root
+                .entry(super::super::paths::project_root(Path::new(&root)))
+                .or_default()
+                .push(id);
+        }
+        let specs = self.list_specs_full();
+        for spec in &specs {
+            by_root
+                .entry(super::super::paths::project_root(spec_project_root(spec)))
+                .or_default();
+        }
+        for (root, ids) in by_root {
+            if project_index_path(&root).exists() {
+                continue;
+            }
+            let plans: Vec<Plan> = ids
+                .iter()
+                .filter_map(|id| match self.load_plan_from_sql(id) {
+                    Ok(plan) => plan,
+                    Err(error) => {
+                        log::warn!("[plan.search] {error}; left out of the seeded index");
+                        None
+                    }
+                })
+                .collect();
+            self.enqueue_project_index(&root, &plans, &specs);
+        }
     }
 }
 

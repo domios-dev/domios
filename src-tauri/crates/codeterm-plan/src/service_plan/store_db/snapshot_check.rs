@@ -8,9 +8,7 @@ const TARGET_ENV: &str = "DOMIOS_PLAN_SNAPSHOT_PLAN";
 
 fn loaded(database: &PlanDatabase) -> BTreeMap<String, serde_json::Value> {
     database
-        .load_snapshots()
-        .unwrap()
-        .0
+        .load_plans_for_test()
         .into_iter()
         .map(|plan| (plan.id.clone(), serde_json::to_value(plan).unwrap()))
         .collect()
@@ -40,7 +38,7 @@ fn table_rows(path: &std::path::Path) -> Vec<(&'static str, i64)> {
 fn plan_row_sizes(path: &std::path::Path) -> Vec<(String, i64)> {
     let connection = Connection::open(path).unwrap();
     let mut statement = connection
-        .prepare("SELECT id, length(document_json) FROM plans ORDER BY 2 DESC")
+        .prepare("SELECT id, length(header_json) FROM plans ORDER BY 2 DESC")
         .unwrap();
     let rows = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -73,7 +71,7 @@ fn production_snapshot_current_rows_survive_mutation_and_reopen() {
     let started = Instant::now();
     let expected = loaded(&database);
     let load = started.elapsed();
-    let plans = database.load_snapshots().unwrap().0;
+    let plans = database.load_plans_for_test();
     let tasks: usize = plans.iter().map(|plan| plan.tasks.len()).sum();
     let milestones: usize = plans
         .iter()
