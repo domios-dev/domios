@@ -23,7 +23,12 @@ export async function acquireLaunchFileLock(root) {
         else if (reply.length > 128) { clearTimeout(deadline); reject(Error('Invalid DEV file lock acknowledgement')); }
       });
       child.once('error', error => { clearTimeout(deadline); reject(error); });
-      child.once('close', () => { clearTimeout(deadline); reject(Error(`DEV launch owner unavailable for ${root}: ${detail.trim()}`)); });
+      child.once('close', code => {
+        clearTimeout(deadline);
+        const error = Error(`DEV launch owner unavailable for ${root}: ${detail.trim()}`);
+        if (code === 75) { error.code = 'DEV_LAUNCH_BUSY'; error.exitCode = 75; }
+        reject(error);
+      });
     });
   } catch (error) { child.stdin.end(); throw error; }
   return { child, release: async () => { child.stdin.end(); await exited; } };

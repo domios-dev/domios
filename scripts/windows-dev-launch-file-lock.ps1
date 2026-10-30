@@ -35,4 +35,13 @@ public static class DevLaunchFileLock
     }
 }
 '@
-[DevLaunchFileLock]::Hold($Path)
+try { [DevLaunchFileLock]::Hold($Path) }
+catch {
+    $cause = $_.Exception.GetBaseException()
+    if ($cause -is [ComponentModel.Win32Exception] -and $cause.NativeErrorCode -in @(32, 33)) {
+        [Console]::Error.WriteLine('DEV launch owner unavailable: another launcher owns this instance')
+        exit 75
+    }
+    [Console]::Error.WriteLine($cause.Message)
+    exit 1
+}
