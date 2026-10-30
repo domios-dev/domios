@@ -34,9 +34,6 @@ fn saved_typed_settings_and_empty_arguments_remain_eligible_for_runtime_use() {
 #[path = "tests/sync_send.rs"]
 pub(super) mod sync_send;
 
-#[path = "tests/capacity_retry.rs"]
-mod capacity_retry;
-
 #[path = "tests/continuation.rs"]
 mod continuation;
 
@@ -129,3 +126,6 @@ async fn synchronous_stop_bridge_releases_the_tokio_worker_and_awaits_exit() {
 
 #[path = "tests/history_ready.rs"]
 mod history_ready;
+
+#[path = "tests/capacity_retry.rs"]
+mod capacity_retry;

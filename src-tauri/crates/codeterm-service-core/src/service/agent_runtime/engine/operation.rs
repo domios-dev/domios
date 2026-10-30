@@ -163,11 +163,6 @@ async fn run_inner(
                         super::model::validate_operation_thread(&runtime.context.lock(), read)?;
                     }
                     if let Some(send) = &captured_send {
-                        if !runtime.capacity_retry.lock().permits_send(send) {
-                            return Err(RuntimeFailure::Refused(
-                                "Automatic retry cancelled before write".into(),
-                            ));
-                        }
                         if runtime.compaction.lock().held(epoch) {
                             return Err(RuntimeFailure::Refused(
                                 "Context restoration pending or failed; sends held".into(),
