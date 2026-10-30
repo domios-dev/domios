@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { localArtifactTextParts, parseLocalArtifactDirective } from "./localArtifactDirective";
-for (const prefix of ["ds", "ct"]) {
+for (const prefix of ["ds"]) {
   for (const kind of ["image", "page", "document"]) {
     const path = "C:\\work\\a_b_c [1].png";
     assert.deepEqual(parseLocalArtifactDirective(`@${prefix}-${kind} "${path}"`), { kind, path });
@@ -14,8 +14,9 @@ for (const source of ["```md\n@ds-image /a.png\n```", "~~~~\n@ct-page /a.html\n~
   assert.equal(localArtifactTextParts(source).some((part) => part.directive), false);
 }
 assert.equal(parseLocalArtifactDirective("@ds-image /a.png\n@ds-image /b.png"), null);
-assert.equal(localArtifactTextParts("@ds-image /a.png\n@ct-document /b.md").filter((part) => part.directive).length, 2);
-console.log("localArtifactDirective: 14 parser and segmentation cases passed");
+assert.equal(parseLocalArtifactDirective("@ct-document /b.md"), null);
+assert.equal(localArtifactTextParts("@ds-image /a.png\n@ct-document /b.md").filter((part) => part.directive).length, 1);
+console.log("localArtifactDirective: current parser and segmentation cases passed");
 
 assert.deepEqual(parseLocalArtifactDirective('@ds-image "/a one.png" "/b two.png"'), { kind: "image", path: "/a one.png", paths: ["/a one.png", "/b two.png"] });
 assert.deepEqual(parseLocalArtifactDirective("@ds-image /a.png /b.png"), { kind: "image", path: "/a.png", paths: ["/a.png", "/b.png"] });

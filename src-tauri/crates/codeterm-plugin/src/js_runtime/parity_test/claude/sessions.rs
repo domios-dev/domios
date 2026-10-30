@@ -960,3 +960,41 @@ fn parse_session_delta_advances_offset_when_plugin_blows_up() {
     assert_eq!(delta.messages.len(), 0);
     assert_eq!(delta.new_offset, bad.as_bytes().len() as u64);
 }
+
+#[test]
+fn live_multi_tag_commands_reach_frontend_enrichment_unchanged() {
+    require_plugins().expect("bundled plugins are required for the live command fixture");
+    let (_, provider) = pair();
+    let records: Vec<serde_json::Value> = serde_json::from_str(&provider_fixture(
+        provider.id(),
+        "model-switch/live-command-records.json",
+    ))
+    .unwrap();
+    let jsonl = records
+        .iter()
+        .map(|record| format!("{record}\n"))
+        .collect::<String>();
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), jsonl).unwrap();
+    let delta = provider.parse_session_delta(file.path(), 0);
+    let messages: Vec<_> = delta
+        .messages
+        .iter()
+        .enumerate()
+        .flat_map(|(index, rich)| crate::rich_to_chat::rich_to_chat_msgs(rich, index))
+        .collect();
+    assert_eq!(messages.len(), records.len());
+    for index in [0, 2] {
+        assert_eq!(messages[index].kind, "user");
+        assert_eq!(
+            messages[index].content,
+            records[index]["message"]["content"].as_str().unwrap()
+        );
+        assert!(messages[index].content.contains("<command-name>"));
+        assert!(messages[index].content.contains("<command-args>"));
+    }
+    for index in [1, 3] {
+        assert_eq!(messages[index].kind, "local_command");
+        assert!(!messages[index].content.contains("<local-command-stdout>"));
+    }
+}

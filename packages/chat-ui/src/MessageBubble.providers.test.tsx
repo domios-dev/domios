@@ -397,4 +397,19 @@ test("explicit expansion choices persist across rerenders", async () => {
   }
 });
 
+test("transcript interactive metadata preserves ordinary message content", async () => {
+  const message: NormalizedChatMessage = {
+    id: "ordinary-content-with-question-metadata", type: "assistant", timestamp: "2026-01-01T00:00:00Z",
+    content: "Opaque ordinary answer.",
+    interactive: [{ type: "question", id: "question", toolUseId: "tool", prompt: "Opaque question", options: [], multiSelect: false }],
+  };
+  const { host, root } = await renderMessages([message]);
+  try {
+    assertIncludes(host, "Opaque ordinary answer.", "ordinary content survives interactive metadata");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 void run();
