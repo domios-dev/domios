@@ -1,8 +1,11 @@
 import { DsBlockScanner, type DsAuthority, type DsSegment } from "@codeterm/chat-core";
-import { useLayoutEffect, useRef } from "react";
+import { useContext, useLayoutEffect, useRef } from "react";
+import { DsRenderContext } from "./DsRenderContext";
 
 interface Projection { scanner: DsBlockScanner; authority: DsAuthority; generation: number }
 export function useDsSegments(text: string, authority: DsAuthority, streaming?: boolean, cancelled = false): readonly DsSegment[] {
+  const scope = useContext(DsRenderContext);
+  if (scope.proseOnly) authority = { ...authority, trusted: false };
   const committedRef = useRef<Projection | null>(null);
   const committed = committedRef.current;
   const appending = committed && committed.authority.id === authority.id && committed.authority.trusted === authority.trusted && text.startsWith(committed.scanner.text);

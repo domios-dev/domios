@@ -1,4 +1,4 @@
-import { attachmentPathName as fileName } from "@codeterm/chat-core";
+import { attachmentPathName as fileName, inlineArtifactBlockBoundary } from "@codeterm/chat-core";
 import { Fragment, useCallback, useContext, useId, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
@@ -204,16 +204,21 @@ export function InlineAttachmentText({ segments, renderText }: { segments: Place
     if ("text" in segment) source += segment.text;
     else { attachments.push({ offset: source.length, index, segment }); source += "\0"; }
   }
+  const attachmentOffsets = attachments.map(({ offset }) => offset);
   const parsed = useDsSegments(source, { id: `${scope.authority}:${tab ?? ""}:${instance}`, trusted: scope.trusted }, scope.streaming, scope.cancelled);
   const children = parsed.flatMap((part): ReactNode[] => {
     const capsules = attachments.filter(({ offset }) => offset >= part.start && offset < part.end);
-    if (part.type !== "markdown" && capsules.length === 0) return [<DsSegmentView key={part.id} segment={part} />];
+    if (part.type !== "markdown" && capsules.length === 0) return [inlineArtifactBlockBoundary(source, part.start, part.end, attachmentOffsets)
+      ? <DsSegmentView key={part.id} segment={part} />
+      : <Fragment key={part.id}>{source.slice(part.start, part.end)}</Fragment>];
     const result: ReactNode[] = [];
     let cursor = part.start;
     const text = (start: number, end: number) => {
       if (end <= start) return;
       const value = source.slice(start, end);
-      result.push(<Fragment key={`text:${start}`}>{part.type === "markdown" && renderText ? renderText(value) : value}</Fragment>);
+      result.push(part.type === "markdown" && renderText
+        ? <DsRenderContext.Provider key={`text:${start}`} value={{ ...scope, proseOnly: true }}>{renderText(value)}</DsRenderContext.Provider>
+        : <Fragment key={`text:${start}`}>{value}</Fragment>);
     };
     for (const capsule of capsules) {
       text(cursor, capsule.offset);

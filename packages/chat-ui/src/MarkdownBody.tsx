@@ -815,7 +815,7 @@ function renderPlainUserContent(rawContent: string, parseTransport: boolean, ren
   let key = 0;
 
   while ((match = attachRe.exec(content)) !== null) {
-    const before = content.slice(lastIndex, match.index).trim();
+    const before = content.slice(lastIndex, match.index);
     if (before) {
       parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(before) : before}</pre>);
     }
@@ -840,7 +840,7 @@ function renderPlainUserContent(rawContent: string, parseTransport: boolean, ren
     lastIndex = match.index + match[0].length;
   }
 
-  const rest = content.slice(lastIndex).trim();
+  const rest = content.slice(lastIndex);
   if (rest) {
     parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(rest) : rest}</pre>);
   }

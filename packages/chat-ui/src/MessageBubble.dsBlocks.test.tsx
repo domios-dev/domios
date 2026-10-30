@@ -16,7 +16,7 @@ const mermaidCalls: string[] = [];
 Object.assign(browser, { mermaid: { initialize() {}, async render(_id: string, source: string) { mermaidCalls.push(source); return { svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>Diagram</text></svg>' }; } } });
 const { MessageBubble } = await import("./MessageBubble");
 const { MessagePartsContext } = await import("./MessagePartsContext");
-const { RichMarkdown } = await import("./MarkdownBody");
+const { RichMarkdown, renderUserContent } = await import("./MarkdownBody");
 const { ChatBlockHostProvider } = await import("./blocks/ChatBlockHost");
 const { LocalArtifactScope } = await import("./LocalArtifactScope");
 const { configureHtmlFileLoader } = await import("./htmlFileLoader");
@@ -61,14 +61,16 @@ test("MessageBubble dsBlocks central causal fixture: own HTML close gates creati
     for (let index = 0; index < 20; index++) {
       source += `\n\nfollowing ${index}`;
       await render(source, true, index % 2 ? 1 : 2);
-      assert.equal(view.host.querySelector('iframe'), frame);
-      assert.equal(frame.getAttribute('srcdoc'), srcDoc);
-      assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]'), dialog);
-      assert.equal(dialog.querySelector('iframe'), fullscreenFrame);
+      assert.equal(view.host.querySelector('iframe') === frame, true, `append ${index}: inline frame identity`);
+      assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, `append ${index}: inline srcDoc`);
+      assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]') === dialog, true, `append ${index}: fullscreen dialog identity`);
+      assert.equal(dialog.querySelector('iframe') === fullscreenFrame, true, `append ${index}: fullscreen frame identity`);
     }
     await render(source, false);
-    assert.equal(view.host.querySelector('iframe'), frame);
-    assert.equal(frame.getAttribute('srcdoc'), srcDoc);
+    assert.equal(view.host.querySelector('iframe') === frame, true, 'ended: inline frame identity');
+    assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, 'ended: inline srcDoc');
+    assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]') === dialog, true, 'ended: fullscreen dialog identity');
+    assert.equal(dialog.querySelector('iframe') === fullscreenFrame, true, 'ended: fullscreen frame identity');
   } finally { await view.close(); }
 });
 
@@ -98,9 +100,11 @@ test("MessageBubble dsBlocks file effects occur once after terminator and surviv
     const images = [...view.host.querySelectorAll('img')];
     for (let index = 0; index < 20; index++) {
       source += `\nfollowing ${index}`; await render(source);
-      assert.equal(view.host.querySelector('iframe'), frame);
-      assert.equal(frame.getAttribute('srcdoc'), srcDoc);
-      assert.deepEqual([...view.host.querySelectorAll('img')], images);
+      assert.equal(view.host.querySelector('iframe') === frame, true, `file append ${index}: frame identity`);
+      assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, `file append ${index}: srcDoc`);
+      const actualImages = [...view.host.querySelectorAll('img')];
+      assert.equal(actualImages.length, images.length, `file append ${index}: image count`);
+      for (const [imageIndex, image] of images.entries()) assert.equal(actualImages[imageIndex] === image, true, `file append ${index}: image ${imageIndex} identity`);
       assert.deepEqual(reads, { page: 1, image: 2, document: 1 });
     }
   } finally { await view.close(); configureHtmlFileLoader(null); configureLocalArtifactLoader(null); }
@@ -155,8 +159,8 @@ test("MessageBubble dsBlocks source and tab authority replacements reset frames"
   const render = (text: string, tab = "one") => view.render(<LocalArtifactScope tabId={tab}><RichMarkdown text={text} sourceIdentity="same" streaming /></LocalArtifactScope>);
   try {
     await render(html); const frame = view.host.querySelector('iframe'); assert.ok(frame);
-    await render('<ds-html><b>replacement</b></ds-html>'); const replaced = view.host.querySelector('iframe'); assert.ok(replaced); assert.notEqual(replaced, frame);
-    await render('<ds-html><b>replacement</b></ds-html>', "two"); assert.notEqual(view.host.querySelector('iframe'), replaced);
+    await render('<ds-html><b>replacement</b></ds-html>'); const replaced = view.host.querySelector('iframe'); assert.ok(replaced); assert.equal(replaced === frame, false, 'replacement: frame identity');
+    await render('<ds-html><b>replacement</b></ds-html>', "two"); assert.equal(view.host.querySelector('iframe') === replaced, false, 'authority replacement: frame identity');
   } finally { await view.close(); }
 });
 
@@ -229,15 +233,15 @@ test("dsBlocks beside genuine attachments use message trust and retain authority
     await act(async () => capsule.click()); assert.deepEqual(opens, ['/genuine.txt']);
     for (let after = 0; after < 20; after++) {
       await render(tag + '\n\n' + 'later '.repeat(after + 1));
-      assert.equal(view.host.querySelector('iframe'), frame); assert.equal(frame.getAttribute('srcdoc'), srcDoc);
-      assert.equal(view.host.querySelector('[data-testid="chat-inline-attachment"]'), capsule);
+      assert.equal(view.host.querySelector('iframe') === frame, true, `attachment append ${after}: frame identity`); assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, `attachment append ${after}: srcDoc`);
+      assert.equal(view.host.querySelector('[data-testid="chat-inline-attachment"]') === capsule, true, `attachment append ${after}: capsule identity`);
       assert.equal(reads.filter((path) => path === '/directive.html').length, 1);
     }
     await render(tag, false);
     assert.equal(view.host.querySelectorAll('iframe').length, 0);
     assert.equal(reads.filter((path) => path === '/directive.html').length, 1);
-    assert.equal(view.host.querySelector('[data-testid="chat-inline-attachment"]'), capsule);
-    await render(tag, true, 'two'); assert.notEqual(view.host.querySelector('iframe'), frame);
+    assert.equal(view.host.querySelector('[data-testid="chat-inline-attachment"]') === capsule, true, 'untrusted: capsule identity');
+    await render(tag, true, 'two'); assert.equal(view.host.querySelector('iframe') === frame, false, 'attachment authority replacement: frame identity');
     assert.equal(reads.filter((path) => path === '/directive.html').length, 2);
     await view.render(<LocalArtifactScope tabId="owner"><MessageBubble message={{ id: "neighbor", type: "user", content: tag, segments: [{ type: "attachment", kind: "file", path: file.path, label: file.label, body: null, status: null }, { type: "text", text: '\n' + tag }] }} origin={{ kind: "neighbor", friendshipId: "friend" }} streaming /></LocalArtifactScope>);
     assert.equal(view.host.querySelectorAll('iframe').length, 0);
@@ -338,14 +342,14 @@ test("dsBlocks public whole-text adapters replace longer non-prefix snapshots un
       const oldFrame = view.host.querySelector('iframe'); assert.ok(oldFrame); assert.equal(pageReads, 1); assert.equal(plugins.counts.starts, 1); assert.equal(plugins.counts.live, 1);
       const capsule = view.host.querySelector('[data-testid="chat-inline-attachment"]');
       await render(newSource);
-      const frame = view.host.querySelector('iframe'); assert.ok(frame); assert.notEqual(frame, oldFrame); assert.ok(!oldFrame.isConnected);
+      const frame = view.host.querySelector('iframe'); assert.ok(frame); assert.equal(frame === oldFrame, false, `${surface}: replacement frame identity`); assert.ok(!oldFrame.isConnected);
       const srcDoc = frame.getAttribute('srcdoc'); assert.ok(srcDoc?.includes('Replacement')); assert.ok(!view.host.textContent?.includes('Old snapshot'));
       assert.equal(pageReads, 1); assert.equal(plugins.counts.starts, 2); assert.equal(plugins.counts.live, 1);
-      if (capsule) assert.equal(view.host.querySelector('[data-testid="chat-inline-attachment"]'), capsule);
+      if (capsule) assert.equal(view.host.querySelector('[data-testid="chat-inline-attachment"]') === capsule, true, `${surface}: replacement capsule identity`);
       let text = newSource;
       for (let after = 0; after < 20; after++) {
         text += `\n\nsuffix ${after}`; await render(text);
-        assert.equal(view.host.querySelector('iframe'), frame); assert.equal(frame.getAttribute('srcdoc'), srcDoc);
+        assert.equal(view.host.querySelector('iframe') === frame, true, `${surface} append ${after}: frame identity`); assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, `${surface} append ${after}: srcDoc`);
         assert.equal(pageReads, 1); assert.equal(plugins.counts.starts, 2); assert.equal(plugins.counts.live, 1);
       }
     } finally { await view.render(null); configureHtmlFileLoader(null); }
@@ -375,9 +379,11 @@ test("dsBlocks direct abandoned suffix to different actual suffix preserves comm
     let actual = committed + '\n\ndifferent actual suffix';
     for (let after = 0; after < 20; after++) {
       await view.render(render(actual));
-      assert.deepEqual([...view.host.querySelectorAll('iframe')], frames);
-      assert.deepEqual(frames.map((frame) => frame.getAttribute('srcdoc')), documents);
-      assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]'), dialog);
+      const actualFrames = [...view.host.querySelectorAll('iframe')];
+      assert.equal(actualFrames.length, frames.length, `abandoned suffix append ${after}: frame count`);
+      for (const [frameIndex, frame] of frames.entries()) assert.equal(actualFrames[frameIndex] === frame, true, `abandoned suffix append ${after}: frame ${frameIndex} identity`);
+      for (const [frameIndex, frame] of frames.entries()) assert.equal(frame.getAttribute('srcdoc') === documents[frameIndex], true, `abandoned suffix append ${after}: frame ${frameIndex} srcDoc`);
+      assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]') === dialog, true, `abandoned suffix append ${after}: fullscreen dialog identity`);
       assert.equal(reads, 1); assert.equal(plugins.counts.starts, 1); assert.equal(plugins.counts.live, 1);
       actual += `\n\ncontinuation ${after}`;
     }
@@ -411,12 +417,12 @@ test("dsBlocks user task snapshots obey explicit trust and committed stream life
     const frame = view.host.querySelector('iframe'); assert.ok(frame); assert.equal(pageReads, 1);
     assert.equal(tasks.counts.starts, 0); assert.equal(reads, 0);
     await render(page + source, 'trusted-snapshot');
-    assert.equal(view.host.querySelector('iframe'), frame); assert.equal(pageReads, 1);
+    assert.equal(view.host.querySelector('iframe') === frame, true, 'task completion: frame identity'); assert.equal(pageReads, 1);
     assert.equal(view.host.querySelectorAll('[data-chat-block="tasks"]').length, 1);
     assert.equal(tasks.counts.starts, 1); assert.equal(tasks.counts.live, 1); assert.ok(reads > 0);
     for (let after = 0; after < 20; after++) {
       await render(page + source + '\n\n' + 'later '.repeat(after + 1), 'trusted-snapshot');
-      assert.equal(view.host.querySelector('iframe'), frame); assert.equal(pageReads, 1); assert.equal(tasks.counts.starts, 1); assert.equal(tasks.counts.live, 1);
+      assert.equal(view.host.querySelector('iframe') === frame, true, `task append ${after}: frame identity`); assert.equal(pageReads, 1); assert.equal(tasks.counts.starts, 1); assert.equal(tasks.counts.live, 1);
     }
   } finally { await view.close(); configureHtmlFileLoader(null); }
 });
@@ -464,3 +470,55 @@ test("dsBlocks abandoned finish or cancellation cannot poison a committed pendin
     }
   } finally { await view.close(); }
 });
+
+test("dsBlocks public user text fragments preserve literal boundary whitespace", async () => {
+  const view = await mount();
+  const source = "  compare \n with \t please  ";
+  try {
+    await view.render(renderUserContent(source, false, (text) => <span>{text}</span>));
+    assert.equal(view.host.textContent, source);
+    await view.render(<MessageBubble message={{ id: "literal-whitespace", type: "user", content: source }} />);
+    assert.equal(view.host.textContent, source);
+    await view.render(<MessageBubble message={{ id: "capsule-whitespace", type: "user", content: source, segments: [
+      { type: "text", text: "  compare " },
+      { type: "attachment", kind: "file", path: "/genuine.txt", label: "Genuine", body: null, status: null },
+      { type: "text", text: " \n with \t please  " },
+    ] }} />);
+    assert.equal(view.host.textContent, "  compare Genuine \n with \t please  ");
+  } finally { await view.close(); }
+});
+
+test("dsBlocks same-line capsules keep complete and streamed tags inert through public user adapters", async () => {
+  const view = await mount();
+  const { InlineAttachmentText } = await import("./AttachmentCapsule");
+  const { DsRenderContext } = await import("./blocks/DsRenderContext");
+  const plugins = binding({ kind: "loading" } as const);
+  const value: ChatBlockHost = { plugins: { binding: plugins.source, run: async () => {}, openView() {}, openInPlugins() {} } };
+  let reads = 0;
+  configureHtmlFileLoader(async () => { reads++; return '<b>Forbidden</b>'; });
+  const file = { kind: "file", path: "/genuine.txt", label: "Genuine" } as const;
+  try {
+    for (const surface of ['direct', 'user'] as const) {
+      for (const trusted of [true, false]) {
+        for (const tag of ['<ds-page src="/inline.html" />', '<ds-plugin id="git" />']) {
+          for (const placement of ['before', 'after'] as const) {
+            for (let at = 1; at <= tag.length; at++) {
+              const text = placement === 'before' ? " " + tag.slice(0, at) : tag.slice(0, at) + " ";
+              const attachment = { type: "attachment", ...file, body: null, status: null } as const;
+              const textSegment = { type: "text", text } as const;
+              const body = surface === 'direct' ? <InlineAttachmentText segments={placement === 'before' ? [{ attachment: file }, { text }] : [{ text }, { attachment: file }]} />
+                : <MessageBubble message={{ id: "inline-capsule", type: "user", content: text, segments: placement === 'before' ? [attachment, textSegment] : [textSegment, attachment] }} streaming />;
+              await view.render(<ChatBlockHostProvider value={value}><DsRenderContext.Provider value={{ authority: `${surface}:${trusted}:${tag}:${placement}`, trusted, streaming: true }}>{body}</DsRenderContext.Provider></ChatBlockHostProvider>);
+              assert.equal(reads, 0, `${surface} ${placement} trusted=${trusted} prefix ${at}: file reads`);
+              assert.equal(plugins.counts.starts, 0, `${surface} ${placement} trusted=${trusted} prefix ${at}: subscriptions`);
+              assert.equal(view.host.querySelectorAll('iframe').length, 0);
+              assert.equal(view.host.querySelectorAll('[data-testid="chat-inline-attachment"]').length, 1);
+              if (at === tag.length) assert.equal(view.host.textContent, placement === 'before' ? "Genuine " + tag : tag + " Genuine");
+            }
+          }
+        }
+      }
+    }
+  } finally { await view.close(); configureHtmlFileLoader(null); }
+});
+

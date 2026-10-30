@@ -60,7 +60,13 @@ async function copy(target: Element) {
 }
 
 const inlineText = (host: HTMLElement) => host.querySelector<HTMLElement>('[data-testid="chat-inline-attachment-text"]')!;
-const textNode = (element: Element, fragment: string) => [...element.childNodes].find((node) => node.nodeType === Node.TEXT_NODE && node.nodeValue?.includes(fragment))!;
+function textNode(element: Element, fragment: string): Text {
+  const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeValue?.includes(fragment)) return node as Text;
+  }
+  throw new Error(`Missing descendant text: ${fragment}`);
+}
 
 const capsules = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('[data-testid="chat-inline-attachment"]')];
 
