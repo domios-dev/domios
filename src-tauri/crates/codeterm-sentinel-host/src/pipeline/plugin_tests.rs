@@ -302,9 +302,9 @@ fn plugin_steps_file_and_text_ports_feed_next_steps() {
     let storage =
         codeterm_storage::Storage::open(&root.path().join("storage"), Default::default()).unwrap();
     let store = Store::with_storage(&storage, codeterm_cron::clock::MockClock::starting_at(1000));
-    let job = store
-        .prepare_pipeline(
-            preview.normalized_spec,
+    let mut job = store
+        .prepare_document(
+            definition,
             crate::store::Owner {
                 creator_tab_id: creator,
                 workspace_id: workspace,
@@ -314,6 +314,7 @@ fn plugin_steps_file_and_text_ports_feed_next_steps() {
             false,
         )
         .unwrap();
+    job.set_pipeline(Some(preview.normalized_spec));
     let handle = crate::scheduler::fixture_handle_without_app(store);
     let job = storage::commit(&handle.store, |store| store.stage_insert(job)).unwrap();
     let lease = Lease {

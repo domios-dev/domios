@@ -473,7 +473,14 @@ fn view_invalidation_uses_sandbox_plugin_identity_without_agent_scope_and_is_bou
 async fn view_host_projection_survives_actual_continuation_and_cannot_be_seeded_by_args() {
     use crate::view_host::{ViewCallContext, ViewProvider};
     let host: Arc<dyn PluginHostCtx> = Arc::new(AnalyticsHost::default());
-    let vm=Arc::new(PluginVm::from_source("view-invocation-probe",r#"module.exports.default={viewCall(method,args,context){return host.awaitJob("view-context-absent-job",function(){return {passed:context,host:host.receiverTarget.get()}})}}"#.into()).unwrap());
+    let job =
+        crate::js_runtime::host_exec::start_retained_json_job("view-invocation-probe", || {
+            json!({"value": 42}).to_string()
+        })
+        .unwrap();
+    let source = r#"module.exports.default={viewCall(method,args,context){return host.awaitJob(JOB,function(result){return {passed:context,host:host.receiverTarget.get(),result:result}})}}"#
+        .replace("JOB", &json!(job).to_string());
+    let vm = Arc::new(PluginVm::from_source("view-invocation-probe", source).unwrap());
     assert!(vm.set_service(Arc::downgrade(&host)));
     let view = crate::js_runtime::JsViewProvider::new(vm, "view-invocation-probe");
     let mut context = ViewCallContext::panel("view-invocation-probe");
@@ -484,5 +491,6 @@ async fn view_host_projection_survives_actual_continuation_and_cannot_be_seeded_
         .unwrap();
     assert_eq!(out["passed"], serde_json::to_value(&context).unwrap());
     assert_eq!(out["host"], out["passed"]);
+    assert_eq!(out["result"]["value"], 42);
     assert!(crate::view_host::current_view_call_context("view-invocation-probe").is_none());
 }

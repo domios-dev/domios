@@ -185,8 +185,13 @@ fn blueprint_document_plugin_node_needs_no_spending_block() {
     let parsed = parse("plugin.yaml", raw).unwrap();
     assert!(parsed.document.template_errors().is_empty());
     let lowered = parsed.document.lower().unwrap();
-    assert_eq!(lowered["spec"]["steps"][0]["kind"], "plugin");
-    assert_eq!(lowered["spec"]["steps"][0]["params"]["text"], "opaque");
+    assert_eq!(
+        lowered["spec"]["steps"][0]["kind"],
+        serde_json::json!({
+            "kind": "plugin", "node_type": "fixture.echo", "revision": 0,
+            "params": {"text": "opaque"}, "outcomes": []
+        })
+    );
     let invalid = raw.replace("  uses: fixture.echo", "  uses: fixture.echo\n  plugin: {revision: 1, spending: {unit: credits, run_ceiling: 2, step_allowance: 1}}");
     assert!(parse("plugin.yaml", &invalid).is_err());
 }

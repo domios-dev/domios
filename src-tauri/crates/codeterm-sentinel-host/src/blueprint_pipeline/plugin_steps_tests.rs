@@ -72,6 +72,17 @@ fn plugin_steps_catalog_is_discoverable_and_removal_revokes_admission() {
     assert_eq!(node["available"], true);
     assert!(node.get("hold_reason").is_none());
     assert!(serde_json::from_value::<StepKind>(json!({"kind":"fixture.generate"})).is_err());
+    let document = codeterm_blueprint_types::blueprint_document::Document::from_definition(&json!({
+        "schema_version":2,"kind":"pipeline","name":"bad-port",
+        "trigger":{"type":"schedule","every":{"lit":"20s"}},
+        "steps":[{"id":"a","uses":"fixture.generate"},{"id":"sink","run":{"lit":"echo"},"bind":{"in":"a.out.missing"}}],
+        "result":{"to":"notify"}
+    })).unwrap();
+    let spec = serde_json::from_value(document.lower().unwrap()["spec"].clone()).unwrap();
+    let errors = plugin_validation::validate(&fixture.service, &spec);
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].reason, "undeclared plugin output port");
+    assert_eq!(errors[0].field, "steps[1].bind");
     registry.unregister("fixture");
     assert!(!fixture
         .service
