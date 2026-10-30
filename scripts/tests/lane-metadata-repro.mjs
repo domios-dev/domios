@@ -1,7 +1,7 @@
 // Caller: scripts/tests/lane-check.test.mjs; standalone two-worktree cache reproduction.
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,6 +36,12 @@ export function reproduceLaneMetadata({ isolate = true } = {}) {
       const target = path.join(repository, 'scripts', name);
       mkdirSync(path.dirname(target), { recursive: true });
       copyFileSync(path.join(scripts, name), target);
+      if (name === 'lane-check-run.py') {
+        const marker = 'def read_cli(args):';
+        const runner = readFileSync(target, 'utf8');
+        assert.equal(runner.split(marker).length, 2);
+        writeFileSync(target, runner.replace(marker, marker + '\n    raise AssertionError("metadata fixture must never query a live Domios CLI")'));
+      }
       if (name.endsWith('.sh')) chmodSync(target, 0o755);
     }
     git('add', '.');
@@ -50,7 +56,9 @@ export function reproduceLaneMetadata({ isolate = true } = {}) {
         utimesSync(path.join(lane, 'src-tauri', relative), new Date('2000-01-01'), new Date('2000-01-01'));
       }
     }
-    const env = { ...process.env, CODETERM_RUST_CACHE_ROOT: path.join(root, 'cache'), CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TERM_COLOR: 'never', CARGO_TERM_QUIET: 'false', CARGO_INCREMENTAL: '0', CARGO_NET_OFFLINE: 'true', RUSTC_WRAPPER: '', RUSTC_WORKSPACE_WRAPPER: '' };
+    const inherited = { ...process.env };
+    for (const key of Object.keys(inherited)) if (/^(CODETERM_|DOMIOS_|CT_|BUILD_NOTIFY_|DEV_NOTIFY_)/.test(key)) delete inherited[key];
+    const env = { ...inherited, CODETERM_RUST_CACHE_ROOT: path.join(root, 'cache'), CARGO_HOME: path.join(root, 'cargo-home'), CARGO_TERM_COLOR: 'never', CARGO_TERM_QUIET: 'false', CARGO_INCREMENTAL: '0', CARGO_NET_OFFLINE: 'true', RUSTC_WRAPPER: '', RUSTC_WORKSPACE_WRAPPER: '' };
     mkdirSync(env.CARGO_HOME);
     delete env.CARGO_TARGET_DIR;
     delete env.CARGO_BUILD_TARGET_DIR;

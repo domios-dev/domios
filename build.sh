@@ -70,7 +70,12 @@ parse_dev_build_mode() {
         fi
         shift
         ;;
-      --notify-tab=*) [ -n "${arg#--notify-tab=}" ] || return 2 ;;
+      --notify-tab=*)
+        if [ -z "${arg#--notify-tab=}" ]; then
+          echo 'ERROR: --notify-tab requires a non-empty tab id' >&2
+          return 2
+        fi
+        ;;
       --release-gateway-after-ready)
         echo "ERROR: --release-gateway-after-ready is obsolete; named dev --wait always skips the shared gateway handoff" >&2
         return 2
