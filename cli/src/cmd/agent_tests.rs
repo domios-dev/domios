@@ -345,7 +345,7 @@ fn refusal_hint_never_suggests_a_shell_expression_sha() {
         dirty_files: Vec::new(),
     };
 
-    for line in refusal_next_commands() {
+    for line in refusal_next_commands(&refusal) {
         assert!(!line.contains("$(git "), "{line}");
     }
     assert!(refusal
@@ -362,7 +362,7 @@ fn json_next_commands_are_the_same_sequence_the_text_hint_prints() {
     };
     let message = refusal.message();
 
-    let commands = refusal_next_commands();
+    let commands = refusal_next_commands(&refusal);
     assert!(!commands.is_empty());
     for line in &commands {
         assert!(message.contains(*line), "{line}");
@@ -776,4 +776,14 @@ fn agent_ack_renders_current_manifest_brief_byte_completely() {
     .unwrap();
     assert!(rendered.ends_with(brief));
     assert_eq!(rendered.matches(brief).count(), 1);
+}
+
+#[test]
+fn json_binding_refusal_only_offers_partial_reporting() {
+    let refusal = crate::cmd::report_guard::unavailable_scope_refusal("lookup failed");
+    let value = report_refusal_json(&refusal, false, None, None);
+    assert_eq!(value["next_commands"], serde_json::json!([
+        "domios agent report --status partial --from-pad report.md"
+    ]));
+    assert!(!refusal.message().contains("git commit"));
 }
