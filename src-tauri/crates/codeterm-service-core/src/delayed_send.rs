@@ -965,7 +965,7 @@ pub fn start_scheduler(svc: ServiceState) {
     });
 }
 
-async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
+pub(crate) async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
     if !target_tab_exists(svc, &msg.tab_id) {
         let error = format!("recipient tab {} no longer exists", msg.tab_id);
         if msg.recurrence.is_some() {
@@ -979,13 +979,7 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     }
     let last_tick_send_sequence = latest_ledger_sequence(svc, &msg.tab_id);
     let tab_id = msg.tab_id.clone();
-    let skip_retry =
-        crate::service::agent_runtime::capacity_retry::skip_busy_retry(&msg.tab_id, &msg.id);
-    let result = if skip_retry {
-        Ok(())
-    } else {
-        delivery::deliver(svc, &msg).await
-    };
+    let result = delivery::deliver(svc, &msg).await;
     match result {
         Ok(_) => {
             svc.ext::<crate::delayed_send::DelayedSendQueue>()

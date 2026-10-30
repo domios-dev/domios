@@ -12,6 +12,7 @@ const DELAY_MS: u64 = 10_000;
 pub(super) struct RetryState {
     attempts: u8,
     pending: Option<String>,
+    cancelled: std::collections::HashSet<String>,
     error: Option<(String, RuntimeErrorSignal)>,
 }
 
@@ -68,7 +69,7 @@ pub(crate) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn skip_busy_retry(tab: &str, message: &str) -> bool {
+pub(crate) fn skip_retry(tab: &str, message: &str) -> bool {
     let Some(session) = engine::for_tab(tab) else {
         return false;
     };
@@ -77,6 +78,9 @@ pub(crate) fn skip_busy_retry(tab: &str, message: &str) -> bool {
         context.active_turn_id.is_some() || !context.active_turns.is_empty()
     };
     let mut retry = session.capacity_retry.lock();
+    if retry.cancelled.remove(message) {
+        return true;
+    }
     if retry.pending.as_deref() != Some(message) {
         return false;
     }
@@ -88,7 +92,8 @@ fn reset(svc: &ServiceContext, session: &engine::Session) -> Result<(), String> 
     let tab = session.context.lock().tab_id.clone();
     let mut retry = session.capacity_retry.lock();
     remove_pending(svc, &tab, &mut retry)?;
-    *retry = RetryState::default();
+    retry.attempts = 0;
+    retry.error = None;
     drop(retry);
     crate::delayed_send::emit_changed(svc, &tab);
     Ok(())
@@ -97,12 +102,12 @@ fn reset(svc: &ServiceContext, session: &engine::Session) -> Result<(), String> 
 fn remove_pending(svc: &ServiceContext, tab: &str, retry: &mut RetryState) -> Result<(), String> {
     if let Some(id) = retry.pending.as_deref() {
         let queue = svc.ext::<DelayedSendQueue>();
-        if queue
-            .list(Some(tab))
-            .iter()
-            .any(|msg| msg.id == id && msg.state != DelayedMessageState::Sending)
-        {
-            queue.delete(id)?;
+        if let Some(message) = queue.list(Some(tab)).iter().find(|msg| msg.id == id) {
+            retry.cancelled.insert(id.to_owned());
+            if message.state != DelayedMessageState::Sending {
+                queue.delete(id)?;
+                retry.cancelled.remove(id);
+            }
         }
     }
     retry.pending = None;

@@ -79,12 +79,12 @@ fn capacity_retry_user_send_and_interrupt_cancel_pending_and_reset_count() {
 }
 
 #[test]
-fn capacity_retry_active_turn_silently_drops_retry_and_preserves_count() {
-    let (fixture, tab, _peer, _cleanup) = runtime_fixture();
+fn capacity_retry_turn_started_after_claim_is_dropped_without_reset() {
+    let (fixture, tab, mut peer, _cleanup) = runtime_fixture();
     let session = for_tab(&tab).unwrap();
     fail(&fixture.service, &session, "first");
     let queue = fixture.service.ext::<DelayedSendQueue>();
-    let message = queue.list(Some(&tab)).pop().unwrap();
+    let message = queue.claim_due(10_123).unwrap().pop().unwrap();
     fixture
         .service
         .mux
@@ -94,12 +94,13 @@ fn capacity_retry_active_turn_silently_drops_retry_and_preserves_count() {
         .boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
     session.context.lock().active_turn_id = Some("busy".into());
     let rows_before = session.cache.lock().snapshot().len();
-    let result = crate::async_runtime::block_on(crate::delayed_send::send_message_now(
-        Arc::new(fixture.service.clone()),
-        message.id,
+    let result = crate::async_runtime::block_on(crate::delayed_send::deliver_claimed(
+        &Arc::new(fixture.service.clone()),
+        message,
     ));
     result.unwrap();
     assert!(fixture.service.chat_send_ledger.reconcile(&tab).is_empty());
+    assert_no_submit(&mut peer);
     assert!(queue.list(Some(&tab)).is_empty());
     assert_eq!(session.cache.lock().snapshot().len(), rows_before);
     fail(&fixture.service, &session, "busy");
@@ -113,22 +114,60 @@ fn capacity_retry_active_turn_silently_drops_retry_and_preserves_count() {
 
 #[test]
 fn capacity_retry_ordinary_continue_uses_normal_send_once_and_keeps_count() {
-    assert_delayed_continue(false);
+    assert_delayed_continue(false, false);
 }
 
 #[test]
 fn capacity_retry_ordinary_delayed_continue_reaches_busy_runtime() {
-    assert_delayed_continue(true);
+    assert_delayed_continue(true, false);
 }
 
-fn assert_delayed_continue(busy: bool) {
+#[test]
+fn capacity_retry_cancel_after_claim_drops_retry_but_delivers_ordinary_continue() {
+    assert_delayed_continue(false, true);
+}
+
+fn assert_no_submit(peer: &mut tokio::io::DuplexStream) {
+    use std::future::Future;
+    use std::task::{Context, Waker};
+    use tokio::io::AsyncReadExt;
+    let mut byte = [0];
+    let mut read = std::pin::pin!(peer.read(&mut byte));
+    assert!(read
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+        .is_pending());
+}
+
+fn assert_delayed_continue(busy: bool, cancel_after_claim: bool) {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-    let (fixture, tab, peer, _cleanup) = runtime_fixture();
+    let (fixture, tab, mut peer, _cleanup) = runtime_fixture();
     let session = for_tab(&tab).unwrap();
     fail(&fixture.service, &session, "first");
     let queue = fixture.service.ext::<DelayedSendQueue>();
-    let message = if busy {
-        session.context.lock().active_turn_id = Some("busy".into());
+    if cancel_after_claim {
+        let claimed = queue.claim_due(10_123).unwrap().pop().unwrap();
+        super::super::super::capacity_retry::cancel(&fixture.service, &tab).unwrap();
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab)
+            .unwrap()
+            .boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        crate::async_runtime::block_on(crate::delayed_send::deliver_claimed(
+            &Arc::new(fixture.service.clone()),
+            claimed,
+        ))
+        .unwrap();
+        assert!(fixture.service.chat_send_ledger.reconcile(&tab).is_empty());
+        assert_no_submit(&mut peer);
+        assert!(queue.list(Some(&tab)).is_empty());
+    }
+    let message = if busy || cancel_after_claim {
+        if busy {
+            session.context.lock().active_turn_id = Some("busy".into());
+        }
         queue
             .enqueue(
                 tab.clone(),
@@ -195,10 +234,11 @@ fn assert_delayed_continue(busy: bool) {
         crate::service::chat_send_transaction::ChatSendState::Written
     );
     fail(&fixture.service, &session, "retry-turn");
+    let expected_attempt = if cancel_after_claim { 1 } else { 2 };
     assert!(session
         .cache
         .lock()
         .snapshot()
         .iter()
-        .any(|item| item.content == "Automatic retry: attempt 2/10"));
+        .any(|item| item.content == format!("Automatic retry: attempt {expected_attempt}/10")));
 }
