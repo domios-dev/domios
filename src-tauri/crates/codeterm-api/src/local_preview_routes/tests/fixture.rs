@@ -210,9 +210,59 @@ impl Fixture {
             .or_default()
             .push(ChatMsg {
                 kind: "assistant".into(),
-                content: format!("@ds-document {}", path.display()),
+                content: format!(
+                    "<ds-document src=\"{}\" />",
+                    path.to_string_lossy()
+                        .replace('&', "&amp;")
+                        .replace('"', "&quot;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;")
+                ),
                 ..Default::default()
             });
+    }
+
+    pub fn content(&self, session: &str, content: String) {
+        self.rows.lock().insert(
+            session.into(),
+            vec![ChatMsg {
+                kind: "assistant".into(),
+                content,
+                ..Default::default()
+            }],
+        );
+    }
+
+    pub fn user_content(&self, session: &str, content: String) {
+        self.rows.lock().insert(
+            session.into(),
+            vec![ChatMsg {
+                kind: "user".into(),
+                content,
+                ..Default::default()
+            }],
+        );
+    }
+
+    pub fn inbound_content(&self, session: &str, content: String, kind: &str, wire: &str) {
+        let mut message = ChatMsg {
+            kind: "user".into(),
+            content,
+            inbound_kind: Some(kind.into()),
+            ..Default::default()
+        };
+        message.refresh_segments_from(wire);
+        self.rows.lock().insert(session.into(), vec![message]);
+    }
+
+    pub fn bind_session(&self, tab: &str, session: &str) {
+        self._service
+            .service
+            .mux
+            .write()
+            .get_tab_mut(tab)
+            .unwrap()
+            .agent_session_id = Some(session.into());
     }
 
     pub fn write(&self, name: &str, bytes: impl AsRef<[u8]>) -> PathBuf {

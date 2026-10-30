@@ -9,17 +9,17 @@ Object.defineProperty(globalThis, "window", { value: testWindow, configurable: t
 void (async () => {
 const { pinnedBlocksStore, togglePinned } = await import("./pinnedBlocks");
 
-assert.deepEqual(togglePinned([], "@ds-plugin a"), ["@ds-plugin a"]);
-assert.deepEqual(togglePinned(["@ds-plugin a", "@ds-plugin b"], "@ds-plugin a"), ["@ds-plugin b"]);
+assert.deepEqual(togglePinned([], "<ds-plugin id='a' />"), ["<ds-plugin id='a' />"]);
+assert.deepEqual(togglePinned(["<ds-plugin id='a' />", "<ds-plugin id='b' />"], "<ds-plugin id='a' />"), ["<ds-plugin id='b' />"]);
 
 pinnedBlocksStore.resetForTest();
 let notified = 0;
 const unsubscribe = pinnedBlocksStore.subscribe(() => notified++);
-assert.equal(pinnedBlocksStore.toggle("tab-1", "@ds-plugin telegram-client"), true);
-assert.deepEqual(pinnedBlocksStore.list("tab-1"), ["@ds-plugin telegram-client"]);
+assert.equal(pinnedBlocksStore.toggle("tab-1", "<ds-plugin id='telegram-client' />"), true);
+assert.deepEqual(pinnedBlocksStore.list("tab-1"), ["<ds-plugin id='telegram-client' />"]);
 assert.deepEqual(pinnedBlocksStore.list("tab-2"), [], "pins are per tab");
 assert.equal(pinnedBlocksStore.list("tab-1"), pinnedBlocksStore.list("tab-1"), "list must be stable for useSyncExternalStore");
-assert.equal(pinnedBlocksStore.toggle("tab-1", "@ds-plugin telegram-client"), false);
+assert.equal(pinnedBlocksStore.toggle("tab-1", "<ds-plugin id='telegram-client' />"), false);
 assert.deepEqual(pinnedBlocksStore.list("tab-1"), []);
 assert.equal(notified, 2);
 unsubscribe();

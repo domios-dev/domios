@@ -1,3 +1,4 @@
+import { serializeDsBlock } from "@codeterm/chat-core";
 import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code2, Copy, Check, Eye, Maximize2, Minimize2, RefreshCw } from "lucide-react";
@@ -98,12 +99,6 @@ type FileSourceState =
   | { status: "ready"; source: string; error: "" }
   | { status: "error"; source: ""; error: string };
 
-export function parseHtmlFileDirective(source: string): string | null {
-  const match = /^\s*@file\s+(?:"([^"]+)"|'([^']+)'|(.+?))\s*$/s.exec(source.replace(/\r/g, ""));
-  const path = (match?.[1] || match?.[2] || match?.[3] || "").trim();
-  return path || null;
-}
-
 function readThemeVars(): ThemeVars {
   const fallback = { bg: "#0d1117", fg: "#c9d1d9", accent: "#58a6ff", muted: "#8b949e", border: "#30363d" };
   if (typeof window === "undefined") {
@@ -177,10 +172,13 @@ function PreviewFrame({
   );
 }
 
-export function HtmlPreviewBlock({ text, fullscreenRequest = 0, renderError }: { text: string; fullscreenRequest?: number; renderError?: (error: string) => React.ReactNode }) {
+type HtmlPreviewProps = ({ text: string; filePath?: never } | { filePath: string; text?: never }) & {
+  fullscreenRequest?: number;
+  renderError?: (error: string) => React.ReactNode;
+};
+export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, renderError }: HtmlPreviewProps) {
   const tabId = useLocalArtifactTabId();
-  const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
-  const filePath = useMemo(() => parseHtmlFileDirective(normalizedText), [normalizedText]);
+  const normalizedText = useMemo(() => filePath ? serializeDsBlock({ kind: "page", src: filePath }) : text.replace(/\r/g, ""), [text, filePath]);
   const [fileSource, setFileSource] = useState<FileSourceState>({ status: "idle", source: "", error: "" });
   const requestGeneration = useRef(0);
   const oversized = !filePath && normalizedText.length > HTML_PREVIEW_LENGTH_LIMIT;

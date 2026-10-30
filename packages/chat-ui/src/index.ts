@@ -58,7 +58,7 @@ export { ChatBlockMessageProvider, useChatBlockMessageId } from "./blocks/ChatBl
 export { useLiveBinding } from "./blocks/liveBinding";
 export type { LiveBindingSource } from "./blocks/liveBinding";
 export { CHAT_BLOCKS, parseChatBlock, parseChatBlocks } from "./blocks/registry";
-export type { ChatBlockDefinition, ParsedChatBlock } from "./blocks/registry";
+export type { ParsedChatBlock } from "./blocks/registry";
 export { PluginBlock } from "./blocks/PluginBlock";
 export { parsePluginId, pluginPrimaryAction, pluginStatus } from "./blocks/pluginBlockModel";
 export type { PluginBlockInfo, PluginBlockState, PluginLifecycleKind } from "./blocks/pluginBlockModel";
@@ -94,3 +94,5 @@ export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
 
 export { CanvasToolbar, type CanvasToolbarProps } from "./CanvasToolbar";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
+
+export { DsRenderContext, type DsRenderScope } from "./blocks/DsRenderContext";

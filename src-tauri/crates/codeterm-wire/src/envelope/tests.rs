@@ -318,3 +318,54 @@ fn envelope_current_non_voice_markers_stay_readable() {
         ));
     }
 }
+
+#[test]
+fn closed_context_shields_unmatched_fences_and_inner_frame_closers() {
+    let body="<context>\n<handoff>\n```html\n</domios>\n<ds-document src=\"/quoted.md\" />\n</handoff>\n</context>\n<ds-document src=\"/live.md\" />";
+    let source = format!("<domios from=\"tab\" tab=\"author\">\n{body}\n</domios>");
+    let spans = parse_envelope_spans(&source);
+    assert_tiles(&source, &spans);
+    assert!(
+        matches!(spans.as_slice(),[SpannedSegment {segment:MessageSegment::Frame {kind:FrameKind::Tab,body:kept,..},span}] if kept==body && span==&(0..source.len()))
+    );
+    for end in (0..source.len()).filter(|end| source.is_char_boundary(*end)) {
+        let spans = parse_envelope_spans(&source[..end]);
+        assert_tiles(&source[..end], &spans);
+        assert!(
+            !spans
+                .iter()
+                .any(|part| matches!(part.segment, MessageSegment::Frame { .. })),
+            "premature frame at {end}"
+        );
+    }
+    for context in [
+        "<context>\n```html\n</domios>",
+        "<context>\n<handoff>\n</context>\n</domios>",
+        "<context>\n<xmp>\n</context>\n</domios>\n<ds-document src='/quoted.md' />\n</xmp>",
+        "<context>\n<div title=\"\n</context>\n</domios>\n\">opaque</div>",
+        "<context>\n<!--\n</context>\n</domios>\n-->",
+        "<context>\n<![CDATA[\n</context>\n</domios>\n]]>",
+        "<context>\n`</context>`\n</domios>",
+    ] {
+        let raw =
+            format!("<domios from=\"tab\">\n{context}\n<ds-document src='/live.md' />\n</domios>");
+        let spans = parse_envelope_spans(&raw);
+        assert_tiles(&raw, &spans);
+        assert!(
+            matches!(spans.as_slice(),[SpannedSegment {segment:MessageSegment::PartialFrame {raw:kept,..},..}] if kept==&raw),
+            "{raw}"
+        );
+    }
+    for quoted in [
+        format!("```xml\n{source}\n```"),
+        format!("`{source}`"),
+        format!("> {source}"),
+    ] {
+        assert!(
+            !parse_envelope(&quoted)
+                .iter()
+                .any(|part| matches!(part, MessageSegment::Frame { .. })),
+            "{quoted}"
+        );
+    }
+}

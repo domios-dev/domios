@@ -43,7 +43,7 @@ it("hides the header control for an empty transcript and opens the panel with a 
   chatDocumentsStore.set("docs", []);
   await render(<DocumentsButton tabId="docs" />);
   expect(host.querySelector("button")).toBeNull();
-  await act(async () => chatDocumentsStore.set("docs", documentsFromTranscript([{ content: "@ds-document /a.md\n@ds-image /b.png\n@ds-document /a.md" }])));
+  await act(async () => chatDocumentsStore.set("docs", documentsFromTranscript([{ content: "<ds-document src='/a.md' />\n<ds-image src='/b.png' />\n<ds-document src='/a.md' />" }])));
   await act(async () => button("Documents (2)").click());
   expect(planSidePanelStore.get()?.target.documentsTabId).toBe("docs");
 });
@@ -60,7 +60,7 @@ it("remembers each tab's open state without reopening a dismissed panel", () => 
 it("opens a document from the tree into a reader, and Back, Escape or Backspace return to the focused row", async () => {
   const onClose = vi.fn();
   configureLocalArtifactLoader(async (path) => ({ data: `# ${path}`, media_type: "text/markdown" }));
-  chatDocumentsStore.set("reader", documentsFromTranscript([{ content: "@ds-document /work/old.md\n@ds-document /work/new.md" }]));
+  chatDocumentsStore.set("reader", documentsFromTranscript([{ content: "<ds-document src='/work/old.md' />\n<ds-document src='/work/new.md' />" }]));
   await render(panel("reader", onClose));
   expect(host.querySelectorAll('[role="tree"] [role="treeitem"]')).toHaveLength(3);
   await act(async () => button("Open old.md").click());
@@ -82,7 +82,7 @@ it("opens a document from the tree into a reader, and Back, Escape or Backspace 
 
 it("keeps the open document per tab across remounts", async () => {
   configureLocalArtifactLoader(async () => ({ data: "# Kept", media_type: "text/markdown" }));
-  chatDocumentsStore.set("kept", documentsFromTranscript([{ content: "@ds-document /kept.md" }]));
+  chatDocumentsStore.set("kept", documentsFromTranscript([{ content: "<ds-document src='/kept.md' />" }]));
   await render(panel("kept"));
   await act(async () => button("Open kept.md").click());
   await act(async () => root?.unmount());
@@ -93,7 +93,7 @@ it("keeps the open document per tab across remounts", async () => {
 
 it("moves focus through visible rows, opens with Enter and collapses folders with the arrows", async () => {
   configureLocalArtifactLoader(async (path) => ({ data: `# ${path}`, media_type: "text/markdown" }));
-  chatDocumentsStore.set("keys", documentsFromTranscript([{ content: "@ds-document /work/a.md\n@ds-document /work/b.md" }]));
+  chatDocumentsStore.set("keys", documentsFromTranscript([{ content: "<ds-document src='/work/a.md' />\n<ds-document src='/work/b.md' />" }]));
   await render(panel("keys"));
   await act(async () => button("/work").focus());
   await key("ArrowDown");
@@ -117,7 +117,7 @@ it("reader actions open fullscreen, reveal, copy the path and content, and add t
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
   configureLocalArtifactLoader(async () => ({ data: "# Report\n\nBody line", media_type: "text/markdown" }));
   configureLocalArtifactOpener(async (path) => { revealed.push(path); });
-  chatDocumentsStore.set("actions", documentsFromTranscript([{ content: "@ds-document /report.md" }]));
+  chatDocumentsStore.set("actions", documentsFromTranscript([{ content: "<ds-document src='/report.md' />" }]));
   await render(panel("actions"));
   await act(async () => button("Open report.md").click());
   await act(async () => button("Fullscreen report.md").click());
@@ -134,7 +134,7 @@ it("reader actions open fullscreen, reveal, copy the path and content, and add t
 
 it("selected reader text offers Copy and Add to chat with a file line reference", async () => {
   configureLocalArtifactLoader(async () => ({ data: "# Title\n\nFirst paragraph here.", media_type: "text/markdown" }));
-  chatDocumentsStore.set("select", documentsFromTranscript([{ content: "@ds-document /notes.md" }]));
+  chatDocumentsStore.set("select", documentsFromTranscript([{ content: "<ds-document src='/notes.md' />" }]));
   await render(panel("select"));
   await act(async () => button("Open notes.md").click());
   const paragraph = Array.from(host.querySelectorAll("p")).find((item) => item.textContent === "First paragraph here.")!;
@@ -155,7 +155,7 @@ it("skips missing files and checks again when the panel is reopened during its c
   let paths = ["/work/live.md"];
   vi.mocked(invoke).mockImplementation(async () => ({ paths, home: null }));
   configureLocalArtifactLoader(async () => ({ data: "# Existing", media_type: "text/markdown" }));
-  chatDocumentsStore.set("missing", documentsFromTranscript([{ content: "@ds-document /work/gone.md\n@ds-document /work/live.md" }]));
+  chatDocumentsStore.set("missing", documentsFromTranscript([{ content: "<ds-document src='/work/gone.md' />\n<ds-document src='/work/live.md' />" }]));
   await render(<><DocumentsButton tabId="missing" />{panel("missing")}</>);
   expect(button("Documents (1)")).toBeTruthy();
   expect(host.querySelector('[aria-label="Open gone.md"]')).toBeNull();
@@ -171,7 +171,7 @@ it("skips missing files and checks again when the panel is reopened during its c
 
 it("switches views from the segmented control in the shared slot", async () => {
   vi.mocked(invoke).mockResolvedValue({ paths: ["/live.md"], home: null });
-  chatDocumentsStore.set("shared", documentsFromTranscript([{ content: "@ds-document /live.md" }]));
+  chatDocumentsStore.set("shared", documentsFromTranscript([{ content: "<ds-document src='/live.md' />" }]));
   planSidePanelStore.open({ planId: "", documentsTabId: "shared" });
   await render(<><DocumentsButton tabId="shared" />{panel("shared")}</>);
   expect(button("Documents (1)").getAttribute("aria-expanded")).toBe("true");
@@ -199,7 +199,7 @@ it("carries the reader's tab identity to its loader and disables unavailable OS 
   const load = vi.fn(async () => ({ data: "# Tab owned document", media_type: "text/markdown" }));
   configureLocalArtifactLoader(load);
   configureLocalArtifactOpener(null);
-  chatDocumentsStore.set("owner", documentsFromTranscript([{ content: "@ds-document /work/owned.md" }]));
+  chatDocumentsStore.set("owner", documentsFromTranscript([{ content: "<ds-document src='/work/owned.md' />" }]));
   await render(panel("owner"));
   await act(async () => button("Open owned.md").click());
   expect(load).toHaveBeenCalledWith("/work/owned.md", "document", "owner");
