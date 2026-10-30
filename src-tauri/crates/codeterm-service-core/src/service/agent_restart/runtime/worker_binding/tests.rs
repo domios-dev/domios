@@ -6,6 +6,41 @@ use crate::service::{
 };
 
 #[test]
+fn completed_history_requires_exact_authenticated_terminal_attempt() {
+    use crate::plan::TaskExecutionAttempt;
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("source".into());
+    tab.agent_session_id = Some("session".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    tab.reported_session_binding_nonce = Some("nonce".into());
+    let exact = TaskExecutionAttempt {
+        executor_tab_id: id,
+        provider: Some("source".into()),
+        session_id: Some("session".into()),
+        session_binding_nonce: Some("nonce".into()),
+        acknowledged_at: Some(1),
+        closed_at: Some(2),
+        ..Default::default()
+    };
+    assert!(super::completed_attempt_matches(tab, &exact, "source", "nonce"));
+    for invalid in [
+        TaskExecutionAttempt { executor_tab_id: "foreign".into(), ..exact.clone() },
+        TaskExecutionAttempt { provider: Some("foreign".into()), ..exact.clone() },
+        TaskExecutionAttempt { session_id: Some("foreign".into()), ..exact.clone() },
+        TaskExecutionAttempt { session_binding_nonce: Some("foreign".into()), ..exact.clone() },
+        TaskExecutionAttempt { acknowledged_at: None, ..exact.clone() },
+        TaskExecutionAttempt { closed_at: None, ..exact.clone() },
+        TaskExecutionAttempt { retired_at: Some(3), ..exact.clone() },
+    ] {
+        assert!(!super::completed_attempt_matches(tab, &invalid, "source", "nonce"));
+    }
+    assert!(!super::completed_attempt_matches(tab, &exact, "source", "stale"));
+    tab.reported_session_binding_nonce = None;
+    assert!(!super::completed_attempt_matches(tab, &exact, "source", "nonce"));
+}
+
+#[test]
 fn restart_spawn_metadata_without_a_plan_is_unbound() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();

@@ -221,6 +221,7 @@ impl ServiceContext {
             force,
             false,
         )?;
+        self.validate_provider_switch_binding(&tab.id, carry.as_ref())?;
         self.retire_provider_switch_input(&tab.id)?;
         crate::service::orchestrator::supersede_tab_launch(&tab.id);
         let carry_required = carry.is_some();

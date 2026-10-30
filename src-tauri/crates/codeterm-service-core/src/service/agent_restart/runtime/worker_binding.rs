@@ -17,6 +17,7 @@ pub(crate) struct RestartBindingAuthority {
     owner: Weak<Mux>,
     request: RuntimeRestartBinding,
     carried: bool,
+    completed_task: Option<crate::plan::Task>,
 }
 static BINDINGS: LazyLock<Mutex<HashMap<(usize, String), RestartBindingAuthority>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -25,7 +26,85 @@ fn key(svc: &ServiceContext, tab: &str) -> (usize, String) {
     (Arc::as_ptr(&svc.mux) as usize, tab.into())
 }
 
+fn completed_attempt_matches(
+    tab: &crate::multiplexer::types::Tab,
+    attempt: &crate::plan::TaskExecutionAttempt,
+    source: &str,
+    nonce: &str,
+) -> bool {
+    !source.is_empty()
+        && !nonce.is_empty()
+        && tab.agent_type.as_deref() == Some(source)
+        && tab.session_binding_nonce.as_deref() == Some(nonce)
+        && tab.reported_session_binding_nonce.as_deref() == Some(nonce)
+        && attempt.executor_tab_id == tab.id
+        && attempt.closed_at.is_some()
+        && attempt.retired_at.is_none()
+        && attempt.acknowledged_at.is_some()
+        && attempt.provider.as_deref() == Some(source)
+        && attempt.session_id == tab.agent_session_id
+        && attempt.session_id.as_deref().is_some_and(|id| !id.is_empty())
+        && attempt.session_binding_nonce.as_deref() == Some(nonce)
+}
+
 impl ServiceContext {
+    pub(crate) fn validate_provider_switch_binding(
+        &self,
+        tab_id: &str,
+        authority: Option<&RestartBindingAuthority>,
+    ) -> Result<(), String> {
+        let Some(authority) = authority else {
+            let bound = self.mux.read().get_tab(tab_id).is_none_or(|tab| {
+                super::super::restart_carries_task_attempt(tab.task_binding.as_ref())
+            });
+            if bound || !self.plan_store.live_task_attempts_for_tab(tab_id).is_empty() {
+                return Err("provider_switch_binding_refused: source task binding changed".into());
+            }
+            return Ok(());
+        };
+        let request = &authority.request;
+        if request.executor_tab_id != tab_id
+            || !authority.owner.upgrade().is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
+        {
+            return Err("provider_switch_binding_refused: source owner changed".into());
+        }
+        let tab = self.mux.read().get_tab(tab_id).cloned()
+            .ok_or("provider_switch_binding_refused: tab disappeared")?;
+        let detail = self.plan_store.show_task(&request.task_id)
+            .ok_or("provider_switch_binding_refused: task disappeared")?;
+        let exact = detail.plan_id == request.plan_id
+            && tab.agent_type.as_deref() == Some(request.provider.as_str())
+            && tab.agent_session_id.as_deref() == Some(request.old_thread.as_str())
+            && tab.session_binding_nonce.as_deref() == Some(request.old_nonce.as_str())
+            && tab.reported_session_binding_nonce.as_deref() == Some(request.old_nonce.as_str())
+            && tab.task_binding.as_ref().is_some_and(|binding| {
+                binding.plan_id.as_ref() == Some(&request.plan_id)
+                    && binding.task_id.as_ref() == Some(&request.task_id)
+                    && binding.attempt_id.as_ref() == Some(&request.attempt_id)
+            });
+        let unchanged = if let Some(completed) = &authority.completed_task {
+            detail.task == *completed
+                && self.plan_store.live_task_attempts_for_tab(tab_id).is_empty()
+        } else {
+            detail.task.assigned_tab_id.as_deref() == Some(tab_id)
+                && detail.task.interruption.owner_epoch == request.owner_epoch
+                && detail.task.interruption.owner_tab_id.as_deref() == Some(tab_id)
+                && detail.task.interruption.owner_session_id.as_deref()
+                    == Some(request.old_thread.as_str())
+                && self.plan_store.open_attempt_task_for_effort_for_tab(
+                    tab_id, &request.old_thread, &request.old_nonce
+                ) == Some((request.plan_id.clone(), request.task_id.clone(), request.attempt_id.clone()))
+                && detail.task.execution_attempts.iter().any(|attempt| {
+                    attempt.id == request.attempt_id
+                        && attempt.provider.as_deref() == Some(request.provider.as_str())
+                })
+        };
+        if !exact || !unchanged {
+            return Err("provider_switch_binding_refused: source task binding changed".into());
+        }
+        Ok(())
+    }
+
     pub(crate) fn authorize_provider_switch_binding(
         &self,
         tab_id: &str,
@@ -33,19 +112,90 @@ impl ServiceContext {
         target: &str,
         nonce: &str,
     ) -> Result<Option<RestartBindingAuthority>, String> {
+        if let Some(authority) =
+            self.completed_provider_switch_binding(tab_id, source, target, nonce)?
+        {
+            return Ok(Some(authority));
+        }
         if !self.restore_provider_switch_task_binding(tab_id, source, nonce)? {
             return Ok(None);
         }
         let mut authority = self
-            .authorize_restart_binding_mode(
+            .try_authorize_runtime_restart_binding(
                 tab_id,
                 source,
                 nonce,
                 RuntimeRestartMode::ProviderSwitch,
-            )?
+            )
+            .map_err(|failure| format!("provider_switch_binding_refused: {}", failure.reason))?
             .ok_or("provider_switch_binding_refused: task attempt cannot be carried")?;
         authority.request.target_provider = Some(target.into());
         Ok(Some(authority))
+    }
+
+    fn completed_provider_switch_binding(
+        &self,
+        tab_id: &str,
+        source: &str,
+        target: &str,
+        nonce: &str,
+    ) -> Result<Option<RestartBindingAuthority>, String> {
+        let tab = self.mux.read().get_tab(tab_id).cloned()
+            .ok_or("provider_switch_binding_refused: tab not found")?;
+        let Some(binding) = tab.task_binding.as_ref() else {
+            return Ok(None);
+        };
+        let (Some(plan), Some(task), Some(attempt)) =
+            (&binding.plan_id, &binding.task_id, &binding.attempt_id)
+        else {
+            return Ok(None);
+        };
+        let Some(detail) = self.plan_store.show_task(task) else {
+            return Ok(None);
+        };
+        if detail.task.status != crate::plan::TaskStatus::Done {
+            return Ok(None);
+        }
+        let matches = detail.task.execution_attempts.iter()
+            .filter(|entry| entry.id == *attempt)
+            .collect::<Vec<_>>();
+        let valid = matches.as_slice().first().filter(|_| matches.len() == 1)
+            .is_some_and(|old| {
+                completed_attempt_matches(&tab, old, source, nonce)
+                    && old.interruption.owner_epoch == detail.task.interruption.owner_epoch
+            });
+        if !valid || detail.plan_id != *plan
+            || detail.task.execution_attempts.iter().filter(|entry| {
+                completed_attempt_matches(&tab, entry, source, nonce)
+            }).count() != 1
+            || detail.task.assigned_tab_id.is_some()
+            || detail.task.interruption.owner_epoch == 0
+            || detail.task.interruption.owner_tab_id.as_deref() != Some(tab_id)
+            || detail.task.interruption.owner_session_id != tab.agent_session_id
+            || detail.task.execution_attempts.iter().any(|entry| entry.closed_at.is_none())
+            || !self.plan_store.live_task_attempts_for_tab(tab_id).is_empty()
+        {
+            return Err("provider_switch_binding_refused: completed task history is not exact".into());
+        }
+        Ok(Some(RestartBindingAuthority {
+            owner: Arc::downgrade(&self.mux),
+            request: RuntimeRestartBinding {
+                plan_id: plan.clone(),
+                task_id: task.clone(),
+                attempt_id: attempt.clone(),
+                executor_tab_id: tab_id.into(),
+                provider: source.into(),
+                target_provider: Some(target.into()),
+                old_thread: tab.agent_session_id.unwrap_or_default(),
+                old_nonce: nonce.into(),
+                new_thread: String::new(),
+                new_nonce: String::new(),
+                owner_epoch: detail.task.interruption.owner_epoch,
+                mode: RuntimeRestartMode::ProviderSwitch,
+            },
+            carried: false,
+            completed_task: Some(detail.task),
+        }))
     }
 
     fn restore_provider_switch_task_binding(
@@ -99,6 +249,22 @@ impl ServiceContext {
             );
         }
         let prior = tab.task_binding.clone().unwrap_or_default();
+        let detail = self.plan_store.show_task(&task_id)
+            .ok_or("provider_switch_binding_refused: task disappeared")?;
+        let source_attempt = detail.task.execution_attempts.iter()
+            .filter(|entry| entry.id == attempt_id).collect::<Vec<_>>();
+        if source_attempt.len() != 1
+            || source_attempt[0].provider.as_deref() != Some(source)
+            || detail.task.assigned_tab_id.as_deref() != Some(tab_id)
+            || detail.task.interruption.owner_epoch == 0
+            || detail.task.interruption.owner_tab_id.as_deref() != Some(tab_id)
+            || detail.task.interruption.owner_session_id != tab.agent_session_id
+            || detail.task.execution_attempts.iter().any(|entry| {
+                entry.id != attempt_id && entry.closed_at.is_none() && entry.retired_at.is_none()
+            })
+        {
+            return Err("provider_switch_binding_refused: source task owner changed".into());
+        }
         if prior
             .plan_id
             .as_deref()
@@ -286,6 +452,7 @@ impl ServiceContext {
                 mode,
             },
             carried: false,
+            completed_task: None,
         }))
     }
 
@@ -306,7 +473,8 @@ impl ServiceContext {
     pub(crate) fn restart_carries_worker_interruption(&self, tab_id: &str) -> bool {
         let authority = BINDINGS.lock().get(&key(self, tab_id)).cloned();
         authority.is_some_and(|authority| {
-            self.ext::<super::super::RestartTracker>()
+            authority.completed_task.is_none()
+                && self.ext::<super::super::RestartTracker>()
                 .lock()
                 .in_progress
                 .contains(tab_id)
@@ -368,6 +536,27 @@ impl ServiceContext {
         });
         if !exact {
             return Err("Runtime restart loaded task binding changed".into());
+        }
+        if let Some(completed) = &authority.completed_task {
+            if thread.is_empty() || nonce.is_empty() || nonce == request.old_nonce {
+                return Err("Completed provider switch target is unverified".into());
+            }
+            if !self.plan_store.show_task(&request.task_id).is_some_and(|detail| {
+                detail.plan_id == request.plan_id && detail.task == *completed
+            }) || !self.plan_store.live_task_attempts_for_tab(tab_id).is_empty() {
+                return Err("Completed provider switch history changed".into());
+            }
+            if authority.carried
+                && (request.new_thread != thread || request.new_nonce != nonce)
+            {
+                return Err("Completed provider switch target changed".into());
+            }
+            let stored = bindings.get_mut(&key(self, tab_id))
+                .ok_or("Completed provider switch continuity disappeared")?;
+            stored.request.new_thread = thread.into();
+            stored.request.new_nonce = nonce.into();
+            stored.carried = true;
+            return Ok(true);
         }
         if authority.carried {
             if request.new_thread == thread

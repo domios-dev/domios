@@ -3,6 +3,180 @@ use crate::multiplexer::types::TaskBinding;
 use crate::plan::{OrchestratorRef, Plan, PlanMode};
 use crate::service::plan::{task_assignment::AssignmentRuntimeBinding, NewTask};
 
+fn complete_switch_task(fixture: &RuntimeFixture, task_id: &str) {
+    let detail = fixture.service.plan_store.show_task(task_id).unwrap();
+    fixture.service.plan_store.with_plan(&detail.plan_id, 5, |plan| {
+        let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+        task.status = crate::plan::TaskStatus::Done;
+        task.assigned_tab_id = None;
+        task.lane.tab_id = None;
+        task.execution_attempts[0].closed_at = Some(5);
+        Ok(())
+    }).unwrap();
+}
+
+#[test]
+fn completed_worker_switch_preserves_history_without_task_authority_and_delivers_once() {
+    use crate::plan::AgentRef;
+    use crate::service::plan::{
+        interruption::TaskMutationAuthority, task_attempts::BoundWorkerReport,
+    };
+    let (fixture, task_id, attempt_id) = switch_worker_fixture();
+    let live_source = fixture.service.mux.read().get_tab(&fixture.tab).cloned().unwrap();
+    let live_input = fixture.service.provider_switch_input(
+        &live_source, &[], std::path::Path::new("archive-token"),
+    ).unwrap();
+    let live_frame = codeterm_wire::message_markers::parse_host_injected(&live_input).unwrap();
+    complete_switch_task(&fixture, &task_id);
+    let store = &fixture.service.plan_store;
+    let before = store.show_task(&task_id).unwrap();
+    let source = fixture.service.mux.read().get_tab(&fixture.tab).cloned().unwrap();
+    let pad = fixture.service.ensure_agent_pad(&fixture.tab).unwrap().path().to_path_buf();
+    let outcome = fixture.service.switch_provider_in_place(
+        &fixture.tab, PROVIDER, Some("supplied-model".into()), None, true,
+    ).unwrap();
+    assert!(outcome.binding_restored && outcome.handoff_delivered);
+    let target = fixture.service.mux.read().get_tab(&fixture.tab).cloned().unwrap();
+    assert_eq!(target.id, source.id);
+    assert_eq!(target.team_id, source.team_id);
+    assert_eq!(target.parent_tab_id, source.parent_tab_id);
+    assert_eq!(target.cwd, source.cwd);
+    assert_eq!(target.task_binding, source.task_binding);
+    assert_eq!(fixture.service.ensure_agent_pad(&fixture.tab).unwrap().path(), pad);
+    assert_ne!(target.agent_session_id, source.agent_session_id);
+    assert_eq!(store.show_task(&task_id).unwrap().task, before.task);
+    assert!(!fixture.service.restart_carries_worker_interruption(&fixture.tab));
+    assert!(!fixture.service.carry_authorized_runtime_restart_binding(
+        &fixture.tab, &outcome.session_id, target.session_binding_nonce.as_deref().unwrap(),
+    ).unwrap());
+    assert!(store.acknowledge_live_task_attempt_for_tab_with_runtime_binding(
+        &fixture.tab, Some(&before.plan_id), Some(&task_id),
+        Some((&outcome.session_id, target.session_binding_nonce.as_deref().unwrap())), 6,
+    ).is_err());
+    let report = store.ingest_bound_worker_report(
+        &before.plan_id, &task_id, &AgentRef::from_tab(&fixture.tab),
+        BoundWorkerReport {
+            message: "forbidden terminal report".into(),
+            status: Some(codeterm_types::agent::ReportStatus::InReview),
+            authority: Some(TaskMutationAuthority {
+                tab_id: fixture.tab.clone(),
+                session_id: outcome.session_id.clone(),
+                session_binding_nonce: target.session_binding_nonce.clone().unwrap(),
+                owner_epoch: before.task.interruption.owner_epoch,
+            }),
+            ..Default::default()
+        }, 7,
+    );
+    assert!(matches!(report, Ok(false)));
+    assert_eq!(store.show_task(&task_id).unwrap().task, before.task);
+    let requests = fixture.requests();
+    let submissions = requests.iter().filter(|frame| frame["method"] == "submitTurn")
+        .collect::<Vec<_>>();
+    assert_eq!(submissions.len(), 1);
+    let payload = serde_json::to_string(&submissions[0]["params"]).unwrap();
+    assert_eq!(payload.matches("provider-handoff").count(), 1);
+    assert!(payload.contains(&attempt_id));
+    let input = fixture.service.provider_switch_input(
+        &source, &[], std::path::Path::new("archive-token"),
+    ).unwrap();
+    let frame = codeterm_wire::message_markers::parse_host_injected(&input).unwrap();
+    assert_ne!(frame.payload.split("\n\n").next(), live_frame.payload.split("\n\n").next());
+    let context: serde_json::Value = serde_json::from_str(
+        frame.payload.split("\n\n").nth(1).unwrap(),
+    ).unwrap();
+    assert_eq!(context["task_context"]["task"]["status"], "done");
+}
+
+#[test]
+fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation() {
+    for invalid in [
+        "plan", "task", "attempt", "partial", "session", "nonce", "unverified",
+        "provider", "foreign", "retired", "unacknowledged", "duplicate", "ambiguous",
+        "open", "owner", "owner_epoch", "owner_session", "closed", "cancelled",
+    ] {
+        let (fixture, task_id, _) = switch_worker_fixture();
+        complete_switch_task(&fixture, &task_id);
+        let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
+        match invalid {
+            "plan" | "task" | "attempt" | "partial" | "session" | "nonce" | "unverified" => {
+                let mut mux = fixture.service.mux.write();
+                let tab = mux.get_tab_mut(&fixture.tab).unwrap();
+                match invalid {
+                    "plan" => tab.task_binding.as_mut().unwrap().plan_id = Some("foreign".into()),
+                    "task" => tab.task_binding.as_mut().unwrap().task_id = Some("foreign".into()),
+                    "attempt" => tab.task_binding.as_mut().unwrap().attempt_id = Some("foreign".into()),
+                    "partial" => tab.task_binding.as_mut().unwrap().attempt_id = None,
+                    "session" => tab.agent_session_id = Some("foreign".into()),
+                    "nonce" => tab.session_binding_nonce = Some("foreign".into()),
+                    "unverified" => tab.reported_session_binding_nonce = None,
+                    _ => unreachable!(),
+                }
+            }
+            _ => fixture.service.plan_store.with_plan(&detail.plan_id, 6, |plan| {
+                let task = plan.tasks.iter_mut().find(|entry| entry.id == task_id).unwrap();
+                match invalid {
+                    "provider" => task.execution_attempts[0].provider = Some("foreign".into()),
+                    "foreign" => task.execution_attempts[0].executor_tab_id = "foreign".into(),
+                    "retired" => task.execution_attempts[0].retired_at = Some(6),
+                    "unacknowledged" => task.execution_attempts[0].acknowledged_at = None,
+                    "duplicate" => task.execution_attempts.push(task.execution_attempts[0].clone()),
+                    "ambiguous" => {
+                        let mut duplicate = task.execution_attempts[0].clone();
+                        duplicate.id = "other-attempt".into();
+                        task.execution_attempts.push(duplicate);
+                    }
+                    "open" => task.execution_attempts[0].closed_at = None,
+                    "owner" => task.assigned_tab_id = Some("foreign".into()),
+                    "owner_epoch" => task.interruption.owner_epoch += 1,
+                    "owner_session" => task.interruption.owner_session_id = Some("foreign".into()),
+                    "closed" => task.status = crate::plan::TaskStatus::InReview,
+                    "cancelled" => task.status = crate::plan::TaskStatus::Cancelled,
+                    _ => unreachable!(),
+                }
+                Ok(())
+            }).unwrap(),
+        }
+        let source = fixture.service.mux.read().get_tab(&fixture.tab).cloned().unwrap();
+        let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+        let requests = fixture.requests().len();
+        let error = fixture.service.switch_provider_in_place(
+            &fixture.tab, PROVIDER, Some("supplied-model".into()), None, true,
+        ).err().unwrap();
+        assert!(error.starts_with("provider_switch_binding_refused:"), "{invalid}: {error}");
+        let after = fixture.service.mux.read().get_tab(&fixture.tab).cloned().unwrap();
+        assert_eq!(after.agent_type, source.agent_type, "{invalid}");
+        assert_eq!(after.agent_session_id, source.agent_session_id, "{invalid}");
+        assert_eq!(after.task_binding, source.task_binding, "{invalid}");
+        assert_eq!(after.session_binding_nonce, source.session_binding_nonce, "{invalid}");
+        assert_eq!(after.reported_session_binding_nonce, source.reported_session_binding_nonce, "{invalid}");
+        assert_eq!(fixture.service.plan_store.show_task(&task_id).unwrap().task, before, "{invalid}");
+        assert_eq!(fixture.requests().len(), requests, "{invalid}");
+    }
+}
+
+#[test]
+fn completed_switch_revalidates_history_before_source_retirement() {
+    let (fixture, task_id, _) = switch_worker_fixture();
+    complete_switch_task(&fixture, &task_id);
+    let authority = fixture.service.authorize_provider_switch_binding(
+        &fixture.tab, "source-provider", PROVIDER, "source-nonce",
+    ).unwrap().unwrap();
+    fixture.service.validate_provider_switch_binding(&fixture.tab, Some(&authority)).unwrap();
+    let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
+    fixture.service.plan_store.with_plan(&detail.plan_id, 6, |plan| {
+        let task = plan.tasks.iter_mut().find(|entry| entry.id == task_id).unwrap();
+        task.interruption.owner_epoch += 1;
+        Ok(())
+    }).unwrap();
+    let before = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    assert!(fixture.service.validate_provider_switch_binding(&fixture.tab, Some(&authority)).is_err());
+    assert_eq!(fixture.service.plan_store.show_task(&task_id).unwrap().task, before);
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&fixture.tab).unwrap().agent_session_id.as_deref(),
+        Some("source-thread"),
+    );
+}
+
 #[test]
 fn task_worker_switch_from_pty_carries_attempt_and_delivers_one_handoff() {
     let (fixture, task, attempt) = switch_worker_fixture();
