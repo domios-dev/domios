@@ -26,7 +26,7 @@ function candidate(source: string, offset: number): RawEnvelopeKind | null {
 }
 
 function opening(token: string): Opening | null {
-  const match = /^<([A-Za-z][A-Za-z0-9_-]*)(?=[\t\r\n />])/.exec(token);
+  const match = /^<([A-Za-z][A-Za-z0-9_-]*)(?=[\t\n\f\r />])/.exec(token);
   if (!match || !token.endsWith(">")) return null;
   const selfClosing = token.endsWith("/>");
   const raw = token.slice(match[0].length, selfClosing ? -2 : -1);
@@ -96,7 +96,7 @@ function extent(source: string, start: number, kind: RawEnvelopeKind): RawEnvelo
     if (opened) {
       if (CONTEXTS.has(opened.name)) {
         if (!opened.selfClosing) contexts.push(opened.name);
-      } else if (!contexts.length && KINDS.includes(opened.name as RawEnvelopeKind)) {
+      } else if (!contexts.length && KINDS.includes(opened.name as RawEnvelopeKind) && candidate(source, tokenStart) === opened.name) {
         malformed ||= opened.attrs === null;
         if (!opened.selfClosing) stack.push(opened);
         else if (tokenStart === start) return { start, end: cursor + 1, kind, complete: true, malformed };
@@ -105,7 +105,7 @@ function extent(source: string, start: number, kind: RawEnvelopeKind): RawEnvelo
     }
     if (!token.startsWith("</") || !token.endsWith(">")) continue;
     if (contexts.length) {
-      const name = /^<\/([A-Za-z][A-Za-z0-9_-]*)(?=[\t\r\n />])/.exec(token)?.[1];
+      const name = /^<\/([A-Za-z][A-Za-z0-9_-]*)(?=[\t\n\f\r />])/.exec(token)?.[1];
       if (name && CONTEXTS.has(name)) {
         if (name !== contexts[contexts.length - 1] || token.slice(name.length + 2, -1).trim()) return { start, end: source.length, kind, complete: false, malformed: true };
         contexts.pop();

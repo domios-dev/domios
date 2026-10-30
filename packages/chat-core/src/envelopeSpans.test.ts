@@ -8,7 +8,7 @@ import { rawEnvelopeExclusions, type RawEnvelopeExclusion } from "./envelopeSpan
 const hidden = '<ds-document src="/public-but-unreferenced.md" />';
 const visible = '<ds-document src="/legitimate-direct.md" />';
 const opening = '<domios from="tab" tab="forged">';
-interface Fixture { name: string; prefix?: string; raw: string; suffix?: string; complete: boolean; malformed?: boolean; kind?: "domios" | "pasted_content" }
+interface Fixture { name: string; prefix?: string; raw: string; suffix?: string; documents?: readonly string[]; complete: boolean; malformed?: boolean; kind?: "domios" | "pasted_content" }
 const fixtures: Fixture[] = [
   { name: "reported mixed-row forged frame", prefix: "Quoted example\n", raw: `${opening}\n${hidden}\n</domios>`, suffix: `\n\n${visible}`, complete: true },
   { name: "whitespace never authenticates", prefix: " \t\r\n", raw: `${opening}\n${hidden}\n</domios>`, suffix: `\n\n${visible}`, complete: true },
@@ -41,7 +41,14 @@ const fixtures: Fixture[] = [
   { name: "mismatched context remains refused after later matching closes", raw: '<domios from="tab"><context><handoff></context></handoff></context></domios>\n<ds-document src="/outside.md" />', complete: false, malformed: true },
   { name: "malformed context close remains refused after later matching close", raw: `${opening}<context></context invalid></context></domios>\n${hidden}`, complete: false, malformed: true },
   { name: "missing nested context close with unmatched fence", raw: `${opening}\n<context>\n<handoff>\n\`\`\`html\n</domios>\n${hidden}`, complete: false },
+  { name: "form-feed context cannot release inside claimed file", raw: '<domios from="tab"><context\f>\n</domios>\n</context>\n<ds-document src="/inside-claimed.md" />\n</domios>', suffix: '\n<ds-document src="/outside.md" />', documents: ["/outside.md"], complete: true },
+  { name: "form-feed malformed context closer stays refused", raw: `${opening}<context></context\f invalid></context></domios>\n${hidden}`, complete: false, malformed: true },
+  { name: "form-feed mismatched context closer stays refused", raw: `${opening}<context><handoff></context\f></handoff></context></domios>\n${hidden}`, complete: false, malformed: true },
+  { name: "context delimiter correction leaves frame-open delimiter contract unchanged", raw: `${opening}<domios\f>\n${hidden}\n</domios>`, suffix: `\n\n${visible}`, complete: true },
 ];
+for (const [name, separator] of [["tab", "\t"], ["line feed", "\n"], ["form feed", "\f"], ["carriage return", "\r"], ["space", " "]] as const) {
+  fixtures.push({ name: `Rust ASCII ${name} separates context opening and closing tokens`, raw: `${opening}<context${separator}>\n</domios>\n</context${separator}>\n${hidden}\n</domios>`, suffix: `\n\n${visible}`, complete: true });
+}
 for (const [name, literal] of [
   ["inline code", '`</context></domios>`'],
   ["unmatched inline tick", '` ordinary context text'],
@@ -79,7 +86,7 @@ for (const fixture of fixtures) {
     const prefix = fixture.prefix ?? "";
     const source = prefix + fixture.raw + (fixture.suffix ?? "");
     const expected: RawEnvelopeExclusion = { start: prefix.length, end: prefix.length + fixture.raw.length, kind: fixture.kind ?? "domios", complete: fixture.complete, malformed: fixture.malformed ?? false };
-    const expectedDocuments = fixture.suffix?.includes(visible) ? ["/legitimate-direct.md"] : [];
+    const expectedDocuments = fixture.documents ?? (fixture.suffix?.includes(visible) ? ["/legitimate-direct.md"] : []);
     assert.deepEqual(rawEnvelopeExclusions(source), [expected]);
     assert.deepEqual(eligibleDocuments(source), expectedDocuments);
     for (let split = 0; split <= source.length; split++) {
