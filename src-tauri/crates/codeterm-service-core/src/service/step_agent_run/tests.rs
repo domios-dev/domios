@@ -1,5 +1,43 @@
 use super::*;
 
+#[test]
+fn registered_run_prompt_steps_have_valid_hidden_tab_titles() {
+    let plugins = crate::test_support::fixture_manifest_dir().join("../../../plugins");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(plugins).unwrap() {
+        let path = entry.unwrap().path().join("plugin.json");
+        if !path.is_file() {
+            continue;
+        }
+        let manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let Some(steps) = manifest
+            .pointer("/capabilities/graphNodes/steps")
+            .and_then(serde_json::Value::as_array)
+        else {
+            continue;
+        };
+        for step in steps {
+            if !step["id"]
+                .as_str()
+                .is_some_and(|id| id.ends_with(".run_prompt"))
+            {
+                continue;
+            }
+            let label = step["title"].as_str().unwrap();
+            let title = step_agent_title(label);
+            crate::service::spawn_title::validate_agent_tab_title(
+                Some(&title),
+                manifest["id"].as_str(),
+            )
+            .unwrap();
+            assert_eq!(title, "Prompt");
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 3);
+}
+
 fn message(kind: &str, content: &str) -> ChatMsg {
     serde_json::from_value(serde_json::json!({"id":content,"type":kind,"content":content})).unwrap()
 }

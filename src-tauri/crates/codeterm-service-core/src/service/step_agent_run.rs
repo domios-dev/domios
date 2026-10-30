@@ -24,6 +24,10 @@ use std::time::Instant;
 
 pub const MAX_REPLY_BYTES: usize = 60 * 1024;
 const MAX_PROMPT_BYTES: usize = 48 * 1024;
+fn step_agent_title(_label: &str) -> String {
+    "Prompt".into()
+}
+
 const TRUNCATED: &str = "\n[truncated]";
 // Ended runs stay readable for later reconcile calls, then are forgotten (reported as unknown).
 const ENDED_RETENTION: std::time::Duration = std::time::Duration::from_secs(60 * 60);
@@ -221,7 +225,7 @@ impl ServiceContext {
             workspace_id: Some(request.workspace),
             team_id: request.team,
             creator_tab_id: Some(request.owner.clone()),
-            title: Some(format!("blueprint:{}", request.label)),
+            title: Some(step_agent_title(&request.label)),
             audience: TabAudience::UserOwnedAutomation,
             skip_permissions: Some(permission_bypass.is_some()),
             permission_bypass_authorization: permission_bypass,
