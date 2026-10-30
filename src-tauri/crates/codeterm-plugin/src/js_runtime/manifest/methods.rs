@@ -15,15 +15,7 @@ impl PluginManifest {
         m.icon_svg = m
             .icon
             .as_deref()
-            .and_then(|relative| crate::plugin_icon::load_plugin_icon(path.parent()?, relative))
-            .or_else(|| {
-                m.legacy_icon_svg
-                    .as_ref()
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(|inline| {
-                        crate::plugin_icon::sanitize_plugin_icon_svg(inline.as_bytes())
-                    })
-            });
+            .and_then(|relative| crate::plugin_icon::load_plugin_icon(path.parent()?, relative));
         m.icon_color = m
             .raw_icon_color
             .as_ref()

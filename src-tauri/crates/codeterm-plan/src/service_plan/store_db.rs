@@ -325,7 +325,6 @@ fn upsert_plan(
             || previous_status != status
             || writes.previous_project_paths.is_some();
     }
-    writes.header_identity_changed |= rows.kept_whole.is_some();
     transaction
         .execute("DELETE FROM plan_fts WHERE plan_id = ?1", [&plan.id])
         .map_err(db_error)?;
