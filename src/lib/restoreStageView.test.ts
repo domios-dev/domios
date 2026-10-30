@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "./restoreStageView";
+import { restoreActivityVisible, restorePanelOwnsBody, restoreStageView, transcriptLoadingStageView } from "./restoreStageView";
 import type { Tab } from "./types";
 
 const tab: Partial<Tab> = { agent_type: "fixture", agent_session_id: "saved", frozen: true,
@@ -64,12 +64,24 @@ const deadlineView = restoreStageView(deadlineRuntime);
 assert.equal(deadlineView.phase, "restoring");
 assert.equal(deadlineView.current, 2);
 assert(deadlineView.hint);
+assert.equal(restoreActivityVisible(deadlineRuntime, {}, deadlineView, true), false);
+assert.equal(restoreActivityVisible(deadlineRuntime, {}, deadlineView, false), true);
+const attachedWithoutStage = { ...deadlineRuntime, boot_stage: undefined };
+assert.equal(restoreActivityVisible(attachedWithoutStage, {}, restoreStageView(attachedWithoutStage), true), false);
+for (const changed of [
+  { ...deadlineRuntime, frozen: true },
+  { ...deadlineRuntime, agent_booting: true },
+  { ...deadlineRuntime, boot_stage: "agent_launching" as const },
+]) assert.equal(restoreActivityVisible(changed, {}, restoreStageView(changed), true), true);
+assert.equal(restoreActivityVisible(deadlineRuntime, { pending: true }, deadlineView, true), true);
+assert.equal(restoreActivityVisible(deadlineRuntime, { error: "wake failed" }, restoreStageView(deadlineRuntime, { error: "wake failed" }), true), true);
 const recoveredView = restoreStageView({ ...deadlineRuntime, agent_runtime_state: { state: "loaded" as const, epoch: 3 } });
 assert.equal(recoveredView.phase, "ready");
 assert.equal(recoveredView.hint, null);
 const terminalRuntime = restoreStageView({ ...deadlineRuntime,
   agent_runtime_state: { state: "degraded" as const, reason: "ProcessExited: runtime exited", epoch: 3 } });
 assert.equal(terminalRuntime.phase, "failed");
+assert.equal(restoreActivityVisible(deadlineRuntime, {}, terminalRuntime, true), true);
 assert.equal(restoreStageView({ boot_stage: "shell_ready" }).phase, "ready");
 assert.equal(restoreStageView({ boot_stage: "pty_spawned" }).phase, "restoring");
 assert.equal(restoreStageView({ boot_stage: "launch_deadline_elapsed", boot_failure_reason: "still connecting" }).phase, "restoring");
