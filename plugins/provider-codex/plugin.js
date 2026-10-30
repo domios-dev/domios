@@ -2999,10 +2999,12 @@ function shrinkRow(row3, cap) {
 }
 function budgetReduction(state, updates) {
   let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
-  for (let cap = EVENT_TEXT_CAP / 2; serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
+  let bytes2 = serializedBytes2({ state, events });
+  for (let cap = EVENT_TEXT_CAP / 2; bytes2 > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
     events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
+    bytes2 = serializedBytes2({ state, events });
   }
-  if (serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
+  if (bytes2 > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
   return { state, events };
 }
 
