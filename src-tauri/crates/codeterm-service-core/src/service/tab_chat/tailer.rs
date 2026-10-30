@@ -1,4 +1,5 @@
 use parking_lot::Mutex;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
@@ -92,6 +93,11 @@ impl TailerHandle {
         if let Some(reattach) = &self.reattach {
             reattach.store(true, Ordering::Release);
         }
+        self.wake();
+    }
+
+    /// Coalesced re-read; the bounded channel folds a burst into one pending read.
+    pub(crate) fn wake(&self) {
         if let Some(wake) = &self.wake {
             let _ = wake.try_send(());
         }
@@ -147,7 +153,22 @@ pub fn spawn_sourced_tailer(
     registry: Arc<AgentRegistry>,
     sink: Arc<dyn DeltaSink>,
 ) -> TailerHandle {
-    spawn_sourced_tailer_inner(cfg, source, registry, sink, || {})
+    spawn_sourced_tailer_inner(cfg, source, registry, sink, || {}, native_watch)
+}
+
+/// File notifications are a fast path only; host wakes must work without them.
+pub(super) type WatchSource =
+    fn(&Path, SyncSender<()>) -> Result<Option<super::file_events::WatchGuard>, String>;
+
+fn native_watch(
+    path: &Path,
+    wake: SyncSender<()>,
+) -> Result<Option<super::file_events::WatchGuard>, String> {
+    super::file_events::watch(path, wake).map(Some)
+}
+
+fn parent_present(path: &Path) -> bool {
+    path.parent().is_some_and(Path::is_dir)
 }
 
 #[cfg(test)]
@@ -157,9 +178,27 @@ pub(super) fn spawn_tailer_with_ready(
     sink: Arc<dyn DeltaSink>,
     ready: mpsc::Sender<()>,
 ) -> TailerHandle {
-    spawn_sourced_tailer_inner(cfg, None, registry, sink, move || {
-        let _ = ready.send(());
-    })
+    spawn_tailer_watched_by(cfg, registry, sink, ready, native_watch)
+}
+
+#[cfg(test)]
+pub(super) fn spawn_tailer_watched_by(
+    cfg: TailConfig,
+    registry: Arc<AgentRegistry>,
+    sink: Arc<dyn DeltaSink>,
+    ready: mpsc::Sender<()>,
+    watch: WatchSource,
+) -> TailerHandle {
+    spawn_sourced_tailer_inner(
+        cfg,
+        None,
+        registry,
+        sink,
+        move || {
+            let _ = ready.send(());
+        },
+        watch,
+    )
 }
 
 fn spawn_sourced_tailer_inner(
@@ -168,6 +207,7 @@ fn spawn_sourced_tailer_inner(
     registry: Arc<AgentRegistry>,
     sink: Arc<dyn DeltaSink>,
     on_ready: impl FnOnce() + Send + 'static,
+    watch: WatchSource,
 ) -> TailerHandle {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let offset = Arc::new(AtomicU64::new(cfg.start_offset));
@@ -190,8 +230,9 @@ fn spawn_sourced_tailer_inner(
                 log::warn!("[tab_chat] no JSONL path for tab={}", cfg.tab_id);
                 return;
             };
-            let mut watcher = match super::file_events::watch(&path, thread_wake.clone()) {
-                Ok(watcher) => Some(watcher),
+            let mut armed_on_parent = parent_present(&path);
+            let mut watcher = match watch(&path, thread_wake.clone()) {
+                Ok(watcher) => watcher,
                 Err(error) => {
                     log::error!("[tab_chat] tab={} watcher failed: {}", cfg.tab_id, error);
                     return;
@@ -205,10 +246,15 @@ fn spawn_sourced_tailer_inner(
                 if stop.load(Ordering::Acquire) {
                     return;
                 }
-                if thread_reattach.swap(false, Ordering::AcqRel) {
+                // A watch armed before the session directory existed may never see it
+                // appear; re-arm once on the directory itself, then read below.
+                let rearm = thread_reattach.swap(false, Ordering::AcqRel)
+                    || (!armed_on_parent && parent_present(&path));
+                if rearm {
                     drop(watcher.take());
-                    match super::file_events::watch(&path, thread_wake.clone()) {
-                        Ok(current) => watcher = Some(current),
+                    armed_on_parent = parent_present(&path);
+                    match watch(&path, thread_wake.clone()) {
+                        Ok(current) => watcher = current,
                         Err(error) => {
                             log::error!("[tab_chat] tab={} reattach failed: {}", cfg.tab_id, error);
                             return;

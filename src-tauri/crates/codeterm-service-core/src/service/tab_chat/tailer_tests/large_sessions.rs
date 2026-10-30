@@ -4,9 +4,9 @@ use crate::service::tab_chat::{session_window, structured_sink};
 use std::io::Write;
 use std::sync::mpsc;
 
-const PROVIDER_ID: &str = "fixture";
+pub(super) const PROVIDER_ID: &str = "fixture";
 
-fn registry_with_provider_at(path: &std::path::Path) -> Arc<AgentRegistry> {
+pub(super) fn registry_with_provider_at(path: &std::path::Path) -> Arc<AgentRegistry> {
     let manifest = serde_json::from_value(serde_json::json!({
         "id": PROVIDER_ID,
         "version": "0.1.0",
@@ -41,7 +41,7 @@ fn registry_with_provider_at(path: &std::path::Path) -> Arc<AgentRegistry> {
     Arc::new(registry)
 }
 
-fn append(path: &std::path::Path, bytes: &[u8]) -> u64 {
+pub(super) fn append(path: &std::path::Path, bytes: &[u8]) -> u64 {
     let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
     file.write_all(bytes).unwrap();
     file.flush().unwrap();
