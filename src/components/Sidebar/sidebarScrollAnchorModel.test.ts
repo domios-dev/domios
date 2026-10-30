@@ -21,6 +21,12 @@ test("non-clamped and fractional offsets need no unnecessary space", () => {
   assert.deepEqual(sidebarScrollAnchorLayout(-50, 200, 716), { scrollTop: 0, trailingSpace: 0 });
 });
 
+test("content that fits the viewport keeps no offset, because a retained one would be unreachable", () => {
+  assert.deepEqual(sidebarScrollAnchorLayout(100, 716, 716), { scrollTop: 0, trailingSpace: 0 });
+  assert.deepEqual(sidebarScrollAnchorLayout(34, 600, 716), { scrollTop: 0, trailingSpace: 0 });
+  assert.deepEqual(sidebarScrollAnchorLayout(100, 717, 716), { scrollTop: 100, trailingSpace: 99 });
+});
+
 test("a user scroll only releases trailing space and never grows it", () => {
   assert.equal(sidebarTrailingSpaceAfterScroll(377, 1011, 716, 132), 82);
   assert.equal(sidebarTrailingSpaceAfterScroll(295, 1011, 716, 132), 0);
