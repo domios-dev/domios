@@ -171,4 +171,107 @@ check("coalescing interleaved rows retains final update positions and other even
   assert.deepEqual(JSON.parse(JSON.stringify(batch.state)),JSON.parse(JSON.stringify(state)));
 });
 
+function freezeInput<T>(value: T): T {
+  if (value !== null && typeof value === "object") {
+    for (const child of Object.values(value as Record<string,unknown>)) freezeInput(child);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+check("restoring live state avoids serializing its input and keeps frozen tool state isolated",()=>{
+  const turnId = "opaque-copy-turn";
+  const seed = [note("turn/started",{turn:{id:turnId,status:"inProgress"}}),
+    ...Array.from({length:12},(_,index)=>[
+      note("item/started",{turnId,item:{id:`opaque-copy-${index}`,type:"commandExecution",command:"opaque-command",status:"inProgress"}}),
+      note("item/commandExecution/outputDelta",{turnId,itemId:`opaque-copy-${index}`,delta:"x".repeat(8192)}),
+    ]).flat()];
+  const state = freezeInput(hooks.runtimeReduce(ctx,null,seed).state);
+  const before = JSON.stringify(state);
+  const runtimeJson = vm.runInContext("JSON",sandbox) as typeof JSON;
+  const stringify = runtimeJson.stringify;
+  let inputSerializations = 0;
+  runtimeJson.stringify = ((value: unknown,...args: unknown[]) => {
+    if (value === state) inputSerializations++;
+    return Reflect.apply(stringify,runtimeJson,[value,...args]);
+  }) as typeof JSON.stringify;
+  let result: ReturnType<AgentRuntime["runtimeReduce"]>;
+  try {
+    result = hooks.runtimeReduce(ctx,state,[note("item/commandExecution/outputDelta",{turnId,itemId:"opaque-copy-0",delta:"-tail"})]);
+  } finally { runtimeJson.stringify = stringify; }
+  assert.equal(inputSerializations,0,"restoring the supplied state must not stringify the whole input blob");
+  assert.equal(JSON.stringify(state),before,"cached reducer input remains reusable");
+  assert.equal(rows([...result.events],"opaque-copy-0").at(-1)?.toolResult,"x".repeat(8192)+"-tail");
+  assert.ok(Buffer.byteLength(JSON.stringify(result.state)) <= 192 * 1024);
+});
+
+check("copied metadata preserves reused-input reasoning, ancestry, evidence and terminal fences",()=>{
+  const context: RuntimeContext = {...ctx,claimedSends:["old","new"].map(id=>({sendId:`opaque-send-${id}`,threadId:thread,input:{text:`opaque-payload-${id}`,attachments:[]}}))};
+  const user = (id:string) => ({id:`opaque-user-${id}`,type:"userMessage",clientId:`opaque-send-${id}`,content:[{type:"text",text:`opaque-payload-${id}`}]});
+  const question = (id:string) => ({id,type:"agentMessage",delivery:"async",questions:[{id,question:"opaque-question",options:["opaque-option"]}]});
+  const child = (id:string) => note("thread/started",{thread:{id,source:{subAgent:{thread_spawn:{parent_thread_id:thread}}}}});
+  const spawn = (id:string,agent:string) => note("item/started",{turnId:"opaque-live",item:{id,type:"collabAgentToolCall",tool:"spawnAgent",status:"inProgress",receiverThreadIds:[agent],agentsStates:{[agent]:{status:"running"}},prompt:"opaque-goal"}});
+  const state = hooks.runtimeReduce(context,null,[
+    note("turn/started",{turn:{id:"opaque-old",status:"inProgress"}}),
+    note("turn/started",{turn:{id:"opaque-live",status:"inProgress"}}),
+    note("item/started",{turnId:"opaque-live",item:{id:"opaque-thinking",type:"reasoning",summary:["opaque-summary"],content:["opaque-content"]}}),
+    note("item/started",{turnId:"opaque-live",item:{id:"opaque-tool",type:"commandExecution",command:"opaque-command",status:"inProgress"}}),
+    note("item/commandExecution/outputDelta",{turnId:"opaque-live",itemId:"opaque-tool",delta:"opaque-progress"}),
+    note("item/started",{turnId:"opaque-live",item:{id:"opaque-file",type:"fileChange",status:"inProgress",changes:[{path:"opaque.txt",kind:{type:"update"},diff:"@@ -1 +1 @@\n-old\n+new"}]}}),
+    child("opaque-child"),spawn("opaque-spawn","opaque-child"),
+    {kind:"notification",method:"turn/started",params:{threadId:"opaque-child",turn:{id:"opaque-child-old"}}},
+    {kind:"notification",method:"turn/completed",params:{threadId:"opaque-child",turn:{id:"opaque-child-old"}}},
+    {kind:"notification",method:"turn/started",params:{threadId:"opaque-child",turn:{id:"opaque-child-live"}}},
+    note("item/completed",{turnId:"opaque-live",item:question("opaque-question-old")}),
+    note("item/completed",{turnId:"opaque-live",item:{id:"opaque-compact-old",type:"contextCompaction"}}),
+    note("item/completed",{turnId:"opaque-live",item:user("old")}),
+  ]).state;
+  const before = JSON.stringify(state);
+  const frames: RuntimeFrame[] = [
+    note("item/reasoning/summaryTextDelta",{turnId:"opaque-live",itemId:"opaque-thinking",summaryIndex:0,delta:"-tail"}),
+    note("item/fileChange/outputDelta",{turnId:"opaque-live",itemId:"opaque-file",delta:"opaque-save-progress"}),
+    note("item/completed",{turnId:"opaque-live",item:{id:"opaque-file",type:"fileChange",status:"completed",changes:[{path:"opaque.txt",kind:{type:"update"},diff:"@@ -1 +1 @@\n-old\n+final"}]}}),
+    child("opaque-child-next"),spawn("opaque-spawn-next","opaque-child-next"),
+    {kind:"notification",method:"turn/completed",params:{threadId:"opaque-child",turn:{id:"opaque-child-live"}}},
+    note("item/completed",{turnId:"opaque-live",item:question("opaque-question-new")}),
+    note("item/completed",{turnId:"opaque-live",item:{id:"opaque-compact-new",type:"contextCompaction"}}),
+    {kind:"notification",method:"item/completed",params:{threadId:"opaque-foreign",turnId:"opaque-live",item:user("new")}},
+    note("item/completed",{turnId:"opaque-live",item:user("new")}),
+    note("item/completed",{turnId:"opaque-live",item:user("new")}),
+    note("turn/started",{turn:{id:"opaque-next",status:"inProgress"}}),
+    note("turn/completed",{turn:{id:"opaque-live",status:"completed"}}),
+  ];
+  const expected = hooks.runtimeReduce(context,JSON.parse(before),frames);
+  freezeInput(state);
+  const progress = hooks.runtimeReduce(context,state,[frames[1]]);
+  const saving = rows([...progress.events],"opaque-file").at(-1);
+  assert.equal(saving?.toolStatus,"running");
+  assert.equal(saving?.toolResult,"opaque-save-progress");
+  assert.equal(saving?.fileDiffs?.[0]?.path,"opaque.txt");
+  const actual = hooks.runtimeReduce(context,state,frames);
+  assert.equal(JSON.stringify(state),before);
+  assert.deepEqual(JSON.parse(JSON.stringify(actual)),JSON.parse(JSON.stringify(expected)));
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.runtimeReduce(context,state,frames))),JSON.parse(JSON.stringify(actual)),"the same frozen input can be replayed as a pure fixture, never as live input");
+  assert.equal(rows([...actual.events],"opaque-thinking").at(-1)?.content,"opaque-summary-tail");
+  const tool = rows([...actual.events],"opaque-tool").at(-1);
+  assert.equal(tool?.toolStatus,"abandoned");
+  assert.equal(tool?.toolResult,"opaque-progress");
+  const files = rows([...actual.events],"opaque-file");
+  const file = files.at(-1);
+  assert.equal(file?.toolStatus,"completed");
+  assert.equal(file?.fileDiffs?.[0]?.path,"opaque.txt");
+  assert.equal(actual.events.filter(event=>event.kind === "sendEvidence" && event.sendId === "opaque-send-new").length,1);
+  const final = actual.state as Record<string,JsonValue>;
+  assert.equal(final.activeTurnId,"opaque-next");
+  const parents = final.parents as Record<string,JsonValue>;
+  assert.equal(parents["opaque-child"],thread);
+  assert.equal(parents["opaque-child-next"],thread);
+  for (const changed of [{...context,epoch:context.epoch+1},{...context,bindingNonce:"opaque-other-binding"}]) {
+    const reset = hooks.runtimeReduce(changed,state,[]);
+    assert.equal(reset.events.length,0);
+    assert.deepEqual(Object.keys((reset.state as Record<string,JsonValue>).items as Record<string,JsonValue>),[]);
+    assert.equal(JSON.stringify(state),before);
+  }
+});
+
 console.log(`runtime state budget: ${count} checks passed`);
