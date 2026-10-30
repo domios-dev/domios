@@ -78,8 +78,7 @@ impl PlanStore {
             attempt.branch = task.lane.branch.clone();
             attempt.base = task.lane.base.clone();
             attempt.destination = task.lane.destination.clone();
-            if attempt.placement == crate::plan::WorkerPlacement::CanonicalWriter {
-                // No base keeps the report guard strict: HEAD must match and any dirt refuses.
+            if !attempt.placement.is_isolated_lane() {
                 attempt.worktree_path = Some(canonical_checkout);
                 attempt.base = None;
             }

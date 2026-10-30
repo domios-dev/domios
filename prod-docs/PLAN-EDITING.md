@@ -59,7 +59,7 @@ An Orchestrator can split an approved in-progress task with
 `domios plan task split <plan> <task> --child <name>` (repeat `--child`) or
 `--from-file <children.json>`. Child tasks retain the parent link and inherit
 sections, tags (including `work:<value>`), executor role, model routing, and
-quality fields unless the file overrides a field. Dispatch children individually; each receives its own lane.
+quality fields unless the file overrides a field. Dispatch children individually with declared edit files; disjoint tasks share canonical, while overlap or `build-breaking` selects a lane. A shared Worker may extend its own set with `domios plan task extend-files --edit-file <path>`; conflicting live ownership refuses atomically.
 Draft-plan children remain locked behind ordinary plan approval.
 Parents with open children cannot be marked done or cancelled until every child
 is done or cancelled.
@@ -103,4 +103,4 @@ This local command returns authoritative completed user/assistant turns and outc
 
 `plan task add` validates all required fields together: name, executor role and role guidance. Personality defaults to the first alphabetic word of the task name. A sole plan section is used when no area matches; ambiguous plans may remain unlinked with a hint. Missing `work:` tags are inferred from the area or default to `work:backend`, with a warning. Explicit invalid tags and section selectors refuse. Correctness is optional and keeps its warning. A bare provider in `--model` is resolved when dispatched.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

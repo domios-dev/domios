@@ -79,7 +79,10 @@ pub(in crate::server) fn respawn_worker_params(
         role: Some("Worker".into()),
         execution_intent: Some(draft.execution_intent.clone()),
         parent_tab_id: Some(parent_tab_id.to_string()),
-        task: Some(draft.task_prompt.clone()),
+        task: Some(super::canonical_writer::compose_dispatch_brief(
+            draft.task_prompt.clone(),
+            draft.source_attempt.placement,
+        )),
         workspace_id: draft.workspace_id.clone(),
         model: draft.model.clone(),
         speed: draft.speed.clone(),
