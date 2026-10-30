@@ -68,7 +68,7 @@ Ports use the restricted JSON Schema fields `type`, `properties`, `required`, `a
 
 ## Execution support
 
-Admission lowers a v2 document to the runtime representation or returns an explicit unsupported diagnostic before effects. Code and call nodes execute through the shared typed runtime. Runtime data binds resolve retained outputs as data. Lowering refuses any unsupported node or contract before effects; pipeline `other` handlers remain unavailable. `domios-cli` capability is unavailable.
+Admission lowers v2 documents or refuses unsupported nodes/contracts before effects. Code and calls share the typed runtime; data binds resolve retained outputs as data. Pipeline `other` handlers and the `domios-cli` capability remain unavailable.
 
 Supported pipeline nodes are `code`, fixed `run` commands and `uses: http`, `github`, `ask`, `filter`, `convert` and `agent`. Parameters are explicit value forms. `ask` declares its `buckets` on the node. HTTP outcomes are `up`, `down`, `failed`; GitHub outcomes depend on `resource`; filters may declare a bucket. Commands, conversion and agent tasks return `done` or `failed`. Unspecified failure routes stop; other unspecified outcomes continue. Inputs and outputs must agree with the supported media chain. `result.to` accepts `owner`, `team`, `notify` or `tab:<id>`; offline checking refuses any other target. With the default `owner: team`, `owner` and `team` deliver to the Team Orchestrator's inbox in the Blueprint's workspace; with `owner: tab`, `owner` delivers to the applying tab.
 
@@ -225,12 +225,10 @@ Keep returns typed inputs and a stable `mem:` ID/hash for `call.ref`. Relative i
 
 Callable `other` handlers are refused at check time; move failure handling to the caller. Inside callees, notify/send/cron/escalate use caller scope and the shared executor claim. Blueprint activation, stop and prompt-response effects require scheduler custody and are refused at check time inside calls; put those effects in the caller.
 
-The simulation harness is internal and has no CLI verb. It records bounded delivery provenance in memory with zero delivery and no real run journal. Process, code, agent, HTTP and conversion nodes refuse before launch; pure filters and calls share the normal budget and port checks.
-
 Restored PTY results wait in a durable outbox for the exact saved provider/session's authenticated launch, with a fixed 24-hour TTL and original run ID/timestamp. Closed/changed/failed/expired recipients produce an idempotent delivery-ID failure receipt and status event; live producers also receive a failure notification. Interrupted settlement re-emits status; edited receipts remain. Uncertain writes never replay. Chat backends retain the existing reopen path and report failures, but lack this durable hold.
 
 R10 and environment scrubbing prevent accidents, not hostile code. R10 joins split literals and refuses whole words `domios`/`codeterm`, tokens prefixed `DOMIOS_`/`CODETERM_` with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI paths and shadow CLI names with private PATH-first deny stubs, retaining shared paths such as `/usr/bin`. HOME/APPDATA and absolute executables remain available under user authority. Unavailable R13 comparisons never claim PASS.
 
 `blueprint list` and `blueprint show` allow an Orchestrator or the owner’s General Agent to inspect scheduled Blueprints across Teams and workspaces. `blueprint list --all` requires that authority explicitly. Other readers retain their scope. This read access grants no permission to apply, edit, input, stop or delete a foreign Blueprint.
 
-<!-- revision: 80 -->
+<!-- revision: 81 -->

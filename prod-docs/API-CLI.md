@@ -11,7 +11,7 @@ Cron JSON exposes `protected: true` for system jobs. System jobs refuse deletion
 
 ## CLI
 
-Use `domios <command> --help` for the installed CLI contract. `codeterm` remains a fully working alias; both names show canonical `domios` help and usage.
+Use `domios <command> --help` for the installed contract. `codeterm` is a working alias; both names show `domios` help and usage.
 
 ### Startup readiness
 
@@ -100,7 +100,7 @@ HTTP fallback requires exactly `http://127.0.0.1:<port>` without credentials, pa
 
 `domios tab list --mesh <peer>` exits non-zero when the peer has no online mesh route; `(no tabs)` is reserved for a successful response from an online peer. `domios tab get-text --mesh <peer>` requires a PTY-backed remote tab. If the tab has no PTY, the CLI reports that condition and suggests choosing a PTY-backed tab.
 
-Use the CLI or documented REST routes; desktop-only controls are available through the desktop UI.
+Use the CLI or documented REST routes; use the desktop UI for desktop-only controls.
 
 ## Environment Variables
 
@@ -159,11 +159,11 @@ Beyond PTY agents, a tab can host an **open agent shell** — a non-PTY chat tab
 
 ## Command Palette
 
-Command-palette shortcuts and agent-control workflows: `domios docs AGENT-CONTROL`.
+Shortcuts and agent controls: `domios docs AGENT-CONTROL`.
 
 ## System Tray
 
-Domios hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
+Closing the window hides Domios in the system tray, keeping cron jobs and background agents running. Quit through the tray menu.
 
 ## Role presets
 
@@ -203,4 +203,4 @@ saved sessions and notifications omit login values.
 
 Account installations connect automatically after same-account sign-in. `domios mesh peers` lists each installation once; `domios mesh status` is read-only for local agents.
 
-<!-- revision: 68 -->
+<!-- revision: 69 -->
