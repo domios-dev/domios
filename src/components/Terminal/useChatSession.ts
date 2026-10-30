@@ -1,3 +1,5 @@
+import { DEV_BUILD } from "../../lib/devBuild";
+import { chatResponsivenessTrace } from "./chatProjectionDiagnostics";
 import { canRetryChatStart, runChatStart } from "./chatStartFlight";
 import {
   type MutableRefObject,
@@ -489,6 +491,9 @@ export function useChatSession({
           `tab-chat-msg-${tabId}`,
           (ev) => {
             if (cancelled) return;
+            const traceAuthority = { tab: tabId, session: ev.payload.source_session_id, nonce: ev.payload.session_binding_nonce,
+              epoch: (ev.payload as ChatMsgEvent & { diagnostic_epoch?: number }).diagnostic_epoch, generation: listenerGeneration };
+            if (DEV_BUILD) chatResponsivenessTrace.observe("frontend_arrival", traceAuthority, ev.payload.messages);
             const diagnosticBase = {
               tabId,
               sourceSessionId: ev.payload.source_session_id,
@@ -518,6 +523,7 @@ export function useChatSession({
               if (ownStream && attachmentStateRef.current === "attached") requestRecoveryAttach(false, "authority_drop");
               return;
             }
+            if (DEV_BUILD) chatResponsivenessTrace.observe("authority_adopt", traceAuthority, ev.payload.messages);
             emitDiagnostic({ edge: "authority_adopt", ...diagnosticBase });
             adoptedAuthorityRef.current = {
               sourceSessionId: ev.payload.source_session_id,
@@ -811,6 +817,8 @@ export function useChatSession({
 
   useLayoutEffect(() => {
     if (transcript.segments.length === 0) return;
+    if (DEV_BUILD) chatResponsivenessTrace.observe("layout_commit", { tab: tabId,
+      session: transcript.authority?.sourceSessionId ?? null, nonce: transcript.authority?.sessionBindingNonce ?? null, generation: listenerGeneration }, committedRows);
     emitDiagnostic({
       edge: "state_commit",
       tabId,
@@ -819,7 +827,7 @@ export function useChatSession({
       messageIds: committedRows.map((message) => message.id),
       tailSignature: tailSignatureOf(committedRows),
     });
-  }, [committedRows, emitDiagnostic, tabId, transcript]);
+  }, [committedRows, emitDiagnostic, listenerGeneration, tabId, transcript]);
 
   return {
     ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current, agentSessionId != null),
@@ -850,3 +858,4 @@ export function useChatSession({
     observeChatSendStatus,
   };
 }
+

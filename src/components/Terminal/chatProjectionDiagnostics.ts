@@ -1,3 +1,4 @@
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { ChatSessionDiagnosticEvent, ChatSessionDiagnosticSink } from "./useChatSession";
 
 /** Stages of the chat projection pipeline whose tail can diverge. Ordered
@@ -349,3 +350,164 @@ declare global {
     __chatProjection?: ChatProjectionMonitor;
   }
 }
+
+export interface ChatTraceSelection {
+  trace: string;
+  tab: string;
+  session: string;
+  nonce: string;
+  epoch: number;
+  turn: string;
+  item: string;
+}
+
+type TraceAuthority = { tab: string; session: string | null; nonce: string | null; epoch?: number; generation?: number };
+type TraceRow = { id: string; seq?: number; content?: string; toolResult?: string; toolDetail?: string; toolFlowId?: string; toolStatus?: string | null };
+interface ChatTraceRecord {
+  stage: string;
+  clock: "browser-performance-ms";
+  at: number;
+  unixMs: number;
+  binding: string;
+  turn: string;
+  item: string;
+  epoch: number;
+  epochVerified: boolean;
+  listenerGeneration: number | null;
+  sourceSeq: number | null;
+  status: string | null;
+  contentUnits: number;
+  resultUnits: number;
+  detailUnits: number;
+  observerMs: number;
+}
+
+function traceFingerprint(parts: readonly string[]): string {
+  let hash = 2166136261;
+  const encoder = new TextEncoder();
+  for (const part of parts) {
+    for (const byte of encoder.encode(part)) hash = Math.imul(hash ^ byte, 16777619);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export class ChatResponsivenessTrace {
+  private selection: ChatTraceSelection | null = null;
+  private records: ChatTraceRecord[] = [];
+  private dropped = 0;
+  private overheadMs = 0;
+  private epochVerified = false;
+  private generation = 0;
+  private cancellations = new Set<() => void>();
+
+  constructor(private readonly clock = () => performance.now(), private readonly wall = Date.now) {}
+
+  select(selection: ChatTraceSelection): void {
+    const ids = [selection.trace, selection.tab, selection.session, selection.nonce, selection.turn, selection.item];
+    if (!ids.every(id => typeof id === "string" && id.length > 0 && [...id].every(char => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127) && new TextEncoder().encode(id).length <= 128)
+      || !/^[A-Za-z0-9-]+$/.test(selection.trace) || !Number.isSafeInteger(selection.epoch) || selection.epoch <= 0) {
+      throw new Error("Invalid chat trace selection");
+    }
+    this.dispose();
+    this.selection = { ...selection };
+    this.records = [];
+    this.dropped = 0;
+    this.overheadMs = 0;
+  }
+
+  bind(authority: TraceAuthority): void {
+    const selection = this.selection;
+    if (!selection || selection.tab !== authority.tab) return;
+    if (!this.matches(authority) || selection.epoch !== authority.epoch) { this.dispose(); return; }
+    this.epochVerified = true;
+  }
+
+  private matches(authority: TraceAuthority): boolean {
+    const selection = this.selection;
+    return selection != null && selection.tab === authority.tab && selection.session === authority.session
+      && selection.nonce === authority.nonce && (authority.epoch === undefined || selection.epoch === authority.epoch);
+  }
+
+  private metrics(rows: readonly TraceRow[]) {
+    const selection = this.selection;
+    if (!selection) return null;
+    for (let index = rows.length - 1; index >= Math.max(0, rows.length - 1024); index--) {
+      const row = rows[index];
+      if (row.id === selection.item && row.toolFlowId === selection.turn) {
+        return { sourceSeq: row.seq ?? null, status: ["running", "completed", "failed", "interrupted", "abandoned"].includes(row.toolStatus ?? "") ? row.toolStatus ?? null : null, contentUnits: row.content?.length ?? 0, resultUnits: row.toolResult?.length ?? 0, detailUnits: row.toolDetail?.length ?? 0 };
+      }
+    }
+    return null;
+  }
+
+  private record(stage: string, authority: TraceAuthority, metrics: { sourceSeq: number | null; status: string | null; contentUnits: number; resultUnits: number; detailUnits: number }, start: number): void {
+    if (!this.matches(authority)) return;
+    if (this.records.length >= 2048) { this.dropped++; return; }
+    const selection = this.selection!;
+    const record: ChatTraceRecord = {
+      stage, clock: "browser-performance-ms", at: this.clock(), unixMs: this.wall(),
+      binding: traceFingerprint([selection.tab, selection.session, selection.nonce]),
+      turn: traceFingerprint([selection.turn]), item: traceFingerprint([selection.item]), epoch: selection.epoch,
+      epochVerified: authority.epoch !== undefined ? authority.epoch === selection.epoch : this.epochVerified, listenerGeneration: authority.generation ?? null, ...metrics, observerMs: 0,
+    };
+    this.records.push(record);
+    record.observerMs = this.clock() - start;
+    this.overheadMs += record.observerMs;
+  }
+
+  observe(stage: string, authority: TraceAuthority, rows: readonly TraceRow[]): void {
+    if (!this.matches(authority)) return;
+    const start = this.clock();
+    const metrics = this.metrics(rows);
+    if (metrics) this.record(stage, authority, metrics, start);
+  }
+
+  afterPaint(authority: TraceAuthority, rows: readonly TraceRow[]): () => void {
+    if (!this.matches(authority)) return () => {};
+    const metrics = this.metrics(rows);
+    return metrics ? this.scheduleMetrics(authority, metrics) : () => {};
+  }
+
+  private scheduleMetrics(authority: TraceAuthority, metrics: { sourceSeq: number | null; status: string | null; contentUnits: number; resultUnits: number; detailUnits: number }): () => void {
+    const generation = this.generation;
+    let completed = false;
+    let stop = () => {};
+    const cancel = scheduleAfterPaint(() => {
+      completed = true;
+      this.cancellations.delete(stop);
+      if (generation === this.generation) this.record("paint_opportunity", authority, metrics, this.clock());
+    });
+    stop = () => { cancel(); this.cancellations.delete(stop); };
+    if (!completed) this.cancellations.add(stop);
+    return stop;
+  }
+  snapshot() {
+    return { trace: this.selection?.trace ?? null, timeOrigin: performance.timeOrigin,
+      records: this.records.map(record => ({ ...record })), dropped: this.dropped, observerMs: this.overheadMs,
+      active: this.selection !== null };
+  }
+
+  dispose(): void {
+    for (const cancel of this.cancellations) cancel();
+    this.cancellations.clear();
+    this.generation++;
+    this.epochVerified = false;
+    this.selection = null;
+  }
+
+  release(tab: string): void { if (this.selection?.tab === tab) this.dispose(); }
+}
+
+export const chatResponsivenessTrace = new ChatResponsivenessTrace();
+
+declare global { interface Window { __chatResponsiveness?: Pick<ChatResponsivenessTrace, "select" | "snapshot" | "dispose"> } }
+
+if (DEV_BUILD && typeof window !== "undefined") {
+  window.__chatResponsiveness = {
+    select: selection => chatResponsivenessTrace.select(selection),
+    snapshot: () => chatResponsivenessTrace.snapshot(),
+    dispose: () => chatResponsivenessTrace.dispose(),
+  };
+}
+

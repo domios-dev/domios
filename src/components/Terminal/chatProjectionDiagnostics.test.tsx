@@ -9,7 +9,7 @@ import {
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { ChatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
+import { ChatProjectionMonitor, ChatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { paintTailSignature, tailSignatureOf } from "./useChatSession";
 import type { ChatSessionDiagnosticEvent } from "./useChatSession";
 
@@ -178,6 +178,15 @@ function testScheduleAfterPaint(): void {
     cancel(); // cancel the pending inner frame
     while (runOne()) { /* drain */ }
     assert(superseded.count() === 0, "cancelling a superseded frame before paint suppresses its stale record");
+    const trace = new ChatResponsivenessTrace();
+    trace.select({ trace: "opaque-trace", tab: TAB_ID, session: "s", nonce: "n", epoch: 1, turn: "t", item: "i" });
+    const authority = { tab: TAB_ID, session: "s", nonce: "n", epoch: 1 };
+    trace.bind(authority);
+    trace.afterPaint(authority, [{ id: "i", toolFlowId: "t", toolResult: "opaque" }]);
+    runOne();
+    trace.release(TAB_ID);
+    while (runOne()) { /* drain */ }
+    assert(trace.snapshot().records.length === 0 && pending.size === 0, "disposal cancels the pending selected paint opportunity");
   } finally {
     g.requestAnimationFrame = prevRaf;
     g.cancelAnimationFrame = prevCaf;
@@ -596,7 +605,34 @@ async function testActivationRemountIntegration(): Promise<void> {
   (bridge as never as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(null as never);
 }
 
+function testResponsivenessTraceSelectionGrowthBoundsAndDisposal(): void {
+  let now = 0;
+  const trace = new ChatResponsivenessTrace(() => ++now, () => 1234);
+  const selection = { trace: "opaque-trace", tab: "tab", session: "session", nonce: "nonce", epoch: 7, turn: "turn", item: "item" };
+  trace.select(selection);
+  const authority = { tab: "tab", session: "session", nonce: "nonce", epoch: 7 };
+  trace.bind(authority);
+  const row = { id: "item", toolFlowId: "turn", content: "", toolResult: "opaque-result", toolDetail: "opaque-path" };
+  trace.observe("frontend_arrival", { ...authority, nonce: "foreign" }, [row]);
+  assert(trace.snapshot().records.length === 0, "foreign authority produces no trace evidence");
+  trace.observe("frontend_arrival", authority, [row]);
+  trace.observe("layout_commit", authority, [{ ...row, toolResult: row.toolResult + "-more" }]);
+  const snapshot = trace.snapshot();
+  assert(snapshot.records[1]!.resultUnits > snapshot.records[0]!.resultUnits, "tool growth changes trace without assistant content growth");
+  assert(snapshot.records.every(record => record.clock === "browser-performance-ms" && record.epochVerified), "clock and exact epoch provenance stay explicit");
+  assert(!JSON.stringify(snapshot).includes("opaque-result") && !JSON.stringify(snapshot).includes("opaque-path"), "trace never retains bodies or paths");
+  for (let index = 0; index < 2050; index++) trace.observe("layout_commit", authority, [row]);
+  assert(trace.snapshot().records.length === 2048 && trace.snapshot().dropped === 4, "trace has a fixed cap and exact drops");
+  trace.bind({ ...authority, epoch: 8 });
+  assert(!trace.snapshot().active, "epoch replacement disposes selected observer");
+  trace.select(selection);
+  trace.dispose();
+  trace.observe("layout_commit", authority, [row]);
+  assert(trace.snapshot().records.length === 0, "disposed observer cannot retain late events");
+}
+
 async function main(): Promise<void> {
+  testResponsivenessTraceSelectionGrowthBoundsAndDisposal();
   testStageDistinction();
   testAuthorityStall();
   testMonotonicAndBounded();

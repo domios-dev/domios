@@ -1,3 +1,4 @@
+import { DEV_BUILD } from "../../lib/devBuild";
 import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
@@ -24,7 +25,7 @@ import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   chatDaySeparators,
@@ -69,7 +70,7 @@ import { useTabActivity } from "../../lib/useTabActivity";
 import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
-import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
+import { chatProjectionMonitor, chatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { PluginIcon } from "../Extensions/PluginIcon";
@@ -671,6 +672,15 @@ function TabSessionChatBody({
     const tail = paintTailSignature(renderedEnrichedMessages[renderedEnrichedMessages.length - 1]?.msg);
     return scheduleAfterPaint(() => chatProjectionMonitor.recordPaint(tabId, tail));
   }, [tabId, renderedEnrichedMessages]);
+  useLayoutEffect(() => {
+    if (!DEV_BUILD) return;
+    const authority = { tab: tabId, session: agentSessionId, nonce: tab?.session_binding_nonce ?? null, epoch: runtime.state?.epoch };
+    chatResponsivenessTrace.bind(authority);
+    const rows = renderedEnrichedMessages.map(entry => entry.msg);
+    chatResponsivenessTrace.observe("rendered_commit", authority, rows);
+    return chatResponsivenessTrace.afterPaint(authority, rows);
+  }, [tabId, agentSessionId, tab?.session_binding_nonce, runtime.state?.epoch, renderedEnrichedMessages]);
+  useEffect(() => () => { if (DEV_BUILD) chatResponsivenessTrace.release(tabId); }, [tabId]);
   // Drop torn-down tab diagnostics immediately instead of waiting for LRU eviction.
   useEffect(() => () => chatProjectionMonitor.forget(tabId), [tabId]);
   const latestFailedToolCallId = useMemo(() => {
