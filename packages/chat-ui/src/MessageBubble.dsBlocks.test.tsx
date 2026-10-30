@@ -15,16 +15,16 @@ browser.matchMedia = (() => ({ matches: false, media: "", onchange: null, addEve
 const mermaidCalls: string[] = [];
 Object.assign(browser, { mermaid: { initialize() {}, async render(_id: string, source: string) { mermaidCalls.push(source); return { svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>Diagram</text></svg>' }; } } });
 const { MessageBubble } = await import("./MessageBubble");
-const { MessagePartsContext } = await import("./MessagePartsContext");
+const { MessagePartsContext, MessagePartView } = await import("./MessagePartsContext");
 const { RichMarkdown, renderUserContent } = await import("./MarkdownBody");
 const { ChatBlockHostProvider } = await import("./blocks/ChatBlockHost");
 const { LocalArtifactScope } = await import("./LocalArtifactScope");
 const { configureHtmlFileLoader } = await import("./htmlFileLoader");
 const { configureLocalArtifactLoader } = await import("./localArtifactLoader");
 
-function binding<T>(value: T) {
+function binding<T>(value: T, event?: (value: string) => void) {
   const counts = { starts: 0, live: 0, refresh: 0 };
-  const source: LiveBindingSource<T> = { read: () => value, refresh: () => { counts.refresh++; }, subscribe: () => { counts.starts++; counts.live++; return () => { counts.live--; }; } };
+  const source: LiveBindingSource<T> = { read: () => value, refresh: (key) => { counts.refresh++; event?.(`refresh:${key}`); }, subscribe: () => { counts.starts++; counts.live++; event?.("subscribe"); return () => { counts.live--; event?.("unsubscribe"); }; } };
   return { source, counts };
 }
 async function mount() {
@@ -57,6 +57,8 @@ test("MessageBubble dsBlocks central causal fixture: own HTML close gates creati
     assert.ok(dialog);
     const fullscreenFrame = dialog.querySelector('iframe');
     assert.ok(fullscreenFrame);
+    assert.equal(view.host.querySelector('iframe') === frame, true, 'fullscreen opened: inline frame identity');
+    assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, 'fullscreen opened: inline srcDoc');
     let source = html;
     for (let index = 0; index < 20; index++) {
       source += `\n\nfollowing ${index}`;
@@ -72,6 +74,39 @@ test("MessageBubble dsBlocks central causal fixture: own HTML close gates creati
     assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]') === dialog, true, 'ended: fullscreen dialog identity');
     assert.equal(dialog.querySelector('iframe') === fullscreenFrame, true, 'ended: fullscreen frame identity');
   } finally { await view.close(); }
+});
+
+test("dsBlocks message-part context association and selection gutters preserve physical frames and subscriptions", async () => {
+  const view = await mount();
+  const plugins = binding({ kind: "loading" } as const);
+  const value: ChatBlockHost = { plugins: { binding: plugins.source, run: async () => {}, openView() {}, openInPlugins() {} } };
+  const source = html + '\n<ds-plugin id="git" />';
+  const render = (associated: boolean, selecting: boolean, present = true) => view.render(
+    <ChatBlockHostProvider value={value}><MessagePartsContext.Provider value={present ? { id: "parts", source: associated ? source : source + '\nnext token', selecting } : null}>
+      <MessagePartView data-message-part-id={associated && present ? "parts:0" : undefined}>
+        <RichMarkdown text={source} sourceIdentity="part-association" streaming />
+      </MessagePartView>
+    </MessagePartsContext.Provider></ChatBlockHostProvider>,
+  );
+  try {
+    await render(true, false);
+    const frame = view.host.querySelector('iframe'); assert.ok(frame);
+    const srcDoc = frame.getAttribute('srcdoc');
+    const open = view.host.querySelector<HTMLButtonElement>('button[title="Open in fullscreen"]'); assert.ok(open);
+    await act(async () => open.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]'); assert.ok(dialog);
+    const fullscreenFrame = dialog.querySelector('iframe'); assert.ok(fullscreenFrame);
+    assert.deepEqual(plugins.counts, { starts: 1, live: 1, refresh: 1 }, 'before context changes: binding lifetime');
+    for (let index = 0; index < 20; index++) {
+      await render(index % 2 === 0, index % 3 === 0, index % 4 !== 0);
+      assert.equal(view.host.querySelector('iframe') === frame, true, `context ${index}: physical frame`);
+      assert.equal(frame.getAttribute('srcdoc') === srcDoc, true, `context ${index}: srcDoc`);
+      assert.equal(document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]') === dialog, true, `context ${index}: fullscreen dialog`);
+      assert.equal(dialog.querySelector('iframe') === fullscreenFrame, true, `context ${index}: fullscreen frame`);
+      assert.deepEqual(plugins.counts, { starts: 1, live: 1, refresh: 1 }, `context ${index}: binding lifetime`);
+    }
+  } finally { await view.close(); }
+  assert.equal(plugins.counts.live, 0);
 });
 
 test("MessageBubble dsBlocks file effects occur once after terminator and survive twenty later chunks", async () => {
@@ -185,9 +220,12 @@ test("dsBlocks retires executable HTML fences and gates Mermaid on the complete 
 
 test("dsBlocks all nine live-card kinds have no subscription before their own terminator", async () => {
   const view = await mount();
-  const loading = binding({ kind: "loading" } as const);
-  const checklist = binding({ kind: "missing" } as const);
-  const choice = binding({ reply: null });
+  const events: string[] = [];
+  let stage = "initial";
+  const record = (event: string) => { events.push(`${stage}:${event}`); if (events.length > 12) events.shift(); };
+  const loading = binding({ kind: "loading" } as const, record);
+  const checklist = binding({ kind: "missing" } as const, record);
+  const choice = binding({ reply: null }, record);
   const value: ChatBlockHost = {
     plugins: { binding: loading.source, run: async () => {}, openView() {}, openInPlugins() {} },
     connect: { binding: loading.source, connect: async () => {}, disconnect: async () => {}, openSettings() {} },
@@ -204,10 +242,11 @@ test("dsBlocks all nine live-card kinds have no subscription before their own te
   try {
     for (const [index, tag] of tags.entries()) {
       const initial = starts();
-      for (let at = 1; at < tag.length; at++) { await render(tag.slice(0, at), `kind-${index}`); assert.equal(starts(), initial); }
+      for (let at = 1; at < tag.length; at++) { stage = `kind ${index} ${tag} prefix ${at}`; await render(tag.slice(0, at), `kind-${index}`); assert.equal(starts(), initial, `${stage}: ${events.join(" | ")}`); }
+      stage = `kind ${index} ${tag} complete`;
       await render(tag, `kind-${index}`);
-      assert.equal(starts(), initial + (index === 0 ? 0 : 1));
-      for (let after = 0; after < 20; after++) { await render(tag + '\n\n' + 'more '.repeat(after + 1), `kind-${index}`); assert.equal(starts(), initial + (index === 0 ? 0 : 1)); }
+      assert.equal(starts(), initial + (index === 0 ? 0 : 1), `${stage}: ${events.join(" | ")}`);
+      for (let after = 0; after < 20; after++) { stage = `kind ${index} ${tag} append ${after}`; await render(tag + '\n\n' + 'more '.repeat(after + 1), `kind-${index}`); assert.equal(starts(), initial + (index === 0 ? 0 : 1), `${stage}: ${events.join(" | ")}`); }
     }
   } finally { await view.close(); }
 });
