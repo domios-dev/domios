@@ -292,25 +292,30 @@ fn signal_provider_exhaustion_never_loads_unmatched_plans() {
     let (fx, _) = fixture();
     let store = &fx.service.plan_store;
     let mut exhausted = task("task_c", TaskStatus::InProgress, Some("worker-a"));
-    let mut claude = attempt("att_c", "worker-a");
-    claude.provider = Some("claude".into());
-    exhausted.execution_attempts.push(claude);
+    let mut provider_a = attempt("att_c", "worker-a");
+    provider_a.provider = Some("fixture-provider-a".into());
+    exhausted.execution_attempts.push(provider_a);
     let exhausted = seed(
         store,
-        execution_plan(&project(&fx), "claude", "owner", vec![exhausted]),
+        execution_plan(
+            &project(&fx),
+            "fixture-provider-a",
+            "owner",
+            vec![exhausted],
+        ),
     );
     let mut fine = task("task_x", TaskStatus::InProgress, Some("worker-b"));
-    let mut codex = attempt("att_x", "worker-b");
-    codex.provider = Some("codex".into());
-    fine.execution_attempts.push(codex);
+    let mut provider_b = attempt("att_x", "worker-b");
+    provider_b.provider = Some("fixture-provider-b".into());
+    fine.execution_attempts.push(provider_b);
     let fine = seed(
         store,
-        execution_plan(&project(&fx), "codex", "owner", vec![fine]),
+        execution_plan(&project(&fx), "fixture-provider-b", "owner", vec![fine]),
     );
     start(store);
 
     assert_eq!(
-        fx.service.signal_provider_exhaustion("claude"),
+        fx.service.signal_provider_exhaustion("fixture-provider-a"),
         0,
         "no task names an interruption owner"
     );
@@ -325,9 +330,9 @@ fn signal_provider_recovery_never_loads_unmatched_plans() {
     let mut paused = task("task_p", TaskStatus::Paused, None);
     paused.status_label = Some(crate::service::plan::interruption::PROVIDER_EXHAUSTED_LABEL.into());
     paused.interruption.owner_tab_id = Some("worker-a".into());
-    let mut codex = attempt("att_p", "worker-a");
-    codex.provider = Some("codex".into());
-    paused.execution_attempts.push(codex);
+    let mut provider_b = attempt("att_p", "worker-a");
+    provider_b.provider = Some("fixture-provider-b".into());
+    paused.execution_attempts.push(provider_b);
     let paused = seed(
         store,
         execution_plan(&project(&fx), "paused", "owner", vec![paused]),
@@ -344,7 +349,7 @@ fn signal_provider_recovery_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        fx.service.signal_provider_recovery("claude"),
+        fx.service.signal_provider_recovery("fixture-provider-a"),
         0,
         "another provider paused it"
     );

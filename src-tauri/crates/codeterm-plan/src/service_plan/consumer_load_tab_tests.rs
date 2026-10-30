@@ -335,7 +335,7 @@ fn complete_acknowledged_dispatch_binding_never_loads_unmatched_plans() {
             tab_id: "tab-a".into(),
             team_id: "team-a".into(),
             creator_tab_id: "owner".into(),
-            provider: "claude".into(),
+            provider: "fixture-provider-a".into(),
             session_id: "session-a".into(),
             nonce: "nonce-a".into(),
             owner_epoch: 1,

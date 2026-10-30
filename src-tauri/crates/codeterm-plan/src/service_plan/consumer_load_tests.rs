@@ -652,7 +652,7 @@ fn with_verified_worker_transfer_binding_never_loads_unmatched_plans() {
         worktree_path: "/lanes/worker".into(),
         session_id: "worker-session".into(),
         binding_nonce: "nonce".into(),
-        provider: "claude".into(),
+        provider: "fixture-provider-a".into(),
         owner_epoch: 1,
     };
     let mut committed = false;
