@@ -119,5 +119,5 @@ export function useComposerMentions(input: string, setInput: (next: string) => v
     }
     return false;
   };
-  return { active, session, listboxId, optionId, query: partial ?? "", mentions, loading, error, highlighted, setHighlighted, pick, handleKey, syncSelection, close };
+  return { active, session, listboxId, optionId, queryStart, query: partial ?? "", mentions, loading, error, highlighted, setHighlighted, pick, handleKey, syncSelection, close };
 }

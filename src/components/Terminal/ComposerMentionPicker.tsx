@@ -8,7 +8,7 @@ import { AgentIcon } from "../AgentIcon";
 import { Chip } from "../shared/Chip";
 import { Button } from "../shared/Button";
 
-export function ComposerMentionPicker({ active = true, listboxId = "composer-mentions", optionId = (row) => `${listboxId}-${encodeURIComponent(row.id)}`, query = "", mentions, loading = false, error = false, highlighted, onHighlight, onPick, onClose, triggerRef }: {
+export function ComposerMentionPicker({ active = true, listboxId = "composer-mentions", optionId = (row) => `${listboxId}-${encodeURIComponent(row.id)}`, query = "", mentions, loading = false, error = false, highlighted, onHighlight, onPick, onClose, triggerRef, anchorPoint }: {
   active?: boolean;
   listboxId?: string;
   optionId?: (row: ComposerMention) => string;
@@ -21,6 +21,7 @@ export function ComposerMentionPicker({ active = true, listboxId = "composer-men
   onPick: (mention: ComposerMention) => void;
   onClose: () => void;
   triggerRef: RefObject<HTMLElement | null>;
+  anchorPoint?: { x: number; y: number };
 }) {
   const list = useRef<HTMLDivElement>(null);
   const selectedId = mentions[highlighted]?.id;
@@ -33,7 +34,7 @@ export function ComposerMentionPicker({ active = true, listboxId = "composer-men
     return all;
   }, []);
   if (!groups.length) groups.push({ name: "Suggestions", start: 0, rows: [] });
-  return <AnchoredPopover open={active} anchor={triggerRef} placement={MENTION_PICKER_LAYOUT.placement} width={MENTION_PICKER_LAYOUT.width} keepSide onClose={onClose} className="composer-mention-popover" style={{ overflow: "hidden", "--mention-anchor-width": `${triggerRef.current?.getBoundingClientRect().width ?? 480}px` } as CSSProperties}>
+  return <AnchoredPopover open={active} anchor={triggerRef} positionAnchor={anchorPoint} placement={MENTION_PICKER_LAYOUT.placement} width={MENTION_PICKER_LAYOUT.width} keepSide onClose={onClose} className="composer-mention-popover" style={{ overflow: "hidden", "--mention-anchor-width": `${triggerRef.current?.getBoundingClientRect().width ?? 480}px` } as CSSProperties}>
     <div className="ct-menu composer-mention-menu">
       <div ref={list} id={listboxId} role="listbox" aria-label="Mention suggestions" aria-busy={loading} className="composer-mention-list" style={{ maxHeight: MENTION_PICKER_LAYOUT.rowHeight * MENTION_PICKER_LAYOUT.visibleRows }}>
         {groups.map((group, groupIndex) => <div key={`${group.name}-${groupIndex}`} role="group" aria-labelledby={`${listboxId}-group-${groupIndex}`}>

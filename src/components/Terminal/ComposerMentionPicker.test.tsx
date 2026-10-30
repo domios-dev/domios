@@ -30,7 +30,7 @@ function Harness() {
     picker.syncSelection(editor);
   };
   return <><textarea ref={ref} value={draft} onChange={(event) => { setDraft(event.currentTarget.value); picker.syncSelection(event.currentTarget); }} onSelect={(event) => picker.syncSelection(event.currentTarget)} onKeyDown={picker.handleKey} />
-    <ComposerMentionPicker key={picker.session} {...picker} onHighlight={picker.setHighlighted} onPick={picker.pick} onClose={picker.close} triggerRef={ref} /></>;
+    <ComposerMentionPicker key={picker.session} {...picker} onHighlight={picker.setHighlighted} onPick={picker.pick} onClose={picker.close} triggerRef={ref} anchorPoint={{ x: 620, y: 360 }} /></>;
 }
 async function main() {
   const host = document.createElement("div"); document.body.append(host);
@@ -43,6 +43,14 @@ async function main() {
     await act(async () => { releaseSearch(); pendingSearch = undefined; });
     assert.equal(document.querySelector('[role="status"]'), null);
     assert.equal(document.querySelectorAll('[role="option"]').length, 2);
+    const editor = host.querySelector("textarea")!;
+    const panel = document.querySelector('[role="listbox"]');
+    await act(async () => {
+      editor.focus();
+      editor.dispatchEvent(new browser.PointerEvent("pointerdown", { bubbles: true, pointerType: "mouse" }) as unknown as Event);
+    });
+    assert.equal(document.querySelector('[role="listbox"]'), panel, "caret-positioned menu still treats its editor as the real trigger");
+    assert.equal(document.activeElement, editor);
     await key("ArrowDown"); await key("Tab");
     assert.equal(host.querySelector("textarea")!.value, "@Tally (tab b) ");
     await act(async () => { change("@"); });
@@ -76,7 +84,7 @@ async function main() {
     await act(async () => { input.dispatchEvent(new browser.KeyboardEvent("keydown", { key: "Enter", code: "", bubbles: true, cancelable: true }) as unknown as Event); });
     assert.equal(input.value, "@Rivet (tab a) ");
     assert.equal(subscriptions, 0, "completed/closed picker releases subscriptions");
-    console.log("8 picker behavior/layout/subscription checks passed");
+    console.log("9 picker behavior/layout/subscription checks passed");
   } finally { await act(async () => root.unmount()); browser.happyDOM.abort(); }
 }
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -187,7 +187,7 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
 
 DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regular
 files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks
@@ -201,3 +201,10 @@ Its `ErrorActionPreference=Stop` can turn normal Cargo stderr progress into a
 terminating `NativeCommandError`, leaving no compile verdict or exit record.
 Run the command through `scripts/qa-report.sh` in the Team utility shell instead;
 it merges streams inside Bash and preserves the raw exit in the run summary.
+
+## Generated shell recipe startup
+
+Validate a generated Bash recipe with `bash -n` before submitting that exact file.
+The launch wrapper must also report a nonzero startup exit: a syntax error can
+prevent the recipe's own failure reporter from being defined. A header file or
+idle shell mark does not prove that any verification step ran.

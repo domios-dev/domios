@@ -8,6 +8,7 @@ export interface AnchoredPopoverProps {
   open: boolean;
   /** The trigger element, or a viewport point for context menus and selections. */
   anchor: PopoverAnchor;
+  positionAnchor?: PopoverAnchor;
   placement?: FloatingPlacement;
   /** Space between anchor and popover; hover popovers pass 0 so the pointer never crosses a gap. */
   gap?: number;
@@ -31,6 +32,7 @@ function inAnyPopover(target: EventTarget | null): boolean {
 export function AnchoredPopover({
   open,
   anchor,
+  positionAnchor,
   placement = "bottom-start",
   gap,
   keepSide,
@@ -45,7 +47,7 @@ export function AnchoredPopover({
 }: AnchoredPopoverProps) {
   const ownRef = useRef<HTMLDivElement>(null);
   const contentRef = floatingRef ?? ownRef;
-  const position = useAnchoredPopoverPosition(open, anchor, contentRef, placement, { gap, keepSide });
+  const position = useAnchoredPopoverPosition(open, positionAnchor ?? anchor, contentRef, placement, { gap, keepSide });
   const anchorElement = "current" in anchor ? anchor : null;
 
   // Capture phase: triggers often sit in containers that stop pointer and key propagation.
