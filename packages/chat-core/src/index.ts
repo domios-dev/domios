@@ -35,8 +35,10 @@ export {
   buildDomiosOpeningTag,
   buildDomiosMessage,
   parseDomiosMessage,
+  parseDomiosAttributes,
   type ParsedDomiosMessage,
 } from "./domios";
+export { rawEnvelopeExclusions, type RawEnvelopeExclusion, type RawEnvelopeKind } from "./envelopeSpans";
 export { localThumbnailSource, normalizeToolRichResult, type ThumbnailSource } from "./toolRichResult";
 export {
   shellCommandMessage,
