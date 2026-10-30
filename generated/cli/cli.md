@@ -1908,6 +1908,12 @@ List notifications
 
 - `--unread` — Show only unread notifications
 
+#### `domios notify resolve`
+
+Resolve a question asked by this tab after receiving its answer
+
+- `<id>`
+
 #### `domios notify send`
 
 Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it

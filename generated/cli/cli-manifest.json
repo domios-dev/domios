@@ -8161,6 +8161,24 @@
           "subcommands": []
         },
         {
+          "name": "resolve",
+          "about": "Resolve a question asked by this tab after receiving its answer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "send",
           "about": "Send a notification. The body is read only from the calling tab's AgentPad. Reports when no surface will show it",
           "aliases": [],
