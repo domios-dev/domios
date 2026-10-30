@@ -238,6 +238,7 @@ fn account_home_diagnostic_credential_reads_selected_home_without_writes() {
     let denied = declared_files(&credentials);
     assert!(denied.contains(&default_file));
     assert!(denied.contains(&selected_file));
+    assert_eq!(resolved_files(&credentials), vec![selected_file.clone()]);
     assert_eq!(std::fs::read(&default_file).unwrap(), default_bytes);
     assert_eq!(
         std::fs::read_to_string(&selected_file).unwrap(),
@@ -246,9 +247,39 @@ fn account_home_diagnostic_credential_reads_selected_home_without_writes() {
     env.set("FIXTURE_CREDENTIAL_HOME", "");
     assert_eq!(declared_files(&credentials), vec![default_file]);
     assert_eq!(
+        resolved_files(&credentials),
+        vec![default.path().join("auth.json")]
+    );
+    assert_eq!(
         public_json(&credentials, "codexAuth"),
         Some(r#"{"accountId":"acct-42"}"#.into())
     );
+}
+
+#[test]
+fn catalogue_credential_home_never_falls_back_when_selected_file_is_missing() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    let default = tempfile::tempdir().unwrap();
+    let selected = tempfile::tempdir().unwrap();
+    let mut credential = codex_credential(default.path());
+    credential.file_environment = Some(super::super::manifest::ReadRootEnvironment {
+        variable: "FIXTURE_CREDENTIAL_HOME".into(),
+        subdir: "auth.json".into(),
+    });
+    env.set("FIXTURE_CREDENTIAL_HOME", selected.path());
+    assert_eq!(
+        resolved_files(std::slice::from_ref(&credential)),
+        vec![selected.path().join("auth.json")]
+    );
+    assert_eq!(
+        public_json(std::slice::from_ref(&credential), "codexAuth"),
+        None
+    );
+    assert!(inject(
+        &[credential],
+        r#"{"credential":{"id":"codexAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
+    )
+    .is_err());
 }
 
 #[test]

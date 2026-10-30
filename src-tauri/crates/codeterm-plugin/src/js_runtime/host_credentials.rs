@@ -33,6 +33,10 @@ fn credential_path(cred: &CredentialConfig) -> Option<std::path::PathBuf> {
         .or_else(|| PluginManifest::expand_home(&cred.file))
 }
 
+pub(super) fn resolved_files(credentials: &[CredentialConfig]) -> Vec<std::path::PathBuf> {
+    credentials.iter().filter_map(credential_path).collect()
+}
+
 fn read_document(cred: &CredentialConfig) -> Option<Value> {
     let path = credential_path(cred)?;
     let file = std::fs::File::open(path).ok()?;
