@@ -274,23 +274,44 @@ async fn account_mesh_six_installations_connect_without_saved_pairs() {
     for machine in &machines {
         machine.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     }
-    let transport = Loopback::new(&refs);
+    let transport = Arc::new(Loopback::new(&refs));
+    let mut links = tokio::task::JoinSet::new();
+    let mut selected = std::collections::BTreeSet::new();
     for source in &machines {
         for target in &machines {
-            if source.installation_id == target.installation_id {
+            if source.installation_id == target.installation_id
+                || !super::link::prefers_initiating(
+                    &source.installation_id,
+                    &target.installation_id,
+                )
+            {
                 continue;
             }
-            if source.mesh.lock().account_mesh_pairs().iter().any(|peer| {
-                peer.installation_id.as_deref() == Some(target.installation_id.as_str())
-            }) {
-                continue;
-            }
+            assert!(selected.insert((
+                source.installation_id.clone(),
+                target.installation_id.clone()
+            )));
             let endpoint = source.authority.registry.lock()[&target.installation_id].clone();
-            super::link::connect_target_with(&source.mesh, &transport, endpoint)
-                .await
-                .unwrap();
+            let mesh = source.mesh.clone();
+            let transport = transport.clone();
+            links.spawn(async move {
+                super::link::connect_target_with(&mesh, transport.as_ref(), endpoint)
+                    .await
+                    .unwrap();
+            });
         }
     }
+    assert_eq!(selected.len(), 15);
+    while let Some(result) = links.join_next().await {
+        result.unwrap();
+    }
+    assert_eq!(
+        machines
+            .iter()
+            .map(|machine| machine.authority.authorize_calls.load(Ordering::SeqCst))
+            .sum::<usize>(),
+        30
+    );
     for machine in &machines {
         let manager = machine.mesh.lock();
         let connections = manager.account_mesh_pairs();

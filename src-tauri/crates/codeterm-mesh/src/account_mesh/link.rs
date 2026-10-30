@@ -24,6 +24,10 @@ pub trait LinkTransport: Send + Sync {
     ) -> BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>>;
 }
 
+pub fn prefers_initiating(local_installation: &str, peer_installation: &str) -> bool {
+    local_installation < peer_installation
+}
+
 pub struct HttpLinkTransport;
 
 impl LinkTransport for HttpLinkTransport {

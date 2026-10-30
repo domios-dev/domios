@@ -5,10 +5,15 @@ use std::time::Duration;
 use codeterm_account::account_mesh::wire::{
     Eligibility, MeshEndpoint, MeshManagementRow, RegistryPresence,
 };
-use codeterm_mesh::account_mesh::link::{connect_target_with, HttpLinkTransport};
+use codeterm_mesh::account_mesh::link::{
+    connect_target_with, prefers_initiating, HttpLinkTransport,
+};
 use codeterm_mesh::account_mesh::{AdmissionRefusal, LinkTarget};
 
 use super::{AccountMeshService, ServiceContext, ACCOUNT_MESH_CHANGED};
+
+pub(super) const CONNECTIVITY_CHANGED: &str = "mesh-connectivity-changed";
+const RETRY_INTERVAL: u64 = 30;
 
 #[derive(Default)]
 struct Retry {
@@ -23,15 +28,15 @@ impl Retry {
             AdmissionRefusal::RateLimited {
                 retry_after_seconds,
             } => *retry_after_seconds,
-            AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable => {
-                30u64.saturating_mul(1 << self.failures.saturating_sub(1).min(3))
-            }
+            AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable => RETRY_INTERVAL
+                .saturating_mul(1 << self.failures.saturating_sub(1).min(4))
+                .min(300),
             _ => {
                 self.retry_at = None;
                 return;
             }
         };
-        self.retry_at = (self.failures < 5).then_some(now.saturating_add(delay.max(1)));
+        self.retry_at = Some(now.saturating_add(delay.max(1)));
     }
 }
 
@@ -40,6 +45,7 @@ struct Reconciliation {
     epoch: Option<u64>,
     observations: BTreeMap<String, MeshManagementRow>,
     retries: BTreeMap<String, Retry>,
+    fallback_at: BTreeMap<String, u64>,
     server_retry_at: u64,
     registry_retry: Option<Retry>,
 }
@@ -58,9 +64,12 @@ impl Reconciliation {
         self.enter_epoch(epoch);
         self.retries
             .retain(|id, _| rows.iter().any(|row| &row.installation_id == id));
+        self.fallback_at
+            .retain(|id, _| rows.iter().any(|row| &row.installation_id == id));
         for row in rows {
             if self.observations.get(&row.installation_id) != Some(row) {
                 self.retries.remove(&row.installation_id);
+                self.fallback_at.remove(&row.installation_id);
             }
         }
         self.observations = rows
@@ -77,15 +86,91 @@ impl Reconciliation {
                 .is_none_or(|retry| retry.retry_at.is_some_and(|at| at <= now))
     }
 
-    fn deadline(&self) -> Option<u64> {
+    fn dial_due(&mut self, own: &str, installation: &str, now: u64) -> bool {
+        if !prefers_initiating(own, installation) && !self.retries.contains_key(installation) {
+            let at = self
+                .fallback_at
+                .entry(installation.to_owned())
+                .or_insert_with(|| now.saturating_add(RETRY_INTERVAL));
+            if now < *at {
+                return false;
+            }
+        }
+        let due = self.due(installation, now);
+        if due {
+            self.fallback_at.remove(installation);
+        }
+        due
+    }
+
+    fn clear_peer(&mut self, installation: &str) {
+        self.retries.remove(installation);
+        self.fallback_at.remove(installation);
+    }
+
+    fn network_changed(&mut self) {
+        self.retries.clear();
+        self.fallback_at.clear();
+    }
+
+    fn registry_refresh_due(&self, now: u64) -> bool {
+        self.registry_retry
+            .as_ref()
+            .and_then(|retry| retry.retry_at)
+            .is_some_and(|at| at <= now)
+    }
+
+    fn deadline(&self, now: u64, peers_ready: bool) -> Option<u64> {
         if let Some(retry) = &self.registry_retry {
             return retry.retry_at;
+        }
+        if !peers_ready {
+            return None;
         }
         self.retries
             .values()
             .filter_map(|retry| retry.retry_at)
+            .chain(
+                self.fallback_at
+                    .iter()
+                    .filter(|(id, _)| !self.retries.contains_key(*id))
+                    .map(|(_, at)| *at),
+            )
+            .chain((self.server_retry_at > now).then_some(self.server_retry_at))
             .map(|at| at.max(self.server_retry_at))
             .min()
+    }
+}
+
+#[derive(Default)]
+struct Publication {
+    pairs: Vec<codeterm_mesh::account_mesh::protocol::AccountMeshPair>,
+    registry: Option<codeterm_account::account_mesh::RegistryObservation>,
+}
+
+impl Publication {
+    fn update(
+        &mut self,
+        pairs: Vec<codeterm_mesh::account_mesh::protocol::AccountMeshPair>,
+        registry: Option<codeterm_account::account_mesh::RegistryObservation>,
+        mut emit: impl FnMut(&'static str),
+    ) {
+        let mut pairs = pairs;
+        pairs.sort_by(|a, b| a.instance_id.cmp(&b.instance_id));
+        let registry = registry.map(|mut value| {
+            value.observed_at = 0;
+            value
+                .rows
+                .sort_by(|a, b| a.installation_id.cmp(&b.installation_id));
+            value
+        });
+        if self.pairs == pairs && self.registry == registry {
+            return;
+        }
+        self.pairs = pairs;
+        self.registry = registry;
+        emit(ACCOUNT_MESH_CHANGED);
+        emit("mesh-state-changed");
     }
 }
 
@@ -117,6 +202,8 @@ pub(super) async fn run(
 ) {
     let mut changes = account.mesh.subscribe();
     let mut connections = mesh.lock().gate_watch();
+    let mut network = service.events.subscribe();
+    let mut publication = Publication::default();
     let mut reconciliation = Reconciliation::default();
     let mut membership = None;
     let mut refresh = false;
@@ -153,6 +240,7 @@ pub(super) async fn run(
         if state.registry_failure.is_none() {
             reconciliation.registry_retry = None;
         }
+        let mut peers_ready = false;
         if let Some(own) = state.current_membership(now).filter(|_| {
             enabled
                 && reconciliation.registry_retry.is_none()
@@ -163,6 +251,7 @@ pub(super) async fn run(
                 .as_ref()
                 .filter(|registry| registry.cursor.is_none())
             {
+                peers_ready = true;
                 reconciliation.observe(state.account_epoch, &registry.rows);
                 let active: BTreeSet<_> = registry
                     .rows
@@ -192,6 +281,7 @@ pub(super) async fn run(
                     }
                     let now = mesh.lock().now();
                     let Some(target) = target(row, &own.verified.installation_id, now) else {
+                        reconciliation.clear_peer(&row.installation_id);
                         continue;
                     };
                     let connected = {
@@ -203,15 +293,19 @@ pub(super) async fn run(
                         })
                     };
                     if connected {
-                        reconciliation.retries.remove(&row.installation_id);
+                        reconciliation.clear_peer(&row.installation_id);
                         continue;
                     }
-                    if !reconciliation.due(&row.installation_id, now) {
+                    if !reconciliation.dial_due(
+                        &own.verified.installation_id,
+                        &row.installation_id,
+                        now,
+                    ) {
                         continue;
                     }
                     match connect_target_with(&mesh, &HttpLinkTransport, target).await {
                         Ok(_) => {
-                            reconciliation.retries.remove(&row.installation_id);
+                            reconciliation.clear_peer(&row.installation_id);
                         }
                         Err(refusal) => {
                             reconciliation
@@ -235,20 +329,27 @@ pub(super) async fn run(
                         }
                     }
                 }
-                service
-                    .ui
-                    .emit(ACCOUNT_MESH_CHANGED, serde_json::Value::Null);
-                service
-                    .ui
-                    .emit("mesh-state-changed", serde_json::Value::Null);
             }
         } else if !enabled || state.current_membership(now).is_none() {
             reconciliation = Reconciliation::default();
         }
-        let deadline = reconciliation.deadline();
+        let pairs = mesh.lock().account_mesh_pairs();
+        let registry = account.mesh.state().registry.clone();
+        publication.update(pairs, registry, |event| {
+            service.ui.emit(event, serde_json::Value::Null);
+        });
+        let deadline = reconciliation.deadline(mesh.lock().now(), peers_ready);
         tokio::select! {
             changed = changes.changed() => { if changed.is_err() { return; } },
             changed = connections.changed() => { if changed.is_err() { return; } },
+            event = network.recv() => {
+                match event {
+                    Ok(event) if matches!(event.event, codeterm_events::SystemEvent::Generic { ref event_type, .. } if event_type == CONNECTIVITY_CHANGED) => reconciliation.network_changed(),
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => reconciliation.network_changed(),
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                    _ => {},
+                }
+            },
             _ = async {
                 match deadline {
                     Some(at) => {
@@ -257,7 +358,7 @@ pub(super) async fn run(
                     },
                     None => std::future::pending::<()>().await,
                 }
-            } => { refresh = true; }
+            } => { refresh = reconciliation.registry_refresh_due(mesh.lock().now()); }
         }
     }
 }
