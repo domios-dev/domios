@@ -16,7 +16,6 @@ pub use records::{
     MAX_DESK_LEAF_BYTES, MAX_DESK_TABS, MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
 };
 
-use crate::error::StorageError;
 use crate::owner::Storage;
 use crate::repositories::workspaces::WorkspaceRecord;
 use crate::repositories::{Committed, Completion, Read, Revision};

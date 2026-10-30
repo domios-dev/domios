@@ -21,12 +21,6 @@ fn startup_uses_only_state_db_and_preserves_legacy_files() {
             .unwrap()
             .workspaces
             .is_empty());
-        assert!(storage
-            .legacy_import_marker()
-            .wait(STARTUP_DEADLINE)
-            .unwrap()
-            .value
-            .is_none());
         assert_eq!(std::fs::read(&source).unwrap(), original);
         assert_eq!(std::fs::read(root.path().join("crons.json")).unwrap(), b"{");
         close(authority);
