@@ -202,6 +202,11 @@ impl RepoWatchRegistry {
         let handler = Box::new(move |signal: WatchSignal| {
             let targets: Vec<_> = fanout.lock().values().cloned().collect();
             match signal {
+                WatchSignal::CoverageChanged => {
+                    for target in &targets {
+                        sink.repository_changed(&target.id);
+                    }
+                }
                 WatchSignal::Batch(paths) => {
                     for target in &targets {
                         let relevant = batch_is_relevant(target, WatchHalf::Worktree, &paths)

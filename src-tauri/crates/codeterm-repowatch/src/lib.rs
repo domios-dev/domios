@@ -8,6 +8,7 @@ mod handles;
 mod identity;
 mod registry;
 mod subscriptions;
+mod tracked;
 mod unresolved;
 
 #[cfg(test)]

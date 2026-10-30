@@ -104,6 +104,43 @@ fn no_ignored_descendants_produces_one_recursive_subscription() {
     );
 }
 
+#[test]
+fn tracked_descendants_keep_only_shallow_ancestors_inside_ignored_trees() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    create(root, &["archive/owned", "archive/churn/deep", "source"]);
+    std::fs::write(root.join(".gitignore"), "archive/\n").unwrap();
+    let planned = covering_set_preserving(root, &["archive/owned/tracked.txt".into()]).unwrap();
+    assert!(planned.contains(&DirectoryWatch {
+        path: root.join("archive"),
+        recursive: false
+    }));
+    assert!(planned.contains(&DirectoryWatch {
+        path: root.join("archive/owned"),
+        recursive: false
+    }));
+    assert!(!planned
+        .iter()
+        .any(|watch| watch.path.starts_with(root.join("archive/churn"))));
+    assert!(planned.contains(&DirectoryWatch {
+        path: root.join("source"),
+        recursive: true
+    }));
+}
+
+#[test]
+fn windows_path_policy_folds_case_and_preserves_component_boundaries() {
+    let case = PathCase::Insensitive;
+    assert!(case.same(Path::new("C:/Repo/Source"), Path::new("c:/repo/source")));
+    assert!(case.within(
+        Path::new("c:/REPO/Source/file"),
+        Path::new("C:/Repo/source")
+    ));
+    assert!(case.direct_child(Path::new("c:/repo/SOURCE"), Path::new("C:/REPO")));
+    assert!(!case.within(Path::new("C:/Repository/source"), Path::new("C:/Repo")));
+    assert!(!case.direct_child(Path::new("C:/Repo/source/deep"), Path::new("c:/repo")));
+}
+
 #[cfg(unix)]
 #[test]
 fn symlinked_trees_are_never_covered_by_recursive_subscriptions() {

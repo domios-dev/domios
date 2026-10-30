@@ -1,6 +1,9 @@
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::path::{Path, PathBuf};
 
+mod path_case;
+pub use path_case::PathCase;
+
 pub const MAX_WATCHES: usize = 8192;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -10,11 +13,24 @@ pub struct DirectoryWatch {
 }
 
 pub fn covering_set(root: &Path) -> Result<Vec<DirectoryWatch>, String> {
-    covering_set_with_limit(root, MAX_WATCHES)
+    covering_set_preserving(root, &[])
 }
 
+pub fn covering_set_preserving(
+    root: &Path,
+    tracked: &[PathBuf],
+) -> Result<Vec<DirectoryWatch>, String> {
+    plan(root, tracked, MAX_WATCHES)
+}
+
+#[cfg(test)]
 fn covering_set_with_limit(root: &Path, limit: usize) -> Result<Vec<DirectoryWatch>, String> {
-    let result = classify(root, &mut Vec::new())?.0;
+    plan(root, &[], limit)
+}
+
+fn plan(root: &Path, tracked: &[PathBuf], limit: usize) -> Result<Vec<DirectoryWatch>, String> {
+    let tracked: Vec<_> = tracked.iter().map(|path| root.join(path)).collect();
+    let result = classify(root, &mut Vec::new(), &tracked, false)?.0;
     if result.len() > limit {
         let error = format!("watch subscription limit exceeded for {}: {} directories, maximum {limit}; repository watching refused", root.display(), result.len());
         log::warn!("{error}");
@@ -26,6 +42,8 @@ fn covering_set_with_limit(root: &Path, limit: usize) -> Result<Vec<DirectoryWat
 fn classify(
     root: &Path,
     inherited: &mut Vec<Gitignore>,
+    tracked: &[PathBuf],
+    inside_ignored: bool,
 ) -> Result<(Vec<DirectoryWatch>, bool), String> {
     let mut builder = GitignoreBuilder::new(root);
     let ignore_file = root.join(".gitignore");
@@ -36,7 +54,7 @@ fn classify(
     }
     inherited.push(builder.build().map_err(|error| error.to_string())?);
     let mut children = Vec::new();
-    let mut restricted = false;
+    let mut restricted = inside_ignored;
     let mut entries = std::fs::read_dir(root)
         .map_err(|error| format!("read {}: {error}", root.display()))?
         .collect::<Result<Vec<_>, _>>()
@@ -57,11 +75,17 @@ fn classify(
             .rev()
             .map(|rules| rules.matched(&path, true))
             .find(|matched| !matched.is_none());
-        if entry.file_name() == ".git" || matched.is_some_and(|matched| matched.is_ignore()) {
+        let ignored = inside_ignored || matched.is_some_and(|matched| matched.is_ignore());
+        if entry.file_name() == ".git"
+            || (ignored
+                && !tracked
+                    .iter()
+                    .any(|file| PathCase::native().within(file, &path)))
+        {
             restricted = true;
             continue;
         }
-        let (plans, child_restricted) = classify(&path, inherited)?;
+        let (plans, child_restricted) = classify(&path, inherited, tracked, ignored)?;
         restricted |= child_restricted;
         children.extend(plans);
     }

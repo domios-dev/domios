@@ -58,9 +58,11 @@ fn worktree_batch_is_relevant(
     }
     // Opening here is also how a deleted repository or worktree is detected.
     let repo = identity.open()?;
+    let tracked = crate::tracked::TrackedPaths::read(&repo, identity.ignore_case)
+        .map_err(|error| RepoWatchError::repository_gone(&identity.id, error))?;
     let mut memo: HashMap<PathBuf, bool> = HashMap::new();
     for path in workdir_candidates {
-        if !is_ignored(&repo, identity, path, &mut memo) {
+        if !is_ignored(&repo, &tracked, identity, path, &mut memo) {
             return Ok(true);
         }
     }
@@ -86,6 +88,7 @@ fn is_git_internal(identity: &RepoIdentity, path: &Path) -> bool {
 
 fn is_ignored(
     repo: &Repository,
+    tracked: &crate::tracked::TrackedPaths,
     identity: &RepoIdentity,
     path: &Path,
     memo: &mut HashMap<PathBuf, bool>,
@@ -97,6 +100,9 @@ fn is_ignored(
         // The worktree root itself — a deletion event; `identity.open()` above
         // already proved the repository is still there, so nothing to report.
         return true;
+    }
+    if tracked.contains_or_descendant(&rel) {
+        return false;
     }
     // Collapse a burst first: one directory probe answers every file under an
     // ignored tree, so a 500-file `target/` churn costs one ignore match.
