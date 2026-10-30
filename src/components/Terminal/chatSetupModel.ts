@@ -4,7 +4,7 @@ import type { Tab } from "../../lib/types";
 import type { ChatBodyView } from "./chatBodyVisibility";
 
 export function chatSetupView(tab: Partial<Tab> | null | undefined, chatSessionAttached = false): ChatBodyView {
-  if (runtimeResponseDeadlinePending(tab?.agent_runtime_state, tab?.boot_failure_reason)) return { kind: "starting", label: "Starting…" };
+  if (!chatSessionAttached && runtimeResponseDeadlinePending(tab?.agent_runtime_state, tab?.boot_failure_reason)) return { kind: "starting", label: "Starting…" };
   if (tab?.boot_stage === "spawn_failed") return { kind: "launch_failed", reason: tab.boot_failure_reason ?? null };
   if (chatSessionAttached) return { kind: "none" };
   const activity = tabActivity(tab);
