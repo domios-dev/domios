@@ -196,6 +196,33 @@ Foreground launch stays in its Dev shell and owns the client process.
 Server reload/staging tool updates also use `dev-server`; native source and
 Tauri/Cargo configuration changes still require `dev`.
 
+### Build a debug pair without starting it
+
+After the owner stops every DEV using the checkout's shared named target:
+
+```bash
+DOMIOS_ACCOUNT_TARGET='' CODETERM_DEV_INSTANCE=p0 CODETERM_DEV_API_PORT=7786 ./build.sh dev --build-only
+```
+
+Use the existing instance name/private port; never create a name or target to evade
+liveness refusal. `--build-only` requires a named instance and refuses running or
+unknown-liveness holders, including the selected instance, before compilation.
+It does not stop anything. It builds/stages the normal CLI/server/client/frontend,
+including embeddings and mem-postgres, writes and verifies schema3 provenance,
+then releases the stable mapping and gateway and prints `BUILD/STAGED` with the
+source identity and record path. No GUI, server, watcher or account is started;
+no retained-window/server-swap path runs. This is staged-byte proof, never READY.
+
+`--wait` is accepted but unnecessary: build-only always returns after staging,
+not after readiness. `--wait-build`/`--queue` remain accepted aliases; none proves readiness.
+`--notify-tab` remains a build log/error return route, not a readiness claim.
+Duplicate build-only, unknown options, `dev-prebuilt --build-only`, and external
+frontend/dev-back combinations refuse. Account target empty/qa follows the same
+compile configuration as ordinary dev; changing it does not authorize borrowing
+saved accounts or redirecting an existing QA binary. Parent separately captures
+and verifies the common layout before an isolated headless start. Do not launch
+the rebuilt default-target artifact against the selected instance's saved QA data.
+
 Every named instance of a checkout shares ONE DEV target,
 `<checkout>/src-tauri/target/named-dev`; CLI, server and app build there.
 Named `dev` and `dev-server` compile incrementally (`CARGO_INCREMENTAL=1`) with

@@ -46,6 +46,44 @@ if [ "$CMD" = dev-back ]; then
   set -- dev --wait "${@:2}"
   CMD=dev
 fi
+parse_dev_build_mode() {
+  local operation="$1" arg
+  shift
+  CT_DEV_BUILD_ONLY=0
+  case "$operation" in dev|dev-prebuilt) ;; *) return 0 ;; esac
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    shift
+    case "$arg" in
+      --build-only)
+        if [ "$operation" != dev ] || [ "$CT_DEV_BUILD_ONLY" = 1 ]; then
+          echo 'ERROR: --build-only is accepted once on dev only' >&2
+          return 2
+        fi
+        CT_DEV_BUILD_ONLY=1
+        ;;
+      --wait|--wait-build|--queue) ;;
+      --notify-tab)
+        if [ "$#" = 0 ] || [ -z "$1" ] || [[ "$1" == --* ]]; then
+          echo 'ERROR: --notify-tab requires a non-empty tab id' >&2
+          return 2
+        fi
+        shift
+        ;;
+      --notify-tab=*) [ -n "${arg#--notify-tab=}" ] || return 2 ;;
+      --release-gateway-after-ready)
+        echo "ERROR: --release-gateway-after-ready is obsolete; named dev --wait always skips the shared gateway handoff" >&2
+        return 2
+        ;;
+      *) echo "ERROR: unknown $operation option: $arg" >&2; return 2 ;;
+    esac
+  done
+  if [ "$CT_DEV_BUILD_ONLY" = 1 ] && [ "${DEV_FRONT_EXTERNAL:-0}" = 1 ]; then
+    echo 'ERROR: --build-only cannot use dev-back or an external frontend' >&2
+    return 2
+  fi
+}
+parse_dev_build_mode "$CMD" "${@:2}" || exit 2
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
 if ct_uses_local_build_env; then ct_load_local_build_env || exit 2; fi
@@ -732,6 +770,21 @@ named_dev_isolated() {
 
 adopt_named_dev_target() {
   node scripts/dev-named-target.mjs adopt "$(pwd -P)" "$HOME"
+}
+
+prepare_dev_replacement() {
+  if [ "${CT_DEV_BUILD_ONLY:-0}" = 1 ]; then
+    if ! named_dev_isolated; then
+      echo 'ERROR: dev --build-only requires an explicit named instance and private port' >&2
+      return 2
+    fi
+    refuse_named_dev_rebuild_while_running || return 2
+    CT_DEV_RETAIN_WINDOW=0
+  elif dev_window_retainable; then
+    export CT_DEV_RETAIN_WINDOW=1
+  else
+    stop_dev_before_replacement
+  fi
 }
 
 # Every process from the shared target must exit before rebuilding it.
@@ -2286,27 +2339,37 @@ build_and_launch_dev() {
   if [[ "$OSTYPE" == darwin* ]] && named_dev_isolated; then prepare_local_macos_signing 0; fi
   build_dev_frontend
   dev_build_phase frontend.end
-  if [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
+  if [ "${CT_DEV_BUILD_ONLY:-0}" != 1 ] && [ "${CT_DEV_RETAIN_WINDOW:-0}" = 1 ]; then
     if dev_live_window_exe >/dev/null && cmp -s "$(dev_built_app_path)" "$(dev_app_path)"; then
       swap_dev_server_keep_window "$split_logs" "$build_sha"
       return
     fi
     stop_dev_before_replacement || return
   fi
-  stop_dev_before_replacement || return
-  dev_build_phase stop-before-stage.end
+  if [ "${CT_DEV_BUILD_ONLY:-0}" != 1 ]; then
+    stop_dev_before_replacement || return
+    dev_build_phase stop-before-stage.end
+  fi
   node scripts/server-artifact.mjs stage-dev "$split_logs/server.jsonl" "$split_logs/server-tree.txt" \
     "$split_logs/cli.jsonl" "$(pwd -P)" "$(dev_resource_dir)" "$(dev_built_app_path)" "$build_sha"
   dev_build_phase stage.end
   write_dev_provenance "$build_sha"
   if named_dev_isolated; then write_named_dev_build_record "$build_sha"; fi
   dev_build_phase provenance.end
+  if [ "${CT_DEV_BUILD_ONLY:-0}" = 1 ]; then
+    CT_DEV_PROVENANCE_SHA="$build_sha" validate_dev_provenance || return
+  fi
   retain_dev_pdb "$build_sha"
   dev_build_phase symbols.end
   release_stable_build_path
   record_dev_target "$(tauri_debug_dir)"
   complete_build_gateway_before_handoff
   dev_build_phase gateway-release.end
+  if [ "${CT_DEV_BUILD_ONLY:-0}" = 1 ]; then
+    printf 'BUILD/STAGED instance=%s build=%s account_target=%s record=%s\n' \
+      "$CT_INSTANCE" "$build_sha" "${DOMIOS_ACCOUNT_TARGET:-default}" "$(dev_provenance_record)"
+    return 0
+  fi
   echo "Build gateway released; launching validated dev artifact."
   CT_DEV_HANDOFF_SHA="$CODETERM_BUILD_SHA" CT_DEV_HANDOFF_HASH="$CODETERM_BUILD_HASH" exec bash ./build.sh dev-prebuilt "$@"
 }
@@ -2832,7 +2895,7 @@ case "$CMD" in
     cat <<'EOF'
 Domios build commands
 
-  dev                         Start the visible shared dev instance
+  dev [--build-only]          Build/stage only, or start the visible shared dev instance
   dev-prebuilt                Restart a validated dev build without Cargo
   dev-env                     Create or refresh the ignored local build .env from the vault once
   dev-back                    DEV server + native window; the frontend comes from dev-front
@@ -3980,11 +4043,7 @@ LOCK_STORM_PY
     DEV_NOTIFY_STAGE=preflight
     DEV_NOTIFY_STAGE=build
     if named_dev_isolated; then prepare_named_dev_target; fi
-    if dev_window_retainable; then
-      export CT_DEV_RETAIN_WINDOW=1
-    else
-      stop_dev_before_replacement
-    fi
+    prepare_dev_replacement || exit 2
     enter_cargo_gateway "$CMD ${*:2}"
     dev_build_phase qa-project.begin
     ct_configure_dev_qa_project
