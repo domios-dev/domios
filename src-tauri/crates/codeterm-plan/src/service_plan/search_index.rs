@@ -8,6 +8,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::ports::{PlanIndexHit, PlanIndexQuery, PlanSearchPort};
+use super::MutationWriterTurn;
 use crate::plan::{Milestone, Plan, PlanStatus, Section, Spec, Task};
 
 pub use super::search_related::{RelatedGroup, RelatedUnit};
@@ -97,6 +98,7 @@ enum IndexJob {
     DeletePlan(Plan),
     PurgePlan(Plan, Vec<Spec>),
     Spec(Spec),
+    DeleteSpec(Spec),
 }
 
 impl IndexJob {
@@ -107,7 +109,7 @@ impl IndexJob {
             Self::Plan(plan, _) | Self::DeletePlan(plan) => {
                 format!("{}:plan:{}", self.project_key(), plan.id)
             }
-            Self::Spec(spec) => {
+            Self::Spec(spec) | Self::DeleteSpec(spec) => {
                 format!("{}:spec:{}", self.project_key(), spec.id)
             }
             Self::PurgePlan(plan, _) => format!("{}:purge:{}", self.project_key(), plan.id),
@@ -120,7 +122,7 @@ impl IndexJob {
             Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
                 project_scope(plan_project_root(plan))
             }
-            Self::Spec(spec) => project_scope(spec_project_root(spec)),
+            Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
         }
     }
 
@@ -164,12 +166,14 @@ impl IndexQueue {
         let key = job.key();
         let mut state = self.state.lock();
         let job = match state.latest.remove(&key) {
-            Some(queued) => job.absorb(queued),
-            None => {
-                state.order.push_back(key.clone());
-                job
+            Some(queued) => {
+                // Replaced payloads follow earlier prunes, which cannot know their newly created units.
+                state.order.retain(|queued| queued != &key);
+                job.absorb(queued)
             }
+            None => job,
         };
+        state.order.push_back(key.clone());
         let job = if state.needs_full.contains(&key) {
             job.full()
         } else {
@@ -278,24 +282,39 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
         IndexJob::Spec(spec) => {
             embedding::queue_changed(spec_project_root(spec), mirror_spec(spec, false))
         }
+        IndexJob::DeleteSpec(spec) => {
+            delete_units(spec_project_root(spec), &format!("planunit_{}_%", spec.id))
+        }
     }
 }
 
-pub(super) fn enqueue_plan_index(plan: Plan, scope: PlanIndexScope) {
+pub(super) fn enqueue_plan_index(
+    _turn: &MutationWriterTurn<'_>,
+    plan: Plan,
+    scope: PlanIndexScope,
+) {
     index_queue().enqueue(IndexJob::Plan(plan, scope));
 }
 
-pub(super) fn enqueue_spec_index(spec: Spec) {
+pub(super) fn enqueue_spec_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
     index_queue().enqueue(IndexJob::Spec(spec));
 }
 
-pub(super) fn remove_plan_from_index(plan: Plan, specs: &[Spec]) -> Result<(), String> {
+pub(super) fn remove_plan_from_index(
+    _turn: &MutationWriterTurn<'_>,
+    plan: Plan,
+    specs: &[Spec],
+) -> Result<(), String> {
     index_queue().enqueue(IndexJob::PurgePlan(plan, specs.to_vec()));
     Ok(())
 }
 
-pub(super) fn enqueue_plan_removal(plan: Plan) {
+pub(super) fn enqueue_plan_removal(_turn: &MutationWriterTurn<'_>, plan: Plan) {
     index_queue().enqueue(IndexJob::DeletePlan(plan));
+}
+
+pub(super) fn remove_spec_from_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
+    index_queue().enqueue(IndexJob::DeleteSpec(spec));
 }
 
 #[cfg(test)]
@@ -311,16 +330,22 @@ pub(crate) fn flush_index_queue_for_test(_project_root: &Path) {
 
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let mut plans = self.project_plans(plan_project_root(plan));
         plans.retain(|stored| stored.id != plan.id);
         plans.push(plan.clone());
-        self.enqueue_project_index(plan_project_root(plan), &plans, &self.list_specs_full());
+        self.enqueue_project_index(
+            &writer_turn,
+            plan_project_root(plan),
+            &plans,
+            &self.list_specs_full(),
+        );
         Ok(())
     }
 
     pub fn mirror_spec_index(&self, spec: &Spec) -> Result<(), String> {
-        enqueue_spec_index(spec.clone());
+        let turn = self.mutation_writer.enter();
+        enqueue_spec_index(&turn, spec.clone());
         Ok(())
     }
 
@@ -426,7 +451,7 @@ fn mirror_spec(spec: &Spec, sync_embed: bool) -> Result<Vec<Unit>, String> {
     replace_units(root, &format!("planunit_{}_%", spec.id), units, sync_embed)
 }
 
-pub fn delete_plan_units(plan: &Plan) -> Result<(), String> {
+fn delete_plan_units(plan: &Plan) -> Result<(), String> {
     delete_units(plan_project_root(plan), &format!("planunit_{}_%", plan.id))
 }
 

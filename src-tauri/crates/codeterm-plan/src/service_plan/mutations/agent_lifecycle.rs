@@ -49,7 +49,7 @@ impl PlanStore {
         changes: Vec<AgentLifecyclePlanChange>,
         now_ms: u64,
     ) -> Result<AgentLifecyclePlanTransaction, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let mut originals = Vec::new();
         let mut staged = Vec::new();
         let plans = self.plans_matching(&PlanMatch::Any(
@@ -71,10 +71,11 @@ impl PlanStore {
 
         let changed_plan_ids = staged.iter().map(|plan| plan.id.clone()).collect();
         for (persisted, candidate) in staged.iter().enumerate() {
-            if let Err(error) = self.persist_plan_and_spec(candidate) {
+            if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, candidate) {
                 let mut failures = vec![error.to_string()];
                 for original in originals.iter().take(persisted) {
-                    if let Err(error) = self.persist_plan_and_spec(original) {
+                    if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, original)
+                    {
                         failures.push(format!("restore {}: {error}", original.id));
                     }
                 }
@@ -104,10 +105,10 @@ impl PlanStore {
         &self,
         transaction: AgentLifecyclePlanTransaction,
     ) -> Result<(), PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let mut failures = Vec::new();
         for original in &transaction.original_plans {
-            if let Err(error) = self.persist_plan_and_spec(original) {
+            if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, original) {
                 failures.push(format!("restore {}: {error}", original.id));
             }
         }

@@ -704,7 +704,7 @@ impl PlanStore {
     }
 
     pub fn unarchive(&self, plan_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let team_id = plan
             .team_id
@@ -725,7 +725,7 @@ impl PlanStore {
                 }
             }
         }
-        self.with_plan_in_writer(plan_id, now_ms, |p| {
+        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |p| {
             p.status = PlanStatus::Active;
             Ok(())
         })

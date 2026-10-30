@@ -168,7 +168,7 @@ impl PlanStore {
         enforce_runtime_binding: bool,
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let current_plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let current_task = crate::plan::task_key::find_task(&current_plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
@@ -206,7 +206,7 @@ impl PlanStore {
             ));
         }
         let mut acknowledged = None;
-        let write = self.with_plan_in_writer(plan_id, now_ms, |plan| {
+        let write = self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt_index = plan.tasks[task_index]

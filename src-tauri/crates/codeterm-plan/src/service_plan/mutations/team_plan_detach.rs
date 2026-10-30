@@ -21,7 +21,7 @@ impl PlanStore {
         member_tab_ids: &[String],
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
         let mut ids: Vec<_> = self
             .team_close_plans(team_id, member_tab_ids)
@@ -32,7 +32,7 @@ impl PlanStore {
         ids.sort();
         let originals: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &ids {
-            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+            if let Err(error) = self.with_plan_in_writer(&writer_turn, id, now_ms, |plan| {
                 let team_bound = plan.team_id.as_deref() == Some(team_id);
                 close_team_tasks(plan, team_id, &tabs, team_bound, now_ms);
                 if team_bound {
@@ -41,7 +41,9 @@ impl PlanStore {
                 Ok(())
             }) {
                 for original in &originals {
-                    if let Err(rollback_error) = self.restore_team_plan(original) {
+                    if let Err(rollback_error) =
+                        self.restore_team_plan_in_writer(&writer_turn, original)
+                    {
                         log::error!(
                             "[plan.team-close] rollback failed for plan {} after {error}: {rollback_error}",
                             original.id
@@ -72,18 +74,22 @@ impl PlanStore {
         team_id: &str,
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let target_team_id = team_id.trim().to_string();
-        self.archive_matching_team_plans(|bound| bound == target_team_id, now_ms)
+        self.archive_matching_team_plans_in_writer(
+            &writer_turn,
+            |bound| bound == target_team_id,
+            now_ms,
+        )
     }
 
     pub fn rollback_team_plan_archive(
         &self,
         transaction: TeamPlanArchive,
     ) -> Result<(), PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         for plan in transaction.original_plans {
-            self.restore_team_plan(&plan)?;
+            self.restore_team_plan_in_writer(&writer_turn, &plan)?;
         }
         Ok(())
     }
@@ -93,7 +99,7 @@ impl PlanStore {
         live: &std::collections::BTreeSet<String>,
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         // SQL names the active rows; only those that may be archived are opened.
         // A live Team's single active plan stays untouched, and the unique
         // one_active_plan_per_team index makes a second one exceptional.
@@ -141,7 +147,7 @@ impl PlanStore {
         archive_ids.sort();
         let originals: Vec<_> = archive_ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &archive_ids {
-            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+            if let Err(error) = self.with_plan_in_writer(&writer_turn, id, now_ms, |plan| {
                 if plan
                     .team_id
                     .as_ref()
@@ -153,7 +159,7 @@ impl PlanStore {
                 Ok(())
             }) {
                 for original in &originals {
-                    let _ = self.restore_team_plan(original);
+                    let _ = self.restore_team_plan_in_writer(&writer_turn, original);
                 }
                 return Err(error);
             }
@@ -161,8 +167,9 @@ impl PlanStore {
         Ok(archive_ids)
     }
 
-    fn archive_matching_team_plans<F>(
+    fn archive_matching_team_plans_in_writer<F>(
         &self,
+        turn: &MutationWriterTurn<'_>,
         matches: F,
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError>
@@ -183,13 +190,13 @@ impl PlanStore {
         ids.sort();
         let original_plans: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &ids {
-            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+            if let Err(error) = self.with_plan_in_writer(turn, id, now_ms, |plan| {
                 let team_id = plan.team_id.clone().unwrap_or_default();
                 detach_closed_team_plan(plan, &team_id, now_ms);
                 Ok(())
             }) {
                 for original in &original_plans {
-                    let _ = self.restore_team_plan(original);
+                    let _ = self.restore_team_plan_in_writer(turn, original);
                 }
                 return Err(error);
             }
@@ -200,13 +207,19 @@ impl PlanStore {
         })
     }
 
-    fn restore_team_plan(&self, original: &Plan) -> Result<(), PlanError> {
+    fn restore_team_plan_in_writer(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        original: &Plan,
+    ) -> Result<(), PlanError> {
+        turn.assert_store(self);
         let arc = self.plan_arc(&original.id)?;
         let staged = original.clone();
-        self.persist_plan_and_spec(&staged).map_err(|error| {
-            self.plan_cache.evict(&staged.id);
-            PlanError::Io(error.to_string())
-        })?;
+        self.persist_plan_and_spec_in_writer(turn, &staged)
+            .map_err(|error| {
+                self.plan_cache.evict(&staged.id);
+                PlanError::Io(error.to_string())
+            })?;
         {
             let mut plan = arc.lock();
             *plan = staged.clone();

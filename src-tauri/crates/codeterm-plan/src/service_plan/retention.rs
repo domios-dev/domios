@@ -65,14 +65,14 @@ impl PlanStore {
         id: &str,
         cutoff: u64,
     ) -> std::io::Result<Option<Plan>> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let Some(plan) = self
             .get(id)
             .filter(|plan| is_stale(plan.updated_at, cutoff))
         else {
             return Ok(None);
         };
-        self.delete_in_writer(id, Some(plan.clone()))?;
+        self.delete_in_writer(&writer_turn, id, Some(plan.clone()))?;
         Ok(Some(plan))
     }
 }

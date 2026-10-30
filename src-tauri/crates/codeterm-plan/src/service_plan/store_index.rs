@@ -141,8 +141,18 @@ impl PlanStore {
     }
 
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
+        let turn = self.mutation_writer.enter();
+        self.commit_loaded_plan_in_writer(&turn, plan)
+    }
+
+    pub(super) fn commit_loaded_plan_in_writer(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        plan: Plan,
+    ) -> Result<(), PlanError> {
+        turn.assert_store(self);
         let (committed, handle) = self.upsert_plan_arc(plan);
-        if let Err(error) = self.persist_plan_and_spec(&committed) {
+        if let Err(error) = self.persist_plan_and_spec_in_writer(turn, &committed) {
             self.plan_cache.evict(&committed.id);
             return Err(PlanError::Io(error.to_string()));
         }
@@ -152,10 +162,15 @@ impl PlanStore {
         Ok(())
     }
 
-    pub(super) fn commit_loaded_spec(&self, spec: Spec) -> Result<(), PlanError> {
+    pub(super) fn commit_loaded_spec_in_writer(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        spec: Spec,
+    ) -> Result<(), PlanError> {
+        turn.assert_store(self);
         let committed = self.upsert_spec_arc(spec);
         let path = self
-            .persist_spec(&committed)
+            .persist_spec_in_writer(turn, &committed)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         let entry = Self::spec_index_entry(&committed, path);
         self.spec_index.write().insert(committed.id.clone(), entry);
@@ -168,6 +183,7 @@ impl PlanStore {
         path: PathBuf,
         project_root: &Path,
     ) -> Result<(), PlanError> {
+        let turn = self.mutation_writer.enter();
         // v2 plan: load straight from the yaml hierarchy (no plan.json, no
         // hydrate-and-rewrite). Legacy plan: the json + body-file path below.
         let mut plan = if path.file_name().and_then(|n| n.to_str()) == Some("plan.yaml") {
@@ -182,7 +198,7 @@ impl PlanStore {
             let migrated = body_files::hydrate_and_migrate(&mut plan)
                 .map_err(|e| PlanError::Io(e.to_string()))?;
             if migrated {
-                self.persist_plan_and_spec(&plan)
+                self.persist_plan_and_spec_in_writer(&turn, &plan)
                     .map_err(|e| PlanError::Io(e.to_string()))?;
             }
             plan
@@ -208,10 +224,12 @@ impl PlanStore {
             }
         }
         // Persist the plan before its spec because the foreign key requires the owning plan row first.
-        self.commit_loaded_plan(plan)?;
+        self.commit_loaded_plan_in_writer(&turn, plan)?;
         // A malformed co-located spec must not take its plan down with it.
         if let Some(spec_yaml) = colocated_spec {
-            if let Err(error) = self.load_spec_file_into_index(spec_yaml.clone(), project_root) {
+            if let Err(error) =
+                self.load_spec_file_into_index(&turn, spec_yaml.clone(), project_root)
+            {
                 log::warn!(
                     "[plan] plan loaded but co-located spec {} skipped: {}",
                     spec_yaml.display(),
@@ -225,13 +243,14 @@ impl PlanStore {
     #[cfg(test)]
     fn load_spec_file_into_index(
         &self,
+        turn: &MutationWriterTurn<'_>,
         path: PathBuf,
         project_root: &Path,
     ) -> Result<(), PlanError> {
         let mut spec: Spec =
             spec_store::load_spec_from_path(&path).map_err(|e| PlanError::Io(e.to_string()))?;
         paths::normalize_spec_paths(&mut spec, project_root);
-        self.commit_loaded_spec(spec)
+        self.commit_loaded_spec_in_writer(turn, spec)
     }
 
     pub fn scan_project(&self, project_path: &Path) -> Result<PathBuf, PlanError> {
@@ -244,7 +263,7 @@ impl PlanStore {
         team_ids: &[String],
         rebase: impl Fn(&str) -> Option<String>,
     ) -> std::io::Result<(Vec<String>, Vec<String>)> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let mut updated = Vec::new();
         let mut warnings = Vec::new();
         let candidates = PlanMatch::Any(vec![
@@ -283,7 +302,7 @@ impl PlanStore {
                 }
             }
             if changed {
-                self.save_in_writer(&mut plan, unix_time_millis())?;
+                self.save_in_writer(&writer_turn, &mut plan, unix_time_millis())?;
                 updated.push(plan.id);
             }
         }
@@ -291,11 +310,17 @@ impl PlanStore {
     }
 
     pub fn save(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
-        let _writer_turn = self.mutation_writer.enter();
-        self.save_in_writer(plan, now_ms)
+        let writer_turn = self.mutation_writer.enter();
+        self.save_in_writer(&writer_turn, plan, now_ms)
     }
 
-    pub(super) fn save_in_writer(&self, plan: &mut Plan, now_ms: u64) -> std::io::Result<()> {
+    pub(super) fn save_in_writer(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        plan: &mut Plan,
+        now_ms: u64,
+    ) -> std::io::Result<()> {
+        turn.assert_store(self);
         if plan.created_at == 0 {
             plan.created_at = now_ms;
         }
@@ -323,7 +348,7 @@ impl PlanStore {
         };
         record_lifecycle_events(&mut staged, previous.as_ref(), now_ms);
         *plan = staged.clone();
-        if let Err(error) = self.persist_plan_and_spec(&staged) {
+        if let Err(error) = self.persist_plan_and_spec_in_writer(turn, &staged) {
             self.plan_cache.evict(&id);
             return Err(error);
         }
@@ -340,7 +365,7 @@ impl PlanStore {
     }
 
     pub fn save_spec(&self, spec: &mut Spec, now_ms: u64) -> std::io::Result<()> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         if spec.created_at == 0 {
             spec.created_at = now_ms;
         }
@@ -372,7 +397,7 @@ impl PlanStore {
             }
         };
         *spec = staged.clone();
-        let path = self.persist_spec(&staged)?;
+        let path = self.persist_spec_in_writer(&writer_turn, &staged)?;
         {
             let mut guard = arc.lock();
             *guard = staged.clone();
@@ -385,7 +410,10 @@ impl PlanStore {
 
     pub fn reload_from_disk(&self, id: &str) -> Result<(), PlanError> {
         #[cfg(test)]
-        let sidecar_reload_blocked = self
+        let sidecar_reload_blocked = {
+            let writer = self.mutation_writer.state.lock();
+            writer.next_ticket != writer.serving_ticket
+        } || self
             .plan_cache
             .get(id)
             .is_some_and(|plan| plan.try_lock().is_none());

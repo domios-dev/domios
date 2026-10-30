@@ -583,22 +583,24 @@ impl PlanStore {
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
-        let _writer_turn = self.mutation_writer.enter();
-        self.delete_in_writer(id, self.get(id))
+        let writer_turn = self.mutation_writer.enter();
+        self.delete_in_writer(&writer_turn, id, self.get(id))
     }
 
     pub(super) fn delete_in_writer(
         &self,
+        turn: &MutationWriterTurn<'_>,
         id: &str,
         indexed_plan: Option<Plan>,
     ) -> std::io::Result<()> {
+        turn.assert_store(self);
         if let Some(plan) = indexed_plan {
             let specs = self
                 .list_specs_full()
                 .into_iter()
                 .filter(|spec| spec.plan_id.as_deref() == Some(id))
                 .collect::<Vec<_>>();
-            super::search_index::remove_plan_from_index(plan, &specs)
+            super::search_index::remove_plan_from_index(turn, plan, &specs)
                 .map_err(std::io::Error::other)?;
         }
         self.database

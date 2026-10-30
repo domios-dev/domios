@@ -213,6 +213,12 @@ struct MutationWriterTurn<'a> {
     writer: &'a MutationWriter,
 }
 
+impl MutationWriterTurn<'_> {
+    fn assert_store(&self, store: &PlanStore) {
+        assert!(std::ptr::eq(self.writer, &store.mutation_writer));
+    }
+}
+
 impl Drop for MutationWriterTurn<'_> {
     fn drop(&mut self) {
         let mut state = self.writer.state.lock();

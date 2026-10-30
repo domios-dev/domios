@@ -10,7 +10,12 @@ impl PlanStore {
     }
 
     /// Persist one canonical plan transaction, including its owned spec.
-    pub(super) fn persist_plan_and_spec(&self, plan: &Plan) -> std::io::Result<PathBuf> {
+    pub(super) fn persist_plan_and_spec_in_writer(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        plan: &Plan,
+    ) -> std::io::Result<PathBuf> {
+        turn.assert_store(self);
         #[cfg(test)]
         if let Some(hook) = self.persistence_hook.read().clone() {
             hook(plan);
@@ -38,11 +43,11 @@ impl PlanStore {
             );
             moved_from.id = plan.id.clone();
             moved_from.canonical_project_path = canonical_project_path;
-            super::search_index::enqueue_plan_removal(moved_from);
+            super::search_index::enqueue_plan_removal(turn, moved_from);
         }
-        super::search_index::enqueue_plan_index(plan.clone(), index_scope(writes));
+        super::search_index::enqueue_plan_index(turn, plan.clone(), index_scope(writes));
         if let Some(spec) = owned {
-            super::search_index::enqueue_spec_index(spec.clone());
+            super::search_index::enqueue_spec_index(turn, spec.clone());
             #[cfg(test)]
             let spec_path = self.test_spec_path(&spec).unwrap_or_else(|| path.clone());
             #[cfg(not(test))]
@@ -68,9 +73,14 @@ impl PlanStore {
         Ok(())
     }
 
-    pub(super) fn persist_spec(&self, spec: &Spec) -> std::io::Result<PathBuf> {
+    pub(super) fn persist_spec_in_writer(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        spec: &Spec,
+    ) -> std::io::Result<PathBuf> {
+        turn.assert_store(self);
         let path = self.database.persist_spec(spec).map_err(plan_io_error)?;
-        super::search_index::enqueue_spec_index(spec.clone());
+        super::search_index::enqueue_spec_index(turn, spec.clone());
         #[cfg(test)]
         if let Some(test_path) = self.persist_test_spec(spec)? {
             return Ok(test_path);

@@ -3,10 +3,12 @@ use super::*;
 impl super::super::PlanStore {
     pub(super) fn enqueue_project_index(
         &self,
+        turn: &super::super::MutationWriterTurn<'_>,
         root: &Path,
         plans: &[Plan],
         specs: &[Spec],
     ) -> PlanReindexResult {
+        turn.assert_store(self);
         let (result, jobs) = project_jobs(root, plans, specs);
         for job in jobs {
             index_queue().enqueue(job);
@@ -15,9 +17,14 @@ impl super::super::PlanStore {
     }
 
     pub fn reindex_project_index(&self, project: &Path) -> Result<PlanReindexResult, String> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let root = super::super::paths::project_root(project);
-        Ok(self.enqueue_project_index(&root, &self.project_plans(&root), &self.list_specs_full()))
+        Ok(self.enqueue_project_index(
+            &writer_turn,
+            &root,
+            &self.project_plans(&root),
+            &self.list_specs_full(),
+        ))
     }
 
     /// Plans whose project scope is this root's, chosen from the stored roots and loaded through the cache.
@@ -58,7 +65,7 @@ impl super::super::PlanStore {
             )
             .collect::<std::collections::BTreeSet<_>>();
         for root in roots {
-            let _writer_turn = self.mutation_writer.enter();
+            let writer_turn = self.mutation_writer.enter();
             if project_index_path(&root).exists() {
                 continue;
             }
@@ -75,7 +82,7 @@ impl super::super::PlanStore {
                 .collect();
             let specs = self.list_specs_full();
             snapshot_ready(&root);
-            self.enqueue_project_index(&root, &plans, &specs);
+            self.enqueue_project_index(&writer_turn, &root, &plans, &specs);
         }
     }
 }
