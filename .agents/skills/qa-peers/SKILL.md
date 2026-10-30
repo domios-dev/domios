@@ -69,7 +69,7 @@ Get-NetTCPConnection -State Listen |
   Select-Object LocalAddress,LocalPort,OwningProcess
 ```
 
-A peer is running only when its listener answers health as that peer on the port its own record names. Take that listener's process, its ancestors and descendants from `Get-CimInstance Win32_Process` (`ProcessId`, `ParentProcessId`, `CreationDate`), and the client named by the peer's native locator and attachment receipt. Verify selected data/config paths, API, client and server; inspect frontend watcher/static-server ownership separately. Exclude the owner of 7685, the other peer's tree and foreign process trees. Recheck each identity immediately before `Stop-Process -Id <VERIFIED_NUMERIC_PID>`; stop only those verified processes, then confirm their listeners/processes absent. Uncertain identity requires owner resolution. Never kill by image name or image directory, kill an entire discovery filter, or touch production 7685.
+A matching health reply proves a running peer; failed, unhealthy or mismatched health never proves it stopped. Verify retained client/server process creation identities and scan the target for surviving processes, including a client without a server. Unknown liveness refuses adoption and rebuilding. Take that listener's process, its ancestors and descendants from `Get-CimInstance Win32_Process` (`ProcessId`, `ParentProcessId`, `CreationDate`), and the client named by the peer's native locator and attachment receipt. Verify selected data/config paths, API, client and server; inspect frontend watcher/static-server ownership separately. Exclude the owner of 7685, the other peer's tree and foreign process trees. Recheck each identity immediately before `Stop-Process -Id <VERIFIED_NUMERIC_PID>`; stop only those verified processes, then confirm their listeners/processes absent. Uncertain identity requires owner resolution. Never kill by image name or image directory, kill an entire discovery filter, or touch production 7685.
 
 ### Build A once
 
@@ -130,4 +130,4 @@ Raw artifacts and ownership manifests go under `target-check/evals/qa/<stamp>/<C
 
 Restore owned temporary policies/limits; reconcile jobs, tabs, files and pending messages against the manifest. Close only owned Browser profiles via the Browser plugin and close completed timeout utilities immediately. When the owner ends the peers' phase, stop both through explicit named `build.sh kill`, confirm their selected processes/listeners absent, then close persistent DEV/controller utilities. Retain the shared candidate checkout/account state unless removal is explicitly requested. Never delete unrelated tabs or another worker's evidence.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -37,6 +37,7 @@ test('build launcher scrubs parent connection and exports default or explicit DE
   const source = readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
   const isolation = source.slice(source.indexOf('# --- Per-worktree dev instance isolation ---'),
     source.indexOf('\nif [ "$CMD" = "dev" ] || [ "$CMD" = "dev-prebuilt" ]; then', source.indexOf('# --- Per-worktree dev instance isolation ---')));
+  const scrub = source.match(/case "\$CMD" in\n  dev\|dev-prebuilt\|dev-server\|dev-front\|kill\|e2e\|e2e:llm\)\n    unset[^]*?\nesac/)[0];
   const directory = mkdtempSync(path.join(tmpdir(), 'dev-selection-'));
   const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
   try {
@@ -51,7 +52,7 @@ test('build launcher scrubs parent connection and exports default or explicit DE
         CODETERM_VITE_PORT: '9991', CODETERM_CDP_PORT: '9992' };
       for (const key of ['CODETERM_DEV_INSTANCE', 'CODETERM_DEV_API_PORT', 'CODETERM_DEV_VITE_PORT', 'CODETERM_DEV_CDP_PORT']) delete env[key];
       if (explicit) Object.assign(env, { CODETERM_DEV_INSTANCE: 'lane', CODETERM_DEV_API_PORT: '7799' });
-      const result = spawnSync(bash, ['-c', `set -eu\nCMD=dev\n${isolation}\nnode -e 'console.log(JSON.stringify(process.env))'`],
+      const result = spawnSync(bash, ['-c', `set -eu\nCMD=dev\n${isolation}\n${scrub}\nnode -e 'console.log(JSON.stringify(process.env))'`],
         { cwd: directory, env, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
       const selected = JSON.parse(result.stdout);

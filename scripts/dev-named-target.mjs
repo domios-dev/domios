@@ -2,6 +2,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, renameSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { inspectInstanceProcesses } from './dev-instance-inspect.mjs';
 
 export const SHARED_TARGET = 'src-tauri/target/named-dev';
 export const LEGACY_TARGETS = 'src-tauri/target/dev-instances';
@@ -34,40 +35,57 @@ export function instancesFromTarget(target, home) {
     .map(row => ({ ...row, record: readRecord(row.file) }))
     .filter(row => row.record && inside(row.record.artifacts.server.path, target))
     .map(({ data, file, record }) => ({ name: record.instance.name, port: Number(record.instance.apiPort),
-      identifier: record.instance.identifier, data, built: statSync(file).mtimeMs }));
+      identifier: record.instance.identifier, retained: record.nativeClient?.snapshot?.client_process, data, built: statSync(file).mtimeMs }));
 }
 
-// Running means the recorded API port answers health as that recorded instance; a foreign listener is not this DEV.
-export async function isRunning(instance, { request = fetch } = {}) {
-  if (!Number.isInteger(instance.port) || instance.port < 1 || instance.port > 65535 || instance.port === 7685) return false;
+export async function isRunning(instance, { request = fetch, snapshot } = {}) {
+  if (!snapshot) return 'unknown';
+  const retained = instance.retained;
+  if (retained) {
+    const current = snapshot.processes.find(row => row.pid === retained.pid);
+    if (current && (!current.created || !current.executable)) return 'unknown';
+    if (current && current.created === retained.created && normalize(current.executable) === normalize(retained.executable)) return 'running';
+  }
+  if (!Number.isInteger(instance.port) || instance.port < 1 || instance.port > 65535 || instance.port === 7685) return 'unknown';
   try {
     const response = await request(`http://127.0.0.1:${instance.port}/api/health`, { redirect: 'error', signal: AbortSignal.timeout(2000) });
-    if (!response.ok) return false;
+    if (!response.ok) return snapshot.targetProcesses.length ? 'unknown' : 'stopped';
     const health = await response.json();
-    return health?.instance?.name === instance.name && String(health.instance.api_port) === String(instance.port)
-      && (!health.instance.identifier || health.instance.identifier === instance.identifier);
-  } catch { return false; }
+    if (health?.instance?.name === instance.name && String(health.instance.api_port) === String(instance.port)
+      && (!health.instance.identifier || health.instance.identifier === instance.identifier)) return 'running';
+  } catch {}
+  return snapshot.targetProcesses.length ? 'unknown' : 'stopped';
 }
 
-export async function runningFromTarget(target, home, options = {}) {
+export async function runningFromTarget(target, home, { inspect = inspectInstanceProcesses, ...options } = {}) {
   const instances = instancesFromTarget(target, home);
-  const running = await Promise.all(instances.map(instance => isRunning(instance, options)));
-  return instances.filter((_, index) => running[index]);
+  let snapshot;
+  try {
+    snapshot = inspect('Inspect', { ports: instances.map(instance => instance.port) });
+    if (!Array.isArray(snapshot.processes) || !Array.isArray(snapshot.listeners)) throw Error('Invalid process inspection');
+    snapshot.targetProcesses = snapshot.processes.filter(row => row.executable && inside(row.executable, target));
+  } catch {
+    return [{ name: 'unknown', port: '?', data: target, state: 'unknown (process inspection failed)' }];
+  }
+  const states = await Promise.all(instances.map(instance => isRunning(instance, { ...options, snapshot })));
+  const blocking = instances.map((instance, index) => ({ ...instance, state: states[index] }))
+    .filter(instance => instance.state !== 'stopped');
+  if (snapshot.targetProcesses.length && !blocking.length) blocking.push({ name: 'unrecorded', port: '?', data: target, state: 'running processes' });
+  return blocking;
 }
 
 export function stopCommand(instance) {
   return `CODETERM_DEV_INSTANCE='${instance.name}' CODETERM_DEV_API_PORT='${instance.port}' ./build.sh kill`;
 }
 
-// Only other instances refuse; a running selected instance is reported because the rebuild replaces it.
 export function refusal(target, operation, running, selected = null) {
   if (!running.length) return null;
-  return [`ERROR: refusing ${operation}: DEV instances started from ${target} are running.`,
-    ...running.map(instance => `  - ${instance.name} (api ${instance.port}, data ${instance.data})`),
+  return [`ERROR: refusing ${operation}: DEV instances started from ${target} are running or have unknown liveness.`,
+    ...running.map(instance => `  - ${instance.name} (api ${instance.port}, data ${instance.data}) [${instance.state ?? 'running'}]`),
     'Stop each one from this checkout first (Windows locks a running executable), then rerun:',
     ...running.map(instance => `  ${stopCommand(instance)}`),
-    ...(selected ? [`The selected instance ${selected.name} (api ${selected.port}) is also running. The rebuild replaces it`
-      + ' once the others are stopped; if its launcher still owns it, stop it first with:', `  ${stopCommand(selected)}`] : [])].join('\n');
+    ...(selected ? [`The selected instance ${selected.name} (api ${selected.port}) is also running or uncertain; stop it first with:`,
+      `  ${stopCommand(selected)}`] : [])].join('\n');
 }
 
 // One-time move of the warm per-instance target into the shared one; never copies or deletes.
@@ -103,7 +121,7 @@ async function main() {
   } else if (operation === 'refuse-running') {
     const [target, home, self, label] = args;
     const running = await runningFromTarget(target, path.resolve(home));
-    const message = refusal(target, label, running.filter(instance => instance.name !== self),
+    const message = refusal(target, label, running,
       running.find(instance => instance.name === self));
     if (message) {
       console.error(message);

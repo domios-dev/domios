@@ -7,6 +7,7 @@ import http from 'node:http';
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { adoptLegacyTarget, refusal, runningFromTarget, stopCommand } from '../dev-named-target.mjs';
+import { acquireLaunchOwner, releaseTargetReservation } from '../dev-launch-owner.mjs';
 
 function fixture() {
   const root = fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), 'dev-shared-target-')));
@@ -31,6 +32,8 @@ function fixture() {
   return { root, checkout, home, legacy, instance, shared: path.join(checkout, 'src-tauri/target/named-dev') };
 }
 
+const inspect = () => ({ processes: [], listeners: [] });
+
 const health = live => async url => {
   const port = Number(new URL(url).port);
   const match = live.find(row => row.port === port);
@@ -38,18 +41,87 @@ const health = live => async url => {
   return { ok: true, json: async () => ({ instance: { name: match.name, api_port: String(port), identifier: `com.domios.dev.${match.name}` } }) };
 };
 
+for (const failure of ['unhealthy', 'timeout', 'mismatch', 'client-only']) {
+  test(`live process refuses adoption and rebuild with ${failure} health`, async t => {
+    const { root, checkout, home, legacy, instance, shared } = fixture();
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const target = legacy('alpha');
+    const data = instance('alpha', 17821, target);
+    const process = { pid: 42, created: '123', executable: path.join(target, failure === 'client-only' ? 'client' : 'server') };
+    const file = path.join(data, 'dev-build-provenance.json');
+    const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+    record.nativeClient = { snapshot: { client_process: process } };
+    fs.writeFileSync(file, JSON.stringify(record));
+    const options = {
+      inspect: () => ({ processes: [process], listeners: [] }),
+      request: async () => {
+        if (failure === 'timeout' || failure === 'client-only') throw Error('timeout');
+        return { ok: failure !== 'unhealthy', json: async () => ({ instance: { name: 'beta' } }) };
+      }, log: () => {},
+    };
+    const blocking = await runningFromTarget(target, home, options);
+    assert.equal(blocking.length, 1);
+    assert.match(refusal(target, 'rebuild', blocking), /refusing rebuild/);
+    await assert.rejects(adoptLegacyTarget(checkout, home, options), /refusing adoption/);
+    assert.equal(fs.existsSync(target), true);
+    assert.equal(fs.existsSync(shared), false);
+    delete record.nativeClient;
+    fs.writeFileSync(file, JSON.stringify(record));
+    const uncertain = await runningFromTarget(target, home, options);
+    assert.equal(uncertain[0].state, 'unknown');
+    await assert.rejects(adoptLegacyTarget(checkout, home, options), /refusing adoption/);
+  });
+}
+
+test('unrecorded target survivor and failed inspection both refuse mutation', async t => {
+  const { root, home, shared } = fixture();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  for (const inspect of [() => ({ processes: [{ pid: 42, executable: path.join(shared, 'client') }], listeners: [] }),
+    () => { throw Error('inspection unavailable'); }]) {
+    const blocking = await runningFromTarget(shared, home, { inspect });
+    assert.equal(blocking.length, 1);
+    assert.match(refusal(shared, 'rebuild', blocking), /refusing rebuild/);
+  }
+});
+
+test('retained process identity must be inspected before health failure can mean stopped', async t => {
+  const { root, home, instance, shared } = fixture();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const data = instance('alpha', 17822, shared);
+  const file = path.join(data, 'dev-build-provenance.json');
+  const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+  record.nativeClient = { snapshot: { client_process: { pid: 42, created: '123', executable: path.join(shared, 'client') } } };
+  fs.writeFileSync(file, JSON.stringify(record));
+  const options = { request: async () => { throw Error('timeout'); } };
+  const unknown = await runningFromTarget(shared, home, { ...options, inspect: () => ({ processes: [{ pid: 42 }], listeners: [] }) });
+  assert.equal(unknown[0].state, 'unknown');
+  assert.deepEqual(await runningFromTarget(shared, home, { ...options, inspect }), []);
+});
+
+test('target reservation excludes a launch during scan/mutation and releases on native readiness', async t => {
+  const { root } = fixture();
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const reservation = await acquireLaunchOwner(root, { releaseOnReady: true });
+  await assert.rejects(acquireLaunchOwner(root), /unavailable/);
+  await releaseTargetReservation({ CODETERM_DEV_TARGET_SOCKET: reservation.environment.CODETERM_DEV_LAUNCH_SOCKET,
+    CODETERM_DEV_TARGET_TOKEN: reservation.environment.CODETERM_DEV_LAUNCH_TOKEN });
+  await reservation.finish();
+  const next = await acquireLaunchOwner(root);
+  await next.finish();
+});
+
 test('adoption renames the single legacy target once and never copies or deletes', async t => {
   const { root, checkout, home, legacy, shared } = fixture();
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const source = legacy('qa8');
   const logs = [];
-  const adopted = await adoptLegacyTarget(checkout, home, { log: line => logs.push(line), request: health([]) });
+  const adopted = await adoptLegacyTarget(checkout, home, { inspect, log: line => logs.push(line), request: health([]) });
   assert.deepEqual(adopted, { from: source, to: shared });
   assert.equal(fs.readFileSync(path.join(shared, 'debug/marker'), 'utf8'), 'qa8');
   assert.equal(fs.existsSync(source), false);
-  assert.match(logs.join('\n'), /adopted .*dev-instances\/qa8 as .*named-dev/);
+  assert.match(logs.join('\n').replaceAll('\\', '/'), /adopted .*dev-instances\/qa8 as .*named-dev/);
   legacy('later');
-  assert.equal(await adoptLegacyTarget(checkout, home, { log: () => {}, request: health([]) }), null);
+  assert.equal(await adoptLegacyTarget(checkout, home, { inspect, log: () => {}, request: health([]) }), null);
   assert.equal(fs.readFileSync(path.join(checkout, 'src-tauri/target/dev-instances/later/debug/marker'), 'utf8'), 'later');
 });
 
@@ -59,7 +131,7 @@ test('adoption among several legacy targets takes the newest provenance and leav
   const older = legacy('older'), newer = legacy('newer'), orphan = legacy('orphan');
   instance('older', 17801, older, new Date('2026-10-01T00:00:00Z'));
   instance('newer', 17802, newer, new Date('2026-10-20T00:00:00Z'));
-  await adoptLegacyTarget(checkout, home, { log: () => {}, request: health([]) });
+  await adoptLegacyTarget(checkout, home, { inspect, log: () => {}, request: health([]) });
   assert.equal(fs.readFileSync(path.join(shared, 'debug/marker'), 'utf8'), 'newer');
   for (const directory of [older, orphan]) assert.equal(fs.existsSync(directory), true);
 });
@@ -69,7 +141,7 @@ test('adoption refuses without moving while a DEV still runs from the selected l
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const source = legacy('qa8');
   instance('qa8', 17803, source);
-  await assert.rejects(adoptLegacyTarget(checkout, home, { log: () => {}, request: health([{ name: 'qa8', port: 17803 }]) }),
+  await assert.rejects(adoptLegacyTarget(checkout, home, { inspect, log: () => {}, request: health([{ name: 'qa8', port: 17803 }]) }),
     /qa8 \(api 17803.*\n.*\n.*CODETERM_DEV_INSTANCE='qa8' CODETERM_DEV_API_PORT='17803' \.\/build\.sh kill/s);
   assert.equal(fs.existsSync(source), true);
   assert.equal(fs.existsSync(shared), false);
@@ -80,7 +152,7 @@ test('several legacy targets without provenance are left alone', async t => {
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   legacy('one'); legacy('two');
   const logs = [];
-  assert.equal(await adoptLegacyTarget(checkout, home, { log: line => logs.push(line), request: health([]) }), null);
+  assert.equal(await adoptLegacyTarget(checkout, home, { inspect, log: line => logs.push(line), request: health([]) }), null);
   assert.equal(fs.existsSync(shared), false);
   assert.match(logs[0], /not adopting: 2 targets/);
 });
@@ -94,7 +166,7 @@ test('running DEVs are those whose own provenance names the target and whose por
   instance('gamma', 17813, shared);
   instance('foreign', 17814, elsewhere);
   const live = [{ name: 'alpha', port: 17811 }, { name: 'squatter', port: 17812 }, { name: 'foreign', port: 17814 }];
-  const running = await runningFromTarget(shared, home, { request: health(live) });
+  const running = await runningFromTarget(shared, home, { inspect, request: health(live) });
   assert.deepEqual(running.map(row => [row.name, row.port, row.data]), [['alpha', 17811, alpha]]);
   const message = refusal(shared, 'rebuild (dev)', running);
   assert.match(message, /refusing rebuild \(dev\)/);
@@ -130,5 +202,6 @@ test('with both instances running, dev for either names the other, its kill comm
   servers[1].close();
   const alone = await new Promise(resolve => execFile(process.execPath, [script, 'refuse-running', shared, home, 'alpha', 'rebuild (dev)'],
     (error, stdout, stderr) => resolve({ status: error?.code ?? 0, stderr })));
-  assert.deepEqual(alone, { status: 0, stderr: '' });
+  assert.equal(alone.status, 2);
+  assert.match(alone.stderr, /selected instance alpha/);
 });

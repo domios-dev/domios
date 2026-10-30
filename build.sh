@@ -729,10 +729,22 @@ adopt_named_dev_target() {
   node scripts/dev-named-target.mjs adopt "$(pwd -P)" "$HOME"
 }
 
-# The running instance itself is replaced by dev/dev-server; any other DEV from this build must be stopped first.
+# Every process from the shared target must exit before rebuilding it.
 refuse_named_dev_rebuild_while_running() {
   node scripts/dev-named-target.mjs refuse-running "$(named_dev_target_dir)" "$HOME" "$CT_INSTANCE" "rebuild ($CMD)"
 }
+
+case "$CMD" in
+  dev|dev-prebuilt|dev-server)
+    if named_dev_isolated && [ "${CODETERM_DEV_TARGET_CHILD:-0}" != 1 ]; then
+      reservation_root="$(pwd -P)/src-tauri/target"
+      mkdir -p "$reservation_root"
+      reservation_shell="$BASH"
+      if command -v cygpath >/dev/null 2>&1; then reservation_shell="$(cygpath -w "$BASH")"; fi
+      exec node scripts/dev-launch-owner.mjs --target-reservation "$reservation_root" "$reservation_shell" "$0" "$@"
+    fi
+    ;;
+esac
 
 case "$CMD" in
   dev|dev-prebuilt)

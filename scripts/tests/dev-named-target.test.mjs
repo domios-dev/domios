@@ -217,7 +217,9 @@ done
       const staged = platform === 'windows' ? path.join(path.dirname(app), 'domios-dev-app.exe') : path.join(path.dirname(app),'.domios-dev-runtime/bin/domios-dev-app');
       assert.equal(fs.readFileSync(staged, 'utf8'), 'welcomeqa');
       for (const instance of ['meshqa', 'welcomeqa']) {
-        assert.equal(fs.readFileSync(path.join(directory, `data-${instance}/built-app`), 'utf8').trim(), staged);
+        const recorded = fs.readFileSync(path.join(directory, `data-${instance}/built-app`), 'utf8').trim();
+        const native = process.platform === 'win32' ? spawnSync(bash, ['-c', 'cygpath -w "$1"', '--', recorded], { encoding: 'utf8' }).stdout.trim() : recorded;
+        assert.equal(path.normalize(native), staged);
         assert.equal(fs.existsSync(path.join(directory, `data-${instance}/target`)), false);
       }
       assert.equal(fs.existsSync(path.join(directory, 'src-tauri/target/dev-instances')), false);

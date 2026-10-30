@@ -2,6 +2,7 @@ import path from 'node:path';
 import { existsSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { inspectInstanceProcesses } from './dev-instance-inspect.mjs';
 import { isDeepStrictEqual } from 'node:util';
 import { LEGACY_TARGETS, SHARED_TARGET, readRecord } from './dev-named-target.mjs';
 
@@ -42,18 +43,11 @@ export function instanceTreePlan({ root, processes, listeners, port, windows = p
   return selected;
 }
 
-// Named instances share one target, so the image path only bounds candidates; the instance's own API
-// listener and its verified quit snapshot seed the selection, extended through the process tree.
+// Shared images bound candidates; only authenticated exact-instance evidence authorizes cleanup.
 export function namedInstancePlan({ root, processes, listeners, port, seeds = [], windows = process.platform === 'win32' }) {
   const candidates = instanceTreePlan({ root, processes, listeners, port, windows, images: null });
   const byPid = new Map(candidates.map(row => [row.pid, row]));
-  const selected = new Set([...listeners.filter(row => row.port === port).map(row => row.pid), ...seeds]
-    .filter(pid => byPid.has(pid)));
-  for (const pid of [...selected]) {
-    for (let parent = byPid.get(pid)?.parent; byPid.has(parent) && !selected.has(parent); parent = byPid.get(parent).parent) {
-      selected.add(parent);
-    }
-  }
+  const selected = new Set(seeds.filter(pid => byPid.has(pid)));
   for (let grew = true; grew;) {
     grew = false;
     for (const row of candidates) {
@@ -61,17 +55,6 @@ export function namedInstancePlan({ root, processes, listeners, port, seeds = []
     }
   }
   return candidates.filter(row => selected.has(row.pid));
-}
-
-function helper(operation, input) {
-  const windows = process.platform === 'win32';
-  const script = fileURLToPath(new URL(windows ? './windows-dev-rebuild-stop.ps1' : './unix-dev-instance-processes.py', import.meta.url));
-  const result = spawnSync(windows ? 'powershell.exe' : 'python3', windows
-    ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', script, '-Operation', operation]
-    : [script, operation], { input: JSON.stringify(input), encoding: 'utf8', windowsHide: true, timeout: 55_000 });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw Error(result.stderr.trim() || 'DEV instance cleanup refused');
-  return JSON.parse(result.stdout);
 }
 
 export function verifiedQuitProcesses(quit, { processes, listeners, data, port, windows = process.platform === 'win32' }) {
@@ -130,8 +113,8 @@ export function namedInstanceRoot(checkout, data) {
     ? legacy : shared;
 }
 
-export async function stopInstanceTree(root, port, instance, data) {
-  const checkout = realpathSync.native(process.cwd());
+export async function stopInstanceTree(root, port, instance, data, { inspect = inspectInstanceProcesses, quit = gracefulQuit, checkout = process.cwd() } = {}) {
+  checkout = realpathSync.native(checkout);
   const absolute = instance ? namedInstanceRoot(checkout, data) : path.resolve(root);
   if (!existsSync(absolute)) return;
   const physical = realpathSync.native(absolute);
@@ -141,26 +124,34 @@ export async function stopInstanceTree(root, port, instance, data) {
   if (!expected.some(value => normalize(physical, process.platform === 'win32') === normalize(value, process.platform === 'win32'))) {
     throw Error('DEV instance tree is aliased; refusing cleanup');
   }
-  const snapshot = helper('Inspect', instance ? { ports: [port] } : {});
+  const snapshot = inspect('Inspect', instance ? { ports: [port] } : {});
   if (!instance) {
     const images = canonicalRuntimeImages(physical);
     const processes = instanceTreePlan({ root: physical, port, images, ...snapshot });
-    const gracefulPids = await gracefulQuit({ ...snapshot, processes, data, port });
-    const result = helper('StopTree', { root: physical, port, processes, images, gracefulPids });
+    const gracefulPids = await quit({ ...snapshot, processes, data, port });
+    const result = inspect('StopTree', { root: physical, port, processes, images, gracefulPids });
     for (const row of result.stopped) console.log(`Stopped DEV pid=${row.pid} created=${row.created} image=${row.executable}`);
     return;
   }
   const candidates = instanceTreePlan({ root: physical, port, images: null, ...snapshot });
-  const gracefulPids = await gracefulQuit({ ...snapshot, processes: candidates, data, port });
+  if (!candidates.length && !snapshot.listeners.some(row => row.port === port)) return;
+  const gracefulPids = await quit({ ...snapshot, processes: candidates, data, port });
+  if (!gracefulPids.length) {
+    if (!snapshot.listeners.some(row => row.port === port)) {
+      console.log('No selected DEV API listener; refusing force cleanup without exact-instance evidence.');
+      return;
+    }
+    throw Error('Uncertain DEV instance identity; refusing shutdown without authenticated exact-instance evidence');
+  }
   const processes = namedInstancePlan({ root: physical, port, seeds: gracefulPids, ...snapshot });
-  const result = helper('StopTree', { root: physical, port, processes, images: null, gracefulPids, onlyPinned: true });
+  const result = inspect('StopTree', { root: physical, port, processes, images: null, gracefulPids, onlyPinned: true });
   for (const row of result.stopped) console.log(`Stopped DEV instance=${instance} pid=${row.pid} created=${row.created} image=${row.executable}`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const operation = process.argv[2] === '--frontend'
     ? async () => {
-      const result = helper('StopFrontend', { repo: realpathSync.native(process.argv[3]), port: Number(process.argv[4]) });
+      const result = inspectInstanceProcesses('StopFrontend', { repo: realpathSync.native(process.argv[3]), port: Number(process.argv[4]) });
       for (const row of result.stopped) console.log(`Stopped DEV frontend pid=${row.pid} created=${row.created} image=${row.executable}`);
     }
     : () => stopInstanceTree(process.argv[2], Number(process.argv[3]), process.argv[4], process.argv[5]);

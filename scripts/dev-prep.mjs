@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { StringDecoder } from "node:string_decoder";
 import { runDevApp, nativeLocatorRecord, prebuiltReadinessPhase } from "./dev-app-process.mjs";
 import { devRuntimeEnvironment } from "./dev-runtime-environment.mjs";
-import { retainLaunchOwner } from "./dev-launch-owner.mjs";
+import { retainLaunchOwner, targetOwnerEnvironment, releaseTargetReservation } from "./dev-launch-owner.mjs";
 import { waitForReady } from "./server-readiness.mjs";
 import {
   accessSync,
@@ -66,6 +66,7 @@ const inputPathspecs = [
   "scripts/dev-rebuild-stop.mjs",
   "scripts/dev-instance-processes.mjs",
   "scripts/dev-named-target.mjs",
+  "scripts/dev-instance-inspect.mjs",
   "scripts/unix-dev-instance-processes.py",
   "scripts/dev-launch-owner.mjs",
   "scripts/dev-launch-file-lock.mjs",
@@ -482,7 +483,7 @@ function disconnectSupervisor() {
   if (process.connected) process.disconnect();
 }
 
-function nativeLocatorSink(options) {
+function nativeLocatorSink(options, onReady = () => {}) {
   if (!options.has("--record")) return () => {};
   const file=resolve(option(options,"--record")), app=realpathSync.native(option(options,"--app"));
   let partial="", attachment=null, pending=null;
@@ -498,7 +499,10 @@ function nativeLocatorSink(options) {
     const lines=(partial+decoder.write(chunk)).split(/\r?\n/); partial=lines.pop();
     if (partial.length > 65536) throw Error("Native DEV diagnostic line exceeds bound");
     for (const line of lines) {
-      if (readinessSignal(line,option(options,"--api-port"))) attachment=JSON.parse(line.slice("DOMIOS_DEV_ATTACHMENT ".length));
+      if (readinessSignal(line,option(options,"--api-port"))) {
+        attachment=JSON.parse(line.slice("DOMIOS_DEV_ATTACHMENT ".length));
+        onReady();
+      }
       if (line.startsWith("DOMIOS_DEV_NATIVE_LOCATOR ")) pending=line;
       if (!attachment || !pending) continue;
       const record=JSON.parse(readFileSync(file,"utf8"));
@@ -519,7 +523,8 @@ function supervisorFailureDetail(error, log) {
 
 async function withLaunchOwner(run) {
   const launchLease = await retainLaunchOwner();
-  try { return await run(); } finally { launchLease?.end(); }
+  const targetLease = await retainLaunchOwner(targetOwnerEnvironment());
+  try { return await run(); } finally { launchLease?.end(); targetLease?.end(); }
 }
 
 async function supervisePrebuilt(options) {
@@ -531,7 +536,9 @@ async function supervisePrebuilt(options) {
   let ready = false;
   let startupFailed = false;
   let readinessPhase=0;
-  const locator = options.has("--record") ? nativeLocatorSink(options) : () => {};
+  const locator = options.has("--record") ? nativeLocatorSink(options, () => {
+    void releaseTargetReservation().catch(error => supervisorFailureDetail(error, log));
+  }) : () => {};
   try {
     const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
       locator(chunk);
@@ -570,10 +577,18 @@ async function supervisePrebuilt(options) {
 }
 
 async function runPrebuilt(options) {
-  const locator=nativeLocatorSink(options);
+  let released = false;
+  const locator=nativeLocatorSink(options, () => {
+    if (released) return;
+    released = true;
+    void releaseTargetReservation().catch(error => supervisorFailureDetail(error, option(options, "--log")));
+  });
   const { code, signal } = await runDevApp({
     app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
-    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
+    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
+      locator(chunk);
+      process.stdout.write(chunk);
+    },
   });
   process.exitCode = code ?? (signal ? 1 : 0);
 }

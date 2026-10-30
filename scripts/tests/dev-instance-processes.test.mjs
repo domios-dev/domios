@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { instanceTreePlan, namedInstancePlan, namedInstanceRoot, verifiedQuitProcesses, gracefulQuit } from '../dev-instance-processes.mjs';
+import { instanceTreePlan, namedInstancePlan, namedInstanceRoot, verifiedQuitProcesses, gracefulQuit, stopInstanceTree } from '../dev-instance-processes.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -101,7 +101,7 @@ test('clean shutdown requests the authenticated quit snapshot before posting tha
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-for (const windows of [false, true]) test(`named kill selects only the instance owning its API port in the shared target (${windows ? 'Windows' : 'Unix'})`, () => {
+for (const windows of [false, true]) test(`named kill requires authenticated seeds even with an API listener in the shared target (${windows ? 'Windows' : 'Unix'})`, () => {
   const prefix = windows ? 'C:/repo' : '/repo';
   const root = `${prefix}/src-tauri/target/named-dev`;
   const row = (pid, executable, parent) => ({ pid, parent, created: `${pid}`, executable: `${root}/debug/${executable}` });
@@ -112,9 +112,10 @@ for (const windows of [false, true]) test(`named kill selects only the instance 
     { pid: 40, parent: 11, created: '40', executable: `${prefix}/bin/shell` },
   ];
   const listeners = [{ port: 17996, pid: 11 }, { port: 17997, pid: 21 }, { port: 7685, pid: 99 }];
-  const plan = namedInstancePlan({ root, windows, port: 17996, processes, listeners });
+  assert.deepEqual(namedInstancePlan({ root, windows, port: 17996, processes, listeners }), []);
+  const plan = namedInstancePlan({ root, windows, port: 17996, processes, listeners, seeds: [10, 11] });
   assert.deepEqual(plan.map(row => row.pid), [10, 11, 12]);
-  assert.deepEqual(namedInstancePlan({ root, windows, port: 17996, processes, listeners, seeds: [30] }).map(row => row.pid), [10, 11, 12, 30]);
+  assert.deepEqual(namedInstancePlan({ root, windows, port: 17996, processes, listeners, seeds: [30] }).map(row => row.pid), [30]);
   assert.deepEqual(namedInstancePlan({ root, windows, port: 17998, processes, listeners }), []);
   assert.throws(() => namedInstancePlan({ root, windows, port: 7685, processes, listeners }), /production/);
 });
@@ -134,4 +135,52 @@ test('named kill resolves a legacy target only when the instance record names it
     rmSync(path.join(data, 'dev-build-provenance.json'));
     assert.equal(namedInstanceRoot(directory, data), path.join(directory, 'src-tauri/target/named-dev'));
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+for (const failure of ['wrong-data', 'auth-failure', 'stale-port', 'other-instance', 'missing-cli', 'request-failure']) {
+  test(`full named stop refuses ${failure} with zero StopTree calls`, async t => {
+    const checkout = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'named-kill-negative-')));
+    t.after(() => rmSync(checkout, { recursive: true, force: true }));
+    const root = path.join(checkout, 'src-tauri/target/named-dev');
+    const data = path.join(checkout, '.domios-dev-alpha');
+    mkdirSync(root, { recursive: true });
+    mkdirSync(path.join(data, 'bin'), { recursive: true });
+    if (failure !== 'missing-cli') writeFileSync(path.join(data, 'bin', `codeterm${process.platform === 'win32' ? '.exe' : ''}`), 'fixture');
+    const server = { pid: 42, created: '123', parent: 1, executable: path.join(root, 'server') };
+    const snapshot = { processes: [server], listeners: [{ pid: 42, port: 17996 }] };
+    const identityData = ['wrong-data', 'other-instance'].includes(failure) ? `${data}-beta` : data;
+    const quitSnapshot = { ready: { process: server, api_address: `127.0.0.1:${failure === 'stale-port' ? 17997 : 17996}`,
+      identity: { data: identityData, config: path.join(identityData, 'config.toml') } } };
+    const calls = [];
+    await assert.rejects(stopInstanceTree(root, 17996, 'alpha', data, {
+      checkout,
+      inspect: operation => { calls.push(operation); if (operation === 'Inspect') return snapshot; throw Error('Unsafe StopTree'); },
+      quit: input => gracefulQuit(input, {
+        run: () => ({ status: failure === 'auth-failure' ? 1 : 0, stdout: 'opaque-token' }),
+        request: async () => {
+          if (failure === 'request-failure') throw Error('request failed');
+          return { ok: true, json: async () => quitSnapshot };
+        },
+      }),
+    }), /Uncertain DEV instance identity/);
+    assert.deepEqual(calls, ['Inspect']);
+  });
+}
+
+test('full named stop force-cleans only the authenticated instance tree', async t => {
+  const checkout = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'named-kill-positive-')));
+  t.after(() => rmSync(checkout, { recursive: true, force: true }));
+  const root = path.join(checkout, 'src-tauri/target/named-dev');
+  mkdirSync(root, { recursive: true });
+  const processes = [11, 21].map(pid => ({ pid, parent: 1, created: String(pid), executable: path.join(root, 'server') }));
+  const calls = [];
+  await stopInstanceTree(root, 17996, 'alpha', checkout, { checkout, quit: async () => [11],
+    inspect: (operation, input) => {
+      calls.push(operation);
+      if (operation === 'Inspect') return { processes, listeners: [{ pid: 11, port: 17996 }, { pid: 21, port: 17997 }] };
+      assert.deepEqual(input.processes, [processes[0]]);
+      return { stopped: [] };
+    },
+  });
+  assert.deepEqual(calls, ['Inspect', 'StopTree']);
 });

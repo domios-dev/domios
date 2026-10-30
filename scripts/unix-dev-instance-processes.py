@@ -47,7 +47,13 @@ def processes():
         try:
             rows.append(observe(pid))
         except (OSError, ValueError):
-            pass
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                continue
+            except PermissionError:
+                pass
+            rows.append(dict(pid=pid, parent=None, created='', executable=''))
     return rows
 
 
