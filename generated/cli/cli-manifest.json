@@ -7780,7 +7780,7 @@
     },
     {
       "name": "mesh",
-      "about": "Mesh networking — peer discovery, pairing, relay",
+      "about": "Account mesh — installations, status and authenticated relay",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -7797,42 +7797,6 @@
               "possible_values": [],
               "default": null,
               "help": "Optional target peer (instance_id or name). Omit for all peers",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "disconnect",
-          "about": "Disconnect (unpair) from a paired peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "instance_id",
-              "positional": true,
-              "required": true,
-              "value_name": "INSTANCE_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Instance ID of the paired peer",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "link",
-          "about": "Link a machine enrolled in this account. Both machines must be signed in, online to the registry and directly reachable; no approval on the other side",
-          "aliases": [],
-          "args": [
-            {
-              "name": "installation_id",
-              "positional": true,
-              "required": true,
-              "value_name": "INSTALLATION_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Installation ID from the account's machine list",
               "aliases": []
             }
           ],
@@ -7890,7 +7854,7 @@
         },
         {
           "name": "peers",
-          "about": "List paired peers",
+          "about": "List account installations and their connection state",
           "aliases": [],
           "args": [],
           "subcommands": []
@@ -7922,24 +7886,6 @@
               "possible_values": [],
               "default": null,
               "help": "Target peer name or instance ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "unrevoke",
-          "about": "Explicitly lift a local peer identity revocation",
-          "aliases": [],
-          "args": [
-            {
-              "name": "instance_id",
-              "positional": true,
-              "required": true,
-              "value_name": "INSTANCE_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Instance ID of the revoked peer",
               "aliases": []
             }
           ],
@@ -9099,26 +9045,6 @@
               "positional": false,
               "required": false,
               "value_name": "PROJECT",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "spec",
-              "positional": false,
-              "required": false,
-              "value_name": "SPEC",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "spec-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
               "possible_values": [],
               "default": null,
               "help": null,
@@ -17725,16 +17651,6 @@
               "possible_values": [],
               "default": null,
               "help": "Show only tabs running an agent (have an agent_type)",
-              "aliases": []
-            },
-            {
-              "name": "all-workspaces",
-              "positional": false,
-              "required": false,
-              "value_name": "ALL_WORKSPACES",
-              "possible_values": [],
-              "default": null,
-              "help": "Accepted for compatibility; every workspace is now listed by default",
               "aliases": []
             },
             {

@@ -74,7 +74,11 @@ fn parse_extracts_kind_attrs_payload() {
 
 #[test]
 fn parse_unwraps_bracketed_paste_marker() {
-    let p = parse(&format!("\x1b[200~{}\x1b[201~", voice("/u/v.webm", Some("hello"), None))).unwrap();
+    let p = parse(&format!(
+        "\x1b[200~{}\x1b[201~",
+        voice("/u/v.webm", Some("hello"), None)
+    ))
+    .unwrap();
     assert_eq!(p.kind, "voice");
     assert_eq!(p.attr("file"), Some("/u/v.webm"));
     assert_eq!(p.payload, "hello");

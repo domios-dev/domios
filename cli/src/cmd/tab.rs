@@ -63,10 +63,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             );
             handle_result(json, result);
         }
-        TabAction::List {
-            workspace,
-            agents,
-        } => {
+        TabAction::List { workspace, agents } => {
             let requested_workspace = workspace.clone();
             if !json && crate::cmd::output::verbose() && requested_workspace.is_none() {
                 if let Err(error) = workspace_topology::print_local_workspace_map(client, agents) {
@@ -944,10 +941,7 @@ fn describe_tab(
     )
 }
 
-fn tab_list_params(
-    workspace_id: Option<String>,
-    agents_only: bool,
-) -> serde_json::Value {
+fn tab_list_params(workspace_id: Option<String>, agents_only: bool) -> serde_json::Value {
     serde_json::json!({
         "workspace_id": workspace_id,
         "focused_workspace": false,

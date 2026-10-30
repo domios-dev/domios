@@ -374,21 +374,19 @@ fn pasted_marker_len(rest: &str, line_start: bool) -> Option<usize> {
 fn non_routing_marker(rest: &str, allow_frames: bool) -> Option<MessageSegment> {
     let marker = crate::message_markers::parse(rest)?;
     match marker.kind.as_str() {
-        "photo" | "file" if marker.attr("file").is_some() => {
-            Some(MessageSegment::Attachment {
-                kind: if marker.kind == "photo" {
-                    "image".into()
-                } else {
-                    marker.kind.clone()
-                },
-                path: marker.attr("file").unwrap_or_default().into(),
-                label: marker.attr("name").map(str::to_string),
-                body: Some(marker.payload.clone()),
-                status: marker.attr("status").map(str::to_string),
-                reference: None,
-                excerpt: None,
-            })
-        }
+        "photo" | "file" if marker.attr("file").is_some() => Some(MessageSegment::Attachment {
+            kind: if marker.kind == "photo" {
+                "image".into()
+            } else {
+                marker.kind.clone()
+            },
+            path: marker.attr("file").unwrap_or_default().into(),
+            label: marker.attr("name").map(str::to_string),
+            body: Some(marker.payload.clone()),
+            status: marker.attr("status").map(str::to_string),
+            reference: None,
+            excerpt: None,
+        }),
         "plugin_config" | "system_prompt" if allow_frames => {
             let kind = FrameKind::from_wire(&marker.kind)?;
             Some(MessageSegment::Frame {

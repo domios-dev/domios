@@ -1784,25 +1784,13 @@ Spawn a new graph worker
 
 #### `domios mesh`
 
-Mesh networking — peer discovery, pairing, relay
+Account mesh — installations, status and authenticated relay
 
 #### `domios mesh announce`
 
 Push our current address list to paired peers without re-detecting locally. Use --to to limit to one peer
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
-
-#### `domios mesh disconnect`
-
-Disconnect (unpair) from a paired peer
-
-- `<instance_id>` — Instance ID of the paired peer
-
-#### `domios mesh link`
-
-Link a machine enrolled in this account. Both machines must be signed in, online to the registry and directly reachable; no approval on the other side
-
-- `<installation_id>` — Installation ID from the account's machine list
 
 #### `domios mesh offline`
 
@@ -1825,7 +1813,7 @@ Manually override our cached address for a paired peer. Useful when auto-detecti
 
 #### `domios mesh peers`
 
-List paired peers
+List account installations and their connection state
 
 #### `domios mesh refresh`
 
@@ -1840,12 +1828,6 @@ Show mesh status (identity, peers)
 List tabs on a remote mesh peer
 
 - `<target>` — Target peer name or instance ID
-
-#### `domios mesh unrevoke`
-
-Explicitly lift a local peer identity revocation
-
-- `<instance_id>` — Instance ID of the revoked peer
 
 #### `domios model-provider`
 
@@ -2133,8 +2115,6 @@ Create a new plan
 - `--from-spec`
 - `--kinds`
 - `--project`
-- `--spec`
-- `--spec-file`
 - `--title`
 
 #### `domios plan curator`
@@ -3880,7 +3860,6 @@ Show the full daemon tab payload for one or more explicit tab ids
 List compact tab summaries across every workspace. Use `--workspace` for one workspace and `tab inspect` for full tab details
 
 - `--agents` — Show only tabs running an agent (have an agent_type)
-- `--all-workspaces` — Accepted for compatibility; every workspace is now listed by default
 - `--workspace` — Workspace id to list. Without this selector every workspace is listed
 
 #### `domios tab new`

@@ -367,7 +367,8 @@ fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
 #[test]
 fn version_skew_and_missing_method_errors_pass_through_untranslated() {
     for code in [crate::protocol::VERSION_SKEW_CODE, -32601] {
-        let data = serde_json::json!({"client_protocol":1,"server_protocol":2,"recovery":"rebuild"});
+        let data =
+            serde_json::json!({"client_protocol":1,"server_protocol":2,"recovery":"rebuild"});
         let result = http_rpc_result(
             reqwest::StatusCode::OK,
             serde_json::json!({"error":{"code":code,"message":"opaque refusal","data":data}}),
@@ -633,17 +634,23 @@ fn socket_call_sends_one_request_without_a_version_probe() {
                 } else {
                     serde_json::json!({"result":{"opaque":true}})
                 };
-                writeln!(stream.get_mut(), "{}", serde_json::json!({
-                    "jsonrpc":"2.0", "id":request["id"],
-                    "result":response.get("result"), "error":response.get("error"),
-                })).unwrap();
+                writeln!(
+                    stream.get_mut(),
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc":"2.0", "id":request["id"],
+                        "result":response.get("result"), "error":response.get("error"),
+                    })
+                )
+                .unwrap();
                 requests.push(request);
             }
             requests
         });
         let stream = interprocess::local_socket::Stream::connect(
             name.as_str().to_ns_name::<GenericNamespaced>().unwrap(),
-        ).unwrap();
+        )
+        .unwrap();
         let mut client = SocketClient {
             transport: ClientTransport::Socket(BufReader::new(stream)),
             credential: "opaque-credential".into(),
@@ -657,7 +664,10 @@ fn socket_call_sends_one_request_without_a_version_probe() {
         assert_eq!(requests[0]["method"], "tab.list");
         assert_eq!(requests[0]["params"], params);
         assert_eq!(requests[0]["credential"], "opaque-credential");
-        assert_eq!(requests[0]["protocol_version"], crate::protocol::PROTOCOL_VERSION);
+        assert_eq!(
+            requests[0]["protocol_version"],
+            crate::protocol::PROTOCOL_VERSION
+        );
         if let Some(code) = code {
             let SocketCallError::Rpc(error) = result.unwrap_err() else {
                 panic!("RPC error must cross untranslated");

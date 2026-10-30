@@ -178,7 +178,15 @@ pub fn parse_host_injected(text: &str) -> Option<ParsedMarker> {
 fn is_retired_marker_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "tab" | "report" | "system" | "reminder" | "mesh" | "telegram" | "pebble" | "inbound" | "voice"
+        "tab"
+            | "report"
+            | "system"
+            | "reminder"
+            | "mesh"
+            | "telegram"
+            | "pebble"
+            | "inbound"
+            | "voice"
     )
 }
 
@@ -220,7 +228,9 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
             .unwrap_or(body);
         return Some(ParsedMarker {
             kind: "voice".into(),
-            payload: if attrs.get("status").is_some_and(|status| status == "untranscribed")
+            payload: if attrs
+                .get("status")
+                .is_some_and(|status| status == "untranscribed")
                 || payload.is_empty()
             {
                 payload.to_string()

@@ -21,13 +21,28 @@ fn plan_create_accepts_from_spec_and_refuses_text_shortcuts() {
 
     for flag in ["--spec", "--spec-file"] {
         let error = crate::Cli::try_parse_from([
-            "domios", "plan", "create", "--title", "Opaque", flag, "old-input",
-        ]).err().expect("retired flag must fail during parsing");
+            "domios",
+            "plan",
+            "create",
+            "--title",
+            "Opaque",
+            flag,
+            "old-input",
+        ])
+        .err()
+        .expect("retired flag must fail during parsing");
         assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
     let parsed = crate::Cli::try_parse_from([
-        "domios", "plan", "create", "--title", "Opaque", "--from-spec", "spec_current",
-    ]).unwrap();
+        "domios",
+        "plan",
+        "create",
+        "--title",
+        "Opaque",
+        "--from-spec",
+        "spec_current",
+    ])
+    .unwrap();
     assert!(matches!(parsed.command, crate::Commands::Plan {
         action: crate::PlanAction::Create { from_spec: Some(id), .. }
     } if id == "spec_current"));

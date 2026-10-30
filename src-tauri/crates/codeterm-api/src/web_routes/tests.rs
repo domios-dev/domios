@@ -481,11 +481,16 @@ async fn manifest_authenticates_only_the_bootstrap_cookie() {
         .route("/manifest.webmanifest", get(super::web_manifest))
         .with_state(state);
 
-    let bootstrap = router.clone().oneshot(
-        Request::post("/manifest-bootstrap")
-            .header("authorization", "Bearer opaque-token")
-            .body(Body::empty()).unwrap(),
-    ).await.unwrap();
+    let bootstrap = router
+        .clone()
+        .oneshot(
+            Request::post("/manifest-bootstrap")
+                .header("authorization", "Bearer opaque-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(bootstrap.status(), StatusCode::OK);
     let cookie = bootstrap.headers()["set-cookie"].to_str().unwrap();
     for attribute in ["HttpOnly", "SameSite=Lax", "Path=/"] {
@@ -497,7 +502,11 @@ async fn manifest_authenticates_only_the_bootstrap_cookie() {
         if let Some(authorization) = authorization {
             request = request.header("authorization", authorization);
         }
-        let response = router.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
         assert!(response.headers().get("set-cookie").is_none());
     }
@@ -505,14 +514,26 @@ async fn manifest_authenticates_only_the_bootstrap_cookie() {
         ("", None, "/"),
         ("", Some("codeterm-web-token=invalid"), "/"),
         ("?token=opaque-token", None, "/"),
-        ("?token=invalid", Some("codeterm-web-token=opaque-token"), "/#token=opaque-token"),
-        ("", Some("codeterm-web-token=opaque-token"), "/#token=opaque-token"),
+        (
+            "?token=invalid",
+            Some("codeterm-web-token=opaque-token"),
+            "/#token=opaque-token",
+        ),
+        (
+            "",
+            Some("codeterm-web-token=opaque-token"),
+            "/#token=opaque-token",
+        ),
     ] {
         let mut request = Request::get(format!("/manifest.webmanifest{query}"));
         if let Some(cookie) = cookie {
             request = request.header("cookie", cookie);
         }
-        let response = router.clone().oneshot(request.body(Body::empty()).unwrap()).await.unwrap();
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
