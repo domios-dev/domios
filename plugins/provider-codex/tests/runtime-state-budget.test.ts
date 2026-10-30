@@ -349,4 +349,141 @@ check("metadata that cannot shrink still refuses the same bounded output",()=>{
   });
 });
 
+interface ChildRetentionSpec {
+  schemaVersion: number;
+  provenance: {kind:string; protocolSources:string[]};
+  context: RuntimeContext;
+  ages: number[];
+  descriptionChars: number;
+  reportChars: number[];
+  suffixTextChars: number;
+  repetitions: number;
+  suffix: RuntimeFrame[];
+}
+const retentionUrl = new URL("./fixtures/retention/child-retention.json",import.meta.url);
+const retention = freezeInput(JSON.parse(fs.readFileSync(retentionUrl,"utf8")) as ChildRetentionSpec);
+const retentionAuthority = (context: RuntimeContext) => [context.tabId,context.threadId,context.bindingNonce,context.epoch,context.activeTurnId];
+function retentionStep(context: RuntimeContext, state: JsonValue, frame: RuntimeFrame) {
+  const before = JSON.stringify(state);
+  const result = hooks.runtimeReduce(freezeInput(context),freezeInput(state),[freezeInput(frame)]);
+  assert.equal(JSON.stringify(state),before,"retention fixture input remains reusable");
+  assert.ok(Buffer.byteLength(JSON.stringify(frame)) <= 4194304);
+  return result;
+}
+function retentionFrame(context: RuntimeContext, method: string, params: Record<string,unknown>): RuntimeFrame {
+  return {kind:"notification",method,params:{threadId:context.threadId,...params}};
+}
+function childSpawn(context: RuntimeContext, index: number, report: number, completed: boolean): RuntimeFrame {
+  const tag = String(index).padStart(2,"0"), child = `opaque-child-${tag}`;
+  return retentionFrame(context,completed ? "item/completed" : "item/started",{turnId:context.activeTurnId,item:{
+    id:`opaque-spawn-${tag}`,type:"collabAgentToolCall",tool:"spawnAgent",status:completed ? "completed" : "inProgress",
+    senderThreadId:context.threadId,receiverThreadIds:[child],prompt:`opaque-child-${tag}:`.padEnd(retention.descriptionChars,"d"),
+    agentsStates:{[child]:{status:completed ? "completed" : "pendingInit",...(completed ? {message:"r".repeat(report)} : {})}},
+  }});
+}
+function retentionSuffix(): RuntimeFrame[] {
+  const expand = (value: unknown): unknown => value === "$suffix" ? "x".repeat(retention.suffixTextChars)
+    : Array.isArray(value) ? value.map(expand) : value !== null && typeof value === "object"
+      ? Object.fromEntries(Object.entries(value).map(([key,item])=>[key,expand(item)])) : value;
+  return expand(retention.suffix) as RuntimeFrame[];
+}
+function retentionBackgroundGuard(context: RuntimeContext, checkpoint: JsonValue): void {
+  const bg = "opaque-child-99", bgTurn = "opaque-background-turn", oldTurn = context.activeTurnId!;
+  let guarded = {...context,threadParents:[...context.threadParents,{threadId:bg,parentThreadId:context.threadId!}],
+    activeTurns:[...context.activeTurns,{threadId:bg,turnId:bgTurn,parentThreadId:context.threadId!}]};
+  let state = retentionStep(guarded,checkpoint,childSpawn(guarded,99,0,false)).state;
+  state = retentionStep(guarded,state,retentionFrame(guarded,"turn/started",{threadId:bg,turn:{id:bgTurn}})).state;
+  state = retentionStep(guarded,state,retentionFrame(guarded,"turn/completed",{turn:{id:oldTurn,status:"completed"}})).state;
+  guarded = {...guarded,activeTurnId:"opaque-next-root",activeTurns:[
+    {threadId:context.threadId!,turnId:"opaque-next-root"},{threadId:bg,turnId:bgTurn,parentThreadId:context.threadId!},
+  ]};
+  state = retentionStep(guarded,state,retentionFrame(guarded,"turn/started",{turn:{id:guarded.activeTurnId}})).state;
+  const childDone = retentionStep(guarded,state,retentionFrame(guarded,"turn/completed",{threadId:bg,turn:{id:bgTurn,status:"completed"}}));
+  assert.deepEqual(Array.from(childDone.events,event=>event.kind === "turnState" ? [event.threadId,event.turnId,event.state] : event.kind),[[bg,bgTurn,"idle"]]);
+  assert.equal((childDone.state as Record<string,JsonValue>).activeTurnId,guarded.activeTurnId);
+  const duplicate = retentionStep(guarded,childDone.state,retentionFrame(guarded,"turn/completed",{threadId:bg,turn:{id:bgTurn,status:"completed"}}));
+  assert.equal(duplicate.events.length,0,"duplicate child completion settles no second card");
+  state = childDone.state;
+  guarded = {...guarded,activeTurns:[{threadId:context.threadId!,turnId:guarded.activeTurnId!}]};
+  const late = retentionStep(guarded,state,retentionFrame(guarded,"turn/completed",{turn:{id:oldTurn,status:"completed"}}));
+  assert.equal(late.events.length,0);
+  assert.equal((late.state as Record<string,JsonValue>).activeTurnId,guarded.activeTurnId);
+  const foreign = retentionStep(guarded,state,retentionFrame(guarded,"turn/started",{threadId:"opaque-foreign",turn:{id:"foreign-turn"}}));
+  assert.equal(foreign.events.length,0);
+  for (const replacement of [{...guarded,epoch:guarded.epoch+1},{...guarded,bindingNonce:"opaque-other-nonce"}]) {
+    const reset = hooks.runtimeReduce(replacement,freezeInput(state),[]);
+    assert.equal(reset.events.length,0);
+    assert.equal(Object.keys((reset.state as Record<string,JsonValue>).items as object).length,0);
+  }
+  const plan = hooks.runtimePlan(guarded,{kind:"readHistory",threadId:"opaque-child-00",order:"desc"});
+  assert.equal(plan.action.kind,"request");
+  if (plan.action.kind === "request") assert.equal((plan.action.call.params as Record<string,JsonValue>).threadId,"opaque-child-00");
+  assert.throws(()=>hooks.runtimePlan(guarded,{kind:"resumeThread",threadId:"opaque-child-00",instructions:"",settings:guarded.settings}));
+}
+
+check("completed child retention preserves emitted terminal identity under declared aging and pressure",()=>{
+  assert.equal(retention.schemaVersion,1);
+  assert.equal(retention.provenance.kind,"synthetic");
+  retention.provenance.protocolSources.forEach(path=>assert.ok(fs.existsSync(new URL(path,retentionUrl))));
+  assert.deepEqual(retention.ages,[0,8,32]);
+  assert.deepEqual(retention.reportChars,[1024,8192]);
+  assert.equal(retention.descriptionChars,256);
+  assert.equal(retention.suffixTextChars,256);
+  assert.equal(retention.repetitions,16);
+  assert.equal(retention.suffix.length,5);
+  for (const report of retention.reportChars) {
+    let context: RuntimeContext = JSON.parse(JSON.stringify(retention.context));
+    let state = retentionStep(context,null,retentionFrame(context,"turn/started",{turn:{id:context.activeTurnId}})).state;
+    let seeded = 0;
+    for (const age of retention.ages) {
+      while (seeded < age) {
+        const child = `opaque-child-${String(seeded).padStart(2,"0")}`;
+        context = {...context,threadParents:[...context.threadParents,{threadId:child,parentThreadId:context.threadId!}]};
+        state = retentionStep(context,state,childSpawn(context,seeded,report,false)).state;
+        const completed = retentionStep(context,state,childSpawn(context,seeded,report,true));
+        const emitted = rows([...completed.events],`opaque-spawn-${String(seeded).padStart(2,"0")}:${child}`).at(-1);
+        assert.equal((emitted?.toolInput as Record<string,JsonValue>)?.agent_result,"r".repeat(report),"terminal event emits the supplied full report before scratch compaction");
+        state = completed.state;
+        seeded++;
+      }
+      assert.deepEqual(retentionAuthority(context),retentionAuthority(retention.context),"aging cannot reset root binding/epoch");
+      const before = JSON.stringify(state);
+      for (let repeat = 0; repeat < retention.repetitions; repeat++) {
+        let branch = state;
+        const events: AgentEvent[] = [];
+        for (const frame of retentionSuffix()) {
+          const result = retentionStep(context,branch,frame); branch = result.state; events.push(...result.events);
+        }
+        assert.deepEqual(events.filter(event=>event.kind === "chatItem").map(event=>event.item.id),[
+          "opaque-retention-answer","opaque-retention-answer","opaque-retention-tool","opaque-retention-tool","opaque-retention-tool",
+        ]);
+        assert.equal(rows(events,"opaque-retention-answer").at(-1)?.content,"x".repeat(256));
+        const tool = rows(events,"opaque-retention-tool").at(-1);
+        assert.equal(tool?.toolResult,"x".repeat(256)); assert.equal(tool?.toolStatus,"completed");
+        assert.ok(events.every(event=>event.kind !== "sendEvidence" && (event.kind !== "turnState" || event.state === "working")));
+        assert.equal((branch as Record<string,JsonValue>).activeTurnId,context.activeTurnId);
+      }
+      assert.equal(JSON.stringify(state),before);
+      const saved = state as Record<string,JsonValue>;
+      console.log(JSON.stringify({fixture:"child-retention",age,reportChars:report,stateBytes:Buffer.byteLength(before),
+        contextBytes:Buffer.byteLength(JSON.stringify(context)),parents:Object.keys((saved.parents ?? {}) as object).length,
+        agents:Object.keys(((saved.agents ?? {}) as Record<string,JsonValue>).rows ?? {}).length,
+        open:Array.isArray(saved.open) ? saved.open.length : 0,retired:Array.isArray(saved.retired) ? saved.retired.length : 0}));
+      if (age === 32) retentionBackgroundGuard(context,state);
+      if (age > 0) {
+        const late = retentionStep(context,state,retentionFrame(context,"item/started",{turnId:context.activeTurnId,
+          item:{id:"opaque-late-start",type:"subAgentActivity",agentThreadId:"opaque-child-00",kind:"started"}}));
+        const row = rows([...late.events],"opaque-spawn-00:opaque-child-00").at(-1);
+        assert.ok(row,"late activity keeps the same child card identity");
+        assert.ok(row.toolInput && typeof row.toolInput === "object" && !Array.isArray(row.toolInput),"late child activity retains its metadata");
+        const input = row.toolInput as Record<string,JsonValue>;
+        assert.equal(input.agent_state,"completed",`completed child must not revive: age=${age}, report=${report}`);
+        assert.equal(input.agent_id,"opaque-child-00"); assert.equal(input.agent_parent_thread_id,context.threadId);
+        assert.equal(input.agent_ordinal,1); assert.equal(input.agent_binding_nonce,context.bindingNonce);
+        assert.equal(input.agent_runtime_epoch,context.epoch);
+      }
+    }
+  }
+});
+
 console.log(`runtime state budget: ${count} checks passed`);
