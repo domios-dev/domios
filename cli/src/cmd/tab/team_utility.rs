@@ -97,10 +97,10 @@ mod tests {
     fn summary_lists_only_live_utility_shells_from_the_target_team() {
         let tabs = vec![
             json!({"id":"shell-b","title":"tests","team_id":"team-a"}),
-            json!({"id":"manager","tab_title":"Ada","team_id":"team-a","role":"Manager"}),
-            json!({"id":"shell-a","tab_title":"dev","team_id":"team-a"}),
-            json!({"id":"plugin","tab_title":"LM Studio","team_id":"team-a","chat_backend_plugin_id":"lmstudio"}),
-            json!({"id":"foreign","tab_title":"other","team_id":"team-b"}),
+            json!({"id":"manager","title":"Ada","team_id":"team-a","role":"Manager"}),
+            json!({"id":"shell-a","title":"dev","team_id":"team-a"}),
+            json!({"id":"plugin","title":"LM Studio","team_id":"team-a","chat_backend_plugin_id":"lmstudio"}),
+            json!({"id":"foreign","title":"other","team_id":"team-b"}),
         ];
 
         let output = render_team_utility_shells(&tabs, "team-a").unwrap();

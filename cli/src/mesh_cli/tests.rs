@@ -608,7 +608,6 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
     let list = Commands::Tab {
         action: TabAction::List {
             workspace: Some("ws 1".into()),
-            all_workspaces: false,
             agents: true,
         },
     };
@@ -638,23 +637,6 @@ fn tab_list_and_inspect_relay_compact_scope_and_explicit_detail_ids() {
     };
     let (_, path, _) = cli_command_to_api(&lifecycle);
     assert_eq!(path, "/api/tabs/inspect?tab_ids=tab_1&lifecycle=true");
-}
-
-#[test]
-fn explicit_address_scope_mesh_all_workspaces_reaches_every_peer_workspace() {
-    let command = Commands::Tab {
-        action: TabAction::List {
-            workspace: None,
-            all_workspaces: true,
-            agents: false,
-        },
-    };
-
-    let (method, path, body) = cli_command_to_api(&command);
-
-    assert_eq!(method, "GET");
-    assert_eq!(path, "/api/tabs?agents=false&all_workspaces=true");
-    assert!(body.is_none());
 }
 
 #[test]
@@ -1067,7 +1049,6 @@ fn tab_list_command() -> Commands {
     Commands::Tab {
         action: TabAction::List {
             workspace: None,
-            all_workspaces: false,
             agents: false,
         },
     }

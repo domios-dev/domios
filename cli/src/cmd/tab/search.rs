@@ -36,8 +36,6 @@ pub fn rank_tabs<'a>(
         .iter()
         .filter_map(|p| {
             let id = field(p, "id");
-            let title = field(p, "title");
-            let legacy_tab_title = field(p, "tab_title");
             let tab_title = crate::tab_name::tab_name(p).to_lowercase();
             let ws_name = field(p, "workspace_name");
             let sname = field(p, "agent_session_name");
@@ -70,9 +68,6 @@ pub fn rank_tabs<'a>(
                 {
                     score += 38;
                 }
-            }
-            if !legacy_tab_title.is_empty() && legacy_tab_title != title {
-                score += score_field(&title, &needle, &needle_translit, 35, 20);
             }
             if !ws_name.is_empty() {
                 let ws_translit = translit(&ws_name);
