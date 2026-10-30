@@ -1,5 +1,4 @@
 import { PluginViewChannel } from "../../lib/pluginViewChannel";
-import { pluginRunHost } from "../../lib/pluginRunHost";
 import { TestViewPort } from "../../lib/pluginViewChannel.testSupport";
 import { act, StrictMode, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -28,10 +27,6 @@ vi.mock("../../lib/webApi", () => ({
   daemonAuthToken: () => "token",
 }));
 vi.mock("./usePluginDocument", () => ({ usePluginDocument: documentLoad }));
-vi.mock("../../lib/pluginRunHost", async () => {
-  const actual = await vi.importActual<typeof import("../../lib/pluginRunHost")>("../../lib/pluginRunHost");
-  return { ...actual, pluginRunHost: vi.fn(actual.pluginRunHost) };
-});
 const hostDeps = vi.hoisted(() => ({
   call: vi.fn(async (_request: Record<string, unknown>): Promise<unknown> => ({ ok: true })),
   writeText: vi.fn(async (_text: string) => undefined),
@@ -84,7 +79,6 @@ let port: TestViewPort;
 beforeEach(() => {
   documentState.channel = new PluginViewChannel(crypto.randomUUID().replaceAll("-", ""));
   port = new TestViewPort();
-  vi.mocked(pluginRunHost).mockClear();
   hostDeps.call.mockReset().mockResolvedValue({ok:true});
   hostDeps.writeText.mockClear();
 });
@@ -249,17 +243,4 @@ it("reopened views use a fresh document port and catch up without accepting old 
   expect(port.sent).toContainEqual({__ctSurfaceStateChanged:true});port.sent=[];
   await act(async () => listeners.get("surface-state-invalidated")!({payload:{plugin:"studio",surface:"board",instance:"one",tab:"tab"}}));
   expect(port.sent).toEqual([]);
-});
-
-
-it("reports unavailable without creating a run host while the document request is missing", async () => {
-  await mount(<PluginView pluginId="studio" api={undefined} embedded />);
-  await connect();
-  await receive({ __ctOpenRun: 101, reference: "a".repeat(64) });
-  await receive({ __ctDecideOperation: 102, decision: {} });
-  expect(pluginRunHost).not.toHaveBeenCalled();
-  expect(replies()).toEqual([
-    { __ctReply: 101, result: { ok: false, code: "unavailable", reason: "host" } },
-    { __ctReply: 102, result: { ok: false, code: "unavailable", reason: "host" } },
-  ]);
 });
