@@ -672,14 +672,35 @@ function TabSessionChatBody({
     const tail = paintTailSignature(renderedEnrichedMessages[renderedEnrichedMessages.length - 1]?.msg);
     return scheduleAfterPaint(() => chatProjectionMonitor.recordPaint(tabId, tail));
   }, [tabId, renderedEnrichedMessages]);
+  const traceMountGeneration = useRef(0);
   useLayoutEffect(() => {
     if (!DEV_BUILD) return;
     const authority = { tab: tabId, session: agentSessionId, nonce: tab?.session_binding_nonce ?? null, epoch: runtime.state?.epoch };
     chatResponsivenessTrace.bind(authority);
-    const rows = renderedEnrichedMessages.map(entry => entry.msg);
-    chatResponsivenessTrace.observe("rendered_commit", authority, rows);
-    return chatResponsivenessTrace.afterPaint(authority, rows);
-  }, [tabId, agentSessionId, tab?.session_binding_nonce, runtime.state?.epoch, renderedEnrichedMessages]);
+    if (!chatResponsivenessTrace.eligible(authority)) return;
+    const generation = ++traceMountGeneration.current;
+    const start = mountedWindow.range.start;
+    const end = mountedWindow.range.end;
+    const rowsRef = mountedWindow.rowsRef;
+    const active = isActive && setupView.kind === "none" && !chatLoading && !tabLock.locked;
+    const cancel = chatResponsivenessTrace.rendered(authority, renderedEnrichedMessages, {
+      active, start, end, revision: mountedWindow.revision,
+      isMounted: (id, index) => {
+        if (generation !== traceMountGeneration.current || !active || index < start || index >= end) return false;
+        const root = chatRootRef.current;
+        const rows = rowsRef.current;
+        if (!root?.isConnected || root.dataset.chatReady !== "true" || !rows?.isConnected) return false;
+        const mounted = rows.querySelectorAll<HTMLElement>("[data-message-id]");
+        for (let position = 0; position < Math.min(1024, mounted.length); position++) {
+          if (mounted[position].dataset.messageId === id) return true;
+        }
+        return false;
+      },
+    });
+    return () => { traceMountGeneration.current++; cancel(); };
+  }, [tabId, agentSessionId, tab?.session_binding_nonce, runtime.state?.epoch, renderedEnrichedMessages,
+    mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision, mountedWindow.rowsRef,
+    isActive, setupView.kind, chatLoading, tabLock.locked]);
   useEffect(() => () => { if (DEV_BUILD) chatResponsivenessTrace.release(tabId); }, [tabId]);
   // Drop torn-down tab diagnostics immediately instead of waiting for LRU eviction.
   useEffect(() => () => chatProjectionMonitor.forget(tabId), [tabId]);

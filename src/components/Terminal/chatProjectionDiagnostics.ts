@@ -380,6 +380,9 @@ interface ChatTraceRecord {
   resultUnits: number;
   detailUnits: number;
   observerMs: number;
+  mountStart?: number;
+  mountEnd?: number;
+  mountRevision?: number;
 }
 
 function traceFingerprint(parts: readonly string[]): string {
@@ -391,6 +394,12 @@ function traceFingerprint(parts: readonly string[]): string {
   }
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
+
+type TraceMetrics = Pick<ChatTraceRecord, "sourceSeq" | "status" | "contentUnits" | "resultUnits" | "detailUnits">;
+const traceRow = (row: TraceRow): TraceRow => row;
+const traceEntry = (entry: { msg: TraceRow }): TraceRow => entry.msg;
+const NO_TRACE_WORK = () => {};
+type TraceMount = { active: boolean; start: number; end: number; revision: number; isMounted: (id: string, index: number) => boolean };
 
 export class ChatResponsivenessTrace {
   private selection: ChatTraceSelection | null = null;
@@ -429,56 +438,95 @@ export class ChatResponsivenessTrace {
       && selection.nonce === authority.nonce && (authority.epoch === undefined || selection.epoch === authority.epoch);
   }
 
-  private metrics(rows: readonly TraceRow[]) {
+  eligible(authority: TraceAuthority): boolean { return this.matches(authority); }
+
+  private admit(authority: TraceAuthority, active = true): boolean {
+    if (!active || !this.eligible(authority)) return false;
+    if (this.records.length >= 2048) { this.dropped++; return false; }
+    return true;
+  }
+
+  private metrics<T>(rows: readonly T[], readRow: (row: T) => TraceRow, start = 0, end = rows.length) {
     const selection = this.selection;
     if (!selection) return null;
-    for (let index = rows.length - 1; index >= Math.max(0, rows.length - 1024); index--) {
-      const row = rows[index];
+    const last = Math.max(0, Math.min(rows.length, end));
+    for (let index = last - 1; index >= Math.max(0, start, last - 1024); index--) {
+      const row = readRow(rows[index]);
       if (row.id === selection.item && row.toolFlowId === selection.turn) {
-        return { sourceSeq: row.seq ?? null, status: ["running", "completed", "failed", "interrupted", "abandoned"].includes(row.toolStatus ?? "") ? row.toolStatus ?? null : null, contentUnits: row.content?.length ?? 0, resultUnits: row.toolResult?.length ?? 0, detailUnits: row.toolDetail?.length ?? 0 };
+        return { index, metrics: { sourceSeq: row.seq ?? null, status: ["running", "completed", "failed", "interrupted", "abandoned"].includes(row.toolStatus ?? "") ? row.toolStatus ?? null : null, contentUnits: row.content?.length ?? 0, resultUnits: row.toolResult?.length ?? 0, detailUnits: row.toolDetail?.length ?? 0 } };
       }
     }
     return null;
   }
 
-  private record(stage: string, authority: TraceAuthority, metrics: { sourceSeq: number | null; status: string | null; contentUnits: number; resultUnits: number; detailUnits: number }, start: number): void {
-    if (!this.matches(authority)) return;
-    if (this.records.length >= 2048) { this.dropped++; return; }
+  private record(stage: string, authority: TraceAuthority, metrics: TraceMetrics, mount?: Pick<TraceMount, "start" | "end" | "revision">): ChatTraceRecord | null {
+    if (!this.matches(authority)) return null;
+    if (this.records.length >= 2048) { this.dropped++; return null; }
     const selection = this.selection!;
     const record: ChatTraceRecord = {
       stage, clock: "browser-performance-ms", at: this.clock(), unixMs: this.wall(),
       binding: traceFingerprint([selection.tab, selection.session, selection.nonce]),
       turn: traceFingerprint([selection.turn]), item: traceFingerprint([selection.item]), epoch: selection.epoch,
-      epochVerified: authority.epoch !== undefined ? authority.epoch === selection.epoch : this.epochVerified, listenerGeneration: authority.generation ?? null, ...metrics, observerMs: 0,
+      epochVerified: authority.epoch !== undefined ? authority.epoch === selection.epoch : this.epochVerified,
+      listenerGeneration: authority.generation ?? null, ...metrics, observerMs: 0,
+      ...(mount ? { mountStart: mount.start, mountEnd: mount.end, mountRevision: mount.revision } : {}),
     };
     this.records.push(record);
-    record.observerMs = this.clock() - start;
-    this.overheadMs += record.observerMs;
+    return record;
+  }
+
+  private finish(start: number, record: ChatTraceRecord | null = null): void {
+    const elapsed = this.clock() - start;
+    if (record) record.observerMs = elapsed;
+    this.overheadMs += elapsed;
   }
 
   observe(stage: string, authority: TraceAuthority, rows: readonly TraceRow[]): void {
-    if (!this.matches(authority)) return;
+    if (!this.admit(authority)) return;
     const start = this.clock();
-    const metrics = this.metrics(rows);
-    if (metrics) this.record(stage, authority, metrics, start);
+    const found = this.metrics(rows, traceRow);
+    const record = found ? this.record(stage, authority, found.metrics) : null;
+    this.finish(start, record);
   }
 
-  afterPaint(authority: TraceAuthority, rows: readonly TraceRow[]): () => void {
-    if (!this.matches(authority)) return () => {};
-    const metrics = this.metrics(rows);
-    return metrics ? this.scheduleMetrics(authority, metrics) : () => {};
+  rendered(authority: TraceAuthority, entries: readonly { msg: TraceRow }[], mount: TraceMount): () => void {
+    if (!this.admit(authority, mount.active)) return NO_TRACE_WORK;
+    const start = this.clock();
+    const found = this.metrics(entries, traceEntry, mount.start, mount.end);
+    if (!found || !this.selection || !mount.isMounted(this.selection.item, found.index)) { this.finish(start); return NO_TRACE_WORK; }
+    const item = this.selection.item;
+    const record = this.record("rendered_commit", authority, found.metrics, mount);
+    const cancel = this.scheduleMetrics(authority, found.metrics, () => mount.isMounted(item, found.index), mount);
+    this.finish(start, record);
+    return cancel;
   }
 
-  private scheduleMetrics(authority: TraceAuthority, metrics: { sourceSeq: number | null; status: string | null; contentUnits: number; resultUnits: number; detailUnits: number }): () => void {
+  afterPaint(authority: TraceAuthority, rows: readonly TraceRow[], isMounted: () => boolean): () => void {
+    if (!this.admit(authority)) return NO_TRACE_WORK;
+    const start = this.clock();
+    const found = this.metrics(rows, traceRow);
+    const cancel = found && isMounted() ? this.scheduleMetrics(authority, found.metrics, isMounted) : NO_TRACE_WORK;
+    this.finish(start);
+    return cancel;
+  }
+  private scheduleMetrics(authority: TraceAuthority, metrics: TraceMetrics, isMounted: () => boolean, mount?: Pick<TraceMount, "start" | "end" | "revision">): () => void {
     const generation = this.generation;
     let completed = false;
-    let stop = () => {};
+    let stop = NO_TRACE_WORK;
     const cancel = scheduleAfterPaint(() => {
+      const start = this.clock();
       completed = true;
       this.cancellations.delete(stop);
-      if (generation === this.generation) this.record("paint_opportunity", authority, metrics, this.clock());
+      const record = generation === this.generation && this.admit(authority) && isMounted()
+        ? this.record("paint_opportunity", authority, metrics, mount) : null;
+      this.finish(start, record);
     });
-    stop = () => { cancel(); this.cancellations.delete(stop); };
+    stop = () => {
+      const start = this.clock();
+      cancel();
+      this.cancellations.delete(stop);
+      this.finish(start);
+    };
     if (!completed) this.cancellations.add(stop);
     return stop;
   }
@@ -510,4 +558,3 @@ if (DEV_BUILD && typeof window !== "undefined") {
     dispose: () => chatResponsivenessTrace.dispose(),
   };
 }
-
