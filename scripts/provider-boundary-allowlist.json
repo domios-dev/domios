@@ -4546,13 +4546,6 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-pty/src/multiplexer/types.rs",
-      "token": "claude_session_id",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
       "file": "src-tauri/crates/codeterm-pty/src/pty/manager.rs",
       "token": "CLAUDE_CODE_",
       "count": 1,
@@ -4721,23 +4714,16 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-pty/src/session/store.rs",
+      "file": "src-tauri/crates/codeterm-pty/src/session/store/legacy_decode.rs",
       "token": "claude_session_id",
       "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
+      "justification": "The removed desk field is named once for explicit refusal; production checks and test assertions share the constant.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
       "file": "src-tauri/crates/codeterm-pty/src/session/store/tests.rs",
       "token": "claude",
       "count": 12,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-pty/src/session/store/tests.rs",
-      "token": "claude_session_id",
-      "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
@@ -4754,13 +4740,6 @@
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
-    },
-    {
-      "file": "src-tauri/crates/codeterm-storage/src/repositories/desk/records.rs",
-      "token": "claude_session_id",
-      "count": 1,
-      "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
-      "removalSlice": "Remaining provider boundary extraction"
     },
     {
       "file": "src-tauri/crates/codeterm-storage/src/repositories/desk/tests.rs",

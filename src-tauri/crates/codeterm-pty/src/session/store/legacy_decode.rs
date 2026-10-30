@@ -2,6 +2,8 @@ use super::{PersistedAgentSessionIdentity, SessionSnapshot};
 use codeterm_storage::{DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields};
 use std::collections::HashMap;
 
+pub(super) const LEGACY_SESSION_ID_FIELD: &str = "claude_session_id";
+
 pub struct DecodedSnapshot {
     pub snapshot: SessionSnapshot,
     pub layouts: Vec<Vec<DeskLayoutNode>>,
@@ -156,12 +158,11 @@ pub(super) fn reject_legacy_session_id(value: &serde_json::Value) -> Result<(), 
     match value {
         serde_json::Value::Object(object) => {
             if object.get("type").and_then(serde_json::Value::as_str) == Some("Leaf")
-                && object.contains_key("claude_session_id")
+                && object.contains_key(LEGACY_SESSION_ID_FIELD)
             {
-                return Err(
-                    "unsupported legacy desk field claude_session_id; expected agent_session_id"
-                        .into(),
-                );
+                return Err(format!(
+                    "unsupported legacy desk field {LEGACY_SESSION_ID_FIELD}; expected agent_session_id"
+                ));
             }
             for key in ["workspaces", "tabs", "split_tree", "children"] {
                 if let Some(value) = object.get(key) {
