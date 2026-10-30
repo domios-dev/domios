@@ -5,10 +5,7 @@ use std::io::Write;
 use std::sync::mpsc;
 
 fn append(path: &std::path::Path, bytes: &[u8]) -> u64 {
-    let mut file = std::fs::OpenOptions::new()
-        .append(true)
-        .open(path)
-        .unwrap();
+    let mut file = std::fs::OpenOptions::new().append(true).open(path).unwrap();
     file.write_all(bytes).unwrap();
     file.flush().unwrap();
     file.metadata().unwrap().len()
@@ -36,8 +33,16 @@ fn session_streams_silent_ranges_and_rows_after_reload(large: bool) {
         )
     } else {
         [
-            "attachment", "api-request-blob", "api-request", "mode", "permission-mode",
-            "atis-latch", "last-prompt", "ai-title", "queue-operation", "file-history-snapshot",
+            "attachment",
+            "api-request-blob",
+            "api-request",
+            "mode",
+            "permission-mode",
+            "atis-latch",
+            "last-prompt",
+            "ai-title",
+            "queue-operation",
+            "file-history-snapshot",
             "tools-used",
         ]
         .iter()
@@ -135,8 +140,14 @@ fn session_streams_silent_ranges_and_rows_after_reload(large: bool) {
     assert_eq!(event["messages"][0]["content"], "while detached");
     let reload = session_window::try_snapshot(&registry, "claude", &path).unwrap();
     assert_eq!(reload.end_offset, detached_end);
-    assert!(reload.messages.iter().any(|row| row.content == "live reply"));
-    assert!(reload.messages.iter().any(|row| row.content == "while detached"));
+    assert!(reload
+        .messages
+        .iter()
+        .any(|row| row.content == "live reply"));
+    assert!(reload
+        .messages
+        .iter()
+        .any(|row| row.content == "while detached"));
     assert!(chats.acquire(&tab, "large-session", None, "reload"));
     let next = b"{\"type\":\"assistant\",\"uuid\":\"after-reload\",\"message\":{\"role\":\"assistant\",\"content\":\"after reload\"}}\n";
     let next_end = append(&path, next);
@@ -168,13 +179,7 @@ fn acquire_wakes_retained_event_tailer_without_a_file_event() {
         }),
         wake,
     );
-    assert!(registry.insert(
-        "tab".into(),
-        "session".into(),
-        None,
-        "old".into(),
-        handle
-    ));
+    assert!(registry.insert("tab".into(), "session".into(), None, "old".into(), handle));
     registry.stop("tab", "old");
     assert!(registry.acquire("tab", "session", None, "reload"));
     observation.recv_timeout(Duration::from_secs(2)).unwrap();
