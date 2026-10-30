@@ -162,3 +162,66 @@ fn partial_current_schema_is_refused_without_mutation() {
     drop(connection);
     refuses_without_mutation(&path);
 }
+
+fn legacy_database_with_imports(directory: &Path, extra: &str) -> PathBuf {
+    let path = super::tests::legacy_database(directory, &[super::tests::legacy_plan("pl_imports")]);
+    let connection = Connection::open(&path).unwrap();
+    connection.execute_batch(extra).unwrap();
+    connection
+        .execute(
+            "INSERT INTO legacy_imports(root, imported_at) VALUES ('/retained/root', 1)",
+            [],
+        )
+        .unwrap();
+    path
+}
+
+fn table_count(path: &Path, name: &str) -> i64 {
+    Connection::open(path)
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+            [name],
+            |row| row.get(0),
+        )
+        .unwrap()
+}
+
+#[test]
+fn legacy_imports_table_is_admitted_backed_up_and_dropped() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = legacy_database_with_imports(directory.path(), LEGACY_IMPORTS_SCHEMA);
+
+    drop(PlanDatabase::open(path.clone()).unwrap());
+    let backup = backup_path(&path);
+    assert_eq!(table_count(&path, "legacy_imports"), 0);
+    assert_eq!(table_count(&backup, "legacy_imports"), 1);
+    let backup_bytes = std::fs::read(&backup).unwrap();
+
+    let reopened = PlanDatabase::open(path.clone()).unwrap();
+    assert_eq!(reopened.load_plans_for_test().len(), 1);
+    assert_eq!(std::fs::read(&backup).unwrap(), backup_bytes);
+}
+
+#[test]
+fn altered_legacy_imports_table_is_refused_without_mutation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = legacy_database_with_imports(
+        directory.path(),
+        "CREATE TABLE legacy_imports(root TEXT PRIMARY KEY, imported_at INTEGER NOT NULL, origin TEXT);",
+    );
+    refuses_without_mutation(&path);
+}
+
+#[test]
+fn legacy_imports_with_unknown_table_is_refused_without_mutation() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = legacy_database_with_imports(directory.path(), LEGACY_IMPORTS_SCHEMA);
+    Connection::open(&path)
+        .unwrap()
+        .execute_batch(
+            "CREATE TABLE unknown(payload TEXT); INSERT INTO unknown VALUES ('retained');",
+        )
+        .unwrap();
+    refuses_without_mutation(&path);
+}
