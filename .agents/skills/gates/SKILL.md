@@ -5,6 +5,8 @@ description: Run Domios's verification gates without burning a session on them. 
 
 # Gates
 
+Shared Workers declare disjoint edit paths and use `./build.sh fmt --paths <owned-files>`. Lanes are for overlap or build-breaking work. Shared checks keep the same authorization and serialization rules; compiler diagnostics in unowned files are foreign failures for the Orchestrator, and still return nonzero. Never repair foreign files or sweep them into a commit to make a gate green.
+
 Workers run no verification on a shared machine unless their dispatch explicitly grants it; they write code and tests and list the exact checks (lane-check scope, test selectors, TS files, guards) in their report. The Orchestrator merges ready lanes and runs those checks serially in canonical, batched: one `./build.sh lane-check <package>... [--tests]` call for all touched library crates (CLI separately), then ONE `./build.sh nextest <scope> "test(a) | test(b) | ..."` per crate scope combining every selector for that crate, so each test binary builds once. Never run one `test-one` per selector: each call rebuilds and links its crate's test binary. Full or reverse-dependency regressions run only in the single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
 
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
@@ -224,7 +226,7 @@ plugin-only releases are outside this gate.
 
 An intentional `--queue` uses the same event-based queue as `--wait-build`; it does not grant verification authority or change a Worker’s assigned gates. Default busy-slot refusal remains in effect.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 ## Rust warning inventory and cleanup
 

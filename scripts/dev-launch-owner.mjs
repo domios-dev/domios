@@ -14,7 +14,7 @@ export function launchLockSocket(root) {
     : path.join('/tmp', `domios-launch-${key.slice(0, 40)}.sock`);
 }
 
-export async function acquireLaunchOwner(root) {
+export async function acquireLaunchOwner(root, { releaseOnReady = false } = {}) {
   const fileLock = await acquireLaunchFileLock(realpathSync.native(root));
   const token = randomUUID();
   const sockets = new Set();
@@ -31,7 +31,11 @@ export async function acquireLaunchOwner(root) {
       if (input.length > 256) socket.destroy();
       else if (input.includes('\n')) {
         clearTimeout(deadline);
-        if (input !== `${token}\n`) socket.destroy();
+        if (releaseOnReady && input === `${token} ready\n`) {
+          finished = true;
+          for (const peer of sockets) peer.end('released\n');
+        }
+        else if (input !== `${token}\n`) socket.destroy();
         else socket.write('owned\n');
       }
     });
@@ -88,6 +92,53 @@ export async function retainLaunchOwner(environment = process.env) {
     socket.on('error', error => { clearTimeout(deadline); reject(error); });
     socket.on('close', () => { clearTimeout(deadline); reject(Error('DEV launch owner disconnected')); });
   });
+}
+
+export function targetOwnerEnvironment(environment = process.env) {
+  return { CODETERM_DEV_LAUNCH_SOCKET: environment.CODETERM_DEV_TARGET_SOCKET,
+    CODETERM_DEV_LAUNCH_TOKEN: environment.CODETERM_DEV_TARGET_TOKEN };
+}
+
+export async function validateTargetReservation(root, environment = process.env) {
+  if (!environment.CODETERM_DEV_TARGET_TOKEN || environment.CODETERM_DEV_TARGET_SOCKET !== launchLockSocket(root)) {
+    throw Error('DEV target reservation has no matching live lease');
+  }
+  const lease = await retainLaunchOwner(targetOwnerEnvironment(environment));
+  await new Promise(resolve => { lease.once('close', resolve); lease.end(); });
+}
+
+export async function releaseTargetReservation(environment = process.env) {
+  if (!environment.CODETERM_DEV_TARGET_TOKEN) return;
+  await new Promise((resolve, reject) => {
+    const socket = net.connect(environment.CODETERM_DEV_TARGET_SOCKET);
+    const deadline = setTimeout(() => socket.destroy(Error('DEV target release deadline')), 5000);
+    socket.once('connect', () => socket.write(`${environment.CODETERM_DEV_TARGET_TOKEN} ready\n`));
+    socket.on('data', () => {});
+    socket.once('end', () => { clearTimeout(deadline); resolve(); });
+    socket.once('error', error => { clearTimeout(deadline); reject(error); });
+  });
+}
+
+async function withTargetReservation() {
+  const [root, shell, ...args] = process.argv.slice(3);
+  const owner = await acquireLaunchOwner(root, { releaseOnReady: true });
+  const child = spawn(shell, args, { stdio: 'inherit', windowsHide: true, env: { ...process.env,
+    CODETERM_DEV_TARGET_CHILD: '1', CODETERM_DEV_TARGET_SOCKET: owner.environment.CODETERM_DEV_LAUNCH_SOCKET,
+    CODETERM_DEV_TARGET_TOKEN: owner.environment.CODETERM_DEV_LAUNCH_TOKEN } });
+  const interrupt = () => child.kill('SIGINT');
+  const terminate = () => child.kill('SIGTERM');
+  process.on('SIGINT', interrupt);
+  process.on('SIGTERM', terminate);
+  try {
+    process.exitCode = await new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    });
+  } finally {
+    await owner.finish();
+    process.off('SIGINT', interrupt);
+    process.off('SIGTERM', terminate);
+  }
 }
 
 async function main() {
@@ -148,7 +199,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       });
       await owner.finish();
     }
-    : main;
+    : process.argv[2] === '--target-reservation' ? withTargetReservation
+      : process.argv[2] === '--validate-target-reservation' ? () => validateTargetReservation(process.argv[3]) : main;
   operation().catch(error => {
     if (process.connected) process.send({ error: error.message }, () => process.disconnect());
     else console.error(error.message);

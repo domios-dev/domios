@@ -2,6 +2,13 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum PlanTaskAction {
+    /// Extend this Worker's declared edit files; overlapping live ownership is refused
+    ExtendFiles {
+        plan_id: Option<String>,
+        task_id: Option<String>,
+        #[arg(long = "edit-file", value_name = "PATH", required = true)]
+        edit: Vec<String>,
+    },
     /// Replace structured task context files (relative paths resolve against the Worker cwd)
     Files {
         plan_id: String,
@@ -382,6 +389,8 @@ pub enum PlanTaskAction {
             help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred"
         )]
         canonical_writer: bool,
+        #[arg(long, value_parser = ["shared", "lane"], conflicts_with = "canonical_writer")]
+        placement: Option<String>,
         #[arg(
             long = "kind",
             help = "Select a built-in Worker prompt kind without changing the task's executor_role"

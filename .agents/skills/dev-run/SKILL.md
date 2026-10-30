@@ -194,15 +194,49 @@ provenance, releases the build gateway, then launches through `dev-prebuilt`.
 Foreground launch stays in its Dev shell and owns the client process.
 
 Server reload/staging tool updates also use `dev-server`; native source and
-Tauri/Cargo configuration changes still require `dev`. Named DEV CLI artifacts
-build alongside the app in the instance target under distinct binary names.
-Named `dev` and `dev-server` use nonincremental Rust compilation and the portable
-compiler-cache wrapper automatically. Cargo keeps its configured intermediate
-directory; runnable artifacts stay isolated per instance. Generated-source
-metadata uses the same virtual prefix across configured build directories.
-Existing Cargo-fresh intermediates retain their previous metadata until rebuilt;
-the build skill covers scoped invalidation for an approved cache measurement.
-Source and CLI artifact changes can still relink the roots.
+Tauri/Cargo configuration changes still require `dev`.
+
+Every named instance of a checkout shares ONE DEV target,
+`<checkout>/src-tauri/target/named-dev`; CLI, server and app build there.
+Named `dev` and `dev-server` compile incrementally (`CARGO_INCREMENTAL=1`) with
+no compiler wrapper (`RUSTC_WRAPPER=` overrides the machine sccache config).
+Release, CI, `install-local` and `worktree-check` keep their cold-by-design
+policy. Data directory, ports, installed CLI and provenance stay per instance
+under `~/.domios-dev-<instance-key>`.
+
+- **Start further instances from the one build.** `dev` also writes the shared
+  build record `named-dev/dev-build-provenance.json`. `dev-prebuilt` for an
+  instance without its own current record validates that shared record, installs
+  the built CLI into its own data directory, writes its own provenance and
+  launches without Cargo. Never invent a new instance name to get a fresh target.
+- **Never rebuild under a running DEV.** `dev` and `dev-server` refuse before
+  compiling while any other instance started from `named-dev` is running. They
+  find those instances from their own provenance (`~/.domios-dev-*` records that
+  name this target) plus a health answer on the recorded API port as that
+  instance, never from executable paths. The refusal lists each instance and its
+  exact `CODETERM_DEV_INSTANCE=... CODETERM_DEV_API_PORT=... ./build.sh kill`.
+  The selected instance itself is still replaced (or server-swapped) as before.
+  Named `dev` checks before taking the instance launch lock, so with several
+  instances running it prints this refusal, not `DEV launch owner unavailable`.
+  It also reports the selected instance and its own `kill` command.
+- **`kill` stops only the selected instance.** The image path only bounds the
+  candidates to the shared target. The instance's own API-port listener and its
+  authenticated quit snapshot (data root plus port) seed the selection, and that
+  selection extends through the process tree. Other instances under
+  `named-dev` keep running.
+- **One-time adoption of a warm legacy target.** On the first named `dev` or
+  `dev-prebuilt` without `named-dev`, a single
+  `src-tauri/target/dev-instances/<name>` is renamed (same filesystem, no copy)
+  to `named-dev`. With several, the one whose instance record is newest is
+  renamed and the rest stay untouched. Adoption refuses while a DEV still runs
+  from that legacy target. The first incremental build after adoption recompiles
+  the workspace and path crates once; registry dependencies stay fresh.
+  Until the instance runs `dev` again, its old record names the legacy path and
+  `dev-prebuilt` refuses with the usual rebuild instruction.
+
+Debug Development launches apply instance identity, frontend URL and CDP at
+runtime, so one build serves every instance. Source and CLI artifact changes can
+still relink the roots.
 
 Debug Development servers resolve the frontend port and identifier from the
 launch environment (`CODETERM_VITE_PORT`, `CODETERM_DEV_IDENTIFIER`). These values
@@ -491,9 +525,9 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 - **Windows DEV exits before READY with missing frontend runtime identity.** The private desktop launch channel must carry the validated Vite port, development identifier, browser arguments and CDP port. Keep its fixed allowlist in sync with runtime configuration; preserve credential scrubbing, peer ownership checks and CDP validation.
 
-- **Named `kill` refuses its own launched instance with `Uncertain DEV instance identity`.** Shutdown must select the same checkout-local `dev-instances/<name>` target as the build before deriving the client path. The guard previously received the default target while provenance pinned the named target. Use the corrected `build.sh kill` from the instance's original checkout with its explicit instance and port; all process, epoch, data, production and foreign-instance checks remain active.
+- **Named `kill` refuses its own launched instance with `Uncertain DEV instance identity`.** Shutdown must select the target the instance's own provenance names (`named-dev`, or its legacy `dev-instances/<key>` before adoption) before deriving the client path. Use `build.sh kill` from the instance's original checkout with its explicit instance and port; all process, epoch, data, production and foreign-instance checks remain active, and other instances in the shared target are never selected.
 
-- **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under `<checkout>/src-tauri/target/dev-instances/<instance-key>`, for both foreground and `--wait`; `dev-prebuilt` resolves the same checkout target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with the same explicit instance and private port to create the new artifacts and provenance, then reuse them with `dev-prebuilt`. Keep ONE DEV build per checkout (AGENTS.md): reuse one instance name, start further instances from it with `dev-prebuilt`, and stop every DEV from that target before rebuilding it; a new instance name is a cold build. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
+- **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under the one checkout target `<checkout>/src-tauri/target/named-dev`, for both foreground and `--wait`; `dev-prebuilt` resolves the same target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with an explicit instance and private port, then start that or any other instance with `dev-prebuilt`. `dev`/`dev-server` refuse to rebuild while another DEV from the target runs (Windows locks its executable); stop it with the printed `kill` first. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
 
 - **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. In Git Bash use `CODETERM_DEV_INSTANCE=my-lane CODETERM_DEV_API_PORT=7799 ./build.sh dev`; in PowerShell set `$env:CODETERM_DEV_INSTANCE='my-lane'; $env:CODETERM_DEV_API_PORT='7799'` before `./build.ps1 dev`. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.domios-dev[-<instance>]/config.toml` to that private port first. Canonical launch ignores parent connection variables and selects 7686. Explicit `CODETERM_DEV_API_PORT=7685` still refuses. Never stop production to resolve the refusal.
 

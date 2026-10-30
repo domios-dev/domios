@@ -1,6 +1,63 @@
 use crate::Cli;
 use clap::CommandFactory;
 
+#[test]
+fn shared_worker_placement_and_extensions_have_explicit_cli_contracts() {
+    use clap::Parser;
+    for placement in ["shared", "lane"] {
+        let parsed = Cli::try_parse_from([
+            "domios",
+            "plan",
+            "task",
+            "dispatch",
+            "plan",
+            "task",
+            "--execution-intent",
+            "mutating",
+            "--placement",
+            placement,
+        ])
+        .unwrap();
+        let crate::Commands::Plan {
+            action:
+                crate::PlanAction::Task {
+                    action:
+                        super::PlanTaskAction::Dispatch {
+                            placement: actual, ..
+                        },
+                },
+        } = parsed.command
+        else {
+            panic!("dispatch expected")
+        };
+        assert_eq!(actual.as_deref(), Some(placement));
+    }
+    assert!(Cli::try_parse_from([
+        "domios",
+        "plan",
+        "task",
+        "dispatch",
+        "plan",
+        "task",
+        "--execution-intent",
+        "mutating",
+        "--placement",
+        "shared",
+        "--canonical-writer"
+    ])
+    .is_err());
+    assert!(Cli::try_parse_from([
+        "domios",
+        "plan",
+        "task",
+        "extend-files",
+        "--edit-file",
+        "src"
+    ])
+    .is_ok());
+    assert!(Cli::try_parse_from(["domios", "plan", "task", "extend-files"]).is_err());
+}
+
 fn depends_on_help(subcommand: &str) -> String {
     Cli::command()
         .find_subcommand_mut("plan")

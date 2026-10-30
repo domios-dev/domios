@@ -342,6 +342,14 @@ impl ChatRegistry {
         }
     }
 
+    /// Re-read this tab's transcript without touching its subscription. Host events
+    /// (status transitions, provider hooks) call it so delivery never waits on FSEvents.
+    pub fn wake(&self, tab_id: &str) {
+        if let Some(entry) = self.inner.lock().get(tab_id) {
+            entry.handle.wake();
+        }
+    }
+
     /// Register a freshly spawned tailer for `tab_id`/`session_id`.
     ///
     /// Returns `true` if the new tailer was registered. Returns `false` only

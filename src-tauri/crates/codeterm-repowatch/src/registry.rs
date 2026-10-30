@@ -6,7 +6,7 @@ use super::unresolved::{PathShape, UnresolvedPaths};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -23,13 +23,12 @@ type SharedMembers = Arc<Mutex<BTreeMap<String, RepoIdentity>>>;
 
 struct WorktreeEntry {
     refcount: usize,
-    _watch: Box<dyn ActiveWatch>,
 }
 
 struct SharedEntry {
     refcount: usize,
     members: SharedMembers,
-    _watch: Box<dyn ActiveWatch>,
+    watch: Box<dyn ActiveWatch>,
 }
 
 #[derive(Default)]
@@ -86,25 +85,13 @@ impl RepoWatchRegistry {
             }
         };
 
-        let result = (|| {
+        let result: Result<RepoWatchSubscription, RepoWatchError> = (|| {
             let mut inner = self.inner.lock();
-            let fresh_entry = !inner.entries.contains_key(&identity.key);
-            if fresh_entry {
-                let watch = self.build_worktree_watch(&identity)?;
-                inner.entries.insert(
-                    identity.key.clone(),
-                    WorktreeEntry {
-                        refcount: 0,
-                        _watch: watch,
-                    },
-                );
-            }
-            if let Err(e) = self.retain_shared(&mut inner, &identity) {
-                if fresh_entry {
-                    inner.entries.remove(&identity.key);
-                }
-                return Err(e);
-            }
+            self.retain_shared(&mut inner, &identity)?;
+            inner
+                .entries
+                .entry(identity.key.clone())
+                .or_insert(WorktreeEntry { refcount: 0 });
             if let Some(entry) = inner.entries.get_mut(&identity.key) {
                 entry.refcount += 1;
             }
@@ -144,6 +131,12 @@ impl RepoWatchRegistry {
             // dropping it early would fan ref events out to nobody.
             if identity_released {
                 shared.members.lock().remove(&identity.key);
+                if shared.refcount > 0 {
+                    let members = shared.members.lock();
+                    if let Err(detail) = shared.watch.update(&watch_specs(members.values())) {
+                        log::warn!("[repowatch] removing worktree watch failed: {detail}");
+                    }
+                }
             }
             if shared.refcount == 0 {
                 inner.shared.remove(&identity.common_key);
@@ -180,69 +173,57 @@ impl RepoWatchRegistry {
         token.is_some_and(|token| self.release(&token))
     }
 
-    fn build_worktree_watch(
-        &self,
-        identity: &RepoIdentity,
-    ) -> Result<Box<dyn ActiveWatch>, RepoWatchError> {
-        // HEAD and index live in the gitdir; everything else under it is
-        // filtered out, and the gitdir is never watched recursively.
-        let specs = vec![
-            WatchSpec::shallow(identity.gitdir.clone()),
-            WatchSpec::recursive(identity.workdir.clone()),
-        ];
-        let owner = identity.clone();
-        let sink = self.sink.clone();
-        let handler = Box::new(move |signal: WatchSignal| match signal {
-            WatchSignal::Batch(paths) => dispatch(&sink, &owner, WatchHalf::Worktree, &paths),
-            WatchSignal::Rescan => untrusted(
-                &sink,
-                std::slice::from_ref(&owner),
-                RepoWatchUnavailable::RescanRequired,
-                "backend reported a rescan: events may have been missed",
-            ),
-            WatchSignal::Failed(detail) => untrusted(
-                &sink,
-                std::slice::from_ref(&owner),
-                RepoWatchUnavailable::BackendFailed,
-                &detail,
-            ),
-        });
-        self.backend
-            .build(&specs, handler)
-            .map_err(|detail| RepoWatchError::watch_refused(&identity.id, detail))
-    }
-
     fn retain_shared(
         &self,
         inner: &mut Inner,
         identity: &RepoIdentity,
     ) -> Result<(), RepoWatchError> {
         if let Some(entry) = inner.shared.get_mut(&identity.common_key) {
+            let mut candidates = entry.members.lock().clone();
+            let fresh = candidates
+                .insert(identity.key.clone(), identity.clone())
+                .is_none();
+            if fresh {
+                entry
+                    .watch
+                    .update(&watch_specs(candidates.values()))
+                    .map_err(|detail| RepoWatchError::watch_refused(&identity.id, detail))?;
+                *entry.members.lock() = candidates;
+            }
             entry.refcount += 1;
-            entry
-                .members
-                .lock()
-                .insert(identity.key.clone(), identity.clone());
             return Ok(());
         }
-        let members: SharedMembers = Arc::new(Mutex::new(BTreeMap::new()));
-        members
-            .lock()
-            .insert(identity.key.clone(), identity.clone());
-        // Non-recursive on the commondir carries packed-refs; refs/ is watched
-        // recursively because a loose ref lands several levels deep.
-        let specs = vec![
-            WatchSpec::shallow(identity.common_dir.clone()),
-            WatchSpec::optional_recursive(identity.common_dir.join("refs")),
-        ];
-        let sink = self.sink.clone();
+        let members: SharedMembers = Arc::new(Mutex::new(BTreeMap::from([(
+            identity.key.clone(),
+            identity.clone(),
+        )])));
         let fanout = members.clone();
+        let sink = self.sink.clone();
         let handler = Box::new(move |signal: WatchSignal| {
-            let targets: Vec<RepoIdentity> = fanout.lock().values().cloned().collect();
+            let targets: Vec<_> = fanout.lock().values().cloned().collect();
             match signal {
+                WatchSignal::CoverageChanged => {
+                    for target in &targets {
+                        sink.repository_changed(&target.id);
+                    }
+                }
                 WatchSignal::Batch(paths) => {
                     for target in &targets {
-                        dispatch(&sink, target, WatchHalf::SharedRefs, &paths);
+                        let relevant = batch_is_relevant(target, WatchHalf::Worktree, &paths)
+                            .and_then(|worktree| {
+                                if worktree {
+                                    Ok(true)
+                                } else {
+                                    batch_is_relevant(target, WatchHalf::SharedRefs, &paths)
+                                }
+                            });
+                        match relevant {
+                            Ok(true) => sink.repository_changed(&target.id),
+                            Ok(false) => {}
+                            Err(error) => {
+                                sink.repository_unavailable(&error.identity, error.reason)
+                            }
+                        }
                     }
                 }
                 WatchSignal::Rescan => untrusted(
@@ -259,6 +240,7 @@ impl RepoWatchRegistry {
                 ),
             }
         });
+        let specs = watch_specs(std::iter::once(identity));
         let watch = self
             .backend
             .build(&specs, handler)
@@ -268,7 +250,7 @@ impl RepoWatchRegistry {
             SharedEntry {
                 refcount: 1,
                 members,
-                _watch: watch,
+                watch,
             },
         );
         Ok(())
@@ -310,17 +292,21 @@ impl RepoWatchRegistry {
     }
 }
 
-fn dispatch(
-    sink: &Arc<dyn RepoEventSink>,
-    identity: &RepoIdentity,
-    half: WatchHalf,
-    paths: &[PathBuf],
-) {
-    match batch_is_relevant(identity, half, paths) {
-        Ok(true) => sink.repository_changed(&identity.id),
-        Ok(false) => {}
-        Err(e) => sink.repository_unavailable(&e.identity, e.reason),
+fn watch_specs<'a>(members: impl Iterator<Item = &'a RepoIdentity>) -> Vec<WatchSpec> {
+    let mut specs = Vec::new();
+    for identity in members {
+        specs.push(WatchSpec::shallow(identity.gitdir.clone()));
+        specs.push(WatchSpec::worktree(identity.workdir.clone()));
+        if !specs.iter().any(|spec| spec.optional) {
+            specs.push(WatchSpec::shallow(identity.common_dir.clone()));
+            specs.push(WatchSpec::optional_recursive(
+                identity.common_dir.join("refs"),
+            ));
+        }
     }
+    specs.sort_by(|a, b| a.path.cmp(&b.path));
+    specs.dedup();
+    specs
 }
 
 fn path_key(path: &str) -> String {

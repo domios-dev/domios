@@ -213,7 +213,7 @@ pub fn enrich_ready_report(
     changed_files: Option<Vec<String>>,
     acknowledge_dirty: bool,
 ) -> Result<(Option<String>, Option<String>, Option<Vec<String>>), ReportRefusal> {
-    if task_scope.is_some_and(|scope| !scope.requires_repository) {
+    if task_scope.is_some_and(|scope| !scope.requires_repository || scope.shared) {
         return Ok((branch, sha, changed_files));
     }
     let canonical_writer = task_scope.is_some_and(|scope| scope.canonical_writer);

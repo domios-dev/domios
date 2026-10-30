@@ -192,6 +192,7 @@ pub(super) fn dispatch(
                 "plan.task.split",
                 "plan.review.authorize-reporter",
                 "plan.task.update",
+                "plan.task.extend_files",
                 "plan.task.attach",
                 "plan.task.close",
                 "plan.task.assign",
@@ -393,6 +394,7 @@ pub(super) fn dispatch(
             "task.take"
                 | "task.drop"
                 | "plan.task.update"
+                | "plan.task.extend_files"
                 | "plan.task.attach"
                 | "plan.task.close"
                 | "plan.task.assign"

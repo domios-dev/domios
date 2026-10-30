@@ -343,6 +343,7 @@ pub(super) fn run_dispatch(
         agent,
         authorized_gates,
         canonical_writer,
+        placement,
         worker_kind,
         model,
         speed,
@@ -373,6 +374,8 @@ pub(super) fn run_dispatch(
     }
     if canonical_writer {
         params["placement"] = json!("canonical_writer");
+    } else if let Some(placement) = placement {
+        params["placement"] = json!(placement);
     }
     if let Some(kind) = worker_kind {
         params["worker_kind"] = json!(kind);
@@ -423,6 +426,12 @@ pub(super) fn run_dispatch(
         }
     }
     print_safety_nudges(&val);
+    if let Some(reason) = val.get("placement_reason").and_then(Value::as_str) {
+        println!(
+            "Placement: {} ({reason})",
+            val["placement"].as_str().unwrap_or("unknown")
+        );
+    }
     print!("{}", render_dispatch_response(&val));
     Ok(None)
 }
@@ -433,6 +442,28 @@ pub(super) fn run_task(
     action: PlanTaskAction,
 ) -> Result<Option<Value>, String> {
     match action {
+        PlanTaskAction::ExtendFiles {
+            plan_id,
+            task_id,
+            edit,
+        } => {
+            let (plan_id, task_id) = if plan_id.is_none() && task_id.is_none() {
+                (
+                    std::env::var("CODETERM_PLAN_ID").ok(),
+                    std::env::var("CODETERM_TASK_ID").map_err(|_| {
+                        "extend-files requires a task reference or Worker task binding"
+                    })?,
+                )
+            } else {
+                split_task_ref(plan_id, task_id)
+            };
+            let mut params = json!({"task_id": task_id, "edit": edit});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call(client, "plan.task.extend_files", params).map(Some)
+        }
         PlanTaskAction::Files {
             plan_id,
             task_id,

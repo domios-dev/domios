@@ -57,6 +57,7 @@ pub mod search_index;
 pub mod search_related;
 pub mod section_links;
 pub mod section_queries;
+pub mod shared_checkout;
 pub mod skill_registry;
 pub mod spec;
 pub mod spec_render;
@@ -180,6 +181,8 @@ pub struct PlanStore {
     plan_touches: Mutex<Vec<String>>,
     #[cfg(any(test, feature = "test-support"))]
     plan_loads: Mutex<Vec<String>>,
+    #[cfg(test)]
+    shared_git_observer: RwLock<Option<Arc<dyn Fn(&str, &[&str]) + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -270,6 +273,8 @@ impl PlanStore {
             plan_touches: Mutex::new(Vec::new()),
             #[cfg(any(test, feature = "test-support"))]
             plan_loads: Mutex::new(Vec::new()),
+            #[cfg(test)]
+            shared_git_observer: RwLock::new(None),
         };
         for spec in specs {
             let id = spec.id.clone();

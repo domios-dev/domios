@@ -518,7 +518,35 @@ impl PlanStore {
             .unwrap_or_else(|| crate::plan::ids::short_id("attempt"));
         let mut attempt_id = None;
         let mut original_status = None;
-        let write = self.with_plan(plan_id, now_ms, |plan| {
+        let shared_binding: Option<super::shared_checkout::SharedDispatchInspection> =
+            if placement == crate::plan::WorkerPlacement::Shared {
+                Some(self.inspect_shared_dispatch(plan_id, task_id)?)
+            } else {
+                None
+            };
+        let writer_turn = self.mutation_writer.enter();
+        if let Some(inspected) = shared_binding.as_ref() {
+            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+            let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            inspected.recheck(&plan, task)?;
+            super::shared_checkout::validate_shared_ownership(
+                &self.checkout_peer_plans(&plan),
+                &plan,
+                task,
+                &task.files,
+            )
+            .map_err(PlanError::InvalidPlanText)?;
+        } else if placement == crate::plan::WorkerPlacement::CanonicalWriter {
+            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+            super::shared_checkout::validate_exclusive_checkout(
+                &self.checkout_peer_plans(&plan),
+                &plan,
+                task_id,
+            )
+            .map_err(PlanError::InvalidPlanText)?;
+        }
+        let write = self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let dispatch_status = task_startup_status(&plan.tasks[task_index].status)?;
@@ -582,6 +610,10 @@ impl PlanStore {
             }
             attempt.authorized_gates = authorized_gates.clone();
             attempt.placement = placement;
+            if let Some(inspected) = shared_binding.as_ref() {
+                attempt.checkout_path = Some(inspected.checkout.clone());
+                attempt.shared_start_sha = Some(inspected.head.clone());
+            }
             task.interruption.execution_intent = intent.clone();
             task.interruption.allowance = allowance.clone();
             task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
