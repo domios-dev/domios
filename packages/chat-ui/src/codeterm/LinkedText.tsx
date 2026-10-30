@@ -1,6 +1,5 @@
 import React from "react";
-import { localArtifactTextParts } from "@codeterm/chat-core";
-import { RichMarkdown } from "../MarkdownBody";
+import { DsText } from "../blocks/DsText";
 import { ClipboardList, FileText, ListChecks } from "lucide-react";
 import { extractPlanRefs, linkifyPlanRefs, type PlanRefLinkSegment } from "./planRefs";
 import { canonicalMentions, type CanonicalMention } from "./canonicalMentions";
@@ -67,10 +66,7 @@ function stateSuffix(state: ResolvedChatPlanRef["state"] | undefined): string {
 }
 
 export function LinkedText(props: Props) {
-  const parts = localArtifactTextParts(props.text);
-  return <>{parts.map((part, index) => part.directive
-    ? <RichMarkdown key={index} text={part.text} />
-    : <MentionLinkedText key={index} {...props} text={part.text} />)}</>;
+  return <DsText text={props.text} renderText={(text) => <MentionLinkedText {...props} text={text} />} />;
 }
 
 function MentionLinkedText(props: Props) {

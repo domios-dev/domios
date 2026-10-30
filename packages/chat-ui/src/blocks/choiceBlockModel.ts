@@ -2,15 +2,6 @@ export const CHOICE_MIN_OPTIONS = 2;
 export const CHOICE_MAX_OPTIONS = 8;
 export const CHOICE_MAX_LABEL = 80;
 
-/** `Label one | Label two`; `\|` keeps a literal bar. Blank, duplicate, too long or too few labels leave the line as text. */
-export function parseChoiceOptions(argument: string): string[] | null {
-  const labels = argument.split(/(?<!\\)\|/).map((part) => part.replace(/\\\|/g, "|").replace(/\s+/g, " ").trim());
-  if (labels.length < CHOICE_MIN_OPTIONS || labels.length > CHOICE_MAX_OPTIONS) return null;
-  if (labels.some((label) => !label || label.length > CHOICE_MAX_LABEL)) return null;
-  const seen = new Set(labels.map(normalizeAnswer));
-  return seen.size === labels.length ? labels : null;
-}
-
 export function normalizeAnswer(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
