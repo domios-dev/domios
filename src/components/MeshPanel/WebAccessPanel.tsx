@@ -8,7 +8,8 @@ import { BusyState } from "../shared/BusyState";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { trapDialogTab } from "../shared/dialogFocusTrap";
-import { UI_BUTTON, UI_TEXT } from "../shared/design";
+import { Button } from "../shared/Button";
+import { UI_TEXT } from "../shared/design";
 import { buildWebUiTarget, canShareWebUiRoute, classifyWebUiRoute, displayedWebUrl, shouldShowWebSetupHelper, webRouteLabel, webUiListenerReady, type NetworkInfo } from "./webUiTarget";
 import { deriveWebUiView } from "./meshWebUi";
 
@@ -50,10 +51,10 @@ function WebAccessSkeleton({ embedded, qrSize }: { embedded: boolean; qrSize: nu
       {!embedded && <SkeletonBlock width="100%" height={34} />}
       <SkeletonBlock width="70%" height={14} />
       <div className={`${embedded ? "my-1" : "my-3"} grid grid-cols-2 gap-2`}>
-        <SkeletonBlock shape="tile" width="100%" height={48} />
-        <SkeletonBlock shape="tile" width="100%" height={48} />
+        <SkeletonBlock shape="tile" width="100%" height="var(--ct-control-height)" />
+        <SkeletonBlock shape="tile" width="100%" height="var(--ct-control-height)" />
       </div>
-      <SkeletonBlock shape="tile" width="100%" height={48} />
+      <SkeletonBlock shape="tile" width="100%" height="var(--ct-control-height)" />
     </Skeleton>
   </>;
 }
@@ -104,7 +105,7 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
   }
 
   return (
-    <div className={embedded ? "w-full" : "fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-4 backdrop-blur-[2px]"} onClick={embedded ? undefined : onClose}>
+    <div className={embedded ? "w-full" : "fixed inset-0 z-40 flex items-center justify-center bg-[color-mix(in_srgb,var(--ct-bg)_70%,transparent)] p-4"} onClick={embedded ? undefined : onClose}>
       <div
         ref={panelRef}
         role={embedded ? "region" : "dialog"}
@@ -113,7 +114,7 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
         aria-labelledby={embedded ? undefined : "web-access-heading"}
         data-testid="web-access-panel"
         data-web-ui-state={view.state}
-        className={`relative flex w-full flex-col ${embedded ? "gap-2" : "gap-3"} rounded-2xl border border-[var(--ct-accent)] bg-[var(--ct-bg)] ${embedded ? "p-3" : "p-4"} shadow-2xl ${embedded ? "text-base" : "z-50 max-h-full max-w-[360px] overflow-y-auto"}`}
+        className={`relative flex w-full flex-col text-[var(--ct-fg)] text-xs leading-relaxed ${embedded ? "ct-card gap-2 p-3" : "ct-menu gap-3 p-4 z-50 max-h-full max-w-[360px] overflow-y-auto"}`}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (embedded) return;
@@ -123,16 +124,16 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
       >
         <div className="flex items-center justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-          <h2 id={embedded ? undefined : "web-access-heading"} ref={headingRef} tabIndex={embedded ? undefined : -1} className="text-xl font-semibold">Mesh UI</h2>
+          <h2 id={embedded ? undefined : "web-access-heading"} ref={headingRef} tabIndex={embedded ? undefined : -1} className="text-sm font-semibold">Mesh UI</h2>
           {(loading || busy) && <BusyState inline hideLabel label="Loading" phase="work" />}
           </div>
-          {embedded && onExpand && <button type="button" aria-label="Expand Mesh UI" title="Expand Mesh UI" className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon} rounded-full`} onClick={onExpand}><Maximize2 size={16} /></button>}
-          {!embedded && <button type="button" aria-label="Collapse Mesh UI" onClick={onClose} className={`${UI_BUTTON.ghost} ${UI_BUTTON.icon}`}><Minimize2 size={16} /></button>}
+          {embedded && onExpand && <Button type="button" aria-label="Expand Mesh UI" title="Expand Mesh UI" variant="icon" size="sm" onClick={onExpand}><Maximize2 size={16} /></Button>}
+          {!embedded && <Button type="button" aria-label="Collapse Mesh UI" onClick={onClose} variant="icon" size="sm"><Minimize2 size={16} /></Button>}
         </div>
         {loading && !ready && <WebAccessSkeleton embedded={embedded} qrSize={qrSize} />}
-        {ready && <p className="-mt-2 truncate text-sm text-[var(--ct-muted-fg)]">{host}</p>}
+        {ready && <p className="truncate text-xs text-[var(--ct-muted-fg)]">{host}</p>}
         {!ready && !loading && <p role="status">No verified web UI endpoint is available. Check the connection or set up Tailscale.</p>}
-        {!ready && view.state !== "ready" && view.state !== "loading" && <p role="status" className="text-sm" data-testid="web-access-status">{view.label}</p>}
+        {!ready && view.state !== "ready" && view.state !== "loading" && <p role="status" className="text-xs" data-testid="web-access-status">{view.label}</p>}
         {view.detail && !embedded && <p className={UI_TEXT.metaMuted}>{view.detail}</p>}
         {ready && <>
         {shareable && <div className="my-2 flex shrink-0 justify-center">
@@ -151,16 +152,16 @@ export function WebAccessPanel({ config, network, serve, loading, actions, onAct
           </div>
         </div>}
         {!embedded && <input readOnly aria-label="Web address" value={displayUrl} onFocus={(event) => event.currentTarget.select()} className="w-full min-w-0 rounded border border-[var(--ct-border)] bg-transparent p-2 text-xs" />}
-        <p className="flex items-start gap-1.5 text-sm text-[var(--ct-muted-fg)]" data-testid="web-access-route"><ShieldCheck size={14} className="shrink-0" />{webRouteLabel(route.kind)}</p>
+        <p className="flex items-start gap-1.5 text-xs text-[var(--ct-muted-fg)]" data-testid="web-access-route"><ShieldCheck size={14} className="shrink-0" />{webRouteLabel(route.kind)}</p>
         <div className={`${embedded ? "my-1" : "my-3"} grid grid-cols-2 gap-2`}>
-          <button type="button" style={{ minHeight: 48, fontSize: 16 }} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => actions.open(target.link)}><ExternalLink size={15} aria-hidden="true" />{shareable ? "Open" : "Open on this machine"}</button>
-          {shareable && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(async () => { await actions.copy(target.link); return "Link copied."; })}><Copy size={15} aria-hidden="true" />Copy link</button>}
+          <Button type="button" variant="accent" className="whitespace-normal" onClick={() => actions.open(target.link)}><ExternalLink size={15} aria-hidden="true" />{shareable ? "Open" : "Open on this machine"}</Button>
+          {shareable && <Button type="button" disabled={busy} variant="ghost" className="whitespace-normal" onClick={() => void run(async () => { await actions.copy(target.link); return "Link copied."; })}><Copy size={15} aria-hidden="true" />Copy link</Button>}
         </div>
         </>}
         <div className="flex flex-col gap-2">
-          {view.canSetup && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.accent} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(() => onAction("setup"))}>{view.operatorBootstrap ? "Set up Tailscale operator" : "Enable HTTPS (Tailscale Serve)"}</button>}
-          {view.canRepair && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(() => onAction("repair"))}>Repair route</button>}
-          {shouldShowWebSetupHelper(route.kind, ready) && <button type="button" style={{ minHeight: 48, fontSize: 16 }} disabled={busy} className={`${UI_BUTTON.ghost} ${UI_BUTTON.lg} !inline-flex !flex-row !items-center !justify-center gap-1.5 min-h-12 text-base`} onClick={() => void run(onSetup)}>Set up Tailscale with AI</button>}
+          {view.canSetup && <Button type="button" disabled={busy} variant="accent" className="whitespace-normal" onClick={() => void run(() => onAction("setup"))}>{view.operatorBootstrap ? "Set up Tailscale operator" : "Enable HTTPS (Tailscale Serve)"}</Button>}
+          {view.canRepair && <Button type="button" disabled={busy} variant="ghost" className="whitespace-normal" onClick={() => void run(() => onAction("repair"))}>Repair route</Button>}
+          {shouldShowWebSetupHelper(route.kind, ready) && <Button type="button" disabled={busy} variant="ghost" className="whitespace-normal" onClick={() => void run(onSetup)}>Set up Tailscale with AI</Button>}
         </div>
         {message && <p role="status">{message}</p>}
         {error != null && !embedded && <InlineErrorNotice error={error} operation="setting up web access" blocking />}
