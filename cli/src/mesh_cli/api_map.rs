@@ -272,14 +272,11 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             }
             crate::TabAction::List {
                 workspace,
-                all_workspaces,
                 agents,
             } => {
                 let mut query = vec![format!("agents={agents}")];
                 if let Some(workspace) = workspace {
                     query.push(format!("workspace_id={}", urlencoding::encode(workspace)));
-                } else if *all_workspaces {
-                    query.push("all_workspaces=true".into());
                 }
                 let path = if query.is_empty() {
                     "/api/tabs".to_string()

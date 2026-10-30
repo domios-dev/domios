@@ -461,11 +461,6 @@ pub(crate) fn events_sse(
 
 // ── PWA manifest — served per-token because installed iOS web apps get a storage container separate from Safari ──
 
-#[derive(Deserialize)]
-pub struct ManifestQuery {
-    token: Option<String>,
-}
-
 /// Extract a cookie value from the Cookie header.
 fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a str> {
     let cookie_header = headers.get("cookie")?.to_str().ok()?;
@@ -546,19 +541,12 @@ pub async fn web_manifest_bootstrap(
 /// it matches the configured API token, so the installed app launches
 /// pre-authenticated; otherwise start_url falls back to the plain mirror.
 ///
-/// Token sources (checked in order):
-/// 1. `?token=` query param (legacy — deprecated, leaks via logs/Referer)
-/// 2. `codeterm-web-token` cookie (set by web_manifest_bootstrap)
+/// The bearer bootstrap sets the authentication cookie.
 pub async fn web_manifest(
     AxumState(state): AxumState<AppState>,
     headers: axum::http::HeaderMap,
-    Query(query): Query<ManifestQuery>,
 ) -> impl axum::response::IntoResponse {
-    // Determine the token: query param (legacy) or cookie (preferred).
-    let token: Option<String> = query
-        .token
-        .clone()
-        .or_else(|| get_cookie(&headers, "codeterm-web-token").map(|s| s.to_string()));
+    let token = get_cookie(&headers, "codeterm-web-token").map(str::to_string);
 
     let token_ok = token
         .as_ref()

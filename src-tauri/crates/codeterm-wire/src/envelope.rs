@@ -13,7 +13,7 @@ use markup::{
 
 /// Bumped whenever a segment shape or a parse decision changes, so a client
 /// built against another grammar can refuse rather than misrender.
-pub const ENVELOPE_GRAMMAR_VERSION: u32 = 1;
+pub const ENVELOPE_GRAMMAR_VERSION: u32 = 2;
 
 const MAX_DEPTH: usize = 64;
 
@@ -239,7 +239,7 @@ pub(crate) fn parse_nested(text: &str, depth: usize, allow_frames: bool) -> Vec<
         let boundary = line_start || offset == out.run_start;
         let rest = &text[offset..];
         if line_start && rest.starts_with(crate::message_markers::OPEN) {
-            if let Some(segment) = legacy_marker(rest, allow_frames) {
+            if let Some(segment) = non_routing_marker(rest, allow_frames) {
                 out.push(text, offset..text.len(), segment);
                 offset = text.len();
                 continue;
@@ -371,10 +371,10 @@ fn pasted_marker_len(rest: &str, line_start: bool) -> Option<usize> {
     (after.starts_with("<domios") && opens_frame(after)).then_some(marker)
 }
 
-fn legacy_marker(rest: &str, allow_frames: bool) -> Option<MessageSegment> {
+fn non_routing_marker(rest: &str, allow_frames: bool) -> Option<MessageSegment> {
     let marker = crate::message_markers::parse(rest)?;
     match marker.kind.as_str() {
-        "voice" | "photo" | "file" if marker.attr("file").is_some() => {
+        "photo" | "file" if marker.attr("file").is_some() => {
             Some(MessageSegment::Attachment {
                 kind: if marker.kind == "photo" {
                     "image".into()

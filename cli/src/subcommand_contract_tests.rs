@@ -864,7 +864,6 @@ fn tab_list_defaults_to_all_workspace_scope() {
         parsed.action,
         TabAction::List {
             workspace: None,
-            all_workspaces: false,
             agents: false,
         }
     ));
@@ -878,7 +877,6 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
         listed.action,
         TabAction::List {
             workspace: Some(ref workspace),
-            all_workspaces: false,
             agents: true,
         } if workspace == "ws_1"
     ));
@@ -905,16 +903,7 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
     ));
     assert!(TabOnly::try_parse_from(["tab", "focus", "--tab", "tab_1"]).is_ok());
     assert!(TabOnly::try_parse_from(["tab", "close", "--tab", "tab_1"]).is_ok());
-    let all = TabOnly::try_parse_from(["tab", "list", "--all-workspaces"])
-        .expect("all-workspaces tab list parses");
-    assert!(matches!(
-        all.action,
-        TabAction::List {
-            workspace: None,
-            all_workspaces: true,
-            agents: false,
-        }
-    ));
+    assert!(TabOnly::try_parse_from(["tab", "list", "--all-workspaces"]).is_err());
     assert!(
         TabOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--all-workspaces"])
             .is_err()

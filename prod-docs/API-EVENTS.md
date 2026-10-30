@@ -42,9 +42,7 @@ Blueprint scope and payload contracts: BLUEPRINTS. Notification controls: API-TA
 | Method | Path | Operation |
 |--------|------|-----------|
 | DELETE | `/api/automation/blueprints/{id}` | Delete a Blueprint. |
-| DELETE | `/api/automation/sentinels/{id}` | Delete a Blueprint (sentinel route alias). |
 | DELETE | `/api/notifications/{id}` | Delete one notification. |
-| DELETE | `/api/sentinels/{id}` | Delete a Blueprint (sentinel route alias). |
 | GET | `/api/automation/graph` | Read the scoped Blueprint graph snapshot. |
 | GET | `/api/automation/graph/workspace` | Read the scoped Blueprint graph snapshot. |
 | POST | `/api/automation/blueprints/solutions/archive` | Archive a saved Blueprint solution. |
@@ -52,11 +50,9 @@ Blueprint scope and payload contracts: BLUEPRINTS. Notification controls: API-TA
 | POST | `/api/automation/blueprints/solutions/save` | Save a Blueprint solution. |
 | POST | `/api/automation/blueprints/{id}/stop` | Stop a Blueprint. |
 | POST | `/api/automation/node-files` | Manage Blueprint node files. |
-| POST | `/api/automation/sentinels/{id}/stop` | Stop a Blueprint (sentinel route alias). |
 | POST | `/api/ci/webhook` | Receive authenticated CI failure events; credential and limits above. |
 | POST | `/api/notifications/{id}/read` | Mark one notification read. |
 | POST | `/api/repo-watch/subscribe` | Subscribe to repository changes. |
 | POST | `/api/repo-watch/unsubscribe` | Unsubscribe from repository changes. |
-| POST | `/api/sentinels/{id}/stop` | Stop a Blueprint (sentinel route alias). |
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

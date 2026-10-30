@@ -58,7 +58,6 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
     match action {
         TabAction::List {
             workspace,
-            all_workspaces,
             agents,
         } => {
             let requested_workspace = workspace.clone();
@@ -69,7 +68,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                 return;
             }
             let workspace_id = workspace;
-            let params = tab_list_params(workspace_id, all_workspaces, agents);
+            let params = tab_list_params(workspace_id, agents);
             match fetch_ordinary_tabs(&params) {
                 Ok(value) => {
                     let Some(arr) = value.as_array() else {
@@ -932,19 +931,17 @@ fn describe_tab(
 
 fn tab_list_params(
     workspace_id: Option<String>,
-    all_workspaces: bool,
     agents_only: bool,
 ) -> serde_json::Value {
     serde_json::json!({
         "workspace_id": workspace_id,
         "focused_workspace": false,
-        "all_workspaces": all_workspaces,
         "agents_only": agents_only,
     })
 }
 
 fn tab_search_params() -> serde_json::Value {
-    tab_list_params(None, true, false)
+    tab_list_params(None, false)
 }
 
 fn fetch_search_tabs(client: &mut dyn RpcClient) -> Result<serde_json::Value, String> {
@@ -1023,13 +1020,6 @@ fn ordinary_tab_list_path(params: &serde_json::Value) -> String {
         .and_then(serde_json::Value::as_str)
     {
         query.push(format!("workspace_id={workspace}"));
-    }
-    if params
-        .get("all_workspaces")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-    {
-        query.push("all_workspaces=true".into());
     }
     if params
         .get("agents_only")

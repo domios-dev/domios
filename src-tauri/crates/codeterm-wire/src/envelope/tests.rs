@@ -291,7 +291,7 @@ fn envelope_plain_text_keeps_every_byte() {
 }
 
 #[test]
-fn envelope_legacy_attribute_decoding_preserves_unicode_and_invalid_percent_sequences() {
+fn envelope_current_attachment_paths_preserve_unicode_and_percent_sequences() {
     for path in ["/tmp/你好.webm", "/tmp/%你.webm", "/tmp/%FF.webm"] {
         let source = crate::message_markers::voice(path, Some("opaque"), None);
         assert!(
@@ -299,7 +299,22 @@ fn envelope_legacy_attribute_decoding_preserves_unicode_and_invalid_percent_sequ
         );
         let legacy = format!("-=-codeterm:voice file={path}-=-\nopaque");
         assert!(
-            matches!(&parse_envelope(&legacy)[0], MessageSegment::Attachment { path: parsed, .. } if parsed == path)
+            matches!(&parse_envelope(&legacy)[0], MessageSegment::Text { text } if text == &legacy)
         );
+    }
+}
+
+#[test]
+fn envelope_current_non_voice_markers_stay_readable() {
+    for (kind, expected) in [("photo", "image"), ("file", "file")] {
+        let source = crate::message_markers::Marker::new(kind)
+            .attr("file", "/opaque/path")
+            .attr("name", "opaque-label")
+            .build();
+        assert!(matches!(
+            &parse_envelope(&source)[0],
+            MessageSegment::Attachment { kind, path, label, .. }
+                if kind == expected && path == "/opaque/path" && label.as_deref() == Some("opaque-label")
+        ));
     }
 }

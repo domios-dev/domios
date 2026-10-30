@@ -96,9 +96,6 @@ pub enum TabAction {
         /// Workspace id to list. Without this selector every workspace is listed.
         #[arg(long, value_name = "WORKSPACE_ID")]
         workspace: Option<String>,
-        /// Accepted for compatibility; every workspace is now listed by default.
-        #[arg(long, conflicts_with = "workspace")]
-        all_workspaces: bool,
         /// Show only tabs running an agent (have an agent_type).
         #[arg(long)]
         agents: bool,

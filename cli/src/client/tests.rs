@@ -364,63 +364,21 @@ fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
     assert!(is_dev_socket("domios-dev.sock"));
 }
 
-fn method_not_found() -> SocketCallError {
-    SocketCallError::Rpc(RpcError {
-        code: -32601,
-        message: "Method not found".into(),
-        data: None,
-    })
-}
-
 #[test]
-fn version_skew_same_version_call_makes_exactly_one_request() {
-    let mut seen: Vec<(String, Option<serde_json::Value>)> = Vec::new();
-    let params = serde_json::json!({"tab_id": "t1"});
-
-    let result = call_with_version_fallback(
-        |method, params| {
-            seen.push((method.to_string(), params));
-            Ok(serde_json::json!({"ok": true}))
-        },
-        "tab.list",
-        Some(params.clone()),
-    )
-    .unwrap();
-
-    assert_eq!(result["ok"], true);
-    assert_eq!(seen, vec![("tab.list".to_string(), Some(params))]);
-}
-
-#[test]
-fn version_skew_typed_error_passes_through_untranslated() {
-    let mut calls = 0;
-    let outcome = call_with_version_fallback(
-        |_, _| {
-            calls += 1;
-            Err(SocketCallError::Rpc(RpcError {
-                code: crate::protocol::VERSION_SKEW_CODE,
-                message: "client protocol v1, server requires >=2 — run rebuild".into(),
-                data: Some(serde_json::json!({
-                    "type": "version_skew",
-                    "client_protocol": 1,
-                    "server_protocol": 2,
-                    "recovery": "rebuild",
-                })),
-            }))
-        },
-        "agent.report",
-        None,
-    );
-
-    let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
-        panic!("the typed error must stay an RPC error");
-    };
-    assert_eq!(calls, 1, "a skew refusal must not trigger extra requests");
-    assert_eq!(error.code, crate::protocol::VERSION_SKEW_CODE);
-    let data = error.data.expect("typed data crosses untranslated");
-    assert_eq!(data["client_protocol"], 1);
-    assert_eq!(data["server_protocol"], 2);
-    assert_eq!(data["recovery"], "rebuild");
+fn version_skew_and_missing_method_errors_pass_through_untranslated() {
+    for code in [crate::protocol::VERSION_SKEW_CODE, -32601] {
+        let data = serde_json::json!({"client_protocol":1,"server_protocol":2,"recovery":"rebuild"});
+        let result = http_rpc_result(
+            reqwest::StatusCode::OK,
+            serde_json::json!({"error":{"code":code,"message":"opaque refusal","data":data}}),
+        );
+        let SocketCallError::Rpc(error) = result.unwrap_err() else {
+            panic!("the typed error must stay an RPC error");
+        };
+        assert_eq!(error.code, code);
+        assert_eq!(error.message, "opaque refusal");
+        assert_eq!(error.data, Some(data));
+    }
 }
 
 #[test]
@@ -457,54 +415,6 @@ fn version_skew_request_envelope_carries_the_protocol_integer() {
     let wire: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
     assert_eq!(wire["protocol_version"], crate::protocol::PROTOCOL_VERSION);
-}
-
-#[test]
-fn version_skew_unknown_method_fallback_names_both_versions() {
-    let mut seen: Vec<String> = Vec::new();
-    let outcome = call_with_version_fallback(
-        |method, _| {
-            seen.push(method.to_string());
-            if method == "system.identify" {
-                Ok(serde_json::json!({"version": "0.0.1"}))
-            } else {
-                Err(method_not_found())
-            }
-        },
-        "tab.list",
-        None,
-    );
-
-    assert_eq!(
-        seen,
-        vec!["tab.list".to_string(), "system.identify".to_string()]
-    );
-    let SocketCallError::Transport(rendered) = outcome.unwrap_err() else {
-        panic!("cross-version -32601 becomes a transport explanation");
-    };
-    assert!(rendered.contains("0.0.1"), "{rendered}");
-    assert!(rendered.contains(env!("CARGO_PKG_VERSION")), "{rendered}");
-    assert!(rendered.contains("tab.list"), "{rendered}");
-}
-
-#[test]
-fn version_skew_unknown_method_on_same_version_daemon_stays_method_not_found() {
-    let outcome = call_with_version_fallback(
-        |method, _| {
-            if method == "system.identify" {
-                Ok(serde_json::json!({"version": env!("CARGO_PKG_VERSION")}))
-            } else {
-                Err(method_not_found())
-            }
-        },
-        "tab.list",
-        None,
-    );
-
-    let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
-        panic!("same-version -32601 is a real missing method, not skew");
-    };
-    assert_eq!(error.code, -32601);
 }
 
 #[test]
@@ -695,4 +605,68 @@ fn http_fallback_refuses_an_inherited_url_for_another_instance() {
             .base_url,
         "http://127.0.0.1:7791"
     );
+}
+
+#[test]
+fn socket_call_sends_one_request_without_a_version_probe() {
+    use interprocess::local_socket::ListenerOptions;
+
+    for code in [None, Some(crate::protocol::VERSION_SKEW_CODE), Some(-32601)] {
+        let name = format!("single-rpc-{}-{}", std::process::id(), uuid::Uuid::new_v4());
+        let listener = ListenerOptions::new()
+            .name(name.as_str().to_ns_name::<GenericNamespaced>().unwrap())
+            .create_sync()
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut stream = BufReader::new(listener.accept().unwrap());
+            let mut requests = Vec::new();
+            loop {
+                let mut line = String::new();
+                if stream.read_line(&mut line).unwrap() == 0 {
+                    break;
+                }
+                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                let response = if request["method"] == "system.identify" {
+                    serde_json::json!({"result":{"version":"0.0.1"}})
+                } else if let Some(code) = code {
+                    serde_json::json!({"error":{"code":code,"message":"opaque refusal","data":{"opaque":true}}})
+                } else {
+                    serde_json::json!({"result":{"opaque":true}})
+                };
+                writeln!(stream.get_mut(), "{}", serde_json::json!({
+                    "jsonrpc":"2.0", "id":request["id"],
+                    "result":response.get("result"), "error":response.get("error"),
+                })).unwrap();
+                requests.push(request);
+            }
+            requests
+        });
+        let stream = interprocess::local_socket::Stream::connect(
+            name.as_str().to_ns_name::<GenericNamespaced>().unwrap(),
+        ).unwrap();
+        let mut client = SocketClient {
+            transport: ClientTransport::Socket(BufReader::new(stream)),
+            credential: "opaque-credential".into(),
+            next_id: 1,
+        };
+        let params = serde_json::json!({"tab_id":"opaque-tab"});
+        let result = client.call_detailed("tab.list", Some(params.clone()));
+        drop(client);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["method"], "tab.list");
+        assert_eq!(requests[0]["params"], params);
+        assert_eq!(requests[0]["credential"], "opaque-credential");
+        assert_eq!(requests[0]["protocol_version"], crate::protocol::PROTOCOL_VERSION);
+        if let Some(code) = code {
+            let SocketCallError::Rpc(error) = result.unwrap_err() else {
+                panic!("RPC error must cross untranslated");
+            };
+            assert_eq!(error.code, code);
+            assert_eq!(error.message, "opaque refusal");
+            assert_eq!(error.data, Some(serde_json::json!({"opaque":true})));
+        } else {
+            assert_eq!(result.unwrap(), serde_json::json!({"opaque":true}));
+        }
+    }
 }

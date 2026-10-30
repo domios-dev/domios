@@ -404,14 +404,6 @@ impl SocketClient {
         method: &str,
         params: Option<serde_json::Value>,
     ) -> Result<serde_json::Value, SocketCallError> {
-        call_with_version_fallback(|m, p| self.call_raw(m, p), method, params)
-    }
-
-    fn call_raw(
-        &mut self,
-        method: &str,
-        params: Option<serde_json::Value>,
-    ) -> Result<serde_json::Value, SocketCallError> {
         let id = self.next_id;
         self.next_id += 1;
         let req = JsonRpcRequest {
@@ -541,64 +533,6 @@ fn http_rpc_result(
         .get("result")
         .cloned()
         .ok_or_else(|| SocketCallError::Transport("HTTP RPC response is missing result".into()))
-}
-
-/// Skew against a NEWER daemon is refused server-side with the typed
-/// version-skew error before dispatch, so the same-version path is exactly one
-/// request. This fallback covers the one direction the daemon cannot: a newer
-/// CLI calling an OLDER daemon that lacks the method entirely (-32601).
-fn call_with_version_fallback<F>(
-    mut raw: F,
-    method: &str,
-    params: Option<serde_json::Value>,
-) -> Result<serde_json::Value, SocketCallError>
-where
-    F: FnMut(&str, Option<serde_json::Value>) -> Result<serde_json::Value, SocketCallError>,
-{
-    match raw(method, params) {
-        Err(SocketCallError::Rpc(error)) if error.code == -32601 => {
-            let daemon_version = raw("system.identify", None)
-                .ok()
-                .and_then(|value| value.get("version")?.as_str().map(str::to_string));
-            let Some(daemon_version) = daemon_version else {
-                return Err(SocketCallError::Rpc(error));
-            };
-            let cli_version = env!("CARGO_PKG_VERSION");
-            if daemon_version == cli_version {
-                return Err(SocketCallError::Rpc(error));
-            }
-            Err(SocketCallError::Transport(render_protocol_mismatch(
-                method,
-                cli_version,
-                &daemon_version,
-            )))
-        }
-        result => result,
-    }
-}
-
-fn render_protocol_mismatch(method: &str, cli_version: &str, daemon_version: &str) -> String {
-    let ordering = compare_versions(cli_version, daemon_version);
-    let direction = match ordering {
-        Some(std::cmp::Ordering::Greater) => "CLI is newer than daemon",
-        Some(std::cmp::Ordering::Less) => "daemon is newer than CLI",
-        _ => "CLI and daemon versions differ",
-    };
-    format!(
-        "Domios CLI/daemon protocol mismatch: {direction} \
-         (CLI {cli_version}, daemon {daemon_version}); method '{method}' is unavailable. \
-         Restart or update Domios so the running daemon and installed CLI versions match."
-    )
-}
-
-fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
-    fn parse(version: &str) -> Option<Vec<u64>> {
-        version
-            .split('.')
-            .map(|part| part.split('-').next()?.parse().ok())
-            .collect()
-    }
-    Some(parse(left)?.cmp(&parse(right)?))
 }
 
 impl RpcClient for SocketClient {
