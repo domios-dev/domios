@@ -80,5 +80,5 @@ lane_check() (
   configure_lane_workspace_wrapper || return $?
   prepare_dev_frontend_dist "$(pwd -P)"
   prepare_bundle_stubs
-  CARGO_BUILD_JOBS=12 lane_cargo_check check --manifest-path "$manifest" "${package_args[@]}" "${target[@]}" "${tests[@]}" "${timings[@]}" --message-format=json-diagnostic-rendered-ansi
+  lane_cargo_check check --manifest-path "$manifest" "${package_args[@]}" "${target[@]}" "${tests[@]}" "${timings[@]}" --message-format=json-diagnostic-rendered-ansi
 )

@@ -1343,7 +1343,7 @@ A moved repository-watcher source guard can fail with “expected the repository
 ## Focused analytics checks
 
 `./build.sh test-one analytics tests::` runs the isolated product analytics crate
-through the capped Rust runner in canonical. Workers type-check touched crates with twelve jobs and format their Rust sources;
+through the capped Rust runner in canonical. Workers type-check touched crates using the shared .cargo/config.toml build.jobs setting and format their Rust sources;
 its HTTP fixtures use a local fake destination with synthetic retry timestamps.
 
 ## macOS endpoint-security hazard

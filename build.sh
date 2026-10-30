@@ -2842,7 +2842,7 @@ Domios build commands
   check                       Fast Rust compile check
   check-tests                 Compile app and CLI test profiles
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
-  lane-check <package>... [--tests] [--timings]  Type-check touched packages in one Cargo check with twelve jobs
+  lane-check <package>... [--tests] [--timings]  Type-check touched packages in one Cargo check with the shared Cargo job limit
   fmt [--base REF | --paths FILE...]  Format owned files or changed Rust/JS files
   lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
   cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache
@@ -3131,7 +3131,7 @@ EOF
     TAURI_CONFIG="$(cat "$(dev_conf_path)")" cargo build "${measure_args[@]}"
     ;;
   embedding-parity)
-    CARGO_BUILD_JOBS=4 cargo build --release --manifest-path src-tauri/Cargo.toml \
+    cargo build --release --manifest-path src-tauri/Cargo.toml \
       -p codeterm-mem --example embedding_oracle
     oracle_dir="${CARGO_TARGET_DIR:-src-tauri/target}"
     if [ -n "${CARGO_BUILD_TARGET:-}" ]; then oracle_dir="$oracle_dir/$CARGO_BUILD_TARGET"; fi

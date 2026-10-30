@@ -12,6 +12,7 @@ const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' 
 
 test('ordinary lanes use only an already live cache and respect explicit wrappers and opt-out', () => {
   const result = spawnSync(bash, ['-c', `set -eu
+    export CARGO_BUILD_JOBS=7
     source scripts/lane-check.sh
     RUSTC_WRAPPER=
     CODETERM_USE_SCCACHE=1
@@ -82,6 +83,7 @@ for (const cacheRoot of [false, true]) {
 test('machine cache root selects the lane directory without a workspace hash', () => {
   const result = spawnSync(bash, ['-c', `
     set -eu
+    export CARGO_BUILD_JOBS=7
     source scripts/lane-check.sh
     unset CODETERM_RUST_CACHE_ROOT CARGO_BUILD_BUILD_DIR
     CARGO_HOME="$PWD/cache-home"
@@ -110,9 +112,10 @@ test('shared resolver respects machine root, Cargo home and native home on every
   assert.equal(laneBuildDirectory({ env: {}, home: 'C:\\Users\\dev', platform: 'win32' }), 'C:/Users/dev/.cargo/codeterm-lanes');
 });
 
-test('lane checks cap Cargo jobs, propagate errors and request tests only when needed', () => {
+test('lane checks preserve caller Cargo jobs, propagate errors and request tests only when needed', () => {
   const result = spawnSync(bash, ['-c', `
     set -eu
+    export CARGO_BUILD_JOBS=7
     source scripts/lane-check.sh
     sccache() { :; }
     ct_sccache_server_live() { return 1; }
@@ -132,17 +135,18 @@ test('lane checks cap Cargo jobs, propagate errors and request tests only when n
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /no live sccache server; this check will compile without cache/);
   assert.deepEqual(result.stdout.trim().split(/\r?\n/).filter(line => line.startsWith('jobs=')), [
-    'jobs=12 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --message-format=json-diagnostic-rendered-ansi',
-    'jobs=12 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests --message-format=json-diagnostic-rendered-ansi',
-    'jobs=12 check --manifest-path src-tauri/Cargo.toml -p codeterm-pty -p codeterm-service-core --lib --tests --message-format=json-diagnostic-rendered-ansi',
-    'jobs=12 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests --message-format=json-diagnostic-rendered-ansi',
-    'jobs=12 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests --timings --message-format=json-diagnostic-rendered-ansi',
+    'jobs=7 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --message-format=json-diagnostic-rendered-ansi',
+    'jobs=7 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests --message-format=json-diagnostic-rendered-ansi',
+    'jobs=7 check --manifest-path src-tauri/Cargo.toml -p codeterm-pty -p codeterm-service-core --lib --tests --message-format=json-diagnostic-rendered-ansi',
+    'jobs=7 check --manifest-path cli/Cargo.toml -p codeterm-cli --bin codeterm --tests --message-format=json-diagnostic-rendered-ansi',
+    'jobs=7 check --manifest-path src-tauri/Cargo.toml -p codeterm-fixture --lib --tests --timings --message-format=json-diagnostic-rendered-ansi',
   ]);
 });
 
 test('server lane routing admits only the explicit server package without real Cargo', () => {
   const result = spawnSync(bash, ['-c', `
     set -eu
+    export CARGO_BUILD_JOBS=7
     source scripts/lane-check.sh
     configure_lane_build_dir() { :; }
     configure_lane_cache() { :; }
@@ -155,7 +159,7 @@ test('server lane routing admits only the explicit server package without real C
     lane_check domios-other && exit 1 || [ "$?" = 2 ]
   `], { cwd: path.resolve(import.meta.dirname, '../..'), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout.trim(), 'jobs=12 check --manifest-path src-tauri/Cargo.toml -p domios-server --lib --tests --message-format=json-diagnostic-rendered-ansi');
+  assert.equal(result.stdout.trim(), 'jobs=7 check --manifest-path src-tauri/Cargo.toml -p domios-server --lib --tests --message-format=json-diagnostic-rendered-ansi');
 });
 
 
@@ -166,6 +170,7 @@ test('two worktrees use their own exported items while registry metadata stays s
 test('lane workspace wrapper stays scoped to the lane subshell', () => {
   const result = spawnSync(bash, ['-c', `
     set -eu
+    export CARGO_BUILD_JOBS=7
     source scripts/lane-check.sh
     export RUSTC_WORKSPACE_WRAPPER=canonical-wrapper
     prepare_dev_frontend_dist() { :; }
