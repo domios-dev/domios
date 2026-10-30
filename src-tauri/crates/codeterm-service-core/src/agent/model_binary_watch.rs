@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use notify::event::{MetadataKind, ModifyKind};
-use notify::{Event, EventKind, RecursiveMode, Watcher};
+use notify::{Event, EventKind};
 use parking_lot::Mutex;
 use sha2::{Digest, Sha256};
 
@@ -18,6 +18,7 @@ use codeterm_plugin::chatbackend_provider::ChatBackendProvider;
 use codeterm_plugin::provider::AgentProvider;
 
 use crate::agent::model_catalog;
+use crate::service::tab_chat::file_events;
 
 /// Keeps one watcher per provider alive for the daemon's lifetime.
 // Lock order: `watchers` before `admitted`.
@@ -29,13 +30,19 @@ pub struct ProviderBinaryWatchers {
 
 type OnChange = Arc<dyn Fn() + Send + Sync>;
 type StreamHandler = Box<dyn FnMut(notify::Result<Event>) + Send>;
-type StartStream<'a> = &'a dyn Fn(&[(PathBuf, bool)], StreamHandler) -> Option<Box<dyn Send>>;
+type StartStream<'a> = &'a dyn Fn(&[PathBuf], StreamHandler) -> Option<Box<dyn Send>>;
 
 struct InputWatch {
     targets: Vec<PathBuf>,
     /// `None` until the install publishes, so a superseded stream never calls out.
     callback: Arc<Mutex<Option<OnChange>>>,
     _stream: Box<dyn Send>,
+}
+
+impl Drop for InputWatch {
+    fn drop(&mut self) {
+        *self.callback.lock() = None;
+    }
 }
 
 /// One install's place in its key's request order; only the newest publishes.
@@ -196,17 +203,7 @@ impl ProviderBinaryWatchers {
             Some(Some(())) => return WatchInstall::Reused,
             Some(None) => {}
         }
-        let watch_dirs: Vec<(PathBuf, bool)> = targets
-            .iter()
-            .filter_map(|target| {
-                let parent = target.parent()?;
-                let existing = parent.ancestors().find(|path| path.is_dir())?;
-                Some((existing.to_path_buf(), existing != parent))
-            })
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
-            .collect();
-        if watch_dirs.is_empty() {
+        if targets.is_empty() {
             return match self.publish(&admission, |watchers| watchers.remove(&admission.key)) {
                 Some(removed) => {
                     drop(removed);
@@ -245,7 +242,7 @@ impl ProviderBinaryWatchers {
             );
             on_change();
         });
-        let Some(stream) = start(&watch_dirs, handler) else {
+        let Some(stream) = start(&targets, handler) else {
             return WatchInstall::Unavailable;
         };
         let mut pending = Some(InputWatch {
@@ -272,17 +269,25 @@ impl ProviderBinaryWatchers {
     }
 }
 
-fn start_stream(dirs: &[(PathBuf, bool)], handler: StreamHandler) -> Option<Box<dyn Send>> {
-    let mut watcher = notify::recommended_watcher(handler).ok()?;
-    for (dir, recursive) in dirs {
-        let mode = if *recursive {
-            RecursiveMode::Recursive
-        } else {
-            RecursiveMode::NonRecursive
-        };
-        watcher.watch(dir, mode).ok()?;
-    }
-    Some(Box::new(watcher))
+fn start_stream(targets: &[PathBuf], mut handler: StreamHandler) -> Option<Box<dyn Send>> {
+    let (wake, events) = std::sync::mpsc::sync_channel(1);
+    let guards = targets
+        .iter()
+        .map(|target| file_events::watch(target, wake.clone()))
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    let targets = targets.to_vec();
+    std::thread::Builder::new()
+        .name("catalogue-input-events".into())
+        .spawn(move || {
+            while events.recv().is_ok() {
+                let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
+                event.paths = targets.clone();
+                handler(Ok(event));
+            }
+        })
+        .ok()?;
+    Some(Box::new(guards))
 }
 
 #[cfg(test)]
