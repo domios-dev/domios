@@ -472,21 +472,12 @@ async fn standalone_self_promotion_refuses_other_mutations_and_ineligible_tabs()
 
 #[tokio::test]
 async fn standalone_self_promotion_refuses_peer_and_missing_auth() {
-    use codeterm_service_core::mesh::{
-        account_mesh::{AccountMeshState, AccountPresence},
-        types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION},
-    };
+    use codeterm_service_core::mesh::types::{AccessLevel, PairedPeer, RELAY_PROTOCOL_VERSION};
     let fixture = Fixture::new();
     let target = fixture.standalone();
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     {
         let mut mesh = fixture.state.mesh.lock();
-        mesh.apply_account_state(AccountMeshState {
-            presence: AccountPresence::SignedIn {
-                account_id: "account".into(),
-            },
-            ..Default::default()
-        });
         mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "paired".into(),
             instance_name: "paired".into(),
