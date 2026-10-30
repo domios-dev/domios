@@ -726,7 +726,7 @@ fn instance_refuses_foreign_bearer_and_accepts_persisted_credential() {
 
 #[test]
 fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
-    use codeterm_service_core::mesh::account_mesh::{AccountMeshState, AccountPresence};
+    use codeterm_service_core::mesh::account_mesh::AccountMeshState;
     use codeterm_service_core::mesh::types::PairedPeer;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
@@ -735,15 +735,7 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
     let fixture = ServiceFixture::new(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
-    let sign_in = |locked| AccountMeshState {
-        account_epoch: 1 + u64::from(locked),
-        presence: AccountPresence::SignedIn {
-            account_id: "account".into(),
-        },
-        plan_limit_locked: locked,
-        ..AccountMeshState::default()
-    };
-    {
+    let admitted = {
         let mut mesh = state.mesh.lock();
         mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "locked-peer".into(),
@@ -762,8 +754,19 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
             consecutive_misses: 0,
             last_active_ms: None,
         });
-        mesh.apply_account_state(sign_in(true));
-    }
+        mesh.account_state().clone()
+    };
+    let sign_in = |locked| AccountMeshState {
+        account_epoch: 1 + u64::from(locked),
+        plan_limit_locked: locked,
+        membership: if locked {
+            None
+        } else {
+            admitted.membership.clone()
+        },
+        ..admitted.clone()
+    };
+    state.mesh.lock().apply_account_state(sign_in(true));
     let token =
         codeterm_service_core::mesh::crown::sign_request(&private_key, "locked-peer").unwrap();
     assert!(identify_caller(&state, &format!("Bearer {token}")).is_err());
