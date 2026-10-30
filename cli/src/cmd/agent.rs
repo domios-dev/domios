@@ -556,7 +556,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             attachments,
         }) => {
             if let Some(ref explicit) = tab {
-                if let Ok(own) = std::env::var("CODETERM_TAB_ID") {
+                if let Some(own) = crate::nonempty_env("CODETERM_TAB_ID") {
                     let differs = !own.is_empty()
                         && own != *explicit
                         && !own.starts_with(explicit.as_str())
@@ -599,10 +599,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     task_bound,
                 )
             {
-                let tab = std::env::var("CODETERM_TAB_ID")
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| tab_id.clone());
+                let tab = crate::nonempty_env("CODETERM_TAB_ID").unwrap_or_else(|| tab_id.clone());
                 crate::cmd::print::fail(1, missing_report_binding_incident(&tab));
             }
             let mut body = CallerContext::from_env().report_body(&tab_id, message);

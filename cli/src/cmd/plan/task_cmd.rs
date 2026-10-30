@@ -932,8 +932,8 @@ pub(super) fn run_task(
             task_id,
             attempt_id,
         } => {
-            let worker_tab_id = std::env::var("CODETERM_TAB_ID")
-                .map_err(|_| "remote ACK requires CODETERM_TAB_ID".to_string())?;
+            let worker_tab_id = crate::nonempty_env("CODETERM_TAB_ID")
+                .ok_or_else(|| "remote ACK requires CODETERM_TAB_ID".to_string())?;
             call(
                 client,
                 "plan.task.remote_ack",
@@ -964,8 +964,8 @@ pub(super) fn run_task(
                 .filter(|message| !message.trim().is_empty())
                 .ok_or_else(|| "remote report message is required".to_string())?;
             let report_id = format!("remote-report:{attempt_id}");
-            let reporter_tab_id = std::env::var("CODETERM_TAB_ID")
-                .map_err(|_| "remote report requires CODETERM_TAB_ID".to_string())?;
+            let reporter_tab_id = crate::nonempty_env("CODETERM_TAB_ID")
+                .ok_or_else(|| "remote report requires CODETERM_TAB_ID".to_string())?;
             call(
                 client,
                 "plan.task.remote_report",
@@ -1073,7 +1073,7 @@ pub(super) fn run_task(
             }
             if let Some(parent) = parent {
                 params["parent_tab_id"] = json!(parent);
-            } else if let Ok(parent) = std::env::var("CODETERM_TAB_ID") {
+            } else if let Some(parent) = crate::nonempty_env("CODETERM_TAB_ID") {
                 if !parent.trim().is_empty() {
                     params["parent_tab_id"] = json!(parent);
                 }
@@ -1171,8 +1171,6 @@ pub(super) fn run_task(
 mod tests;
 
 fn remote_worker_nonce() -> Result<String, String> {
-    std::env::var("CODETERM_SESSION_BINDING_NONCE")
-        .ok()
-        .filter(|nonce| !nonce.trim().is_empty())
+    crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE")
         .ok_or_else(|| "remote worker requires CODETERM_SESSION_BINDING_NONCE".into())
 }

@@ -524,9 +524,7 @@ fn target_tab(explicit: Option<String>) -> Result<String, String> {
 }
 
 fn current_tab() -> Option<String> {
-    std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    crate::nonempty_env("CODETERM_TAB_ID")
 }
 
 fn required_current_tab() -> Result<String, String> {

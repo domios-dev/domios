@@ -680,3 +680,35 @@ fn socket_call_sends_one_request_without_a_version_probe() {
         }
     }
 }
+#[test]
+fn identity_headers_omit_blank_claims_and_retain_real_values() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let fields = [
+        ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
+        ("CODETERM_SESSION_ID", "x-codeterm-session-id"),
+        ("CODETERM_SESSION_BINDING_NONCE", "x-codeterm-binding-nonce"),
+        ("CODETERM_WORKER_ID", "x-codeterm-worker-id"),
+    ];
+    let saved = fields.map(|(key, _)| std::env::var_os(key));
+    for input in ["", " \t ", "opaque-identity"] {
+        for (key, _) in fields {
+            std::env::set_var(key, input);
+        }
+        let headers = super::identity_headers(&fields);
+        for (_, header) in fields {
+            if input.trim().is_empty() {
+                assert!(!headers.contains_key(header));
+            } else {
+                assert_eq!(headers[header], input);
+            }
+        }
+    }
+    for ((key, _), value) in fields.into_iter().zip(saved) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+}

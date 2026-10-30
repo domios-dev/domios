@@ -6,6 +6,18 @@ use serde::{Deserialize, Serialize};
 mod optional;
 mod startup;
 
+pub(crate) fn identity_headers(fields: &[(&str, &'static str)]) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    for (env, header) in fields {
+        if let Some(value) = crate::nonempty_env(env) {
+            if let Ok(value) = value.parse() {
+                headers.insert(*header, value);
+            }
+        }
+    }
+    headers
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 /// Stable provenance labels for values in `identify --json`.
 pub enum ResolutionSource {
@@ -264,10 +276,7 @@ impl SocketClient {
         Err(connect_failure_message(
             socket_path,
             denied,
-            std::env::var("CODETERM_TAB_ID")
-                .ok()
-                .filter(|tab| !tab.is_empty())
-                .as_deref(),
+            crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
         ))
     }
 
@@ -336,18 +345,11 @@ impl SocketClient {
     }
 
     fn connect_http(config: HttpFallbackConfig) -> Result<Self, String> {
-        let mut headers = reqwest::header::HeaderMap::new();
-        for (env, header) in [
+        let headers = identity_headers(&[
             ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
             ("CODETERM_SESSION_ID", "x-codeterm-session-id"),
             ("CODETERM_SESSION_BINDING_NONCE", "x-codeterm-binding-nonce"),
-        ] {
-            if let Ok(value) = std::env::var(env) {
-                if let Ok(value) = value.parse() {
-                    headers.insert(header, value);
-                }
-            }
-        }
+        ]);
         let token = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", config.token))
             .map_err(|_| "CODETERM_API_TOKEN is not a valid HTTP header value".to_owned())?;
         let base_url = config.base_url;

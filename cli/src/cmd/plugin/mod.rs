@@ -261,10 +261,8 @@ fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
     let (args, body) = body_source::resolve(it.collect())?;
 
     let (mut client, _) = crate::client::SocketClient::connect_local()?;
-    let session_id = std::env::var("CODETERM_WORKER_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("CODETERM_TAB_ID").ok())
+    let session_id = crate::nonempty_env("CODETERM_WORKER_ID")
+        .or_else(|| crate::nonempty_env("CODETERM_TAB_ID"))
         .unwrap_or_default();
     let method = format!("plugin:{id}.{verb}");
     let mut params = serde_json::json!({ "args": args, "sessionId": session_id });

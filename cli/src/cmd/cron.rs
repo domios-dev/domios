@@ -117,7 +117,7 @@ pub fn handle_cron(client: &mut SocketClient, json: bool, action: CronAction) {
                 reasoning_effort.as_deref(),
                 cwd.as_deref(),
                 description.as_deref(),
-                std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
                 report_tab.as_deref(),
                 once,
                 jitter_max_ms,

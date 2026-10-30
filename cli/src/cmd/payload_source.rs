@@ -3,9 +3,7 @@ use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 pub fn current_pad() -> Result<PathBuf, String> {
-    let tab_id = std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
+    let tab_id = crate::nonempty_env("CODETERM_TAB_ID")
         .ok_or("AgentPad requires CODETERM_TAB_ID; focused-tab fallback is not allowed")?;
     let (mut client, _) = crate::client::SocketClient::connect_local()?;
     resolve_current_pad(&tab_id, &mut client)

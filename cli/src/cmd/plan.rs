@@ -462,7 +462,7 @@ fn run_plan(
                 json!({
                     "plan_id": plan_id,
                     "fix": fix,
-                    "caller_tab_id": std::env::var("CODETERM_TAB_ID").ok(),
+                    "caller_tab_id": crate::nonempty_env("CODETERM_TAB_ID"),
                 }),
             )?;
             if json {

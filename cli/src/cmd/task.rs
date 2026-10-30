@@ -14,9 +14,7 @@ fn caller_tab(client: &dyn RpcClient) -> Option<String> {
     if client.is_remote() {
         return None;
     }
-    std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
+    crate::nonempty_env("CODETERM_TAB_ID")
 }
 
 fn cwd_project(client: &dyn RpcClient) -> Option<String> {
