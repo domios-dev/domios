@@ -88,7 +88,7 @@ for observed in ['[', 'null', '{"task": []}', '[]']:
     cargo.stdout = iter([json.dumps({'reason': 'compiler-message', 'message': {'level': 'error', 'rendered': 'opaque E0425', 'spans': []}})])
     with (
         patch.dict(os.environ, {'CODETERM_TASK_ID': 'task-a', 'CODETERM_ATTEMPT_ID': 'attempt-a'}, clear=True),
-        patch.object(subprocess, 'Popen', lambda _: cargo),
+        patch.object(subprocess, 'Popen', lambda *args, **kwargs: cargo),
         patch.object(subprocess, 'run', lambda *args, **kwargs: SimpleNamespace(stdout=observed)),
     ):
         assert module['run_cargo'](['opaque-cargo']) == 101, observed
