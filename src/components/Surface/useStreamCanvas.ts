@@ -1,6 +1,6 @@
 import { useLayoutEffect, useEffect, useRef, type RefObject } from "react";
 import { createLatestWins } from "./latestWins";
-import { decodeJpegFrame, type DecodedFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
+import { decodeJpegFrame, JPEG_DECODE_BACKEND, type DecodedFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
 import { DEV_BUILD } from "../../lib/devBuild";
 import { createStreamFrameCapture } from "./streamFrameCapture";
 import {
@@ -74,7 +74,7 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
 
   useEffect(() => {
     if (!DEV_BUILD || !canvasRef.current || !stageRef.current) return;
-    const local = createStreamFrameCapture(canvasRef.current, stageRef.current, decode === decodeJpegFrame ? "createImageBitmap/jpeg" : "custom");
+    const local = createStreamFrameCapture(canvasRef.current, stageRef.current, decode === decodeJpegFrame ? JPEG_DECODE_BACKEND : "custom");
     capture.current = local;
     return () => {
       capture.current = null;

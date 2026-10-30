@@ -34,7 +34,7 @@ function fixture() {
     return url;
   };
   URL.revokeObjectURL = (url) => { revoked.push(url); };
-  const capture = createStreamFrameCapture(canvas, stage, "createImageBitmap/jpeg");
+  const capture = createStreamFrameCapture(canvas, stage, "HTMLImageElement/jpeg");
   const buttons = stage.querySelectorAll("button");
   return {
     stage, capture, blobs, revoked,
@@ -80,7 +80,7 @@ suite.test("one arm retains the exact accepted JPEG and a bounded snapshot of di
     assert.equal(metrics.dpr, window.devicePixelRatio);
     assert.equal(metrics.layoutDpr, 2);
     assert.equal(metrics.acceptedDraw, 1);
-    assert.equal(metrics.decodeBackend, "createImageBitmap/jpeg");
+    assert.equal(metrics.decodeBackend, "HTMLImageElement/jpeg");
     assert.equal(metrics.metadata.timestamp, 123);
     assert.equal(metrics.metadata.offsetTop, null);
     assert.deepEqual(Object.keys(metrics.metadata).sort(), ["deviceWidth", "deviceHeight", "offsetTop", "pageScaleFactor", "scrollOffsetX", "scrollOffsetY", "timestamp"].sort());

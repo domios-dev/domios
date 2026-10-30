@@ -1,4 +1,4 @@
-import { frameBytes, type DecodedFrame } from "./frameFeed";
+import { frameBytes, JPEG_DECODE_BACKEND, type DecodedFrame } from "./frameFeed";
 import type { Size, StreamViewport } from "./streamModel";
 import type { StreamFrame } from "./surfaceStreamTransport";
 
@@ -81,7 +81,7 @@ export function createStreamFrameCapture(canvas: HTMLCanvasElement, stage: HTMLE
           captureId: `stream-frame-${Date.now()}-${acceptedDraws}`,
           acceptedDraw: acceptedDraws,
           capturedAt: new Date().toISOString(),
-          decodeBackend: backend === "createImageBitmap/jpeg" ? backend : "custom",
+          decodeBackend: backend === JPEG_DECODE_BACKEND ? backend : "custom",
           jpegBytes: bytes.byteLength,
           encoded: jpegSize(bytes),
           decoded: { width: scalar(decoded.width), height: scalar(decoded.height) },
