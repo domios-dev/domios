@@ -572,29 +572,38 @@ fn extract_pending(svc: Arc<ServiceContext>, limit: usize, explicit: bool) -> us
     let fut = async move {
         let _permit = mem.acquire_heavy_permit().await;
         for (id, title, body, kind) in pending {
-            if explicit
-                && svc
-                    .workers
-                    .active_by_intent(&format!("extract:{id}"))
-                    .is_none()
-            {
-                if let Err(error) = svc
-                    .workers
-                    .extraction_retries
-                    .reset(&format!("extract:{id}"))
+            let svc = svc.clone();
+            let mem_cfg = mem_cfg.clone();
+            let default_agent = default_agent.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                if explicit
+                    && svc
+                        .workers
+                        .active_by_intent(&format!("extract:{id}"))
+                        .is_none()
                 {
-                    log::error!("[auto-extract] reset failed: {error}");
-                    continue;
+                    if let Err(error) = svc
+                        .workers
+                        .extraction_retries
+                        .reset(&format!("extract:{id}"))
+                    {
+                        log::error!("[auto-extract] reset failed: {error}");
+                        return;
+                    }
                 }
+                let (title, body) = svc
+                    .mem
+                    .get(&id)
+                    .ok()
+                    .flatten()
+                    .map(|item| (item.title, item.body))
+                    .unwrap_or((title, body));
+                spawn_extraction_worker(&svc, &mem_cfg, &default_agent, id, title, body, kind);
+            })
+            .await;
+            if let Err(error) = result {
+                log::error!("[auto-extract] pending extraction task failed: {error}");
             }
-            let (title, body) = svc
-                .mem
-                .get(&id)
-                .ok()
-                .flatten()
-                .map(|item| (item.title, item.body))
-                .unwrap_or((title, body));
-            spawn_extraction_worker(&svc, &mem_cfg, &default_agent, id, title, body, kind);
         }
     };
     match tokio::runtime::Handle::try_current() {

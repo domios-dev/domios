@@ -4,6 +4,8 @@ use codeterm_service_core::mem::{
     embedder::{ActiveEmbedder, Content, EmbedError, EmbeddingProvider, Modality},
 };
 
+mod pending_extraction;
+
 #[test]
 fn mem_backend_startup_decision_is_symmetric() {
     for selected in [MemoryBackend::Sqlite, MemoryBackend::Postgres] {
