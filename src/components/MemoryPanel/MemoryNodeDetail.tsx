@@ -2,6 +2,7 @@ import { ChevronRight } from "lucide-react";
 import Markdown from "react-markdown";
 import { MemoryProvenance } from "./MemoryProvenance";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
+import { BusyState } from "../shared/BusyState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
 import type { MemEdge, MemItemFull, MemNode } from "./types";
@@ -285,7 +286,7 @@ export function MemoryNodeDetail({
       </div>}
 
       <div>
-        {loadingBody && <div className={sectionLabelClass}>Loading…</div>}
+        {loadingBody && <BusyState label="Loading memory" inline className={sectionLabelClass} />}
         {editing ? (
           <textarea
             rows={10}

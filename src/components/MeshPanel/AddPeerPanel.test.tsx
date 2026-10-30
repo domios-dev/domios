@@ -117,3 +117,17 @@ it("offers sign-in without exposing old transport cards when signed out", async 
   await click(button("Sign in"));
   expect(spies.onSignIn).toHaveBeenCalledTimes(1);
 });
+
+it("shows a failed machine action with shared error details and its cause", async () => {
+  const client = new FakeAccountMeshClient(snapshot());
+  client.revokeOutcomes.push({ ok: false, failure: { reason: "forbidden" } });
+  await mount(client, "signed_in");
+  await click(button("Remove MacBook from mesh"));
+  await click(button("Confirm remove"));
+  const failure = account("MacBook")?.querySelector('[role="alert"]');
+  expect(failure?.textContent).toContain("Your account does not allow this action.");
+  const details = failure?.querySelector("details");
+  expect(details?.open).toBe(false);
+  expect(details?.querySelector("pre")?.textContent).toBe('{"reason":"forbidden"}');
+  expect(details?.querySelector("button")?.textContent).toBe("Copy");
+});

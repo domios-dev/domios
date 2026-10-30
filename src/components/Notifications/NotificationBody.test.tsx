@@ -19,7 +19,7 @@ test("notification and inline capsule bodies load images with their owning tab",
       <NotificationBody text="@ds-image /work/notice.png" tabId="mesh:peer/owner" />
       <LocalArtifactScope tabId="local-owner"><InlineAttachmentText segments={[
         { attachment: { kind: "file", path: "/work/note.txt", label: "note" } },
-        { text: "\n@ct-image /work/capsule.png\n" },
+        { text: "\n@ds-image /work/capsule.png\n" },
       ]} /></LocalArtifactScope>
     </>));
     expect([...host.querySelectorAll("img")].map((image) => image.getAttribute("src"))).toEqual([
