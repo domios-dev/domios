@@ -2,6 +2,7 @@ import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { AppConfig } from "../../lib/types";
+import { invoke } from "../../lib/bridge";
 import { MeshPanel } from "./MeshPanel";
 import { webUiSnapshot } from "./webUiFixture.testdata";
 import { GeneralInventorySections } from "../Sidebar/GeneralInventory";
@@ -43,9 +44,9 @@ vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: (peers: readonly PeerSt
 vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),
-  invoke: async (command: string) => { bridgeCommands.push(command); return command === "get_serve_status"
+  invoke: vi.fn(async (command: string) => { bridgeCommands.push(command); return command === "get_serve_status"
     ? { installed: true, active: true, snapshot: webUiSnapshot("ready") }
-    : { api_port: 7686, local_ip: "192.168.1.2", web_listener: "100.64.1.2:7686" }; },
+    : { api_port: 7686, local_ip: "192.168.1.2", web_listener: "100.64.1.2:7686" }; }),
   listen: async (event: string, callback: () => void) => {
     if (event === "mesh-state-changed") meshListeners.add(callback);
     return () => { meshListeners.delete(callback); };
@@ -124,19 +125,36 @@ it("shows a disabled mesh as off with a turn-on action instead of a retryable fa
   document.body.append(host);
   const root = createRoot(host);
   const config = { api: { port: 7686, token: "private-token" }, mesh: { enabled: false } } as AppConfig;
-  const updates: AppConfig[] = [];
+  const updateConfig = vi.fn(async () => {});
+  let publishConfig: (next: AppConfig) => void = () => {};
+  function Harness() {
+    const [current, setConfig] = useState(config);
+    publishConfig = setConfig;
+    return <MeshPanel api={current.api} config={current} onConfigUpdate={updateConfig} onClose={() => {}} />;
+  }
   meshData = {
     thisMachine: { name: "this", ip: "127.0.0.1" }, services: [], peers: [],
     loading: false, error: "service unavailable", loaded: false, refresh: () => {},
   };
   try {
-    await act(async () => root.render(<MeshPanel api={config.api} config={config} onConfigUpdate={async (next) => { updates.push(next); }} onClose={() => {}} />));
+    await act(async () => root.render(<Harness />));
     const view = host.querySelector('section[aria-label="Mesh inventory"]');
     const buttons = Array.from(view!.querySelectorAll("button"));
     expect(buttons.some((button) => button.textContent?.includes("Retry"))).toBe(false);
     expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).toBeNull();
-    await act(async () => buttons[0]!.click());
-    expect(updates.map((next) => next.mesh.enabled)).toEqual([true]);
+    const turnOn = buttons.find((button) => button.textContent?.trim() === "Turn on Mesh");
+    expect(turnOn).toBeDefined();
+    vi.mocked(invoke).mockImplementationOnce(async (command, args) => {
+      expect(command).toBe("mesh_set_enabled");
+      expect(args).toEqual({ enabled: true });
+      meshData = { ...inventory, error: null };
+      publishConfig({ ...config, mesh: { ...config.mesh, enabled: true } });
+    });
+    await act(async () => turnOn!.click());
+    expect(invoke).toHaveBeenCalledWith("mesh_set_enabled", { enabled: true });
+    expect(updateConfig).not.toHaveBeenCalled();
+    expect(host.querySelector('section[aria-label="Mesh inventory"]')).toBeNull();
+    expect(host.querySelector('[role="region"][aria-label="Mesh UI"]')).not.toBeNull();
   } finally {
     meshData = inventory;
     await act(async () => root.unmount());

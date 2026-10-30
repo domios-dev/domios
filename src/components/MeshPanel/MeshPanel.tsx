@@ -58,11 +58,11 @@ function normalizeTab(t: unknown): MeshTab {
   return "inventory";
 }
 
-export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
+export function MeshPanel({ config, onClose }: Props) {
   const touchUi = useTouchOptimizedUi();
   const goOnline = useCallback(async () => {
-    await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
-  }, [config, onConfigUpdate]);
+    await invoke("mesh_set_enabled", { enabled: true });
+  }, []);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
   const [refreshKey, setRefreshKey] = useState(0);
   const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
