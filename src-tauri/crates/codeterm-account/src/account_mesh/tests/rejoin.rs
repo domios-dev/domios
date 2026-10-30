@@ -244,10 +244,10 @@ async fn account_mesh_rejoin_old_auth_is_decided_by_server() {
 #[tokio::test]
 async fn account_mesh_rejoin_failed_rotation_does_not_loop_in_a_sign_in_epoch() {
     let harness = removed().await;
-    harness.registry.script.lock().unwrap().enrollment = Some(wire::RegistryRefusal::Unavailable);
+    harness.registry.script.lock().unwrap().enrollment = Some(wire::RegistryRefusal::ProofInvalid);
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Explicit).await,
-        Err(AccountMeshRefusal::Unavailable)
+        Err(AccountMeshRefusal::ReauthRequired)
     );
     harness.clock.set(START + 60);
     for trigger in [

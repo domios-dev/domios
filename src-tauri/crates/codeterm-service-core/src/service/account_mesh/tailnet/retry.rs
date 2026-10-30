@@ -21,6 +21,10 @@ impl Failure {
         changed
     }
 
+    pub fn reset_deadline(&mut self) {
+        self.retry_at = None;
+    }
+
     pub fn due(&self, now: Instant) -> bool {
         self.retry_at.is_none_or(|at| now >= at)
     }

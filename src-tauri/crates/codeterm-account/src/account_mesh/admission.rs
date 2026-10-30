@@ -117,6 +117,19 @@ impl AccountMesh {
         signed: &Signed,
         operation: MeshOperation,
     ) -> Outcome<MeshResult> {
+        if matches!(operation, MeshOperation::Recover { target_policy: Some(_), .. })
+            && !self.with(|inner| inner.rejoin_window.as_ref().is_some_and(|window| window.live(signed.epoch, self.now()))) {
+            return Err(AccountMeshRefusal::ReauthRequired);
+        }
+        let prepared = self.with(|inner| {
+            inner.rejoin_window.as_ref().filter(|window| window.live(signed.epoch, self.now()))
+                .and_then(|window| window.recovery.as_ref())
+                .filter(|prepared| prepared.request.operation == operation).cloned()
+        });
+        if let Some(prepared) = prepared {
+            self.with(|inner| inner.last_request = Some(prepared.request.request_id.clone()));
+            return self.call(self.ports.registry.admission(&signed.session, &prepared)).await;
+        }
         let generation = self.generation(signed).await?;
         let mut request = MeshAdmissionBody {
             schema_version: MESH_SCHEMA_VERSION,
@@ -153,6 +166,13 @@ impl AccountMesh {
             request,
             installation_proof,
         };
+        if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+            self.with(|inner| {
+                if let Some(window) = inner.rejoin_window.as_mut().filter(|window| window.epoch == signed.epoch) {
+                    window.recovery = Some(envelope.clone());
+                }
+            });
+        }
         let result = self
             .call(self.ports.registry.admission(&signed.session, &envelope))
             .await;

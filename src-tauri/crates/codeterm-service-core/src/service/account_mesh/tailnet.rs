@@ -136,7 +136,15 @@ impl Serving {
         self.sockets.keys().chain(self.reused.iter()).copied().collect()
     }
 
+    fn retry_now(&mut self) {
+        for failure in self.failed.values_mut() { failure.reset_deadline(); }
+    }
+
     async fn reconcile(&mut self, desired: &[SocketAddr], router: &axum::Router, primary: &[SocketAddr]) {
+        self.reconcile_with_bind(desired, router, primary, codeterm_util::tcp_listener::bind).await;
+    }
+
+    async fn reconcile_with_bind(&mut self, desired: &[SocketAddr], router: &axum::Router, primary: &[SocketAddr], mut bind: impl FnMut(SocketAddr) -> std::io::Result<std::net::TcpListener>) {
         self.reused.retain(|address| primary.iter().any(|bind| covers(*bind, *address)));
         self.withdraw(desired).await;
         while let Some(result) = self.tasks.try_join_next() {
@@ -146,16 +154,16 @@ impl Serving {
             if self.sockets.contains_key(address) || self.reused.contains(address) {
                 continue;
             }
-            if primary.iter().any(|bind| covers(*bind, *address)) {
-                self.reused.insert(*address);
-                self.failed.remove(address);
-                continue;
-            }
             if self.failed.get(address).is_some_and(|failure| !failure.due(tokio::time::Instant::now())) {
                 continue;
             }
-            let listener = match codeterm_util::tcp_listener::bind(*address) {
+            let listener = match bind(*address) {
                 Ok(listener) => listener,
+                Err(error) if reusable_primary(error.kind(), primary, *address) => {
+                    self.reused.insert(*address);
+                    self.failed.remove(address);
+                    continue;
+                }
                 Err(error) => {
                     self.failed.entry(*address).or_default().record(tokio::time::Instant::now(), format!("bind {address}: {}", error.kind()));
                     continue;
@@ -253,12 +261,15 @@ pub(super) async fn run_with_network(
             } => {},
             changed = network.changed() => {
                 if changed.is_err() { break; }
+                serving.retry_now();
             },
             changed = rest.changed() => {
                 if changed.is_err() { break; }
+                serving.retry_now();
             },
             event = config_changed(&mut config) => {
                 if event.is_err() { break; }
+                serving.retry_now();
             },
             Some(result) = serving.tasks.join_next(), if !serving.tasks.is_empty() => {
                 serving.stopped(result);
@@ -269,6 +280,10 @@ pub(super) async fn run_with_network(
     serving.withdraw(&[]).await;
     control.listeners.publish_tailnet(Vec::new());
     service.ui.emit("mesh-state-changed", serde_json::json!({}));
+}
+
+fn reusable_primary(error: std::io::ErrorKind, primary: &[SocketAddr], address: SocketAddr) -> bool {
+    error == std::io::ErrorKind::AddrInUse && primary.iter().any(|bind| covers(*bind, address))
 }
 
 fn covers(bind: SocketAddr, address: SocketAddr) -> bool {

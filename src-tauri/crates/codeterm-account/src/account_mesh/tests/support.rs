@@ -1,3 +1,5 @@
+mod proofs;
+use proofs::ProofChallenges;
 use crate::account_mesh::wire::*;
 use crate::account_mesh::*;
 use crate::{Identity, InstallationId, Secret, Session};
@@ -167,6 +169,7 @@ pub struct Script {
     pub renew_bodies: Vec<MeshAdmissionBody>,
     pub key_requests: Vec<InstallationEnrollment>,
     pub recovery_bodies: Vec<MeshAdmissionBody>,
+    pub recovery_prepared: Vec<SignedEnvelope<MeshAdmissionBody>>,
     pub endpoint_seconds: Option<u64>,
     pub membership_registry_revision: Option<u64>,
     pub registry_revision: Option<u64>,
@@ -179,6 +182,9 @@ pub struct Script {
     pub presence: Option<RegistryRefusal>,
     pub list: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
+    pub expire_recovery_receipt: bool,
+    pub permit_once: Option<RegistryRefusal>,
+    pub link_bodies: Vec<MeshAdmissionBody>,
     pub gate: Option<Arc<Notify>>,
     pub list_gate: Option<Arc<Notify>>,
     pub sync_gate: Option<Arc<Notify>>,
@@ -202,6 +208,7 @@ struct Account {
     slot: Option<u64>,
     slot_key: Option<(String, u64)>,
     renew_receipt: Option<(MeshAdmissionBody, MeshResult)>,
+    recovery_receipt: Option<(SignedEnvelope<MeshAdmissionBody>, MeshResult)>,
     metadata_revision: u64,
     endpoint: Option<MeshEndpointObservation>,
     inactive: bool,
@@ -219,7 +226,7 @@ pub struct FakeRegistry {
     pub list_entered: Notify,
     pub sync_entered: Notify,
     accounts: Mutex<HashMap<String, Account>>,
-    challenged: Mutex<Option<serde_json::Value>>,
+    challenged: Mutex<ProofChallenges>,
 }
 
 impl FakeRegistry {
@@ -233,62 +240,13 @@ impl FakeRegistry {
             list_entered: Notify::new(),
             sync_entered: Notify::new(),
             accounts: Mutex::new(HashMap::new()),
-            challenged: Mutex::new(None),
+            challenged: Mutex::new(ProofChallenges::default()),
         }
     }
 
     fn admit(&self, session: &Session, label: &str) {
         let token = session.id_token.expose();
         note(&self.log, format!("registry:{label}:{token}"));
-    }
-
-    fn verify<T: serde::Serialize>(
-        &self,
-        session: &Session,
-        endpoint: &str,
-        body: &T,
-        proof: &InstallationProof,
-        spki: Option<&str>,
-    ) -> RegistryResult<()> {
-        let body = serde_json::to_value(body).unwrap();
-        if self.challenged.lock().unwrap().take().as_ref() != Some(&body) {
-            return Err(RegistryRefusal::Conflict);
-        }
-        let uid = &session.identity.uid;
-        if spki.is_none() && self.accounts.lock().unwrap().get(uid).is_some_and(|account| account.key_generation != proof.generation) {
-            return Err(RegistryRefusal::GenerationMismatch);
-        }
-        let spki = match spki {
-            Some(spki) => spki.to_owned(),
-            None => self
-                .accounts
-                .lock()
-                .unwrap()
-                .get(uid)
-                .and_then(|account| account.key.clone())
-                .ok_or(RegistryRefusal::Forbidden)?,
-        };
-        let digest = super::super::key::jcs_sha256_hex(&body).unwrap();
-        let signed = json!({
-            "domain": "domios.online-installation-proof.v1",
-            "project": PROJECT, "mode": "test", "uid": uid, "installation_id": INSTALLATION,
-            "policy_epoch": EPOCH, "method": "POST", "endpoint": endpoint, "body_sha256": digest,
-            "schema_version": proof.schema_version, "key_id": proof.key_id,
-            "generation": proof.generation, "timestamp": proof.timestamp, "nonce": proof.nonce,
-        });
-        let bytes = codeterm_entitlements::jcs::encode(&signed).unwrap();
-        let der = STANDARD.decode(&spki).unwrap();
-        let key = codeterm_entitlements::policy::parse_spki(&spki).unwrap();
-        let signature: [u8; 64] = URL_SAFE_NO_PAD
-            .decode(&proof.signature)
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let valid = key
-            .verify_strict(bytes.as_bytes(), &Signature::from_bytes(&signature))
-            .is_ok()
-            && proof.key_id == super::super::key::sha256_hex(&der);
-        valid.then_some(()).ok_or(RegistryRefusal::Forbidden)
     }
 
     pub fn slot(&self, uid: &str) -> Option<u64> {
@@ -395,13 +353,7 @@ impl MeshRegistry for FakeRegistry {
                 assert!(request.body.get("requested_membership_seconds").is_none());
             }
         }
-        *self.challenged.lock().unwrap() = Some(request.body.clone());
-        Ok(format!(
-            "{}.{}.{}",
-            self.clock.now(),
-            "a".repeat(43),
-            "b".repeat(43)
-        ))
+        Ok(self.challenged.lock().unwrap().issue(request.body.clone(), self.clock.now()))
     }
 
     async fn enroll_key(
@@ -484,8 +436,13 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::Link { .. } => "link",
         };
         self.admit(session, label);
+        if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
+            self.script.lock().unwrap().link_bodies.push(envelope.request.clone());
+        }
         if matches!(envelope.request.operation, MeshOperation::Recover { .. }) {
-            self.script.lock().unwrap().recovery_bodies.push(envelope.request.clone());
+            let mut script = self.script.lock().unwrap();
+            script.recovery_bodies.push(envelope.request.clone());
+            script.recovery_prepared.push(envelope.clone());
         }
         if matches!(envelope.request.operation, MeshOperation::List { .. }) {
             let gate = self.script.lock().unwrap().list_gate.clone();
@@ -509,6 +466,10 @@ impl MeshRegistry for FakeRegistry {
         }
         let proof = &envelope.installation_proof;
         self.verify(session, "meshAdmission", &envelope.request, proof, None)?;
+        if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. })
+            && self.script.lock().unwrap().expire_recovery_receipt {
+            return Err(RegistryRefusal::ChallengeInvalid);
+        }
         if matches!(envelope.request.operation, MeshOperation::Sync { .. }) {
             let gate = self.script.lock().unwrap().sync_gate.clone();
             if let Some(gate) = gate {
@@ -523,12 +484,10 @@ impl MeshRegistry for FakeRegistry {
             } else {
                 script.membership
             };
-            (
-                membership,
-                script.publication,
-                script.permit,
-                script.issuer_ahead,
-            )
+            let permit = if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
+                script.permit_once.take().or(script.permit)
+            } else { script.permit };
+            (membership, script.publication, permit, script.issuer_ahead)
         };
         let lost_membership_reply = if membership_op {
             self.script.lock().unwrap().lose_membership_reply.take()
@@ -539,6 +498,11 @@ impl MeshRegistry for FakeRegistry {
         let now = self.clock.now() + script.3;
         let mut accounts = self.accounts.lock().unwrap();
         let account = accounts.entry(uid.clone()).or_default();
+        if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+            if let Some((prepared, result)) = &account.recovery_receipt {
+                if prepared == envelope { return Ok(result.clone()); }
+            }
+        }
         if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
             let mut script = self.script.lock().unwrap();
             script.renew_bodies.push(envelope.request.clone());
@@ -619,6 +583,9 @@ impl MeshRegistry for FakeRegistry {
                 });
                 if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
                     account.renew_receipt = Some((envelope.request.clone(), result.clone()));
+                }
+                if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+                    account.recovery_receipt = Some((envelope.clone(), result.clone()));
                 }
                 if let Some(refusal) = lost_membership_reply {
                     return Err(refusal);

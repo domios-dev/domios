@@ -30,9 +30,17 @@ impl Drop for Owner<'_> {
 
 impl AccountMesh {
     pub async fn list(&self) -> Outcome {
+        self.registry_list(true).await
+    }
+
+    pub(super) async fn list_fresh(&self) -> Outcome {
+        self.registry_list(false).await
+    }
+
+    async fn registry_list(&self, allow_cached: bool) -> Outcome {
         let signed = self.signed(None).await?;
         if let Some(cached) = self.with(|inner| {
-            (inner.is_current(signed.epoch)
+            (allow_cached && inner.is_current(signed.epoch)
                 && inner.state.enrollment == super::state::Enrollment::Refused
                 && matches!(
                     inner.state.last_refusal,

@@ -1,4 +1,4 @@
-use super::key::{jcs_sha256_hex, sha256_hex, InstallationKey, ProofContext};
+use super::key::{jcs_sha256_hex, InstallationKey, ProofContext};
 use super::lifecycle::AccountMesh;
 use super::membership::{
     account_id, membership_token, parse_membership_token, verify_link_permit, verify_membership,
@@ -270,7 +270,7 @@ impl AccountMesh {
         Ok(enrolled.generation)
     }
 
-    fn own_slot(&self, account: &str) -> Option<u64> {
+    pub(super) fn own_slot(&self, account: &str) -> Option<u64> {
         self.with(|inner| inner.record.slots.get(account).copied())
     }
 
@@ -956,7 +956,7 @@ impl AccountMesh {
     /// Fresh online slot identity of an active, eligible installation; no endpoint needed.
     pub async fn resolve_link_identity(&self, installation_id: &str) -> Outcome<MeshTarget> {
         let signed = self.signed(None).await?;
-        let observation = self.list().await?;
+        let observation = self.list_fresh().await?;
         let row = observation
             .rows
             .iter()
@@ -978,7 +978,7 @@ impl AccountMesh {
     /// Fresh online registry read; the only source of a new-link address.
     pub async fn resolve_link_target(&self, installation_id: &str) -> Outcome<LinkTarget> {
         let signed = self.signed(None).await?;
-        let observation = self.list().await?;
+        let observation = self.list_fresh().await?;
         let now = self.now();
         let row = observation
             .rows
@@ -1011,69 +1011,6 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         Ok(LinkTarget { target, endpoint })
-    }
-
-    /// Fresh online, per-side authorization for a NEW link; never served from any cache.
-    /// The peer target only names the request; the server re-checks it against the registry.
-    pub async fn authorize_link(&self, request: LinkAuthorization) -> Outcome<String> {
-        let now = self.now();
-        let epoch = self.with(|inner| {
-            let state = &inner.state;
-            match &state.presence {
-                Presence::SignedOut => Err(AccountMeshRefusal::SignedOut),
-                Presence::NeverSignedIn => Err(AccountMeshRefusal::Unauthenticated),
-                Presence::SignedIn { account_id } if *account_id != request.account_id => {
-                    Err(AccountMeshRefusal::Unauthenticated)
-                }
-                Presence::SignedIn { .. } if state.plan_limit_locked() => {
-                    Err(AccountMeshRefusal::PlanLimitLocked)
-                }
-                Presence::SignedIn { .. } if state.current_membership(now).is_none() => {
-                    Err(AccountMeshRefusal::Revoked)
-                }
-                Presence::SignedIn { .. } => Ok(state.account_epoch),
-            }
-        })?;
-        if request.local_installation_id != self.installation() {
-            return Err(AccountMeshRefusal::Invalid);
-        }
-        let resolved = self.with(|inner| {
-            inner.resolved.get(&request.peer_installation_id).cloned().or_else(|| {
-                inner.state.registry.as_ref()?.rows.iter()
-                    .find(|row| row.installation_id == request.peer_installation_id && row.active
-                        && row.eligibility == Eligibility::Eligible && row.presence == RegistryPresence::Present)
-                    .map(|row| row.target())
-            })
-        });
-        // A responder authorizes on the initiator's slot identity; it never dials that peer.
-        let peer = match resolved {
-            Some(peer) => peer,
-            None => {
-                self.resolve_link_identity(&request.peer_installation_id)
-                    .await?
-            }
-        };
-        let signed = self.signed(Some(epoch)).await?;
-        let expected_slot_revision = self
-            .own_slot(&signed.account)
-            .ok_or(AccountMeshRefusal::Revoked)?;
-        let operation = MeshOperation::Link {
-            expected_slot_revision,
-            peer,
-            transcript_sha256: sha256_hex(&request.transcript),
-        };
-        let MeshResult::Permit(result) = self.admission(&signed, operation).await? else {
-            return Err(AccountMeshRefusal::Invalid);
-        };
-        if result.installation_id != self.installation()
-            || result.peer_installation_id != request.peer_installation_id
-        {
-            return Err(AccountMeshRefusal::Invalid);
-        }
-        if !self.with(|inner| inner.is_current(epoch)) {
-            return Err(AccountMeshRefusal::Cancelled);
-        }
-        Ok(membership_token(&result.permit))
     }
 
     /// Verifies a peer's membership against the signed-in account; never against a cache.
