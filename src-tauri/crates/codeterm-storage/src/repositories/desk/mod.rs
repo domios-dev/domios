@@ -10,10 +10,9 @@ pub(crate) use mutations::remove_team;
 mod tests;
 
 pub use records::{
-    normalize_legacy_session_id, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields,
-    DeskSnapshot, DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace,
-    LEGACY_SESSION_ID_FIELD, MAX_DESK_CATALOGUE, MAX_DESK_LAYOUT_DEPTH, MAX_DESK_LAYOUT_NODES,
-    MAX_DESK_LEAF_BYTES, MAX_DESK_TABS, MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
+    DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot, DeskState, DeskTab,
+    DeskTeam, DeskTeamLifecycle, DeskWorkspace, MAX_DESK_CATALOGUE, MAX_DESK_LAYOUT_DEPTH,
+    MAX_DESK_LAYOUT_NODES, MAX_DESK_LEAF_BYTES, MAX_DESK_TABS, MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
 };
 
 use crate::owner::Storage;

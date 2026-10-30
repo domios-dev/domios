@@ -28,7 +28,7 @@ pub fn init_extension(conn: &Connection) -> Result<(), String> {
 
 pub fn init_index(conn: &Connection, active: &EmbedderIdentity) -> Result<(), String> {
     ensure_extension_registered();
-    let stamp = index::ensure(conn, active, &crate::embedder::legacy_identity())?;
+    let stamp = index::ensure(conn, active)?;
     if stamp != *active {
         log::warn!(
             "[mem.embedder] vector index holds {stamp}; active embedder is {active} — vectors stay unused until the switch completes"
@@ -42,7 +42,7 @@ pub fn init_index(conn: &Connection, active: &EmbedderIdentity) -> Result<(), St
 pub fn init_derived_index(conn: &Connection) -> Result<(), String> {
     let active = ActiveEmbedder::global().identity();
     ensure_extension_registered();
-    let stamp = index::ensure(conn, &active, &crate::embedder::legacy_identity())?;
+    let stamp = index::ensure(conn, &active)?;
     if stamp != active {
         index::recreate(conn, &active)?;
     }

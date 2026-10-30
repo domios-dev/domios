@@ -506,7 +506,7 @@ fn restore_keeps_a_full_fidelity_1_7_7_leaf() {
     "title_level": "Default",
     "agent_type": "claude",
     "agent_type_locked": true,
-    "claude_session_id": "b0937780-2ad6-4ceb-a8dc-571a3c491d6b",
+    "agent_session_id": "b0937780-2ad6-4ceb-a8dc-571a3c491d6b",
     "agent_identity": {
       "session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
       "reported_session_binding_nonce": "0244b07f-7746-4d22-9e73-9bc396c3af48",
@@ -647,7 +647,7 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
                             "tab_id":"tab-a",
                             "cwd":"C:/project",
                             "agent_type":"provider-unverified",
-                            "claude_session_id":"session-unverified",
+                            "agent_session_id":"session-unverified",
                             "agent_identity":{"session_binding_nonce":"nonce-unverified"},
                             "role":"Worker",
                             "role_profile":null,
@@ -743,7 +743,7 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
 }
 
 #[test]
-fn stored_legacy_desk_field_restores_agent_session_id() {
+fn stored_current_desk_field_restores_agent_session_id() {
     let root = tempfile::tempdir().unwrap();
     let mut snapshot = desk(&[("ws-a", &["tab-a"])]);
     if let SplitNodeSnapshot::Leaf {
@@ -752,18 +752,7 @@ fn stored_legacy_desk_field_restores_agent_session_id() {
     {
         *agent_session_id = Some("session-unverified".into());
     }
-    let mut persisted = project_snapshot(&snapshot, Vec::new()).unwrap();
-    let codeterm_storage::DeskLayoutNode::Leaf { fields, .. } =
-        &mut persisted.workspaces[0].tabs[0].layout
-    else {
-        panic!("tab layout remains a leaf")
-    };
-    let object = fields.values.as_object_mut().unwrap();
-    let session_id = object.remove("agent_session_id").unwrap();
-    object.insert(
-        codeterm_storage::LEGACY_SESSION_ID_FIELD.to_string(),
-        session_id,
-    );
+    let persisted = project_snapshot(&snapshot, Vec::new()).unwrap();
 
     let storage = codeterm_storage::Storage::open(
         root.path().join("state"),
@@ -823,4 +812,23 @@ fn runtime_login_values_never_enter_saved_identity() {
     let text = saved.to_string();
     assert!(!text.contains("opaque-token"));
     assert!(!text.contains("https://example.invalid/opaque-path"));
+}
+
+#[test]
+fn legacy_desk_session_field_is_refused_without_adoption() {
+    let snapshot = desk(&[("ws", &["tab-a"])]);
+    let mut tab = serde_json::to_value(&snapshot.workspaces[0].tabs[0]).unwrap();
+    tab["split_tree"]["claude_session_id"] = serde_json::json!("old-session");
+    assert!(super::legacy_decode::reject_legacy_session_id(&tab)
+        .unwrap_err()
+        .contains("claude_session_id"));
+    assert!(parse_tab_record(std::path::Path::new("isolated/last.json"), "ws", 0, tab).is_none());
+    let fields = codeterm_storage::DeskLeafFields {
+        values: serde_json::json!({"claude_session_id":"old-session"}),
+    };
+    assert!(fields
+        .validate()
+        .unwrap_err()
+        .to_string()
+        .contains("claude_session_id"));
 }

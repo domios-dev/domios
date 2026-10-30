@@ -17,7 +17,8 @@ fn command(root: &std::path::Path) -> std::process::Command {
 #[test]
 fn instance_token_command_prints_only_local_authority_without_a_daemon() {
     let dir = tempfile::tempdir().unwrap();
-    codeterm_util::instance_token::initialize_at(dir.path(), Some("isolated-authority"), false)
+    codeterm_util::secret_file::SecretFile::new_at(dir.path(), "domios.instance")
+        .set("api_token", "isolated-authority")
         .unwrap();
     for flags in [
         vec!["system", "api-token"],
@@ -46,12 +47,9 @@ fn instance_token_command_refuses_mesh_without_opening_the_local_store() {
 #[test]
 fn instance_token_command_refuses_tab_context_without_disclosing_host_authority() {
     let dir = tempfile::tempdir().unwrap();
-    codeterm_util::instance_token::initialize_at(
-        dir.path(),
-        Some("isolated-host-authority"),
-        false,
-    )
-    .unwrap();
+    codeterm_util::secret_file::SecretFile::new_at(dir.path(), "domios.instance")
+        .set("api_token", "isolated-host-authority")
+        .unwrap();
     let output = command(dir.path())
         .env("CODETERM_TAB_ID", "isolated-tab")
         .args(["system", "api-token"])

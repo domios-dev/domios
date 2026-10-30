@@ -12,7 +12,8 @@ pub fn decode_snapshot(json: &str) -> Result<DecodedSnapshot, String> {
         serde_json::from_str(json).map_err(|error| error.to_string())?;
     codeterm_types::startup_records::normalize_pane_id_fields(&mut value)
         .map_err(|error| error.to_string())?;
-    codeterm_storage::normalize_legacy_session_id(&mut value);
+
+    reject_legacy_session_id(&value)?;
     let snapshot = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
     let layouts = decode_layouts(&value)?;
     Ok(DecodedSnapshot { snapshot, layouts })
@@ -149,4 +150,31 @@ fn decode_identity_key(key: &str) -> Result<(String, String), String> {
         return Err("agent identity key has an empty component".into());
     }
     Ok((provider.to_owned(), session_id.to_owned()))
+}
+
+pub(super) fn reject_legacy_session_id(value: &serde_json::Value) -> Result<(), String> {
+    match value {
+        serde_json::Value::Object(object) => {
+            if object.get("type").and_then(serde_json::Value::as_str) == Some("Leaf")
+                && object.contains_key("claude_session_id")
+            {
+                return Err(
+                    "unsupported legacy desk field claude_session_id; expected agent_session_id"
+                        .into(),
+                );
+            }
+            for key in ["workspaces", "tabs", "split_tree", "children"] {
+                if let Some(value) = object.get(key) {
+                    reject_legacy_session_id(value)?;
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                reject_legacy_session_id(value)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
 }

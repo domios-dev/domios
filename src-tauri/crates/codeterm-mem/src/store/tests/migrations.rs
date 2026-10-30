@@ -52,3 +52,53 @@ fn versioned_legacy_and_fresh_converge_and_backfill_owner() {
     assert_eq!(legacy.total_changes(), changes);
     println!("legacy before: {before:?}\nlegacy after: {expected:?}");
 }
+
+#[test]
+fn failed_old_schema_open_preserves_file_and_journal_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("knowledge.db");
+    let conn = Connection::open(&path).unwrap();
+    conn.execute_batch(include_str!("legacy.sql")).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE mem_schema_version(version INTEGER NOT NULL);
+         INSERT INTO mem_schema_version VALUES(1);
+         ALTER TABLE mem_items ADD COLUMN author_uid TEXT;",
+    )
+    .unwrap();
+    let schema: String = conn
+        .query_row("SELECT group_concat(sql) FROM sqlite_master", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    drop(conn);
+    let before = std::fs::read(&path).unwrap();
+
+    let error = match crate::backend::SqliteMemStore::open(&path, &dir.path().join("blobs")) {
+        Ok(_) => panic!("conflicting old schema must be refused"),
+        Err(error) => error,
+    };
+    assert!(
+        error.contains("duplicate column name: author_uid"),
+        "{error}"
+    );
+    let conn = Connection::open(&path).unwrap();
+    assert_eq!(
+        conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
+            .unwrap(),
+        "delete"
+    );
+    assert_eq!(
+        conn.query_row("SELECT group_concat(sql) FROM sqlite_master", [], |row| row
+            .get::<_, String>(0))
+            .unwrap(),
+        schema
+    );
+    assert_eq!(
+        conn.query_row("SELECT version FROM mem_schema_version", [], |row| row
+            .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    drop(conn);
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+}

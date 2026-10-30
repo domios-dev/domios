@@ -1,0 +1,5 @@
+auth::tests::migrated_instance_refuses_legacy_bearer_and_accepts_persisted_replacement -> auth::tests::instance_refuses_foreign_bearer_and_accepts_persisted_credential
+load::tests::migration_removes_config_token_and_never_rereads_credential_on_reload -> load::tests::current_credential_is_never_reread_on_reload
+delayed_send::tests::open_normalizes_pane_era_records_and_isolates_malformed_siblings -> delayed_send::tests::open_keeps_current_records_and_isolates_malformed_siblings
+session::store::tests::stored_legacy_desk_field_restores_agent_session_id -> session::store::tests::stored_current_desk_field_restores_agent_session_id
+embedder::tests::embedder_switch::recall_reembed_adopts_unstamped_l12_without_relabelling -> embedder::tests::embedder_switch::recall_reembed_refuses_unstamped_index_without_relabelling
