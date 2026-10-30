@@ -240,7 +240,14 @@ async fn publish_with_origin(
     Ok(())
 }
 
-fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, event: RuntimeEvent, live: bool) {
+fn apply(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    epoch: u64,
+    at: u64,
+    event: RuntimeEvent,
+    live: bool,
+) {
     let context = session.context.lock().clone();
     if context.epoch != epoch || engine::validate_binding(svc, session).is_err() {
         return;
@@ -309,7 +316,9 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                     }));
                     origin
                 })
-            } else { None };
+            } else {
+                None
+            };
             crate::service::tab_chat::structured_sink::emit_live_runtime_chat_msg(
                 svc.ui.as_ref(),
                 &context.tab_id,

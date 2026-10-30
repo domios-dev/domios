@@ -52,13 +52,25 @@ pub(crate) fn live_runtime_origin(
     item: &ChatMsg,
 ) -> Option<LiveRuntimeOrigin> {
     let turn = current.active_turn_id.as_deref()?;
-    (live && !current.tab_id.is_empty() && !current.binding_nonce.is_empty() && current.epoch > 0 && !thread.is_empty()
-        && before.tab_id == current.tab_id && before.epoch == current.epoch
-        && before.binding_nonce == current.binding_nonce && before.thread_id == current.thread_id
-        && current.thread_id.as_deref() == Some(thread) && !turn.is_empty() && turn.len() <= 128
+    (live
+        && !current.tab_id.is_empty()
+        && !current.binding_nonce.is_empty()
+        && current.epoch > 0
+        && !thread.is_empty()
+        && before.tab_id == current.tab_id
+        && before.epoch == current.epoch
+        && before.binding_nonce == current.binding_nonce
+        && before.thread_id == current.thread_id
+        && current.thread_id.as_deref() == Some(thread)
+        && !turn.is_empty()
+        && turn.len() <= 128
         && !turn.bytes().any(|byte| byte.is_ascii_control())
-        && item.tool_flow_id.as_deref() == Some(turn) && item.inherited_from_session_id.is_none())
-        .then(|| LiveRuntimeOrigin { kind: "runtime_live", turn: turn.to_owned() })
+        && item.tool_flow_id.as_deref() == Some(turn)
+        && item.inherited_from_session_id.is_none())
+    .then(|| LiveRuntimeOrigin {
+        kind: "runtime_live",
+        turn: turn.to_owned(),
+    })
 }
 
 pub fn emit_chat_msgs(
@@ -69,7 +81,15 @@ pub fn emit_chat_msgs(
     source_session_id: Option<&str>,
     session_binding_nonce: Option<&str>,
 ) {
-    emit_chat_msgs_with_origin(ui, tab_id, messages, cursor, source_session_id, session_binding_nonce, None);
+    emit_chat_msgs_with_origin(
+        ui,
+        tab_id,
+        messages,
+        cursor,
+        source_session_id,
+        session_binding_nonce,
+        None,
+    );
 }
 
 pub(crate) fn emit_live_runtime_chat_msg(
@@ -80,7 +100,15 @@ pub(crate) fn emit_live_runtime_chat_msg(
     session_binding_nonce: Option<&str>,
     origin: Option<&LiveRuntimeOrigin>,
 ) {
-    emit_chat_msgs_with_origin(ui, tab_id, std::slice::from_ref(message), None, source_session_id, session_binding_nonce, origin);
+    emit_chat_msgs_with_origin(
+        ui,
+        tab_id,
+        std::slice::from_ref(message),
+        None,
+        source_session_id,
+        session_binding_nonce,
+        origin,
+    );
 }
 
 fn emit_chat_msgs_with_origin(
