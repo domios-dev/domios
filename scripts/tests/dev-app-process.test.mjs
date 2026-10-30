@@ -11,11 +11,11 @@ import { runDevApp, windowsDevArguments, nativeLocatorRecord, prebuiltReadinessP
 import { devRuntimeEnvironment } from '../dev-runtime-environment.mjs';
 import { rebuildStopPlan } from '../dev-rebuild-stop.mjs';
 
-test('Windows desktop transport delivers runtime frontend identity and excludes inherited credentials', { skip: process.platform !== 'win32', timeout: 20_000 }, () => {
+for (const isolatedHomes of [true, false]) test(`Windows desktop transport preserves owner provider homes and excludes inherited credentials; homes=${isolatedHomes ? 'isolated' : 'unset'}`, { skip: process.platform !== 'win32', timeout: 20_000 }, () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-desktop-runtime-'));
   try {
     const child = path.join(directory, 'child.cjs');
-    const keys = ['CODETERM_VITE_PORT', 'CODETERM_DEV_IDENTIFIER', 'CODETERM_CDP_PORT', 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', 'CODETERM_API_TOKEN', 'CODETERM_API_PORT', 'CODETERM_SOCKET_PATH', 'CT_PRIVATE'];
+    const keys = ['CODETERM_VITE_PORT', 'CODETERM_DEV_IDENTIFIER', 'CODETERM_CDP_PORT', 'WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS', 'CODETERM_API_TOKEN', 'CODETERM_API_PORT', 'CODETERM_SOCKET_PATH', 'CT_PRIVATE', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'];
     fs.writeFileSync(child, `console.log(JSON.stringify(Object.fromEntries(${JSON.stringify(keys)}.map(key => [key, process.env[key] ?? null]))));`);
     const probe = path.join(directory, 'probe.ps1');
     fs.writeFileSync(probe, `
@@ -30,6 +30,8 @@ $env:CODETERM_API_TOKEN='excluded-fixture-token'
 $env:CODETERM_API_PORT='7685'
 $env:CODETERM_SOCKET_PATH='excluded-fixture-socket'
 $env:CT_PRIVATE='excluded-fixture-value'
+$env:CLAUDE_CONFIG_DIR=${isolatedHomes ? "'owner-isolated-claude'" : '$null'}
+$env:CODEX_HOME=${isolatedHomes ? "'owner-isolated-codex'" : '$null'}
 $flags=[Reflection.BindingFlags]'Static,NonPublic'
 $write=[DevDesktop].GetMethod('WriteEnvironment',$flags)
 $read=[DevDesktop].GetMethod('ReadEnvironment',$flags)
@@ -48,6 +50,8 @@ foreach ($kind in @('count','key')) {
 $buffer.Position=0
 $reader=[IO.BinaryReader]::new($buffer,[Text.Encoding]::UTF8,$true)
 $selected=$read.Invoke($null,[object[]]@($reader))
+$env:CLAUDE_CONFIG_DIR='explorer-real-claude'
+$env:CODEX_HOME='explorer-real-codex'
 $output=[IO.MemoryStream]::new()
 $code=[DevAppProcess]::RunOwned($env:PROBE_NODE,[string[]]@($env:PROBE_CHILD),$output,(Split-Path $env:PROBE_CHILD),$selected,[Threading.CancellationToken]::None)
 if ($code -ne 0) { throw "Probe child exit $code" }
@@ -60,7 +64,9 @@ if ($code -ne 0) { throw "Probe child exit $code" }
     assert.equal(result.status, 0, result.stderr || result.error?.message);
     assert.deepEqual(JSON.parse(result.stdout), { CODETERM_VITE_PORT: '1851', CODETERM_DEV_IDENTIFIER: 'com.domios.dev.transport',
       CODETERM_CDP_PORT: '9351', WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--opaque-runtime-flag',
-      CODETERM_API_TOKEN: null, CODETERM_API_PORT: null, CODETERM_SOCKET_PATH: null, CT_PRIVATE: null });
+      CODETERM_API_TOKEN: null, CODETERM_API_PORT: null, CODETERM_SOCKET_PATH: null, CT_PRIVATE: null,
+      CLAUDE_CONFIG_DIR: isolatedHomes ? 'owner-isolated-claude' : null,
+      CODEX_HOME: isolatedHomes ? 'owner-isolated-codex' : null });
   } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
