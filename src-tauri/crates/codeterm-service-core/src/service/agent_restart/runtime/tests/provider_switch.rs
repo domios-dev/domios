@@ -312,13 +312,13 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
     for invalid in [
         "plan", "task", "attempt", "partial", "session", "nonce", "unverified",
         "provider", "foreign", "retired", "unacknowledged", "duplicate", "ambiguous",
-        "open", "owner", "owner_epoch", "owner_session", "closed", "cancelled",
+        "open", "owner", "owner_epoch", "owner_session", "closed", "cancelled", "pty_id", "empty_pty", "lifecycle_epoch", "sleeping",
     ] {
         let (fixture, task_id, _) = switch_worker_fixture();
         complete_switch_task(&fixture, &task_id);
         let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
         match invalid {
-            "plan" | "task" | "attempt" | "partial" | "session" | "nonce" | "unverified" => {
+            "plan" | "task" | "attempt" | "partial" | "session" | "nonce" | "unverified" | "pty_id" | "empty_pty" | "lifecycle_epoch" | "sleeping" => {
                 let mut mux = fixture.service.mux.write();
                 let tab = mux.get_tab_mut(&fixture.tab).unwrap();
                 match invalid {
@@ -329,6 +329,13 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
                     "session" => tab.agent_session_id = Some("foreign".into()),
                     "nonce" => tab.session_binding_nonce = Some("foreign".into()),
                     "unverified" => tab.reported_session_binding_nonce = None,
+                    "pty_id" => tab.pty_id = None,
+                    "empty_pty" => tab.pty_id = Some(String::new()),
+                    "lifecycle_epoch" => tab.lifecycle_epoch = None,
+                    "sleeping" => {
+                        tab.frozen = true;
+                        tab.pty_id = None;
+                    }
                     _ => unreachable!(),
                 }
             }
@@ -363,6 +370,10 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             &fixture.tab, PROVIDER, Some("supplied-model".into()), None, true,
         ).err().unwrap();
         assert!(error.starts_with("provider_switch_binding_refused:"), "{invalid}: {error}");
+        if matches!(invalid, "pty_id" | "empty_pty" | "lifecycle_epoch" | "sleeping") {
+            assert!(error.contains("completed_continuity_pty_generation_missing:"));
+            assert!(error.contains("wake or resume this tab"));
+        }
         let after = fixture.service.mux.read().get_tab(&fixture.tab).cloned().unwrap();
         assert_eq!(after.agent_type, source.agent_type, "{invalid}");
         assert_eq!(after.agent_session_id, source.agent_session_id, "{invalid}");
@@ -617,7 +628,8 @@ fn switch_worker_fixture() -> (RuntimeFixture, String, String) {
         tab.session_binding_nonce = Some("source-nonce".into());
         tab.reported_session_binding_nonce = Some("source-nonce".into());
         tab.backing = TabBacking::Pty;
-        tab.pty_id = None;
+        tab.pty_id = Some("source-pty-generation".into());
+        tab.lifecycle_epoch = Some(1);
         tab.agent_booting = false;
     }
     let store = &fixture.service.plan_store;

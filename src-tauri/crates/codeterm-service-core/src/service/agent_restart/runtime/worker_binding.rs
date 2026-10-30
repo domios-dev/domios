@@ -24,6 +24,7 @@ pub(crate) struct RestartBindingAuthority {
 }
 static BINDINGS: LazyLock<Mutex<HashMap<(usize, String), RestartBindingAuthority>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+// Keep BINDINGS -> COMPLETED_SESSIONS -> mux -> runtime ordering to prevent lifecycle deadlocks.
 
 #[derive(Clone)]
 struct RuntimeGeneration {
@@ -67,6 +68,9 @@ impl CurrentSession {
                 .ok_or("Completed continuity runtime process absent")?;
             Some(RuntimeGeneration { session: Arc::downgrade(&session), process, epoch: context.epoch })
         } else if matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty) {
+            if tab.pty_id.as_deref().is_none_or(str::is_empty) || tab.lifecycle_epoch.is_none() {
+                return Err("completed_continuity_pty_generation_missing: wake or resume this tab into a verified live PTY, then retry the provider handoff".into());
+            }
             None
         } else {
             return Err("Completed continuity transport unavailable".into());
@@ -172,17 +176,17 @@ impl ServiceContext {
         let Some(proof) = proof else {
             return Ok(false);
         };
-        if self.mux.read().get_tab(tab_id).is_none_or(|tab| {
+        let tab = self.mux.read().get_tab(tab_id).cloned();
+        if tab.as_ref().is_none_or(|tab| {
             tab.task_binding.as_ref() != Some(&proof.binding)
         }) {
             COMPLETED_SESSIONS.lock().remove(&key(self, tab_id));
             return Ok(false);
         }
+        let tab = tab.ok_or("Completed continuity tab disappeared")?;
         let exact = proof.owner.upgrade().is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
             && proof.current.thread == thread && proof.current.nonce == nonce
-            && self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-                proof.current.matches(tab) && tab.task_binding.as_ref() == Some(&proof.binding)
-            })
+            && proof.current.matches(&tab)
             && self.plan_store.show_task(&proof.task.id).is_some_and(|detail| {
                 detail.plan_id == proof.plan_id && detail.task == proof.task
             })

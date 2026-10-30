@@ -17,6 +17,15 @@ fn completed_current_session_generation_is_exact_for_the_own_pty_tab() {
     tab.lifecycle_epoch = Some(3);
     let proof = super::CurrentSession::capture(tab).unwrap();
     assert!(proof.matches(tab));
+    tab.pty_id = None;
+    assert!(super::CurrentSession::capture(tab).is_err());
+    assert!(!proof.matches(tab));
+    tab.pty_id = Some(String::new());
+    assert!(super::CurrentSession::capture(tab).is_err());
+    tab.pty_id = Some("pty-generation".into());
+    tab.lifecycle_epoch = None;
+    assert!(super::CurrentSession::capture(tab).is_err());
+    assert!(!proof.matches(tab));
     tab.lifecycle_epoch = Some(4);
     assert!(!proof.matches(tab));
     tab.lifecycle_epoch = Some(3);
