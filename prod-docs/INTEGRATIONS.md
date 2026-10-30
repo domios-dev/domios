@@ -193,4 +193,22 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 15 -->
+## Blueprint nodes
+
+The Claude, Codex and OpenCode provider plugins contribute `claude.run_prompt`, `codex.run_prompt` and `opencode.run_prompt`. Each starts one prompt in a separate agent tab using that provider's normal launch path. Agents follow Settings → Agents → Full access; Codex steps always use the read-only sandbox. Supply an existing absolute `cwd`, a `prompt`, and optionally `model` and `timeout_ms` (default 600000, maximum 3600000). A bound text `context` is appended in a fenced block. The node returns `text` and routes to `done` or `failed`; cancellation closes its agent. A lost run is `unknown` and is never resubmitted after a restart. Replies are bounded with an explicit `[truncated]` marker.
+
+This node fragment consumes a preceding `read` node's page text. Use the authoring cookbook for the enclosing graph:
+
+```yaml
+- id: summarize
+  uses: codex.run_prompt
+  with:
+    prompt: {lit: "Summarize the supplied page."}
+    cwd: {lit: "/absolute/project"}
+    timeout_ms: {lit: 600000}
+  bind: {context: read.out.text}
+  outcomes: [done, failed]
+  routes: {done: "@next", failed: "@stop"}
+```
+
+<!-- revision: 16 -->

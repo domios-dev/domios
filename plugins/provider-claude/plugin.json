@@ -1,7 +1,7 @@
 {
   "id": "claude",
-  "version": "1.14.25",
-  "minCodeterm": "1.17.0",
+  "version": "1.14.26",
+  "minCodeterm": "1.18.0",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Claude Code",
@@ -338,7 +338,8 @@
         "api.anthropic.com",
         "registry.npmjs.org"
       ]
-    }
+    },
+    "spawnAgents": true
   },
   "icon": "icon.svg",
   "cliCompatibility": {
@@ -381,6 +382,70 @@
         "format": "jsonl",
         "filter": {}
       }
+    },
+    "graphNodes": {
+      "steps": [
+        {
+          "contractVersion": 1,
+          "revision": 1,
+          "id": "claude.run_prompt",
+          "title": "Claude: run prompt",
+          "description": "Runs one prompt in a separate agent tab using this provider. Lost runs are never resubmitted.",
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "prompt",
+              "cwd"
+            ],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "maxLength": 32768
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "cwd": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600000,
+                "default": 600000
+              }
+            }
+          },
+          "inputs": {
+            "context": {
+              "kind": "text",
+              "minItems": 0,
+              "maxItems": 1
+            }
+          },
+          "outputs": {
+            "text": {
+              "kind": "text",
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "outcomes": [
+            "done",
+            "failed"
+          ],
+          "lifecycle": {
+            "reconcile": true,
+            "cancel": true
+          },
+          "effects": {
+            "sideEffects": true
+          }
+        }
+      ]
     }
   }
 }

@@ -91,6 +91,37 @@ fn api_cfg_base_url(cfg: crate::config::schema::ApiConfig) -> String {
 // ── PluginHostCtx impl ───────────────────────────────────────────────────────
 
 impl codeterm_plugin::PluginHostCtx for ServiceContext {
+    fn agent_run_start_json(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::blueprint_step::StepInputContext,
+        opts: &str,
+    ) -> String {
+        self.plugin_step_agent_start(plugin, context, opts)
+    }
+    fn agent_run_wait_json(
+        &self,
+        plugin: &str,
+        operation: &str,
+        run: &str,
+        deadline: std::time::Instant,
+    ) -> String {
+        serde_json::to_string(&self.wait_step_agent_run(plugin, operation, run, deadline))
+            .unwrap_or_else(|_| r#"{"state":"unknown"}"#.into())
+    }
+    fn agent_run_cancel_json(&self, plugin: &str, operation: &str, run: &str) -> String {
+        serde_json::to_string(&self.cancel_step_agent_run(plugin, operation, run))
+            .unwrap_or_else(|_| r#"{"state":"unknown"}"#.into())
+    }
+    fn step_surface_call_json(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::blueprint_step::StepInputContext,
+        verb: &str,
+        args: &str,
+    ) -> String {
+        self.step_surface_call(plugin, context, verb, args)
+    }
     fn surface_registration(&self, plugin: &str, runtime: &str) -> Option<String> {
         let (provider, registration) = self
             .ext::<codeterm_plugin::view_host::ViewRegistryHandle>()

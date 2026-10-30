@@ -201,6 +201,27 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
     reap:   function (sessionId) { host.agentReap(sessionId); },
     usage:  function (sessionId) { return parseJson(host.agentUsage(sessionId)); },
   };
+  function agentRunAwait(job, then) {
+    if (!job || typeof job.jobId !== "string") return then(job);
+    return host.awaitJob(job.jobId, function(reply) { if (reply) delete reply.done; return then(reply); });
+  }
+  host.agentRun = {
+    start: function(opts, then) {
+      if (typeof then !== "function") throw new Error("agentRun.start requires a continuation");
+      var job = parseJson(host.agentRunStart(JSON.stringify(opts)));
+      return agentRunAwait(job, then);
+    },
+    await: function(run, then) {
+      if (typeof then !== "function") throw new Error("agentRun.await requires a continuation");
+      var job = parseJson(host.agentRunWait(run));
+      return agentRunAwait(job, then);
+    },
+    cancel: function(run, then) {
+      if (typeof then !== "function") throw new Error("agentRun.cancel requires a continuation");
+      var job = parseJson(host.agentRunCancel(run));
+      return agentRunAwait(job, then);
+    },
+  };
   host.transfer = {
     start: function(opts) { return parseJson(host.transferStart(JSON.stringify(opts))); },
     abort: function(jobId) { return host.transferAbort(jobId); },

@@ -24,6 +24,64 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/runPromptStep.ts
+function bytes(text) {
+  let count = 0;
+  for (const point of text) {
+    const code = point.codePointAt(0);
+    count += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+  }
+  return count;
+}
+function bounded(text) {
+  if (bytes(JSON.stringify(text)) <= 60 * 1024) return text;
+  let points = Array.from(text);
+  while (bytes(JSON.stringify(points.join("") + "\n[truncated]")) > 60 * 1024) points = points.slice(0, Math.floor(points.length * 0.9));
+  return points.join("") + "\n[truncated]";
+}
+function runPromptSteps(getHost, options = {}) {
+  function update(job, reply) {
+    if (reply.state === "running") return { job, state: "running", outcome: null, outputs: {} };
+    if (reply.state === "unknown" || reply.state === "canceled") return { job, state: reply.state, outcome: null, outputs: {} };
+    const done = reply.state === "done" && typeof reply.text === "string" && reply.text.trim().length > 0;
+    return { job, state: "succeeded", outcome: done ? "done" : "failed", outputs: { text: [{ kind: "text", text: bounded(done ? reply.text : "The agent run failed.") }] } };
+  }
+  return {
+    blueprintSubmit(request) {
+      const params = request.params;
+      const failed = () => update(request.context.operation, { state: "failed" });
+      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
+      const timeout = params.timeout_ms ?? 6e5;
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
+      const context = request.inputs.context?.[0];
+      let prompt = params.prompt;
+      if (context) {
+        if (context.kind !== "text") return failed();
+        const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
+        prompt += `
+
+Context:
+${fence}text
+${context.text}
+${fence}`;
+      }
+      if (bytes(prompt) > 48 * 1024) return failed();
+      return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
+        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update(request.context.operation, { state: "unknown" });
+        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
+      });
+    },
+    blueprintReconcile(request) {
+      const job = request.job ?? request.context.operation;
+      return getHost().await(job, (reply) => update(job, reply));
+    },
+    blueprintCancel(request) {
+      const job = request.job ?? request.context.operation;
+      return getHost().cancel(job, (reply) => update(job, reply));
+    }
+  };
+}
+
 // plugins/provider-opencode/src/turnErrors.ts
 function turnError(value) {
   if (!value || typeof value !== "object") return null;
@@ -1676,6 +1734,7 @@ function withPadPermissionConfig(command, instructions, cleanup, launchConfig = 
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; CODETERM_RESUME_SESSION_ID=${q(resumeSession || "")}; export CODETERM_RESUME_SESSION_ID; ${command}${finish}`;
 }
 var plugin = {
+  ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkOpencodeUpdate,
   ...modelSwitch,

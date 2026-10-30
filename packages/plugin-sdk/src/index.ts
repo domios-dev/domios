@@ -20,6 +20,8 @@ export type {
   HostWorker,
   HostWorkspace,
   HostAgent,
+  HostAgentRun,
+  HostAgentRunReply,
   HostMem,
   HostAnalytics,
   AnalyticsBucket,

@@ -43,6 +43,106 @@ function redactCredentials(text) {
   );
 }
 
+// plugins/browser/src/readPage.ts
+var DEFAULT_LINES = 200;
+var MAX_LINES = 2e3;
+var TEXT_CHARS = 48e3;
+var TEXT_BYTES = 48e3;
+var TRUNCATED = "\n[truncated]";
+var VERB_MARGIN_MS = 16e3;
+var NO_BROWSER = /^no browser open\b/;
+function ask(call, verb, args, surface) {
+  try {
+    const reply = JSON.parse(call(verb, JSON.stringify(surface ? { args, surface } : args)));
+    if (typeof reply?.error === "string") return { error: reply.error };
+    if (typeof reply?.result === "string") return { result: reply.result, surface: reply.surface };
+  } catch {
+  }
+  return { error: `the browser runtime returned no answer for ${verb}` };
+}
+function utf8Bytes(text) {
+  let bytes = 0;
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+  }
+  return bytes;
+}
+function boundText(text, lines, budget = TEXT_BYTES) {
+  const kept = text.split("\n");
+  let out = kept.slice(0, lines).join("\n");
+  let truncated = kept.length > lines;
+  if (utf8Bytes(JSON.stringify(out)) > budget) {
+    while (utf8Bytes(JSON.stringify(out + TRUNCATED)) > budget) {
+      const points = Array.from(out);
+      out = points.slice(0, Math.floor(points.length * 0.9)).join("");
+    }
+    truncated = true;
+  }
+  return truncated ? out + TRUNCATED : out;
+}
+function statusField(status, name) {
+  const line = status.split("\n").find((entry) => entry.startsWith(`${name}: `));
+  return line?.slice(name.length + 2).trim();
+}
+function requestedUrl(request) {
+  const bound = request.inputs?.url?.[0];
+  const raw = bound && bound.kind === "text" ? bound.text : request.params?.url;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : void 0;
+}
+function lineLimit(raw) {
+  return Number.isInteger(raw) && raw >= 1 ? Math.min(raw, MAX_LINES) : DEFAULT_LINES;
+}
+function readPage(request, call, now = Date.now) {
+  const deadline = now() + Math.max(0, Number(request.deadlineMs) || 0);
+  const finish = (outcome, text, finalUrl = "") => ({
+    job: request.context.operation,
+    state: "succeeded",
+    outcome,
+    outputs: {
+      text: [{ kind: "text", text: boundText(redactCredentials(text), MAX_LINES) }],
+      final_url: [{ kind: "text", text: boundText(redactCredentials(finalUrl), 1, 8e3) }]
+    }
+  });
+  const url = requestedUrl(request);
+  if (!call) return finish("navigation_failed", "host.surface is unavailable in this Domios build");
+  if (!url || url.length > 2048 || /\s/.test(url) || !/^https?:\/\//i.test(url)) {
+    return finish("navigation_failed", "read_page needs one http(s) URL from the url input or the url param");
+  }
+  const probe = ask(call, "status", []);
+  if ("error" in probe) return finish("navigation_failed", probe.error);
+  if (!NO_BROWSER.test(probe.result)) return finish("browser_busy", "the step already has a surface open; read_page leaves it untouched");
+  const covered = () => deadline - now() > VERB_MARGIN_MS;
+  let surface;
+  try {
+    const opened = ask(call, "open", []);
+    if ("error" in opened) return finish("navigation_failed", opened.error);
+    surface = opened.surface;
+    if (!surface || typeof surface.tab !== "string" || typeof surface.instance !== "string") return finish("navigation_failed", "the host did not grant a run-owned surface");
+    if (!covered()) return finish("navigation_failed", "the step deadline cannot cover navigation", url);
+    const moved = ask(call, "goto", [url], surface);
+    if ("error" in moved) return finish("navigation_failed", moved.error, url);
+    const waitText = request.params?.wait_text;
+    if (typeof waitText === "string" && waitText.trim()) {
+      if (!covered()) return finish("navigation_failed", "the step deadline cannot cover wait_text", url);
+      const waited = ask(call, "wait", ["--text", waitText], surface);
+      if ("error" in waited) return finish("navigation_failed", waited.error, url);
+    }
+    const status = ask(call, "status", [], surface);
+    if ("error" in status) return finish("navigation_failed", status.error, url);
+    const page = statusField(status.result, "page") ?? "";
+    const separator = page.lastIndexOf(" \u2014 ");
+    const finalUrl = separator >= 0 ? page.slice(separator + 3).trim() : url;
+    const needs = statusField(status.result, "needs human");
+    if (needs && needs !== "none") return finish("needs_human", `the page needs a human: ${needs}`, finalUrl);
+    const read = ask(call, "text", [String(TEXT_CHARS)], surface);
+    if ("error" in read) return finish("navigation_failed", read.error, finalUrl);
+    return finish("read", boundText(read.result, lineLimit(request.params?.limit)), finalUrl);
+  } finally {
+    if (surface) ask(call, "close", [], surface);
+  }
+}
+
 // plugins/browser/src/plugin.ts
 function hostSurfaceCall() {
   return typeof host === "object" && host && host.surface ? host.surface.call : void 0;
@@ -104,6 +204,7 @@ function forward(ctx, call = hostSurfaceCall()) {
   return { error: `the browser runtime returned no answer for ${verb}` };
 }
 var plugin = {
-  onAgentCommand: (ctx) => forward(ctx)
+  onAgentCommand: (ctx) => forward(ctx),
+  blueprintSubmit: (request) => readPage(request, hostSurfaceCall())
 };
 var plugin_default = plugin;

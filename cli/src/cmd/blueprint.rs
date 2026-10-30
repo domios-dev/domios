@@ -218,6 +218,10 @@ fn render_nodes(nodes: &Value) {
             .iter()
             .filter(|node| node["role"].as_str().unwrap_or("step") == role)
         {
+            if let Some(line) = plugin_step_line(node) {
+                println!("{line}");
+                continue;
+            }
             println!(
                 "{role} {}: {}",
                 node["type"].as_str().unwrap_or("?"),
@@ -228,6 +232,53 @@ fn render_nodes(nodes: &Value) {
             }
         }
     }
+}
+
+fn typed_ports(ports: &Value) -> String {
+    let listed = ports
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(name, port)| {
+            format!(
+                "{name}:{}[{}..{}]",
+                port["kind"].as_str().unwrap_or("?"),
+                port["minItems"].as_u64().unwrap_or_default(),
+                port["maxItems"].as_u64().unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>();
+    if listed.is_empty() {
+        "-".into()
+    } else {
+        listed.join(", ")
+    }
+}
+
+/// One palette line per plugin step: id, title, plugin, typed ports and outcomes.
+fn plugin_step_line(node: &Value) -> Option<String> {
+    let descriptor = node.get("descriptor")?;
+    let outcomes = descriptor["outcomes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let unavailable = if node["available"].as_bool() == Some(false) {
+        " [unavailable]"
+    } else {
+        ""
+    };
+    Some(format!(
+        "step {}: {} (plugin {}){unavailable} in {} -> out {} | outcomes {}",
+        node["kind"].as_str().unwrap_or("?"),
+        node["title"].as_str().unwrap_or("?"),
+        node["plugin"].as_str().unwrap_or("?"),
+        typed_ports(&descriptor["inputs"]),
+        typed_ports(&descriptor["outputs"]),
+        outcomes
+    ))
 }
 
 fn render_log(entries: &Value) {

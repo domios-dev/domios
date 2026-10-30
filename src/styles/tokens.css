@@ -4,6 +4,7 @@
    ========================================================================== */
 
 :root {
+  --ct-data-flow: #348f9c;
   /* Typography */
   --ct-font-ui: "Inter", "Segoe UI", "Avenir Next", "Avenir", "Segoe UI Variable", "Helvetica Neue", sans-serif;
   --ct-font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, "Liberation Mono", Menlo, Courier, monospace;

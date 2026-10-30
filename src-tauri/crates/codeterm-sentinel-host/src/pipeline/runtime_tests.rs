@@ -149,7 +149,9 @@ fn prove_pipeline(language: &str, src: &str, expected: Option<JournalReason>) {
         );
         let view = serde_json::to_value(transform).unwrap();
         assert_eq!(view["ports"]["outputs"]["out"]["type"], "object");
-        let projection = crate::blueprint_calls::project_retained(None, &records, None).unwrap();
+        let projection =
+            crate::blueprint_calls::project_retained(None, &records, None, &Default::default())
+                .unwrap();
         let visible = projection["nested_run"]["nodes"]
             .as_array()
             .unwrap()

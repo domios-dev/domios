@@ -30,6 +30,64 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/runPromptStep.ts
+function bytes(text7) {
+  let count = 0;
+  for (const point of text7) {
+    const code = point.codePointAt(0);
+    count += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+  }
+  return count;
+}
+function bounded(text7) {
+  if (bytes(JSON.stringify(text7)) <= 60 * 1024) return text7;
+  let points = Array.from(text7);
+  while (bytes(JSON.stringify(points.join("") + "\n[truncated]")) > 60 * 1024) points = points.slice(0, Math.floor(points.length * 0.9));
+  return points.join("") + "\n[truncated]";
+}
+function runPromptSteps(getHost, options = {}) {
+  function update2(job, reply) {
+    if (reply.state === "running") return { job, state: "running", outcome: null, outputs: {} };
+    if (reply.state === "unknown" || reply.state === "canceled") return { job, state: reply.state, outcome: null, outputs: {} };
+    const done = reply.state === "done" && typeof reply.text === "string" && reply.text.trim().length > 0;
+    return { job, state: "succeeded", outcome: done ? "done" : "failed", outputs: { text: [{ kind: "text", text: bounded(done ? reply.text : "The agent run failed.") }] } };
+  }
+  return {
+    blueprintSubmit(request2) {
+      const params = request2.params;
+      const failed = () => update2(request2.context.operation, { state: "failed" });
+      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
+      const timeout = params.timeout_ms ?? 6e5;
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
+      const context = request2.inputs.context?.[0];
+      let prompt = params.prompt;
+      if (context) {
+        if (context.kind !== "text") return failed();
+        const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
+        prompt += `
+
+Context:
+${fence}text
+${context.text}
+${fence}`;
+      }
+      if (bytes(prompt) > 48 * 1024) return failed();
+      return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
+        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update2(request2.context.operation, { state: "unknown" });
+        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
+      });
+    },
+    blueprintReconcile(request2) {
+      const job = request2.job ?? request2.context.operation;
+      return getHost().await(job, (reply) => update2(job, reply));
+    },
+    blueprintCancel(request2) {
+      const job = request2.job ?? request2.context.operation;
+      return getHost().cancel(job, (reply) => update2(job, reply));
+    }
+  };
+}
+
 // plugins/provider-shared/sessionRecords.ts
 function* sessionRecords(input, accepts) {
   if (typeof input !== "string") {
@@ -360,12 +418,12 @@ function hostOwnedCodexLaunchArgs(hostOwned) {
   return hostOwned?.questions ? ["--disable", "default_mode_request_user_input"] : [];
 }
 function utf8Bytes(value) {
-  let bytes = 0;
+  let bytes2 = 0;
   for (const character of value) {
     const code = character.codePointAt(0);
-    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
   }
-  return bytes;
+  return bytes2;
 }
 function supportsDirectResume() {
   try {
@@ -409,7 +467,7 @@ function buildCodexLaunchSpec(input, starter) {
   }
   const values = ["codex", ...args];
   if (values.some((value) => value.includes("\0"))) return null;
-  if (values.reduce((bytes, value) => bytes + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
+  if (values.reduce((bytes2, value) => bytes2 + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
   if (platform === "linux" && values.some((value) => utf8Bytes(value) + 1 > 128 * 1024)) return null;
   let exclusions;
   try {
@@ -1154,10 +1212,10 @@ function boundedString(value) {
     /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
     (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
   );
-  const bytes = utf8Bytes2(scrubbed);
-  if (bytes <= STRING_BYTES) return scrubbed;
+  const bytes2 = utf8Bytes2(scrubbed);
+  if (bytes2 <= STRING_BYTES) return scrubbed;
   return `${scrubbed.slice(0, 2048)}
-[content truncated: ${bytes} bytes total]`;
+[content truncated: ${bytes2} bytes total]`;
 }
 function sanitizeHistory(value) {
   return JSON.parse(JSON.stringify(value, (_key, entry) => {
@@ -1177,13 +1235,13 @@ function sanitizeHistory(value) {
 }
 function historyItem(value) {
   const sanitized = sanitizeHistory(value);
-  const bytes = serializedBytes(sanitized);
-  return bytes <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes} serialized bytes]` };
+  const bytes2 = serializedBytes(sanitized);
+  return bytes2 <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes2} serialized bytes]` };
 }
 function boundHistoryRows(rows2) {
-  const bounded = rows2.map((row3) => {
+  const bounded2 = rows2.map((row3) => {
     const sanitized = sanitizeHistory(row3);
-    const bytes2 = serializedBytes(sanitized);
+    const bytes3 = serializedBytes(sanitized);
     if (sanitized.attachments) {
       sanitized.attachments = sanitized.attachments.map((attachment) => {
         if (!attachment.url?.startsWith("[image omitted:")) return attachment;
@@ -1193,11 +1251,11 @@ ${attachment.url}`;
         return chip;
       });
     }
-    if (bytes2 <= ITEM_BYTES) return sanitized;
-    return { id: row3.id, seq: row3.seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` };
+    if (bytes3 <= ITEM_BYTES) return sanitized;
+    return { id: row3.id, seq: row3.seq, type: "system", content: `[history item omitted: ${bytes3} serialized bytes]` };
   });
-  const bytes = serializedBytes(bounded);
-  return bytes <= ITEM_BYTES || !rows2.length ? bounded : [{ id: rows2[0].id, seq: rows2[0].seq, type: "system", content: `[history item omitted: ${bytes} serialized bytes]` }];
+  const bytes2 = serializedBytes(bounded2);
+  return bytes2 <= ITEM_BYTES || !rows2.length ? bounded2 : [{ id: rows2[0].id, seq: rows2[0].seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` }];
 }
 
 // plugins/provider-codex/src/canonicalJson.ts
@@ -2215,7 +2273,7 @@ function pagedHistoryResponse(op, raw, reply) {
   }
   if (value.data.length > (state.historyItemLimit ?? 16)) failure("History item page exceeds requested limit");
   const items = [], openItems = [];
-  let questions = [], bytes = 0;
+  let questions = [], bytes2 = 0;
   const offset = state.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index = offset; index < value.data.length; index++) {
@@ -2225,8 +2283,8 @@ function pagedHistoryResponse(op, raw, reply) {
     const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
     const opened = active ? rows2.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
     const used = serializedBytes({ rows: rows2, opened, questions: nextQuestions });
-    if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
-    bytes += used;
+    if (bytes2 + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
+    bytes2 += used;
     items.unshift(...rows2);
     openItems.unshift(...opened);
     questions = nextQuestions;
@@ -2865,17 +2923,17 @@ function compactState(state) {
   fitTotal(state);
 }
 function utf8Bytes3(value) {
-  let bytes = 0;
+  let bytes2 = 0;
   for (let index = 0; index < value.length; index++) {
     const unit = value.charCodeAt(index);
-    if (unit < 128) bytes += 1;
-    else if (unit < 2048) bytes += 2;
+    if (unit < 128) bytes2 += 1;
+    else if (unit < 2048) bytes2 += 2;
     else if (unit >= 55296 && unit < 56320) {
-      bytes += 4;
+      bytes2 += 4;
       index++;
-    } else bytes += 3;
+    } else bytes2 += 3;
   }
-  return bytes;
+  return bytes2;
 }
 var MIN_RUNNING_CAP = 1024;
 function fitTotal(state) {
@@ -3657,7 +3715,7 @@ function collectHistoryItems(op, state, turn, entries) {
   const openItems = list(state.openItems);
   let seq = Number(state.seq);
   let questions = list(state.questions);
-  let bytes = serializedBytes({ items, openItems, questions });
+  let bytes2 = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
     const record6 = object(entries[index]);
     const rawItem = historyItem(record6.item ?? record6);
@@ -3667,8 +3725,8 @@ function collectHistoryItems(op, state, turn, entries) {
     const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows2.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows2) + serializedBytes(opened) + serializedBytes(nextQuestions);
-    if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
-    bytes += rowBytes;
+    if (bytes2 + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
+    bytes2 += rowBytes;
     questions = nextQuestions;
     seq += rows2.length;
     items.push(...rows2);
@@ -6253,8 +6311,8 @@ function codexHookTrustOwnershipPath() {
 }
 function captureIntegrationFile(path) {
   const existed = host.fs.fileExists(path);
-  const bytes = existed ? host.fs.readFile(path) : "";
-  return typeof bytes === "string" ? { path, existed, bytes } : null;
+  const bytes2 = existed ? host.fs.readFile(path) : "";
+  return typeof bytes2 === "string" ? { path, existed, bytes: bytes2 } : null;
 }
 function writeFileIfChanged(path, contents) {
   return host.fs.readFile(path) === contents || host.fs.writeFile(path, contents);
@@ -6534,6 +6592,7 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  ...runPromptSteps(() => host.agentRun, { sandbox: "read-only" }),
   ...cloudExports(() => host),
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,

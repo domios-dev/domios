@@ -24,6 +24,64 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/runPromptStep.ts
+function bytes(text2) {
+  let count3 = 0;
+  for (const point of text2) {
+    const code = point.codePointAt(0);
+    count3 += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+  }
+  return count3;
+}
+function bounded(text2) {
+  if (bytes(JSON.stringify(text2)) <= 60 * 1024) return text2;
+  let points = Array.from(text2);
+  while (bytes(JSON.stringify(points.join("") + "\n[truncated]")) > 60 * 1024) points = points.slice(0, Math.floor(points.length * 0.9));
+  return points.join("") + "\n[truncated]";
+}
+function runPromptSteps(getHost, options = {}) {
+  function update(job, reply) {
+    if (reply.state === "running") return { job, state: "running", outcome: null, outputs: {} };
+    if (reply.state === "unknown" || reply.state === "canceled") return { job, state: reply.state, outcome: null, outputs: {} };
+    const done = reply.state === "done" && typeof reply.text === "string" && reply.text.trim().length > 0;
+    return { job, state: "succeeded", outcome: done ? "done" : "failed", outputs: { text: [{ kind: "text", text: bounded(done ? reply.text : "The agent run failed.") }] } };
+  }
+  return {
+    blueprintSubmit(request) {
+      const params = request.params;
+      const failed = () => update(request.context.operation, { state: "failed" });
+      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
+      const timeout = params.timeout_ms ?? 6e5;
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
+      const context = request.inputs.context?.[0];
+      let prompt = params.prompt;
+      if (context) {
+        if (context.kind !== "text") return failed();
+        const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
+        prompt += `
+
+Context:
+${fence}text
+${context.text}
+${fence}`;
+      }
+      if (bytes(prompt) > 48 * 1024) return failed();
+      return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
+        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update(request.context.operation, { state: "unknown" });
+        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
+      });
+    },
+    blueprintReconcile(request) {
+      const job = request.job ?? request.context.operation;
+      return getHost().await(job, (reply) => update(job, reply));
+    },
+    blueprintCancel(request) {
+      const job = request.job ?? request.context.operation;
+      return getHost().cancel(job, (reply) => update(job, reply));
+    }
+  };
+}
+
 // plugins/provider-shared/sessionRecords.ts
 function* sessionRecords(input, accepts) {
   if (typeof input !== "string") {
@@ -150,12 +208,12 @@ function statuslineSettings(settings) {
   const line = settings.statusLine;
   if (line !== void 0 && (!line || line.type !== "command" || typeof line.command !== "string" || !line.command.trim())) return null;
   if (line) {
-    let bytes = 0;
+    let bytes2 = 0;
     for (const character of line.command) {
       const point = character.codePointAt(0);
-      bytes += point > 65535 ? 4 : point > 2047 ? 3 : point > 127 ? 2 : 1;
+      bytes2 += point > 65535 ? 4 : point > 2047 ? 3 : point > 127 ? 2 : 1;
     }
-    if (bytes > 8192) return null;
+    if (bytes2 > 8192) return null;
     if (line.padding !== void 0 && (count(line.padding) === null || line.padding > 1e3)) return null;
   }
   const command = STATUSLINE_FORWARD + (line ? `; printf '%s' "$payload" | ( ${line.command}
@@ -2620,6 +2678,7 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,
@@ -2895,10 +2954,10 @@ var plugin = {
   sessionUsageSources(sessionFilePath, sessionId) {
     return subAgentUsageSources(sessionFilePath, sessionId);
   },
-  // Write bridge rule to `~/.claude/rules/domios.md` via host APIs.
+  // Write bridge rule to `~/.claude/rules/codeterm.md` via host APIs.
   installBridgeRule(payload) {
     const m = manifest();
-    const rulePath = m && m.rule && m.rule.path || "~/.claude/rules/domios.md";
+    const rulePath = m && m.rule && m.rule.path || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: false, error: "could not expand " + rulePath };
     const ok = host.writeFile(expanded, payload);
@@ -2910,7 +2969,7 @@ var plugin = {
   },
   uninstallBridgeRule() {
     const m = manifest();
-    const rulePath = m && m.rule && m.rule.path || "~/.claude/rules/domios.md";
+    const rulePath = m && m.rule && m.rule.path || "~/.claude/rules/codeterm.md";
     const expanded = host.expandHome(rulePath);
     if (!expanded) return { ok: true };
     if (!host.fileExists(expanded)) return { ok: true };

@@ -283,6 +283,7 @@ pub(super) fn dispatch(
                     document.as_ref(),
                     &entries,
                     recorded_version,
+                    &svc.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
                 )
                 .map_err(error)?;
                 if let (Some(value), Some(fields)) = (value.as_object_mut(), projection.as_object())

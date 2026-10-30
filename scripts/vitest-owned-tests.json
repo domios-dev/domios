@@ -145,6 +145,7 @@
   "plugins/analytics/tests/plugin.test.ts",
   "plugins/browser/tests/plugin.test.ts",
   "plugins/browser/tests/atomic.test.ts",
+  "plugins/browser/tests/blueprintStep.test.ts",
   "plugins/analytics/ui/src/model/model.test.ts",
   "plugins/analytics/ui/src/Dashboard.test.tsx",
   "plugins/analytics/ui/src/Dashboard.freshness.test.tsx",
@@ -370,5 +371,6 @@
   "src/components/MeshPanel/enrollmentRefusal.test.ts",
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
-  "src/hooks/terminal/useXterm.composition.test.tsx"
+  "src/hooks/terminal/useXterm.composition.test.tsx",
+  "plugins/provider-shared/tests/runPromptStep.test.ts"
 ]

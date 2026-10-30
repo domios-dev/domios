@@ -1,9 +1,8 @@
-import { CircleStop } from "lucide-react";
-import type { BlueprintDocument, BlueprintExpandedCall, BlueprintIrNode, BlueprintJournalNode, BlueprintPort, BlueprintProjection, BlueprintValue } from "../../../lib/blueprintApi";
+import type { BlueprintDocument, BlueprintExpandedCall, BlueprintIrNode, BlueprintJournalNode, BlueprintPluginNode, BlueprintPluginPort, BlueprintPort, BlueprintProjection, BlueprintValue } from "../../../lib/blueprintApi";
 import type { PipelineView } from "../pipelineModel";
 import { blueprintNodeKey, type BlueprintExpansion } from "../blueprintExpansion";
 import { blueprintJournalNodes } from "../blueprintPipelineOutcome";
-import { blueprintNodeKinds, irNodeKind, triggerIcon, type BlueprintNodeType, type NodeIcon } from "./kinds";
+import { blueprintNodeKinds, irNodeKind, pluginDescriptor, pluginNodeKind, triggerIcon, type BlueprintNodeType, type NodeIcon } from "./kinds";
 import { nodeTrigger, type BlueprintNodeTrigger } from "./triggerModel";
 
 export type PinKind = "exec" | "data";
@@ -17,6 +16,8 @@ export interface BlueprintPin {
   /** The port's schema type when the definition declares it, e.g. from `in.properties.<port>`. */
   type?: string;
   connected: boolean;
+  terminal?: boolean;
+  hostReserved?: boolean;
 }
 
 export interface BlueprintBody {
@@ -55,6 +56,8 @@ export interface BlueprintGraphNode {
   evidence: NodeEvidence | null;
   /** A call node's sub-graph: the callee's name and whether its body is here to open. */
   callee?: { name: string; openable: boolean };
+  /** A plugin step: its installed descriptor's facts and the literal `with:` parameters. */
+  plugin?: { name: string | null; available: boolean; description: string | null; params: readonly [string, string][] };
 }
 
 export interface BlueprintGraphWire {
@@ -156,6 +159,11 @@ function bodyOf(node: BlueprintIrNode): BlueprintBody | null {
   return node.does ? { kind: "text", text: node.does } : null;
 }
 
+function pluginBody(node: BlueprintIrNode, descriptor: BlueprintPluginNode): BlueprintBody | null {
+  if (!descriptor.available) return { kind: "text", text: `${descriptor.plugin ?? "This plugin"} isn't installed or is turned off.\nInstall or enable it to run this step.` };
+  return node.does ? { kind: "text", text: node.does } : descriptor.description ? { kind: "text", text: descriptor.description } : null;
+}
+
 function bindings(node: BlueprintIrNode): [string, string][] {
   const bound: [string, string][] = Object.entries(node.bind ?? {});
   const values = { ...(node.with && typeof node.with === "object" ? node.with as Readonly<Record<string, BlueprintValue>> : {}), ...(node.call?.with ?? {}) };
@@ -166,10 +174,22 @@ function bindings(node: BlueprintIrNode): [string, string][] {
   return bound;
 }
 
-export function splitBinding(binding: string): { node: string; port: string } | null {
+export function splitBinding(binding: string): { node: string; port: string; selection: string } | null {
   const [node, port, ...fields] = binding.split(".");
   if (!node || node.length > 64 || !/^[a-zA-Z0-9_-]+$/.test(node) || node === "next" || node === "stop" || port !== "out" || fields.some((field) => !field)) return null;
-  return { node, port };
+  return { node, port, selection: fields.join(".") };
+}
+
+/** Host-reserved plugin step outcomes every plugin node can end with. */
+export const PLUGIN_RESERVED_OUTCOMES = ["unknown", "canceled"] as const;
+
+export function pluginPortType(port: BlueprintPluginPort): string {
+  return `${port.kind}[${port.minItems}..${port.maxItems}]`;
+}
+
+function pluginParams(node: BlueprintIrNode): [string, string][] {
+  const values = node.with && typeof node.with === "object" && !Array.isArray(node.with) ? node.with as Readonly<Record<string, BlueprintValue>> : {};
+  return Object.entries(values).map(([name, value]) => [name, text(value) ?? ""]);
 }
 
 function namedInputType(input: BlueprintPort | undefined, port: string): string | undefined {
@@ -321,29 +341,42 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
       add(trigger);
     }
     for (const [index, definition] of steps.entries()) {
-      const kind = irNodeKind(definition, decisionIsDeterministic(definition));
+      const descriptor = pluginDescriptor(definition, pipeline.plugin_nodes);
+      const kind = descriptor ? pluginNodeKind(descriptor) : irNodeKind(definition, decisionIsDeterministic(definition));
       const key = blueprintNodeKey(path, definition.id);
       const node: BlueprintGraphNode = {
-        key, id: definition.id, type: kind.type, icon: kind.icon, kindLabel: kind.label, title: definition.name ?? definition.id,
-        body: bodyOf(definition), inputs: [pin("in", "exec", "in", "")], outputs: [], callPath: path, scope, definition, routes: [], evidence: evidenceFor(key),
+        key, id: definition.id, type: kind.type, icon: kind.icon, kindLabel: kind.label,
+        title: definition.name ?? descriptor?.title ?? (descriptor ? "Unknown plugin step" : definition.id),
+        body: descriptor ? pluginBody(definition, descriptor) : bodyOf(definition), inputs: [pin("in", "exec", "in", "")], outputs: [], callPath: path, scope, definition, routes: [], evidence: evidenceFor(key),
         trigger: nodeTrigger(definition, document.kind === "watch" && index === 0, !path.length && document.kind === "watch" && index === 0 ? pipeline.triggerRuntime ?? null : null),
         callee: definition.call ? calleeOf(definition.call, calls.find((entry) => entry.node === definition.id)) : undefined,
       };
       const bound = bindings(definition);
-      for (const [port, binding] of bound) node.inputs.push({ ...pin(`bind:${port}`, "data", "in", port, binding), type: namedInputType(definition.in, port) ?? (port === "in" && definition.in ? portType(definition.in) : undefined) });
-      if (!bound.length && definition.in) node.inputs.push(pin("data:in", "data", "in", "in", portType(definition.in)));
+      if (descriptor) node.plugin = { name: descriptor.plugin ?? null, available: descriptor.available, description: descriptor.description || null, params: pluginParams(definition) };
+      for (const [port, binding] of bound) {
+        const declared = descriptor?.inputs?.[port];
+        node.inputs.push({ ...pin(`bind:${port}`, "data", "in", port, binding), type: declared ? pluginPortType(declared) : namedInputType(definition.in, port) ?? (port === "in" && definition.in ? portType(definition.in) : undefined) });
+      }
+      for (const [port, declared] of Object.entries(descriptor?.inputs ?? {})) {
+        if (!bound.some(([name]) => name === port)) node.inputs.push({ ...pin(`data:${port}`, "data", "in", port), type: pluginPortType(declared) });
+      }
+      if (!bound.length && definition.in && !descriptor) node.inputs.push(pin("data:in", "data", "in", "in", portType(definition.in)));
       if (document.kind === "watch" && index === 0 && steps[1]) {
         node.outputs.push(pin("next", "exec", "out", ""));
         node.routes.push({ outcome: "next", target: steps[1].id });
       } else {
-        for (const outcome of new Set([...outcomes(definition), ...Object.keys(definition.routes ?? {})])) {
-          const route = definition.routes?.[outcome] ?? (outcome === "failed" || document.kind === "watch" ? "@stop" : "@next");
+        const declared = descriptor?.available && descriptor.outcomes?.length ? [...descriptor.outcomes, ...PLUGIN_RESERVED_OUTCOMES] : outcomes(definition);
+        const stops = (outcome: string) => outcome === "failed" || (descriptor !== undefined && (PLUGIN_RESERVED_OUTCOMES as readonly string[]).includes(outcome));
+        for (const outcome of new Set([...declared, ...Object.keys(definition.routes ?? {})])) {
+          const route = definition.routes?.[outcome] ?? (stops(outcome) || document.kind === "watch" ? "@stop" : "@next");
           const target = route === "@next" ? steps[index + 1]?.id ?? "$result" : route === "@stop" ? "$stop" : route;
           node.routes.push({ outcome, target });
-          node.outputs.push(pin(`route:${outcome}`, "exec", "out", outcome));
+          node.outputs.push({ ...pin(`route:${outcome}`, "exec", "out", outcome), terminal: target === "$stop", hostReserved: descriptor !== undefined && (PLUGIN_RESERVED_OUTCOMES as readonly string[]).includes(outcome) });
         }
       }
       if (definition.out) node.outputs.push(pin("data:out", "data", "out", "out", portType(definition.out)));
+      for (const [port, declared] of Object.entries(descriptor?.outputs ?? {})) node.outputs.push({ ...pin(`data:${port}`, "data", "out", port), type: pluginPortType(declared) });
+      if (descriptor) node.outputs = [...node.outputs.filter(pin => !pin.hostReserved), ...node.outputs.filter(pin => pin.hostReserved)];
       add(node);
       yield;
       const callee = calls.find((entry) => entry.node === definition.id);
@@ -351,12 +384,6 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
         node.outputs.push(pin("callee", "exec", "out", "callee", callee.pin.id));
         yield* graph(callee.graph, callee.children, [...path, definition.id], callee);
       }
-    }
-    const routesTo = (target: string) => [...local.values()].some((node) => node.routes.some((route) => route.target === target));
-    if (routesTo("$stop")) {
-      const stop = control("$stop", "Stop", "result", "stop", CircleStop);
-      stop.inputs.push(pin("in", "exec", "in", ""));
-      add(stop);
     }
     const result = control("$result", "Result", "result", "result", blueprintNodeKinds.result.icon);
     result.inputs.push(pin("in", "exec", "in", ""));
@@ -377,6 +404,7 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
     }
     for (const node of local.values()) {
       for (const route of node.routes) {
+        if (route.target === "$stop") continue;
         const target = local.get(route.target);
         const fromPin = route.outcome === "next" && node.outputs.some((entry) => entry.id === "next") ? "next" : `route:${route.outcome}`;
         if (target) connect("exec", node, fromPin, target, "in", route.outcome === "next" ? null : route.outcome);
@@ -386,7 +414,8 @@ export function* buildBlueprintGraph(pipeline: PipelineView, expanded: Blueprint
         if (!source) continue;
         const from = local.get(source.node);
         if (!from) continue;
-        const id = source.port === "out" ? "data:out" : `data:${source.port}`;
+        const declared = source.selection ? `data:${source.selection}` : null;
+        const id = declared && from.plugin && from.outputs.some((entry) => entry.id === declared) ? declared : source.port === "out" ? "data:out" : `data:${source.port}`;
         if (!from.outputs.some((entry) => entry.id === id)) from.outputs.push(pin(id, "data", "out", source.port));
         connect("data", from, id, node, input.id, null);
       }
