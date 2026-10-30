@@ -13,6 +13,27 @@ pub(in crate::service::agent_runtime) async fn publish_events(
     events: Vec<AgentRuntimeEvent>,
     at: u64,
 ) -> Result<(), RuntimeFailure> {
+    publish_with_origin(svc, session, epoch, events, at, false).await
+}
+
+pub(super) async fn publish_live_events(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    epoch: u64,
+    events: Vec<AgentRuntimeEvent>,
+    at: u64,
+) -> Result<(), RuntimeFailure> {
+    publish_with_origin(svc, session, epoch, events, at, true).await
+}
+
+async fn publish_with_origin(
+    svc: &ServiceContext,
+    session: &Arc<Session>,
+    epoch: u64,
+    events: Vec<AgentRuntimeEvent>,
+    at: u64,
+    live: bool,
+) -> Result<(), RuntimeFailure> {
     let context = session.context.lock().clone();
     if context.epoch != epoch {
         return Err(RuntimeFailure::Superseded);
@@ -186,7 +207,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
                 log::debug!("[neighbors] incoming runtime handling: {error}");
             }
         }
-        apply(svc, session, epoch, at, runtime);
+        apply(svc, session, epoch, at, runtime, live);
         run_completed |= completed_turn
             .is_some_and(|(thread, turn)| session.completions.lock().contains(&thread, &turn));
         run_chat_item |= chat_item;
@@ -219,7 +240,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
     Ok(())
 }
 
-fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, event: RuntimeEvent) {
+fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, event: RuntimeEvent, live: bool) {
     let context = session.context.lock().clone();
     if context.epoch != epoch || engine::validate_binding(svc, session).is_err() {
         return;
@@ -275,13 +296,27 @@ fn apply(svc: &ServiceContext, session: &Arc<Session>, epoch: u64, at: u64, even
                 Some(&context.binding_nonce),
                 &item,
             );
-            crate::service::tab_chat::structured_sink::emit_chat_msgs(
+            let origin = if live && cfg!(debug_assertions) && crate::paths::is_dev_instance() {
+                let started = std::time::Instant::now();
+                super::super::model::responsiveness::binding(
+                    &context.tab_id, Some(&thread_id), Some(&context.binding_nonce),
+                ).and_then(|trace| {
+                    let origin = crate::service::tab_chat::structured_sink::live_runtime_origin(
+                        live, &context, &session.context.lock(), &thread_id, &item,
+                    );
+                    trace.mark("live_origin", Some(&item.id), serde_json::json!({
+                        "eligible":origin.is_some(), "observer_ns":started.elapsed().as_nanos().min(u64::MAX as u128) as u64,
+                    }));
+                    origin
+                })
+            } else { None };
+            crate::service::tab_chat::structured_sink::emit_live_runtime_chat_msg(
                 svc.ui.as_ref(),
                 &context.tab_id,
-                &[item],
-                None,
+                &item,
                 Some(&thread_id),
                 Some(&context.binding_nonce),
+                origin.as_ref(),
             );
         }
         RuntimeEvent::EvidenceUpdated {

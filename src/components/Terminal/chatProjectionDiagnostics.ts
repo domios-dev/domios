@@ -360,9 +360,23 @@ export interface ChatTraceSelection {
   turn: string;
   item: string;
 }
+export type ChatTraceArm = Omit<ChatTraceSelection, "turn" | "item">;
+type LiveTraceOrigin = { kind?: string; turn?: string };
+
+function validTraceId(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && id.length <= 128
+    && [...id].every(char => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127)
+    && new TextEncoder().encode(id).length <= 128;
+}
+
+function validateTraceSelection(binding: ChatTraceArm, ids: readonly unknown[]): void {
+  if (!ids.every(validTraceId) || !/^[A-Za-z0-9-]+$/.test(binding.trace)
+    || !Number.isSafeInteger(binding.epoch) || binding.epoch <= 0) throw new Error("Invalid chat trace selection");
+}
+const traceBinding = ({ trace, tab, session, nonce, epoch }: ChatTraceArm): ChatTraceArm => ({ trace, tab, session, nonce, epoch });
 
 type TraceAuthority = { tab: string; session: string | null; nonce: string | null; epoch?: number; generation?: number };
-type TraceRow = { id: string; seq?: number; content?: string; toolResult?: string; toolDetail?: string; toolFlowId?: string; toolStatus?: string | null };
+type TraceRow = { id: string; type?: string; seq?: number; content?: string; toolResult?: string; toolDetail?: string; toolFlowId?: string; toolStatus?: string | null };
 interface ChatTraceRecord {
   stage: string;
   clock: "browser-performance-ms";
@@ -396,6 +410,9 @@ function traceFingerprint(parts: readonly string[]): string {
 }
 
 type TraceMetrics = Pick<ChatTraceRecord, "sourceSeq" | "status" | "contentUnits" | "resultUnits" | "detailUnits">;
+const traceMetrics = (row: TraceRow): TraceMetrics => ({ sourceSeq: row.seq ?? null,
+  status: ["running", "completed", "failed", "interrupted", "abandoned"].includes(row.toolStatus ?? "") ? row.toolStatus ?? null : null,
+  contentUnits: row.content?.length ?? 0, resultUnits: row.toolResult?.length ?? 0, detailUnits: row.toolDetail?.length ?? 0 });
 const traceRow = (row: TraceRow): TraceRow => row;
 const traceEntry = (entry: { msg: TraceRow }): TraceRow => entry.msg;
 const NO_TRACE_WORK = () => {};
@@ -403,6 +420,7 @@ type TraceMount = { active: boolean; start: number; end: number; revision: numbe
 
 export class ChatResponsivenessTrace {
   private selection: ChatTraceSelection | null = null;
+  private armed: ChatTraceArm | null = null;
   private records: ChatTraceRecord[] = [];
   private dropped = 0;
   private overheadMs = 0;
@@ -414,31 +432,37 @@ export class ChatResponsivenessTrace {
 
   select(selection: ChatTraceSelection): void {
     const ids = [selection.trace, selection.tab, selection.session, selection.nonce, selection.turn, selection.item];
-    if (!ids.every(id => typeof id === "string" && id.length > 0 && [...id].every(char => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127) && new TextEncoder().encode(id).length <= 128)
-      || !/^[A-Za-z0-9-]+$/.test(selection.trace) || !Number.isSafeInteger(selection.epoch) || selection.epoch <= 0) {
-      throw new Error("Invalid chat trace selection");
-    }
+    validateTraceSelection(selection, ids);
     this.dispose();
-    this.selection = { ...selection };
+    this.selection = { ...traceBinding(selection), turn: selection.turn, item: selection.item };
+    this.records = [];
+    this.dropped = 0;
+    this.overheadMs = 0;
+  }
+
+  arm(binding: ChatTraceArm): void {
+    validateTraceSelection(binding, [binding.trace, binding.tab, binding.session, binding.nonce]);
+    this.dispose();
+    this.armed = traceBinding(binding);
     this.records = [];
     this.dropped = 0;
     this.overheadMs = 0;
   }
 
   bind(authority: TraceAuthority): void {
-    const selection = this.selection;
+    const selection = this.selection ?? this.armed;
     if (!selection || selection.tab !== authority.tab) return;
     if (!this.matches(authority) || selection.epoch !== authority.epoch) { this.dispose(); return; }
     this.epochVerified = true;
   }
 
   private matches(authority: TraceAuthority): boolean {
-    const selection = this.selection;
+    const selection = this.selection ?? this.armed;
     return selection != null && selection.tab === authority.tab && selection.session === authority.session
       && selection.nonce === authority.nonce && (authority.epoch === undefined || selection.epoch === authority.epoch);
   }
 
-  eligible(authority: TraceAuthority): boolean { return this.matches(authority); }
+  eligible(authority: TraceAuthority): boolean { return this.selection !== null && this.matches(authority); }
 
   private admit(authority: TraceAuthority, active = true): boolean {
     if (!active || !this.eligible(authority)) return false;
@@ -453,7 +477,7 @@ export class ChatResponsivenessTrace {
     for (let index = last - 1; index >= Math.max(0, start, last - 1024); index--) {
       const row = readRow(rows[index]);
       if (row.id === selection.item && row.toolFlowId === selection.turn) {
-        return { index, metrics: { sourceSeq: row.seq ?? null, status: ["running", "completed", "failed", "interrupted", "abandoned"].includes(row.toolStatus ?? "") ? row.toolStatus ?? null : null, contentUnits: row.content?.length ?? 0, resultUnits: row.toolResult?.length ?? 0, detailUnits: row.toolDetail?.length ?? 0 } };
+        return { index, metrics: traceMetrics(row) };
       }
     }
     return null;
@@ -479,6 +503,30 @@ export class ChatResponsivenessTrace {
     const elapsed = this.clock() - start;
     if (record) record.observerMs = elapsed;
     this.overheadMs += elapsed;
+  }
+
+  arrival(authority: TraceAuthority, rows: readonly TraceRow[], origin?: LiveTraceOrigin): void {
+    if ((!this.armed && !this.selection) || !this.matches(authority)) return;
+    if (this.records.length >= 2048) { this.dropped++; return; }
+    const start = this.clock();
+    if (authority.epoch === undefined || origin?.kind !== "runtime_live" || !validTraceId(origin.turn)) {
+      this.finish(start); return;
+    }
+    let metrics: TraceMetrics | null = null;
+    if (this.armed) {
+      for (let index = 0; index < Math.min(rows.length, 1024); index++) {
+        const row = rows[index];
+        if (row.type !== "assistant" || row.toolFlowId !== origin.turn || !validTraceId(row.id)) continue;
+        this.selection = { ...this.armed, turn: origin.turn, item: row.id };
+        this.armed = null;
+        this.epochVerified = true;
+        metrics = traceMetrics(row);
+        break;
+      }
+      if (this.armed && rows.length > 1024) this.dropped++;
+    } else if (this.selection?.turn === origin.turn) metrics = this.metrics(rows, traceRow)?.metrics ?? null;
+    const record = metrics ? this.record("frontend_arrival", authority, metrics) : null;
+    this.finish(start, record);
   }
 
   observe(stage: string, authority: TraceAuthority, rows: readonly TraceRow[]): void {
@@ -531,9 +579,10 @@ export class ChatResponsivenessTrace {
     return stop;
   }
   snapshot() {
-    return { trace: this.selection?.trace ?? null, timeOrigin: performance.timeOrigin,
+    return { trace: this.selection?.trace ?? this.armed?.trace ?? null, timeOrigin: performance.timeOrigin,
+      selection: this.selection ? { ...this.selection } : null, armed: this.armed ? { ...this.armed } : null,
       records: this.records.map(record => ({ ...record })), dropped: this.dropped, observerMs: this.overheadMs,
-      active: this.selection !== null };
+      active: this.selection !== null || this.armed !== null };
   }
 
   dispose(): void {
@@ -542,17 +591,19 @@ export class ChatResponsivenessTrace {
     this.generation++;
     this.epochVerified = false;
     this.selection = null;
+    this.armed = null;
   }
 
-  release(tab: string): void { if (this.selection?.tab === tab) this.dispose(); }
+  release(tab: string): void { if ((this.selection ?? this.armed)?.tab === tab) this.dispose(); }
 }
 
 export const chatResponsivenessTrace = new ChatResponsivenessTrace();
 
-declare global { interface Window { __chatResponsiveness?: Pick<ChatResponsivenessTrace, "select" | "snapshot" | "dispose"> } }
+declare global { interface Window { __chatResponsiveness?: Pick<ChatResponsivenessTrace, "arm" | "select" | "snapshot" | "dispose"> } }
 
 if (DEV_BUILD && typeof window !== "undefined") {
   window.__chatResponsiveness = {
+    arm: binding => chatResponsivenessTrace.arm(binding),
     select: selection => chatResponsivenessTrace.select(selection),
     snapshot: () => chatResponsivenessTrace.snapshot(),
     dispose: () => chatResponsivenessTrace.dispose(),
