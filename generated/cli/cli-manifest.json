@@ -13588,6 +13588,19 @@
                   "aliases": []
                 },
                 {
+                  "name": "placement",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PLACEMENT",
+                  "possible_values": [
+                    "shared",
+                    "lane"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "plan_id",
                   "positional": true,
                   "required": true,
@@ -13655,6 +13668,44 @@
                   "positional": false,
                   "required": false,
                   "value_name": "WORKSPACE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "extend-files",
+              "about": "Extend this Worker's declared edit files; overlapping live ownership is refused",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "edit-file",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "TASK_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,
