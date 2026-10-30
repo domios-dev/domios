@@ -8,7 +8,8 @@ async fn tailnet_server_exit_withdraws_readiness_and_waits_for_an_external_event
     let mut serving = Serving {
         tasks: JoinSet::new(),
         sockets: BTreeMap::new(),
-        failed: BTreeSet::new(),
+        failed: BTreeMap::new(),
+        reused: BTreeSet::new(),
     };
     let task = serving.tasks.spawn(std::future::pending());
     serving.sockets.insert(address, task);
@@ -16,7 +17,7 @@ async fn tailnet_server_exit_withdraws_readiness_and_waits_for_an_external_event
     let result = serving.tasks.join_next().await.unwrap();
     serving.stopped(result);
     assert!(serving.sockets.is_empty());
-    assert!(serving.failed.contains(&address));
+    assert!(serving.failed.contains_key(&address));
 }
 
 fn interfaces(values: &[&str]) -> Vec<IpAddr> {
@@ -158,4 +159,82 @@ async fn tailnet_config_watch_accepts_the_server_generic_config_event() {
     .await
     .expect("server config event must wake listener selection")
     .unwrap();
+}
+
+#[test]
+fn tailnet_wildcard_reuses_only_the_covered_family_and_port() {
+    let v4 = "100.64.1.2:7685".parse().unwrap();
+    let v6 = "[fd7a:115c:a1e0::1]:7685".parse().unwrap();
+    assert!(covers("0.0.0.0:7685".parse().unwrap(), v4));
+    assert!(covers("[::]:7685".parse().unwrap(), v6));
+    assert!(!covers("0.0.0.0:7685".parse().unwrap(), v6));
+    assert!(!covers("0.0.0.0:7686".parse().unwrap(), v4));
+    assert!(!covers("127.0.0.1:7685".parse().unwrap(), v4));
+}
+
+#[test]
+fn tailnet_health_failures_back_off_and_log_only_changed_states() {
+    let mut failure = retry::Failure::default();
+    let mut now = tokio::time::Instant::now();
+    for delay in [30, 60, 120, 240, 300, 300] {
+        let first = failure.retry_at().is_none();
+        assert_eq!(failure.record(now, "health deadline".into()), first);
+        assert!(!failure.due(now));
+        assert!(!failure.due(now + std::time::Duration::from_secs(delay - 1)));
+        now += std::time::Duration::from_secs(delay);
+        assert!(failure.due(now));
+    }
+    assert!(failure.record(now, "address unavailable".into()));
+}
+
+#[tokio::test]
+async fn tailnet_proven_wildcard_is_ready_without_a_second_bind() {
+    let address = "100.64.1.2:7685".parse().unwrap();
+    let mut serving = Serving {
+        tasks: JoinSet::new(), sockets: BTreeMap::new(),
+        failed: BTreeMap::new(), reused: BTreeSet::new(),
+    };
+    let mut attempts = 0;
+    serving.reconcile_with_bind(&[address], &axum::Router::new(), &["0.0.0.0:7685".parse().unwrap()], |_| {
+        attempts += 1;
+        Err(std::io::Error::from(std::io::ErrorKind::AddrInUse))
+    }).await;
+    assert_eq!(attempts, 1);
+    assert_eq!(serving.ready(), vec![address]);
+    assert!(serving.tasks.is_empty());
+    assert!(serving.failed.is_empty());
+    serving.withdraw(&[]).await;
+    assert!(serving.ready().is_empty());
+}
+
+#[tokio::test]
+async fn tailnet_wildcard_does_not_replace_an_unavailable_dedicated_address() {
+    let address = "100.64.1.2:7685".parse().unwrap();
+    let mut serving = Serving {
+        tasks: JoinSet::new(), sockets: BTreeMap::new(),
+        failed: BTreeMap::new(), reused: BTreeSet::new(),
+    };
+    serving.reconcile_with_bind(&[address], &axum::Router::new(), &["0.0.0.0:7685".parse().unwrap()], |_| {
+        Err(std::io::Error::from(std::io::ErrorKind::AddrNotAvailable))
+    }).await;
+    assert!(serving.ready().is_empty());
+    assert!(serving.failed.contains_key(&address));
+}
+
+#[test]
+fn tailnet_external_event_resets_deadline_and_retains_backoff_and_diagnostic() {
+    let address = "100.64.1.2:7685".parse().unwrap();
+    let now = tokio::time::Instant::now();
+    let mut serving = Serving {
+        tasks: JoinSet::new(), sockets: BTreeMap::new(),
+        failed: BTreeMap::new(), reused: BTreeSet::new(),
+    };
+    let failure = serving.failed.entry(address).or_default();
+    assert!(failure.record(now, "address unavailable".into()));
+    assert!(!failure.due(now));
+    serving.retry_now();
+    let failure = serving.failed.get_mut(&address).unwrap();
+    assert!(failure.due(now));
+    assert!(!failure.record(now, "address unavailable".into()));
+    assert_eq!(failure.retry_at(), Some(now + std::time::Duration::from_secs(60)));
 }

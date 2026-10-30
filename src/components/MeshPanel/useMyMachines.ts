@@ -14,6 +14,7 @@ import { useMachineLinkActions } from "./useMachineLinkActions";
 export interface MachineFailure {
   operation: string;
   failure: AccountMeshFailure;
+  retryAt?: number;
 }
 
 export interface MyMachinesOptions {
@@ -70,6 +71,19 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   const [failures, setFailures] = useState<ReadonlyMap<string, MachineFailure>>(() => new Map());
   const generation = useRef(0);
   const refusedListEpoch = useRef<number | null>(null);
+  const failureEpoch = useRef<number | null>(null);
+  useEffect(() => {
+    if (!snapshot) return;
+    const changedEpoch = failureEpoch.current !== snapshot.account_epoch;
+    failureEpoch.current = snapshot.account_epoch;
+    setFailures(current => {
+      const next = changedEpoch ? new Map<string, MachineFailure>() : new Map(current);
+      for (const [key, failure] of next) {
+        if (failure.operation.startsWith("connect ") && snapshot.pairs.some(pair => pair.installation_id === key)) next.delete(key);
+      }
+      return next.size === current.size && [...next.keys()].every(key => current.has(key)) ? current : next;
+    });
+  }, [snapshot]);
 
   const load = useCallback(async (refreshRegistry = true) => {
     const current = ++generation.current;
@@ -113,9 +127,9 @@ export function useMyMachines({ account, onSignIn, onFailure, onChanged, now = e
   }, [account, snapshot, load]);
 
   const fail = useCallback((key: string, operation: string, failure: AccountMeshFailure) => {
-    setFailures((current) => new Map(current).set(key, { operation, failure }));
+    setFailures((current) => new Map(current).set(key, { operation, failure, ...(failure.reason === "rate-limited" ? { retryAt: now() + failure.retry_after_seconds } : {}) }));
     onFailure?.(operation, failure);
-  }, [onFailure]);
+  }, [onFailure, now]);
 
   const dismissFailure = useCallback((key: string) => {
     setFailures((current) => {

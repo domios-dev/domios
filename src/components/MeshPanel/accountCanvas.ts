@@ -41,6 +41,7 @@ export interface MachineCallout {
   title: string;
   message: string;
   retry: boolean;
+  transient?: boolean;
 }
 
 /** The account facts a paired peer card carries in its footer. */
@@ -77,7 +78,7 @@ const STATUS: Record<MachineStatus, { label: string; tone: MachineTone }> = {
   revoked: { label: "Removed", tone: "danger" },
   over_limit: { label: "Locked", tone: "warning" },
   unverified: { label: "Unverified", tone: "warning" },
-  legacy: { label: "Older pairing", tone: "muted" },
+  legacy: { label: "Account membership pending", tone: "muted" },
   blocked: { label: "Blocked", tone: "danger" },
   other_account: { label: "Other account", tone: "danger" },
 };
@@ -99,7 +100,7 @@ export function accountCanvas({ view, peers, loadFailed, listFailed, failures }:
   const peerFooters = new Map<string, PeerAccountFooter>();
   for (const row of rows) {
     const callout = row.status === "signed_out" ? null : machineCallout(failures.get(row.key));
-    const { label, tone } = STATUS[row.status];
+    const { label, tone } = callout?.transient ? { label: "Busy", tone: "muted" as const } : STATUS[row.status];
     const locked = row.status === "over_limit";
     const disconnect = row.controls.unpairInstanceId
       ? { instanceId: row.controls.unpairInstanceId, confirm: row.target === null }
@@ -115,7 +116,7 @@ export function accountCanvas({ view, peers, loadFailed, listFailed, failures }:
       name: row.name,
       status: label,
       tone,
-      detail: row.detail,
+      detail: callout?.transient ? callout.message : row.detail,
       online: row.online,
       lastSeenAt: row.lastSeenAt,
       locked,
@@ -143,8 +144,9 @@ function machineAction(row: MachineRowView): MachineAction {
 
 function machineCallout(entry: MachineFailure | undefined): MachineCallout | null {
   if (!entry) return null;
-  const retry = entry.operation.startsWith("connect ");
-  return { title: `Could not ${entry.operation}`, message: failureMessage(entry.failure), retry };
+  const transient = entry.failure.reason === "rate-limited";
+  const retry = !transient && entry.operation.startsWith("connect ");
+  return { title: transient ? "Mesh is busy" : `Could not ${entry.operation}`, message: failureMessage(entry.failure, undefined, entry.retryAt), retry, ...(transient ? { transient } : {}) };
 }
 
 /** Accepts epoch seconds, epoch milliseconds or an ISO timestamp. */

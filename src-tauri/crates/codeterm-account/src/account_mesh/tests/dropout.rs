@@ -244,10 +244,12 @@ async fn account_mesh_forbidden_own_registry_read_rejoins_revoked_slot() {
     let harness = enrolled().await;
     harness.registry.revoke_self("owner");
     harness.clock.set(START + 64800);
+    harness.mesh.enrollment_signed_in();
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
-    assert_eq!(harness.calls("list"), 1);
+    assert_eq!(harness.calls("list"), 2);
     assert_eq!(harness.calls("recover_key"), 1);
-    assert_eq!(harness.calls("enroll"), 2);
+    assert_eq!(harness.calls("recover"), 1);
+    assert_eq!(harness.calls("enroll"), 1);
     assert!(harness.state().current_membership(START + 64800).is_some());
 }
 

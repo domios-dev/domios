@@ -124,6 +124,8 @@ pub struct AccountMeshPair {
     pub instance_id: String,
     pub installation_id: Option<String>,
     pub admission: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adoption_detail: Option<String>,
     pub online: bool,
     pub name: String,
 }

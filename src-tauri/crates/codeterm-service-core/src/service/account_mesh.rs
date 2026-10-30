@@ -412,9 +412,11 @@ impl ServiceContext {
             loop {
                 let state = states.borrow_and_update().clone();
                 mesh.lock().apply_account_state(state);
-                crate::async_runtime::spawn(
-                    codeterm_mesh::account_mesh::link::on_account_state_applied(mesh.clone()),
-                );
+                let previous = mesh.lock().account_mesh_pairs();
+                codeterm_mesh::account_mesh::link::on_account_state_applied(mesh.clone()).await;
+                if previous != mesh.lock().account_mesh_pairs() {
+                    service.ui.emit(ACCOUNT_MESH_CHANGED, serde_json::Value::Null);
+                }
                 if states.changed().await.is_err() {
                     return;
                 }

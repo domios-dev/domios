@@ -33,7 +33,9 @@ pub async fn state(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<AccountMeshSnapshot>, Error> {
-    admit(caller.as_ref())?;
+    admit(caller.as_ref()).map_err(|(status, _)| (
+        status, "Account Mesh details are owner-only. Ask the owner to run `domios mesh status` in a local terminal.".to_owned()
+    ))?;
     Ok(Json(
         state
             .svc

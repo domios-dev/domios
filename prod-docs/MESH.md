@@ -2,7 +2,7 @@
 
 ## Core Principles
 
-1. **The account is the only source of new links.** A machine joins the mesh only by linking a machine enrolled in the same account. There is no LAN broadcast, mDNS, UDP beacon, Tailnet-wide scan, manual address pairing, pairing request or introduction.
+1. **New links require the same account.** No LAN broadcast, mDNS, UDP beacon, Tailnet scan, manual address pairing, pairing request or introduction creates a link.
 2. **Paired is necessary, not sufficient.** Traffic on a paired edge also needs that edge's admission to be open right now (see *Admission and sign-out*).
 3. **AccessLevel** (Full/ReadOnly/AgentIsolated) is per-peer, per-machine and independent of account membership. Each machine decides locally what a peer can do. Default = Full.
 4. **Only explicit removal deletes a pair.** `domios mesh disconnect` or an account revoke removes it; sign-out, expiry, outage and account switches never do.
@@ -12,7 +12,7 @@
 
 When Tailscale is connected and the API is enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic without withdrawing the web listener. Signed-in machines publish their health-proven endpoint to the account.
 
-Health-proven HTTP access remains available without Tailscale Serve HTTPS. The card prefers verified HTTPS, then tailnet HTTP, then LAN HTTP. Loopback offers **Open on this machine** without a phone QR or Copy action. The card labels the selected route; HTTPS-dependent browser features still require HTTPS. After Tailscale or Serve setup, run `domios mesh refresh --json`: it re-detects the transport, reconciles Serve, verifies web endpoints, publishes them and resyncs the card. Read back `transport.state` and `web_ui.endpoints` in that response or in `domios mesh status --json` (the latest cached local state, available even while signed out), then verify the card offers Open, Copy and QR for the proven endpoint before reporting setup complete. Access denial appears as **Permission needed**, separately from a stopped or missing Tailscale installation.
+Verified HTTP works without Tailscale Serve HTTPS. The card prefers verified HTTPS, tailnet HTTP, then LAN HTTP, and labels the route; HTTPS-dependent browser features still need HTTPS. Loopback offers **Open on this machine**, without QR or Copy. After Tailscale or Serve setup, run `domios mesh refresh --json` to re-detect transport, reconcile Serve, verify and publish endpoints, and resync the card. Read `transport.state` and `web_ui.endpoints` there or in `domios mesh status --json` (cached local state, available while signed out). Confirm Open, Copy and QR for the proven endpoint before reporting completion. **Permission needed** distinguishes access denial from stopped or missing Tailscale.
 
 Windows Defender may ask to allow incoming connections for Domios on first use; macOS may show an incoming-connections prompt when its application firewall is enabled. Linux firewall rules may need to permit the Domios port on the Tailscale interface. Domios does not change firewall rules or listen on LAN addresses for this feature.
 
@@ -26,14 +26,16 @@ The registry supplies the target's single published endpoint; no address is ever
 
 Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. A 1.14.9 peer receives a version error explaining that both peers must be upgraded.
 
-Account enrollment and address publication wait for the server's retry time after a rate limit. Transient outages back off from 30 seconds to a five-minute cap. Mesh status shows the publication refusal and scheduled retry; a failed registry read keeps a confirmed publication. `domios mesh status` includes this local account state (`account_mesh` in JSON).
+Enrollment and publication honor the server's retry time; outages back off from 30 seconds to five minutes. Scheduled recovery shows **Busy, retrying at <time>**; a one-shot action shows **Busy until <time>** without promising an automatic retry. A failed registry read preserves confirmed publication. `domios mesh status` includes local account state (`account_mesh` in JSON); account details are owner-only, and agent refusals name that owner command.
+
+**Rejoin mesh** requests fresh sign-in only when required. Healthy same-account sign-in keeps valid membership. Removal or an outdated installation key requires fresh sign-in on that machine; recovery then uses the server-assigned key generation. For 15 minutes, transient failures retry with backoff: rekey retries retain the pending key, and a confirmed rekey retries only slot recovery, replaying uncertain requests while their proof remains valid. An uncertain recovery is reconciled against the registry; it never implies removal. After the window, Mesh asks for sign-in again. Successful recovery refreshes the registry and notifies peers.
 
 ## Admission and sign-out
 
 Every paired edge carries a durable admission:
 
-- **legacy** — exactly the pairs persisted before the account gate existed. The upgrade snapshots them once, atomically with the peer records, so already-paired machines (including peers still on an older version) keep their keys, access levels and working traffic without signing in and without a deadline. Pending requests, discovered rows and anything paired later never become legacy, and a removed legacy edge can never come back through this path.
-- **adopted** — linked or adopted under the account. When both sides of a legacy edge are signed in to the same account, they adopt it in place over the existing authenticated channel, with no re-pair, key rotation or drop. Adoption is one-way: an adopted edge never falls back to legacy on outage, expiry or an invalid proof.
+- **legacy** — pairs persisted before the account gate, snapshotted once atomically with peer records. Older peers retain keys, access levels and traffic without sign-in or expiry. Pending requests, discovered rows and later pairs never become legacy; removal cannot be undone through this path.
+- **adopted** — account-authorized links. Legacy peers signed in to the same account adopt in place over their authenticated channel, without re-pairing, key rotation or interruption. Outage, expiry and invalid proofs never downgrade an adopted edge to legacy.
 
 Adopted edges carry traffic backend-free until the earlier of both machines' original signed membership expiries (at most 3600 seconds, renewed around 1800 seconds and delivered peer to peer on announces). There is no grace period. Expiry blocks protected traffic but keeps the pair record and all local work; a verified renewal reopens it.
 
@@ -51,12 +53,7 @@ Replacement readiness is queued to the liveness owner with a monotonic recovery 
 
 ## Auth Model
 
-Every paired peer has an Ed25519 keypair. Requests between peers are signed with the sender's private key and verified against the keys of paired peers whose edge is currently open.
-
-- Inbound: a request is accepted only from a paired peer with open admission; a blocked edge is rejected exactly like an unknown key.
-- Outbound: requests, sync, announces and streams go only to peers with open admission.
-- Normal peer requests and relayed requests use the same `AccessLevel` policy.
-- Secret-vault routes and mesh token minting are local-only at every access level.
+Peers sign requests with Ed25519 keys. Inbound traffic requires a paired key and open admission; blocked edges are rejected as unknown keys. Outbound requests, sync, announces and streams also require open admission. Direct and relayed requests share `AccessLevel` policy; secret-vault routes and token minting remain local-only.
 
 ## Security
 
@@ -103,7 +100,7 @@ A relayed send succeeds only when the TARGET confirms delivery — the relay hop
 
 `--mesh PEER` accepts, in order: an exact instance id, a unique instance-id prefix (the short id `mesh status` prints, 6+ hex characters), the advertised name, or the configured name (the advertised name without its ` [dev-suffix]`). Stale offline duplicates of a name never hide the live record; when two ONLINE peers answer to one name the relay refuses with `409 peer_name_ambiguous` and lists every candidate with its `instance_id`, so re-run with an id. Every relayed result names the peer that answered: `--json` object results carry `answered_by {instance_id, instance_name}`, human output prints `answered by NAME (short id)` on stderr when the peer was addressed by anything but its exact id, and a failure carries `error.peer_id`.
 
-The CLI reports a relayed send from the peer's own verdict, the same way a local send does: bytes that reached the target PTY (`bytes_written=true`) print as accepted with `delivery: pending` even when the peer's submit confirmation outlived the relay, and only `bytes_written=false` or unknown is a failure. Failures carry `error.class` — `deterministic` (the same request will be refused again: authorization, protocol mismatch, unknown tab, 4xx), `transient` (retry can help: busy tab, saturated window, 429/502-504) or `unknown` (a peer refusal that did not say). The retry hint follows the class, and only `transient` says retry. `send --mesh` prints only the result — the payload is never echoed. A `--to-shell` payload with a line over 4095 bytes to a non-Windows peer is refused before sending (`line_exceeds_tty_limit`, nothing written), because a canonical-mode tty truncates such a line while the write reports success.
+Relayed sends follow the target's verdict: `bytes_written=true` is accepted with `delivery: pending` even if submit confirmation outlives the relay; `false` or unknown is failure. `error.class` is `deterministic` (authorization, protocol, unknown tab, 4xx: the same request fails again), `transient` (busy tab, saturated window, 429/502–504: retry may help), or `unknown` (unclassified peer refusal). Only transient failures recommend retry. `send --mesh` never echoes payloads. A `--to-shell` line over 4095 bytes to a non-Windows peer is refused before sending with `line_exceeds_tty_limit`, because canonical-mode TTYs can truncate it despite a successful write.
 
 A rename or address change announced while a paired peer is unreachable is remembered and re-announced when that peer next comes online.
 
@@ -133,21 +130,19 @@ After origin review accepts the report, run `domios plan task merge-remote-lane 
 
 Both peers enforce Full access and owner rules. No token, provider credential, secret, or secret-bearing environment enters the task payload.
 
-The general `agent spawn --mesh PEER --role Worker` path remains task-less and does not create an origin attempt. Use plan-bound dispatch for accountable work; use task-less mesh spawn only for exploratory work without a plan assignment.
+### Task-less Workers
 
-1. Spawn the remote Worker so its report target is the mesh peer that owns the plan:
+Exploratory work without a plan uses task-less spawn; it creates no origin attempt. Spawn from the machine owning the plan so reports return there:
 
-   ```bash
-   domios agent spawn claude --mesh PEER --role Worker --cwd <peer-workspace-path> --task-file <local-brief-path>
-   ```
+```bash
+domios agent spawn claude --mesh PEER --role Worker --cwd <peer-workspace-path> --task-file <local-brief-path>
+```
 
-   A brief is authored prose, so it travels as a file. `--task "<brief>"` is refused once the text is multiline or over 240 characters: your shell would have expanded it before the CLI ran, and a remote Worker cannot be handed a silently truncated assignment. `--task-file -` with a single-quoted heredoc works the same way.
+Use `--task-file` for authored briefs. Multiline or over-240-character `--task` values are refused to prevent shell expansion or truncation. `--task-file -` accepts a single-quoted heredoc. The origin reads the file and sends its contents, never its local path.
 
-   Mesh spawns require `--cwd` to name a workspace directory on the peer; the peer refuses one that is not an absolute, existing directory there. Git Bash rewrites POSIX arguments such as `/srv/project` into Windows paths before the CLI runs, so pass a POSIX `--cwd` with `MSYS_NO_PATHCONV=1` set. A `--task-file` path is read on the caller machine and its contents are sent; the local path is never sent to the peer.
+`--cwd` must name an absolute, existing peer workspace directory. From Git Bash, set `MSYS_NO_PATHCONV=1` for POSIX paths such as `/srv/project`.
 
-   This is a **supported task-less Worker shape**, including for work that changes source on the peer: it owns no task because none can exist for it, and it declares no `--execution-intent`. Keep `--role Worker` — that is the field the peer resolves the Worker doctrine from, including the rule that every turn ends in exactly one `domios agent report`. A roleless spawn is accepted too and loses that doctrine silently, which on a remote machine means the work never reports home. `--execution-intent mutating` is still refused without a task binding, on the peer's own daemon; the mesh has no binding to give it, so leave the flag off.
-
-The general mesh spawn path remains available for task-less work; it does not participate in the origin task/report/merge lifecycle above.
+Keep `--role Worker`: it selects Worker doctrine and exactly one `domios agent report` per turn. Roleless spawn loses that reporting doctrine. Task-less Workers may edit peer source, but own no task or execution intent; `--execution-intent mutating` is refused without a task binding. They do not participate in plan-bound attempt, report or merge accounting.
 
 ## Peer API compatibility
 
@@ -183,4 +178,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 | POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 71 -->
+<!-- revision: 73 -->

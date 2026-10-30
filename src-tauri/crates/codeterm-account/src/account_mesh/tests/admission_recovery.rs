@@ -113,11 +113,12 @@ async fn account_mesh_401_retry_conflict_reconciles_and_revocation_rejoins() {
         }
         if revoked {
             harness.registry.revoke_self("owner");
+            harness.mesh.enrollment_signed_in();
         }
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
         if revoked {
             assert_eq!(harness.calls("recover_key"), 1);
-            assert_eq!(harness.calls("enroll"), 1);
+            assert_eq!(harness.calls("recover"), 1);
         } else {
             assert_eq!(harness.calls("list"), 1);
             assert_eq!(harness.calls("renew"), 2);

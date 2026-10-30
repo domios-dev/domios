@@ -300,10 +300,10 @@ impl super::ServiceContext {
         if let Ok(mesh) = self.account_mesh().await {
             mesh.mesh.enrollment_signed_in();
         }
+        self.spawn_account_mesh_refresh(codeterm_account::account_mesh::EnrollTrigger::Automatic);
         let _ = self
             .refresh_billing(codeterm_billing::RefreshEvent::SignIn)
             .await;
-        self.spawn_account_mesh_refresh(codeterm_account::account_mesh::EnrollTrigger::Automatic);
         Ok(status)
     }
 }

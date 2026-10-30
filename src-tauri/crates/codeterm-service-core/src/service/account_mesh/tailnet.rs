@@ -11,6 +11,7 @@ use super::ServiceContext;
 use crate::startup::rest_api::{listeners::serve_listener, RestApiControlState, RestApiPhase};
 
 mod network_changes;
+mod retry;
 #[cfg(test)]
 mod tests;
 
@@ -85,7 +86,8 @@ async fn mark_tailnet_listener(mut request: Request, next: Next) -> axum::respon
 struct Serving {
     tasks: JoinSet<SocketAddr>,
     sockets: BTreeMap<SocketAddr, tokio::task::AbortHandle>,
-    failed: BTreeSet<SocketAddr>,
+    failed: BTreeMap<SocketAddr, retry::Failure>,
+    reused: BTreeSet<SocketAddr>,
 }
 
 impl Serving {
@@ -99,11 +101,13 @@ impl Serving {
         };
         if let Some(address) = address {
             self.sockets.remove(&address);
-            self.failed.insert(address);
+            self.failed.entry(address).or_default().record(tokio::time::Instant::now(), format!("listener {address} exited"));
         }
     }
 
     async fn withdraw(&mut self, desired: &[SocketAddr]) {
+        self.reused.retain(|address| desired.contains(address));
+        self.failed.retain(|address, _| desired.contains(address));
         let mut stopping = BTreeSet::new();
         self.sockets.retain(|address, task| {
             if desired.contains(address) {
@@ -128,23 +132,40 @@ impl Serving {
         }
     }
 
-    async fn reconcile(&mut self, desired: &[SocketAddr], router: &axum::Router) {
+    fn ready(&self) -> Vec<SocketAddr> {
+        self.sockets.keys().chain(self.reused.iter()).copied().collect()
+    }
+
+    fn retry_now(&mut self) {
+        for failure in self.failed.values_mut() { failure.reset_deadline(); }
+    }
+
+    async fn reconcile(&mut self, desired: &[SocketAddr], router: &axum::Router, primary: &[SocketAddr]) {
+        self.reconcile_with_bind(desired, router, primary, codeterm_util::tcp_listener::bind).await;
+    }
+
+    async fn reconcile_with_bind(&mut self, desired: &[SocketAddr], router: &axum::Router, primary: &[SocketAddr], mut bind: impl FnMut(SocketAddr) -> std::io::Result<std::net::TcpListener>) {
+        self.reused.retain(|address| primary.iter().any(|bind| covers(*bind, *address)));
         self.withdraw(desired).await;
         while let Some(result) = self.tasks.try_join_next() {
             self.stopped(result);
         }
         for address in desired {
-            if self.sockets.contains_key(address) {
+            if self.sockets.contains_key(address) || self.reused.contains(address) {
                 continue;
             }
-            if self.failed.contains(address) {
+            if self.failed.get(address).is_some_and(|failure| !failure.due(tokio::time::Instant::now())) {
                 continue;
             }
-            let listener = match codeterm_util::tcp_listener::bind(*address) {
+            let listener = match bind(*address) {
                 Ok(listener) => listener,
+                Err(error) if reusable_primary(error.kind(), primary, *address) => {
+                    self.reused.insert(*address);
+                    self.failed.remove(address);
+                    continue;
+                }
                 Err(error) => {
-                    log::warn!("[account-mesh] tailnet bind {address} failed: {error}");
-                    self.failed.insert(*address);
+                    self.failed.entry(*address).or_default().record(tokio::time::Instant::now(), format!("bind {address}: {}", error.kind()));
                     continue;
                 }
             };
@@ -153,19 +174,19 @@ impl Serving {
             let task = self.tasks.spawn(async move {
                 let (_stop, stopped) = tokio::sync::oneshot::channel();
                 if let Err(error) = serve_listener(listener, router, stopped).await {
-                    log::warn!("[account-mesh] tailnet listener {address} failed: {error}");
+                    log::debug!("[account-mesh] tailnet listener {address} failed: {error}");
                 }
                 address
             });
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
             match crate::startup::rest_api::prove_health(address, None, deadline).await {
                 Ok(()) => {
+                    self.failed.remove(&address);
                     self.sockets.insert(address, task);
                 }
                 Err(error) => {
                     task.abort();
-                    self.failed.insert(address);
-                    log::warn!("[account-mesh] tailnet listener not ready: {error}");
+                    self.failed.entry(address).or_default().record(tokio::time::Instant::now(), error);
                 }
             }
         }
@@ -202,7 +223,8 @@ pub(super) async fn run_with_network(
     let mut serving = Serving {
         tasks: JoinSet::new(),
         sockets: BTreeMap::new(),
-        failed: BTreeSet::new(),
+        failed: BTreeMap::new(),
+        reused: BTreeSet::new(),
     };
     let mut published = Vec::new();
     loop {
@@ -213,32 +235,41 @@ pub(super) async fn run_with_network(
         let port = control.bound_addr().map_or(0, |address| address.port());
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
         let desired = network.selected(enabled && listening, port).await;
+        let primary = if listening { control.listeners.primary_ready() } else { Vec::new() };
+        serving.reused.retain(|address| primary.iter().any(|bind| covers(*bind, *address)));
         serving.withdraw(&desired).await;
-        let retained: Vec<_> = serving.sockets.keys().copied().collect();
+        let retained = serving.ready();
         if published != retained {
             control.listeners.publish_tailnet(retained.clone());
             published = retained;
             service.ui.emit("mesh-state-changed", serde_json::json!({}));
         }
-        serving.reconcile(&desired, &router).await;
-        let ready = serving.sockets.keys().copied().collect::<Vec<_>>();
+        serving.reconcile(&desired, &router, &primary).await;
+        let ready = serving.ready();
         if published != ready {
             control.listeners.publish_tailnet(ready.clone());
             published = ready;
             service.ui.emit("mesh-state-changed", serde_json::json!({}));
         }
+        let retry_at = serving.failed.values().filter_map(|failure| failure.retry_at()).min();
         tokio::select! {
+            _ = async {
+                match retry_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => {},
             changed = network.changed() => {
                 if changed.is_err() { break; }
-                serving.failed.clear();
+                serving.retry_now();
             },
             changed = rest.changed() => {
                 if changed.is_err() { break; }
-                serving.failed.clear();
+                serving.retry_now();
             },
             event = config_changed(&mut config) => {
                 if event.is_err() { break; }
-                serving.failed.clear();
+                serving.retry_now();
             },
             Some(result) = serving.tasks.join_next(), if !serving.tasks.is_empty() => {
                 serving.stopped(result);
@@ -249,6 +280,16 @@ pub(super) async fn run_with_network(
     serving.withdraw(&[]).await;
     control.listeners.publish_tailnet(Vec::new());
     service.ui.emit("mesh-state-changed", serde_json::json!({}));
+}
+
+fn reusable_primary(error: std::io::ErrorKind, primary: &[SocketAddr], address: SocketAddr) -> bool {
+    error == std::io::ErrorKind::AddrInUse && primary.iter().any(|bind| covers(*bind, address))
+}
+
+fn covers(bind: SocketAddr, address: SocketAddr) -> bool {
+    bind.port() == address.port()
+        && (bind.ip() == address.ip()
+            || (bind.ip().is_unspecified() && bind.is_ipv4() == address.is_ipv4()))
 }
 
 async fn config_changed(

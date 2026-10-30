@@ -150,6 +150,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
                         installation_id: "caller".into(),
                         public_key_spki_base64: "key".into(),
                         operation: KeyOperation::Enroll,
+                        generation_policy: None,
                         expected_generation: 0
                     },
                     proof: proof.clone(),

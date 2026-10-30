@@ -117,6 +117,22 @@ impl AccountMesh {
         signed: &Signed,
         operation: MeshOperation,
     ) -> Outcome<MeshResult> {
+        if matches!(operation, MeshOperation::Recover { target_policy: Some(_), .. })
+            && !self.with(|inner| inner.rejoin_window.as_ref().is_some_and(|window| window.live(signed.epoch, self.now()))) {
+            return Err(AccountMeshRefusal::ReauthRequired);
+        }
+        let prepared = self.with(|inner| {
+            let window = inner.rejoin_window.as_mut().filter(|window| window.live(signed.epoch, self.now()))?;
+            if window.recovery.as_ref().is_some_and(|prepared| !prepared.replayable(self.now())) {
+                window.recovery = None;
+            }
+            window.recovery.as_ref().filter(|prepared| prepared.envelope.request.operation == operation)
+                .map(|prepared| prepared.envelope.clone())
+        });
+        if let Some(prepared) = prepared {
+            self.with(|inner| inner.last_request = Some(prepared.request.request_id.clone()));
+            return self.submit_admission(signed, &prepared).await;
+        }
         let generation = self.generation(signed).await?;
         let mut request = MeshAdmissionBody {
             schema_version: MESH_SCHEMA_VERSION,
@@ -146,6 +162,7 @@ impl AccountMesh {
             inner.last_request = Some(request.request_id.clone());
             Ok(())
         })?;
+        let issued_at = self.now();
         let installation_proof = self
             .prove(signed, ProofEndpoint::MeshAdmission, &request, generation)
             .await?;
@@ -153,9 +170,14 @@ impl AccountMesh {
             request,
             installation_proof,
         };
-        let result = self
-            .call(self.ports.registry.admission(&signed.session, &envelope))
-            .await;
+        if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+            self.with(|inner| {
+                if let Some(window) = inner.rejoin_window.as_mut().filter(|window| window.epoch == signed.epoch) {
+                    window.recovery = Some(super::rejoin::PreparedRecovery { envelope: envelope.clone(), issued_at });
+                }
+            });
+        }
+        let result = self.submit_admission(signed, &envelope).await;
         if !matches!(
             result,
             Err(AccountMeshRefusal::Offline
@@ -167,6 +189,19 @@ impl AccountMesh {
             self.with(|inner| {
                 if inner.is_current(signed.epoch) {
                     inner.pending_renew = None;
+                }
+            });
+        }
+        result
+    }
+
+    async fn submit_admission(&self, signed: &Signed, envelope: &SignedEnvelope<MeshAdmissionBody>) -> Outcome<MeshResult> {
+        let result = self.call(self.ports.registry.admission(&signed.session, envelope)).await;
+        if matches!(result, Err(AccountMeshRefusal::RateLimited { .. }))
+            && matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. }) {
+            self.with(|inner| {
+                if inner.is_current(signed.epoch) {
+                    if let Some(window) = inner.rejoin_window.as_mut() { window.recovery = None; }
                 }
             });
         }

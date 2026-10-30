@@ -136,7 +136,7 @@ describe("My machines Add", () => {
     }));
     await mount(client, "signed_in");
 
-    expect(host.textContent).toContain("Account enrollment was refused.");
+    expect(host.textContent).not.toContain("Account enrollment was refused.");
     expect(host.textContent).toContain("Machine membership could not be verified right now.");
     await click(button("Retry enrollment"));
     expect(client.enrollCalls).toBe(1);
@@ -149,7 +149,7 @@ describe("My machines Add", () => {
     await mount(client, "signed_in");
 
     expect(host.textContent).toContain("Your account's machines could not be listed.");
-    expect(host.textContent).toContain("Your account session could not be verified. Sign in again.");
+    expect(host.textContent).toContain("The account session could not be verified. Retrying automatically.");
     expect(host.textContent).not.toContain("No other machines in your account yet.");
     expect(button("Refresh My machines")).not.toBeNull();
   });

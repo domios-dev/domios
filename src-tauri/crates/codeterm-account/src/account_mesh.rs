@@ -7,6 +7,7 @@ pub mod callable;
 mod callable_budget;
 mod key;
 mod lease_timer;
+mod link_authorization;
 mod lifecycle;
 mod membership;
 mod notice;
