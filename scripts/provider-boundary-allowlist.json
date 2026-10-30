@@ -76,6 +76,12 @@
       "to": [
         "src-tauri/crates/codeterm-plugin/src/js_runtime/plugin_config/tests.rs"
       ]
+    },
+    {
+      "from": "src-tauri/crates/codeterm-pty/src/session/store.rs",
+      "to": [
+        "src-tauri/crates/codeterm-pty/src/session/store/legacy_decode.rs"
+      ]
     }
   ],
   "entries": [
