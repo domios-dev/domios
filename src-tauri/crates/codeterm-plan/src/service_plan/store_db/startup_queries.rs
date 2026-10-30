@@ -37,19 +37,12 @@ impl PlanDatabase {
         rows.collect::<Result<_, _>>().map_err(db_error)
     }
 
-    /// Plans holding a finished task whose lane may still need settling, from
-    /// task rows and from legacy plans that keep their tasks inline.
+    /// Plans holding a finished task whose lane may still need settling.
     pub(in crate::service_plan) fn plans_with_unsettled_lanes(
         &self,
     ) -> Result<Vec<String>, PlanError> {
         let sql = format!(
-            "SELECT plan_id FROM (SELECT plan_id, document_json AS task FROM plan_tasks) WHERE {UNSETTLED_LANE}
-             UNION
-             SELECT id FROM (
-                 SELECT plans.id AS id, inline.value AS task
-                 FROM plans, json_each(plans.document_json, '$.tasks') AS inline
-                 WHERE json_type(plans.document_json, '$.tasks') = 'array'
-             ) WHERE {UNSETTLED_LANE}"
+            "SELECT DISTINCT plan_id FROM (SELECT plan_id, row_json AS task FROM plan_tasks) WHERE {UNSETTLED_LANE}"
         );
         let connection = self.connection.lock();
         let mut statement = connection.prepare(&sql).map_err(db_error)?;

@@ -228,10 +228,14 @@ pub(super) fn index_scope(
     writes: super::store_sync::RowWrites,
 ) -> super::search_index::PlanIndexScope {
     log::debug!(
-        "[plan.store] persisted rows: tasks={} milestones={} attempts={} deleted={}",
+        "[plan.store] persisted rows: tasks={} milestones={} attempts={} sections={} elements={} strides={} heartbeat={} deleted={}",
         writes.tasks,
         writes.milestones,
         writes.attempts,
+        writes.sections,
+        writes.elements,
+        writes.strides,
+        writes.heartbeat,
         writes.deleted
     );
     if writes.header_identity_changed {

@@ -40,7 +40,7 @@ fn table_rows(path: &std::path::Path) -> Vec<(&'static str, i64)> {
 fn plan_row_sizes(path: &std::path::Path) -> Vec<(String, i64)> {
     let connection = Connection::open(path).unwrap();
     let mut statement = connection
-        .prepare("SELECT id, length(document_json) FROM plans ORDER BY 2 DESC")
+        .prepare("SELECT id, length(header_json) FROM plans ORDER BY 2 DESC")
         .unwrap();
     let rows = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))

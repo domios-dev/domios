@@ -36,3 +36,36 @@ fn schema_template_isolates_fixtures_and_preserves_existing_databases() {
     });
     assert_eq!(std::fs::read(database).unwrap(), bytes);
 }
+
+#[test]
+fn seeded_fixture_database_has_the_current_row_schema() {
+    let directory = tempfile::tempdir().unwrap();
+    let database = directory.path().join(".domios/plans.db");
+    super::seed_plan_database(&database);
+
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 1);
+    let header_columns: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('plans') WHERE name = 'header_json'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(header_columns, 1);
+    let backups = std::fs::read_dir(directory.path().join(".domios"))
+        .unwrap()
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".pre-")
+        })
+        .count();
+    assert_eq!(backups, 0);
+}

@@ -68,7 +68,7 @@ fn insert_whole_document(path: &std::path::Path, plan: &Plan) {
     let connection = Connection::open(path).unwrap();
     connection
         .execute(
-            "INSERT INTO plans(id, title, status, team_id, project_path, updated_at, document_json)
+            "INSERT INTO plans(id, title, status, team_id, project_path, updated_at, header_json)
              VALUES (?1, ?2, 'active', NULL, ?3, ?4, ?5)",
             params![
                 plan.id,
@@ -84,11 +84,9 @@ fn insert_whole_document(path: &std::path::Path, plan: &Plan) {
 fn plan_row(path: &std::path::Path, id: &str) -> String {
     Connection::open(path)
         .unwrap()
-        .query_row(
-            "SELECT document_json FROM plans WHERE id = ?1",
-            [id],
-            |row| row.get(0),
-        )
+        .query_row("SELECT header_json FROM plans WHERE id = ?1", [id], |row| {
+            row.get(0)
+        })
         .unwrap()
 }
 
