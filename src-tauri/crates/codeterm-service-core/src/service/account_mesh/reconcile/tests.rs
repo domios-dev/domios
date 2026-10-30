@@ -310,3 +310,78 @@ fn incomplete_registry_or_transport_gate_suspends_overdue_peer_timers() {
     assert_eq!(state.deadline(200, false), Some(230));
     assert!(state.registry_refresh_due(230));
 }
+
+#[test]
+fn connectivity_flaps_preserve_last_non_transport_refusals() {
+    let mut state = Reconciliation::default();
+    let refusals = [
+        ("offline", AdmissionRefusal::Offline),
+        ("unreachable", AdmissionRefusal::PeerUnreachable),
+        ("permit", AdmissionRefusal::Unauthenticated),
+        ("forbidden", AdmissionRefusal::Revoked),
+        ("handshake", AdmissionRefusal::handshake("proof rejected")),
+        (
+            "busy",
+            AdmissionRefusal::RateLimited {
+                retry_after_seconds: 600,
+            },
+        ),
+    ];
+    let rows: Vec<_> = refusals.iter().map(|(id, _)| row(id)).collect();
+    state.observe(1, &rows);
+    for (id, refusal) in &refusals {
+        let retry = state.retries.entry((*id).into()).or_default();
+        retry.failed(99, &AdmissionRefusal::Offline);
+        retry.failed(100, refusal);
+    }
+    for now in [101, 102, 103] {
+        state.network_changed();
+        state.observe(1, &rows);
+        assert!(state.dial_due("a", "offline", now));
+        assert!(state.dial_due("a", "unreachable", now));
+        for id in ["permit", "forbidden", "handshake", "busy"] {
+            assert!(state.retries.contains_key(id), "{id}");
+            assert!(!state.dial_due("a", id, now), "{id}");
+        }
+    }
+    assert_eq!(state.retries["busy"].retry_at, Some(700));
+}
+
+#[tokio::test]
+async fn unrelated_service_events_do_not_finish_the_connectivity_wait() {
+    use std::future::{poll_fn, Future};
+    use std::task::Poll;
+    let bus = codeterm_events::EventBroadcaster::new();
+    let mut events = bus.subscribe();
+    bus.publish(codeterm_events::SystemEvent::TabFocused {
+        tab_id: "tab".into(),
+    });
+    bus.publish(codeterm_events::SystemEvent::AgentStarted {
+        tab_id: "agent".into(),
+        provider: "test".into(),
+    });
+    bus.publish_generic("mesh-state-changed", serde_json::Value::Null);
+    let mut waiting = Box::pin(connectivity_changed(&mut events));
+    assert!(poll_fn(|cx| Poll::Ready(waiting.as_mut().poll(cx).is_pending())).await);
+    bus.publish_generic(CONNECTIVITY_CHANGED, serde_json::Value::Null);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), waiting)
+            .await
+            .unwrap(),
+        Ok(())
+    );
+}
+
+#[tokio::test]
+async fn connectivity_wait_reconciles_after_lag_and_stops_on_closed_bus() {
+    let bus = codeterm_events::EventBroadcaster::new();
+    let mut source = bus.subscribe();
+    bus.publish_generic("unrelated", serde_json::Value::Null);
+    let sample = source.recv().await.unwrap();
+    let (sender, mut events) = tokio::sync::broadcast::channel(1);
+    sender.send(sample.clone()).unwrap();
+    sender.send(sample).unwrap();
+    assert_eq!(connectivity_changed(&mut events).await, Ok(()));
+    drop(sender);
+    assert_eq!(connectivity_changed(&mut events).await, Err(()));
+}

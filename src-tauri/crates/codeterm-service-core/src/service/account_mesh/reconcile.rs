@@ -19,11 +19,16 @@ const RETRY_INTERVAL: u64 = 30;
 struct Retry {
     failures: u32,
     retry_at: Option<u64>,
+    transport_failure: bool,
 }
 
 impl Retry {
     fn failed(&mut self, now: u64, refusal: &AdmissionRefusal) {
         self.failures = self.failures.saturating_add(1);
+        self.transport_failure = matches!(
+            refusal,
+            AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable
+        );
         let delay = match refusal {
             AdmissionRefusal::RateLimited {
                 retry_after_seconds,
@@ -109,7 +114,7 @@ impl Reconciliation {
     }
 
     fn network_changed(&mut self) {
-        self.retries.clear();
+        self.retries.retain(|_, retry| !retry.transport_failure);
         self.fallback_at.clear();
     }
 
@@ -342,13 +347,9 @@ pub(super) async fn run(
         tokio::select! {
             changed = changes.changed() => { if changed.is_err() { return; } },
             changed = connections.changed() => { if changed.is_err() { return; } },
-            event = network.recv() => {
-                match event {
-                    Ok(event) if matches!(event.event, codeterm_events::SystemEvent::Generic { ref event_type, .. } if event_type == CONNECTIVITY_CHANGED) => reconciliation.network_changed(),
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => reconciliation.network_changed(),
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
-                    _ => {},
-                }
+            changed = connectivity_changed(&mut network) => {
+                if changed.is_err() { return; }
+                reconciliation.network_changed();
             },
             _ = async {
                 match deadline {
@@ -359,6 +360,21 @@ pub(super) async fn run(
                     None => std::future::pending::<()>().await,
                 }
             } => { refresh = reconciliation.registry_refresh_due(mesh.lock().now()); }
+        }
+    }
+}
+
+async fn connectivity_changed(
+    events: &mut tokio::sync::broadcast::Receiver<codeterm_events::SeqEvent>,
+) -> Result<(), ()> {
+    loop {
+        match events.recv().await {
+            Ok(event) if matches!(event.event, codeterm_events::SystemEvent::Generic { ref event_type, .. } if event_type == CONNECTIVITY_CHANGED) => {
+                return Ok(())
+            }
+            Ok(_) => {}
+            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => return Ok(()),
+            Err(tokio::sync::broadcast::error::RecvError::Closed) => return Err(()),
         }
     }
 }
