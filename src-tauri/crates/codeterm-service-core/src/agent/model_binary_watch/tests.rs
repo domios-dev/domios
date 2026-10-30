@@ -233,6 +233,32 @@ fn a_declared_input_created_under_a_new_directory_is_observed() {
 }
 
 #[test]
+#[cfg(unix)]
+fn a_catalogue_input_is_observed_through_a_directory_alias() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().join("real");
+    let alias = dir.path().join("alias");
+    std::fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink(&real, &alias).unwrap();
+    let target = alias.join("config.json");
+    std::fs::write(&target, b"before").unwrap();
+    let registry = ProviderBinaryWatchers::default();
+    let (tx, rx) = std::sync::mpsc::channel();
+    assert_eq!(
+        registry.watch(
+            registry.admit("aliased-input".into()),
+            vec![target.clone()],
+            Arc::new(move || {
+                let _ = tx.send(());
+            }),
+        ),
+        WatchInstall::Installed(target.clone())
+    );
+    std::fs::write(real.join("config.json"), b"after").unwrap();
+    rx.recv_timeout(WATCH_DEADLINE).unwrap();
+}
+
+#[test]
 fn repeated_install_keeps_one_watcher_and_updates_callback() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("input.json");
@@ -356,8 +382,8 @@ type Handlers = Arc<Mutex<Vec<StreamHandler>>>;
 
 fn recording(
     handlers: &Handlers,
-) -> impl Fn(&[(PathBuf, bool)], StreamHandler) -> Option<Box<dyn Send>> + '_ {
-    move |_: &[(PathBuf, bool)], handler: StreamHandler| {
+) -> impl Fn(&[PathBuf], StreamHandler) -> Option<Box<dyn Send>> + '_ {
+    move |_: &[PathBuf], handler: StreamHandler| {
         handlers.lock().push(handler);
         Some(Box::new(()))
     }
@@ -390,6 +416,52 @@ fn published_callback(registry: &ProviderBinaryWatchers) -> OnChange {
 }
 
 #[test]
+fn dropped_and_replaced_watches_ignore_queued_input_events() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("first.json");
+    let second = dir.path().join("second.json");
+    let registry = ProviderBinaryWatchers::default();
+    let handlers: Handlers = Arc::default();
+    let (old_calls, old_change) = counted();
+    let (new_calls, new_change) = counted();
+    assert_eq!(
+        registry.watch_with(
+            registry.admit("provider".into()),
+            vec![first.clone()],
+            old_change,
+            &recording(&handlers),
+        ),
+        WatchInstall::Installed(first.clone())
+    );
+    deliver_change(&handlers, 0, &first, b"initial event");
+    assert_eq!(old_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        registry.watch_with(
+            registry.admit("provider".into()),
+            vec![second.clone()],
+            new_change,
+            &recording(&handlers),
+        ),
+        WatchInstall::Installed(second.clone())
+    );
+    deliver_change(&handlers, 0, &first, b"queued on replaced watch");
+    assert_eq!(old_calls.load(Ordering::SeqCst), 1);
+    deliver_change(&handlers, 1, &second, b"active watch");
+    assert_eq!(new_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        registry.watch_with(
+            registry.admit("provider".into()),
+            vec![],
+            Arc::new(|| {}),
+            &recording(&handlers),
+        ),
+        WatchInstall::Unavailable
+    );
+    deliver_change(&handlers, 1, &second, b"queued on removed watch");
+    assert_eq!(new_calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn startup_perf_slow_old_watch_install_never_replaces_newer_same_target_watch() {
     let dir = tempfile::tempdir().unwrap();
     let target = dir.path().join("input.json");
@@ -407,7 +479,7 @@ fn startup_perf_slow_old_watch_install_never_replaces_newer_same_target_watch() 
         let handlers = handlers.clone();
         let target = target.clone();
         move || {
-            let slow = |_: &[(PathBuf, bool)], handler: StreamHandler| {
+            let slow = |_: &[PathBuf], handler: StreamHandler| {
                 handlers.lock().push(handler);
                 deliver_change(&handlers, 0, &target, b"while building");
                 building_tx.send(()).unwrap();
