@@ -485,6 +485,9 @@ fn exact_quit_uses_its_finite_refusal_envelope_without_authorizing_replacement()
     let output = run_cli(&environment, &json_args(&["app", "quit", "--exact"]));
     assert!(!output.status.success());
     let value = stdout_value(&output).unwrap();
-    assert_eq!(value, json!({"result":{"outcome":"refused","reason":"no_instance"}}));
+    assert_eq!(
+        value,
+        json!({"result":{"outcome":"refused","reason":"no_instance"}})
+    );
     assert!(!String::from_utf8_lossy(&output.stdout).contains("stub-token"));
 }

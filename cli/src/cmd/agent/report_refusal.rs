@@ -93,13 +93,8 @@ pub(super) fn handle_report_refusal(
     if json {
         println!(
             "{}",
-            crate::cmd::output::encode(&report_refusal_json(
-                &refusal,
-                sent,
-                target_tab_id,
-                error,
-            ))
-            .unwrap()
+            crate::cmd::output::encode(&report_refusal_json(&refusal, sent, target_tab_id, error,))
+                .unwrap()
         );
     } else {
         eprint!(

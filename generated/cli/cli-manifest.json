@@ -10,7 +10,7 @@
       "value_name": "JSON",
       "possible_values": [],
       "default": null,
-      "help": "Output raw JSON instead of human-readable text",
+      "help": "Output JSON with the payload under result",
       "aliases": []
     },
     {
@@ -21,6 +21,16 @@
       "possible_values": [],
       "default": null,
       "help": "Execute command on a remote mesh peer instead of locally",
+      "aliases": []
+    },
+    {
+      "name": "verbose",
+      "positional": false,
+      "required": false,
+      "value_name": "VERBOSE",
+      "possible_values": [],
+      "default": null,
+      "help": "Include detailed diagnostics, scores and warnings",
       "aliases": []
     }
   ],
@@ -1672,6 +1682,16 @@
               "aliases": []
             },
             {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAGS",
+              "possible_values": [],
+              "default": null,
+              "help": "Work tags for an unplanned Worker task; omitted work tags are inferred",
+              "aliases": []
+            },
+            {
               "name": "task",
               "positional": false,
               "required": false,
@@ -2420,9 +2440,20 @@
         },
         {
           "name": "list",
-          "about": "List blueprints scoped to the calling tab and its Team",
+          "about": "List blueprints; Orchestrators and the owner may inspect all Teams and workspaces",
           "aliases": [],
-          "args": [],
+          "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Require authority to read across Teams and workspaces",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         },
         {
@@ -13004,10 +13035,10 @@
                 {
                   "name": "executor-role",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "EXECUTOR_ROLE",
                   "possible_values": [],
-                  "default": null,
+                  "default": "",
                   "help": "REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced",
                   "aliases": []
                 },
@@ -13088,16 +13119,16 @@
                   "value_name": "MODEL",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Provider:model, model id, or bare provider resolved at dispatch",
                   "aliases": []
                 },
                 {
                   "name": "name",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NAME",
                   "possible_values": [],
-                  "default": null,
+                  "default": "",
                   "help": null,
                   "aliases": []
                 },
@@ -13114,11 +13145,11 @@
                 {
                   "name": "personality",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "ONE_WORD_PERSONA",
                   "possible_values": [],
-                  "default": null,
-                  "help": "REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'",
+                  "default": "",
+                  "help": "Executor's one-word persona; defaults to the first word of the task name",
                   "aliases": []
                 },
                 {
@@ -13198,7 +13229,7 @@
                   "value_name": "SECTIONS",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Section selectors; omission uses area matching or the plan's sole section",
                   "aliases": []
                 },
                 {
@@ -18112,6 +18143,24 @@
           "subcommands": []
         },
         {
+          "name": "send-status",
+          "about": "Inspect one retained send without resending its payload",
+          "aliases": [],
+          "args": [
+            {
+              "name": "send_id",
+              "positional": true,
+              "required": true,
+              "value_name": "SEND_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "status",
           "about": "Show agent status for a tab (type, provider session, prompt)",
           "aliases": [],
@@ -18994,7 +19043,7 @@
       "subcommands": [
         {
           "name": "amend",
-          "about": "Review and amend a child's checklist; seeded criteria stay locked",
+          "about": "Review and amend a child's checklist; seeded criteria stay locked. Input: [{\"id\"?: string, \"content\"?: string, \"status\": \"pending|in_progress|completed|blocked|skipped\", \"activeForm\"?: string, \"link\"?: string, \"reason\"?: string}]. New items require content; activeForm defaults to content. Blocked/skipped require reason",
           "aliases": [],
           "args": [
             {
@@ -19084,7 +19133,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "JSON array of {content,status,activeForm,link?,reason?} from this tab's pad",
+              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content",
               "aliases": []
             }
           ],

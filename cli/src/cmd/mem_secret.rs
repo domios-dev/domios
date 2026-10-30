@@ -40,10 +40,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
             crate::cmd::print::fail_with(code, &error);
         }
         if json_mode {
-            println!(
-                "{}",
-                crate::cmd::output::encode(&body).unwrap_or_default()
-            );
+            println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
         } else {
             print_human(&body);
         }
@@ -107,10 +104,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
                 print_or_exit(status, body);
             }
             if json || json_mode {
-                println!(
-                    "{}",
-                    crate::cmd::output::encode(&body).unwrap_or_default()
-                );
+                println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
             } else {
                 let value = body
                     .get("value")

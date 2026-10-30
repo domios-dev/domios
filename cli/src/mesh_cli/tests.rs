@@ -1134,7 +1134,6 @@ fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
 /// relayed `GET /api/tabs` body stays the bare array its consumers read.
 #[test]
 fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
-
     let rest_body = serde_json::json!([{"id": "tab_1", "title": "one"}]);
     let printed = super::tab_list::json_envelope(&rest_body);
 

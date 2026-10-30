@@ -26,10 +26,9 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: ModelProvid
         crate::cmd::print::fail(1, "pipe the key to model-provider add on stdin");
     }
     match run(client, action, std::io::stdin()) {
-        Ok(value) if json_output => println!(
-            "{}",
-            crate::cmd::output::encode(&value).unwrap_or_default()
-        ),
+        Ok(value) if json_output => {
+            println!("{}", crate::cmd::output::encode(&value).unwrap_or_default())
+        }
         Ok(value) => crate::cmd::print::print_object(&value),
         Err(error) => crate::cmd::print::fail_with(1, &error),
     }

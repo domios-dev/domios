@@ -307,10 +307,7 @@ mod tests {
 /// One renderer for local and mesh `paste get`: the exact body, or the record with `--json`.
 pub(crate) fn render_paste(val: &serde_json::Value, json: bool) -> String {
     if json {
-        format!(
-            "{}\n",
-            crate::cmd::output::encode(val).unwrap_or_default()
-        )
+        format!("{}\n", crate::cmd::output::encode(val).unwrap_or_default())
     } else {
         val.get("body")
             .and_then(|v| v.as_str())

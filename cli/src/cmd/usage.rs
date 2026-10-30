@@ -39,7 +39,9 @@ pub fn handle_usage(
                 .and_then(|r| r.error_for_status())
                 .and_then(|r| r.json::<serde_json::Value>())
             {
-                Ok(v) if json_mode => println!("{}", crate::cmd::output::encode(&v).unwrap_or_default()),
+                Ok(v) if json_mode => {
+                    println!("{}", crate::cmd::output::encode(&v).unwrap_or_default())
+                }
                 Ok(v) => render_rebuild(&v),
                 Err(e) => {
                     crate::cmd::print::fail(1, e.to_string());

@@ -174,7 +174,10 @@ fn convert_channel(action: PluginChannelAction) -> ChannelAction {
 }
 
 fn print_human(value: &serde_json::Value) {
-    if crate::cmd::output::is_collection() && !crate::cmd::output::verbose() && crate::cmd::output::has_collection(value) {
+    if crate::cmd::output::is_collection()
+        && !crate::cmd::output::verbose()
+        && crate::cmd::output::has_collection(value)
+    {
         print!("{}", crate::cmd::output::compact_list(value, None));
         return;
     }

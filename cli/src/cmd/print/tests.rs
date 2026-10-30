@@ -232,7 +232,9 @@ fn tab_list_json_workspace_grouping() {
     ]));
 
     assert_eq!(printed["meta"]["scope"]["kind"], "all_workspaces");
-    let groups = printed["meta"]["workspaces"].as_array().expect("workspace groups");
+    let groups = printed["meta"]["workspaces"]
+        .as_array()
+        .expect("workspace groups");
     assert_eq!(groups.len(), 2);
     assert_eq!(groups[0]["tabs"].as_array().unwrap().len(), 1);
     assert_eq!(groups[1]["tabs"].as_array().unwrap().len(), 1);

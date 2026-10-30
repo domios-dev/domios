@@ -7,7 +7,10 @@ fn search_default_output_is_one_compact_line_without_warnings() {
         "hits":[{"meta":{"session_id":"session","title":"Fixture"},"snippets":[{"text":"first\nsecond"}]}],
         "warnings":[{"message":"offline"}], "total":2
     });
-    assert_eq!(super::render_search_human("fixture", &value), "session  Fixture — first second\n1 more — refine the query or use --limit\n");
+    assert_eq!(
+        super::render_search_human("fixture", &value),
+        "session  Fixture — first second\n1 more — refine the query or use --limit\n"
+    );
 }
 
 /// The exact body `sessions get <unknown>` receives today. Before the fix the

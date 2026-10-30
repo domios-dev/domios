@@ -15,8 +15,38 @@ pub fn verbose() -> bool {
 }
 
 const COLLECTION_KEYS: &[&str] = &[
-    "hits", "results", "tasks", "plans", "tabs", "blueprints", "items", "skills",
-    "sessions", "workspaces", "teams", "backups", "providers", "models", "services", "flows", "history", "entries", "jobs", "offers", "data", "docs", "matches", "notifications", "plugins", "channels", "messages", "themes", "endpoints", "presets", "kinds", "areas",
+    "hits",
+    "results",
+    "tasks",
+    "plans",
+    "tabs",
+    "blueprints",
+    "items",
+    "skills",
+    "sessions",
+    "workspaces",
+    "teams",
+    "backups",
+    "providers",
+    "models",
+    "services",
+    "flows",
+    "history",
+    "entries",
+    "jobs",
+    "offers",
+    "data",
+    "docs",
+    "matches",
+    "notifications",
+    "plugins",
+    "channels",
+    "messages",
+    "themes",
+    "endpoints",
+    "presets",
+    "kinds",
+    "areas",
 ];
 
 pub fn configure(args: &[String]) {
@@ -28,7 +58,20 @@ pub fn configure(args: &[String]) {
             leaf = name;
             cursor = child;
         }
-        COLLECTION.store(matches!(leaf, "list" | "search" | "providers" | "models" | "recent" | "history" | "tags" | "offers"), Ordering::Relaxed);
+        COLLECTION.store(
+            matches!(
+                leaf,
+                "list"
+                    | "search"
+                    | "providers"
+                    | "models"
+                    | "recent"
+                    | "history"
+                    | "tags"
+                    | "offers"
+            ),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -49,7 +92,10 @@ fn envelope(value: &Value, collection: bool) -> Value {
     if value.get("ok").and_then(Value::as_bool) == Some(false) {
         let mut error = value.clone();
         if let Some(object) = error.as_object_mut() {
-            let payload = object.remove("data").or_else(|| object.remove("result")).unwrap_or(Value::Null);
+            let payload = object
+                .remove("data")
+                .or_else(|| object.remove("result"))
+                .unwrap_or(Value::Null);
             object.insert("result".into(), payload);
         }
         return error;
@@ -66,14 +112,24 @@ fn envelope(value: &Value, collection: bool) -> Value {
             }
         }
         let checklist_rows = if collection {
-            object.get_mut("checklist").and_then(Value::as_object_mut).and_then(|checklist| checklist.remove("items"))
+            object
+                .get_mut("checklist")
+                .and_then(Value::as_object_mut)
+                .and_then(|checklist| checklist.remove("items"))
         } else {
             None
         };
         if let Some(rows) = checklist_rows {
             envelope.insert("meta".into(), Value::Object(std::mem::take(object)));
             payload = rows;
-        } else if let Some(key) = collection.then(|| COLLECTION_KEYS.iter().find(|key| object.get(**key).is_some_and(Value::is_array))).flatten() {
+        } else if let Some(key) = collection
+            .then(|| {
+                COLLECTION_KEYS
+                    .iter()
+                    .find(|key| object.get(**key).is_some_and(Value::is_array))
+            })
+            .flatten()
+        {
             let rows = object.remove(*key).unwrap_or(Value::Null);
             if !object.is_empty() {
                 envelope.insert("meta".into(), Value::Object(std::mem::take(object)));
@@ -81,7 +137,10 @@ fn envelope(value: &Value, collection: bool) -> Value {
             payload = rows;
         }
     }
-    envelope.insert("result".into(), crate::cmd::print::uniform_id_value(&payload));
+    envelope.insert(
+        "result".into(),
+        crate::cmd::print::uniform_id_value(&payload),
+    );
     Value::Object(envelope)
 }
 
@@ -90,7 +149,12 @@ pub fn encode<T: Serialize + ?Sized>(value: &T) -> Result<String, serde_json::Er
 }
 
 fn field<'a>(value: &'a Value, keys: &[&str]) -> Option<&'a str> {
-    keys.iter().find_map(|key| value.get(*key).and_then(Value::as_str).filter(|text| !text.trim().is_empty()))
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_str)
+            .filter(|text| !text.trim().is_empty())
+    })
 }
 
 fn single_line(text: &str, limit: usize) -> String {
@@ -113,18 +177,50 @@ pub fn compact_row(row: &Value, current_tab: Option<&str>) -> String {
         return format!("{text}  {text} — \n");
     }
     let item = row.get("item").or_else(|| row.get("meta")).unwrap_or(row);
-    let id = field(item, &["id", "task_id", "plan_id", "tab_id", "session_id", "workspace_id", "unit_id", "name"])
-        .or_else(|| field(row, &["session_id", "pointer", "doc"]))
-        .unwrap_or("?");
+    let id = field(
+        item,
+        &[
+            "id",
+            "task_id",
+            "plan_id",
+            "tab_id",
+            "session_id",
+            "workspace_id",
+            "unit_id",
+            "name",
+        ],
+    )
+    .or_else(|| field(row, &["session_id", "pointer", "doc"]))
+    .unwrap_or("?");
     let title = field(item, &["title", "name", "display_name", "section"])
         .or_else(|| field(row, &["section", "title", "doc"]))
         .unwrap_or("untitled");
-    let snippet = field(item, &["summary", "description", "body", "excerpt", "goal", "status", "state"])
-        .or_else(|| field(row, &["excerpt", "pointer"]))
-        .or_else(|| row.pointer("/snippets/0/text").and_then(Value::as_str))
-        .unwrap_or("");
-    let marker = if current_tab == Some(id) { " (self)" } else { "" };
-    format!("{}  {}{marker} — {}\n", single_line(id, 160), single_line(title, 160), single_line(snippet, 80))
+    let snippet = field(
+        item,
+        &[
+            "summary",
+            "description",
+            "body",
+            "excerpt",
+            "goal",
+            "status",
+            "state",
+        ],
+    )
+    .or_else(|| field(row, &["excerpt", "pointer"]))
+    .or_else(|| row.pointer("/snippets/0/text").and_then(Value::as_str))
+    .unwrap_or("");
+    let marker = if current_tab == Some(id) {
+        " (self)"
+    } else {
+        ""
+    };
+    format!(
+        "{}  {}{marker} — {}\n",
+        single_line(id, 160),
+        single_line(title, 160),
+        single_line(snippet, 80)
+    )
 }
 
 pub fn compact_list(value: &Value, current_tab: Option<&str>) -> String {
@@ -132,9 +228,14 @@ pub fn compact_list(value: &Value, current_tab: Option<&str>) -> String {
     let Some(rows) = envelope["result"].as_array() else {
         return String::new();
     };
-    let mut out: String = rows.iter().map(|row| compact_row(row, current_tab)).collect();
+    let mut out: String = rows
+        .iter()
+        .map(|row| compact_row(row, current_tab))
+        .collect();
     let total = envelope.pointer("/meta/total").and_then(Value::as_u64);
-    let more = envelope.pointer("/meta/more").and_then(Value::as_u64)
+    let more = envelope
+        .pointer("/meta/more")
+        .and_then(Value::as_u64)
         .or_else(|| total.map(|total| total.saturating_sub(rows.len() as u64)))
         .unwrap_or(0);
     if more > 0 {

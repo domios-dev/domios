@@ -35,7 +35,9 @@ pub(super) fn rendering_for(cli: &Cli) -> Option<TabListRendering> {
 /// builds. Takes the body by reference: the REST response is not rewritten.
 #[cfg(test)]
 pub(super) fn json_envelope(relayed: &serde_json::Value) -> serde_json::Value {
-    crate::cmd::output::collection_envelope(&tab_list_json_envelope(relayed.as_array().cloned().unwrap_or_default()))
+    crate::cmd::output::collection_envelope(&tab_list_json_envelope(
+        relayed.as_array().cloned().unwrap_or_default(),
+    ))
 }
 
 pub(super) fn print(

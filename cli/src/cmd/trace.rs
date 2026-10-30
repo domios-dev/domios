@@ -37,7 +37,9 @@ pub fn handle(json: bool, action: TraceAction) {
             let chain = select(&events, &id, since);
             let missing = gaps(&chain);
             if json {
-                crate::cmd::print::print_json(&serde_json::json!({"events": chain, "gaps": missing}));
+                crate::cmd::print::print_json(
+                    &serde_json::json!({"events": chain, "gaps": missing}),
+                );
             } else {
                 if chain.is_empty() {
                     println!("No retained trace events for {id}");

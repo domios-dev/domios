@@ -103,10 +103,7 @@ pub fn run(json: bool, dir: &Path) {
     match validate_dir(dir) {
         Ok(report) => {
             if json {
-                println!(
-                    "{}",
-                    crate::cmd::output::encode(&report.to_json()).unwrap()
-                );
+                println!("{}", crate::cmd::output::encode(&report.to_json()).unwrap());
             } else {
                 print!("{}", report.render(dir));
             }

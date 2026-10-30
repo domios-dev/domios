@@ -40,13 +40,18 @@ Competition has no `domios plan task` verb — it is driven by the `plan.task.co
 
 `domios plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
+
+Every `--json` command returns one object with its payload under `result`: an array for a list/search, an object for a record, or a scalar/null. Optional `meta` retains list metadata, `next` carries pagination and `warnings` carries diagnostics. Failures also include `ok:false` and `error`; their daemon receipt is under `result`. Read `result` directly; do not guess `data`, `results`, `hits`, `tasks` or `tabs` envelopes.
+
+Search/list output defaults to one line per record: `id  title — short snippet` (80 characters, one line). Known omitted counts end with `N more — refine the query or use --limit`. Use `--verbose` for scores, relevance, warnings and detailed views.
 <!-- cli:auto-start -->
 #### `domios`
 
 Domios CLI — control your terminal multiplexer
 
-- `--json` — Output raw JSON instead of human-readable text
+- `--json` — Output JSON with the payload under result
 - `--mesh` — Execute command on a remote mesh peer instead of locally
+- `--verbose` — Include detailed diagnostics, scores and warnings
 
 #### `domios account`
 
@@ -383,6 +388,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
+- `--tag` — Work tags for an unplanned Worker task; omitted work tags are inferred
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
@@ -561,7 +567,9 @@ Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
 
 #### `domios blueprint list`
 
-List blueprints scoped to the calling tab and its Team
+List blueprints; Orchestrators and the owner may inspect all Teams and workspaces
+
+- `--all` — Require authority to read across Teams and workspaces
 
 #### `domios blueprint log`
 
@@ -2946,10 +2954,10 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--intent`
 - `--intent-file`
 - `--loop-from`
-- `--model`
+- `--model` — Provider:model, model id, or bare provider resolved at dispatch
 - `--name`
 - `--parent`
-- `--personality` — REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'
+- `--personality` — Executor's one-word persona; defaults to the first word of the task name
 - `<plan_id>`
 - `--primary`
 - `--priority`
@@ -2957,7 +2965,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--qa-plan-file`
 - `--role-guidance` — REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment
 - `--role-guidance-file` — Read required initial worker conditioning from a file
-- `--sections`
+- `--sections` — Section selectors; omission uses area matching or the plan's sole section
 - `--tag`
 - `--test-plan`
 - `--test-plan-file`
@@ -3947,6 +3955,12 @@ Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or
 
 - `<pattern>` — Substring or short pattern to match
 
+#### `domios tab send-status`
+
+Inspect one retained send without resending its payload
+
+- `<send_id>`
+
 #### `domios tab status`
 
 Show agent status for a tab (type, provider session, prompt)
@@ -4168,7 +4182,7 @@ Read or update the current agent tab's bounded checklist
 
 #### `domios todo amend`
 
-Review and amend a child's checklist; seeded criteria stay locked
+Review and amend a child's checklist; seeded criteria stay locked. Input: [{"id"?: string, "content"?: string, "status": "pending|in_progress|completed|blocked|skipped", "activeForm"?: string, "link"?: string, "reason"?: string}]. New items require content; activeForm defaults to content. Blocked/skipped require reason
 
 - `--from-pad`
 - `--note-from-pad`
@@ -4193,7 +4207,7 @@ Share this tab's checklist with its parent; work may continue immediately
 
 Declare this tab's whole checklist: created on first write, then reconciled; locked items stay
 
-- `--from-pad` — JSON array of {content,status,activeForm,link?,reason?} from this tab's pad
+- `--from-pad` — JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content
 
 #### `domios trace`
 

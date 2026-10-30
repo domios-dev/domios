@@ -42,7 +42,9 @@ pub fn handle_surface(json: bool, action: SurfaceAction) {
     };
     match outcome {
         Outcome::Ok(value) if json => crate::cmd::print::print_json(&value),
-        Outcome::Ok(value) if matches!(action, SurfaceAction::List) && !crate::cmd::output::verbose() => {
+        Outcome::Ok(value)
+            if matches!(action, SurfaceAction::List) && !crate::cmd::output::verbose() =>
+        {
             print!("{}", crate::cmd::output::compact_list(&value, None));
         }
         Outcome::Ok(value) => {

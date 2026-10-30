@@ -350,10 +350,7 @@ pub fn handle_update(
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!(
-                            "{}",
-                            crate::cmd::output::encode(&body).unwrap_or_default()
-                        );
+                        println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
                     } else {
                         for item in body["items"].as_array().into_iter().flatten() {
                             println!("{}", check_item_line(item, &body["errors"]));
@@ -479,10 +476,7 @@ pub fn handle_update(
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!(
-                            "{}",
-                            crate::cmd::output::encode(&body).unwrap_or_default()
-                        );
+                        println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
                         return;
                     }
                     let status = body["status"].as_str().unwrap_or("unknown");

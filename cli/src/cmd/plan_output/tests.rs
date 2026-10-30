@@ -105,8 +105,8 @@ const PLAN_NOT_FOUND: &str = "✗ plan 'zzzzzzzz' not found.\nfix: domios plan l
 
 #[test]
 fn plan_json_error_line_is_the_shared_envelope_with_a_null_rpc_code() {
-    let parsed: Value = serde_json::from_str(&plan_error_line(true, PLAN_NOT_FOUND))
-        .expect("one JSON envelope");
+    let parsed: Value =
+        serde_json::from_str(&plan_error_line(true, PLAN_NOT_FOUND)).expect("one JSON envelope");
 
     assert_eq!(parsed["ok"], Value::Bool(false));
     assert_eq!(parsed["kind"], "error");

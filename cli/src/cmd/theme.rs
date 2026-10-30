@@ -159,9 +159,7 @@ fn delete_output(json: bool, id: &str, outcome: ThemeOutcome) -> LeafOutput {
 
 fn dir_output(json: bool, path: &str) -> LeafOutput {
     if json {
-        LeafOutput::Json(theme_value(None,
-            serde_json::json!({ "path": path }),
-        ))
+        LeafOutput::Json(theme_value(None, serde_json::json!({ "path": path })))
     } else {
         LeafOutput::Human(vec![path.to_string()])
     }
@@ -199,7 +197,8 @@ fn save_output(
         }
     }
     if json {
-        return LeafOutput::Json(theme_value(Some(id),
+        return LeafOutput::Json(theme_value(
+            Some(id),
             serde_json::json!({ "path": path, "applied": apply, "saved": saved }),
         ));
     }

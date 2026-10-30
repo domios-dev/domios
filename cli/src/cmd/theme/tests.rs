@@ -127,7 +127,6 @@ fn apply_and_delete_carry_the_theme_id_through_the_envelope() {
             panic!("--json must emit a document for {leaf}");
         };
 
-
         assert_eq!(envelope["id"], json!("dark"));
         assert_eq!(envelope["applied"], body["applied"]);
     }
@@ -184,7 +183,6 @@ fn save_without_apply_reports_the_backend_path_and_never_calls_the_apply_leg() {
     ) else {
         panic!("--json must emit a document");
     };
-
 
     assert_eq!(envelope["id"], json!("dark"));
     assert_eq!(envelope["path"], json!("/cfg/themes/dark.toml"));

@@ -162,12 +162,12 @@ fn run_apply(plan_file: &str, db_path: Option<&str>) -> ! {
                 }
             };
             crate::cmd::print::print_json(&serde_json::json!({
-                    "ok": true,
-                    "applied": applied,
-                    "failed": failed,
-                    "warnings": warnings,
-                    "plan": renamed.display().to_string(),
-                }));
+                "ok": true,
+                "applied": applied,
+                "failed": failed,
+                "warnings": warnings,
+                "plan": renamed.display().to_string(),
+            }));
             std::process::exit(0);
         }
         Err(e) => {

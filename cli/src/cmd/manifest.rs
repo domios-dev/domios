@@ -261,7 +261,9 @@ pub fn handle(write: bool, markdown: bool) {
         println!("wrote {}", command_paths.display());
     }
     if crate::cmd::error_contract::json_mode() {
-        crate::cmd::print::print_json(&serde_json::json!({"written":[manifest, cli_md, command_paths]}));
+        crate::cmd::print::print_json(
+            &serde_json::json!({"written":[manifest, cli_md, command_paths]}),
+        );
     }
 }
 

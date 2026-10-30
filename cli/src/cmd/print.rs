@@ -493,10 +493,7 @@ pub fn tab_list_json_envelope_with_request(
 }
 
 pub fn print_json(value: &serde_json::Value) {
-    println!(
-        "{}",
-        crate::cmd::output::encode(value).unwrap()
-    );
+    println!("{}", crate::cmd::output::encode(value).unwrap());
 }
 
 fn add_uniform_id_alias(value: &mut serde_json::Value) {
@@ -590,7 +587,10 @@ pub fn handle_result(json: bool, result: Result<serde_json::Value, String>) {
 }
 
 pub fn print_human(value: &serde_json::Value) {
-    if !crate::cmd::output::verbose() && (value.is_array() || crate::cmd::output::is_collection() && crate::cmd::output::has_collection(value)) {
+    if !crate::cmd::output::verbose()
+        && (value.is_array()
+            || crate::cmd::output::is_collection() && crate::cmd::output::has_collection(value))
+    {
         print!("{}", crate::cmd::output::compact_list(value, None));
         return;
     }
@@ -615,7 +615,10 @@ pub fn print_human(value: &serde_json::Value) {
 }
 
 pub fn print_object(value: &serde_json::Value) {
-    if crate::cmd::output::is_collection() && !crate::cmd::output::verbose() && crate::cmd::output::has_collection(value) {
+    if crate::cmd::output::is_collection()
+        && !crate::cmd::output::verbose()
+        && crate::cmd::output::has_collection(value)
+    {
         print!("{}", crate::cmd::output::compact_list(value, None));
         return;
     }
