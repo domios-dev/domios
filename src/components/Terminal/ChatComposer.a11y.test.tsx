@@ -164,7 +164,7 @@ test("typing @ offers scoped tabs as named options and never ds-tasks", async ()
   assert(listbox, "mention suggestions must render as a named listbox");
   const option = listbox.querySelector('[role="option"][aria-label="Rivet"]');
   assert(option, "the live tab suggestion exposes its accessible name");
-  assert(!listbox.textContent?.includes("<ds-tasks"), "chat blocks are not mention sources");
+  assert(!listbox.textContent?.includes("@ds-tasks"), "chat blocks are not mention sources");
   await teardown(h);
 });
 

@@ -38,7 +38,7 @@ export function parseDomiosMessage(input: string): ParsedDomiosMessage | null {
   if (!text.startsWith("<domios")) return null;
   const openEnd = text.indexOf(">");
   if (openEnd < 0) return null;
-  const attrs = parseDomiosAttributes(text.slice("<domios".length, openEnd));
+  const attrs = parseAttributes(text.slice("<domios".length, openEnd));
   if (!attrs || !attrs.from) return null;
   const content = text.slice(openEnd + 1);
   if (!content.endsWith(DOMIOS_CLOSE_TAG)) return null;
@@ -46,7 +46,7 @@ export function parseDomiosMessage(input: string): ParsedDomiosMessage | null {
   return { attrs, content: enclosed, body: stripTypedSuffix(enclosed) };
 }
 
-export function parseDomiosAttributes(source: string): Record<string, string> | null {
+function parseAttributes(source: string): Record<string, string> | null {
   const attrs: Record<string, string> = {};
   let rest = source;
   const attribute = /^\s+([A-Za-z][A-Za-z0-9_]*)=(?:"([^"]*)"|([^\s"'<>`=]+))/;

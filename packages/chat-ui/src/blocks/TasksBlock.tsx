@@ -16,6 +16,7 @@ import {
 const LOADING: TasksBlockState = { kind: "loading" };
 const FOCUS_RING = "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--ct-accent)]";
 
+/** `@ds-tasks <plan-id> …` and a sent `<ds-tasks>` message: live plan tasks grouped by status. */
 export function TasksBlock({ spec, source }: { spec: TasksBlockSpec; source: string }) {
   const host = useChatBlockHost().tasks;
   const state = useLiveBinding(host?.binding, tasksBlockKey(spec), LOADING);

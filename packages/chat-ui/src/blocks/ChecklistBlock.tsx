@@ -17,6 +17,7 @@ const MISSING: ChecklistBlockState = { kind: "missing" };
 
 type RenderBlock = (source: string) => React.ReactNode;
 
+/** `@ds-checklist <id>`: steps that tick from real state, each with one click of help. */
 export function ChecklistBlock({ checklistId, source, renderBlock }: { checklistId: string; source: string; renderBlock: RenderBlock }) {
   const host = useChatBlockHost().checklists;
   const state = useLiveBinding(host?.binding, checklistId, MISSING);

@@ -1,6 +1,6 @@
 # Sandboxed HTML in chat
 
-Use a complete `<ds-html>…</ds-html>` block when an interactive visual explains something better
+Use a fenced `html` block when an interactive visual explains something better
 than prose or Mermaid. Ordinary self-contained visuals should render directly;
 reading this document is only useful when the block needs Domios-specific APIs.
 
@@ -14,23 +14,22 @@ reading this document is only useful when the block needs Domios-specific APIs.
   duration, delay, and iteration counts.
 - Direct network and arbitrary filesystem access are blocked.
 
-The HTML body is limited to 200,000 UTF-8 bytes. HTML fences remain highlighted,
-copyable code and never execute or read a file. Preview content may use
+The source fence is limited to 200,000 characters. Preview content may use
 `data:` or `blob:` URLs for images and media, but cannot fetch remote assets.
 
 ## File-backed source
 
-For a known absolute local path, use a complete file-card tag in the
-reply. The tag starts at a Markdown block boundary:
+For a known absolute local path, use a standalone artifact directive in the
+reply. The directive must occupy its own paragraph:
 
 ```text
-<ds-page src="C:\Users\dev\Desktop\design-system.html" />
-<ds-image src="C:\Users\dev\Desktop\preview.png" />
-<ds-document src="C:\Users\dev\Desktop\notes.md" />
+@ds-page C:\Users\dev\Desktop\design-system.html
+@ds-image C:\Users\dev\Desktop\preview.png
+@ds-document C:\Users\dev\Desktop\notes.md
 ```
 
-`ds-page` supports `.html` and `.htm`; `ds-image` supports PNG, JPEG, GIF,
-WebP, BMP, and AVIF; `ds-document` renders Markdown and safely displays UTF-8
+`@ds-page` supports `.html` and `.htm`; `@ds-image` supports PNG, JPEG, GIF,
+WebP, BMP, and AVIF; `@ds-document` renders Markdown and safely displays UTF-8
 text, logs, JSON, YAML, TOML, and CSV. Domios validates the absolute path,
 extension, and size before exposing the bounded file to the renderer. SVG is
 excluded from image previews because it can contain active or external content.
@@ -56,21 +55,32 @@ marker: only a Domios-delivered `<domios from=...>` frame carries provenance.
 
 ## Chat blocks
 
-Live typed ds-tag cards (guide, plugin, connect, setting, choice, agent, job,
+Live `@ds-<name>` cards (guide, plugin, connect, setting, choice, agent, job,
 checklist, tasks) are catalogued in `domios docs CHAT-BLOCKS`.
 
-## File-backed HTML
+## File-backed HTML fences
 
-`<ds-page src="ABSOLUTE_PATH" />` reads bounded UTF-8 `.html`/`.htm` from the
-originating tab's host, removes active and external content, and renders it in
-the message sandbox. The toolbar retains Local file, source path and Reload.
-Returning focus reloads it without a timer. Known files remain the source;
-there is no reason to paste their bytes into the reply.
+The earlier fenced HTML form remains supported:
 
-Only complete canonical tags outside code, quotes, lists and context/handoff
-excerpts grant file authority. A client-supplied path or a same-named file on a
-receiving mesh host grants nothing. Mesh delivery transfers author-host files
-before rewriting path attrs atomically; transfer failure refuses delivery.
+When an HTML file already exists at a known absolute path, keep it as the single
+source instead of copying its contents into the reply:
+
+````markdown
+```html
+@file C:\Users\dev\Desktop\design-system.html
+```
+````
+
+Domios reads the file from the desktop host, removes scripts and other active
+or external content, then renders the result in the normal message sandbox. The
+toolbar shows `Local file`, the source path, and a Reload action. Returning focus
+to the Domios window also reloads the file, so edits are picked up without a
+timer or a duplicated HTML payload.
+
+The directive must be the entire fence body. Paths must be absolute, point to a
+UTF-8 `.html` or `.htm` file, and stay within the 200,000-byte preview limit.
+Use this only for a path already known to the agent; do not read the file merely
+to paste its contents into the fence.
 
 ## User-selected files
 
@@ -87,8 +97,7 @@ explicitly selects. It returns `null` when selection is cancelled, otherwise:
 
 Image preview:
 
-```text
-<ds-html>
+```html
 <button id="choose" class="rounded bg-blue-500 px-3 py-2 text-white">
   Choose image
 </button>
@@ -99,13 +108,11 @@ document.querySelector('#choose').onclick = async () => {
   if (file) document.querySelector('#preview').src = file.data;
 };
 </script>
-</ds-html>
 ```
 
 JSON visualization:
 
-```text
-<ds-html>
+```html
 <button id="choose">Choose JSON</button>
 <pre id="output"></pre>
 <script>
@@ -115,7 +122,6 @@ document.querySelector('#choose').onclick = async () => {
     JSON.stringify(JSON.parse(file.data), null, 2);
 };
 </script>
-</ds-html>
 ```
 
 Keep the picker behind an explicit user action such as a button click. Never
@@ -129,10 +135,8 @@ Scripts, event handlers, forms, nested browsing contexts, navigation attributes,
 external media, CSS imports, and CSS URLs are removed. HTML, safe inline styles,
 Tailwind classes, embedded raster/media data URLs, and CSS animations remain.
 
-```text
-<ds-html>
+```html
 <button onclick="ct.file.renderHtml()">Open local HTML</button>
-</ds-html>
 ```
 
 The rendered document carries a visible `Local untrusted HTML` banner. Use
@@ -142,4 +146,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 14 -->
+<!-- revision: 13 -->

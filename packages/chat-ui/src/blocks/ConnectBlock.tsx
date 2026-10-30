@@ -8,6 +8,7 @@ import { connectResult, connectStatus, needsTokenEntry, type BridgeConnectInfo, 
 
 const LOADING: ConnectBlockState = { kind: "loading" };
 
+/** `@ds-connect <bridge-id>`: a messenger bridge's live status with its connect flow in place. */
 export function ConnectBlock({ bridgeId, source }: { bridgeId: string; source: string }) {
   const host = useChatBlockHost().connect;
   const state = useLiveBinding(host?.binding, bridgeId, LOADING);

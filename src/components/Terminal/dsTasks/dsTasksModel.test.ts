@@ -71,28 +71,26 @@ function scope(extra: Partial<DsTasksScope> = {}): DsTasksScope {
   return { teamId: null, workspaceId: null, teams: [TEAM], workspaces: [WORKSPACE], ...extra };
 }
 
-test("a complete plan-omitted input spans the exact canonical tag", () => {
-  const text = "look\n<ds-tasks />\nplease";
-  const mention = parseDsTasksMention(text);
-  assert(mention, "tag found");
-  assert(text.slice(mention.start, mention.end) === "<ds-tasks />", "exact source span");
+test("a bare mention has no arguments and spans only its token", () => {
+  const mention = parseDsTasksMention("look @ds-tasks please");
+  assert(mention, "mention found");
+  assert(mention.start === 5 && mention.end === 14, `span ${mention.start}-${mention.end}`);
   assert(!mention.args.planId && mention.args.taskRefs.length === 0 && mention.args.groups.length === 0, "no args");
 });
 
-test("typed refs and statuses use the shared schema and status grouping", () => {
-  const text = `<ds-tasks plan="pl_x" refs='["task_a","DS-7"]' statuses='["in_review","todo","pending"]' />\nthen more`;
+test("plan id, task ids, keys and combinable status groups are consumed until the first other word", () => {
+  const text = "@ds-tasks pl_x task_a DS-7 in_review todo pending then more";
   const mention = parseDsTasksMention(text);
-  assert(mention, "tag found");
+  assert(mention, "mention found");
   assert(mention.args.planId === "pl_x", "plan id");
   assert(mention.args.taskRefs.join(",") === "task_a,DS-7", "task refs");
-  assert(mention.args.groups.join(",") === "in_review,todo", "groups deduplicated");
+  assert(mention.args.groups.join(",") === "in_review,todo", "groups deduplicated through aliases");
   assert(text.slice(mention.end).trim() === "then more", "remaining text untouched");
 });
 
-test("legacy, partial, malformed and example tags are inert", () => {
-  for (const text of ["@ds-tasks", "mail@ds-tasks", "<ds-tasks /", "<ds-tasks plan=pl_x />", "<ds-tasks refs='[3]' />", "<ds-tasks statuses='[\"unknown\"]' />", "prefix <ds-tasks />", "```text\n<ds-tasks />\n```", "> <ds-tasks />", "<context>\n<ds-tasks />\n</context>"]) {
-    assert(parseDsTasksMention(text) === null, `invalid input expanded: ${text}`);
-  }
+test("a mention glued to other text is not a mention", () => {
+  assert(parseDsTasksMention("mail@ds-tasks") === null, "embedded token ignored");
+  assert(parseDsTasksMention("@ds-tasksx") === null, "longer token ignored");
 });
 
 test("plan resolution prefers explicit id, then the Team plan, then the workspace's newest active plan", () => {
@@ -127,7 +125,7 @@ test("explicit refs resolve by id or case-folded key, union with groups, and rep
 });
 
 test("expansion replaces the mention with a block the chat parses back to the same task set", () => {
-  const result = expandDsTasksMention(`check\n<ds-tasks statuses='["in_review"]' />\nnow`, PLANS, scope({ teamId: "team_1" }));
+  const result = expandDsTasksMention("check @ds-tasks in_review now", PLANS, scope({ teamId: "team_1" }));
   assert(result.kind === "expanded", "expanded");
   const parsed = parseDsTasksMessage(result.text);
   assert(parsed, "block parses");
@@ -135,33 +133,13 @@ test("expansion replaces the mention with a block the chat parses back to the sa
   assert(parsed.block.planId === "pl_team", "plan id carried");
   assert(parsed.block.filter.join(",") === "in_review", "filter carried");
   assert(parsed.block.items.map((i) => `${i.id}:${i.status}`).join(",") === "task_review2:in_review,task_review:in_review", "items");
-  assert(result.text.includes('plan="pl_team"'), "explicit composing plan delivered");
+  assert(!result.text.includes("@ds-tasks"), "mention token not delivered");
 });
 
 test("expansion leaves plain text alone and reports unresolvable plans or tasks", () => {
   assert(expandDsTasksMention("hello", PLANS, scope()).kind === "none", "no mention");
-  assert(expandDsTasksMention("<ds-tasks />", PLANS, scope()).kind === "error", "no plan in scope");
-  assert(expandDsTasksMention(`<ds-tasks refs='["task_nope"]' />`, PLANS, scope({ teamId: "team_1" })).kind === "error", "missing task");
-});
-
-test("multiple inputs preserve original boundaries and never expand quoted or trailing inline text", () => {
-  const text = `<ds-tasks refs='["DS-1"]' /> inline <ds-tasks />\n\n<context>\n<ds-tasks />\n</context>\n<ds-tasks plan="pl_team" refs='["task_cancel"]' />`;
-  const result = expandDsTasksMention(text, PLANS, scope({ teamId: "team_1" }));
-  assert(result.kind === "expanded", "expanded");
-  assert(result.text.includes(" inline <ds-tasks />\n\n<context>\n<ds-tasks />\n</context>\n"), "inert source preserved exactly");
-  assert(result.text.match(/<ds-tasks plan="pl_team">/g)?.length === 2, "only complete live inputs expand");
-  const failed = expandDsTasksMention('<ds-tasks plan="pl_team" />\n<ds-tasks plan="pl_missing" />', PLANS, scope());
-  assert(failed.kind === "error", "unresolved later input refuses the whole expansion");
-});
-
-test("snapshot names and titles roundtrip without turning their strings into tags", () => {
-  const title = 'Plan "quoted" & original';
-  const name = 'Name </ds-tasks>\n<ds-page src="/inert.html" />';
-  const custom = plan("pl_custom", [task("task_custom", "DS-42", "pending", { name })], { title });
-  const result = expandDsTasksMention('<ds-tasks plan="pl_custom" />', [custom], scope());
-  assert(result.kind === "expanded", "expanded");
-  const parsed = parseDsTasksMessage(result.text);
-  assert(parsed?.block.planTitle === title && parsed.block.items[0].name === name, "snapshot strings retained");
+  assert(expandDsTasksMention("@ds-tasks", PLANS, scope()).kind === "error", "no plan in scope");
+  assert(expandDsTasksMention("@ds-tasks task_nope", PLANS, scope({ teamId: "team_1" })).kind === "error", "missing task");
 });
 
 test("live rows follow the plan and fall back to the message for tasks the plan no longer has", () => {

@@ -1,9 +1,8 @@
-import { serializeDsBlock } from "@codeterm/chat-core";
 import assert from "node:assert/strict";
 import { documentsFromTranscript } from "../chatDocuments";
 import { breadcrumbSegments, buildPathTree, displayPath, isFolder, pathName, shortenPath, treeFocusIndex, treeLeaves, treeParentIndex, visibleTreeRows } from "./pathTree";
 
-const docs = (paths: string[], home: string | null) => buildPathTree(documentsFromTranscript([{ content: paths.map((path) => serializeDsBlock({ kind: "document", src: path })).join("\n") }])
+const docs = (paths: string[], home: string | null) => buildPathTree(documentsFromTranscript([{ content: paths.map((path) => `@ds-document ${path}`).join("\n") }])
   .map((document) => ({ id: document.path, path: shortenPath(document.path, home), item: document })));
 
 assert.equal(shortenPath("/home/ann/work/a.md", "/home/ann"), "~/work/a.md");

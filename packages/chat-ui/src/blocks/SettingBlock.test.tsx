@@ -81,7 +81,7 @@ function fakeHost(initial: Record<string, SettingBlockState>) {
   test("a_boolean_renders_a_switch_with_schema_label_and_writes_once_per_click", async () => {
     const key = "plugins.chat-preprocessor.enabled";
     const { host, calls, set } = fakeHost({ [key]: { kind: "ready", setting: setting({ kind: "switch" }, false) } });
-    await withRender(`<ds-setting key="${key}" />`, { settings: host }, async (element) => {
+    await withRender(`@ds-setting ${key}`, { settings: host }, async (element) => {
       assert(element.querySelector("h4")?.textContent === "Enable preprocessing", "schema label missing");
       assert(element.textContent?.includes("When off, messages pass through unchanged."), "schema description missing");
       const toggle = element.querySelector('[role="switch"]') as HTMLButtonElement;
@@ -105,9 +105,7 @@ function fakeHost(initial: Record<string, SettingBlockState>) {
       [number]: { kind: "ready", setting: { ...setting({ kind: "stepper", min: 1, max: 8, step: 1 }, 8, number), label: "Memory hits" } },
       [text]: { kind: "ready", setting: { ...setting({ kind: "text" }, "hi", text), label: "Greeting" } },
     });
-    await withRender(`<ds-setting key="${choice}" />
-<ds-setting key="${number}" />
-<ds-setting key="${text}" />`, { settings: host }, async (element) => {
+    await withRender(`@ds-setting ${choice}\n@ds-setting ${number}\n@ds-setting ${text}`, { settings: host }, async (element) => {
       const radios = [...element.querySelectorAll('[role="radio"]')] as HTMLButtonElement[];
       assert(radios.length === 2 && radios[0].getAttribute("aria-checked") === "true", "segmented choice missing");
       await act(async () => radios[1].click());
@@ -136,7 +134,7 @@ function fakeHost(initial: Record<string, SettingBlockState>) {
     const key = "plugins.chat-preprocessor.enabled";
     const { host, failWith } = fakeHost({ [key]: { kind: "ready", setting: setting({ kind: "switch" }, false) } });
     failWith("bounds");
-    await withRender(`<ds-setting key="${key}" />`, { settings: host }, async (element) => {
+    await withRender(`@ds-setting ${key}`, { settings: host }, async (element) => {
       await act(async () => (element.querySelector('[role="switch"]') as HTMLButtonElement).click());
       assert(element.querySelector('[role="alert"]')?.textContent?.includes("bounds"), "failure not shown");
       assert(element.querySelector('[role="switch"]')?.getAttribute("aria-checked") === "false", "failed write shown as applied");
@@ -145,7 +143,7 @@ function fakeHost(initial: Record<string, SettingBlockState>) {
 
   test("secret_keys_never_reach_the_host_and_unknown_keys_are_muted", async () => {
     const { host, calls } = fakeHost({});
-    await withRender("<ds-setting key=\"plugins.telegram-client.bot_token\" />\n<ds-setting key=\"plugins.nope.enabled\" />", { settings: host }, async (element) => {
+    await withRender("@ds-setting plugins.telegram-client.bot_token\n@ds-setting plugins.nope.enabled", { settings: host }, async (element) => {
       const notes = [...element.querySelectorAll('[data-chat-block="setting"]')];
       assert(notes.length === 2 && notes.every((note) => note.getAttribute("data-block-missing") === "true"), "refusals not rendered");
       assert(!element.querySelector("button, input, select"), "a refused setting offered a control");

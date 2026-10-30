@@ -5,7 +5,6 @@ import { matchedOptimisticEchoes } from "./dedupe";
 import { markVoice } from "./markers";
 import { formatAttachmentMarker } from "./attachmentMarker";
 import type { FrameKind } from "./gen/FrameKind";
-import { parseDsBlocks } from "./dsBlocks";
 
 interface Fixture { name: string; source: string; raw: string; route: string; quoted?: boolean; segments: MessageSegment[] }
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Fixture[];
@@ -25,7 +24,6 @@ const expectedRows: Record<string, number> = {
   "recurring reminder frame": 1, "mesh frame with peer": 1, "three glued frames": 3, "owner text glued to a report frame": 2,
   "pad-substituted body": 1, "owner text with trailing pasted marker": 1, "pasted voice note": 1, "unknown sender kind": 1,
   "opening tag cut before its close": 1, "neighbor question with host tip": 1,
-  "routed file after context with unmatched fence": 1,
 };
 
 function displayed(segments: readonly MessageSegment[]): string[] {
@@ -59,12 +57,6 @@ assert.deepEqual(envelopeRows(screenshot.segments).map((row) => [row.frame?.attr
 const codex = fixtures.find((fixture) => fixture.name === "codex ordinal 527 with trailing newline")!;
 assert.deepEqual(envelopeRows(codex.segments).map((row) => [row.frame?.kind, row.frame?.tip != null]), [["tab", true]]);
 const voice = fixtures.find((fixture) => fixture.name === "voice transcript echo")!;
-const contextFile = fixtures.find((fixture) => fixture.name === "routed file after context with unmatched fence")!;
-const contextRows = envelopeRows(contextFile.segments);
-assert(contextFile.segments[0].type === "frame");
-assert.equal(contextRows[0].frame?.kind, "tab");
-assert.equal(contextRows[0].content, contextFile.segments[0].body);
-assert.deepEqual(parseDsBlocks(contextRows[0].content).flatMap((segment) => segment.type === "block" && segment.block.kind === "document" ? [segment.block.src] : []), ["/live/owned.md"]);
 assert.equal(envelopeText(voice.segments), "привет <opaque> & world");
 const echo = { id: "echo", content: markVoice("/tmp/voice.webm", null, "opaque"), sentAtMs: 10_000 };
 const candidate = { id: "source", type: "user" as const, content: voice.raw, segments: voice.segments, timestamp: new Date(0).toISOString() };
@@ -78,4 +70,4 @@ assert.deepEqual(matchedOptimisticEchoes([{ id: "image", content: captioned, sen
   id: "image-source", type: "user", content: captioned,
   segments: [{ type: "text", text: "caption " }, { type: "attachment", kind: "image", path: "/tmp/image.png", label: null, body: null, status: null }],
 }]).matchedIds, ["image"]);
-console.log(`envelope parity: ${fixtures.length} shared fixtures and context/projection/echo checks passed`);
+console.log(`envelope parity: ${fixtures.length} shared fixtures and 8 projection/echo checks passed`);

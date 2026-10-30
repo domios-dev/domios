@@ -1,10 +1,11 @@
 // Run: npx tsx packages/chat-ui/src/blocks/blockModels.test.ts
 
-import { choiceOutcome } from "./choiceBlockModel";
+import { parseChatBlock, parseChatBlocks } from "./registry";
+import { parseChoiceOptions, choiceOutcome } from "./choiceBlockModel";
 import { parseTabRef } from "./agentBlockModel";
 import { jobActionPlan, jobScheduleLine, parseJobRef, type JobBlockInfo } from "./jobBlockModel";
 import { checklistProgress, checklistStatusLabel, parseChecklistId, type ChecklistItemInfo } from "./checklistBlockModel";
-import { decodeTasksBlockKey, tasksBlockKey, tasksBlockSource, tasksSpecFromBlock, type TasksBlockSpec } from "./tasksBlockModel";
+import { decodeTasksBlockKey, parseTasksArgument, tasksBlockKey, tasksBlockSource, tasksSpecFromBlock } from "./tasksBlockModel";
 
 const tests: Array<[string, () => void]> = [];
 function test(name: string, run: () => void) {
@@ -13,6 +14,27 @@ function test(name: string, run: () => void) {
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
+
+test("choice_parses_bar_separated_labels_and_rejects_bad_sets", () => {
+  assert(parseChoiceOptions("Yes | No")?.join(",") === "Yes,No", "two labels");
+  assert(parseChoiceOptions("Ship it|Hold   the  release | Ask Andrey")?.join(",") === "Ship it,Hold the release,Ask Andrey", "whitespace collapses");
+  assert(parseChoiceOptions("A \\| B | C")?.[0] === "A | B", "escaped bar stays literal");
+  assert(parseChoiceOptions("Only one") === null, "one label is not a choice");
+  assert(parseChoiceOptions("Yes | | No") === null, "blank label refused");
+  assert(parseChoiceOptions("Yes | yes") === null, "duplicate label refused");
+  assert(parseChoiceOptions(["a", "b", "c", "d", "e", "f", "g", "h", "i"].join("|")) === null, "more than eight refused");
+  assert(parseChoiceOptions(`Yes | ${"x".repeat(81)}`) === null, "overlong label refused");
+});
+
+test("every_new_block_is_a_registry_entry_and_bad_arguments_stay_text", () => {
+  for (const line of ["@ds-choice Yes | No", "@ds-agent e3ec9ee9", "@ds-job nightly-digest", "@ds-checklist getting-started", "@ds-tasks pl_a0rcq7 in_progress AL-3"]) {
+    assert(parseChatBlock(line), `${line} should parse`);
+  }
+  for (const line of ["@ds-choice Yes", "@ds-agent a b", "@ds-job ../etc", "@ds-checklist Getting Started", "@ds-tasks plan_x", "@ds-tasks pl_x hello"]) {
+    assert(parseChatBlock(line) === null, `${line} should stay text`);
+  }
+  assert(parseChatBlocks("@ds-agent e3ec9ee9\n@ds-job nightly")?.length === 2, "stacked lines render as stacked blocks");
+});
 
 test("refs_validate_their_shape", () => {
   assert(parseTabRef("e3ec9ee9") === "e3ec9ee9" && parseTabRef("abc") === null && parseTabRef("a/b/c/d") === null, "tab ref");
@@ -54,13 +76,13 @@ test("checklist_progress_counts_done_and_unknown", () => {
 });
 
 test("tasks_argument_round_trips_through_source_and_key", () => {
-  const spec: TasksBlockSpec = { planId: "pl_alpha", refs: ["AL-1", "task_b"], groups: ["done", "in_review"], items: null };
+  const spec = parseTasksArgument("pl_alpha AL-1 task_b done in-review");
   assert(spec && spec.refs.join(",") === "AL-1,task_b" && spec.groups.join(",") === "done,in_review", "refs and groups");
-  assert(tasksBlockSource(spec) === '<ds-tasks plan="pl_alpha" refs="[&quot;AL-1&quot;,&quot;task_b&quot;]" statuses="[&quot;done&quot;,&quot;in_review&quot;]" />', "one-line source");
+  assert(tasksBlockSource(spec) === "@ds-tasks pl_alpha AL-1 task_b done in_review", "one-line source");
   assert(JSON.stringify(decodeTasksBlockKey(tasksBlockKey(spec))) === JSON.stringify(spec), "key round-trips");
   const carried = tasksSpecFromBlock({ planId: "pl_alpha", planTitle: "Alpha", filter: ["pending"], items: [{ id: "task_a", key: "AL-1", status: "done", name: "A" }] });
   assert(carried.groups[0] === "todo" && carried.items?.length === 1, "carried block keeps its items");
-  assert(tasksBlockSource(carried) === '<ds-tasks plan="pl_alpha" refs="[&quot;task_a&quot;]" />', "carried set pins as task ids");
+  assert(tasksBlockSource(carried) === "@ds-tasks pl_alpha task_a", "carried set pins as task ids");
   assert(decodeTasksBlockKey("not json") === null, "bad key");
 });
 

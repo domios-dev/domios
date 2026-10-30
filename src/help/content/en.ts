@@ -431,7 +431,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: which messengers are connected?",
           question:
-            "A user is reading the Domios guide (messengers section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected on this machine, as which bot, and which user IDs are allowed. Show it with <ds-connect bridge='telegram' />. If it is not connected, say what the next step is in one sentence.",
+            "A user is reading the Domios guide (messengers section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected on this machine, as which bot, and which user IDs are allowed. Show it with @ds-connect telegram. If it is not connected, say what the next step is in one sentence.",
         },
       ],
     },
@@ -462,7 +462,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: help me connect my phone",
           question:
-            "A user is reading the Domios guide (phone section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected, whether a token is stored and which user IDs are allowed. Walk them through the next missing step only, one step at a time, and show <ds-connect bridge='telegram' /> while it is not connected.",
+            "A user is reading the Domios guide (phone section) and pressed 'Ask the agent'. Check whether the Telegram bot bridge is connected, whether a token is stored and which user IDs are allowed. Walk them through the next missing step only, one step at a time, and show @ds-connect telegram while it is not connected.",
         },
         { type: "connect", bridgeId: "telegram" },
       ],
@@ -490,7 +490,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: what can you do with my messengers?",
           question:
-            "A user is reading the Domios guide (messenger plugins section) and pressed 'Ask the agent'. Check whether telegram-client and teams-client are installed and signed in on this machine. Show each with a standalone <ds-plugin id='telegram-client' /> or <ds-plugin id='teams-client' /> tag and give two concrete things you could do for them with the ones that are ready.",
+            "A user is reading the Domios guide (messenger plugins section) and pressed 'Ask the agent'. Check whether telegram-client and teams-client are installed and signed in on this machine. Show each with @ds-plugin and give two concrete things you could do for them with the ones that are ready.",
         },
       ],
     },

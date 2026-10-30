@@ -59,7 +59,7 @@ const CHECKLIST: ChecklistInfo = {
   title: "Getting started",
   items: [
     { id: "first-agent", label: "Start your first agent", hint: "Open a tab.", done: true, action: { kind: "link", label: "New agent" } },
-    { id: "phone", label: "Connect your phone", hint: "Telegram.", done: false, action: { kind: "block", label: "Show how", source: "<ds-checklist id=\"nested-help\" />" } },
+    { id: "phone", label: "Connect your phone", hint: "Telegram.", done: false, action: { kind: "block", label: "Show how", source: "@ds-checklist nested-help" } },
     { id: "memory", label: "Save a memory", hint: "Remember.", done: null, action: { kind: "link", label: "Open Memory" } },
   ],
 };
@@ -89,7 +89,7 @@ const CHECKLIST: ChecklistInfo = {
     const live = binding<AgentBlockState>({ kind: "loading" });
     const calls = { open: [] as string[], stop: [] as string[] };
     const agents = { binding: live.source, open: (ref: string) => { calls.open.push(ref); }, stop: async (ref: string) => { calls.stop.push(ref); } };
-    await withRender("<ds-agent tab=\"e3ec9ee9\" />", { agents }, async (element) => {
+    await withRender("@ds-agent e3ec9ee9", { agents }, async (element) => {
       assert(element.querySelector('[data-chat-block="agent"][role="note"]'), "loading notice missing");
       assert(live.refreshed.includes("e3ec9ee9"), "card did not re-read on mount");
       await act(async () => live.set("e3ec9ee9", { kind: "ready", agent: AGENT }));
@@ -119,7 +119,7 @@ const CHECKLIST: ChecklistInfo = {
       stop: async (ref: string) => { calls.push(`stop:${ref}`); },
     };
     live.set("cron_1", { kind: "ready", job: JOB });
-    await withRender("<ds-job ref=\"cron_1\" />", { jobs }, async (element) => {
+    await withRender("@ds-job cron_1", { jobs }, async (element) => {
       assert(status(element) === "Enabled" && element.textContent?.includes("next in 3h"), "schedule or state missing");
       assert(element.querySelector('[data-testid="job-last-result"]')?.textContent?.includes("Succeeded"), "last result missing");
       assert(calls.length === 0, "rendering acted");
@@ -143,7 +143,7 @@ const CHECKLIST: ChecklistInfo = {
     const opened: string[] = [];
     live.set("getting-started", { kind: "ready", checklist: CHECKLIST });
     const checklists = { binding: live.source, open: (id: string, item: string) => { opened.push(`${id}/${item}`); } };
-    await withRender("<ds-checklist id=\"getting-started\" />", { checklists }, async (element) => {
+    await withRender("@ds-checklist getting-started", { checklists }, async (element) => {
       const row = (id: string) => element.querySelector(`[data-checklist-item="${id}"]`) as HTMLElement;
       assert(row("first-agent").dataset.done === "true" && row("phone").dataset.done === "false" && row("memory").dataset.done === "unknown", "item states wrong");
       assert(status(element) === "1 of 3 done", "progress label wrong");
@@ -156,7 +156,7 @@ const CHECKLIST: ChecklistInfo = {
       await act(async () => live.set("getting-started", { kind: "ready", checklist: { ...CHECKLIST, items: CHECKLIST.items.map((item) => ({ ...item, done: true })) } }));
       assert(status(element) === "All done", "checklist did not tick live");
     });
-    await withRender("<ds-checklist id=\"nope\" />", { checklists }, async (element) => {
+    await withRender("@ds-checklist nope", { checklists }, async (element) => {
       assert(element.querySelector('[data-block-missing="true"]'), "unknown checklist not missing");
     });
   });
@@ -169,7 +169,7 @@ const CHECKLIST: ChecklistInfo = {
       openPlan: (planId: string) => { calls.push(`plan:${planId}`); },
       openTask: (planId: string, taskId: string) => { calls.push(`task:${planId}/${taskId}`); },
     };
-    await withRender("<ds-tasks plan=\"pl_alpha\" statuses=\"[&quot;in_progress&quot;]\" />", { tasks }, async (element) => {
+    await withRender("@ds-tasks pl_alpha in_progress", { tasks }, async (element) => {
       const key = live.refreshed[0];
       assert(key && JSON.parse(key)[0] === "pl_alpha", "binding key does not carry the plan");
       await act(async () => live.set(key, {
@@ -189,7 +189,7 @@ const CHECKLIST: ChecklistInfo = {
   });
 
   test("blocks_without_their_service_render_a_note_and_no_buttons", async () => {
-    await withRender("<ds-agent tab=\"e3ec9ee9\" />\n<ds-job ref=\"cron_1\" />\n<ds-checklist id=\"getting-started\" />\n<ds-tasks plan=\"pl_alpha\" />", {}, async (element) => {
+    await withRender("@ds-agent e3ec9ee9\n@ds-job cron_1\n@ds-checklist getting-started\n@ds-tasks pl_alpha", {}, async (element) => {
       assert(element.querySelectorAll('[data-testid="chat-block"][role="note"]').length === 4, "expected four notes");
       assert(!element.querySelector("button"), "hostless view must not offer actions");
     });

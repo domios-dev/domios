@@ -35,10 +35,8 @@ export {
   buildDomiosOpeningTag,
   buildDomiosMessage,
   parseDomiosMessage,
-  parseDomiosAttributes,
   type ParsedDomiosMessage,
 } from "./domios";
-export { rawEnvelopeExclusions, type RawEnvelopeExclusion, type RawEnvelopeKind } from "./envelopeSpans";
 export { localThumbnailSource, normalizeToolRichResult, type ThumbnailSource } from "./toolRichResult";
 export {
   shellCommandMessage,
@@ -217,7 +215,7 @@ export {
   type WatcherVerdictStatus,
 } from "./watcherVerdict";
 
-export { parseLocalArtifactDirective, localArtifactTextParts, localArtifactFromBlock } from "./localArtifactDirective";
+export { parseLocalArtifactDirective, localArtifactTextParts } from "./localArtifactDirective";
 export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";
 
 export { inlineArtifactParts, type InlineArtifactPart } from "./inlineArtifactParts";
@@ -228,5 +226,3 @@ export { emptyQuestionSelection, questionOptionValue, selectQuestionOption, sele
 
 export { placedAttachmentSegments, type PlacedAttachmentSegment } from "./userAttachments";
 export { envelopeRows, envelopeText, type MessageSegment, type EnvelopeRow } from "./envelope";
-
-export { DsBlockScanner, parseDsBlocks, serializeDsBlock, DS_KINDS, DS_TASK_STATUSES, decodeDsEntities, isDsAbsolutePath, isDsTaskRef, type DsBlock, type DsKind, type DsTaskStatus, type DsTaskItem, type DsTaskSnapshot, type DsLifecycle, type DsAuthority, type DsSegment, type DsFenceSpan } from "./dsBlocks";

@@ -1,4 +1,3 @@
-import { serializeDsBlock } from "@codeterm/chat-core";
 import { ConnectBlock, PluginBlock, useGuideNavigation } from "@codeterm/chat-ui";
 import type { AppConfig } from "../lib/types";
 import { renderKbd } from "../components/Settings/shared";
@@ -67,9 +66,9 @@ export function HelpBlockView({ block, config, onOpenSettings }: HelpBlockViewPr
         <SettingsLinkButton label={block.label} target={block.target} onOpen={onOpenSettings} />
       ) : null;
     case "plugin":
-      return <PluginBlock pluginId={block.pluginId} source={serializeDsBlock({ kind: "plugin", id: block.pluginId })} />;
+      return <PluginBlock pluginId={block.pluginId} source={`@ds-plugin ${block.pluginId}`} />;
     case "connect":
-      return <ConnectBlock bridgeId={block.bridgeId} source={serializeDsBlock({ kind: "connect", bridge: block.bridgeId })} />;
+      return <ConnectBlock bridgeId={block.bridgeId} source={`@ds-connect ${block.bridgeId}`} />;
     case "details":
       return (
         <HelpDetails summary={block.summary}>

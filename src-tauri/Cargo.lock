@@ -1743,7 +1743,6 @@ version = "0.0.0"
 dependencies = [
  "base64 0.23.1",
  "codeterm-types",
- "codeterm-wire",
  "dirs 6.0.0",
  "libc",
  "log",

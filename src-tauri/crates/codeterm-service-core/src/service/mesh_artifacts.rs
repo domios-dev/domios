@@ -27,13 +27,61 @@ fn preview_error(error: String) -> ArtifactError {
     }
 }
 
-use codeterm_local_preview::artifact_directive::{
-    scan_artifacts as scan_author_text, serialize_artifact, FileCard,
-};
+#[derive(Debug, PartialEq, Eq)]
+struct Directive {
+    start: usize,
+    end: usize,
+    tag: String,
+    paths: Vec<String>,
+}
 
-#[cfg(test)]
-fn directives(text: &str) -> Vec<FileCard> {
-    scan_author_text(text, true).cards
+fn directives(text: &str) -> Vec<Directive> {
+    let mut result = Vec::new();
+    let mut offset = 0;
+    let mut fence: Option<(char, usize)> = None;
+    for line in text.split_inclusive('\n') {
+        let content = line.trim_end_matches(['\r', '\n']);
+        let trimmed = content.trim_start();
+        let marker = trimmed.chars().next().filter(|c| matches!(c, '`' | '~'));
+        if let Some(marker) = marker {
+            let width = trimmed.chars().take_while(|c| *c == marker).count();
+            if width >= 3 {
+                if fence.is_none() {
+                    fence = Some((marker, width));
+                } else if fence.is_some_and(|(open, count)| open == marker && width >= count) {
+                    fence = None;
+                }
+            }
+        }
+        if fence.is_none() && !content.starts_with("    ") && !content.starts_with('\t') {
+            if let Some((tag, path)) = trimmed.split_once(char::is_whitespace) {
+                if [
+                    "@ds-image",
+                    "@ds-page",
+                    "@ds-document",
+                    "@ct-image",
+                    "@ct-page",
+                    "@ct-document",
+                ]
+                .iter()
+                .any(|known| tag.eq_ignore_ascii_case(known))
+                {
+                    let paths =
+                        codeterm_local_preview::artifact_directive::artifact_paths(tag, path);
+                    if !paths.is_empty() {
+                        result.push(Directive {
+                            start: offset,
+                            end: offset + content.len(),
+                            tag: tag.into(),
+                            paths: paths.into_iter().map(str::to_owned).collect(),
+                        });
+                    }
+                }
+            }
+        }
+        offset += line.len();
+    }
+    result
 }
 
 fn ingest_path(method: &str, path: &str) -> Option<String> {
@@ -51,27 +99,37 @@ fn ingest_path(method: &str, path: &str) -> Option<String> {
 
 fn rewrite(
     text: &str,
-    plan: &[FileCard],
-    paths: &HashMap<String, String>,
+    plan: &[Directive],
+    paths: &HashMap<String, Result<String, &'static str>>,
 ) -> Result<String, String> {
     let mut output = String::new();
     let mut offset = 0;
-    for card in plan {
-        let targets = card
-            .paths
-            .iter()
-            .map(|source| {
-                paths
-                    .get(source)
-                    .cloned()
-                    .ok_or("Artifact transfer did not return a target path")
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let replacement = serialize_artifact(&card.kind, &targets)
-            .ok_or("Artifact transfer returned an invalid target path")?;
-        output.push_str(&text[offset..card.start]);
-        output.push_str(&replacement);
-        offset = card.end;
+    for directive in plan {
+        let mut targets = Vec::new();
+        let mut refused = Vec::new();
+        for source in &directive.paths {
+            let path = paths
+                .get(source)
+                .ok_or("Artifact transfer did not return a target path")?;
+            match path {
+                Ok(path) => {
+                    if path.is_empty() || path.contains(['"', '\r', '\n']) {
+                        return Err("Artifact transfer returned an invalid target path".into());
+                    }
+                    targets.push(format!("\"{path}\""));
+                }
+                Err(reason) => refused.push(format!("[Artifact refused: {reason}]")),
+            }
+        }
+        output.push_str(&text[offset..directive.start]);
+        if !targets.is_empty() {
+            output.push_str(&format!("{} {}", directive.tag, targets.join(" ")));
+            if !refused.is_empty() {
+                output.push(' ');
+            }
+        }
+        output.push_str(&refused.join(" "));
+        offset = directive.end;
     }
     output.push_str(&text[offset..]);
     Ok(output)
@@ -128,9 +186,6 @@ fn artifact_request(
     policy: &codeterm_local_preview::PreviewPolicy,
 ) -> Result<IngestRequest, ArtifactError> {
     use base64::Engine as _;
-    if source != source.trim() {
-        return Err(ArtifactError::Policy("invalid_path"));
-    }
     let bytes = codeterm_local_preview::html_preview::read_artifact_file(
         source,
         policy,
@@ -173,43 +228,35 @@ where
         .into_iter()
         .filter_map(|pointer| {
             let text = body.pointer(&pointer)?.as_str()?.to_string();
-            let scan = scan_author_text(&text, true);
-            (!scan.cards.is_empty() || scan.overflow).then_some((pointer, text, scan))
+            let plan = directives(&text);
+            (!plan.is_empty()).then_some((pointer, text, plan))
         })
         .collect();
-    if plans.iter().any(|(_, _, scan)| scan.overflow)
-        || plans
-            .iter()
-            .flat_map(|(_, _, scan)| &scan.cards)
-            .map(|card| card.paths.len())
-            .sum::<usize>()
-            > 32
+    if plans
+        .iter()
+        .flat_map(|(_, _, plan)| plan)
+        .map(|directive| directive.paths.len())
+        .sum::<usize>()
+        > 32
     {
         return Err("A remote message may contain at most 32 file previews".into());
     }
     let mut transferred = HashMap::new();
-    for (_, _, scan) in &plans {
-        for source in scan.cards.iter().flat_map(|card| &card.paths) {
+    for (_, _, plan) in &plans {
+        for source in plan.iter().flat_map(|directive| &directive.paths) {
             if transferred.contains_key(source) {
                 continue;
             }
             let target = match transfer_file(source.clone(), ingest_path.clone()).await {
-                Ok(path) => path,
-                Err(ArtifactError::Policy(reason)) => {
-                    return Err(format!("Artifact refused: {reason}"))
-                }
+                Ok(path) => Ok(path),
+                Err(ArtifactError::Policy(reason)) => Err(reason),
                 Err(ArtifactError::Transfer(error)) => return Err(error),
             };
             transferred.insert(source.clone(), target);
         }
     }
-    let replacements = plans
-        .into_iter()
-        .map(|(pointer, text, scan)| {
-            rewrite(&text, &scan.cards, &transferred).map(|text| (pointer, text))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for (pointer, text) in replacements {
+    for (pointer, text, plan) in plans {
+        let text = rewrite(&text, &plan, &transferred)?;
         let field = body
             .pointer_mut(&pointer)
             .ok_or("Remote message text changed during transfer")?;

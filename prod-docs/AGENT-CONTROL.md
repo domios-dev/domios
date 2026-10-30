@@ -132,7 +132,7 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 
 ## General Agent recovery
 
-A connected Supporter Agent helps Domios notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `domios supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `domios supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `domios docs MEMORY` and the Guide (`<ds-guide section="supporter-agent" />` on its own paragraph).
+A connected Supporter Agent helps Domios notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `domios supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `domios supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `domios docs MEMORY` and the Guide (`@ds-guide supporter-agent` on its own paragraph).
 
 The General Agent watchdog reacts to PTY death, provider exit to a shell and launch settlement. It respects shutdown, launch grace and restart limits; screen text alone never authorizes restarting a live agent. Model-authorized recovery remains notify-only until a separate held-out accuracy check passes.
 
@@ -171,4 +171,4 @@ Domios tracks and restores terminal state across sessions:
 - **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `domios agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 32 -->
+<!-- revision: 31 -->

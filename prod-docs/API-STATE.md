@@ -201,7 +201,7 @@ After restart, valid recorded provider sessions resume; stale or missing session
 
 The browser mirror uses `POST /api/tabs/{id}/preview/read` with `{ "path": "/absolute/file.md", "kind": "document" }` and `POST /api/tabs/{id}/preview/check` with `{ "paths": ["/absolute/file.md"] }`. Both require the normal Bearer authentication and an exact live tab ID. Peer access follows the tab's read permissions and ownership policy.
 
-A file must be referenced by that tab's own transcript: a complete canonical `<ds-image src="…" />`, `<ds-document src="…" />` or `<ds-page src="…" />` tag, an attachment, a recorded edit/diff path, or an image result path. Client-supplied paths do not grant access. Prose mentions, incomplete/malformed tags, legacy aliases, code, quoted/list/context/handoff examples and another tab's references grant nothing. A gallery uses a JSON `sources` attribute with at most 32 paths. Unavailable and refused reads return the same `404` JSON error; batch checks omit refused paths without exposing their existence.
+A file must be referenced by that tab's own transcript: a full-line `@ds-image`, `@ds-document`, `@ds-page` (or `@ct-*`/`@file`) directive, an attachment, a recorded edit/diff path, or an image result path. Client-supplied paths do not grant access. Prose mentions, fenced examples and another tab's references grant nothing. Unavailable and refused reads return the same `404` JSON error; batch checks omit refused paths without exposing their existence.
 
 Read returns `{ "data": "...", "media_type": "..." }`; images use a base64 data URL. Batch returns `{ "paths": [...], "home": "..." }`. Allowed extensions and byte limits are shared with desktop: HTML pages 200,000 bytes, UTF-8 documents 1,000,000 bytes, images 10 MiB. Symlinks/junctions, hardlinks, traversal, UNC/device paths and alternate streams are refused. CodeTerm data directories, SSH/cloud credential directories and credential/token filenames are denied. Additional absolute file or directory roots can be denied with `api.preview_secret_paths = ["/absolute/private"]`; invalid roots fail closed.
 
@@ -209,4 +209,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 39 -->
+<!-- revision: 38 -->

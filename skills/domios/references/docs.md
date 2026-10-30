@@ -37,7 +37,7 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs MEMORY-SERVICES` — Memory skills, workers, synchronization, and dreaming.
 - `domios docs MEMORY-USAGE` — Memory agent behavior, CLI, REST, and UI.
 - `domios docs HTML` — Sandboxed chat HTML behavior.
-- `domios docs CHAT-BLOCKS` — Canonical typed ds-tag chat block catalog.
+- `domios docs CHAT-BLOCKS` — Live @ds- chat block catalog.
 - `domios docs SKILLS` — Domios skills and agent integration.
 - `domios docs AGENT-CONTROL` — Agent hierarchy, command palette, and session integration.
 - `domios docs TELEGRAM-SETUP` — Telegram bridge setup and troubleshooting.
@@ -55,4 +55,4 @@ Read one whole document with the command below. The installed CLI lists the curr
 - `domios docs TEST-AUTHORING` — Focused test authoring rules.
 - `domios docs ESSENCE-MAP` — Source-backed essence map generation and validation.
 
-<!-- revision: 8 -->
+<!-- revision: 7 -->

@@ -1,12 +1,13 @@
-import { serializeDsBlock, type DsTaskStatus } from "@codeterm/chat-core";
 import {
+  DS_PLAN_ID_RE,
   DS_TASK_GROUP_ALIASES,
+  isDsTaskRef,
   type DsTaskGroupKey,
   type DsTasksBlock,
   type DsTasksBlockItem,
 } from "../codeterm/dsTasksBlock";
 
-/** Live task filters and optional detached snapshot. */
+/** What a `@ds-tasks` block shows: explicit refs and status groups of one plan, or the task set a sent message carried. */
 export interface TasksBlockSpec {
   planId: string;
   refs: string[];
@@ -41,6 +42,24 @@ export type TasksBlockState =
   | { kind: "missing" }
   | { kind: "ready"; title: string; total: number; groups: TasksBlockGroup[] };
 
+/** `<plan-id> [task-id|TASK-KEY|status ...]`; any other word makes the line plain text. */
+export function parseTasksArgument(argument: string): TasksBlockSpec | null {
+  const [planId, ...words] = argument.trim().split(/\s+/);
+  if (!planId || !DS_PLAN_ID_RE.test(planId)) return null;
+  const spec: TasksBlockSpec = { planId, refs: [], groups: [], items: null };
+  for (const word of words) {
+    const group = DS_TASK_GROUP_ALIASES[word.toLowerCase()];
+    if (isDsTaskRef(word)) {
+      if (!spec.refs.includes(word)) spec.refs.push(word);
+    } else if (group) {
+      if (!spec.groups.includes(group)) spec.groups.push(group);
+    } else {
+      return null;
+    }
+  }
+  return spec;
+}
+
 /** A sent `<ds-tasks>` block keeps its own task set and statuses as the fallback for tasks the plan lost. */
 export function tasksSpecFromBlock(block: DsTasksBlock): TasksBlockSpec {
   const groups = block.filter.flatMap((word) => DS_TASK_GROUP_ALIASES[word.toLowerCase()] ?? []);
@@ -50,7 +69,8 @@ export function tasksSpecFromBlock(block: DsTasksBlock): TasksBlockSpec {
 /** The one-line form: what Pin stores and Ask quotes. A carried task set pins as its task ids. */
 export function tasksBlockSource(spec: TasksBlockSpec): string {
   const refs = spec.items ? spec.items.map((item) => item.id) : spec.refs;
-  return serializeDsBlock({ kind: "tasks", plan: spec.planId, refs, statuses: (spec.items ? [] : spec.groups) as DsTaskStatus[] });
+  const words = spec.items ? refs : [...refs, ...spec.groups];
+  return ["@ds-tasks", spec.planId, ...words].join(" ");
 }
 
 /** The live-binding key; the host decodes it with `decodeTasksBlockKey`. */

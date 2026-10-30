@@ -1,6 +1,7 @@
 // Run: npx tsx packages/chat-ui/src/MarkdownBody.html.test.tsx
 
 import React, { act } from "react";
+import { isolateBlockDirectives } from "./blockDirectives";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 
@@ -52,7 +53,7 @@ const testWindow = setupDom();
 
 const { RichMarkdown } = await import("./MarkdownBody");
 const { sanitizeStyleValue, containsHtmlMarkup, normalizeMultilineHtmlBlocks } = await import("./htmlSanitize");
-const { buildHtmlPreviewDocument, sanitizeLocalHtml } = await import("./HtmlPreviewBlock");
+const { buildHtmlPreviewDocument, parseHtmlFileDirective, sanitizeLocalHtml } = await import("./HtmlPreviewBlock");
 const { configureHtmlFileLoader } = await import("./htmlFileLoader");
 const { configureLocalArtifactLoader } = await import("./localArtifactLoader");
 const { parseLocalArtifactDirective } = await import("./LocalArtifactBlock");
@@ -67,9 +68,7 @@ test("directive paths render through markdown, user and linked message bodies", 
     calls.push([file, tab]);
     return { data: "data:image/png;base64,aGVsbG8=", media_type: "image/png" };
   });
-  const source = `Lead
-<ds-image src="${path}" />
-Tail`;
+  const source = `Lead\n@ds-image ${path}\nTail`;
   for (const body of [<RichMarkdown text={source} />, renderUserContent(source), <LinkedText text={`pl_abcdef\n${source}`} onOpenPlan={() => {}} />]) {
     const { host, root } = await render(<LocalArtifactScope tabId="owner">{body}</LocalArtifactScope>);
     assert(host.querySelector("img")?.getAttribute("src") === "data:image/png;base64,aGVsbG8=", "loaded image is visible");
@@ -111,7 +110,7 @@ test("arbitrary delta splits preserve verse blocks through completion", async ()
   for (const ending of ["\n", "\r\n"]) {
     const source = ["first  ", "second", "third\\", "fourth", "", "fifth  ", "sixth"].join(ending);
     const { host: whole, root: wholeRoot } = await render(<RichMarkdown text={source} />);
-    const { host, root } = await render(<RichMarkdown text={""} />);
+    const { host, root } = await render(<RichMarkdown text="" />);
     try {
       for (let split = 0; split <= source.length; split += 1) {
         let accumulated = "";
@@ -279,9 +278,9 @@ test("dangerous inline style declarations are scrubbed but safe ones survive", a
   assert(!/position/.test(style), "position is scrubbed");
 });
 
-test("ds-html renders a locked-down sandboxed frame", async () => {
+test("html code fence renders a locked-down sandboxed frame", async () => {
   const fencedSource = "<div>\n\n  <b>hello</b>\n</div>";
-  const { host } = await render(<RichMarkdown text={`<ds-html>${fencedSource}</ds-html>`} />);
+  const { host } = await render(<RichMarkdown text={`\`\`\`html\n${fencedSource}\n\`\`\``} />);
   const frame = host.querySelector("iframe[data-testid='chat-html-preview-frame']");
   assert(frame, "preview iframe rendered for an html fence");
   assert(frame!.getAttribute("sandbox") === "allow-scripts", "sandbox must be allow-scripts only");
@@ -290,7 +289,7 @@ test("ds-html renders a locked-down sandboxed frame", async () => {
   assert(srcdoc.includes("Content-Security-Policy"), "CSP meta is embedded");
 });
 
-test("ds-page loads and sanitizes its single local source", async () => {
+test("file-backed HTML fence loads and sanitizes its single source", async () => {
   const path = "C:\\Users\\dev\\Desktop\\design-system.html";
   let reads = 0;
   configureHtmlFileLoader(async (requested) => {
@@ -298,7 +297,8 @@ test("ds-page loads and sanitizes its single local source", async () => {
     assert(requested === path, "loader receives the exact absolute path");
     return "<main class='p-4'>From file</main><script>steal()</script>";
   });
-  const { host } = await render(<RichMarkdown text={`<ds-page src="${path}" />`} />);
+  assert(parseHtmlFileDirective(`@file "${path}"`) === path, "quoted file directive parses");
+  const { host } = await render(<RichMarkdown text={`\`\`\`html\n@file ${path}\n\`\`\``} />);
   await act(async () => {
     await Promise.resolve();
   });
@@ -320,7 +320,7 @@ test("multi-image directives load each path in scope and render one gallery", as
     reads.push(path);
     return { data: "data:image/png;base64,AA==", media_type: "image/png" };
   });
-  const { host, root } = await render(<LocalArtifactScope tabId="gallery-owner"><RichMarkdown text={"<ds-image sources=\"[&quot;/first image.png&quot;,&quot;/second.png&quot;]\" />"} /></LocalArtifactScope>);
+  const { host, root } = await render(<LocalArtifactScope tabId="gallery-owner"><RichMarkdown text={'@ds-image "/first image.png" /second.png'} /></LocalArtifactScope>);
   try {
     assert(reads.join("|") === "/first image.png|/second.png", "both exact paths reach the bounded loader");
     assert(host.querySelectorAll('[data-testid="chat-ds-image"]').length === 1, "one directive produces one gallery");
@@ -335,7 +335,7 @@ test("a denied gallery image leaves the allowed image visible with an unavailabl
     if (path === "/denied.png") throw new Error("Preview path is private");
     return { data: "data:image/png;base64,AA==", media_type: "image/png" };
   });
-  const { host, root } = await render(<RichMarkdown text={"<ds-image sources=\"[&quot;/allowed.png&quot;,&quot;/denied.png&quot;]\" />"} />);
+  const { host, root } = await render(<RichMarkdown text="@ds-image /allowed.png /denied.png" />);
   try {
     assert(host.querySelectorAll("img").length === 1, "the allowed image remains visible");
     assert(host.querySelector('[aria-label="denied.png not available"]'), "the denied image has an explicit unavailable tile");
@@ -365,13 +365,11 @@ test("standalone ds artifact directives render pages, images, and documents", as
     };
   });
 
-  assert(parseLocalArtifactDirective(`<ds-page src="${pagePath}" />`)?.path === pagePath, "quoted ds-page parses");
+  assert(parseLocalArtifactDirective(`@ds-page "${pagePath}"`)?.path === pagePath, "quoted ds-page parses");
   assert(parseLocalArtifactDirective(`@ct-image ${imagePath}`) === null, "old directive spelling is rejected");
   {
     const { host: consecutive } = await render(
-      <RichMarkdown text={`<ds-page src="${pagePath}" />
-<ds-image src="${imagePath}" />
-<ds-document src="${documentPath}" />`} />,
+      <RichMarkdown text={isolateBlockDirectives(`@ds-page ${pagePath}\n@ds-image ${imagePath}\n@ds-document ${documentPath}`)} />,
     );
     await act(async () => {
       await Promise.resolve();
@@ -382,11 +380,7 @@ test("standalone ds artifact directives render pages, images, and documents", as
     assert(consecutive.querySelector('[data-testid="chat-ds-document"]'), "consecutive ds-document renders a document block");
   }
   const { host } = await render(
-    <RichMarkdown text={`<ds-page src="${pagePath}" />
-
-<ds-image src="${imagePath}" />
-
-<ds-document src="${documentPath}" />`} />,
+    <RichMarkdown text={`@ds-page ${pagePath}\n\n@ds-image ${imagePath}\n\n@ds-document ${documentPath}`} />,
   );
   await act(async () => {
     await Promise.resolve();
@@ -416,9 +410,9 @@ test("local embeds retain DOM and scroll across focus, visibility, and identical
       : { data: "# Original document\n\n" + "Scrollable content\n\n".repeat(2200), media_type: "text/markdown" };
   });
   const snapshot = () => [
-    { id: "page", text: "<ds-page src=\"C:/preview.html\" />" },
-    { id: "image", text: "<ds-image src=\"C:/preview.png\" />" },
-    { id: "document", text: "<ds-document src=\"C:/preview.md\" />" },
+    { id: "page", text: "@ds-page C:/preview.html" },
+    { id: "image", text: "@ds-image C:/preview.png" },
+    { id: "document", text: "@ds-document C:/preview.md" },
   ];
   const transcript = (messages: ReturnType<typeof snapshot>) => (
     <>{messages.map((message) => <RichMarkdown key={message.id} text={message.text} />)}</>
@@ -476,9 +470,7 @@ test("standalone ct directives preserve Windows and forward-slash paths", async 
   });
 
   const { host } = await render(
-    <RichMarkdown text={`<ds-image src="${windowsPath}" />
-
-<ds-image src="${forwardPath}" />`} />,
+    <RichMarkdown text={`@ds-image ${windowsPath}\n\n@ds-image ${forwardPath}`} />,
   );
   await act(async () => {
     await Promise.resolve();
@@ -492,13 +484,13 @@ test("standalone ct directives preserve Windows and forward-slash paths", async 
 });
 
 test("ct directives inside code fences remain inert code", async () => {
-  const { host } = await render(<RichMarkdown text={"```text\n<ds-image src=\"C:\\\\secret.png\" />\n```"} />);
+  const { host } = await render(<RichMarkdown text={"```text\n@ds-image C:\\\\secret.png\n```"} />);
   assert(!host.querySelector("[data-testid='chat-ds-image']"), "code-fenced directive is not executed");
-  assert(host.textContent?.includes("<ds-image"), "literal directive remains visible");
+  assert(host.textContent?.includes("@ds-image"), "literal directive remains visible");
 });
 
 test("html fullscreen survives a markdown parent rerender", async () => {
-  const text = "<ds-html><b>stable fullscreen</b></ds-html>";
+  const text = "```html\n<b>stable fullscreen</b>\n```";
   const { host, root } = await render(<RichMarkdown text={text} fontScale={1} />);
   const openButton = host.querySelector<HTMLButtonElement>("button[title='Open in fullscreen']");
   assert(openButton, "fullscreen button rendered");

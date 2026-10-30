@@ -1,17 +1,18 @@
 import {
+  DS_PLAN_ID_RE,
   DS_TASK_GROUP_ALIASES,
   formatDsTasksBlock,
+  isDsTaskRef,
   type DsTaskGroupKey,
   type DsTasksBlock,
 } from "@codeterm/chat-ui/dsTasksBlock";
-import { parseDsBlocks } from "@codeterm/chat-core";
 import type { Team, Workspace } from "../../../lib/types";
 import { planBelongsToWorkspace } from "../../Canvas/planTabMatch";
 import { attemptTabTitle } from "../../Canvas/taskExecutorHistory";
 import { findTaskByReference, taskDisplayKey } from "../../Canvas/taskDisplayKey";
 import type { Plan, Task, TaskExecutionAttempt } from "../../Canvas/types";
 
-export const DS_TASKS_MENTION = "<ds-tasks />";
+export const DS_TASKS_MENTION = "@ds-tasks";
 
 export type { DsTaskGroupKey };
 
@@ -34,6 +35,8 @@ const GROUP_LABELS: Record<DsTaskGroupKey, string> = {
 };
 
 const COLLAPSED_GROUPS = new Set<DsTaskGroupKey>(["done", "cancelled"]);
+
+const MENTION_RE = /(^|\s)@ds-tasks(?=\s|$)/;
 
 export interface DsTasksArgs {
   planId: string | null;
@@ -58,29 +61,26 @@ export function groupForStatus(status: string): DsTaskGroupKey {
   }
 }
 
+/** Arguments are the recognised tokens right after the mention on its line; the first other word ends them. */
 export function parseDsTasksMention(text: string): DsTasksMention | null {
-  return parseDsTasksInputs(text)[0] ?? null;
-}
-
-function parseDsTasksInputs(text: string): DsTasksMention[] {
-  const inputs: DsTasksMention[] = [];
-  for (const segment of parseDsBlocks(text)) {
-    let block = segment.type === "block" ? segment.block : null;
-    let implicit = false;
-    if (segment.type === "malformed" && segment.kind === "tasks") {
-      const candidate = text.slice(segment.start, segment.end);
-      const resolved = parseDsBlocks('<ds-tasks plan="pl_composing"' + candidate.slice("<ds-tasks".length));
-      const part = resolved.length === 1 ? resolved[0] : null;
-      if (part?.type === "block") { block = part.block; implicit = true; }
-    }
-    if (block?.kind !== "tasks" || block.snapshot) continue;
-    inputs.push({ start: segment.start, end: segment.end, args: {
-      planId: implicit ? null : block.plan,
-      taskRefs: block.refs,
-      groups: [...new Set(block.statuses.map((status) => DS_TASK_GROUP_ALIASES[status]))],
-    } });
+  const match = MENTION_RE.exec(text);
+  if (!match) return null;
+  const start = match.index + match[1].length;
+  let end = start + DS_TASKS_MENTION.length;
+  const args: DsTasksArgs = { planId: null, taskRefs: [], groups: [] };
+  const tokenRe = /[ \t]+(\S+)/y;
+  tokenRe.lastIndex = end;
+  for (let token = tokenRe.exec(text); token; token = tokenRe.exec(text)) {
+    const word = token[1];
+    const group = DS_TASK_GROUP_ALIASES[word.toLowerCase()];
+    if (DS_PLAN_ID_RE.test(word) && !args.planId) args.planId = word;
+    else if (isDsTaskRef(word)) args.taskRefs.push(word);
+    else if (group) {
+      if (!args.groups.includes(group)) args.groups.push(group);
+    } else break;
+    end = tokenRe.lastIndex;
   }
-  return inputs;
+  return { start, end, args };
 }
 
 export interface DsTasksScope {
@@ -152,29 +152,27 @@ export type DsTasksExpansion =
   | { kind: "expanded"; text: string }
   | { kind: "error"; message: string };
 
+/** Replaces the mention with the compact `<ds-tasks>` text the agent receives. */
 export function expandDsTasksMention(text: string, plans: readonly Plan[], scope: DsTasksScope): DsTasksExpansion {
-  const inputs = parseDsTasksInputs(text);
-  if (!inputs.length) return { kind: "none" };
-  let output = "";
-  let offset = 0;
-  for (const mention of inputs) {
-    const plan = resolveDsTasksPlan(plans, mention.args.planId, scope);
-    if (!plan) {
-      return {
-        kind: "error",
-        message: mention.args.planId
-          ? `${DS_TASKS_MENTION}: plan ${mention.args.planId} was not found.`
-          : `${DS_TASKS_MENTION}: this tab has no Team plan and the workspace has no active plan.`,
-      };
-    }
-    const selection = selectDsTasks(plan, mention.args);
-    if (!selection.ok) {
-      return { kind: "error", message: `${DS_TASKS_MENTION}: ${selection.missing.join(", ")} not found in ${plan.title}.` };
-    }
-    output += text.slice(offset, mention.start) + formatDsTasksBlock(buildDsTasksBlock(plan, selection.tasks, mention.args));
-    offset = mention.end;
+  const mention = parseDsTasksMention(text);
+  if (!mention) return { kind: "none" };
+  const plan = resolveDsTasksPlan(plans, mention.args.planId, scope);
+  if (!plan) {
+    return {
+      kind: "error",
+      message: mention.args.planId
+        ? `${DS_TASKS_MENTION}: plan ${mention.args.planId} was not found.`
+        : `${DS_TASKS_MENTION}: this tab has no Team plan and the workspace has no active plan.`,
+    };
   }
-  return { kind: "expanded", text: output + text.slice(offset) };
+  const selection = selectDsTasks(plan, mention.args);
+  if (!selection.ok) {
+    return { kind: "error", message: `${DS_TASKS_MENTION}: ${selection.missing.join(", ")} not found in ${plan.title}.` };
+  }
+  const block = formatDsTasksBlock(buildDsTasksBlock(plan, selection.tasks, mention.args));
+  const before = text.slice(0, mention.start).trimEnd();
+  const after = text.slice(mention.end).trimStart();
+  return { kind: "expanded", text: [before, block, after].filter(Boolean).join("\n") };
 }
 
 export interface DsTaskRow {

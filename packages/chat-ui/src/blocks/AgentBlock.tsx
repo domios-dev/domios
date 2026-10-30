@@ -14,6 +14,7 @@ import {
 
 const LOADING: AgentBlockState = { kind: "loading" };
 
+/** `@ds-agent <tab-id>`: a live agent card; Open and a confirmed Stop run only from the user's click. */
 export function AgentBlock({ tabRef, source }: { tabRef: string; source: string }) {
   const host = useChatBlockHost().agents;
   const state = useLiveBinding(host?.binding, tabRef, LOADING);

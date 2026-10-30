@@ -18,7 +18,7 @@ export function useDsTasksExpander(tabId: string) {
     const tab = state?.tabs[tabId];
     return expandDsTasksMention(text, plansRef.current, {
       teamId: tab?.team_id ?? null,
-      workspaceId: tab?.workspace_id ?? null,
+      workspaceId: tab?.workspace_id ?? state?.active_workspace_id ?? null,
       teams: state?.teams ?? [],
       workspaces: state?.workspaces ?? [],
     });
