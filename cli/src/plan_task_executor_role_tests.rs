@@ -6,7 +6,7 @@ use clap::Parser;
 use crate::{Cli, Commands, PlanAction};
 
 #[test]
-fn executor_role_required_add_refuses_a_task_without_a_role() {
+fn executor_role_required_add_reaches_the_aggregate_daemon_validator() {
     let parsed = Cli::try_parse_from([
         "codeterm",
         "plan",
@@ -15,11 +15,10 @@ fn executor_role_required_add_refuses_a_task_without_a_role() {
         "pl_1",
         "--name",
         "Roleless lane",
-    ]);
-    assert!(
-        parsed.is_err(),
-        "plan task add must not create a task with nobody named to execute it"
-    );
+    ]).expect("missing required draft fields are reported together by the daemon");
+    assert!(matches!(parsed.command, Commands::Plan {
+        action: PlanAction::Task { action: crate::args::plan::PlanTaskAction::Add { executor_role, .. } }
+    } if executor_role.is_empty()));
 }
 
 #[test]

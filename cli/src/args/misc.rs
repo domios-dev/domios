@@ -80,6 +80,8 @@ pub enum WorkspaceAction {
 
 #[derive(Subcommand)]
 pub enum TabAction {
+    /// Inspect one retained send without resending its payload.
+    SendStatus { send_id: String },
     /// Manage a tab-owned bounded checklist through the daemon service.
     Todo {
         #[command(subcommand)]

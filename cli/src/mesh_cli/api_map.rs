@@ -267,6 +267,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
         },
         Commands::Tab { action } => match action {
+            crate::TabAction::SendStatus { .. } => unsupported("retained send status is local to the owning daemon"),
             crate::TabAction::Todo { .. } => {
                 return unsupported("tab todo checklists must run on the owning daemon")
             }

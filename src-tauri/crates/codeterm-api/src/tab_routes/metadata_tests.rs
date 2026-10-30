@@ -3,6 +3,21 @@ use codeterm_entitlements::{compiled_free, LimitGate};
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
 
+#[test]
+fn ease_created_tab_response_preserves_unconfirmed_command_and_tab_identity() {
+    let receipt = serde_json::json!({
+        "status":"submit_unconfirmed", "bytes_written":true, "bytes_queued":71,
+        "pty_id":"exact-pty", "evidence":"pty_write_queue"
+    });
+    let result = created_tab_response(serde_json::json!({
+        "tab_id":"created-tab", "pty_id":"exact-pty", "command_submission":receipt,
+    }), true);
+    assert_eq!(result["id"], "created-tab");
+    assert_eq!(result["tab_id"], "created-tab");
+    assert_eq!(result["command_submission"], receipt);
+    assert!(result.get("error").is_none());
+}
+
 #[tokio::test]
 async fn locked_metadata_routes_preserve_typed_forbidden() {
     let (mut mux, _) = MultiplexerState::new();

@@ -205,15 +205,19 @@ impl ServiceContext {
             None
         };
 
-        if let Some(command) = spec.cmd.as_deref() {
+        let command_submission = if let Some(command) = spec.cmd.as_deref() {
             self.prepare_utility_command(&tab_id, command);
-            if let Err(error) = self.send_shell_cmd(&tab_id, command) {
-                if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
-                    tab.utility_command_pending = false;
+            let exact_pty = self.resolve_pty_id(&tab_id)?;
+            match self.submit_shell_command_with_receipt(&tab_id, &exact_pty, command) {
+                Ok(submission) => Some(submission),
+                Err(error) => {
+                    if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                        tab.utility_command_pending = false;
+                    }
+                    return Err(format!("Tab {tab_id} command failed: {error}"));
                 }
-                return Err(format!("Tab {tab_id} command failed: {error}"));
             }
-        }
+        } else { None };
         if reused.is_none() {
             self.record_kpi_tab_created(
                 &tab_id,
@@ -222,6 +226,7 @@ impl ServiceContext {
         }
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
+            command_submission,
             tab_id,
             pty_id,
             workspace_id: ws_id,
@@ -353,6 +358,7 @@ impl ServiceContext {
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
+            command_submission: None,
             tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,

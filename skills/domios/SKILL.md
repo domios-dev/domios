@@ -83,4 +83,6 @@ Local models use the bundled OpenCode provider: `domios model-provider add|remov
 
 The always-on protocol lives in your provider rules and fires regardless of which skill is loaded. Save only durable facts. Instructions for the current session or task (model or worker choice for now, temporary priorities, 'this time', 'for this release') stay in the conversation or plan, never in memory. If durability is uncertain, do not save; ask only when the user says remember. Even an explicit remember of a session-scoped instruction requires the user to say it is permanent. Explicit "remember" requests for durable facts still mean save now.
 
-<!-- revision: 88 -->
+Task drafting, retained-send inspection and checklist schemas follow the shared CLI reference above. `blueprint list --all` requires owner or Orchestrator authority; cross-scope inspection does not authorize mutation.
+
+<!-- revision: 89 -->

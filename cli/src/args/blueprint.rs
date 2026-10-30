@@ -101,8 +101,12 @@ pub enum BlueprintAction {
     },
     /// List trigger, step, converter and event-source capabilities
     Nodes,
-    /// List blueprints scoped to the calling tab and its Team
-    List,
+    /// List blueprints; Orchestrators and the owner may inspect all Teams and workspaces
+    List {
+        /// Require authority to read across Teams and workspaces
+        #[arg(long)]
+        all: bool,
+    },
     /// Show one blueprint
     Show { id: String },
     /// Deliver a text body to a running text input stage

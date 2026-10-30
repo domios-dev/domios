@@ -231,4 +231,6 @@ Restored PTY results wait in a durable outbox for the exact saved provider/sessi
 
 R10 and environment scrubbing prevent accidents, not hostile code. R10 joins split literals and refuses whole words `domios`/`codeterm`, tokens prefixed `DOMIOS_`/`CODETERM_` with `ambient_authority`; domios-cli capabilities also refuse. Obfuscation can pass. Children scrub instance credentials/private CLI paths and shadow CLI names with private PATH-first deny stubs, retaining shared paths such as `/usr/bin`. HOME/APPDATA and absolute executables remain available under user authority. Unavailable R13 comparisons never claim PASS.
 
-<!-- revision: 79 -->
+`blueprint list` and `blueprint show` allow an Orchestrator or the owner’s General Agent to inspect scheduled Blueprints across Teams and workspaces. `blueprint list --all` requires that authority explicitly. Other readers retain their scope. This read access grants no permission to apply, edit, input, stop or delete a foreign Blueprint.
+
+<!-- revision: 80 -->

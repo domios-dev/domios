@@ -1439,7 +1439,9 @@ Preserve domios://auth/callback, domios://billing/return and authenticated
 entitlement refresh when integrating either external service.
 
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
-<!-- revision: 57 -->
+For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
+
+<!-- revision: 58 -->
 
 ### Lane and batch scopes
 

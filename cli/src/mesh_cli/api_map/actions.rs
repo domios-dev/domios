@@ -790,6 +790,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             provider_reserve_pct,
             non_user_facing,
             unplanned,
+            tags: _,
             reason: _,
         } => {
             if matches!(location, Some(crate::args::agent::SpawnLocation::Cloud)) || environment.is_some() {

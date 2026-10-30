@@ -607,15 +607,8 @@ pub(super) fn run_task(
         } => {
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
-            if executor_role.trim().is_empty() {
-                return Err(
-                    "--executor-role names who executes this task and cannot be blank".to_string(),
-                );
-            }
-            let personality = codeterm_types::plan::validate_executor_name(&personality)
-                .map_err(|err| format!("--personality: {err}"))?;
             let role_guidance_text =
-                super::resolve_role_guidance(role_guidance, role_guidance_file)?;
+                resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let test_plan = resolve_text(test_plan, test_plan_file)?;
@@ -669,7 +662,9 @@ pub(super) fn run_task(
                 params["role_guidance"] = json!(guidance);
             }
             params["executor_role"] = json!(executor_role);
-            params["personality"] = json!(personality);
+            if !personality.is_empty() {
+                params["personality"] = json!(personality);
+            }
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
             }

@@ -93,7 +93,7 @@ function writeFakeCli(cliPath, recordPath) {
     "#!/usr/bin/env node\n" +
     "const fs = require('node:fs');\n" +
     "const args = process.argv.slice(2);\n" +
-    "if (args[0] === 'tab' && args[1] === 'inspect') { const model = process.env.BUILD_NOTIFICATION_TAB_MODEL; process.stdout.write(model ? fs.readFileSync(model, 'utf8') : '[]'); process.exit(0); }\n" +
+    "if (args[0] === 'tab' && args[1] === 'inspect') { const model = process.env.BUILD_NOTIFICATION_TAB_MODEL; process.stdout.write(JSON.stringify({result: model ? JSON.parse(fs.readFileSync(model, 'utf8')) : []})); process.exit(0); }\n" +
     "if (args[0] === 'pad' && args[1] === 'path') { process.stdout.write(process.env.BUILD_NOTIFICATION_PAD_PATH || process.cwd()); process.exit(0); }\n" +
     "const fromFile = args.indexOf('--from-file');\n" +
     "const fromPad = args.indexOf('--from-pad');\n" +
@@ -239,7 +239,7 @@ test("qa_report_pass_sends_one_summary", () => {
     assert.match(result.stdout, /QA smoke: PASS \(2\/2 ok\)/);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
-    assert.deepEqual(sent[0].args, ["send", "--tab", "agent-tab", "--from-file", sent[0].bodyFile, "--system-context", "build"]);
+    assert.deepEqual(sent[0].args, ["send", "--tab", "agent-tab", "--from-file", sent[0].bodyFile]);
     assert.match(sent[0].body, /test result: ok\. 3 passed; 0 failed/);
     assert.match(sent[0].body, /QA smoke: PASS \(2\/2 ok\)/);
     assert.equal(sent[0].env.CODETERM_INSTANCE, null);
@@ -1035,6 +1035,26 @@ test("dev_notify_signs_anonymous_build_reports_as_system", () => {
     assert.equal(sent[0].env.CODETERM_TAB_ID, null);
     assert.deepEqual(sent[0].args, ["send", "--tab", "agent-tab", "--from-file", bodyFile, "--system-context", "build"]);
     assert.equal(sent[0].body, "opaque build result");
+  } finally {
+    rmSync(h.dir, { recursive: true, force: true });
+  }
+});
+
+test("ease_tab_build_report_uses_tab_provenance_without_system_claim", () => {
+  const h = makeHarness();
+  try {
+    const bodyFile = path.join(h.dir, "tab-report.md");
+    writeFileSync(bodyFile, "OK build completed\n");
+    const result = runBash(["-c", 'source "$1"; dev_notify_capture_parent; dev_notify_send agent-tab "$2"', "_", helperPath, bodyFile], {
+      ...h.env, CODETERM_TAB_ID: "utility-tab", CODETERM_SESSION_BINDING_NONCE: "utility-nonce",
+    });
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(result.stderr, "");
+    const sent = records(h.parentRecord);
+    assert.equal(sent.length, 1);
+    assert.deepEqual(sent[0].args, ["send", "--tab", "agent-tab", "--from-file", bodyFile]);
+    assert.equal(sent[0].env.CODETERM_TAB_ID, "utility-tab");
+    assert.equal(sent[0].env.CODETERM_SESSION_BINDING_NONCE, "utility-nonce");
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
   }

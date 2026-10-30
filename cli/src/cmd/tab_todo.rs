@@ -11,8 +11,63 @@ use crate::args::tab_todo::TabTodoAction;
 use crate::client::RpcClient;
 
 const MAX_TODO_INPUT_BYTES: usize = 64 * 1024;
+const WRITE_SCHEMA: &str = "Accepted schema: [{id?: string, content?: string, status: pending|in_progress|completed|blocked|skipped, activeForm?: string, link?: string, reason?: string}]. New items require content; activeForm defaults to content; blocked/skipped require reason.";
 
-#[derive(Deserialize)]
+fn parse_write_items(value: Value) -> Result<Vec<AgentTodoWriteItem>, String> {
+    let items = value.as_array().ok_or_else(|| format!("todo input must be an array. {WRITE_SCHEMA}"))?;
+    let mut errors = Vec::new();
+    let mut parsed = Vec::new();
+    for (index, value) in items.iter().enumerate() {
+        let Some(fields) = value.as_object() else {
+            errors.push(format!("item[{index}] must be an object"));
+            continue;
+        };
+        let before = errors.len();
+        for (field, value) in fields {
+            if !matches!(field.as_str(), "id" | "content" | "status" | "activeForm" | "link" | "reason") {
+                errors.push(format!("item[{index}].{field}: unknown field"));
+            } else if !value.is_string() && !(value.is_null() && matches!(field.as_str(), "id" | "link" | "reason")) {
+                errors.push(format!("item[{index}].{field}: expected a string"));
+            }
+        }
+        if !fields.get("status").and_then(Value::as_str).is_some_and(|status| matches!(status, "pending" | "in_progress" | "completed" | "blocked" | "skipped")) {
+            errors.push(format!("item[{index}].status: expected pending|in_progress|completed|blocked|skipped"));
+        }
+        if !fields.get("id").is_some_and(Value::is_string) && !fields.get("content").and_then(Value::as_str).is_some_and(|content| !content.trim().is_empty()) {
+            errors.push(format!("item[{index}].content: required for a new item"));
+        }
+        if fields.get("status").and_then(Value::as_str).is_some_and(|status| matches!(status, "blocked" | "skipped"))
+            && !fields.get("reason").and_then(Value::as_str).is_some_and(|reason| !reason.trim().is_empty()) {
+            errors.push(format!("item[{index}].reason: blocked/skipped needs a reason"));
+        }
+        if errors.len() == before {
+            match serde_json::from_value::<AgentTodoWriteItem>(value.clone()) {
+                Ok(item) => {
+                    match write_entry(item.clone()) {
+                        Ok(_) => parsed.push(item),
+                        Err(error) => errors.push(format!("item[{index}]: {error}")),
+                    }
+                }
+                Err(error) => errors.push(format!("item[{index}]: {error}")),
+            }
+        }
+    }
+    if errors.is_empty() { Ok(parsed) } else { Err(format!("{}\n{WRITE_SCHEMA}", errors.join("\n"))) }
+}
+
+fn write_entries(input: Vec<AgentTodoWriteItem>) -> Result<Vec<TabTodoWriteEntry>, String> {
+    let mut entries = Vec::new();
+    let mut errors = Vec::new();
+    for (index, item) in input.into_iter().enumerate() {
+        match write_entry(item) {
+            Ok(entry) => entries.push(entry),
+            Err(error) => errors.push(format!("item[{index}]: {error}")),
+        }
+    }
+    if errors.is_empty() { Ok(entries) } else { Err(format!("{}\n{WRITE_SCHEMA}", errors.join("\n"))) }
+}
+
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum AgentTodoStatus {
     Pending,
@@ -34,7 +89,7 @@ impl AgentTodoStatus {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct AgentTodoWriteItem {
     #[serde(default)]
@@ -109,11 +164,8 @@ fn execute_proposal(
     };
     let mut params = json!({ "tab_id": tab, "caller_tab_id": actor });
     if let Some(path) = from_pad {
-        let input: Vec<AgentTodoWriteItem> = parse_source(Some(&path), None)?;
-        let entries = input
-            .into_iter()
-            .map(write_entry)
-            .collect::<Result<Vec<_>, _>>()?;
+        let input = parse_write_items(parse_source(Some(&path), None)?)?;
+        let entries = write_entries(input)?;
         params["items"] = json!(entries);
     }
     if let Some(path) = note_from_pad {
@@ -297,7 +349,7 @@ fn list_agent_todos(client: &mut dyn RpcClient) -> Result<Value, String> {
 
 fn write_agent_todos(client: &mut dyn RpcClient, from_pad: &str) -> Result<Value, String> {
     let tab_id = required_current_tab()?;
-    let input: Vec<AgentTodoWriteItem> = parse_source(Some(from_pad), None)?;
+    let input = parse_write_items(parse_source(Some(from_pad), None)?)?;
     write_declared_todos(client, &tab_id, input)
 }
 
@@ -310,10 +362,7 @@ fn write_declared_todos(
     if input.len() > MAX_TAB_TODO_ITEMS {
         return Err(tab_todo_bound_refusal());
     }
-    let entries = input
-        .into_iter()
-        .map(write_entry)
-        .collect::<Result<Vec<_>, String>>()?;
+    let entries = write_entries(input)?;
     let value = client.call(
         "tab.todo.write",
         Some(json!({
@@ -340,7 +389,11 @@ fn write_declared_todos(
 }
 
 fn write_entry(item: AgentTodoWriteItem) -> Result<TabTodoWriteEntry, String> {
-    let active_form = &item.active_form;
+    let active_form = if item.active_form.is_empty() {
+        &item.content
+    } else {
+        &item.active_form
+    };
     if (item.id.is_none() && active_form.trim().is_empty())
         || active_form.chars().count() > MAX_TAB_TODO_TITLE_CHARS
         || active_form.chars().any(char::is_control)

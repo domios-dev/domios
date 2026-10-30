@@ -3,7 +3,7 @@ use clap::Parser;
 use crate::{Cli, Commands, PlanAction};
 
 #[test]
-fn role_guidance_contract_add_refuses_absence_and_update_refuses_blank() {
+fn role_guidance_add_defers_absence_to_daemon_and_update_refuses_blank() {
     let missing = Cli::try_parse_from([
         "codeterm",
         "plan",
@@ -15,7 +15,7 @@ fn role_guidance_contract_add_refuses_absence_and_update_refuses_blank() {
         "--executor-role",
         "dev",
     ]);
-    assert!(missing.is_err());
+    assert!(missing.is_ok(), "draft validation aggregates required fields in the daemon");
 
     let parsed = Cli::try_parse_from([
         "codeterm",

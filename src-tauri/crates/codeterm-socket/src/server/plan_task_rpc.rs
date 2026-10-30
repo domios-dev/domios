@@ -18,6 +18,7 @@ use codeterm_service_core::service::plan::{hints, NewTask, PlanError};
 use codeterm_service_core::service::ServiceState;
 use serde_json::{json, Value};
 
+mod add_fields;
 mod respawn;
 mod split;
 mod task_fields;
@@ -103,31 +104,6 @@ fn validate_task_update_params(p: Option<&Value>) -> Result<(), JsonRpcError> {
     })
 }
 
-fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<(), JsonRpcError> {
-    let Some(model) = p
-        .and_then(|value| value.get("model"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
-    else {
-        return Ok(());
-    };
-    if !provider_ids
-        .iter()
-        .any(|provider| provider.eq_ignore_ascii_case(model))
-    {
-        return Ok(());
-    }
-    Err(JsonRpcError {
-        code: -32602,
-        message: format!("'{model}' is a provider id, not a model; use --model <provider>:<model>"),
-        data: Some(json!({
-            "type": "provider_id_in_model_field",
-            "provider": model,
-            "suggestion": "use --model <provider>:<model>",
-        })),
-    })
-}
 
 pub(super) fn handles(method: &str) -> bool {
     matches!(
@@ -298,8 +274,10 @@ pub(super) fn dispatch(
         }
 
         "plan.task.add" => {
-            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let id = plan_refs::resolve_plan(store, params)?;
+            let normalized = add_fields::normalize(params, store, &id)?;
+            let p = Some(&normalized);
+            let params = &Some(normalized.clone());
             let name = get_string_param(params, "name")?;
             let kind = p
                 .and_then(|x| x.get("type"))
@@ -463,6 +441,9 @@ pub(super) fn dispatch(
             if let Some(hint) = hints::maybe_orchestration_reminder() {
                 response_hints.push(hint);
             }
+            if let Some(warning) = normalized["inferred_work_warning"].as_str() {
+                response_hints.push(warning.to_owned());
+            }
             let caller_tab = p
                 .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
@@ -485,7 +466,6 @@ pub(super) fn dispatch(
         "plan.task.update" => {
             validate_task_update_params(p)?;
             let files = task_files_field(p)?;
-            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let previous_name = store
                 .show_task(&tid)

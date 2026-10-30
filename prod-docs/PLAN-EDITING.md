@@ -101,4 +101,6 @@ domios agent turns --tab WORKER --last 10
 
 This local command returns authoritative completed user/assistant turns and outcomes from the Worker's authenticated session. Agent callers must be the authenticated manager, plan owner, or target itself. User administration remains allowed. `--last` accepts 1–50; `--after` is a UTF-8 user-record lower bound. Each request scans at most 256 completed records and returns the last requested rows within that window, with `next_offset` and `has_more`. Continue with `--after NEXT_OFFSET` when `has_more` is true. Individual rows are bounded to 256 KiB and the response to 1 MiB; request fewer turns if the response budget is exceeded. Pending generations are not completed turns; plain/non-adapter sessions return an explicit unavailable reason.
 
-<!-- revision: 8 -->
+`plan task add` validates all required fields together: name, executor role and role guidance. Personality defaults to the first alphabetic word of the task name. A sole plan section is used when no area matches; ambiguous plans may remain unlinked with a hint. Missing `work:` tags are inferred from the area or default to `work:backend`, with a warning. Explicit invalid tags and section selectors refuse. Correctness is optional and keeps its warning. A bare provider in `--model` is resolved when dispatched.
+
+<!-- revision: 9 -->

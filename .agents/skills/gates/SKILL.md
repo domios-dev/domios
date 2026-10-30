@@ -222,7 +222,9 @@ tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 13 -->
+An intentional `--queue` uses the same event-based queue as `--wait-build`; it does not grant verification authority or change a Worker’s assigned gates. Default busy-slot refusal remains in effect.
+
+<!-- revision: 14 -->
 
 ## Rust warning inventory and cleanup
 

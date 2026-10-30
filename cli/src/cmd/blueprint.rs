@@ -693,7 +693,10 @@ fn request(
         | BlueprintAction::Project { .. }
         | BlueprintAction::Schema
         | BlueprintAction::Tags => return Err("Blueprint command is handled offline".into()),
-        BlueprintAction::List => "blueprint.list",
+        BlueprintAction::List { all } => {
+            params["all"] = json!(all);
+            "blueprint.list"
+        },
         BlueprintAction::Input {
             id,
             from_pad,

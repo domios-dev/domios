@@ -41,6 +41,24 @@ fn postwrite_errors_are_uncertainty_and_never_replay_the_payload() {
 }
 
 #[test]
+fn ease_created_shell_retains_tab_and_queue_receipt_after_unconfirmed_submit() {
+    let receipt = ShellCommandSubmission::attempt("new-pty", |queued| {
+        queued.set(71);
+        Err("submit_unconfirmed: no early command-start mark".into())
+    }).unwrap();
+    let handle = crate::service::spawn::TabHandle {
+        tab_id: "created-tab".into(), pty_id: Some("new-pty".into()), workspace_id: "workspace".into(),
+        description: None, worker_id: None, warning: None, model_fallback: None, budget_notice: None,
+        command_submission: Some(receipt),
+    };
+    let response = serde_json::to_value(handle).unwrap();
+    assert_eq!(response["tab_id"], "created-tab");
+    assert_eq!(response["command_submission"]["status"], "submit_unconfirmed");
+    assert_eq!(response["command_submission"]["bytes_written"], true);
+    assert_eq!(response["command_submission"]["evidence"], "pty_write_queue");
+}
+
+#[test]
 fn proven_non_submission_is_a_typed_refusal() {
     let result = ShellCommandSubmission::attempt("absent", |_| Err("PTY not found".into()));
     assert_eq!(

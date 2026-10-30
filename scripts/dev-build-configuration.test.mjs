@@ -9,6 +9,22 @@ import { devBuildConfiguration, assertServerFeatureConfiguration } from './dev-b
 const root = path.resolve(import.meta.dirname, '..');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
 
+test('ease gateway queue option consumes only the queue flag and keeps fail-fast default', () => {
+  const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8').replaceAll('\r\n', '\n');
+  const start = source.indexOf('  BUILD_ARGS=()');
+  const end = source.indexOf('\nfi', start);
+  const parse = source.slice(start, end);
+  for (const [args, mode, forwarded] of [
+    [['check', '--queue', '--opaque'], 'queue', 'check --opaque'],
+    [['check', '--wait-build', '--opaque'], 'queue', 'check --opaque'],
+    [['check', '--opaque'], 'fail-fast', 'check --opaque'],
+  ]) {
+    const result = spawnSync(bash, ['-c', `unset CODETERM_BUILD_GATEWAY_MODE; CMD="$1"\n${parse}\nprintf '%s\\n%s\\n' "$CODETERM_BUILD_GATEWAY_MODE" "$*"`, '_', ...args], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.stdout.trim().split('\n'), [mode, forwarded]);
+  }
+});
+
 test('named instances share stable Tauri compiler configuration and preserve release config', () => {
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
   const configure = source.match(/^dev_conf_path\(\) \{[\s\S]*?^\}/m)[0];

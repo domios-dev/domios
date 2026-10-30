@@ -15,7 +15,7 @@ Each shell command-start mark starts a fresh deadline; command-finish marks canc
 
 REST: `POST /api/tabs` and `POST /api/tabs/{id}/restart` accept optional `timeout`; `POST /api/tabs/{id}/timeout` takes `{timeout}`.
 
-`tab restart --cmd` returns after submission to the replacement shell, without waiting for command completion. `command_delivered: true` includes `command_submission` with the exact `pty_id`, `status: submitted`, `bytes_queued` and `evidence: pty_write_queue`. Post-write or lost-response uncertainty returns `status: submit_unconfirmed`; never replay that command. Proven non-submission is refused as `shell_command_not_submitted`. Use `tab exec` for final exit status. `tab new/restart --cmd` and `tab exec` reject C0 except tab/CR/LF. JSON paths need forward slashes or doubled backslashes.
+`tab new --cmd` and `tab restart --cmd` return the created or replacement shell id and submission receipt, without waiting for command completion. `command_delivered: true` includes `command_submission` with the exact `pty_id`, `status: submitted`, `bytes_queued` and `evidence: shell_command_start`. Post-write or lost-response uncertainty returns `status: submit_unconfirmed`; never replay that command. Proven non-submission is refused as `shell_command_not_submitted`. Use `tab exec` for final exit status. `tab new/restart --cmd` and `tab exec` reject C0 except tab/CR/LF. JSON paths need forward slashes or doubled backslashes.
 
 ## Storage authority and recovery
 
@@ -171,4 +171,4 @@ Working tabs continue. Success: idle tabs (General included) `agent restart` as 
 
 Summary counts restarted/pending/failed restarts and updates in place as pending tabs finish. Supporter journals update runs, safe prompt answers and individual restart outcomes.
 
-<!-- revision: 65 -->
+<!-- revision: 66 -->

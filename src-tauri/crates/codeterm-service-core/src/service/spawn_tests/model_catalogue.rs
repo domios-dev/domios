@@ -224,9 +224,10 @@ fn qualified_model_selects_its_provider_and_normalizes_its_id() {
 #[test]
 fn bare_provider_name_selects_that_providers_default() {
     let registry = registry_with_models(&[("claude", &["opus"]), ("codex", &["gpt-6-luna"])]);
+    for explicit_provider in [None, Some("codex")] {
     let selected = crate::service::spawn::resolve_agent_model_selection(
         &registry,
-        None,
+        explicit_provider,
         Some("codex"),
         "claude",
     )
@@ -234,6 +235,7 @@ fn bare_provider_name_selects_that_providers_default() {
 
     assert_eq!(selected.provider_id, "codex");
     assert_eq!(selected.model, None);
+    }
 }
 
 #[test]

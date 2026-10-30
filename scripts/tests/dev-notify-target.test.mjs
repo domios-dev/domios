@@ -7,48 +7,48 @@ test("dev report target prefers an explicit tab over the inspected parent", () =
     explicitTab: "chosen-tab",
     shellTab: "build-shell",
     parentHint: "stale-parent",
-    tabModel: [{ id: "build-shell", parent_tab_id: "live-parent" }],
+    tabModel: { result: [{ id: "build-shell", parent_tab_id: "live-parent" }] },
   }), { kind: "send", tab: "chosen-tab", mesh: "" });
 });
 
 test("dev report target returns to an agent tab itself, not to its parent", () => {
   assert.deepEqual(resolveDevNotifyTarget({
     shellTab: "worker-tab",
-    tabModel: [{ id: "worker-tab", agent_type: "claude", parent_tab_id: "orchestrator" }],
+    tabModel: { result: [{ id: "worker-tab", agent_type: "claude", parent_tab_id: "orchestrator" }] },
   }), { kind: "send", tab: "worker-tab", mesh: "" });
   assert.deepEqual(resolveDevNotifyTarget({
     explicitTab: "orchestrator",
     shellTab: "worker-tab",
-    tabModel: [{ id: "worker-tab", agent_type: "claude", parent_tab_id: "orchestrator" }],
+    tabModel: { result: [{ id: "worker-tab", agent_type: "claude", parent_tab_id: "orchestrator" }] },
   }), { kind: "send", tab: "orchestrator", mesh: "" });
 });
 
 test("dev report target uses the live parent before falling back to the shell", () => {
   assert.deepEqual(resolveDevNotifyTarget({
     shellTab: "build-shell",
-    tabModel: [{ id: "build-shell", parent_tab_id: "orchestrator" }],
+    tabModel: { result: [{ id: "build-shell", parent_tab_id: "orchestrator" }] },
   }), { kind: "send", tab: "orchestrator", mesh: "" });
 
   assert.deepEqual(resolveDevNotifyTarget({
     shellTab: "standalone-shell",
-    tabModel: [{ id: "standalone-shell" }],
+    tabModel: { result: [{ id: "standalone-shell" }] },
   }), { kind: "notify", tab: "standalone-shell", mesh: "" });
 
   assert.deepEqual(resolveDevNotifyTarget({
     shellTab: "uninspected-shell",
     parentHint: "launch-parent",
-    tabModel: [],
+    tabModel: { result: [] },
   }), { kind: "send", tab: "launch-parent", mesh: "" });
 });
 
 test("dev report target can find the current Team owner when the shell has no parent", () => {
   assert.deepEqual(resolveDevNotifyTarget({
     shellTab: "team-shell",
-    tabModel: [{ id: "team-shell", team_id: "team" }],
-    teamModel: { members: [
+    tabModel: { result: [{ id: "team-shell", team_id: "team" }] },
+    teamModel: { result: { members: [
       { tab_id: "worker", role_type: "Worker" },
       { tab_id: "current-owner", role_type: "Manager", anchors_team: true },
-    ] },
+    ] } },
   }), { kind: "send", tab: "current-owner", mesh: "" });
 });
 
@@ -60,7 +60,7 @@ test("dev report target follows a persisted mesh return route", () => {
     report_target_mesh_peer: "origin-instance-id",
   }];
 
-  assert.deepEqual(resolveDevNotifyTarget({ shellTab: "remote-shell", tabModel }), {
+  assert.deepEqual(resolveDevNotifyTarget({ shellTab: "remote-shell", tabModel: { result: tabModel } }), {
     kind: "send",
     tab: "origin-owner",
     mesh: "origin-instance-id",
@@ -68,6 +68,6 @@ test("dev report target follows a persisted mesh return route", () => {
   assert.deepEqual(resolveDevNotifyTarget({
     explicitTab: "origin-owner",
     shellTab: "remote-shell",
-    tabModel,
+    tabModel: { result: tabModel },
   }), { kind: "send", tab: "origin-owner", mesh: "origin-instance-id" });
 });

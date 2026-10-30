@@ -47,13 +47,13 @@ pub enum PlanTaskAction {
     /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
         plan_id: String,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
         name: String,
         #[arg(long = "type", allow_hyphen_values = true)]
         kind: Option<String>,
-        #[arg(long)]
+        #[arg(long, help = "Section selectors; omission uses area matching or the plan's sole section")]
         sections: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long, allow_hyphen_values = true, help = "Provider:model, model id, or bare provider resolved at dispatch")]
         model: Option<String>,
         #[arg(
             long,
@@ -100,7 +100,6 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            required_unless_present = "role_guidance_file",
             help = "REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment"
         )]
         role_guidance: Option<String>,
@@ -112,6 +111,7 @@ pub enum PlanTaskAction {
         role_guidance_file: Option<String>,
         #[arg(
             long = "executor-role",
+            default_value = "",
             allow_hyphen_values = true,
             help = "REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced"
         )]
@@ -120,7 +120,8 @@ pub enum PlanTaskAction {
             long,
             allow_hyphen_values = true,
             value_name = "ONE_WORD_PERSONA",
-            help = "REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'"
+            default_value = "",
+            help = "Executor's one-word persona; defaults to the first word of the task name"
         )]
         personality: String,
         #[arg(long, allow_hyphen_values = true)]
