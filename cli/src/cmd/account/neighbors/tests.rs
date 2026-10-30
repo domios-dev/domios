@@ -42,7 +42,7 @@ fn list_parses_with_json_and_renders_ids_scopes_and_both_request_directions() {
 }
 
 #[test]
-fn takeover_needs_confirmation_and_authored_text_stays_in_pad_files() {
+fn account_takeover_is_removed_and_authored_text_stays_in_pad_files() {
     assert!(Cli::try_parse_from(["domios", "account", "neighbors", "enroll"]).is_err());
     assert!(Cli::try_parse_from([
         "domios",
@@ -53,7 +53,7 @@ fn takeover_needs_confirmation_and_authored_text_stays_in_pad_files() {
         "--expected-receiver-revision",
         "7"
     ])
-    .is_ok());
+    .is_err());
     assert!(Cli::try_parse_from([
         "domios",
         "account",

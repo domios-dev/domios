@@ -26,10 +26,7 @@ fn sealing_uses_the_effective_friend_key_instead_of_the_newest_account_key() {
     let mut peers = peers();
     assert_eq!(peers.receiver_key().unwrap().enc_key_id, "ek_friend_target");
     peers.peer_receiver = None;
-    assert_eq!(
-        peers.receiver_key().unwrap().enc_key_id,
-        "ek_another_machine"
-    );
+    assert!(matches!(peers.receiver_key(), Err(Error::RecipientNotReceiving)));
 }
 
 #[test]
@@ -57,14 +54,10 @@ fn disabled_missing_or_malformed_effective_authority_never_falls_back() {
 fn an_old_sender_is_refused_before_text_sealing_or_file_upload() {
     let mut peers = peers();
     peers.my_receiver = Some(EffectiveReceiver {
-        source: ReceiverSource::Friend,
         installation_id: Some("new".into()),
-        key_id: Some("vk_new".into()),
         enc_key_id: Some("ek_new".into()),
-        session_id: Some("session".into()),
         machine_label: Some("New desk".into()),
         revision: 2,
-        features: vec![],
         receiving: true,
     });
     assert_eq!(
@@ -72,7 +65,7 @@ fn an_old_sender_is_refused_before_text_sealing_or_file_upload() {
         Err(Error::NotReceiver)
     );
     assert!(peers.require_sender_receiver("new").is_ok());
-    peers.my_receiver.as_mut().unwrap().session_id = None;
+    peers.my_receiver.as_mut().unwrap().enc_key_id = None;
     assert_eq!(
         peers.require_sender_receiver("new"),
         Err(Error::InvalidEnvelope)

@@ -1,50 +1,14 @@
 use super::*;
-use codeterm_neighbors::adapter::ReceiverStatus;
 
 #[cfg(not(any(test, feature = "test-support")))]
 type WatchStartup<'a> =
     std::pin::Pin<Box<dyn std::future::Future<Output = Result<bool, String>> + Send + 'a>>;
 
-#[cfg(any(test, not(feature = "test-support")))]
-fn needs_key_recovery(
-    status: &ReceiverStatus,
-    local_key: Option<&str>,
-    cleanup_pending: bool,
-) -> bool {
-    cleanup_pending
-        || status.legacy_active && status.receiver_revision == 0
-        || status.receiving_here()
-            && (local_key.is_none() || local_key != status.receiver_key_id.as_deref())
-}
 
 #[derive(Default)]
 struct RestorationRearm(Arc<super::super::recovery::Rearm>);
 
 impl ServiceContext {
-    pub(super) async fn advertise_neighbor_files(
-        &self,
-        registry: &FirebaseRegistry,
-        status: &ReceiverStatus,
-        keys: &codeterm_neighbors::crypto::PrivateKeys,
-        generation: u64,
-    ) -> codeterm_neighbors::Result<bool> {
-        if !status.receiving_here() {
-            return Ok(false);
-        }
-        let mut advertised = self.neighbor_cell().file_advertised_generation.lock().await;
-        self.require_neighbor_history_generation(generation)?;
-        if *advertised == Some(generation) {
-            return Ok(false);
-        }
-        let changed = registry.advertise_file_support(status, keys).await?;
-        self.require_neighbor_history_generation(generation)?;
-        *advertised = Some(generation);
-        if changed {
-            self.neighbor_cell().receiver.lock().take();
-        }
-        Ok(changed)
-    }
-
     #[cfg(any(test, not(feature = "test-support")))]
     pub(super) fn spawn_neighbor_restoration(
         &self,
@@ -130,45 +94,10 @@ impl ServiceContext {
             self.require_neighbors_enabled()
                 .map_err(|error| error.to_string())?;
             self.require_neighbor_generation(generation)?;
-            let (registry, scope, metadata) = self.neighbor_key_ports().await?;
+            let (registry, _scope, _metadata) = self.neighbor_key_ports().await?;
             let transport = self.neighbor_transport(&registry)?;
             self.watch_neighbor_receiver(transport.clone(), generation)
                 .await?;
-            let status = self
-                .refresh_neighbor_receiver_readonly(&registry, generation)
-                .await?;
-            let settings = metadata
-                .settings()
-                .await
-                .map_err(|error| error.to_string())?;
-            let keys = if status.receiving_here() {
-                (InstallationKeys {
-                    store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
-                    registry: registry.as_ref(),
-                    scope: scope.clone(),
-                    uid: &transport.uid,
-                })
-                .load()
-                .await
-                .map_err(|error| error.to_string())?
-            } else {
-                None
-            };
-            let local_key = keys
-                .as_ref()
-                .map(|keys| keys.verifier_key_id(&transport.uid));
-            self.require_neighbor_generation(generation)?;
-            self.require_neighbors_enabled()
-                .map_err(|error| error.to_string())?;
-            if needs_key_recovery(&status, local_key.as_deref(), settings.cleanup_pending) {
-                self.neighbor_cell().receiver.lock().take();
-                self.stop_neighbor_listeners();
-                self.ui.emit(
-                    "neighbor-runtime-status",
-                    json!({"receiver_unavailable":true,"reason":"receiver_key_recovery_required"}),
-                );
-                return Ok(false);
-            }
             self.neighbor_operation(owner::Operation::ReceiverChanged)
                 .await?;
             Ok(true)

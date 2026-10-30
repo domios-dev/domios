@@ -152,7 +152,7 @@ it("never claims a missing concierge when one is bound, and omits a zero count",
   expect(missingConciergeLine({ gateway_tab: null, concierge_missing: true, pending_count: 0, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" }))
     .toBe("No concierge on this machine");
   const runtimeClient = runtime({ pair: "tab-gateway" });
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: true, receiving_enabled: true, receiver_machine_label: null, revision: 1,
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" },
     concierges: { pair: { gateway_tab: null, concierge_missing: true, pending_count: 2, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" } } } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),

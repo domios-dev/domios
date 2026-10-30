@@ -36,14 +36,13 @@ vi.mock("./NeighborReceiveHere", () => ({
 
 const { neighbor, mounted, button, hasButton, runtime, concierge, render } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
 
-const elsewhere: ReceiverState = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 7, source: "account" };
-const overridden: ReceiverState = { receiving_here: true, receiving_enabled: true, receiver_machine_label: "This laptop", revision: 3, source: "friend" };
+const elsewhere: ReceiverState = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 7 };
+const overridden: ReceiverState = { receiving_here: true, receiving_enabled: true, receiver_machine_label: "This laptop", revision: 3 };
 
 /** The runtime with this account received here, and Ada received as given. */
-function receiving(ada: ReceiverState, account: Partial<ReceiverState> = { receiving_here: true, receiving_enabled: true }): NeighborRuntimeClient {
+function receiving(ada: ReceiverState): NeighborRuntimeClient {
   const client = runtime({ pair: "tab-gateway" });
-  vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: false,
-    receiver_machine_label: null, revision: 1, ...account, machine_label: "This laptop", friend_receivers: { pair: ada } } as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+  vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: { pair: ada } });
   return { ...client, receiveFriend: vi.fn(async () => {}) };
 }
 function friends(list: NeighborList["friends"]): NeighborClient {
@@ -79,28 +78,20 @@ it("the sidebar friend row says where that friend is received and receives only 
   expect(confirm.dataset).toMatchObject({ friend: "Ada", operation: "set", target: "This laptop" });
   await act(async () => confirm.click());
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
-  expect(runtimeClient.enroll).not.toHaveBeenCalled();
 });
 
-it("an overridden friend offers the account receiver back, and only then", async () => {
+it("a local receiver offers stopping only that friend", async () => {
   const runtimeClient = receiving(overridden);
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={runtimeClient} />);
   const items = await openMenu("Actions for Ada");
-  expect(items).toContain("Use account receiver");
+  expect(items).toContain("Stop receiving this friend");
   expect(items).not.toContain("Receive this friend here");
-  await choose("Use account receiver");
+  await choose("Stop receiving this friend");
   expect(button("Confirm receiving").dataset.operation).toBe("reset");
   await act(async () => button("Confirm receiving").click());
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 3, "reset");
-  expect(runtimeClient.enroll).not.toHaveBeenCalled();
 });
 
-it("a friend received here by the account offers no receiving action", async () => {
-  await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={receiving({ ...overridden, source: "account" })} />);
-  const items = await openMenu("Actions for Ada");
-  expect(items).not.toContain("Receive this friend here");
-  expect(items).not.toContain("Use account receiver");
-});
 
 it("the concierge row's menu receives the same friend here", async () => {
   const runtimeClient = receiving(elsewhere);
@@ -119,7 +110,6 @@ it("the conversation says where the friend is received and offers receiving them
   await act(async () => button("Receive this friend here").click());
   await act(async () => button("Confirm receiving").click());
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
-  expect(runtimeClient.enroll).not.toHaveBeenCalled();
 });
 
 it("the conversation header's menu receives the friend here through the same confirmation", async () => {
@@ -131,37 +121,29 @@ it("the conversation header's menu receives the friend here through the same con
   expect(button("Confirm receiving").dataset).toMatchObject({ friend: "Ada", operation: "set" });
   await act(async () => button("Confirm receiving").click());
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7, "set");
-  expect(runtimeClient.enroll).not.toHaveBeenCalled();
 });
 
 it("a friend the status does not know yet borrows nothing from the account: no line, no action, no notice", async () => {
   // The account is received elsewhere, but Ada's own receiver is unknown, so nothing may claim where Ada arrives.
   const unknown = (): NeighborRuntimeClient => {
-    const client = receiving(elsewhere, { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 4 });
-    vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true,
-      receiver_machine_label: "Studio Mac", revision: 4, machine_label: "This laptop", friend_receivers: {} } as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+    const client = receiving(elsewhere);
+    vi.mocked(client.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, machine_label: "This laptop", friend_receivers: {} } as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
     return client;
   };
   await mount(<SidebarNeighborsSection touchMode={false} client={friends([neighbor])} runtimeClient={unknown()} />);
   expect(document.body.textContent).not.toContain("receiving on");
   const sidebarItems = await openMenu("Actions for Ada");
   expect(sidebarItems).not.toContain("Receive this friend here");
-  expect(sidebarItems).not.toContain("Use account receiver");
+  expect(sidebarItems).not.toContain("Stop receiving this friend");
   await act(async () => mounted.current!.root.unmount()); mounted.current!.host.remove(); mounted.current = null;
   await mount(<NeighborConversationView friendship="pair" client={friends([neighbor])} runtimeClient={unknown()} conciergeClient={concierge([])} />);
   expect(document.body.textContent).not.toContain("messages arrive on");
   expect(hasButton("Receive this friend here")).toBe(false);
 });
 
-it("only the explicit all-friends control moves the account, naming the count and this machine", async () => {
-  const runtimeClient = receiving(elsewhere, { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio Mac", revision: 4 });
-  await render("paid", { runtimeClient });
-  const confirm = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(element => element.dataset.friend === "all");
-  expect(confirm?.dataset).toMatchObject({ operation: "set", count: "1", target: "This laptop" });
-  await act(async () => confirm!.click());
-  expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
-  expect(runtimeClient.receiveFriend).not.toHaveBeenCalled();
-  expect(hasButton("Receive here")).toBe(false);
+it("offers no account-wide receiver action", async () => {
+  await render("paid", { runtimeClient: receiving(elsewhere) });
+  expect(document.querySelector('[data-friend="all"]')).toBeNull();
 });
 
 it("keeps the single-friend receiving action inside concierge setup", async () => {
@@ -175,5 +157,4 @@ it("keeps the single-friend receiving action inside concierge setup", async () =
   expect(receive).toBeDefined();
   await act(async () => receive!.click());
   expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 7);
-  expect(runtimeClient.enroll).not.toHaveBeenCalled();
 });

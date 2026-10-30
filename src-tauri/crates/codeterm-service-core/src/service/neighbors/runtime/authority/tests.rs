@@ -180,10 +180,6 @@ async fn runtime_authority_is_owner_general_or_the_exact_authenticated_bound_con
             takeover_confirmed: true,
             expected_receiver_revision: 0,
         },
-        NeighborRuntimeCommand::Enroll {
-            takeover_confirmed: true,
-            expected_receiver_revision: 1,
-        },
         NeighborRuntimeCommand::Rotate,
         NeighborRuntimeCommand::Revoke,
     ] {

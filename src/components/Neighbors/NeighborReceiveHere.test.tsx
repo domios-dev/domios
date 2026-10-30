@@ -10,7 +10,7 @@ vi.mock("../../lib/webApi", async actual => ({ ...await actual<object>(), localF
 
 let unmount: (() => void) | undefined;
 afterEach(() => { unmount?.(); unmount = undefined; document.body.replaceChildren(); });
-const receiver: ReceiverState = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Old desk", revision: 9, source: "friend" };
+const receiver: ReceiverState = { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Old desk", revision: 9 };
 const button = (name: string) => Array.from(document.querySelectorAll("button")).find(node => node.textContent === name)!;
 
 it("confirms only the named friend and target before calling its bound action", async () => {
@@ -18,26 +18,26 @@ it("confirms only the named friend and target before calling its bound action", 
   const root = createRoot(host); unmount = () => act(() => root.unmount());
   const receive = vi.fn(async () => {});
   await act(async () => root.render(<NeighborReceiveHere receiver={receiver} friendName="Ada" targetMachine="New desk" onReceive={receive} />));
-  expect(document.body.textContent).toContain("Messages from Ada are received on Old desk. Receive them here?");
+  expect(document.body.textContent).toContain("Ada is received on Old desk. Move here?");
   await act(async () => button("Receive this friend here").click());
   expect(receive).not.toHaveBeenCalled();
-  expect(document.body.textContent).toContain("Receive Ada's messages on New desk");
+  expect(document.body.textContent).toContain("Ada is received on Old desk. Move here?");
   expect(document.body.textContent).not.toContain("all friends");
   await act(async () => button("Receive this friend here").click());
   expect(receive).toHaveBeenCalledExactlyOnceWith(9);
 });
 
-it("reset reconfirms when a lower revision arrives and then passes that exact revision", async () => {
+it("reset reconfirms when a newer revision arrives and then passes that exact revision", async () => {
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); unmount = () => act(() => root.unmount());
   const receive = vi.fn(async () => {});
   const show = (revision: number) => <NeighborReceiveHere receiver={{ ...receiver, revision }} friendName="Ada" targetMachine="New desk" operation="reset" initiallyOpen onReceive={receive} />;
   await act(async () => root.render(show(9)));
-  await act(async () => root.render(show(2)));
-  await act(async () => button("Use account receiver").click());
+  await act(async () => root.render(show(10)));
+  await act(async () => button("Stop receiving this friend").click());
   expect(receive).not.toHaveBeenCalled();
-  await act(async () => button("Use account receiver").click());
-  expect(receive).toHaveBeenCalledExactlyOnceWith(2);
+  await act(async () => button("Stop receiving this friend").click());
+  expect(receive).toHaveBeenCalledExactlyOnceWith(10);
 });
 
 it("machine-slot refusal shows the counts and exposes existing machine-removal controls", async () => {

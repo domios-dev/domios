@@ -9,72 +9,7 @@ mod watch;
 impl ServiceContext {
     pub(super) fn receiver_view(status: &ReceiverStatus) -> Value {
         json!({"receiving_here":status.receiving_here(), "receiver_machine_label":status.receiver_machine_label,
-            "receiving_enabled":status.receiving_enabled,"revision":status.receiver_revision})
-    }
-
-    pub(super) async fn refresh_neighbor_receiver(
-        &self,
-        registry: &FirebaseRegistry,
-        scope: &KeyScope,
-        generation: u64,
-    ) -> Result<ReceiverStatus, String> {
-        self.require_neighbor_generation(generation)?;
-        if let Some(status) = self.neighbor_cell().receiver.lock().clone() {
-            return Ok(status);
-        }
-        let result = registry
-            .receiver_status_for(
-                &InstallationKeys {
-                    store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
-                    registry,
-                    scope: scope.clone(),
-                    uid: &registry.uid,
-                },
-                true,
-            )
-            .await;
-        self.finish_neighbor_receiver_refresh(result, generation)
-    }
-
-    pub(super) async fn refresh_neighbor_receiver_readonly(
-        &self,
-        registry: &FirebaseRegistry,
-        generation: u64,
-    ) -> Result<ReceiverStatus, String> {
-        self.require_neighbor_generation(generation)?;
-        if let Some(status) = self.neighbor_cell().receiver.lock().clone() {
-            return Ok(status);
-        }
-        let result = registry.receiver_status().await;
-        self.finish_neighbor_receiver_refresh(result, generation)
-    }
-
-    fn finish_neighbor_receiver_refresh(
-        &self,
-        result: codeterm_neighbors::Result<ReceiverStatus>,
-        generation: u64,
-    ) -> Result<ReceiverStatus, String> {
-        self.require_neighbor_generation(generation)?;
-        let status = match result {
-            Ok(status) => status,
-            Err(error) => {
-                let version = self.forget_neighbor_friend_receivers();
-                self.neighbor_cell().receiver.lock().take();
-                self.stop_neighbor_listeners();
-                self.ui.emit(
-                    "neighbor-runtime-status",
-                    json!({"receiver_unavailable":true,"friend_receivers_version":version}),
-                );
-                return Err(error.to_string());
-            }
-        };
-        let changed = self.neighbor_cell().receiver.lock().as_ref() != Some(&status);
-        if changed {
-            *self.neighbor_cell().receiver.lock() = Some(status.clone());
-            self.ui
-                .emit("neighbor-runtime-status", Self::receiver_view(&status));
-        }
-        Ok(status)
+            "receiving_enabled":status.receiving_enabled,"revision":status.receiver_revision,"is_me":status.is_me})
     }
 
     pub(super) async fn watch_neighbor_receiver(
@@ -133,7 +68,6 @@ impl ServiceContext {
             match connection {
                 Ok(listener) => break listener,
                 Err(error) => {
-                    self.neighbor_cell().receiver.lock().take();
                     self.neighbor_watch_failure("control", error);
                     if !codeterm_neighbors::supervisor::retryable(error) {
                         self.neighbor_watch_state(

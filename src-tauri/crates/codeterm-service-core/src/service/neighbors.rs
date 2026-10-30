@@ -101,7 +101,6 @@ impl ServiceContext {
             .ok_or("Sign in to manage Neighbors")?;
         let base = codeterm_account::firebase_endpoints::current().functions;
         let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
-        let owner_connect = matches!(&command, NeighborCommand::Respond { accept: true, .. });
         let (name, data) = command.callable();
         let removed = if name == "friendsRemove" {
             data["friendship_id"].as_str().map(str::to_owned)
@@ -182,16 +181,6 @@ impl ServiceContext {
             self.remember_neighbor_registry(&result);
         } else if name != "friendsRemove" {
             self.forget_neighbor_registry();
-        }
-        if owner_connect {
-            if let Some(friendship) = result["friendship_id"].as_str() {
-                Box::pin(self.claim_first_neighbor_receiver(
-                    friendship,
-                    &session.identity.uid,
-                    history_generation,
-                ))
-                .await?;
-            }
         }
         if name == "claimReferralTrial" && referral::refresh_required(&result)? {
             self.refresh_billing(codeterm_billing::RefreshEvent::PlanChanged)

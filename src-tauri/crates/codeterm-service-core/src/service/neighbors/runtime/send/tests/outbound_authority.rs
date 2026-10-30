@@ -33,7 +33,6 @@ async fn assert_preflight(
         uid: "owner".into(),
         installation_id: "machine".into(),
         machine_label: "Fixture".into(),
-        enrollment: None,
     };
     let store = KeyFence::default();
     let lifecycle = InstallationKeys {

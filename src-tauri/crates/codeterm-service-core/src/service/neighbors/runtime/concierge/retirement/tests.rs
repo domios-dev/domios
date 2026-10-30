@@ -702,11 +702,11 @@ fn unknown_receiver_cache_is_not_a_confirmed_empty_receiver_projection() {
     let mut status = ReceiverStatus {
         receiver_revision: 0,
         receiver_installation_id: None,
-        receiver_key_id: None,
+        receiver_encryption_key_id: None,
         receiver_machine_label: None,
         receiving_enabled: false,
         is_me: false,
-        legacy_active: false,
+
     };
     assert_eq!(
         receiver_authority(Some(&status)),
