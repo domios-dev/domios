@@ -182,7 +182,6 @@ pub struct Script {
     pub presence: Option<RegistryRefusal>,
     pub list: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
-    pub expire_recovery_receipt: bool,
     pub permit_once: Option<RegistryRefusal>,
     pub link_bodies: Vec<MeshAdmissionBody>,
     pub gate: Option<Arc<Notify>>,
@@ -466,10 +465,6 @@ impl MeshRegistry for FakeRegistry {
         }
         let proof = &envelope.installation_proof;
         self.verify(session, "meshAdmission", &envelope.request, proof, None)?;
-        if matches!(envelope.request.operation, MeshOperation::Recover { target_policy: Some(_), .. })
-            && self.script.lock().unwrap().expire_recovery_receipt {
-            return Err(RegistryRefusal::ChallengeInvalid);
-        }
         if matches!(envelope.request.operation, MeshOperation::Sync { .. }) {
             let gate = self.script.lock().unwrap().sync_gate.clone();
             if let Some(gate) = gate {

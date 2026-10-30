@@ -8,12 +8,25 @@ use super::wire::{
 };
 use std::sync::Arc;
 
+const RECOVERY_REPLAY_SECONDS: u64 = 120 - 30;
+
+pub(super) struct PreparedRecovery {
+    pub envelope: super::wire::SignedEnvelope<super::wire::MeshAdmissionBody>,
+    pub issued_at: u64,
+}
+
+impl PreparedRecovery {
+    pub fn replayable(&self, now: u64) -> bool {
+        now < self.issued_at.saturating_add(RECOVERY_REPLAY_SECONDS)
+    }
+}
+
 pub(super) struct RejoinWindow {
     pub epoch: u64,
     pub signed_in_at: u64,
     pub rotated: Option<u64>,
     pub pending_key: Option<Arc<InstallationKey>>,
-    pub recovery: Option<super::wire::SignedEnvelope<super::wire::MeshAdmissionBody>>,
+    pub recovery: Option<PreparedRecovery>,
     pub recovery_committed: bool,
     pub existing: bool,
 }

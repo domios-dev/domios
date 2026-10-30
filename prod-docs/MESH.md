@@ -28,7 +28,7 @@ Mesh pairing and peer calls require both daemons to run Domios 1.15.0 or later. 
 
 Enrollment and publication honor the server's retry time; outages back off from 30 seconds to five minutes. Scheduled recovery shows **Busy, retrying at <time>**; a one-shot action shows **Busy until <time>** without promising an automatic retry. A failed registry read preserves confirmed publication. `domios mesh status` includes local account state (`account_mesh` in JSON); account details are owner-only, and agent refusals name that owner command.
 
-**Rejoin mesh** requests fresh sign-in only when required. Healthy same-account sign-in keeps valid membership. Removal or an outdated installation key requires fresh sign-in on that machine; recovery then uses the server-assigned key generation. For 15 minutes, transient failures retry with backoff: rekey retries retain the pending key, and a confirmed rekey retries only slot recovery with the exact prepared request. An uncertain recovery is reconciled against the registry; it never implies removal. After the window, Mesh asks for sign-in again. Successful recovery refreshes the registry and notifies peers.
+**Rejoin mesh** requests fresh sign-in only when required. Healthy same-account sign-in keeps valid membership. Removal or an outdated installation key requires fresh sign-in on that machine; recovery then uses the server-assigned key generation. For 15 minutes, transient failures retry with backoff: rekey retries retain the pending key, and a confirmed rekey retries only slot recovery, replaying uncertain requests while their proof remains valid. An uncertain recovery is reconciled against the registry; it never implies removal. After the window, Mesh asks for sign-in again. Successful recovery refreshes the registry and notifies peers.
 
 ## Admission and sign-out
 
@@ -178,4 +178,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 | POST | `/api/mesh/disconnect-notice` | `{from, to, link_nonce, signature}` | Removes only this exact connection. |
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 72 -->
+<!-- revision: 73 -->

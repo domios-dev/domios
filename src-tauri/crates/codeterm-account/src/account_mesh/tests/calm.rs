@@ -129,7 +129,11 @@ async fn account_mesh_rejoin_retries_only_slot_recovery_after_transient_failure(
         assert_eq!(harness.calls("recover_key"), 1);
         assert_eq!(harness.calls("recover"), 2);
         let script = harness.registry.script.lock().unwrap();
-        assert_eq!(script.recovery_bodies[0], script.recovery_bodies[1]);
+        if matches!(refusal, RegistryRefusal::RateLimited { .. }) {
+            assert_ne!(script.recovery_prepared[0].installation_proof, script.recovery_prepared[1].installation_proof);
+        } else {
+            assert_eq!(script.recovery_prepared[0], script.recovery_prepared[1]);
+        }
         drop(script);
         assert_eq!(harness.store.record.lock().unwrap().keys[&account_id("owner")], binding);
         assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
@@ -261,6 +265,14 @@ async fn account_mesh_rejoin_outage_keeps_retrying_the_same_key_until_window_end
     }
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("recover"), 6);
+    {
+        let script = harness.registry.script.lock().unwrap();
+        assert_eq!(script.recovery_prepared[0], script.recovery_prepared[1]);
+        for index in 2..script.recovery_prepared.len() {
+            assert_ne!(script.recovery_prepared[index - 1].installation_proof, script.recovery_prepared[index].installation_proof);
+        }
+        assert_eq!(script.recovery_prepared[3].installation_proof.timestamp, START + 3810);
+    }
     harness.clock.set(START + 4500);
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Err(AccountMeshRefusal::ReauthRequired));
     assert_eq!(harness.calls("recover"), 6);
@@ -274,9 +286,8 @@ async fn account_mesh_rejoin_lost_committed_reply_replays_or_reconciles_without_
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Err(AccountMeshRefusal::Offline));
         assert_eq!(harness.registry.slot("owner"), Some(2));
         let binding = harness.store.record.lock().unwrap().keys[&account_id("owner")].clone();
-        harness.registry.script.lock().unwrap().expire_recovery_receipt = expired;
         let lists = harness.calls("list");
-        harness.clock.set(START + 3630);
+        harness.clock.set(START + if expired { 3721 } else { 3630 });
         harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
         assert_eq!(harness.calls("recover_key"), 1);
         assert_eq!(harness.calls("recover"), 2);
@@ -284,7 +295,9 @@ async fn account_mesh_rejoin_lost_committed_reply_replays_or_reconciles_without_
         assert_eq!(harness.calls("renew"), if expired { 2 } else { 1 });
         assert_eq!(harness.store.record.lock().unwrap().keys[&account_id("owner")], binding);
         let script = harness.registry.script.lock().unwrap();
-        assert_eq!(script.recovery_prepared[0], script.recovery_prepared[1]);
+        if expired {
+            assert_ne!(script.recovery_prepared[0].installation_proof, script.recovery_prepared[1].installation_proof);
+        } else { assert_eq!(script.recovery_prepared[0], script.recovery_prepared[1]); }
         assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
         assert_eq!(harness.transport.revoked.lock().unwrap().len(), 1);
     }
@@ -338,4 +351,46 @@ async fn account_mesh_rejoin_network_event_joins_the_current_recovery() {
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("recover"), 1);
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+}
+
+#[tokio::test]
+async fn account_mesh_recovery_server_rejects_a_proof_older_than_120_seconds() {
+    let harness = fresh_rejoin().await;
+    harness.registry.script.lock().unwrap().membership_once = Some(RegistryRefusal::Offline);
+    let _ = harness.mesh.refresh(EnrollTrigger::Automatic).await;
+    let prepared = harness.mesh.with(|inner| inner.rejoin_window.as_ref().unwrap().recovery.as_ref().unwrap().envelope.clone());
+    let session = harness.sessions.0.lock().unwrap().clone().unwrap();
+    harness.clock.set(START + 3721);
+    assert_eq!(harness.registry.admission(&session, &prepared).await, Err(RegistryRefusal::ChallengeInvalid));
+}
+
+#[tokio::test]
+async fn account_mesh_rejoin_outage_at_210_seconds_uses_a_fresh_proof_and_succeeds() {
+    let harness = fresh_rejoin().await;
+    harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
+    for elapsed in [0, 30, 90] {
+        harness.clock.set(START + 3600 + elapsed);
+        assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Err(AccountMeshRefusal::Unavailable));
+    }
+    harness.registry.script.lock().unwrap().membership = None;
+    harness.clock.set(START + 3810);
+    harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
+    assert_eq!(harness.calls("recover_key"), 1);
+    let script = harness.registry.script.lock().unwrap();
+    assert_ne!(script.recovery_prepared[2].installation_proof, script.recovery_prepared[3].installation_proof);
+    assert_eq!(script.recovery_prepared[3].installation_proof.timestamp, START + 3810);
+    assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+}
+
+#[tokio::test]
+async fn account_mesh_rate_limit_discards_a_still_young_recovery_proof() {
+    let harness = fresh_rejoin().await;
+    harness.registry.script.lock().unwrap().membership_once = Some(RegistryRefusal::RateLimited { retry_after_seconds: 30 });
+    let _ = harness.mesh.refresh(EnrollTrigger::Automatic).await;
+    assert!(harness.mesh.with(|inner| inner.rejoin_window.as_ref().unwrap().recovery.is_none()));
+    harness.clock.set(START + 3630);
+    harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
+    let script = harness.registry.script.lock().unwrap();
+    assert_ne!(script.recovery_prepared[0].installation_proof, script.recovery_prepared[1].installation_proof);
+    assert_eq!(harness.calls("recover_key"), 1);
 }
