@@ -92,6 +92,7 @@ pub(in crate::service::agent_runtime) async fn publish_events(
             .await?;
         }
         events::observe(&mut session.context.lock(), &runtime);
+        super::super::capacity_retry::observe(svc, session, &runtime, at).await?;
         super::super::controls::observe_event(session, &runtime);
         let send_id = match &runtime {
             RuntimeEvent::EvidenceUpdated { send_id, .. } => Some(send_id.clone()),
@@ -115,7 +116,6 @@ pub(in crate::service::agent_runtime) async fn publish_events(
             _ => None,
         };
         let chat_item = matches!(runtime, RuntimeEvent::ItemUpdated { .. });
-        super::super::capacity_retry::observe(svc, session, &runtime, at).await?;
         let handling = match &runtime {
             RuntimeEvent::EvidenceUpdated {
                 thread_id,
