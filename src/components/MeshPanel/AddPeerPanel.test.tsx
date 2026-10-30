@@ -1,6 +1,6 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import MyMachines, { type MyMachinesProps } from "./AddPeerPanel";
 import { type AccountPresence } from "./accountMachines";
 import { AccountMeshClientProvider } from "./accountMeshClient";

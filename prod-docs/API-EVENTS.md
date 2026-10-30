@@ -52,7 +52,8 @@ Blueprint scope and payload contracts: BLUEPRINTS. Notification controls: API-TA
 | POST | `/api/automation/node-files` | Manage Blueprint node files. |
 | POST | `/api/ci/webhook` | Receive authenticated CI failure events; credential and limits above. |
 | POST | `/api/notifications/{id}/read` | Mark one notification read. |
+| POST | `/api/notifications/{id}/resolve` | Resolve a question as its asking tab or the local owner. |
 | POST | `/api/repo-watch/subscribe` | Subscribe to repository changes. |
 | POST | `/api/repo-watch/unsubscribe` | Unsubscribe from repository changes. |
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

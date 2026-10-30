@@ -65,10 +65,8 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | GET | `/api/plugins/{id}/ui/{*path}` | Read a sandboxed plugin UI asset. |
 | PATCH | `/api/services/{id}` | Patch service fields. |
 | POST | `/api/mesh/enabled` | Enable or disable Mesh. |
-| POST | `/api/mesh/exit` | Leave the Mesh. |
 | POST | `/api/mesh/peers/{id}/access` | Set peer access permissions. |
 | POST | `/api/mesh/peers/{id}/crons/{cron_id}/{action}` | Apply a peer cron action. |
-| POST | `/api/mesh/unrevoke` | Lift a peer identity revocation. |
 | POST | `/api/mesh/worker-dispatch` | Admit a signed remote Worker dispatch. |
 | POST | `/api/mesh/worker-dispatch-status` | Read a signed remote dispatch status. |
 | POST | `/api/mesh/worker-lane-bundle` | Transfer a signed remote lane Git bundle. |
@@ -94,4 +92,4 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

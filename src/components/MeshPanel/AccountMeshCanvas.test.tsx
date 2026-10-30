@@ -3,7 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AccountPresence } from "./accountMachines";
 import { AccountMeshClientProvider } from "./accountMeshClient";
-import { deferred, FakeAccountMeshClient, macRow, NOW, pair, selfRow, snapshot } from "./accountMachines.testdata";
+import { FakeAccountMeshClient, macRow, NOW, pair, selfRow, snapshot } from "./accountMachines.testdata";
 import type { PeerStatus } from "./useMeshData";
 
 const presence = vi.hoisted(() => ({ current: "signed_in" as AccountPresence, signIns: 0 }));
