@@ -274,4 +274,79 @@ check("copied metadata preserves reused-input reasoning, ancestry, evidence and 
   }
 });
 
+type ReductionSize = { bytes: number; units: number };
+function observeReductionSizes(run: (sizes: ReductionSize[]) => void): void {
+  const runtimeJson = vm.runInContext("JSON",sandbox) as typeof JSON;
+  const stringify = runtimeJson.stringify;
+  const sizes: ReductionSize[] = [];
+  runtimeJson.stringify = ((value: unknown,...args: unknown[]) => {
+    const serialized = Reflect.apply(stringify,runtimeJson,[value,...args]);
+    if (value !== null && typeof value === "object" && "state" in value && "events" in value
+      && Array.isArray((value as {events:unknown}).events)) {
+      assert.equal(typeof serialized,"string");
+      sizes.push({bytes:Buffer.byteLength(serialized),units:serialized.length});
+    }
+    return serialized;
+  }) as typeof JSON.stringify;
+  try { run(sizes); } finally { runtimeJson.stringify = stringify; }
+}
+
+check("a below-budget reduction counts its unchanged serialized result once",()=>{
+  const state = freezeInput(hooks.runtimeReduce(ctx,null,[note("turn/started",{turn:{id:"opaque-count-turn",status:"inProgress"}})]).state);
+  const before = JSON.stringify(state);
+  observeReductionSizes(sizes=>{
+    const batch = hooks.runtimeReduce(ctx,state,[
+      note("item/agentMessage/delta",{turnId:"opaque-count-turn",itemId:"opaque-a",delta:"first"}),
+      note("thread/tokenUsage/updated",{tokenUsage:{total:{inputTokens:1,outputTokens:2}}}),
+      note("item/agentMessage/delta",{turnId:"opaque-count-turn",itemId:"opaque-b",delta:"other"}),
+      note("item/agentMessage/delta",{turnId:"opaque-count-turn",itemId:"opaque-a",delta:" last"}),
+    ]);
+    assert.equal(sizes.length,1,"old final guard redundantly counts this same immutable result twice");
+    assert.equal(sizes[0].bytes,Buffer.byteLength(JSON.stringify(batch)));
+    assert.ok(sizes[0].bytes < 4194304);
+    assert.deepEqual(Array.from(batch.events,event=>event.kind === "chatItem" ? [event.item.id,event.item.content] : event.kind),
+      ["usage",["opaque-b","other"],["opaque-a","first last"]]);
+    assert.equal(JSON.stringify(state),before);
+  });
+});
+
+check("aggregate counting refreshes after shrinking and enforces UTF8 rather than code units",()=>{
+  const output = '\u0000😀'.repeat(14000) + "OPAQUE-TAIL";
+  const frames = freezeInput(Array.from({length:16},(_,index)=>note("item/completed",{turnId:"opaque-utf8",item:{
+    id:`opaque-utf8-${index}`,type:"commandExecution",command:"opaque-command",status:"completed",aggregatedOutput:output,exitCode:index % 2,
+  }})));
+  assert.ok(Buffer.byteLength(JSON.stringify(frames)) < 4194304);
+  observeReductionSizes(sizes=>{
+    const batch = hooks.runtimeReduce(ctx,null,frames);
+    assert.equal(sizes.length,2,"initial count plus one changed-result count, without a duplicated final guard");
+    assert.ok(sizes[0].units < 4194304 && sizes[0].bytes > 4194304,"UTF8 expansion crosses the bound while code-unit count does not");
+    assert.ok(sizes[1].bytes <= 4194304 && sizes[1].bytes < sizes[0].bytes);
+    assert.equal(sizes[1].bytes,Buffer.byteLength(JSON.stringify(batch)));
+    assert.equal(batch.events.length,16);
+    batch.events.forEach((event,index)=>{
+      assert.equal(event.kind,"chatItem");
+      if (event.kind !== "chatItem") return;
+      assert.equal(event.item.id,`opaque-utf8-${index}`);
+      assert.equal(event.item.toolResult,output);
+      assert.equal(event.item.toolExitCode,index % 2);
+      assert.equal(event.item.toolError,index % 2 !== 0);
+      assert.equal(event.item.toolStatus,index % 2 ? "failed" : "completed");
+    });
+  });
+});
+
+check("metadata that cannot shrink still refuses the same bounded output",()=>{
+  const options = Array.from({length:64},(_,index)=>`${index}:`.padEnd(35000,"q"));
+  const frames = freezeInput([note("item/completed",{turnId:"opaque-overflow",item:{id:"opaque-question",type:"agentMessage",delivery:"async",
+    questions:[{id:"opaque-question",question:"opaque-prompt",options}],
+  }})]);
+  const before = JSON.stringify(frames);
+  assert.ok(Buffer.byteLength(before) < 4194304);
+  observeReductionSizes(sizes=>{
+    assert.throws(()=>hooks.runtimeReduce(ctx,null,frames),/runtime batch metadata exceeds output budget/);
+    assert.ok(sizes.length > 1 && sizes.every(size=>size.bytes > 4194304));
+    assert.equal(JSON.stringify(frames),before);
+  });
+});
+
 console.log(`runtime state budget: ${count} checks passed`);

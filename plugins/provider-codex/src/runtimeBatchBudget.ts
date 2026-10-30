@@ -49,9 +49,11 @@ function shrinkRow(row: ChatMsg, cap: number): ChatMsg {
 
 export function budgetReduction(state: JsonValue, updates: AgentEvent[]): RuntimeReduction {
   let events = coalesce(updates).map(event => event.kind === "chatItem" ? {...event,item:capRow(event.item,EVENT_TEXT_CAP)} : event);
-  for (let cap = EVENT_TEXT_CAP / 2; serializedBytes({state,events}) > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
+  let bytes = serializedBytes({state,events});
+  for (let cap = EVENT_TEXT_CAP / 2; bytes > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
     events = events.map(event => event.kind === "chatItem" ? {...event,item:shrinkRow(event.item,cap)} : event);
+    bytes = serializedBytes({state,events});
   }
-  if (serializedBytes({state,events}) > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
+  if (bytes > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
   return {state,events};
 }
