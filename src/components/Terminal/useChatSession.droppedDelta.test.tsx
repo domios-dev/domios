@@ -162,7 +162,7 @@ async function runVariant(ranged: boolean, replay: "empty" | "gapped" = "empty")
       server.emit([row("silent-follow", "reply after filtered records")]);
     });
     await flush();
-    assert(view.at(-1)?.content === "reply after filtered records", `${label}: offset-only ranges keep live rows contiguous`);
+    assert(view[view.length - 1]?.content === "reply after filtered records", `${label}: offset-only ranges keep live rows contiguous`);
     assert(server.starts.length === startsAfterAttach, `${label}: silent ranges do not request attachment`);
   }
 
@@ -191,7 +191,7 @@ async function runVariant(ranged: boolean, replay: "empty" | "gapped" = "empty")
   const startsAfterRecovery = server.starts.length;
   await act(async () => server.emit([row("busy-stream", "stream continues before turn end")]));
   await flush();
-  assert(view.at(-1)?.content === "stream continues before turn end", `${label}: recovery resumes streaming without an idle event`);
+  assert(view[view.length - 1]?.content === "stream continues before turn end", `${label}: recovery resumes streaming without an idle event`);
   assert(server.starts.length === startsAfterRecovery, `${label}: the next busy delta does not reattach again`);
   assert(
     scheduled.length === 0,
