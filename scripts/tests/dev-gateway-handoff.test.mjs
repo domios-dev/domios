@@ -103,7 +103,9 @@ record_dev_target() { [ "$mapping" = 0 ]; }
 complete_build_gateway_before_handoff() { [ "$mapping" = 0 ]; owned=0; echo released; }
 launch() { [ "$owned" = 0 ]; [ "$PWD" != "$gateway_cwd" ]; [ "$CT_DEV_HANDOFF_SHA" = "$CODETERM_BUILD_SHA" ]; [ "$CT_DEV_HANDOFF_HASH" = "$CODETERM_BUILD_HASH" ]; printf 'launch %s\\n' "$*"; }
 build_and_launch_dev --wait --notify-tab opaque-tab`;
-    const result = spawnSync(bash, ['-s'], { input: script, encoding: 'utf8' });
+    const result = spawnSync(bash, ['-s'], { input: script, encoding: 'utf8',
+      env: { ...process.env, CI: '', CT_LOCAL_BUILD_ENV_LOADED: '0', DEV_NOTIFY_PARENT_CLI: '', CT_DEV_QA_PROJECT_PINNED: '0' },
+    });
     assert.equal(result.status, failure, result.stderr);
     assert.match(result.stderr, /cargo build .*--bin domios-server/);
     assert.match(result.stdout, /QA project config: present/);
