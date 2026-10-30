@@ -89,6 +89,7 @@ impl TailerHandle {
         self.wake.is_some()
     }
 
+    /// Re-read; the subscription is rebuilt only when its watch has proven dead.
     pub(crate) fn reattach(&self) {
         if let Some(reattach) = &self.reattach {
             reattach.store(true, Ordering::Release);
@@ -157,14 +158,21 @@ pub fn spawn_sourced_tailer(
 }
 
 /// File notifications are a fast path only; host wakes must work without them.
-pub(super) type WatchSource =
-    fn(&Path, SyncSender<()>) -> Result<Option<super::file_events::WatchGuard>, String>;
+pub(super) trait LiveWatch: Send {
+    fn armed(&self) -> bool;
+}
 
-fn native_watch(
-    path: &Path,
-    wake: SyncSender<()>,
-) -> Result<Option<super::file_events::WatchGuard>, String> {
-    super::file_events::watch(path, wake).map(Some)
+impl LiveWatch for super::file_events::WatchGuard {
+    fn armed(&self) -> bool {
+        super::file_events::WatchGuard::armed(self)
+    }
+}
+
+pub(super) type WatchSource =
+    fn(&Path, SyncSender<()>) -> Result<Option<Box<dyn LiveWatch>>, String>;
+
+fn native_watch(path: &Path, wake: SyncSender<()>) -> Result<Option<Box<dyn LiveWatch>>, String> {
+    super::file_events::watch(path, wake).map(|guard| Some(Box::new(guard) as Box<dyn LiveWatch>))
 }
 
 fn parent_present(path: &Path) -> bool {
@@ -246,9 +254,11 @@ fn spawn_sourced_tailer_inner(
                 if stop.load(Ordering::Acquire) {
                     return;
                 }
-                // A watch armed before the session directory existed may never see it
-                // appear; re-arm once on the directory itself, then read below.
-                let rearm = thread_reattach.swap(false, Ordering::AcqRel)
+                // Every send reattaches, so a live watch only reads: rebuilding the stream
+                // per send churns fseventsd. A watch armed before the session directory
+                // existed may never see it appear; re-arm once on it, then read below.
+                let dead = !watcher.as_ref().is_some_and(|current| current.armed());
+                let rearm = (thread_reattach.swap(false, Ordering::AcqRel) && dead)
                     || (!armed_on_parent && parent_present(&path));
                 if rearm {
                     drop(watcher.take());

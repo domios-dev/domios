@@ -165,6 +165,7 @@ fn rescan_selects_every_own_source_on_the_affected_root() {
                 source: root.join(format!("{id}.jsonl")),
                 root: root.clone(),
                 wake,
+                armed: Arc::new(AtomicBool::new(true)),
             },
         );
     }

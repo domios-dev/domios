@@ -1,11 +1,11 @@
 //! Delivery must not depend on file notifications: these tailers run with a
 //! watch that never fires, so only host wakes can make them read.
 
+use super::super::tailer::LiveWatch;
 use super::large_sessions::{append, registry_with_provider_at, PROVIDER_ID};
 use super::*;
-use crate::service::tab_chat::file_events::WatchGuard;
 use std::path::Path;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 
 const TAB: &str = "host-wake";
@@ -38,7 +38,7 @@ impl DeltaSink for Recorder {
     }
 }
 
-fn unwatched(_: &Path, _: SyncSender<()>) -> Result<Option<WatchGuard>, String> {
+fn unwatched(_: &Path, _: SyncSender<()>) -> Result<Option<Box<dyn LiveWatch>>, String> {
     Ok(None)
 }
 
@@ -137,7 +137,10 @@ fn turn_end_wake_emits_the_reply_without_file_events() {
 
 static ARMED_BEFORE_DIRECTORY: AtomicUsize = AtomicUsize::new(0);
 
-fn counted_unwatched(path: &Path, wake: SyncSender<()>) -> Result<Option<WatchGuard>, String> {
+fn counted_unwatched(
+    path: &Path,
+    wake: SyncSender<()>,
+) -> Result<Option<Box<dyn LiveWatch>>, String> {
     ARMED_BEFORE_DIRECTORY.fetch_add(1, Ordering::SeqCst);
     unwatched(path, wake)
 }
@@ -223,5 +226,88 @@ fn wakes_during_an_in_flight_read_emit_every_row_once_in_contiguous_ranges() {
     let mut expected = vec!["u1".to_string()];
     expected.extend(replies);
     assert_eq!(rows(&ranges_until(&received, 0, total)), expected);
+    chats.shutdown_tab(TAB);
+}
+
+struct FixtureWatch(&'static AtomicBool);
+
+impl LiveWatch for FixtureWatch {
+    fn armed(&self) -> bool {
+        self.0.load(Ordering::SeqCst)
+    }
+}
+
+static HEALTHY_SUBSCRIBES: AtomicUsize = AtomicUsize::new(0);
+static HEALTHY_ARMED: AtomicBool = AtomicBool::new(true);
+
+fn healthy_watch(_: &Path, _: SyncSender<()>) -> Result<Option<Box<dyn LiveWatch>>, String> {
+    HEALTHY_SUBSCRIBES.fetch_add(1, Ordering::SeqCst);
+    Ok(Some(Box::new(FixtureWatch(&HEALTHY_ARMED))))
+}
+
+/// The send path's `acquire` on a live tailer, as `ensure_append_stream` issues it.
+fn send(chats: &ChatRegistry) {
+    assert!(chats.acquire(TAB, "session", None, "session-send-evidence"));
+}
+
+#[test]
+fn sends_on_a_live_watch_read_without_resubscribing() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("session.jsonl");
+    let chats = ChatRegistry::default();
+    let (sink, received) = recorder();
+    attach(&path, healthy_watch, sink, &chats);
+
+    std::fs::write(&path, row("user", "u1")).unwrap();
+    let mut end = std::fs::metadata(&path).unwrap().len();
+    send(&chats);
+    assert_eq!(rows(&ranges_until(&received, 0, end)), ["u1"]);
+    for n in 1..=5 {
+        let reply = format!("a{n}");
+        let next = append(&path, &row("assistant", &reply));
+        send(&chats);
+        assert_eq!(rows(&ranges_until(&received, end, next)), [reply]);
+        end = next;
+    }
+    assert_eq!(HEALTHY_SUBSCRIBES.load(Ordering::SeqCst), 1);
+    chats.shutdown_tab(TAB);
+}
+
+static DYING_SUBSCRIBES: AtomicUsize = AtomicUsize::new(0);
+static DYING_ARMED: AtomicBool = AtomicBool::new(true);
+
+fn dying_watch(_: &Path, _: SyncSender<()>) -> Result<Option<Box<dyn LiveWatch>>, String> {
+    DYING_SUBSCRIBES.fetch_add(1, Ordering::SeqCst);
+    DYING_ARMED.store(true, Ordering::SeqCst);
+    Ok(Some(Box::new(FixtureWatch(&DYING_ARMED))))
+}
+
+#[test]
+fn a_send_rebuilds_a_dead_watch_once_then_only_reads() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("session.jsonl");
+    let chats = ChatRegistry::default();
+    let (sink, received) = recorder();
+    attach(&path, dying_watch, sink, &chats);
+
+    std::fs::write(&path, row("user", "u1")).unwrap();
+    let prompt_end = std::fs::metadata(&path).unwrap().len();
+    send(&chats);
+    assert_eq!(rows(&ranges_until(&received, 0, prompt_end)), ["u1"]);
+    assert_eq!(DYING_SUBSCRIBES.load(Ordering::SeqCst), 1);
+
+    DYING_ARMED.store(false, Ordering::SeqCst);
+    let reply_end = append(&path, &row("assistant", "a1"));
+    send(&chats);
+    assert_eq!(
+        rows(&ranges_until(&received, prompt_end, reply_end)),
+        ["a1"]
+    );
+    assert_eq!(DYING_SUBSCRIBES.load(Ordering::SeqCst), 2);
+
+    let next_end = append(&path, &row("assistant", "a2"));
+    send(&chats);
+    assert_eq!(rows(&ranges_until(&received, reply_end, next_end)), ["a2"]);
+    assert_eq!(DYING_SUBSCRIBES.load(Ordering::SeqCst), 2);
     chats.shutdown_tab(TAB);
 }
