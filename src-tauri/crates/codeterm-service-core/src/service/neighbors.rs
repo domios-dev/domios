@@ -13,12 +13,13 @@ mod recovery;
 pub use flags::FlagCategory;
 pub(crate) mod history;
 mod launch_fence;
+mod local_counts;
 mod notifications;
 mod pause;
 mod removal;
 pub use notifications::NeighborNotify;
+mod projection;
 mod reception;
-mod referral;
 pub(crate) mod runtime;
 mod storage;
 mod toggle;
@@ -29,7 +30,7 @@ pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborCommand {
     List {},
-    ClaimReferralTrial {},
+    Refresh {},
     Request {
         email: String,
     },
@@ -49,8 +50,7 @@ pub enum NeighborCommand {
 impl NeighborCommand {
     fn callable(self) -> (&'static str, Value) {
         match self {
-            Self::List {} => ("friendsList", json!({})),
-            Self::ClaimReferralTrial {} => ("claimReferralTrial", json!({})),
+            Self::List {} | Self::Refresh {} => ("friendsList", json!({})),
             Self::Request { email } => ("friendsRequest", json!({"email": email})),
             Self::Respond { request_id, accept } => (
                 "friendsRespond",
@@ -72,7 +72,7 @@ impl NeighborCommand {
 
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
-        if matches!(&command, NeighborCommand::List {}) {
+        if matches!(&command, NeighborCommand::Refresh {}) {
             self.rearm_neighbor_reads();
         }
         self.neighbor_registry_owned(command).await
@@ -82,12 +82,16 @@ impl ServiceContext {
         &self,
         command: NeighborCommand,
     ) -> Result<Value, String> {
-        if self.neighbor_access_locked().await {
+        if self.neighbor_access_locked().await
+            && !matches!(
+                &command,
+                NeighborCommand::List {} | NeighborCommand::Refresh {}
+            )
+        {
             return match command {
-                NeighborCommand::List {} => Ok(backend_reads::locked_list()),
-                NeighborCommand::ClaimReferralTrial {} => Ok(
-                    json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null}),
-                ),
+                NeighborCommand::List {} | NeighborCommand::Refresh {} => {
+                    Ok(backend_reads::locked_list())
+                }
                 _ => Err(codeterm_neighbors::Error::Locked.to_string()),
             };
         }
@@ -107,14 +111,12 @@ impl ServiceContext {
         } else {
             None
         };
-        let response = if matches!(name, "friendsList" | "claimReferralTrial") {
+        let response = if name == "friendsList" {
             use codeterm_neighbors::adapter::AuthenticatedCall;
             let calls = runtime::callable::Calls {
                 service: self.clone(),
                 uid: session.identity.uid.clone(),
                 generation: session.login_generation,
-                own_keys: Default::default(),
-                receiver_status: Default::default(),
             };
             let result = calls
                 .invoke(name, data)
@@ -168,6 +170,9 @@ impl ServiceContext {
             let settings = metadata.settings().await.map_err(|e| e.to_string())?;
             annotate_list(&mut result, &settings)?;
             self.project_neighbor_pauses(&mut result, &settings);
+            self.project_neighbor_send_counts(&metadata, &mut result)
+                .await
+                .map_err(|error| error.to_string())?;
             self.remember_neighbor_names(&result);
             if self.require_neighbors_enabled().is_ok() {
                 self.end_missing_neighbor_friendships(&metadata, &result, history_generation)
@@ -179,15 +184,9 @@ impl ServiceContext {
             }
             self.require_neighbor_generation(history_generation)?;
             self.remember_neighbor_registry(&result);
-        } else if name != "friendsRemove" {
+        } else {
+            self.invalidate_neighbor_list();
             self.forget_neighbor_registry();
-        }
-        if name == "claimReferralTrial" && referral::refresh_required(&result)? {
-            self.refresh_billing(codeterm_billing::RefreshEvent::PlanChanged)
-                .await?;
-            if !same_session(account.session().await.as_ref(), &session) {
-                return Err("Account changed while checking the referral".into());
-            }
         }
         Ok(result)
     }

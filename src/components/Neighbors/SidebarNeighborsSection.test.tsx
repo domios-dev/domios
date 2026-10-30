@@ -4,7 +4,6 @@ import { takeNeighborFocus } from "./neighborFocus";
 import { useNeighborGatewayIds } from "./neighborGateways";
 import type { NeighborList } from "./neighborModel";
 import type { NeighborClient } from "./neighborClient";
-import type { ReferralClaim } from "./referralTrial";
 import { createRoot } from "react-dom/client";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
 import { missingConciergeLine } from "./useConciergeStatus";
@@ -89,8 +88,7 @@ it("nests a concierge bound from any workspace under its friend and marks it hid
   function Probe() { seen.push(useNeighborGatewayIds()); return null; }
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [],
     friends: [{ ...neighbor, gateway_tab: "tab-gateway" }] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<><SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} /><Probe /></>));
@@ -116,8 +114,7 @@ it("draws last known friends at once with a quiet refresh indicator, and stays a
 
 it("highlights an open concierge chat like an open tab, without the friend row", async () => {
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [{ ...neighbor, gateway_tab: "tab-gateway" }], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   const runtimeClient = runtime();
@@ -155,8 +152,7 @@ it("never claims a missing concierge when one is bound, and omits a zero count",
   vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" },
     concierges: { pair: { gateway_tab: null, concierge_missing: true, pending_count: 2, receiving_here: true, receiver_machine_label: null, state: "concierge_missing" } } } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtimeClient} />));
@@ -168,8 +164,7 @@ it("never claims a missing concierge when one is bound, and omits a zero count",
 it("disables a friend from their sidebar row menu and shows the row as disabled", async () => {
   const conciergeClient = concierge([]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, incoming: [], outgoing: [], friends: [neighbor] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));

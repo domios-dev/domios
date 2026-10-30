@@ -7,6 +7,7 @@ pub mod keys;
 pub mod permissions;
 pub mod receive;
 pub mod registry;
+pub mod state;
 pub mod supervisor;
 pub mod wire;
 

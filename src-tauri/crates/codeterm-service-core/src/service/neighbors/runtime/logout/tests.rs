@@ -81,7 +81,7 @@ impl AuthenticatedCall for Evidence {
                 }
                 Ok(json!(ids
                     .iter()
-                    .map(|id| json!({"key_id":id}))
+                    .map(|id| json!({"verifier_key_id":id}))
                     .collect::<Vec<_>>()))
             }
             "friendsRevokeVerifierKey" => {
@@ -276,8 +276,6 @@ async fn logout(
     assert_eq!(*evidence.events.lock(), ["delete_credential"]);
     assert_eq!(evidence.slots.lock().len(), if enrolled { 2 } else { 0 });
     let calls = callable::Calls {
-        own_keys: Default::default(),
-        receiver_status: Default::default(),
         service: service.clone(),
         uid: "owner".into(),
         generation: 0,

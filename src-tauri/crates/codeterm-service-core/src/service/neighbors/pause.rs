@@ -65,6 +65,7 @@ impl ServiceContext {
             .unwrap_or_else(|| settings.paused.contains(friendship))
     }
 
+    #[cfg(test)]
     pub(super) fn observe_neighbor_pause(&self, uid: &str, friendship: &str, paused: bool) {
         self.record_neighbor_pause(uid, friendship, paused, None);
     }

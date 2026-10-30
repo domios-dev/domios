@@ -64,8 +64,6 @@ async fn fixture() -> (ServiceFixture, Arc<codeterm_account::Account>, Calls) {
         service: fixture.service.clone(),
         uid: session.identity.uid,
         generation: session.login_generation,
-        own_keys: Default::default(),
-        receiver_status: Default::default(),
     };
     (fixture, account, calls)
 }

@@ -216,6 +216,15 @@ impl ServiceContext {
         {
             return Err(Error::InvalidEnvelope);
         }
+        let account = self.account().await.map_err(|_| Error::Transport)?;
+        let session = account.session().await.ok_or(Error::Revoked)?;
+        self.wait_neighbor_projection_receiver(
+            &registry.uid,
+            session.login_generation,
+            friendship,
+            row.revision,
+        )
+        .await?;
         let list = registry.calls.invoke("friendsList", json!({})).await?;
         let projection = list["friends"]
             .as_array()

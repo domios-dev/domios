@@ -1,5 +1,4 @@
 use super::AuthenticatedCall;
-pub(super) mod control;
 use super::FirebaseTransport;
 use crate::receive::{InboxEvent, InboxListener};
 use crate::wire::{hex_id, Cursor, InboxDocument, InboxMessage, Timestamp};
@@ -18,6 +17,7 @@ const MAX_ENVELOPE_STRING_BYTES: usize = crate::wire::MAX_CIPHERTEXT_BYTES
     .div_ceil(3);
 mod pending;
 pub(super) mod registry;
+pub(super) mod state;
 pub(super) use pending::count as pending_count;
 mod watch;
 

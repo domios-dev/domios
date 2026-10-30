@@ -21,7 +21,6 @@ pub(super) enum Operation {
         caller: Option<String>,
         nonce: Option<String>,
     },
-    ReceiverChanged,
     RegistryChanged,
     Refuse {
         friendship: String,
@@ -109,7 +108,7 @@ impl ServiceContext {
                 .neighbor_files_owned(command, caller.as_deref(), nonce.as_deref(), generation)
                 .await
                 .map(Outcome::Value),
-            Operation::ReceiverChanged | Operation::RegistryChanged => {
+            Operation::RegistryChanged => {
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
                 self.start_neighbor_listeners(
                     transport.clone(),

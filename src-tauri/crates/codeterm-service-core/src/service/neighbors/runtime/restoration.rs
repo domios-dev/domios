@@ -94,10 +94,13 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
             self.require_neighbor_generation(generation)?;
             let (registry, _scope, _metadata) = self.neighbor_key_ports().await?;
-            let transport = self.neighbor_transport(&registry)?;
-            self.watch_neighbor_receiver(transport.clone(), generation)
+            let list = self
+                .neighbor_registry_owned(super::super::NeighborCommand::List {})
                 .await?;
-            self.neighbor_operation(owner::Operation::ReceiverChanged)
+            if !super::super::updates::receives_friends(&list, &registry.installation_id) {
+                return Ok(true);
+            }
+            self.neighbor_operation(owner::Operation::RegistryChanged)
                 .await?;
             Ok(true)
         })

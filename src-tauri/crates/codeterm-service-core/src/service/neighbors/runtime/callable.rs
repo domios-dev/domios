@@ -9,8 +9,6 @@ pub(in crate::service::neighbors) struct Calls {
     pub service: ServiceContext,
     pub uid: String,
     pub generation: u64,
-    pub own_keys: tokio::sync::Mutex<Option<Value>>,
-    pub receiver_status: tokio::sync::Mutex<Option<Value>>,
 }
 
 #[derive(Default)]
@@ -79,9 +77,6 @@ impl AuthenticatedCall for Calls {
         );
     }
     async fn id_token(&self) -> Result<Zeroizing<String>> {
-        if self.service.neighbor_access_locked().await {
-            return Err(Error::Locked);
-        }
         let mut session = self.session().await?;
         let failed = {
             let mut failures = self
@@ -152,24 +147,6 @@ impl Calls {
         route: &str,
         data: Value,
     ) -> Result<Value> {
-        let cached_lookup = match route {
-            "friendsOwnKeys" => Some(self.own_keys.lock().await),
-            "friendsReceiverStatus" => Some(self.receiver_status.lock().await),
-            _ => None,
-        };
-        if let Some(cached) = &cached_lookup {
-            if let Some(value) = cached.as_ref() {
-                self.local_session().await?;
-                return Ok(value.clone());
-            }
-        }
-        if matches!(
-            route,
-            "friendsEnrollVerifierKey" | "friendsRevokeVerifierKey" | "friendsSetFriendReceiver"
-        ) {
-            self.own_keys.lock().await.take();
-            self.receiver_status.lock().await.take();
-        }
         let mut session = self.session().await?;
         let mut response = transport
             .call_for_account(
@@ -233,8 +210,17 @@ impl Calls {
         };
         self.validate_session(&session).await?;
         let result = body.get("result").cloned().ok_or(Error::Transport)?;
-        if let Some(mut cached) = cached_lookup {
-            *cached = Some(result.clone());
+        if matches!(
+            route,
+            "friendsEnrollVerifierKey"
+                | "friendsRevokeVerifierKey"
+                | "friendsSetFriendReceiver"
+                | "friendsSetPaused"
+                | "friendsSetDailyLimit"
+                | "friendsSetFileDailyLimit"
+        ) {
+            self.service.invalidate_neighbor_list();
+            self.service.forget_neighbor_registry();
         }
         Ok(result)
     }

@@ -1,5 +1,4 @@
 mod firestore;
-pub use firestore::control::ControlListener;
 mod pause;
 mod receiver;
 pub const PENDING_COUNT_LIMIT: u64 = 100;
@@ -44,6 +43,9 @@ impl FirebaseTransport {
 
     pub async fn pending_count(&self, friendship: &str) -> Result<u64> {
         firestore::pending_count(self, friendship).await
+    }
+    pub async fn listen_state(&self) -> Result<Box<dyn crate::state::StateListener>> {
+        firestore::state::listen(self).await
     }
     pub async fn listen_registry(&self) -> Result<Box<dyn crate::registry::RegistryListener>> {
         firestore::registry::listen(self).await
@@ -145,7 +147,7 @@ impl KeyRegistry for FirebaseRegistry {
         let keys = body.as_array().ok_or(Error::Transport)?;
         keys.iter()
             .map(|key| {
-                key.get("key_id")
+                key.get("verifier_key_id")
                     .and_then(Value::as_str)
                     .filter(|id| crate::wire::key_id(id))
                     .map(str::to_owned)
