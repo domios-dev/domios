@@ -88,7 +88,7 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
             .ext::<codeterm_service_core::MeshStateHandle>(),
     ));
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
-    {
+    let admitted = {
         let mut mesh = state.mesh.lock();
         mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "paired".into(),
@@ -107,13 +107,8 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
             consecutive_misses: 0,
             last_active_ms: None,
         });
-        mesh.apply_account_state(AccountMeshState {
-            presence: AccountPresence::SignedIn {
-                account_id: "account".into(),
-            },
-            ..Default::default()
-        });
-    }
+        mesh.account_state().clone()
+    };
     let router = Router::new()
         .route(
             "/api/config",
@@ -199,7 +194,7 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
     for presence in [AccountPresence::NeverSignedIn, AccountPresence::SignedOut] {
         state.mesh.lock().apply_account_state(AccountMeshState {
             presence,
-            ..Default::default()
+            ..admitted.clone()
         });
         for (token, expected) in [
             ("preview-test-token", StatusCode::OK),
@@ -227,12 +222,16 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
         );
     }
 
-    state.mesh.lock().apply_account_state(AccountMeshState {
-        presence: AccountPresence::SignedIn {
-            account_id: "account".into(),
-        },
-        ..Default::default()
-    });
+    state.mesh.lock().apply_account_state(admitted);
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("GET", "/api/config", &signed))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
     state.mesh.lock().remove_account_peer("paired");
     assert_eq!(
         router

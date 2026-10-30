@@ -150,6 +150,7 @@ async fn account_mesh_fresh_sign_in_replaces_cached_admission_once() {
         .mesh
         .with(|inner| inner.record.admission_cache.clone());
     let calls = count(&harness.log, "registry:");
+    let lists = harness.calls("list");
     harness.mesh.enrollment_signed_in();
     assert_eq!(harness.state().last_refusal, None);
     assert_eq!(harness.state().membership.as_ref().unwrap().token, token);
@@ -164,7 +165,13 @@ async fn account_mesh_fresh_sign_in_replaces_cached_admission_once() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(count(&harness.log, "registry:"), calls);
+    assert_eq!(harness.calls("list"), lists + 1);
+    assert_eq!(count(&harness.log, "registry:"), calls + 2);
+    let observed = count(&harness.log, "registry:");
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(count(&harness.log, "registry:"), observed);
+    assert_eq!(harness.state().membership.as_ref().unwrap().token, token);
+    assert_eq!(harness.calls("recover_key"), 0);
     assert_eq!(harness.calls("renew"), 0);
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
 }
