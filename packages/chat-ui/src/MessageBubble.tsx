@@ -55,12 +55,9 @@ import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
-import { parseDsTasksMessage } from "./codeterm/dsTasksBlock";
 import { useDsSegments } from "./blocks/useDsSegments";
 import { DsRenderContext } from "./blocks/DsRenderContext";
 import { ChatBlockMessageProvider } from "./blocks/ChatBlockHost";
-import { TasksBlock } from "./blocks/TasksBlock";
-import { tasksBlockSource, tasksSpecFromBlock } from "./blocks/tasksBlockModel";
 import { normalizedTimelineMarker, TimelineMarkerRow } from "./timelineMarkers";
 import {
   hasMeaningfulToolResult,
@@ -109,7 +106,6 @@ interface MessageBubbleProps {
   onJumpToMessage?: (messageId: string) => void;
 }
 
-const BLOCK_GAP = "\n\n";
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
 function hasVisibleEdit(item: TimelineItem | undefined): boolean {
@@ -359,11 +355,8 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
       );
     })() : null;
 
-    const dsTasks = effectiveOrigin ? null : parseDsTasksMessage(message.content);
-    const tasksSpec = dsTasks ? tasksSpecFromBlock(dsTasks.block) : null;
-    const userContent = dsTasks ? [dsTasks.before, dsTasks.after].filter(Boolean).join(BLOCK_GAP) : message.content;
+    const userContent = message.content;
     const userAttachments = message.segments ? { text: userContent, images: attachments ?? [], files: [], inline: null, reply: null } : userMessageAttachments(userContent, attachments);
-    const visibleUserContent = userAttachments.text;
     const renderUserText = (content: string) => {
       if (effectiveOrigin?.kind === "neighbor") return <RichMarkdown text={content} sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={false} localArtifacts={false} fontScale={fontScale} />;
       if (effectiveOrigin?.kind === "command") return <CommandBody commands={effectiveOrigin.commands} body={message.content} />;
@@ -396,12 +389,10 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           />
         )}
         {userProgress ?? (message.segments
-        ? <EnvelopeContent segments={dsTasks ? [{ type: "text", text: userContent }, ...message.segments.filter((segment) => segment.type === "attachment")] : message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} onJumpToMessage={onJumpToMessage} />
+        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} onJumpToMessage={onJumpToMessage} />
           : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} />)}
       </>
     );
-
-    const showUserBubble = Boolean(userFooter) || !dsTasks || visibleUserContent.trim().length > 0 || Boolean(attachments?.length) || reply !== null;
 
     return (
       <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
@@ -409,7 +400,7 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           <div className="group flex w-full min-w-0">
             <div className="relative min-w-0 w-full">
               {originHeader}
-              {showUserBubble && <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
+              <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
                 <div
                   role="group"
                   aria-label="User message"
@@ -418,14 +409,9 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
                   <DsRenderContext.Provider value={{ authority: sourceIdentity, trusted: dsScope.trusted && effectiveOrigin?.kind !== "neighbor", streaming: streaming ?? dsScope.streaming, cancelled: dsScope.cancelled }}>{userBubbleInner}</DsRenderContext.Provider>
                 </div>
                 {userFooter}
-              </div>}
+              </div>
             </div>
           </div>
-          {tasksSpec && (
-            <div className="flex w-full min-w-0">
-              <TasksBlock spec={tasksSpec} source={tasksBlockSource(tasksSpec)} />
-            </div>
-          )}
         </div>
       </div>
     );

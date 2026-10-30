@@ -1,3 +1,4 @@
+import { DsPersistentList } from "./dsBlocks.segments";
 import { DsHtmlBoundary } from "./dsBlocks.html";
 import { DS_KINDS, isDsKind, parseDsOpening, validateDsBlock, type DsBlock, type DsKind, type DsOpening } from "./dsBlocks.schema";
 export { DS_KINDS, DS_TASK_STATUSES, decodeDsEntities, isDsAbsolutePath, isDsTaskRef, serializeDsBlock } from "./dsBlocks.schema";
@@ -13,7 +14,7 @@ export type DsSegment =
   | (Span & { type: "pending" | "malformed"; kind?: DsKind | "mermaid" })
   | (Span & { type: "diagram" | "inert"; text: string });
 interface Candidate {
-  start: number; restoreProse: number; restoreParts: number; restoreFences: DsFenceSpan[]; inert: boolean; kind?: DsKind; header: string; quote: string; bodyStart?: number;
+  start: number; restoreProse: number; restoreParts: number; restoreFences: DsPersistentList<DsFenceSpan>; inert: boolean; kind?: DsKind; header: string; quote: string; bodyStart?: number;
   opening?: DsOpening; html?: DsHtmlBoundary; invalid: boolean;
   jsonQuote: boolean; jsonEscape: boolean;
 }
@@ -25,10 +26,10 @@ export class DsBlockScanner {
   private cursor = 0;
   private lineSearch = 0;
   private proseStart = 0;
-  private proseFences: DsFenceSpan[] = [];
+  private proseFences = new DsPersistentList<DsFenceSpan>();
   private candidate: Candidate | null = null;
   private fence: { marker: string; start: number; bodyStart: number; diagram: boolean; invalid?: boolean } | null = null;
-  private inert: string[] = [];
+  private inert = new DsPersistentList<string>();
   private inertStart: number | null = null;
   private list = false;
   private inlineTicks = 0;
@@ -37,7 +38,7 @@ export class DsBlockScanner {
   private literalLine = false;
   private listIndent = 0;
   private listBlank = false;
-  private parts: DsSegment[] = [];
+  private parts = new DsPersistentList<DsSegment>();
   private transient: DsSegment | null = null;
   private lifecycle: DsLifecycle = "streaming";
   private fileCount = 0;
@@ -48,11 +49,24 @@ export class DsBlockScanner {
   get text(): string { return this.source; }
   get version(): number { return this.revision; }
   get state(): DsLifecycle { return this.lifecycle; }
-  get segments(): readonly DsSegment[] { return this.parts; }
+  get segments(): readonly DsSegment[] { return this.parts.view; }
+
+  /** Isolates append/finish state while sharing immutable source and committed segments. */
+  fork(): DsBlockScanner {
+    const scanner = Object.assign(new DsBlockScanner(this.authority), this);
+    scanner.authority = { ...this.authority };
+    scanner.parts = this.parts.fork();
+    scanner.proseFences = this.proseFences.fork();
+    scanner.inert = this.inert.fork();
+    scanner.candidate = this.candidate ? { ...this.candidate, restoreFences: this.candidate.restoreFences.fork(), html: this.candidate.html?.fork() } : null;
+    scanner.fence = this.fence ? { ...this.fence } : null;
+    scanner.markdownHtml = this.markdownHtml?.fork() ?? null;
+    return scanner;
+  }
 
   reset(authority: DsAuthority): void {
-    this.source = ""; this.cursor = 0; this.lineSearch = 0; this.proseStart = 0; this.proseFences = []; this.candidate = null;
-    this.fence = null; this.inert = []; this.inertStart = null; this.list = false; this.inlineTicks = 0; this.markdownHtml = null; this.htmlOpaque = false; this.literalLine = false; this.listIndent = 0; this.listBlank = false; this.parts = []; this.transient = null;
+    this.source = ""; this.cursor = 0; this.lineSearch = 0; this.proseStart = 0; this.proseFences = new DsPersistentList<DsFenceSpan>(); this.candidate = null;
+    this.fence = null; this.inert = new DsPersistentList<string>(); this.inertStart = null; this.list = false; this.inlineTicks = 0; this.markdownHtml = null; this.htmlOpaque = false; this.literalLine = false; this.listIndent = 0; this.listBlank = false; this.parts = new DsPersistentList<DsSegment>(); this.transient = null;
     this.lifecycle = "streaming"; this.fileCount = 0; this.revision++;
     this.authority = { ...authority };
   }
@@ -65,11 +79,11 @@ export class DsBlockScanner {
     this.scan();
     this.presentTail();
     this.revision++;
-    return this.parts;
+    return this.parts.view;
   }
 
   finish(lifecycle: Exclude<DsLifecycle, "streaming"> = "ended"): readonly DsSegment[] {
-    if (this.lifecycle === "cancelled") return this.parts;
+    if (this.lifecycle === "cancelled") return this.parts.view;
     this.removeTransient();
     this.scan(true);
     this.lifecycle = lifecycle;
@@ -77,14 +91,14 @@ export class DsBlockScanner {
     if (this.fence) this.fence.invalid = true;
     this.presentTail();
     this.revision++;
-    return this.parts;
+    return this.parts.view;
   }
 
   private identity(start: number): string { return `${this.authority.id}:ds:${start}`; }
   private removeTransient(): void { if (this.transient) this.parts.pop(); this.transient = null; }
   private prose(end: number): void {
-    if (end > this.proseStart) this.parts.push({ type: "markdown", id: this.identity(this.proseStart), start: this.proseStart, end, text: this.source.slice(this.proseStart, end), fences: this.proseFences });
-    this.proseStart = end; this.proseFences = [];
+    if (end > this.proseStart) this.parts.push({ type: "markdown", id: this.identity(this.proseStart), start: this.proseStart, end, text: this.source.slice(this.proseStart, end), fences: this.proseFences.snapshot() });
+    this.proseStart = end; this.proseFences = new DsPersistentList<DsFenceSpan>();
   }
   private presentTail(): void {
     const pendingStart = this.candidate?.start ?? (this.fence?.diagram ? this.fence.start : undefined);
@@ -97,7 +111,7 @@ export class DsBlockScanner {
       this.prose(pendingStart);
       this.transient = { type: this.candidate?.invalid || this.lifecycle !== "streaming" ? "malformed" : "pending", kind: this.candidate?.kind ?? (this.fence?.diagram ? "mermaid" : undefined), id: this.identity(pendingStart), start: pendingStart, end: this.source.length };
     } else if (this.source.length > this.proseStart) {
-      this.transient = { type: "markdown", id: this.identity(this.proseStart), start: this.proseStart, end: this.source.length, text: this.source.slice(this.proseStart), fences: this.proseFences, ...(this.fence ? { pendingFence: this.fence.start } : {}) };
+      this.transient = { type: "markdown", id: this.identity(this.proseStart), start: this.proseStart, end: this.source.length, text: this.source.slice(this.proseStart), fences: this.proseFences.snapshot(), ...(this.fence ? { pendingFence: this.fence.start } : {}) };
     }
     if (this.transient) this.parts.push(this.transient);
   }
@@ -136,17 +150,17 @@ export class DsBlockScanner {
         this.cursor = end; continue;
       }
       const completeLine = newline >= 0 || final;
-      const rawHtml = /^ {0,3}<(?:\/?(?:address|article|aside|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|nav|ol|p|pre|script|section|source|style|summary|table|tbody|td|textarea|tfoot|th|thead|title|tr|track|ul)(?=[\t\r\n />])|[!?])/i.test(line);
+      const rawHtml = /^ {0,3}<(?:\/?(?:address|article|aside|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|nav|ol|p|pre|script|section|source|style|summary|table|tbody|td|textarea|tfoot|th|thead|title|tr|track|ul|xmp|noembed|noframes|noscript|plaintext)(?=[\t\r\n />])|[!?])/i.test(line);
       if (completeLine && !this.inert.length && !this.inlineTicks && !this.list && !this.markdownHtml && rawHtml) {
         this.markdownHtml = new DsHtmlBoundary();
-        this.htmlOpaque = /^ {0,3}<(?:script|style|title|textarea)(?=[\t\r\n />])|^ {0,3}<[!?]/i.test(line);
+        this.htmlOpaque = /^ {0,3}<(?:script|style|title|textarea|xmp|iframe|noembed|noframes|noscript|plaintext)(?=[\t\r\n />])|^ {0,3}<[!?]/i.test(line);
       }
       const insideHtml = this.markdownHtml !== null;
       const htmlData = this.markdownHtml?.inData !== false;
       const context = /^ {0,3}<\/?([A-Za-z_-]+)(?:\s[^>]*)?>/.exec(line);
       if (completeLine && context && INERT_NAMES.includes(context[1])) {
         if (line.trimStart().startsWith("</")) {
-          if (this.inert[this.inert.length - 1] === context[1]) this.inert.pop();
+          if (this.inert.get(this.inert.length - 1) === context[1]) this.inert.pop();
           if (!this.inert.length && this.inertStart !== null) {
             this.parts.push({ type: "inert", id: this.identity(this.inertStart), start: this.inertStart, end, text: this.source.slice(this.inertStart, end) });
             this.proseStart = end; this.inertStart = null; this.inlineTicks = 0;
