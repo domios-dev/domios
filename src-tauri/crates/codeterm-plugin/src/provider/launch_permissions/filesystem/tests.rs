@@ -3,7 +3,7 @@ use crate::provider::AgentProvider;
 
 #[test]
 fn declared_advisory_rules_preapprove_exact_native_tools_without_bypass() {
-    let capability = crate::agent_claude::provider::ClaudeProvider::new()
+    let capability = crate::js_runtime::native_provider_fixture()
         .launch_permission_capability()
         .unwrap();
     for (folder, pad) in [

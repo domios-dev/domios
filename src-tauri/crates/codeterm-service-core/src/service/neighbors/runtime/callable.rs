@@ -117,24 +117,6 @@ impl AuthenticatedCall for Calls {
 }
 
 impl Calls {
-    pub(in crate::service::neighbors) async fn invoke_fresh(
-        &self,
-        route: &str,
-        data: Value,
-    ) -> Result<Value> {
-        if !matches!(route, "friendsList" | "friendsReceiverStatus") {
-            return Err(Error::InvalidRequest);
-        }
-        if self.service.neighbor_access_locked().await {
-            return Err(Error::Locked);
-        }
-        self.local_session().await?;
-        self.receiver_status.lock().await.take();
-        let result = self.invoke_owned(route, data).await?;
-        self.local_session().await?;
-        Ok(result)
-    }
-
     async fn invoke_owned(&self, route: &str, data: Value) -> Result<Value> {
         let transport =
             HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
@@ -183,10 +165,7 @@ impl Calls {
         }
         if matches!(
             route,
-            "friendsEnrollVerifierKey"
-                | "friendsRevokeVerifierKey"
-                | "friendsDisableReceiving"
-                | "friendsSetFriendReceiver"
+            "friendsEnrollVerifierKey" | "friendsRevokeVerifierKey" | "friendsSetFriendReceiver"
         ) {
             self.own_keys.lock().await.take();
             self.receiver_status.lock().await.take();
@@ -279,7 +258,6 @@ fn classify_callable_error(status: u16, body: Option<&Value>, retry_after: Optio
         .unwrap_or(0)
         .max(retry_after.unwrap_or(0));
     match status {
-        404 => Error::FeatureUnsupported,
         403 => match structured {
             Error::Refused
             | Error::Transport
@@ -339,7 +317,6 @@ fn refusal(body: &Value) -> Error {
         },
         Some("operation_id_conflict") => Error::OperationIdConflict,
         Some("installation_unverified") => Error::InstallationUnverified,
-        Some("receivers_present") => Error::ReceiversPresent,
         Some("receiver_elsewhere") => Error::ReceiverElsewhere,
         Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
         Some("not_receiver") => Error::NotReceiver,
@@ -365,7 +342,6 @@ fn refusal(body: &Value) -> Error {
         Some("unauthenticated" | "UNAUTHENTICATED") => Error::Transport,
         Some("key_revoked" | "unknown_key") => Error::Revoked,
         Some("key_not_found") => Error::KeyNotFound,
-        Some("feature_unsupported") => Error::FeatureUnsupported,
         Some("invalid_key") => Error::InvalidKey,
         Some("entitlements_unavailable") => Error::EntitlementsUnavailable,
         Some("key_limit") => match (

@@ -1,13 +1,15 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
-import type { ChannelStatus, NeighborListenerEvent, NeighborRuntimeClient } from "./neighborRuntimeClient";
+import type { ChannelStatus, NeighborListenerEvent, NeighborRuntimeClient, ReceiverState } from "./neighborRuntimeClient";
 import { friendReceiverState, useReceiverState } from "./useReceiverState";
 
 vi.mock("../../lib/bridge", () => ({ listen: vi.fn(async () => () => {}) }));
 
-const status = (receiving_here: boolean, revision: number): ChannelStatus =>
-  ({ enrolled: true, bindings: {}, receiving_here, receiving_enabled: true, receiver_machine_label: "desk", revision });
+const receiver = (receiving_here: boolean, revision: number): ReceiverState =>
+  ({ receiving_here, receiving_enabled: true, receiver_machine_label: "desk", revision });
+const status = (here: boolean, revision: number): ChannelStatus =>
+  ({ enrolled: true, bindings: {}, friend_receivers_version: revision, friend_receivers: { first: receiver(here, revision) } });
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -30,7 +32,7 @@ function show(runtime: NeighborRuntimeClient, active: boolean) {
   const seen: Array<boolean | null> = [];
   const host = document.createElement("div");
   const root = createRoot(host);
-  const Probe = ({ on }: { on: boolean }) => { seen.push(useReceiverState(runtime, on)?.receiving_here ?? null); return null; };
+  const Probe = ({ on }: { on: boolean }) => { seen.push(useReceiverState(runtime, on, "first")?.receiving_here ?? null); return null; };
   unmount = () => act(() => root.unmount());
   return { seen, render: (on: boolean) => act(async () => root.render(<Probe on={on} />)), first: act(async () => root.render(<Probe on={active} />)) };
 }
@@ -40,7 +42,7 @@ it("never lets a late first answer replace a newer receiver event", async () => 
   const { runtime, emit } = client(old.promise, Promise.resolve(status(true, 2)));
   const probe = show(runtime, true);
   await probe.first;
-  await act(async () => emit(status(true, 2)));
+  await act(async () => emit({ ...receiver(true, 2), friendship_id: "first", friend_receivers_version: 2 }));
   await act(async () => old.resolve(status(false, 1)));
   expect(probe.seen[probe.seen.length - 1]).toBe(true);
   expect(probe.seen).not.toContain(false);
@@ -60,45 +62,44 @@ it("keeps a newer receiver event when the read it triggers answers with an older
   const { runtime, emit } = client(Promise.resolve(status(false, 4)), Promise.resolve(status(false, 4)));
   const probe = show(runtime, true);
   await probe.first;
-  await act(async () => emit(status(true, 5)));
+  await act(async () => emit({ ...receiver(true, 5), friendship_id: "first", friend_receivers_version: 5 }));
   expect(probe.seen[probe.seen.length - 1]).toBe(true);
 });
 
 it("friend lookup validates its own entry and never falls back to the account", () => {
-  const initial = { ...status(true, 1), friend_receivers: { first: { ...status(false, 9), source: "friend" as const } } };
+  const initial = { ...status(true, 1), friend_receivers: { first: { ...receiver(false, 9) } } };
   expect(friendReceiverState(initial, "first")?.receiving_here).toBe(false);
   expect(friendReceiverState(initial, "missing")).toBeNull();
-  expect(friendReceiverState({ ...initial, friend_receivers: { first: { ...status(true, 1), revision: -1 } } }, "first")).toBeNull();
+  expect(friendReceiverState({ ...initial, friend_receivers: { first: { ...receiver(true, 1), revision: -1 } } }, "first")).toBeNull();
 });
 
-it("a friend reset may lower its revision without changing other friends or the account", async () => {
-  const initial = { ...status(true, 3), friend_receivers: { first: { ...status(true, 9), source: "friend" as const }, second: status(true, 3) } };
+it("a friend reset changes only its own authority", async () => {
+  const initial = { ...status(true, 3), friend_receivers: { first: { ...receiver(true, 9) }, second: receiver(true, 3) } };
   const { runtime, emit } = client(Promise.resolve(initial));
   const host = document.createElement("div");
   const root = createRoot(host);
   let seen: Array<boolean | null> = [];
   const Probe = () => {
     seen = [useReceiverState(runtime, true, "first")?.receiving_here ?? null,
-      useReceiverState(runtime, true, "second")?.receiving_here ?? null,
-      useReceiverState(runtime, true)?.receiving_here ?? null];
+      useReceiverState(runtime, true, "second")?.receiving_here ?? null];
     return null;
   };
   unmount = () => act(() => root.unmount());
   await act(async () => root.render(<Probe />));
-  expect(seen).toEqual([true, true, true]);
-  await act(async () => emit({ ...status(false, 2), source: "account", friendship_id: "first" }));
-  expect(seen).toEqual([false, true, true]);
+  expect(seen).toEqual([true, true]);
+  await act(async () => emit({ ...receiver(false, 10), friendship_id: "first" }));
+  expect(seen).toEqual([false, true]);
   await act(async () => emit({ receiver_unavailable: true, friendship_id: "first" }));
-  expect(seen).toEqual([null, true, true]);
+  expect(seen).toEqual([null, true]);
 });
 
 it.each([
   ["friend", 10],
-  ["account", 2],
-] as const)("keeps a confirmed %s friend event when its reread returns the prior snapshot", async (source, revision) => {
+  ["friend", 11],
+] as const)("keeps a confirmed %s friend event when its reread returns the prior snapshot", async (_source, revision) => {
   const stale = deferred<ChannelStatus>();
   const initial: ChannelStatus = { ...status(true, 3), friend_receivers_version: 1,
-    friend_receivers: { first: { ...status(false, 9), source: "friend" } } };
+    friend_receivers: { first: { ...receiver(false, 9) } } };
   const { runtime, emit } = client(Promise.resolve(initial), stale.promise);
   const host = document.createElement("div");
   const root = createRoot(host);
@@ -106,14 +107,14 @@ it.each([
   const Probe = () => { seen = useReceiverState(runtime, true, "first"); return null; };
   unmount = () => act(() => root.unmount());
   await act(async () => root.render(<Probe />));
-  await act(async () => emit({ ...status(true, revision), friendship_id: "first", source, friend_receivers_version: 2 }));
+  await act(async () => emit({ ...receiver(true, revision), friendship_id: "first", friend_receivers_version: 2 }));
   await act(async () => stale.resolve(initial));
-  expect(seen).toMatchObject({ receiving_here: true, revision, source });
+  expect(seen).toMatchObject({ receiving_here: true, revision });
 });
 
 it("ignores deferred friend publication older than a newer invalidation", async () => {
   const initial: ChannelStatus = { ...status(true, 3), friend_receivers_version: 1,
-    friend_receivers: { first: { ...status(true, 9), source: "friend" } } };
+    friend_receivers: { first: { ...receiver(true, 9) } } };
   const { runtime, emit } = client(Promise.resolve(initial));
   const host = document.createElement("div");
   const root = createRoot(host);
@@ -123,7 +124,7 @@ it("ignores deferred friend publication older than a newer invalidation", async 
   await act(async () => root.render(<Probe />));
   await act(async () => emit({ receiver_unavailable: true, friend_receivers_version: 2 }));
   expect(seen).toBeNull();
-  await act(async () => emit({ ...status(true, 9), source: "friend", friendship_id: "first", friend_receivers_version: 1 }));
+  await act(async () => emit({ ...receiver(true, 9), friendship_id: "first", friend_receivers_version: 1 }));
   expect(seen).toBeNull();
   expect(runtime.status).toHaveBeenCalledTimes(1);
 });
@@ -135,9 +136,9 @@ it("shares receiver status on open across concurrent consumers", async () => {
   const root = createRoot(host);
   let seen: Array<boolean | null> = [];
   const Probe = () => {
-    seen = [useReceiverState(runtime, true)?.receiving_here ?? null,
-      useReceiverState(runtime, true)?.receiving_here ?? null,
-      useReceiverState(runtime, true)?.receiving_here ?? null];
+    seen = [useReceiverState(runtime, true, "first")?.receiving_here ?? null,
+      useReceiverState(runtime, true, "first")?.receiving_here ?? null,
+      useReceiverState(runtime, true, "first")?.receiving_here ?? null];
     return null;
   };
   unmount = () => act(() => root.unmount());
@@ -146,4 +147,19 @@ it("shares receiver status on open across concurrent consumers", async () => {
   await act(async () => pending.resolve(status(true, 1)));
   expect(runtime.status).toHaveBeenCalledTimes(1);
   expect(seen).toEqual([true, true, true]);
+});
+
+it.each([4, 5])("keeps an unversioned friend event at revision %s when its reread returns the old receiver", async revision => {
+  const initial = { enrolled: true, bindings: {}, friend_receivers: {
+    first: { ...receiver(false, 4), receiver_machine_label: "Studio" },
+  } };
+  const { runtime, emit } = client(Promise.resolve(initial), Promise.resolve(initial));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  let seen: ReturnType<typeof useReceiverState> = null;
+  const Probe = () => { seen = useReceiverState(runtime, true, "first"); return null; };
+  unmount = () => act(() => root.unmount());
+  await act(async () => root.render(<Probe />));
+  await act(async () => emit({ ...receiver(false, revision), receiver_machine_label: "Laptop", friendship_id: "first" }));
+  expect(seen).toMatchObject({ revision, receiver_machine_label: "Laptop" });
 });

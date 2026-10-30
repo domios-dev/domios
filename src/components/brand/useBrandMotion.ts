@@ -19,7 +19,8 @@ export function beatLevel(cycleProgress: number): number {
   return 0;
 }
 
-export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: number) => void) {
+/** beatEvery stretches the rest between beats: 2 beats (and releases a wave) every second wave period. */
+export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: number) => void, beatEvery = 1) {
   const ref = useRef<SVGSVGElement>(null);
   const onReleaseRef = useRef(onRelease);
   onReleaseRef.current = onRelease;
@@ -75,15 +76,17 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
       }
       if (phase === "beat") {
         const elapsed = timestamp - cycleStarted;
+        const period = DOT_MATRIX_WAVE_DURATION_MS * beatEvery;
         const peakOffset = BEAT_PEAK * DOT_MATRIX_WAVE_DURATION_MS;
         if (elapsed >= peakOffset) {
-          const cycle = Math.floor((elapsed - peakOffset) / DOT_MATRIX_WAVE_DURATION_MS);
+          const cycle = Math.floor((elapsed - peakOffset) / period);
           if (cycle >= beats) {
             beats = cycle + 1;
-            onReleaseRef.current?.(cycleStarted + peakOffset + cycle * DOT_MATRIX_WAVE_DURATION_MS);
+            onReleaseRef.current?.(cycleStarted + peakOffset + cycle * period);
           }
         }
-        paintBeat(beatLevel((elapsed % DOT_MATRIX_WAVE_DURATION_MS) / DOT_MATRIX_WAVE_DURATION_MS));
+        const inCycle = elapsed % period;
+        paintBeat(inCycle < DOT_MATRIX_WAVE_DURATION_MS ? beatLevel(inCycle / DOT_MATRIX_WAVE_DURATION_MS) : 0);
       } else if (phase !== "open") return;
       schedule();
     }
@@ -113,7 +116,7 @@ export function useBrandMotion(motion: BrandMotion, onRelease?: (timestamp: numb
       document.removeEventListener("visibilitychange", sync);
       preference.removeEventListener("change", sync);
     };
-  }, [motion]);
+  }, [motion, beatEvery]);
 
   return ref;
 }

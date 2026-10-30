@@ -1,10 +1,13 @@
+import { ChevronRight } from "lucide-react";
+import Markdown from "react-markdown";
+import { MemoryProvenance } from "./MemoryProvenance";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
-import type { MemEdge, MemNode } from "./types";
+import type { MemEdge, MemItemFull, MemNode } from "./types";
 import { colorForKind } from "./nodeKind";
 import { deleteItem, fetchItemFull, patchItem, type ItemPatch } from "./memoryApi";
-import { UI_BUTTON, UI_INPUT, UI_TEXT } from "../shared/design";
+import { UI_BUTTON, UI_INPUT } from "../shared/design";
 
 interface Props {
   api: ApiConfig;
@@ -45,13 +48,15 @@ function buildEditState(node: MemNode): EditState {
 
 export function MemoryNodeDetail({
   api,
-  node,
+  node: initialNode,
   onUpdate,
   onDelete,
   edges,
   nodes,
   onSelectNode,
 }: Props) {
+  const [loadedItem, setLoadedItem] = useState<Pick<MemItemFull, "id" | "author" | "created_at" | "updated_at"> | null>(null);
+  const node = loadedItem?.id === initialNode.id ? { ...loadedItem, ...initialNode, author: initialNode.author ?? loadedItem.author, created_at: initialNode.created_at ?? loadedItem.created_at, updated_at: initialNode.updated_at ?? loadedItem.updated_at } : initialNode;
   const [tucked, setTucked] = useState(false);
   const neighbors: Neighbor[] = useMemo(() => {
     const out: Neighbor[] = [];
@@ -98,6 +103,7 @@ export function MemoryNodeDetail({
     fetchItemFull(api, node.id)
       .then((item) => {
         if (cancelled) return;
+        setLoadedItem(item);
         const b = item.body ?? "";
         setBodyText(b);
         setEdit((e) => ({ ...e, body: b }));
@@ -195,11 +201,11 @@ export function MemoryNodeDetail({
     [addTag, tagInput, edit.tags.length],
   );
 
-  const inputClass = `${UI_INPUT.full} text-[10px] text-inherit`;
-  const btnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[11px]`;
-  const sectionLabelClass = UI_TEXT.sectionLabel;
+  const inputClass = `${UI_INPUT.full} text-[13px] text-inherit`;
+  const btnClass = `${UI_BUTTON.ghost} ${UI_BUTTON.compact} text-[13px]`;
+  const sectionLabelClass = "text-xs text-[var(--ct-muted-fg)] mb-1";
   const rowButtonClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} flex items-center gap-1.5 text-left w-full hover:bg-[var(--ct-hover)]`;
-  const mutedTextClass = "text-[10px] opacity-50";
+  const mutedTextClass = "text-xs text-[var(--ct-muted-fg)]";
 
   return (
     <>
@@ -218,7 +224,7 @@ export function MemoryNodeDetail({
       data-testid="memory-node-detail"
       data-memory-id={node.id}
       data-memory-kind={node.kind}
-      className="absolute top-0 right-0 bottom-0 w-[360px] p-4 z-10 overflow-y-auto flex flex-col gap-2.5 text-xs bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)] transition-transform duration-200 ease-out"
+      className="absolute top-0 right-0 bottom-0 w-full max-w-[400px] p-4 z-10 overflow-y-auto flex flex-col gap-3 text-[13px] bg-[var(--ct-surface)] border-l border-[var(--ct-border)] text-[var(--ct-fg)] transition-transform duration-200 ease-out"
       style={{ transform: tucked ? "translateX(100%)" : "translateX(0)" }}
       onMouseDown={(e) => e.stopPropagation()}
       onWheel={(e) => e.stopPropagation()}
@@ -228,10 +234,6 @@ export function MemoryNodeDetail({
       )}
 
       <div className="flex items-start gap-2">
-        <div
-          className="w-2.5 h-2.5 mt-[5px] rounded-full shrink-0"
-          style={{ background: colorForKind(node.kind) }}
-        />
         {editing ? (
           <input
             data-testid="memory-node-title-input"
@@ -240,20 +242,22 @@ export function MemoryNodeDetail({
             onChange={(e) => setEdit((s) => ({ ...s, title: e.target.value }))}
           />
         ) : (
-          <strong className="text-sm flex-1 break-words">{node.title}</strong>
+          <strong className="text-[15px] font-semibold flex-1 break-words">{node.title}</strong>
         )}
         <button
           data-testid="memory-node-detail-tuck"
           onClick={() => setTucked(true)}
-          aria-label="Tuck panel"
-          title="Tuck panel"
+          aria-label="Hide memory details"
+          title="Hide memory details"
           className={`${btnClass} !px-2 !py-0.5 !text-base leading-none`}
         >
-          ›
+          <ChevronRight size={16} aria-hidden="true" />
         </button>
       </div>
 
-      <div className="flex gap-1.5 flex-wrap text-[10px] opacity-80">
+      <MemoryProvenance author={node.author} createdAt={node.created_at} />
+
+      <div className="flex gap-1.5 flex-wrap text-xs opacity-80">
         <span
           className="px-1.5 py-px rounded-[3px] font-semibold text-black"
           style={{ background: colorForKind(node.kind) }}
@@ -261,11 +265,11 @@ export function MemoryNodeDetail({
           {node.kind}
         </span>
         {node.area && !editing && (
-          <span className="px-1.5 py-px rounded-[3px] bg-[var(--ct-hover)]">{node.area}</span>
+          <span className="px-1.5 py-px rounded-[3px] bg-[var(--ct-hover)] font-mono">{node.area}</span>
         )}
       </div>
 
-      <div>
+      {(editing || node.summary?.trim()) && <div>
         <div className={sectionLabelClass}>Summary</div>
         {editing ? (
           <textarea
@@ -276,29 +280,27 @@ export function MemoryNodeDetail({
             onChange={(e) => setEdit((s) => ({ ...s, summary: e.target.value }))}
           />
         ) : (
-          <div className="whitespace-pre-wrap opacity-90">{node.summary ?? "—"}</div>
+          <div className="whitespace-pre-wrap opacity-90">{node.summary}</div>
         )}
-      </div>
+      </div>}
 
       <div>
-        <div className={sectionLabelClass}>
-          Body {loadingBody && <span>(loading…)</span>}
-        </div>
+        {loadingBody && <div className={sectionLabelClass}>Loading…</div>}
         {editing ? (
           <textarea
             rows={10}
             data-testid="memory-node-body-input"
-            className={`${inputClass} resize-y font-mono`}
+            className={`${inputClass} resize-y`}
             value={edit.body}
             onChange={(e) => setEdit((s) => ({ ...s, body: e.target.value }))}
           />
         ) : (
-          <pre
+          <div
             data-testid="memory-node-body-preview"
-            className="m-0 whitespace-pre-wrap font-mono text-[11px] bg-[var(--ct-bg)] p-2 rounded max-h-[240px] overflow-y-auto"
+            className="text-[14px] leading-relaxed break-words [&_p]:mb-3 [&_p:last-child]:mb-0"
           >
-            {bodyText ?? (loadingBody ? "" : "—")}
-          </pre>
+            <Markdown components={{ img: ({ alt }) => <span>{alt}</span>, code: ({ children }) => <code className="font-mono text-[13px] bg-[var(--ct-bg)] rounded px-1">{children}</code>, pre: ({ children }) => <pre className="whitespace-pre-wrap bg-[var(--ct-bg)] p-2 rounded">{children}</pre> }}>{bodyText ?? ""}</Markdown>
+          </div>
         )}
       </div>
 
@@ -316,14 +318,14 @@ export function MemoryNodeDetail({
 
       <div>
         <div className={sectionLabelClass}>
-          Importance: {editing ? edit.importance.toFixed(1) : (node.importance ?? 0).toFixed(1)}
+          Importance: <span className="text-[13px] text-[var(--ct-fg)]">{editing ? edit.importance : (node.importance ?? 0)} of 5</span>
         </div>
         {editing ? (
           <input
             type="range"
             data-testid="memory-node-importance-input"
             min={0}
-            max={10}
+            max={5}
             step={0.1}
             value={edit.importance}
             onChange={(e) => setEdit((s) => ({ ...s, importance: Number(e.target.value) }))}
@@ -332,7 +334,7 @@ export function MemoryNodeDetail({
         ) : null}
       </div>
 
-      <div>
+      {(editing || (node.tags?.length ?? 0) > 0) && <div>
         <div className={sectionLabelClass}>Tags</div>
         <div className="flex flex-wrap gap-1">
           {(editing ? edit.tags : node.tags ?? []).map((t) => (
@@ -365,16 +367,14 @@ export function MemoryNodeDetail({
             />
           )}
         </div>
-      </div>
+      </div>}
 
-      {!editing && (
+      {!editing && neighbors.length > 0 && (
         <div>
           <div className={sectionLabelClass}>
             Related ({neighbors.length})
           </div>
-          {neighbors.length === 0 ? (
-            <div className={mutedTextClass}>orphan — no edges</div>
-          ) : (
+          {(
             <div className="flex flex-col gap-0.5 max-h-[260px] overflow-y-auto">
               {neighbors.map((nb, i) => (
                 <button
@@ -407,8 +407,9 @@ export function MemoryNodeDetail({
       )}
 
       {!editing && (
-        <div>
-          <div className={sectionLabelClass}>Stats</div>
+        <details>
+          <summary className={`${sectionLabelClass} cursor-pointer`}>Technical</summary>
+          <div className={`${mutedTextClass} break-all mb-2`}>{node.id}</div>
           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[10px] opacity-75">
             <span title="Has vector embedding for semantic search">
               embedding: {node.has_vector ? "✓" : "—"}
@@ -427,17 +428,14 @@ export function MemoryNodeDetail({
               </span>
             )}
           </div>
-        </div>
+          {(node.created_at || node.updated_at) && (
+            <div className={mutedTextClass}>
+              {node.created_at && <div>created: {node.created_at}</div>}
+              {node.updated_at && <div>updated: {node.updated_at}</div>}
+            </div>
+          )}
+        </details>
       )}
-
-      {(node.created_at || node.updated_at) && !editing && (
-        <div className={mutedTextClass}>
-          {node.created_at && <div>created: {node.created_at}</div>}
-          {node.updated_at && <div>updated: {node.updated_at}</div>}
-        </div>
-      )}
-
-      <div className={`${mutedTextClass} break-all`}>{node.id}</div>
 
       <div className="flex gap-1.5 mt-auto flex-wrap">
         {editing ? (
@@ -451,18 +449,18 @@ export function MemoryNodeDetail({
           </>
         ) : (
           <>
+            <button onClick={handleCopyId} className={btnClass} data-testid="memory-node-copy-id">
+              {copied ? "Copied!" : "Copy ID"}
+            </button>
             <button onClick={() => setEditing(true)} className={btnClass} data-testid="memory-node-edit">
               Edit
             </button>
             <button
               onClick={handleDelete}
               data-testid="memory-node-delete"
-              className={`${btnClass} !text-[#ef4444] !border-[#ef4444]`}
+              className={`${btnClass} ml-auto !text-[var(--ct-red)]`}
             >
               Delete
-            </button>
-            <button onClick={handleCopyId} className={btnClass} data-testid="memory-node-copy-id">
-              {copied ? "Copied!" : "Copy ID"}
             </button>
           </>
         )}

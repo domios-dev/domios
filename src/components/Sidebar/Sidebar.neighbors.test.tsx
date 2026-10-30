@@ -73,3 +73,28 @@ it("renders no Neighbors section or Recently closed section when there are no fr
     expect(view.host.querySelector('[role="navigation"][aria-label="Sidebar views"]')).not.toBeNull();
   } finally { await view.close(); }
 });
+
+it("marks only workspaces and the footer muted during first run and clears both on completion", async () => {
+  data.friends = [];
+  const view = await mount();
+  const openMemory = vi.fn();
+  try {
+    await act(async () => view.root.render(<Sidebar config={config} firstRunActive onOpenMemory={openMemory} />));
+    const workspaces = view.host.querySelector('[data-testid="workspaces-section-toggle"]')!.closest("section")!;
+    const footer = view.host.querySelector('[role="navigation"][aria-label="Sidebar views"]')!;
+    expect(workspaces.getAttribute("data-first-run-muted")).toBe("true");
+    expect(footer.getAttribute("data-first-run-muted")).toBe("true");
+    expect(view.host.querySelectorAll("[data-first-run-muted]")).toHaveLength(2);
+    const memory = footer.querySelector<HTMLButtonElement>('[data-testid="nav-memory"]')!;
+    expect(memory.disabled).toBe(true);
+
+    await act(async () => view.root.render(<Sidebar config={config} firstRunActive={false} onOpenMemory={openMemory} />));
+    expect(workspaces.hasAttribute("data-first-run-muted")).toBe(false);
+    expect(footer.hasAttribute("data-first-run-muted")).toBe(false);
+    expect(view.host.querySelectorAll("[data-first-run-muted]")).toHaveLength(0);
+    expect(memory.disabled).toBe(false);
+    expect(memory.hasAttribute("aria-disabled")).toBe(false);
+    await act(async () => memory.click());
+    expect(openMemory).toHaveBeenCalledOnce();
+  } finally { await view.close(); }
+});

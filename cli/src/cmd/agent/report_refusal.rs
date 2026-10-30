@@ -1,8 +1,8 @@
 use crate::client::SocketClient;
 use crate::cmd::report_guard::ReportRefusal;
 
-pub(super) fn refusal_next_commands() -> Vec<&'static str> {
-    crate::cmd::report_guard::REPORT_NEXT_COMMANDS.to_vec()
+pub(super) fn refusal_next_commands(refusal: &ReportRefusal) -> Vec<&'static str> {
+    refusal.next_commands()
 }
 
 pub(super) fn refusal_diagnostic_request(
@@ -54,7 +54,7 @@ pub(super) fn report_refusal_json(
         "verdict": "REPORT NOT SENT",
         "reason": refusal.reason.clone(),
         "dirty_files": refusal.dirty_files.clone(),
-        "next_commands": refusal_next_commands(),
+        "next_commands": refusal_next_commands(refusal),
         "refused_report_diagnostic_sent": diagnostic_sent,
         "diagnostic_target_tab_id": target_tab_id,
         "diagnostic_error": diagnostic_error,

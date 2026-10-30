@@ -323,6 +323,7 @@ impl ChatRegistry {
         let mut g = self.inner.lock();
         match g.get(tab_id) {
             Some(entry) if entry.usable(session_id, session_binding_nonce) => {
+                entry.handle.reattach();
                 g.get_mut(tab_id)
                     .unwrap()
                     .subscribers

@@ -498,7 +498,6 @@ function fileRefusal(failure: unknown, name: string): string {
     case "file_daily_limit": return `${name} accepts no more files today.`;
     case "sender_quota": return "You have sent all the files you can today.";
     case "files_disabled": return `${name} does not accept files.`;
-    case "recipient_files_unsupported": return `${name}'s Domios cannot receive files yet.`;
     case "file_rate_limited": return "Too many files right now. Try again shortly.";
     case "recipient_paused": return `Not sent: ${name} disabled messages from you.`;
     default: return failure.message;

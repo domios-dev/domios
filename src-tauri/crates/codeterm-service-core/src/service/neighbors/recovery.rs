@@ -93,11 +93,9 @@ pub(super) fn startup_error(message: &str) -> Error {
         Error::ReceivingElsewhere,
         Error::ReceiverNotChosen,
         Error::ReceiverStatusUnknown,
-        Error::ReceiversPresent,
         Error::LocalKeyUnavailable,
         Error::SecretStore,
         Error::Refused,
-        Error::FeatureUnsupported,
         Error::InstallationUnverified,
     ] {
         if message == error.to_string() {
@@ -107,7 +105,6 @@ pub(super) fn startup_error(message: &str) -> Error {
     for (code, error) in [
         ("receiver_not_chosen:", Error::ReceiverNotChosen),
         ("receiver_status_unknown:", Error::ReceiverStatusUnknown),
-        ("receivers_present:", Error::ReceiversPresent),
     ] {
         if message.starts_with(code) {
             return error;

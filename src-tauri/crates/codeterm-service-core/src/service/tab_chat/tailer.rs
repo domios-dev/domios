@@ -38,6 +38,7 @@ pub struct TailerHandle {
     offset: Arc<AtomicU64>,
     join: Mutex<Option<thread::JoinHandle<()>>>,
     wake: Option<SyncSender<()>>,
+    reattach: Option<Arc<AtomicBool>>,
 }
 
 impl TailerHandle {
@@ -79,11 +80,21 @@ impl TailerHandle {
             offset,
             join: Mutex::new(Some(join)),
             wake: None,
+            reattach: None,
         }
     }
 
     pub(crate) fn session_owned(&self) -> bool {
         self.wake.is_some()
+    }
+
+    pub(crate) fn reattach(&self) {
+        if let Some(reattach) = &self.reattach {
+            reattach.store(true, Ordering::Release);
+        }
+        if let Some(wake) = &self.wake {
+            let _ = wake.try_send(());
+        }
     }
 
     pub(crate) fn event_driven(
@@ -97,6 +108,7 @@ impl TailerHandle {
             offset,
             join: Mutex::new(Some(join)),
             wake: Some(wake),
+            reattach: None,
         }
     }
 }
@@ -164,6 +176,8 @@ fn spawn_sourced_tailer_inner(
     let off = offset.clone();
     let (wake, events) = mpsc::sync_channel(1);
     let thread_wake = wake.clone();
+    let reattach = Arc::new(AtomicBool::new(false));
+    let thread_reattach = reattach.clone();
     let join = thread::Builder::new()
         .name(format!("chat-jsonl-{}", cfg.tab_id))
         .spawn(move || {
@@ -176,8 +190,8 @@ fn spawn_sourced_tailer_inner(
                 log::warn!("[tab_chat] no JSONL path for tab={}", cfg.tab_id);
                 return;
             };
-            let _watcher = match super::file_events::watch(&path, thread_wake.clone()) {
-                Ok(watcher) => watcher,
+            let mut watcher = match super::file_events::watch(&path, thread_wake.clone()) {
+                Ok(watcher) => Some(watcher),
                 Err(error) => {
                     log::error!("[tab_chat] tab={} watcher failed: {}", cfg.tab_id, error);
                     return;
@@ -190,6 +204,16 @@ fn spawn_sourced_tailer_inner(
             while events.recv().is_ok() {
                 if stop.load(Ordering::Acquire) {
                     return;
+                }
+                if thread_reattach.swap(false, Ordering::AcqRel) {
+                    drop(watcher.take());
+                    match super::file_events::watch(&path, thread_wake.clone()) {
+                        Ok(current) => watcher = Some(current),
+                        Err(error) => {
+                            log::error!("[tab_chat] tab={} reattach failed: {}", cfg.tab_id, error);
+                            return;
+                        }
+                    }
                 }
                 let observation = source.as_ref().map(|source| {
                     source.observe(
@@ -238,7 +262,7 @@ fn spawn_sourced_tailer_inner(
                         let _ = thread_wake.try_send(());
                     }
                 }
-                if !delta.messages.is_empty() {
+                if delta.new_offset != from || !delta.messages.is_empty() {
                     sink.emit_sourced(
                         &cfg.tab_id,
                         delta.messages,
@@ -253,7 +277,9 @@ fn spawn_sourced_tailer_inner(
         })
         .expect("chat worker thread could not start");
 
-    TailerHandle::event_driven(stop_flag, offset, join, wake)
+    let mut handle = TailerHandle::event_driven(stop_flag, offset, join, wake);
+    handle.reattach = Some(reattach);
+    handle
 }
 
 // Raw-text tailer emits byte chunks only; JS parses JSONL via `parseJsonlSession`.

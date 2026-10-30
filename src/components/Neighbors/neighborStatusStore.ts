@@ -4,7 +4,7 @@ import { SharedRead } from "../../lib/sharedRead";
 import { receiverState, type ChannelStatus, type NeighborRuntimeClient } from "./neighborRuntimeClient";
 
 /** The runtime status every Neighbors surface shares: one read, then events keep it current. */
-export type NeighborStatusSnapshot = ChannelStatus & { concierges?: Record<string, unknown>; receiver_status_known?: boolean };
+export type NeighborStatusSnapshot = ChannelStatus & { concierges?: Record<string, unknown> };
 
 let stores = new WeakMap<NeighborRuntimeClient, SharedRead<NeighborStatusSnapshot>>();
 
@@ -26,12 +26,17 @@ export function resetNeighborStatus() {
 function keepNewerReceiver(fresh: NeighborStatusSnapshot, current: NeighborStatusSnapshot | undefined): NeighborStatusSnapshot {
   if (!current) return fresh;
   let next = fresh;
-  if (current.receiver_status_known !== false && current.revision > fresh.revision) {
-    const { receiving_here, receiver_machine_label, receiving_enabled, revision } = current;
-    next = { ...next, receiving_here, receiver_machine_label, receiving_enabled, revision, receiver_status_known: true };
-  }
   if (current.friend_receivers_version !== undefined && current.friend_receivers_version > (fresh.friend_receivers_version ?? -1)) {
     next = { ...next, friend_receivers: current.friend_receivers, friend_receivers_version: current.friend_receivers_version };
+  }
+  if (fresh.friend_receivers_version === undefined || current.friend_receivers_version === undefined
+    || fresh.friend_receivers_version === current.friend_receivers_version) {
+    const receivers = { ...next.friend_receivers };
+    for (const [id, receiver] of Object.entries(current.friend_receivers ?? {})) {
+      const observed = receivers[id];
+      if (observed && receiver.revision >= observed.revision) receivers[id] = receiver;
+    }
+    next = { ...next, friend_receivers: receivers };
   }
   return next;
 }
@@ -66,22 +71,19 @@ export function useNeighborStatus(client: NeighborRuntimeClient, active: boolean
           const receivers = { ...store.value.friend_receivers };
           delete receivers[event.friendship_id];
           store.write({ ...store.value, friend_receivers: receivers, friend_receivers_version: event.friend_receivers_version ?? store.value.friend_receivers_version });
-        } else { store.write({ ...store.value, receiver_status_known: false, friend_receivers: {}, friend_receivers_version: event.friend_receivers_version ?? store.value.friend_receivers_version }); }
+        } else { store.write({ ...store.value, friend_receivers: {}, friend_receivers_version: event.friend_receivers_version ?? store.value.friend_receivers_version }); }
         return;
       }
       if (!receiverState(event)) return;
       if (typeof event.friendship_id === "string") {
         if (event.friend_receivers_version !== undefined && event.friend_receivers_version < (store.value.friend_receivers_version ?? -1)) return;
-        const { receiving_here, receiver_machine_label, receiving_enabled, revision, source } = event;
+        const { receiving_here, receiver_machine_label, receiving_enabled, revision, is_me } = event;
         store.write({ ...store.value, friend_receivers_version: event.friend_receivers_version ?? store.value.friend_receivers_version, friend_receivers: { ...store.value.friend_receivers,
-          [event.friendship_id]: { receiving_here, receiver_machine_label, receiving_enabled, revision, source } } });
+          [event.friendship_id]: { receiving_here, receiver_machine_label, receiving_enabled, revision, is_me } } });
         reread();
         return;
       }
-      const { receiving_here, receiver_machine_label, receiving_enabled, revision } = event;
-      store.write({ ...store.value, receiving_here, receiver_machine_label, receiving_enabled, revision, receiver_status_known: true });
-      // An account change may remove overrides, so reread the effective friendship rows too.
-      reread();
+
     }).then(keep);
     void listen<unknown>("neighbor-concierge-status", event => {
       const payload = event.payload as { friendship_id?: unknown } | null;

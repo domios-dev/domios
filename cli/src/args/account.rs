@@ -71,14 +71,6 @@ pub enum NeighborAction {
         #[arg(long)]
         takeover_confirmed: bool,
     },
-    /// Receive all friends here (account takeover); use receive-here to move only one friend
-    Enroll {
-        #[arg(long, required = true)]
-        confirm_takeover: bool,
-        /// Receiver revision shown by status; refresh and confirm again if stale
-        #[arg(long)]
-        expected_receiver_revision: u64,
-    },
     /// Rotate this installation's keys and revoke the previous pair
     Rotate,
     /// Revoke this machine's Neighbor keys

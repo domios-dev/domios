@@ -167,7 +167,7 @@ function AppInner() {
   const interfaceReady = !configLoading && (initialRouteReady(state.generation) || state.storageUnavailable);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
-  const { providers: firstRunProviders } = useAgentProviders();
+  const { providers: firstRunProviders, loading: firstRunProvidersLoading, error: firstRunProvidersError } = useAgentProviders();
   const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
   const mainView = locked ? "workspace" : savedMainView;
   const automationOpener = useRef<HTMLElement | null>(null);
@@ -824,6 +824,7 @@ function AppInner() {
             />
             <SidebarDrawer phone={phoneViewport} shown={sidebarShown}>
               <Sidebar
+                firstRunActive={locked}
                 onCollapse={closeSidebar}
                 onCollapsedChange={setSidebarRailCollapsed}
                 expandRequest={sidebarExpandRequest}
@@ -849,7 +850,7 @@ function AppInner() {
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
           {locked ? (configLoading ? <Loader label="Loading settings" deferred={false} />
             : firstRunSettings ? <SettingsPanel config={config} onUpdateConfig={updateConfig} initialSection="general" onClose={() => setFirstRunSettings(false)} />
-            : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
+            : <FirstRunGeneralPicker providers={firstRunProviders} providersLoading={firstRunProvidersLoading} providersError={firstRunProvidersError} home={state.active_workspace_id && state.focused_tab_id
               ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !interfaceReady ? (
             <DeferredPresence present className="absolute inset-0">
               <Loader label="Restoring workspace" deferred={false} />

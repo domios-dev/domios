@@ -184,6 +184,8 @@ pub struct TaskExecutionAttempt {
     pub branch: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_path: Option<String>,
     #[serde(default)]
     pub base: Option<String>,
     #[serde(default)]

@@ -14,31 +14,32 @@ struct KnownReceiver {
 
 #[derive(Clone, PartialEq, Eq)]
 pub(in crate::service::neighbors) struct FriendReceiver {
-    pub source: codeterm_neighbors::wire::ReceiverSource,
     pub status: ReceiverStatus,
     pub binding: String,
 }
 
 impl FriendReceiver {
+    #[cfg(test)]
+    pub fn from_status(status: &ReceiverStatus) -> Self {
+        Self {
+            status: status.clone(),
+            binding: codeterm_neighbors::crypto::sha256_hex(&serde_json::to_vec(status).unwrap()),
+        }
+    }
+
     pub fn from_projection(
         receiver: codeterm_neighbors::wire::EffectiveReceiver,
         installation: &str,
     ) -> Result<Self, String> {
         if receiver.revision > codeterm_neighbors::wire::MAX_SAFE_INTEGER
             || receiver.receiving
-                && (receiver.installation_id.is_none()
-                    || receiver.key_id.is_none()
-                    || receiver.enc_key_id.is_none()
-                    || receiver.session_id.is_none())
+                && (receiver.installation_id.is_none() || receiver.enc_key_id.is_none())
         {
             return Err(Error::InvalidEnvelope.to_string());
         }
         let fields = json!([
-            receiver.source,
             receiver.installation_id,
-            receiver.key_id,
             receiver.enc_key_id,
-            receiver.session_id,
             receiver.revision,
             receiver.receiving
         ]);
@@ -46,29 +47,9 @@ impl FriendReceiver {
             &serde_json::to_vec(&fields).map_err(|_| Error::InvalidEnvelope.to_string())?,
         );
         Ok(Self {
-            source: receiver.source,
             status: ReceiverStatus::effective(&receiver, installation),
             binding,
         })
-    }
-
-    pub fn from_account(status: &ReceiverStatus) -> Self {
-        let fields = json!([
-            "account",
-            status.receiver_installation_id,
-            status.receiver_key_id,
-            null,
-            null,
-            status.receiver_revision,
-            status.receiving_enabled
-        ]);
-        Self {
-            source: codeterm_neighbors::wire::ReceiverSource::Account,
-            status: status.clone(),
-            binding: codeterm_neighbors::crypto::sha256_hex(
-                &serde_json::to_vec(&fields).expect("receiver binding"),
-            ),
-        }
     }
 }
 
@@ -92,8 +73,7 @@ impl ServiceContext {
             .iter()
             .filter(|(_, known)| known.generation == generation)
             .map(|(id, known)| {
-                let mut view = Self::receiver_view(&known.receiver.status);
-                view["source"] = json!(known.receiver.source);
+                let view = Self::receiver_view(&known.receiver.status);
                 (id.clone(), view)
             })
             .collect();
@@ -294,7 +274,6 @@ impl ServiceContext {
                 KnownReceiver {
                     generation: self.neighbor_cell().generation.load(Ordering::Acquire),
                     receiver: FriendReceiver {
-                        source: codeterm_neighbors::wire::ReceiverSource::Friend,
                         binding: format!("fixture:{here}:{revision}"),
                         status: ReceiverStatus {
                             receiver_revision: revision,
@@ -306,11 +285,10 @@ impl ServiceContext {
                                 }
                                 .into(),
                             ),
-                            receiver_key_id: None,
+                            receiver_encryption_key_id: None,
                             receiver_machine_label: Some("Fixture".into()),
                             receiving_enabled: true,
                             is_me: here,
-                            legacy_active: false,
                         },
                     },
                 },

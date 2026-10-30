@@ -175,7 +175,7 @@ async fn file_refusals_preserve_quota_fields_and_http_status() {
         ("sender_quota", StatusCode::TOO_MANY_REQUESTS),
         ("file_daily_limit", StatusCode::TOO_MANY_REQUESTS),
         ("files_disabled", StatusCode::SERVICE_UNAVAILABLE),
-        ("recipient_files_unsupported", StatusCode::CONFLICT),
+        ("file_not_ready", StatusCode::CONFLICT),
         ("file_not_found", StatusCode::NOT_FOUND),
     ] {
         let response = neighbor_failure(format!("{reason}: {{\"reason\":\"{reason}\",\"limit_bytes\":52428800,\"limit_files\":25,\"resets_at\":1234}}"));

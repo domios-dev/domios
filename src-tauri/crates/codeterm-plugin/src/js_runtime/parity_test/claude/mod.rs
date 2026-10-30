@@ -3,7 +3,8 @@
 //! split across submodules to keep each file under the size limit.
 
 use super::*;
-pub(crate) use crate::agent_claude::provider::ClaudeProvider;
+use crate::agent_claude::provider as native;
+pub(crate) use native::{install_bridge_rule_at as install_native_rule, ClaudeProvider};
 
 mod catalog;
 mod commands;

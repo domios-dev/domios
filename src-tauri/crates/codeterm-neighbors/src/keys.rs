@@ -55,12 +55,7 @@ pub trait KeyStore: Send + Sync {
 
 #[async_trait]
 pub trait KeyRegistry: Send + Sync {
-    async fn enroll(
-        &self,
-        signing_spki: &str,
-        encryption_spki: &str,
-        replace_others: bool,
-    ) -> Result<String>;
+    async fn enroll(&self, signing_spki: &str, encryption_spki: &str) -> Result<String>;
     async fn revoke(&self, verifier_key_id: &str) -> Result<()>;
     async fn active_key_ids(&self) -> Result<Vec<String>>;
 }
@@ -126,11 +121,10 @@ impl RecipientKeys for InstallationKeys<'_> {
 impl InstallationKeys<'_> {
     pub async fn enroll_and_enable(
         &self,
-        confirmed: bool,
         rng: &mut (impl RngCore + CryptoRng),
         state: &dyn EnrollmentState,
     ) -> Result<PrivateKeys> {
-        let keys = self.enroll(confirmed, rng).await?;
+        let keys = self.enroll(rng).await?;
         state.enable().await?;
         Ok(keys)
     }
@@ -178,21 +172,14 @@ impl InstallationKeys<'_> {
             .transpose()
     }
 
-    pub async fn enroll(
-        &self,
-        takeover_confirmed: bool,
-        rng: &mut (impl RngCore + CryptoRng),
-    ) -> Result<PrivateKeys> {
-        if !takeover_confirmed {
-            return Err(Error::Gateway);
-        }
+    pub async fn enroll(&self, rng: &mut (impl RngCore + CryptoRng)) -> Result<PrivateKeys> {
         if self
             .store
             .load(&self.scope, Slot::Candidate)
             .await?
             .is_some()
         {
-            return self.promote_candidate(true, rng).await;
+            return self.promote_candidate(rng, true).await;
         }
         if let Some(keys) = self.load().await? {
             if !self
@@ -201,18 +188,11 @@ impl InstallationKeys<'_> {
                 .await?
                 .contains(&keys.verifier_key_id(self.uid))
             {
-                return self.promote_candidate(true, rng).await;
-            }
-            let id = self
-                .registry
-                .enroll(&keys.signing_spki(), &keys.encryption_spki(), true)
-                .await?;
-            if id != keys.verifier_key_id(self.uid) {
-                return Err(Error::InvalidKey);
+                return self.promote_candidate(rng, true).await;
             }
             return Ok(keys);
         }
-        self.promote_candidate(true, rng).await
+        self.promote_candidate(rng, true).await
     }
 
     pub async fn rotate(&self, rng: &mut (impl RngCore + CryptoRng)) -> Result<PrivateKeys> {
@@ -222,7 +202,7 @@ impl InstallationKeys<'_> {
             .await?
             .is_some()
         {
-            return self.promote_candidate(false, rng).await;
+            return self.promote_candidate(rng, false).await;
         }
         let keys = self.load().await?.ok_or(Error::Revoked)?;
         if !self
@@ -233,37 +213,52 @@ impl InstallationKeys<'_> {
         {
             return Err(Error::Revoked);
         }
-        self.promote_candidate(false, rng).await
+        self.promote_candidate(rng, false).await
     }
 
     async fn promote_candidate(
         &self,
-        replace_others: bool,
         rng: &mut (impl RngCore + CryptoRng),
+        recover_revoked: bool,
     ) -> Result<PrivateKeys> {
-        let candidate = match self.store.load(&self.scope, Slot::Candidate).await? {
-            Some(bytes) => PrivateKeys::from_storage(&bytes)?,
-            None => {
-                let candidate = PrivateKeys::generate(rng);
-                self.store
-                    .save(&self.scope, Slot::Candidate, candidate.storage_bytes())
-                    .await?;
-                candidate
+        for attempt in 0..=usize::from(recover_revoked) {
+            let candidate = match self.store.load(&self.scope, Slot::Candidate).await? {
+                Some(bytes) => PrivateKeys::from_storage(&bytes)?,
+                None => {
+                    let candidate = PrivateKeys::generate(rng);
+                    self.store
+                        .save(&self.scope, Slot::Candidate, candidate.storage_bytes())
+                        .await?;
+                    candidate
+                }
+            };
+            let id = match self
+                .registry
+                .enroll(&candidate.signing_spki(), &candidate.encryption_spki())
+                .await
+            {
+                Err(Error::Revoked) if recover_revoked => {
+                    let stored = self.store.load(&self.scope, Slot::Candidate).await?;
+                    if stored.as_ref().map(|bytes| bytes.as_slice())
+                        != Some(candidate.storage_bytes().as_slice())
+                    {
+                        return Err(Error::LocalKeyUnavailable);
+                    }
+                    self.store.delete(&self.scope, Slot::Candidate).await?;
+                    if attempt == 0 {
+                        continue;
+                    }
+                    return Err(Error::Revoked);
+                }
+                result => result?,
+            };
+            if id != candidate.verifier_key_id(self.uid) {
+                return Err(Error::InvalidKey);
             }
-        };
-        let id = self
-            .registry
-            .enroll(
-                &candidate.signing_spki(),
-                &candidate.encryption_spki(),
-                replace_others,
-            )
-            .await?;
-        if id != candidate.verifier_key_id(self.uid) {
-            return Err(Error::InvalidKey);
+            drop(candidate);
+            return self.reconcile().await?.ok_or(Error::LocalKeyUnavailable);
         }
-        drop(candidate);
-        self.reconcile().await?.ok_or(Error::LocalKeyUnavailable)
+        Err(Error::Revoked)
     }
 
     pub async fn forget(&self) -> Result<()> {

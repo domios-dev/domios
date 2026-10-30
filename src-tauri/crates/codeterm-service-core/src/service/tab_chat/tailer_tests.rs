@@ -26,6 +26,8 @@ use crate::service::tab_chat::{
     spawn_store_watch, spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
 };
 
+mod large_sessions;
+
 struct Collector {
     msgs: Mutex<Vec<RichMessage>>,
 }

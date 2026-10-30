@@ -11,7 +11,6 @@ pub enum Reason {
     FileNotFound,
     FileNotReady,
     UploadMismatch,
-    RecipientFilesUnsupported,
     EntitlementsUnavailable,
 }
 

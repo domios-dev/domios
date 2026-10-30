@@ -1,3 +1,4 @@
+import { MemoryFriendsProvider } from "./MemoryProvenance";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { listen } from "../../lib/bridge";
 import { memoryListControlsVisible } from "./memoryDetailModel";
@@ -47,7 +48,7 @@ interface Props {
   onOpenAgentsSettings: () => void;
 }
 
-export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate, onOpenAgentsSettings }: Props) {
+function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate, onOpenAgentsSettings }: Props) {
   const [detailOpen, setDetailOpen] = useState(false);
   const touchUi = useTouchOptimizedUi();
   const [activeTab, setActiveTab] = useState<MemoryTab>(normalizeTab(initialState?.activeTab));
@@ -230,6 +231,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             <MemorySnapshotCanvas
               api={api}
               index={snapshot.index}
+              metadataNodes={nodes}
               epoch={snapshot.epoch}
               pulses={pulses}
               onRefresh={() => void snapshot.refresh()}
@@ -280,4 +282,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       </div>
     </div>
   );
+}
+
+export function MemoryPanel(props: Props) {
+  return <MemoryFriendsProvider><MemoryPanelContent {...props} /></MemoryFriendsProvider>;
 }

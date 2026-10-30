@@ -62,6 +62,9 @@ pub(crate) static PROCESS_TEST_LOCK: std::sync::LazyLock<parking_lot::Mutex<()>>
 mod parity_test;
 
 #[cfg(test)]
+pub(crate) use parity_test::native_provider_fixture;
+
+#[cfg(test)]
 mod parity_converter_test;
 
 #[cfg(test)]

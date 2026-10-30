@@ -692,7 +692,7 @@ fn integration_install_is_identical_across_codeterm_instances() {
 
 #[test]
 fn bridge_rule_install_via_host_writes_file() {
-    require_plugins().expect("bundled Claude plugin is available");
+    require_plugins().expect("bundled provider plugin is available");
     let (_, bundled) = pair();
     assert_eq!(
         bundled.manifest().rule.as_ref().unwrap().path,
@@ -705,8 +705,7 @@ fn bridge_rule_install_via_host_writes_file() {
     let provider = claude_in_temp(&rule_path, &js_dir.path().join("settings.json"));
     let payload = "PROTOCOL PAYLOAD v1";
 
-    crate::agent_claude::provider::install_bridge_rule_at(&native_rules, payload)
-        .expect("native install ok");
+    install_native_rule(&native_rules, payload).expect("native install ok");
     provider
         .install_bridge_rule(payload)
         .expect("JS install ok");

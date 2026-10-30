@@ -86,13 +86,6 @@ General Agent only: deny this Neighbor's requests
 
 - `<friendship_id>`
 
-#### `domios account neighbors enroll`
-
-Receive all friends here (account takeover); use receive-here to move only one friend
-
-- `--confirm-takeover`
-- `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
-
 #### `domios account neighbors flag`
 
 Locally flag a suspicious incoming message for the owner without replying

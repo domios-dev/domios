@@ -3,7 +3,6 @@ use super::*;
 #[test]
 fn friend_receiver_refusals_preserve_feature_key_and_machine_slot_reasons() {
     for (reason, expected) in [
-        ("feature_unsupported", Error::FeatureUnsupported),
         ("key_revoked", Error::Revoked),
         ("key_not_found", Error::KeyNotFound),
         ("receiver_revision_stale", Error::ReceiverRevisionStale),

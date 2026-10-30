@@ -162,7 +162,7 @@ struct Enrollment(String);
 
 #[async_trait]
 impl KeyRegistry for Enrollment {
-    async fn enroll(&self, _: &str, _: &str, _: bool) -> codeterm_neighbors::Result<String> {
+    async fn enroll(&self, _: &str, _: &str) -> codeterm_neighbors::Result<String> {
         Ok(self.0.clone())
     }
 
@@ -218,7 +218,7 @@ async fn logout(
             scope: scope.clone(),
             uid: "owner",
         }
-        .enroll(true, &mut rng)
+        .enroll(&mut rng)
         .await
         .unwrap();
         let current = KeyStore::load(evidence.as_ref(), &scope, Slot::Current)
@@ -251,7 +251,6 @@ async fn logout(
                 uid: "owner".into(),
                 installation_id: "machine".into(),
                 machine_label: "Fixture".into(),
-                enrollment: None,
             }),
         })
         .ok()

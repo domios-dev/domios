@@ -3,7 +3,7 @@ pub use firestore::control::ControlListener;
 mod pause;
 mod receiver;
 pub const PENDING_COUNT_LIMIT: u64 = 100;
-pub use receiver::{Enrollment, ReceiverStatus};
+pub use receiver::{FriendReceiverRow, ReceiverStatus};
 #[cfg(test)]
 mod tests;
 
@@ -111,49 +111,18 @@ pub struct FirebaseRegistry {
     pub uid: String,
     pub installation_id: String,
     pub machine_label: String,
-    pub enrollment: Option<Enrollment>,
 }
 
 #[async_trait]
 impl KeyRegistry for FirebaseRegistry {
-    async fn enroll(
-        &self,
-        signing_spki: &str,
-        encryption_spki: &str,
-        replace_others: bool,
-    ) -> Result<String> {
-        let status = self.receiver_status().await?;
-        let enrollment = match &self.enrollment {
-            Some(enrollment) => enrollment.clone(),
-            None if status.receiving_here() => Enrollment {
-                installation_only: false,
-                expected_revision: status.receiver_revision,
-                takeover: false,
-                operation_id: None,
-            },
-            None => return Err(Error::NotReceiver),
-        };
-        let data = self.enrollment_data(signing_spki, encryption_spki, &enrollment, replace_others);
-        let body = match self.calls.invoke("friendsEnrollVerifierKey", data).await {
-            Ok(body) => body,
-            Err(Error::Transport) => {
-                let observed = self.receiver_status().await?;
-                let expected = format!(
-                    "vk_{}",
-                    &crate::crypto::sha256_hex(
-                        format!("verifier-key:{}:{signing_spki}", self.uid).as_bytes()
-                    )[..32]
-                );
-                if observed.receiving_here()
-                    && observed.receiver_key_id.as_deref() == Some(expected.as_str())
-                {
-                    json!({"verifier_key_id":expected})
-                } else {
-                    return Err(Error::Transport);
-                }
-            }
-            Err(error) => return Err(error),
-        };
+    async fn enroll(&self, signing_spki: &str, encryption_spki: &str) -> Result<String> {
+        let body = self
+            .calls
+            .invoke(
+                "friendsEnrollVerifierKey",
+                self.enrollment_data(signing_spki, encryption_spki),
+            )
+            .await?;
         body.get("verifier_key_id")
             .and_then(Value::as_str)
             .map(str::to_owned)
@@ -187,26 +156,13 @@ impl KeyRegistry for FirebaseRegistry {
 }
 
 impl FirebaseRegistry {
-    fn enrollment_data(
-        &self,
-        signing_spki: &str,
-        encryption_spki: &str,
-        enrollment: &Enrollment,
-        replace_others: bool,
-    ) -> Value {
-        let mut data = json!({
+    fn enrollment_data(&self, signing_spki: &str, encryption_spki: &str) -> Value {
+        json!({
+            "installation_id":self.installation_id,
             "public_key_spki_b64":signing_spki,
             "encryption_public_key_spki_b64":encryption_spki,
-            "installation_id":self.installation_id,
             "machine_label":self.machine_label,
-            "expected_receiver_revision":enrollment.expected_revision,
-            "operation_id":enrollment.operation_id.clone().unwrap_or_else(receiver::operation_id),
-            "takeover":enrollment.takeover && replace_others,
-            "features":["files.v1", "receivers.friend.v1"],
-        });
-        if enrollment.installation_only {
-            data["receiver_scope"] = json!("installation");
-        }
-        data
+            "operation_id":receiver::operation_id(),
+        })
     }
 }

@@ -307,14 +307,15 @@ it("shows a calm off state with a way back on, and draws no ring while Neighbors
 
 it("tells the old machine that receiving moved, and warns before taking it over", async () => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: { pair: "tab-gateway" }, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
   await render("paid", { runtimeClient });
-  expect(document.body.textContent).toContain("Receiving on Studio");
-  await act(async () => button("Receive all friends here").click());
-  expect(document.querySelector('[aria-label="Receive on this machine"]')?.textContent)
-    .toContain("Studio will stop receiving Neighbor messages.");
-  await act(async () => button("Receive all friends here").click());
-  expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(4);
+  await act(async () => button("Ada, connected").click());
+  expect(document.body.textContent).toContain("Studio");
+  await act(async () => button("Receive this friend here").click());
+  expect(document.querySelector('[aria-label="Receive Ada on this machine"]')?.textContent)
+    .toContain("Ada is received on Studio. Move here?");
+  await act(async () => button("Receive this friend here").click());
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 4);
 });
 
 it.each([
@@ -325,11 +326,12 @@ it.each([
   ["receiver_revision_stale", "x".repeat(4096) + "opaque-secret-tail", "x".repeat(255) + "…"],
 ] as const)("shows safe takeover failure %s without expanding Details", async (reason, message, displayed) => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
-  vi.mocked(runtimeClient.enroll).mockRejectedValue(new NeighborRuntimeFailure(reason, message));
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
+  vi.mocked(runtimeClient.receiveFriend).mockRejectedValue(new NeighborRuntimeFailure(reason, message));
   await render("paid", { runtimeClient });
-  await act(async () => button("Receive all friends here").click());
-  await act(async () => button("Receive all friends here").click());
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Receive this friend here").click());
+  await act(async () => button("Receive this friend here").click());
   const alert = document.querySelector('[role="alert"]');
   const diagnostic = Array.from(alert?.querySelectorAll("*") ?? [])
     .find(node => node.textContent === `${reason}: ${displayed}` && !node.closest("details"));
@@ -344,11 +346,12 @@ it.each([
   { token: "opaque-secret-object", message: "opaque-secret-message" },
 ])("does not retain non-runtime takeover rejection %# in the alert or Details", async failure => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: false, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
-  vi.mocked(runtimeClient.enroll).mockRejectedValue(failure);
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
+  vi.mocked(runtimeClient.receiveFriend).mockRejectedValue(failure);
   await render("paid", { runtimeClient });
-  await act(async () => button("Receive all friends here").click());
-  await act(async () => button("Receive all friends here").click());
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Receive this friend here").click());
+  await act(async () => button("Receive this friend here").click());
   const alert = document.querySelector('[role="alert"]');
   expect(alert?.textContent).toContain("Receiving could not move here. Try again.");
   expect(alert?.textContent).not.toContain("opaque-secret");
@@ -359,14 +362,15 @@ it("requires a fresh confirmation if receiving moves while the active takeover p
   const runtimeClient = runtime();
   let changed: ((event: NeighborListenerEvent) => void) | undefined;
   vi.mocked(runtimeClient.subscribe).mockImplementation(async handler => { changed = handler; return () => {}; });
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 });
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: { pair: { receiving_here: false, receiving_enabled: true, receiver_machine_label: "Studio", revision: 4 } } });
   await render("paid", { runtimeClient });
-  await act(async () => button("Receive all friends here").click());
-  await act(async () => changed?.({ receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5 }));
-  await act(async () => button("Receive all friends here").click());
-  expect(runtimeClient.enroll).not.toHaveBeenCalled();
-  await act(async () => button("Receive all friends here").click());
-  expect(runtimeClient.enroll).toHaveBeenCalledExactlyOnceWith(5);
+  await act(async () => button("Ada, connected").click());
+  await act(async () => button("Receive this friend here").click());
+  await act(async () => changed?.({ receiving_here: false, receiving_enabled: true, receiver_machine_label: "Laptop", revision: 5, friendship_id: "pair" }));
+  await act(async () => button("Receive this friend here").click());
+  expect(runtimeClient.receiveFriend).not.toHaveBeenCalled();
+  await act(async () => button("Receive this friend here").click());
+  expect(runtimeClient.receiveFriend).toHaveBeenCalledExactlyOnceWith("pair", 5);
 });
 
 it("draws the last known graph at once and says it is updating instead of loading", async () => {
@@ -391,8 +395,7 @@ it("caps the waiting count the way the daemon does", () => {
 
 it("says nothing about receiving until the daemon knows", async () => {
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, receiving_here: false, receiving_enabled: false, receiver_machine_label: null, revision: 0,
-    receiver_status_known: false } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
+  vi.mocked(runtimeClient.status).mockResolvedValue({ enrolled: true, bindings: {}, friend_receivers: {} } as unknown as Awaited<ReturnType<NeighborRuntimeClient["status"]>>);
   await render("paid", { runtimeClient });
   expect(document.body.textContent).not.toContain("Receiver not chosen yet");
   expect(hasButton("Receive all friends here")).toBe(false);
@@ -713,10 +716,22 @@ it("defaults write areas to empty and saves only selected known memory areas", a
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));
   await act(async () => button("Ada, connected").click());
-  await act(async () => { button("Memory write areas: None").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
+  const memory = document.querySelector('[data-settings-section="memory"]')!;
+  const read = memory.querySelector('[role="group"][aria-label="Read areas"]')!;
+  const write = memory.querySelector('[role="group"][aria-label="Write areas"]')!;
+  expect(read.parentElement).toBe(write.parentElement);
+  expect(read.compareDocumentPosition(write) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(read.contains(button("Read my memory"))).toBe(true);
+  expect(write.contains(button("Memory write areas: Off"))).toBe(true);
+  await act(async () => { button("Memory write areas: Off").dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0 })); });
   const options = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitemcheckbox"]'));
   expect(options.map(option => option.textContent)).toEqual(["family", "work"]);
   await act(async () => options.find(option => option.textContent === "work")!.click());
+  expect(options.find(option => option.textContent === "work")!.getAttribute("aria-checked")).toBe("true");
+  await act(async () => options.find(option => option.textContent === "family")!.click());
+  expect(button("Memory write areas: 2 areas")).toBeDefined();
+  await act(async () => options.find(option => option.textContent === "family")!.click());
+  expect(button("Memory write areas: work")).toBeDefined();
   await act(async () => button("Apply").click());
   expect(conciergeClient.setPermission).toHaveBeenCalledExactlyOnceWith("pair", expect.objectContaining({ memory_write_areas: ["work"] }));
 });
