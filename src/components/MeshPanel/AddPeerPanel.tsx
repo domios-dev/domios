@@ -41,7 +41,7 @@ export function MachineManagement({ machines }: { machines: MachinesController }
       </li>)}
     </ul>
     {view.notes.map(note => <p key={note} role="status" className={UI_TEXT.metaMuted}>{note}</p>)}
-    {(view.removed || view.reauthRequired) && <button type="button" className={PRIMARY_BTN} onClick={() => void machines.signIn()}>Rejoin mesh</button>}
+    {(view.removed || view.reauthRequired) && <button type="button" className={PRIMARY_BTN} onClick={() => void machines.signIn()}>{view.removed ? "Sign in and rejoin" : "Sign in again"}</button>}
   </section>;
 }
 

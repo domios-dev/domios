@@ -48,7 +48,7 @@ async fn restored_older_grant_after_restart_is_refused_by_the_durable_floor() {
     );
     billing.prime(&user);
     billing
-        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .refresh(Some(&user), RefreshEvent::PlanChanged, Instant::now())
         .await;
     assert_eq!(authority(&billing), Authority::Free);
     assert_eq!(

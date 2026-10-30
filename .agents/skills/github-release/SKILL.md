@@ -362,6 +362,10 @@ key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-en
 certificate is provisioned as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` release environment secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
 
+Windows installer hooks run in Windows PowerShell 5.1, not pwsh. The Windows Rust CI job
+runs `node --test scripts/tests/installer-preflight.test.mjs`, including the actual NSIS
+preflight against an empty isolated install directory and syntax checks of every hook script.
+
 ### Runner map
 
 Release workflows verify the compiled server's production analytics fingerprint with

@@ -43,17 +43,25 @@ fn enrollment_callable_details_preserve_each_typed_refusal() {
 
 #[tokio::test]
 async fn enrollment_refusals_reach_last_refusal_without_recovering_the_key() {
-    for &(reason, refusal) in REFUSALS {
+    for &(_, refusal) in REFUSALS {
         let harness = Harness::new().await;
         harness.registry.script.lock().unwrap().enrollment = Some(refusal);
         harness.sign_in("user-1").await;
+        let expected = if refusal == RegistryRefusal::GenerationMismatch {
+            AccountMeshRefusal::ReauthRequired
+        } else {
+            AccountMeshRefusal::from(refusal)
+        };
         assert_eq!(
             harness.mesh.refresh(EnrollTrigger::Automatic).await,
-            Err(AccountMeshRefusal::from(refusal))
+            Err(expected)
         );
         let view = serde_json::to_value(harness.state().view()).unwrap();
         assert_eq!(view["enrollment"], "refused");
-        assert_eq!(view["last_refusal"], json!({"reason": reason}));
+        assert_eq!(
+            view["last_refusal"],
+            serde_json::to_value(expected).unwrap()
+        );
         assert_eq!(harness.calls("enroll_key"), 1);
         assert_eq!(harness.calls("recover_key"), 0);
     }

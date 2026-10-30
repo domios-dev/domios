@@ -76,3 +76,10 @@ describe("account installation projection", () => {
     expect(canvas(view).nodes.every(node => node.action?.kind === "plans")).toBe(true);
   });
 });
+
+ it("requires registry evidence for removed copy while retaining sign-in recovery", () => {
+   const refused = snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "revoked" } });
+   expect(account(refused).removed).toBe(false);
+   expect(account(refused).reauthRequired).toBe(true);
+   expect(account(snapshot({ ...refused, registry: { observed_at: NOW, rows: [{ ...selfRow, active: false }] } })).removed).toBe(true);
+ });

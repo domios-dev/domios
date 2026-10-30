@@ -145,3 +145,32 @@ async fn corrupt_peer_presence_requires_refresh_without_poisoning_the_main_store
     assert!(!store.load().await.unwrap().peer_presence_refresh);
     assert_eq!(fs::read(path).unwrap(), b"{}");
 }
+
+#[tokio::test]
+async fn terminal_signin_gate_roundtrips_in_current_record_without_rollback_sidecar() {
+    let directory = std::env::temp_dir().join(format!(
+        "codeterm-mesh-signin-gate-{}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+    let store = FileAccountMeshStore::new(directory.clone());
+    let mut record = AccountMeshRecord::default();
+    record
+        .reauth_required_accounts
+        .insert("opaque-account".into());
+    store.save(&record).await.unwrap();
+    assert_eq!(
+        store.load().await.unwrap().reauth_required_accounts,
+        record.reauth_required_accounts
+    );
+    assert!(!directory.join("state/account/mesh-reauth.json").exists());
+    record.reauth_required_accounts.clear();
+    store.save(&record).await.unwrap();
+    assert!(store
+        .load()
+        .await
+        .unwrap()
+        .reauth_required_accounts
+        .is_empty());
+    fs::remove_dir_all(directory).unwrap();
+}

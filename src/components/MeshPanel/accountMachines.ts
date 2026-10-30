@@ -4,6 +4,7 @@ import type { AccountMachineRow, AccountMeshFailure, AccountMeshSnapshot, LocalP
 
 export const SIGNED_OUT_COPY = "Signed out — sign in to use the mesh";
 export const SIGN_IN_COPY = "Sign in on each machine with the same Domios account to connect automatically.";
+export const REMOVED_COPY = "This machine was removed from your mesh. Sign in again to rejoin.";
 export const REAUTH_REQUIRED_COPY = "This machine needs a fresh sign-in to rejoin your mesh.";
 export const PLAN_LOCKED_COPY = "Locked — this machine is outside your plan's machine limit";
 export type AccountPresence = "pending" | "signed_out" | "signed_in";
@@ -66,11 +67,11 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   const failure = listFailure ?? snapshot.registry_failure;
   if (failure) notes.push(`${snapshot.registry ? "Showing the last account list. " : ""}${failureMessage(failure)}`);
   const own = snapshot.self;
-  const ownRow = own ? unique.get(own.installation_id) : null;
+  const ownRow = unique.get(selfId);
   return {
     kind: "account", machineLimit,
-    removed: refusal?.reason === "revoked" || ownRow?.active === false,
-    reauthRequired: snapshot.enrollment === "refused" && ["reauth_required", "generation_mismatch", "key_conflict"].includes(refusal?.reason ?? ""),
+    removed: ownRow?.active === false,
+    reauthRequired: snapshot.enrollment === "refused" && ["reauth_required", "generation_mismatch", "key_conflict", "revoked"].includes(refusal?.reason ?? ""),
     self: own ? { readOnly: !usable, planLimited: locked, name: ownRow?.display_name ?? own.display_name ?? "This machine", installationId: own.installation_id,
       metadataRevision: ownRow?.metadata_revision ?? own.metadata_revision, displayName: ownRow?.display_name ?? own.display_name } : null,
     machines, saved: [], notes,

@@ -147,3 +147,104 @@ async fn account_mesh_post_sign_in_list_and_automatic_refresh_enroll_the_key_onc
         .keys
         .contains_key(&account_id(UID)));
 }
+
+#[tokio::test]
+async fn account_mesh_terminal_admission_waits_for_fresh_signin_across_restart() {
+    for refusal in [
+        RegistryRefusal::GenerationMismatch,
+        RegistryRefusal::Forbidden,
+    ] {
+        let mut harness = Harness::new().await;
+        harness.sign_in(UID).await;
+        if refusal == RegistryRefusal::GenerationMismatch {
+            harness.registry.script.lock().unwrap().enrollment = Some(refusal);
+        } else {
+            harness
+                .mesh
+                .refresh(EnrollTrigger::Automatic)
+                .await
+                .unwrap();
+            harness.clock.set(START + 3600);
+            harness.registry.script.lock().unwrap().membership = Some(refusal);
+        }
+        assert_eq!(
+            harness.mesh.refresh(EnrollTrigger::Automatic).await,
+            Err(AccountMeshRefusal::ReauthRequired)
+        );
+        let calls = count(&harness.log, "registry:");
+        for trigger in [
+            EnrollTrigger::Lease,
+            EnrollTrigger::Network,
+            EnrollTrigger::Explicit,
+        ] {
+            harness.clock.set(START + 86400);
+            assert_eq!(
+                harness.mesh.refresh(trigger).await,
+                Err(AccountMeshRefusal::ReauthRequired)
+            );
+            assert_eq!(
+                harness.mesh.list().await,
+                Err(AccountMeshRefusal::ReauthRequired)
+            );
+        }
+        assert_eq!(count(&harness.log, "registry:"), calls);
+        assert!(harness.state().membership.is_none());
+        assert_eq!(harness.state().retry_at, None);
+        harness.restart().await;
+        harness.sign_in(UID).await;
+        assert_eq!(
+            harness.mesh.refresh(EnrollTrigger::Automatic).await,
+            Err(AccountMeshRefusal::ReauthRequired)
+        );
+        assert_eq!(count(&harness.log, "registry:"), calls);
+        {
+            let mut script = harness.registry.script.lock().unwrap();
+            script.enrollment = None;
+            script.membership = None;
+        }
+        harness.mesh.enrollment_signed_in();
+        harness
+            .mesh
+            .refresh(EnrollTrigger::Automatic)
+            .await
+            .unwrap();
+        assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
+        assert!(!harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .reauth_required_accounts
+            .contains(&account_id(UID)));
+    }
+}
+
+#[tokio::test]
+async fn account_mesh_credential_refresh_cannot_reopen_terminal_signin_gate() {
+    let harness = Harness::new().await;
+    harness.sign_in(UID).await;
+    harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unauthenticated);
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
+        Err(AccountMeshRefusal::Unauthenticated)
+    );
+    assert_eq!(
+        harness
+            .mesh
+            .require_sign_in(harness.state().account_epoch)
+            .await,
+        AccountMeshRefusal::ReauthRequired
+    );
+    let mut refreshed = session(UID);
+    refreshed.id_token = crate::Secret::new("refreshed-after-terminal-refusal");
+    assert!(!harness.mesh.credentials_refreshed(&refreshed));
+    assert_eq!(
+        harness.state().last_refusal,
+        Some(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(
+        harness.mesh.list().await,
+        Err(AccountMeshRefusal::ReauthRequired)
+    );
+    assert_eq!(harness.state().retry_at, None);
+}

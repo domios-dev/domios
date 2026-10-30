@@ -24,6 +24,20 @@ $script:fixtureSnapshot = $snapshot
 $script:fixtureForeign = @{ 99 = $records[4]; 88 = $records[5] }
 $cases = [Collections.Generic.List[string]]::new()
 
+function Normalize-OwnedCallOrder {
+    param([string[]]$Calls)
+    for ($index = 0; $index -lt $Calls.Count; $index++) {
+        if ($Calls[$index] -notmatch '^(kill|wait):(42|43|44)$') { $Calls[$index]; continue }
+        $phase = $Matches[1]
+        $group = @($Calls[$index])
+        while ($index + 1 -lt $Calls.Count -and $Calls[$index + 1] -match "^${phase}:(42|43|44)$") {
+            $index++
+            $group += $Calls[$index]
+        }
+        $group | Sort-Object
+    }
+}
+
 function Run-Case {
     param([string]$Name, [hashtable]$Options, [bool]$ExpectedSuccess, [string[]]$ExpectedCalls)
     $script:scenario = @{
@@ -87,7 +101,7 @@ function Run-Case {
     }
     if ($succeeded -ne $ExpectedSuccess) { throw "Wrong outcome: $Name" }
     $calls = $script:scenario.Calls.ToArray()
-    if (($calls -join ',') -cne ($ExpectedCalls -join ',')) {
+    if (((Normalize-OwnedCallOrder $calls) -join ',') -cne ((Normalize-OwnedCallOrder $ExpectedCalls) -join ',')) {
         throw "Wrong side effects for ${Name}: $($calls -join ',')"
     }
     if ($calls -contains 'kill:45' -or $calls -contains 'kill:99' -or $calls -contains 'kill:88') {

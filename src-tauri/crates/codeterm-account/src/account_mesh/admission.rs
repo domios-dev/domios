@@ -20,6 +20,9 @@ impl AccountMesh {
             {
                 return false;
             }
+            if inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
+                return false;
+            }
             let stamp = CredentialStamp {
                 epoch: inner.state.account_epoch,
                 generation: session.login_generation,

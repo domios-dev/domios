@@ -51,7 +51,7 @@ async fn account_mesh_fresh_sign_in_assigns_a_stale_generation_and_recovers_own_
     harness.sign_in("owner").await;
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
-        Err(AccountMeshRefusal::GenerationMismatch)
+        Err(AccountMeshRefusal::ReauthRequired)
     );
     let before = count(&harness.log, "registry:");
     harness.clock.set(START + 86400);
