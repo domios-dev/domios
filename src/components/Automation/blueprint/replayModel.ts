@@ -36,7 +36,7 @@ export function projectRunPath(model: BlueprintGraphModel, events: readonly Blue
     && (wire.kind === "data" || wire.outcome === null || traversed.get(wire.from.node)?.has(wire.outcome))) wires.add(wire.id);
   const current = events[through - 1]?.key ?? null;
   const keys = new Set(model.nodes.map((node) => node.key));
-  let active = current;
+  let active: string | null = current;
   if (active && !keys.has(active)) {
     const path = JSON.parse(active) as string[];
     while (path.length && !keys.has(JSON.stringify(path))) path.pop();
