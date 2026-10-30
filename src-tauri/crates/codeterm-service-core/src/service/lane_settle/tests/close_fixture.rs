@@ -6,7 +6,8 @@ use crate::service::test_fixture::ServiceFixture;
 
 fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
     let root = tempfile::tempdir().unwrap();
-    let root_path = root.path().canonicalize().unwrap();
+    let root_path =
+        std::path::PathBuf::from(codeterm_paths::canonical_cwd(root.path().to_str().unwrap()));
     let canonical = root_path.join("project");
     std::fs::create_dir(&canonical).unwrap();
     git(&canonical, &["init", "-q", "-b", "main"]);
