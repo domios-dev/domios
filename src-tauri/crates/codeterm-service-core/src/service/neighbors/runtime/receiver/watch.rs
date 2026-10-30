@@ -27,7 +27,6 @@ impl ReceptionEvents for ControlWatch {
         if self.current().is_err() {
             return;
         }
-        self.service.neighbor_cell().receiver.lock().take();
         self.service.neighbor_watch_failure("control", error);
     }
     fn state(&self, state: ListenerState) {
@@ -67,7 +66,6 @@ impl DocumentSession for ControlWatch {
         loop {
             listener.changed().await?.ok_or(Error::Transport)?;
             self.current()?;
-            self.service.neighbor_cell().receiver.lock().take();
             let version = self.service.forget_neighbor_friend_receivers();
             self.service.ui.emit(
                 "neighbor-runtime-status",

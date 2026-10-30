@@ -329,7 +329,7 @@ fn file_failure(message: &str) -> Option<Response> {
         "file_daily_limit" | "sender_quota" | "file_rate_limited" => StatusCode::TOO_MANY_REQUESTS,
         "file_not_found" => StatusCode::NOT_FOUND,
         "files_disabled" | "entitlements_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
-        "file_not_ready" | "upload_mismatch" | "recipient_files_unsupported" => {
+        "file_not_ready" | "upload_mismatch" => {
             StatusCode::CONFLICT
         }
         _ => return None,
@@ -475,8 +475,6 @@ fn neighbor_failure(message: String) -> Response {
             | "receiving_elsewhere"
             | "receiver_not_chosen"
             | "receiver_status_unknown"
-            | "receivers_present"
-            | "feature_unsupported"
             | "key_revoked"
             | "friendship_ended"
             | "reply_target_stopped"

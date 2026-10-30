@@ -11,7 +11,7 @@ pub struct ControlListener {
 impl FirebaseTransport {
     pub async fn listen_control(&self) -> Result<ControlListener> {
         let (client, token, database) = connection(self).await?;
-        let path = format!("{database}/documents/neighborAccounts/{}", self.uid);
+        let path = format!("{database}/documents/neighborSignals/{}", self.uid);
         let (sender, receiver) = tokio::sync::mpsc::channel(1);
         sender
             .send(fs::ListenRequest {
@@ -19,7 +19,7 @@ impl FirebaseTransport {
                 target_change: Some(fs::listen_request::TargetChange::AddTarget(fs::Target {
                     target_type: Some(fs::target::TargetType::Documents(
                         fs::target::DocumentsTarget {
-                            documents: ["neighborAccounts"]
+                            documents: ["neighborSignals"]
                                 .iter()
                                 .map(|collection| {
                                     format!("{database}/documents/{collection}/{}", self.uid)

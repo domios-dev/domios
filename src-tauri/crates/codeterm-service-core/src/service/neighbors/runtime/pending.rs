@@ -51,7 +51,6 @@ impl ServiceContext {
     pub(super) fn neighbor_concierge_views(
         &self,
         settings: &Settings,
-        account_receiver: &ReceiverStatus,
         friends: &Value,
     ) -> Value {
         let mut views = serde_json::Map::new();
@@ -65,11 +64,7 @@ impl ServiceContext {
                             settings,
                             &self
                                 .neighbor_friend_receiver(id)
-                                .unwrap_or_else(|| ReceiverStatus {
-                                    is_me: false,
-                                    receiving_enabled: false,
-                                    ..account_receiver.clone()
-                                }),
+                                .unwrap_or_default(),
                         ),
                     );
                 }

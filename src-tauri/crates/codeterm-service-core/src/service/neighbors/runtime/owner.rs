@@ -23,11 +23,6 @@ pub(super) enum Operation {
     },
     ReceiverChanged,
     RegistryChanged,
-    ClaimFirstReceiver {
-        friendship: String,
-        uid: String,
-        expected_generation: u64,
-    },
     Refuse {
         friendship: String,
         message_id: String,
@@ -89,16 +84,6 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
-            Operation::ClaimFirstReceiver {
-                friendship,
-                uid,
-                expected_generation,
-            } => {
-                self.require_neighbor_generation(expected_generation)?;
-                self.claim_first_neighbor_receiver_owned(&friendship, &uid, generation)
-                    .await?;
-                Ok(Outcome::Value(Value::Null))
-            }
             Operation::StopLocal {
                 expected_generation,
             } => {

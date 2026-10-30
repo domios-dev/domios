@@ -64,7 +64,7 @@ impl ServiceContext {
             NeighborRuntimeCommand::SetFriendReceiver {
                 receiver_operation: receiver::selection::Selection::Reset,
                 ..
-            } | NeighborRuntimeCommand::Enroll { .. }
+            }
                 | NeighborRuntimeCommand::Rotate
                 | NeighborRuntimeCommand::Revoke
         ) {

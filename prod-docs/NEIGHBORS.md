@@ -6,25 +6,25 @@ Default on. Off retains data/keys but stops receive/send/notices; sends/grants/b
 
 ## Receiving and keys
 
-Per-friend receiving overrides the account default. Receive this friend here changes one friend; Receive all friends here confirms account takeover. No automatic takeover. One key pair serves local concierges; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
+Each friend has one receiver: the machine running that friend's concierge. Setup registers this machine's key if missing, then selects only that friend using its observed revision (0 when unassigned). No separate account receiving step. A friend without a receiver waits in the inbox. Moving an assigned friend requires explicit owner consent. One installation key pair serves local concierges; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
 
 ```bash
 domios account neighbors status
-domios account neighbors enroll --confirm-takeover --expected-receiver-revision 0
+domios account neighbors receive-here FRIENDSHIP_ID --expected-receiver-revision 0
 domios account neighbors own-keys
 domios account neighbors rotate
 domios account neighbors revoke
 ```
 
-Friend moves use the effective revision; account enrollment uses top-level revision. Reconfirm stale. `status.friend_receivers[id]` exposes `receiving_here,receiver_machine_label,receiving_enabled,revision,source`; missing=unknown, never account fallback. Top-level receiver fields describe the account default. Keys: Windows Credential Manager/macOS Keychain/Linux Secret Service; unavailable stores refuse. Sign-out clears access first, stops reception, then removes only local private keys.
+Friend moves use that friend's revision; refresh and reconfirm stale requests. `status.friend_receivers[id]` exposes `receiving_here,receiver_machine_label,receiving_enabled,revision,is_me`; missing means unknown. Status has no account receiver row. Reset stops receiving only that friend, leaving messages pending until another concierge machine is chosen. Keys: Windows Credential Manager/macOS Keychain/Linux Secret Service; unavailable stores refuse. Sign-out clears access first, stops reception, then removes only local private keys.
 
 Headless Linux exception: explicit `neighbors.key_store = "file"` selects unencrypted `neighbor-keys/` (directory 0700, files 0600) only when Secret Service is unavailable. Wider modes, foreign owners, symlinks and hard links refuse. An available OS store wins; a locked store refuses. Never select files without config or on Windows/macOS. Protect key backups; setup details are in the distribution's headless Linux guide.
 
-Local grants/setup. Receiver loss closes agents to Recently Closed and revokes credentials; return starts fresh. Unknown: `receiver_status_unknown`; confirmed no choice: `receiver_not_chosen`; another receiver: `receiving_elsewhere` naming its machine. No automatic claim on this backend; use the per-friend receiving action. Without a concierge, ciphertext waits unacknowledged; no cursor advance until setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Recounts coalesce.
+Local grants/setup. Receiver loss closes agents to Recently Closed and revokes credentials; return starts fresh. Unknown: `receiver_status_unknown`; confirmed no choice: `receiver_not_chosen`; another receiver: `receiving_elsewhere` naming its machine. Concierge setup selects this friend when unassigned. If another machine receives, show “<friend> is received on <machine>. Move here?” and obtain consent before selecting here. Without a concierge, ciphertext waits unacknowledged; no cursor advance until setup. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Recounts coalesce.
 
 Transient setup/listen failures retry with capped backoff until stopped; permanent failures await explicit rearm or account/registry changes. Auth/revocation/off/generation/receiver changes stop. Retry retains cursors; uncertain mutations never replay. Errors:status.watches/neighbors-watch-status. Details:API-LIFECYCLE.
 
-General: `domios account neighbors receive-here ID --expected-receiver-revision N`, N from status. If elsewhere, name its machine and ask; add `--takeover-confirmed` only after approval. Stale:refresh/reconfirm. No grant edits; Workers/concierges/peers refused. No background invitation claim or retry.
+General: `domios account neighbors receive-here ID --expected-receiver-revision N`, N from status. If elsewhere, say “<friend> is received on <machine>. Move here?” and ask; add `--takeover-confirmed` only after approval. Stale:refresh/reconfirm. No grant edits; Workers/concierges/peers refused. No background invitation claim or retry.
 
 ## Authority and permissions
 
@@ -163,7 +163,7 @@ Owner/General `pause_friend`/`resume_friend {friendship_id}` return `{friendship
 
 ## Files
 
-Attach at most4 files/message. Encrypted object maximum2 MiB leaves2097120 source bytes. Text/private manifests share32752 plaintext bytes. Unsupported receiver: `recipient_files_unsupported`. Clients encrypt before upload; download caps bytes, verifies size/digest before decrypt, then saves in that friend's folder. Sanitization rejects reserved/invalid/traversal names; nothing auto-opens/executes/unpacks. Owner opens saved files/folder from friend page. Keys/private manifests never enter history/notices/concierge text.
+Attach at most4 files/message. Encrypted object maximum2 MiB leaves2097120 source bytes. Text/private manifests share32752 plaintext bytes. Files require a live receiver; otherwise `recipient_not_receiving`. Clients encrypt before upload; download caps bytes, verifies size/digest before decrypt, then saves in that friend's folder. Sanitization rejects reserved/invalid/traversal names; nothing auto-opens/executes/unpacks. Owner opens saved files/folder from friend page. Keys/private manifests never enter history/notices/concierge text.
 
 Granted concierge list/open resolves own-friend saved handles to paths for tools; no OS-app launch/path upload/limit edits/foreign enumeration. Revocation blocks reads (`neighbor_files_not_allowed`), not downloads. Receive folder is independent of concierge cwd.
 
@@ -173,4 +173,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 55 -->
+<!-- revision: 56 -->

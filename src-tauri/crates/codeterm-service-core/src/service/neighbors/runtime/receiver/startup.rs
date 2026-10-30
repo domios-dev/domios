@@ -19,7 +19,6 @@ impl ServiceContext {
         &self,
         metadata: &Metadata,
         registry: &FirebaseRegistry,
-        account: &ReceiverStatus,
         list: &Value,
         local_key: Option<&str>,
         generation: u64,
@@ -39,13 +38,13 @@ impl ServiceContext {
                         .map_err(|_| Error::InvalidEnvelope.to_string())?,
                     &registry.installation_id,
                 )?,
-                None => FriendReceiver::from_account(account),
+                None => return Err(Error::InvalidEnvelope.to_string()),
             };
             receivers.insert(id.to_owned(), receiver);
         }
         if receivers.values().any(|receiver| {
             receiver.status.receiving_here()
-                && (local_key.is_none() || receiver.status.receiver_key_id.as_deref() != local_key)
+                && (local_key.is_none() || receiver.status.receiver_encryption_key_id.as_deref() != local_key)
         }) {
             return Err(Error::LocalKeyUnavailable.to_string());
         }
@@ -79,9 +78,6 @@ impl ServiceContext {
                 .map(Self::receiver_view)
                 .unwrap_or_else(|| json!({"receiver_unavailable":true}));
             view["friendship_id"] = json!(change.friendship_id);
-            if let Some(receiver) = &change.current {
-                view["source"] = json!(receiver.source);
-            }
             view["friend_receivers_version"] = json!(change.version);
             self.ui.emit("neighbor-runtime-status", view);
             if !here && status.is_some() {
@@ -147,15 +143,8 @@ impl ServiceContext {
         self.drain_neighbor_stop_local(generation).await?;
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
-        let mut account = if recover_keys {
-            self.refresh_neighbor_receiver(&registry, &scope, generation)
-                .await?
-        } else {
-            self.refresh_neighbor_receiver_readonly(&registry, generation)
-                .await?
-        };
         let lifecycle = InstallationKeys {
-            store: &OsKeyStore,
+            store: &self.neighbor_key_store().map_err(|error| error.to_string())?,
             registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,
@@ -166,18 +155,6 @@ impl ServiceContext {
             lifecycle.load().await
         }
         .map_err(|error| error.to_string())?;
-        if let Some(keys) = local.as_ref().filter(|_| account.receiving_here()) {
-            if self
-                .advertise_neighbor_files(&registry, &account, keys, generation)
-                .await
-                .map_err(|error| error.to_string())?
-            {
-                account = self
-                    .refresh_neighbor_receiver_readonly(&registry, generation)
-                    .await?;
-                self.forget_neighbor_registry();
-            }
-        }
         let cached = self.neighbor_cell().registry_snapshot.lock().clone();
         let list = match cached {
             Some(list) => list,
@@ -190,12 +167,11 @@ impl ServiceContext {
         self.remember_neighbor_names(&list);
         let local_id = local
             .as_ref()
-            .map(|keys| keys.verifier_key_id(&transport.uid));
+            .map(|keys| keys.encryption_key_id());
         drop(local);
         self.reconcile_neighbor_friend_receiver_rows(
             &metadata,
             &registry,
-            &account,
             &list,
             local_id.as_deref(),
             generation,
@@ -227,7 +203,7 @@ impl ServiceContext {
             else {
                 continue;
             };
-            if local_id.as_deref() != receiver.receiver_key_id.as_deref() || local_id.is_none() {
+            if local_id.as_deref() != receiver.receiver_encryption_key_id.as_deref() || local_id.is_none() {
                 self.forget_neighbor_friend_receivers();
                 self.stop_neighbor_listeners();
                 return Err(Error::LocalKeyUnavailable.to_string());

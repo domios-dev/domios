@@ -18,8 +18,8 @@ it.each(["set", "reset"] as const)("moves only the requested friend for %s", asy
 it("keeps machine quota metadata and new receiver refusals typed", async () => {
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "key_limit", limit: 5, active: 5, message: "All machine slots are in use" }), { status: 409 }));
   await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "key_limit", limit: 5, active: 5 });
-  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "feature_unsupported", message: "Update the account receiver" }), { status: 409 }));
-  await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "feature_unsupported" });
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiver_revision_stale", message: "Receiving changed; confirm again" }), { status: 409 }));
+  await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "receiver_revision_stale" });
 });
 
 it("opens a saved file from the desktop app so it comes to the front, and falls back to the daemon open", async () => {

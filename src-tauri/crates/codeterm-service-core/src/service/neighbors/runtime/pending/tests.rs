@@ -30,11 +30,11 @@ fn receiving() -> ReceiverStatus {
     ReceiverStatus {
         receiver_revision: 1,
         receiver_installation_id: Some("machine".into()),
-        receiver_key_id: None,
+        receiver_encryption_key_id: None,
         receiver_machine_label: Some("Here".into()),
         receiving_enabled: true,
         is_me: true,
-        legacy_active: false,
+
     }
 }
 
@@ -112,7 +112,7 @@ async fn missing_concierge_never_admits_acknowledges_or_advances_a_cursor() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let service = &fixture.service;
-    *service.neighbor_cell().receiver.lock() = Some(receiving());
+
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
     service.set_neighbor_friend_receiver_for_test(&friendship, Some(true), 1);
@@ -130,8 +130,7 @@ async fn missing_concierge_never_admits_acknowledges_or_advances_a_cursor() {
             uid: "owner".into(),
             installation_id: "machine".into(),
             machine_label: "Here".into(),
-            enrollment: None,
-        }),
+            }),
         scope: KeyScope::installation("machine", "owner").unwrap(),
         metadata: metadata.clone(),
         friendship: friendship.clone(),
@@ -225,7 +224,7 @@ async fn receiver_move_keeps_local_concierge_and_never_copies_bindings_or_permis
     );
     receiver.is_me = false;
     receiver.receiver_machine_label = Some("Other machine".into());
-    *service.neighbor_cell().receiver.lock() = Some(receiver.clone());
+
     service.stop_neighbor_listeners();
     let view = service.neighbor_concierge_view(&friendship, &settings, &receiver);
     assert_eq!(view["state"], "receiving_elsewhere");

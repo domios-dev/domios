@@ -51,14 +51,12 @@ pub struct NeighborRuntimeCell {
     pub(super) failures: parking_lot::Mutex<HashMap<String, Value>>,
     pending_counts: parking_lot::Mutex<HashMap<String, u64>>,
     names: parking_lot::Mutex<HashMap<String, String>>,
-    receiver: parking_lot::Mutex<Option<codeterm_neighbors::adapter::ReceiverStatus>>,
     control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
     control_start: tokio::sync::Mutex<()>,
     control_cancel: tokio::sync::Notify,
     pub(super) watch_states: parking_lot::Mutex<std::collections::BTreeMap<String, Value>>,
     bootstrapped: std::sync::atomic::AtomicBool,
     restoration: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    file_advertised_generation: tokio::sync::Mutex<Option<u64>>,
 }
 
 #[derive(Deserialize)]
@@ -103,10 +101,6 @@ pub enum NeighborRuntimeCommand {
         service_tier: Option<String>,
     },
     Status,
-    Enroll {
-        takeover_confirmed: bool,
-        expected_receiver_revision: u64,
-    },
     SetFriendReceiver {
         friendship_id: String,
         receiver_operation: receiver::selection::Selection,
@@ -257,7 +251,6 @@ impl ServiceContext {
             uid: uid.clone(),
             installation_id: installation_id.clone(),
             machine_label,
-            enrollment: None,
         });
         let scope = KeyScope::installation(self.installation_id().await?.as_str(), &uid)
             .map_err(|e| e.to_string())?;
@@ -398,38 +391,11 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
         }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
-        let registry = match &command {
-            NeighborRuntimeCommand::Enroll {
-                takeover_confirmed: true,
-                expected_receiver_revision,
-            } => Arc::new(FirebaseRegistry {
-                enrollment: Some(codeterm_neighbors::adapter::Enrollment {
-                    installation_only: false,
-                    expected_revision: *expected_receiver_revision,
-                    takeover: true,
-                    operation_id: None,
-                }),
-                ..registry.as_ref().clone()
-            }),
-            NeighborRuntimeCommand::Enroll { .. } => {
-                return Err("Receive here requires confirmation".into())
-            }
-            _ => registry,
+        let mutation_friend = match &command {
+            NeighborRuntimeCommand::SetFriendReceiver { friendship_id, .. } => Some(friendship_id.clone()),
+            _ => None,
         };
-        let friend_mutation = matches!(&command, NeighborRuntimeCommand::SetFriendReceiver { .. });
-        let receiver_status = if friend_mutation
-            || matches!(
-                &command,
-                NeighborRuntimeCommand::SetPermission { .. }
-                    | NeighborRuntimeCommand::Bind { .. }
-                    | NeighborRuntimeCommand::ChangeAgent { .. }
-            ) {
-            self.refresh_neighbor_receiver_readonly(&registry, generation)
-                .await?
-        } else {
-            self.refresh_neighbor_receiver(&registry, &scope, generation)
-                .await?
-        };
+        let friend_mutation = mutation_friend.is_some();
         match &command {
             NeighborRuntimeCommand::SetPermission { friendship_id, .. }
             | NeighborRuntimeCommand::Bind { friendship_id, .. }
@@ -467,8 +433,7 @@ impl ServiceContext {
         };
         let receiver_mutation = matches!(
             &command,
-            NeighborRuntimeCommand::Enroll { .. }
-                | NeighborRuntimeCommand::SetFriendReceiver { .. }
+            NeighborRuntimeCommand::SetFriendReceiver { .. }
                 | NeighborRuntimeCommand::Rotate
                 | NeighborRuntimeCommand::Revoke
         );
@@ -566,21 +531,9 @@ impl ServiceContext {
                         .map_err(concierge::launch_error)?;
                     Ok(json!({"gateway_tab":tab,"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier}))
                 }
-                NeighborRuntimeCommand::Enroll {
-                    takeover_confirmed,
-                    expected_receiver_revision,
-                } => {
-                    if expected_receiver_revision != receiver_status.receiver_revision {
-                        return Err(Error::ReceiverRevisionStale);
-                    }
-                    let keys = lifecycle
-                        .enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata)
-                        .await?;
-                    Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
-                }
                 NeighborRuntimeCommand::SetFriendReceiver { friendship_id,receiver_operation,takeover_confirmed,expected_receiver_revision } => {
                     self.set_neighbor_friend_receiver(&registry,&scope,&metadata,&friendship_id,receiver_operation,
-                        takeover_confirmed,false,expected_receiver_revision,generation).await
+                        takeover_confirmed,expected_receiver_revision,generation).await
                 }
                 NeighborRuntimeCommand::Retry { friendship_id } => {
                     if !hex_id(&friendship_id, 64) {
@@ -598,9 +551,6 @@ impl ServiceContext {
                     Ok(json!({"status":"reconnecting"}))
                 }
                 NeighborRuntimeCommand::Rotate => {
-                    if !receiver_status.receiving_here() {
-                        return Err(Error::NotReceiver);
-                    }
                     self.stop_neighbor_listeners();
                     let keys = lifecycle.rotate(&mut rand::rngs::OsRng).await?;
                     Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
@@ -608,11 +558,6 @@ impl ServiceContext {
                 NeighborRuntimeCommand::Revoke => {
                     self.stop_neighbor_listeners();
                     self.retire_local_neighbor_concierges(&metadata,&transport.uid,generation).await.map_err(|_| Error::Gateway)?;
-                    if receiver_status.receiver_installation_id.as_deref() == Some(transport.installation_id.as_str()) {
-                        if let Err(error) = registry.disable_receiving(receiver_status.receiver_revision).await {
-                            log::debug!("[neighbors] account receiver stop refused; revoking this installation's keys: {error}");
-                        }
-                    }
                     lifecycle.revoke().await?;
                     let mut settings = metadata.settings().await?;
                     settings.enabled = false;
@@ -690,7 +635,6 @@ impl ServiceContext {
         }
         .await;
         if receiver_mutation {
-            self.neighbor_cell().receiver.lock().take();
             self.forget_neighbor_registry();
         }
         let result = match result {
@@ -714,18 +658,15 @@ impl ServiceContext {
                             generation,
                         )
                         .await;
+                    if error == Error::ReceiverElsewhere {
+                        if let Some(friendship) = mutation_friend.as_deref() {
+                            if let Some(status) = self.neighbor_friend_receiver(friendship) {
+                                let name = self.neighbor_cell_names().get(friendship).cloned().unwrap_or_else(|| "This friend".into());
+                                return Err(first_action::receiver_refusal(friendship, &name, &status));
+                            }
+                        }
+                    }
                     return Err(error.to_string());
-                }
-                if matches!(
-                    error,
-                    Error::ReceiverRevisionStale
-                        | Error::ReceiverElsewhere
-                        | Error::Transport
-                        | Error::NotReceiver
-                ) {
-                    let _ = self
-                        .refresh_neighbor_receiver(&registry, &lifecycle.scope, generation)
-                        .await;
                 }
                 return Err(error.to_string());
             }
@@ -825,7 +766,6 @@ impl ServiceContext {
     ) -> Result<(), String> {
         self.require_neighbors_enabled()
             .map_err(|e| e.to_string())?;
-        self.neighbor_cell().receiver.lock().take();
         self.forget_neighbor_registry();
         if let Some(friendship) = friendship {
             self.stop_neighbor_concierge_listener(friendship);
@@ -849,7 +789,6 @@ impl ServiceContext {
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
-        self.neighbor_cell().receiver.lock().take();
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();
         }
@@ -871,7 +810,6 @@ impl ServiceContext {
         if let Some(task) = self.neighbor_cell().control.lock().take() {
             task.abort();
         }
-        self.neighbor_cell().receiver.lock().take();
         self.stop_neighbor_updates();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell()

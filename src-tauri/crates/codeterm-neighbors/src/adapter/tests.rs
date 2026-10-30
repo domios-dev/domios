@@ -3,38 +3,6 @@ use crate::wire::DeliveryReason;
 
 struct Calls;
 
-#[test]
-fn secondary_installation_enrollment_never_requests_account_takeover_or_key_replacement() {
-    let registry = FirebaseRegistry {
-        calls: Arc::new(Calls),
-        uid: "owner".into(),
-        installation_id: "secondary".into(),
-        machine_label: "Other desk".into(),
-        enrollment: None,
-    };
-    let enrollment = Enrollment {
-        expected_revision: 7,
-        takeover: false,
-        operation_id: Some("opaque-operation-id".into()),
-        installation_only: true,
-    };
-    let data = registry.enrollment_data("signing", "encryption", &enrollment, true);
-    assert_eq!(
-        data,
-        json!({"public_key_spki_b64":"signing","encryption_public_key_spki_b64":"encryption",
-        "installation_id":"secondary","machine_label":"Other desk","expected_receiver_revision":7,
-        "operation_id":"opaque-operation-id","takeover":false,"receiver_scope":"installation","features":["files.v1","receivers.friend.v1"]})
-    );
-    let account = Enrollment {
-        installation_only: false,
-        ..enrollment
-    };
-    assert!(registry
-        .enrollment_data("signing", "encryption", &account, true)
-        .get("receiver_scope")
-        .is_none());
-}
-
 struct LimitedSend(std::sync::atomic::AtomicUsize);
 #[async_trait]
 impl AuthenticatedCall for LimitedSend {
@@ -101,97 +69,6 @@ impl AuthenticatedCall for Calls {
     }
 }
 
-struct ReceiverCalls {
-    calls: std::sync::Mutex<Vec<(String, Value)>>,
-    uncertain: bool,
-}
-
-#[async_trait]
-impl AuthenticatedCall for ReceiverCalls {
-    async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
-        self.calls.lock().unwrap().push((route.into(), data));
-        match route {
-            "friendsReceiverStatus" => Ok(
-                json!({"receiver_revision":7,"receiver_installation_id":"other",
-                "receiver_key_id":null,"receiver_machine_label":"Other","receiving_enabled":true,"is_me":false}),
-            ),
-            "friendsEnrollVerifierKey" if self.uncertain => Err(Error::Transport),
-            "friendsEnrollVerifierKey" => Err(Error::ReceiverRevisionStale),
-            _ => panic!("unexpected callable {route}"),
-        }
-    }
-    async fn id_token(&self) -> Result<Zeroizing<String>> {
-        Err(Error::Transport)
-    }
-}
-
-#[tokio::test]
-async fn receiver_enrollment_requires_explicit_revision_and_never_replays_uncertainty() {
-    for uncertain in [false, true] {
-        let calls = Arc::new(ReceiverCalls {
-            calls: Default::default(),
-            uncertain,
-        });
-        let mut registry = FirebaseRegistry {
-            calls: calls.clone(),
-            uid: "owner".into(),
-            installation_id: "machine".into(),
-            machine_label: "Here".into(),
-            enrollment: None,
-        };
-        assert_eq!(
-            registry.enroll("signing", "encryption", false).await,
-            Err(Error::NotReceiver)
-        );
-        assert!(calls
-            .calls
-            .lock()
-            .unwrap()
-            .iter()
-            .all(|(route, _)| route != "friendsEnrollVerifierKey"));
-        registry.enrollment = Some(Enrollment {
-            installation_only: false,
-            expected_revision: 6,
-            takeover: true,
-            operation_id: None,
-        });
-        assert_eq!(
-            registry.enroll("signing", "encryption", true).await,
-            Err(if uncertain {
-                Error::Transport
-            } else {
-                Error::ReceiverRevisionStale
-            })
-        );
-        let calls = calls.calls.lock().unwrap();
-        let enrollments: Vec<_> = calls
-            .iter()
-            .filter(|(route, _)| route == "friendsEnrollVerifierKey")
-            .collect();
-        assert_eq!(enrollments.len(), 1);
-        let data = &enrollments[0].1;
-        assert_eq!(data["expected_receiver_revision"], 6);
-        assert_eq!(data["installation_id"], "machine");
-        assert_eq!(data["machine_label"], "Here");
-        assert_eq!(data["takeover"], true);
-        assert_eq!(data["features"], json!(["files.v1", "receivers.friend.v1"]));
-        let operation_id = data["operation_id"].as_str().unwrap();
-        assert!((16..=64).contains(&operation_id.len()));
-        assert!(operation_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'));
-        assert!(data.get("replace_others").is_none());
-        assert_eq!(
-            calls.last().unwrap().0,
-            if uncertain {
-                "friendsReceiverStatus"
-            } else {
-                "friendsEnrollVerifierKey"
-            }
-        );
-    }
-}
-
 #[tokio::test]
 async fn callable_delivery_and_ack_preserve_key_revoked_reason() {
     let transport = FirebaseTransport {
@@ -220,22 +97,41 @@ async fn callable_delivery_and_ack_preserve_key_revoked_reason() {
     }
 }
 
-#[test]
-fn final_receiver_status_preserves_disabled_machine_and_exposes_legacy_metadata() {
-    let status: ReceiverStatus = serde_json::from_value(json!({
-        "schema_version":1,"receiver_revision":8,"receiver_installation_id":"machine",
-        "receiver_key_id":null,"receiver_session_id":null,"receiver_machine_label":"Here",
-        "receiving_enabled":false,"is_me":true,"legacy_active":false,"updated_at":12
-    }))
-    .unwrap();
-    assert!(!status.receiving_here());
-    assert_eq!(status.receiver_machine_label.as_deref(), Some("Here"));
-    assert_eq!(status.receiver_installation_id.as_deref(), Some("machine"));
-    let legacy: ReceiverStatus = serde_json::from_value(json!({
-        "receiver_revision":0,"receiver_installation_id":null,"receiver_key_id":null,
-        "receiver_machine_label":null,"receiving_enabled":false,"is_me":false,"legacy_active":true
-    }))
-    .unwrap();
-    assert!(legacy.legacy_active);
-    assert_eq!(legacy.receiver_revision, 0);
+#[tokio::test]
+async fn enrollment_registers_only_the_installation_key_without_receiver_state() {
+    struct EnrollCalls;
+    #[async_trait]
+    impl AuthenticatedCall for EnrollCalls {
+        async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
+            assert_eq!(route, "friendsEnrollVerifierKey");
+            assert_eq!(data.as_object().unwrap().len(), 5);
+            assert_eq!(data["public_key_spki_b64"], "signing");
+            assert_eq!(data["encryption_public_key_spki_b64"], "encryption");
+            assert_eq!(data["machine_label"], "Desk");
+            assert_eq!(data["installation_id"], "machine");
+            assert!(data["operation_id"].as_str().is_some());
+            Ok(json!({"verifier_key_id":"vk_registered"}))
+        }
+        async fn id_token(&self) -> Result<Zeroizing<String>> { panic!("no authentication") }
+    }
+    let registry = FirebaseRegistry { calls: Arc::new(EnrollCalls), uid: "owner".into(), installation_id: "machine".into(), machine_label: "Desk".into() };
+    assert_eq!(registry.enroll("signing", "encryption").await.unwrap(), "vk_registered");
+}
+
+#[tokio::test]
+async fn uncertain_key_enrollment_is_never_replayed() {
+    struct Uncertain(std::sync::atomic::AtomicUsize);
+    #[async_trait]
+    impl AuthenticatedCall for Uncertain {
+        async fn invoke(&self, route: &str, _: Value) -> Result<Value> {
+            assert_eq!(route, "friendsEnrollVerifierKey");
+            self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Err(Error::Transport)
+        }
+        async fn id_token(&self) -> Result<Zeroizing<String>> { panic!("no authentication") }
+    }
+    let calls = Arc::new(Uncertain(0.into()));
+    let registry = FirebaseRegistry { calls: calls.clone(), uid: "owner".into(), installation_id: "machine".into(), machine_label: "Desk".into() };
+    assert_eq!(registry.enroll("signing", "encryption").await, Err(Error::Transport));
+    assert_eq!(calls.0.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
