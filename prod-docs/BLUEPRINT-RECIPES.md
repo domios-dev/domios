@@ -64,6 +64,6 @@ The Browser plugin's `browser.read_page` node opens a browser for the run, reads
   bind: {in: read.out.text}
 ```
 
-`domios docs BROWSER` (section *Blueprint node*) explains the parameters and outcomes.
+The Browser plugin's own doc (section *Blueprint node*) explains the parameters and outcomes.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
