@@ -518,31 +518,33 @@ impl PlanStore {
             .unwrap_or_else(|| crate::plan::ids::short_id("attempt"));
         let mut attempt_id = None;
         let mut original_status = None;
+        let shared_binding: Option<super::shared_checkout::SharedDispatchInspection> =
+            if placement == crate::plan::WorkerPlacement::Shared {
+                Some(self.inspect_shared_dispatch(plan_id, task_id)?)
+            } else {
+                None
+            };
         let _writer_turn = self.mutation_writer.enter();
-        let mut shared_binding = None;
-        if placement == crate::plan::WorkerPlacement::Shared {
+        if let Some(inspected) = shared_binding.as_ref() {
             let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
             let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
-            super::shared_checkout::validate_shared_files(
-                &self.list_full(),
+            inspected.recheck(&plan, task)?;
+            super::shared_checkout::validate_shared_ownership(
+                &self.checkout_peer_plans(&plan),
                 &plan,
                 task,
                 &task.files,
             )
             .map_err(PlanError::InvalidPlanText)?;
-            let checkout = if plan.canonical_project_path.is_empty() {
-                &plan.project_path
-            } else {
-                &plan.canonical_project_path
-            };
-            let sha = super::shared_checkout::shared_checkout_head(checkout)
-                .map_err(PlanError::InvalidPlanText)?;
-            shared_binding = Some((checkout.clone(), sha));
         } else if placement == crate::plan::WorkerPlacement::CanonicalWriter {
             let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            super::shared_checkout::validate_exclusive_checkout(&self.list_full(), &plan, task_id)
-                .map_err(PlanError::InvalidPlanText)?;
+            super::shared_checkout::validate_exclusive_checkout(
+                &self.checkout_peer_plans(&plan),
+                &plan,
+                task_id,
+            )
+            .map_err(PlanError::InvalidPlanText)?;
         }
         let write = self.with_plan_in_writer(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
@@ -608,9 +610,9 @@ impl PlanStore {
             }
             attempt.authorized_gates = authorized_gates.clone();
             attempt.placement = placement;
-            if let Some((checkout, sha)) = shared_binding.as_ref() {
-                attempt.checkout_path = Some(checkout.clone());
-                attempt.shared_start_sha = Some(sha.clone());
+            if let Some(inspected) = shared_binding.as_ref() {
+                attempt.checkout_path = Some(inspected.checkout.clone());
+                attempt.shared_start_sha = Some(inspected.head.clone());
             }
             task.interruption.execution_intent = intent.clone();
             task.interruption.allowance = allowance.clone();

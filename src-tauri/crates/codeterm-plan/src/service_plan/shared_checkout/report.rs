@@ -1,7 +1,7 @@
-use crate::plan::{Task, TaskExecutionAttempt};
+use crate::plan::{Task, TaskExecutionAttempt, TaskFiles};
 use std::process::Command;
 
-fn git(checkout: &str, args: &[&str]) -> Result<String, String> {
+pub(super) fn git(checkout: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(checkout)
@@ -27,9 +27,6 @@ pub fn validate_shared_report(
     attempt: &TaskExecutionAttempt,
     sha: Option<&str>,
 ) -> Result<Vec<String>, String> {
-    let sha = sha
-        .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .ok_or_else(|| "shared report requires your literal full commit SHA".to_string())?;
     let checkout = attempt
         .checkout_path
         .as_deref()
@@ -38,6 +35,19 @@ pub fn validate_shared_report(
         .shared_start_sha
         .as_deref()
         .ok_or("shared attempt has no start SHA")?;
+    validate_shared_report_with_git(&task.files, checkout, start, sha, git)
+}
+
+pub(super) fn validate_shared_report_with_git(
+    files: &TaskFiles,
+    checkout: &str,
+    start: &str,
+    sha: Option<&str>,
+    mut git: impl FnMut(&str, &[&str]) -> Result<String, String>,
+) -> Result<Vec<String>, String> {
+    let sha = sha
+        .filter(|sha| sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| "shared report requires your literal full commit SHA".to_string())?;
     if start == sha {
         return Err("shared report must name a commit made after dispatch".into());
     }
@@ -47,7 +57,7 @@ pub fn validate_shared_report(
     if parents.split_whitespace().count() != 2 {
         return Err("shared Worker report must name one ordinary task commit".into());
     }
-    let files = git(
+    let changed = git(
         checkout,
         &[
             "diff-tree",
@@ -59,16 +69,16 @@ pub fn validate_shared_report(
             sha,
         ],
     )?;
-    let files: Vec<String> = files
+    let changed_files: Vec<String> = changed
         .split('\0')
         .filter(|path| !path.is_empty())
         .map(str::to_string)
         .collect();
-    if files.is_empty() {
+    if changed_files.is_empty() {
         return Err("shared task commit has no changed files".into());
     }
-    for path in &files {
-        if !task.files.owns_edit_path(path) {
+    for path in &changed_files {
+        if !files.owns_edit_path(path) {
             return Err(format!(
                 "shared commit contains undeclared or foreign path '{path}'"
             ));
@@ -84,9 +94,9 @@ pub fn validate_shared_report(
         } else {
             record
         };
-        if task.files.owns_edit_path(path) {
+        if files.owns_edit_path(path) {
             return Err(format!("shared task still has uncommitted path '{path}'"));
         }
     }
-    Ok(files)
+    Ok(changed_files)
 }

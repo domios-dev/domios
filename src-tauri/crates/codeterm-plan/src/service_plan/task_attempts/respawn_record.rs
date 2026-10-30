@@ -17,7 +17,7 @@ impl PlanStore {
             let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             super::super::shared_checkout::validate_shared_files(
-                &self.list_full(),
+                &self.checkout_peer_plans(&plan),
                 &plan,
                 task,
                 &task.files,

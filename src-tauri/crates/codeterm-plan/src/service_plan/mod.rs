@@ -172,6 +172,8 @@ pub struct PlanStore {
     retention_day: Mutex<Option<u64>>,
     #[cfg(test)]
     persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
+    #[cfg(test)]
+    shared_git_observer: RwLock<Option<Arc<dyn Fn(&str, &[&str]) + Send + Sync>>>,
 }
 
 #[derive(Default)]
@@ -246,6 +248,8 @@ impl PlanStore {
             retention_day: Mutex::new(None),
             #[cfg(test)]
             persistence_hook: RwLock::new(None),
+            #[cfg(test)]
+            shared_git_observer: RwLock::new(None),
         };
         for plan in plans {
             let id = plan.id.clone();

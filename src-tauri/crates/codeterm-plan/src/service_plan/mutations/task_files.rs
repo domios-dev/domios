@@ -27,7 +27,7 @@ impl PlanStore {
                 ));
             }
             super::super::shared_checkout::validate_shared_files(
-                &self.list_full(),
+                &self.checkout_peer_plans(&plan),
                 &plan,
                 task,
                 &files,

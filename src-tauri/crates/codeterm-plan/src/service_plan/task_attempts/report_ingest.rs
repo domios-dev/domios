@@ -75,6 +75,11 @@ impl PlanStore {
             .transpose()
             .map_err(|error| PlanError::Io(error.into()))?
             .flatten();
+        let shared_inspection = if transition == Some(TaskStatus::InReview) {
+            self.inspect_shared_report(plan_id, task_id, reporter_tab, report.sha.as_deref())?
+        } else {
+            None
+        };
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -138,19 +143,12 @@ impl PlanStore {
             };
             let committed_review = accepted_transition == Some(TaskStatus::InReview);
             if committed_review {
-                let task = &plan.tasks[task_index];
-                if let Some(attempt) = task.execution_attempts.iter().rfind(|attempt| {
-                    attempt.executor_tab_id == reporter_tab
-                        && attempt.closed_at.is_none()
-                        && attempt.retired_at.is_none()
-                        && attempt.placement == crate::plan::WorkerPlacement::Shared
-                }) {
-                    report.changed_files = super::super::shared_checkout::validate_shared_report(
-                        task,
-                        attempt,
-                        report.sha.as_deref(),
-                    )
-                    .map_err(PlanError::InvalidPlanText)?;
+                if let Some(paths) = super::super::shared_checkout::SharedReportInspection::recheck(
+                    &plan.tasks[task_index],
+                    reporter_tab,
+                    shared_inspection.as_ref(),
+                )? {
+                    report.changed_files = paths.to_vec();
                 }
             }
             if let Some(next) = accepted_transition

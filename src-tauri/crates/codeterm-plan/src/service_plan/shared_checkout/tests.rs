@@ -1,6 +1,7 @@
 use super::*;
 use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
 use std::process::Command;
+mod inspection;
 
 fn task(id: &str, edits: &[&str], live: bool) -> Task {
     let mut task: Task = serde_json::from_value(serde_json::json!({
@@ -66,6 +67,21 @@ fn shared_placement_defaults_to_disjoint_files_and_reports_lane_reasons() {
         WorkerPlacement::IsolatedLane
     );
     assert!(choose_placement(&[], &plan, &task("empty", &[], false), None).is_err());
+}
+
+#[test]
+fn missing_shared_files_provides_runnable_declaration_and_lane_commands() {
+    let plan = plan("/checkout");
+    let task = task("opaque-task", &[], false);
+    let error = choose_placement(&[], &plan, &task, None).unwrap_err();
+    assert!(error.contains(&format!(
+        "domios plan task files {} {} --edit-file <path>",
+        plan.id, task.id
+    )));
+    assert!(error.contains(&format!(
+        "domios plan task dispatch {} {} --execution-intent mutating --placement lane",
+        plan.id, task.id
+    )));
 }
 
 #[test]

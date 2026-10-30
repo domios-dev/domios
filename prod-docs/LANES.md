@@ -8,6 +8,8 @@ Shared ownership is reserved atomically across plans using the same checkout. Wo
 
 The report-time commit guard inspects the actual Git commit, requires it to follow dispatch and remain in canonical history, and refuses foreign or undeclared paths. Make one task commit and report its full literal SHA. Another Worker's newer HEAD or dirty files do not block that report; your own uncommitted paths do. The Orchestrator reviews shared commits in place. Lane integration waits while a canonical Worker holds the checkout.
 
+The integrator pushes shared canonical commits on the integration branch. Lane work reaches canonical through real merges that leave foreign dirty files untouched; Git refuses a merge when it overlaps that dirt.
+
 **A lane dispatch with no recorded lane provisions one.** An explicit `--cwd` must be an existing directory
 (the CLI resolves a relative one against the caller's directory) and is never
 bypassed: a missing path is refused before any tab exists, and a directory that
@@ -130,4 +132,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

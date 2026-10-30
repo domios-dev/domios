@@ -1,6 +1,8 @@
 use super::{PlanError, PlanStore};
 use crate::plan::{Plan, Task, TaskFiles, WorkerPlacement};
+mod inspection;
 mod report;
+pub(crate) use inspection::{SharedDispatchInspection, SharedReportInspection};
 pub use report::{shared_checkout_head, validate_shared_report};
 
 fn canonical(plan: &Plan) -> String {
@@ -66,7 +68,7 @@ pub fn validate_shared_files(
     validate_shared_ownership(plans, plan, task, files)
 }
 
-fn validate_shared_ownership(
+pub(crate) fn validate_shared_ownership(
     plans: &[Plan],
     plan: &Plan,
     task: &Task,
@@ -161,7 +163,7 @@ pub fn choose_placement(
     } else if task.tags.iter().any(|tag| tag == "build-breaking") {
         Some("task is marked build-breaking".into())
     } else {
-        task.files.shared_edit_paths()?;
+        task.files.shared_edit_paths().map_err(|error| format!("{error}. Declare edit files: domios plan task files {} {} --edit-file <path>; or request isolation: domios plan task dispatch {} {} --execution-intent mutating --placement lane", plan.id, task.id, plan.id, task.id))?;
         validate_edit_links(plan, &task.files)?;
         match validate_shared_ownership(plans, plan, task, &task.files) {
             Ok(()) => None,
@@ -181,6 +183,9 @@ pub fn choose_placement(
 }
 
 impl PlanStore {
+    pub fn checkout_peer_plans(&self, _plan: &Plan) -> Vec<Plan> {
+        self.list_full()
+    }
     pub fn extend_task_edit_files(
         &self,
         plan_id: &str,
@@ -203,7 +208,7 @@ impl PlanStore {
         let mut files = task.files.clone();
         files.edit.extend(paths);
         let files = files.validated().map_err(PlanError::InvalidPlanText)?;
-        validate_shared_files(&self.list_full(), &plan, task, &files)
+        validate_shared_files(&self.checkout_peer_plans(&plan), &plan, task, &files)
             .map_err(PlanError::InvalidPlanText)?;
         self.with_plan_in_writer(plan_id, now, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
