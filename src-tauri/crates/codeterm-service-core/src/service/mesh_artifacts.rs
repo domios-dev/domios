@@ -27,10 +27,14 @@ fn preview_error(error: String) -> ArtifactError {
     }
 }
 
-use codeterm_local_preview::artifact_directive::{scan_artifacts as scan_author_text, serialize_artifact, FileCard};
+use codeterm_local_preview::artifact_directive::{
+    scan_artifacts as scan_author_text, serialize_artifact, FileCard,
+};
 
 #[cfg(test)]
-fn directives(text: &str) -> Vec<FileCard> { scan_author_text(text, true).cards }
+fn directives(text: &str) -> Vec<FileCard> {
+    scan_author_text(text, true).cards
+}
 
 fn ingest_path(method: &str, path: &str) -> Option<String> {
     if !method.eq_ignore_ascii_case("POST") {
@@ -53,9 +57,16 @@ fn rewrite(
     let mut output = String::new();
     let mut offset = 0;
     for card in plan {
-        let targets = card.paths.iter().map(|source|
-            paths.get(source).cloned().ok_or("Artifact transfer did not return a target path")
-        ).collect::<Result<Vec<_>, _>>()?;
+        let targets = card
+            .paths
+            .iter()
+            .map(|source| {
+                paths
+                    .get(source)
+                    .cloned()
+                    .ok_or("Artifact transfer did not return a target path")
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let replacement = serialize_artifact(&card.kind, &targets)
             .ok_or("Artifact transfer returned an invalid target path")?;
         output.push_str(&text[offset..card.start]);
@@ -117,7 +128,9 @@ fn artifact_request(
     policy: &codeterm_local_preview::PreviewPolicy,
 ) -> Result<IngestRequest, ArtifactError> {
     use base64::Engine as _;
-    if source != source.trim() { return Err(ArtifactError::Policy("invalid_path")); }
+    if source != source.trim() {
+        return Err(ArtifactError::Policy("invalid_path"));
+    }
     let bytes = codeterm_local_preview::html_preview::read_artifact_file(
         source,
         policy,
@@ -164,11 +177,13 @@ where
             (!scan.cards.is_empty() || scan.overflow).then_some((pointer, text, scan))
         })
         .collect();
-    if plans.iter().any(|(_, _, scan)| scan.overflow) || plans
-        .iter()
-        .flat_map(|(_, _, scan)| &scan.cards)
-        .map(|card| card.paths.len())
-        .sum::<usize>() > 32
+    if plans.iter().any(|(_, _, scan)| scan.overflow)
+        || plans
+            .iter()
+            .flat_map(|(_, _, scan)| &scan.cards)
+            .map(|card| card.paths.len())
+            .sum::<usize>()
+            > 32
     {
         return Err("A remote message may contain at most 32 file previews".into());
     }
@@ -180,17 +195,24 @@ where
             }
             let target = match transfer_file(source.clone(), ingest_path.clone()).await {
                 Ok(path) => path,
-                Err(ArtifactError::Policy(reason)) => return Err(format!("Artifact refused: {reason}")),
+                Err(ArtifactError::Policy(reason)) => {
+                    return Err(format!("Artifact refused: {reason}"))
+                }
                 Err(ArtifactError::Transfer(error)) => return Err(error),
             };
             transferred.insert(source.clone(), target);
         }
     }
-    let replacements = plans.into_iter().map(|(pointer, text, scan)|
-        rewrite(&text, &scan.cards, &transferred).map(|text| (pointer, text))
-    ).collect::<Result<Vec<_>, _>>()?;
+    let replacements = plans
+        .into_iter()
+        .map(|(pointer, text, scan)| {
+            rewrite(&text, &scan.cards, &transferred).map(|text| (pointer, text))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     for (pointer, text) in replacements {
-        let field = body.pointer_mut(&pointer).ok_or("Remote message text changed during transfer")?;
+        let field = body
+            .pointer_mut(&pointer)
+            .ok_or("Remote message text changed during transfer")?;
         *field = serde_json::Value::String(text);
     }
     Ok(())

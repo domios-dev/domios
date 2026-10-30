@@ -1,10 +1,13 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::artifact_directive::{
+    scan_artifacts, scan_artifacts_with_provenance, untrusted_artifact_segments, ArtifactScan,
+    HostArtifactProvenance,
+};
 use crate::html_preview::checked_path;
 use codeterm_types::agent::chat_types::ChatMsg;
 use codeterm_wire::envelope::MessageSegment;
-use crate::artifact_directive::{scan_artifacts, scan_artifacts_with_provenance, untrusted_artifact_segments, ArtifactScan, HostArtifactProvenance};
 
 pub fn path_key(path: &Path) -> String {
     let value = path.to_string_lossy().replace('\\', "/");
@@ -17,7 +20,9 @@ pub fn path_key(path: &Path) -> String {
 }
 
 fn insert(paths: &mut HashSet<String>, raw: &str, cwd: Option<&str>) {
-    if raw != raw.trim() { return; }
+    if raw != raw.trim() {
+        return;
+    }
     let path = if raw.to_ascii_lowercase().starts_with("file:") {
         let Ok(url) = url::Url::parse(raw) else {
             return;
@@ -57,13 +62,19 @@ pub fn referenced_paths(messages: &[ChatMsg], cwd: Option<&str>) -> HashSet<Stri
                 _ => ArtifactScan::default(),
             }
         } else {
-            let direct = !segments.iter().any(|part| matches!(part, MessageSegment::Frame { .. }));
+            let direct = !segments
+                .iter()
+                .any(|part| matches!(part, MessageSegment::Frame { .. }));
             scan_artifacts(&message.content, direct)
         };
         for card in scan.cards {
-            for path in card.paths { insert(&mut paths, &path, None); }
+            for path in card.paths {
+                insert(&mut paths, &path, None);
+            }
         }
-        for path in scan.attachment_paths { insert(&mut paths, &path, None); }
+        for path in scan.attachment_paths {
+            insert(&mut paths, &path, None);
+        }
         for attachment in message.attachments.iter().flatten() {
             if let Some(path) = &attachment.path {
                 insert(&mut paths, path, None);

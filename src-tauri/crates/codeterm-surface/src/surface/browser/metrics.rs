@@ -145,7 +145,11 @@ impl BrowserRuntime {
             Ok(format!(
                 "saved {} (show it with <ds-image src=\"{}\" />)",
                 path.display(),
-                path.to_string_lossy().replace('&', "&amp;").replace('"', "&quot;").replace('<', "&lt;").replace('>', "&gt;")
+                path.to_string_lossy()
+                    .replace('&', "&amp;")
+                    .replace('"', "&quot;")
+                    .replace('<', "&lt;")
+                    .replace('>', "&gt;")
             ))
         }
     }
