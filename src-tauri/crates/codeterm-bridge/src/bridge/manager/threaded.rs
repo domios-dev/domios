@@ -19,6 +19,17 @@ pub(super) async fn send_outbound(
     message: &OutboundMessage,
     chat_states: &mut HashMap<i64, ChatState>,
 ) {
+    if message.receipt.is_none() {
+        if let Err(reason) =
+            crate::bridge::traits::validate_caller_buttons(message.buttons.as_ref())
+        {
+            if let Some(completion) = &message.completion {
+                let _ = completion.send(Err(reason.into()));
+            }
+            log::warn!("[bridge] refused reserved notification button data on a caller message");
+            return;
+        }
+    }
     if notification_text(message).is_some() && tab.threads().is_attached() {
         if !send_notification(tab, chat_id, message).await {
             log::error!(

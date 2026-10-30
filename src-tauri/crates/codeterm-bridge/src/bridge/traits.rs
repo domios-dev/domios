@@ -101,3 +101,16 @@ pub trait MessagingService: Send + 'static {
         status: std::sync::Arc<dyn crate::bridge::supervisor::BridgeStatusSink>,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 }
+
+/// Caller buttons cannot impersonate notification answers, including tokens decode would trim.
+pub fn validate_caller_buttons(buttons: Option<&InlineKeyboard>) -> Result<(), &'static str> {
+    if buttons.into_iter().flatten().flatten().any(|button| {
+        button
+            .data
+            .as_deref()
+            .is_some_and(|data| data.trim_start().starts_with("na:"))
+    }) {
+        return Err("Notification answer button data is reserved");
+    }
+    Ok(())
+}

@@ -367,6 +367,8 @@ pub async fn bridge_send_api(
         .ok_or((StatusCode::BAD_REQUEST, "text required"))?;
     let chat_id = body.get("chat_id").and_then(|v| v.as_i64());
 
+    let buttons = codeterm_service_core::bridge::manager::caller_buttons(body.get("buttons"))
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let tx = state.svc.bridge_outbound.lock();
     let tx = tx
         .as_ref()
@@ -375,9 +377,6 @@ pub async fn bridge_send_api(
         .get("append")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let buttons: Option<codeterm_service_core::bridge::traits::InlineKeyboard> = body
-        .get("buttons")
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
     tx.send(codeterm_service_core::bridge::manager::OutboundMessage {
         user_id: chat_id,
         content: codeterm_service_core::bridge::traits::OutboundContent::Text {

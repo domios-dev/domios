@@ -324,9 +324,18 @@ impl ServiceContext {
     /// label only — the tab it answers to was captured when the question was
     /// sent, so nothing is resolved here.
     pub fn answer_notification(&self, id: &str, label: &str) -> Result<serde_json::Value, String> {
+        if self
+            .notif
+            .lock()
+            .answer_slot(id)
+            .is_some_and(|slot| slot.daemon_request.is_some())
+        {
+            return Err("Daemon questions require the local owner".into());
+        }
         self.answer_notification_inner(id, label)
     }
 
+    /// Trusted owner entry point; callers must authenticate the local owner before invoking it.
     pub fn answer_notification_as_owner(
         &self,
         id: &str,
@@ -378,36 +387,39 @@ impl ServiceContext {
         }
     }
 
-    /// An answer arrived on a push channel. The token names a position on one
-    /// record; the label is resolved off that record and then walks the very
-    /// same answer path an in-app tap walks, so the tapped label returns to the
-    /// tab that asked and no second answer route exists. `false` means this was
-    /// ordinary channel traffic and nothing was claimed.
-    pub fn claim_channel_answer(&self, callback_data: &str) -> bool {
-        let Some(tapped) = channel_ask::decode(callback_data) else {
-            return false;
-        };
-        // The guard is taken and dropped before the answer path runs: that path
-        // takes the same store lock, and parking_lot is not reentrant.
+    /// Answer a bridge-verified owner's tap only from this notification's delivered message.
+    /// None leaves unrelated traffic unclaimed; a refusal must be shown in the channel.
+    pub fn claim_channel_answer(
+        &self,
+        callback_data: &str,
+        chat_id: i64,
+        message_id: Option<i64>,
+    ) -> Option<Result<(), String>> {
+        let tapped = channel_ask::decode(callback_data)?;
+        let locator = message_id.map(|id| codeterm_bridge::bridge::telegram::locator(chat_id, id));
+        // Drop the guard before answering: the answer path takes this same store lock.
         let resolved = {
-            self.notif
-                .lock()
-                .offered_choice(&tapped.notification_id, tapped.index)
+            let store = self.notif.lock();
+            if !store
+                .channel_placements(&tapped.notification_id)
+                .iter()
+                .any(|placement| {
+                    placement.service == "telegram"
+                        && Some(placement.locator.as_str()) == locator.as_deref()
+                })
+            {
+                return Some(Err(
+                    "This message did not carry that notification question".into()
+                ));
+            }
+            store.offered_choice(&tapped.notification_id, tapped.index)
         };
-        let Some(label) = resolved else {
-            log::warn!(
-                "[notify-answer] a channel tap named no offered choice on {}",
-                tapped.notification_id
-            );
-            return true;
-        };
-        if let Err(reason) = self.answer_notification(&tapped.notification_id, &label) {
-            log::warn!(
-                "[notify-answer] a channel tap on {} was refused: {reason}",
-                tapped.notification_id
-            );
-        }
-        true
+        Some(match resolved {
+            Some(label) => self
+                .answer_notification_as_owner(&tapped.notification_id, &label)
+                .map(|_| ()),
+            None => Err("That notification choice is no longer available".into()),
+        })
     }
 
     /// Apply whatever this record offered, and only when the tapped label is

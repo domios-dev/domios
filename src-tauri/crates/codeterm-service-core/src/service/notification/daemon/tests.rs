@@ -17,7 +17,7 @@ impl DaemonQuestionHandler for Handler {
         request.strip_prefix("fixture:")?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         Some(if self.refuse.load(Ordering::SeqCst) {
-            Err("stale quote".into())
+            Err("request no longer available".into())
         } else {
             Ok(serde_json::json!({"recorded":label}))
         })
@@ -36,7 +36,7 @@ fn daemon_owner_question_deduplicates_and_records_only_an_admitted_offered_decis
         .service
         .register_host_extension(Arc::new(DaemonQuestions::new(handler.clone())))
         .is_ok());
-    let choices = vec!["Approve one unit".into(), "Check price again".into()];
+    let choices = vec!["Continue".into(), "Review".into()];
     let id = fixture
         .service
         .publish_daemon_question(
@@ -60,12 +60,17 @@ fn daemon_owner_question_deduplicates_and_records_only_an_admitted_offered_decis
     );
     assert!(fixture
         .service
-        .answer_notification(&id, "unoffered")
+        .answer_notification(&id, "Continue")
         .is_err());
     assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
     assert!(fixture
         .service
-        .answer_notification(&id, "Approve one unit")
+        .answer_notification_as_owner(&id, "unoffered")
+        .is_err());
+    assert_eq!(handler.calls.load(Ordering::SeqCst), 0);
+    assert!(fixture
+        .service
+        .answer_notification_as_owner(&id, "Continue")
         .is_err());
     assert!(fixture
         .service
@@ -79,15 +84,15 @@ fn daemon_owner_question_deduplicates_and_records_only_an_admitted_offered_decis
     assert_eq!(
         fixture
             .service
-            .answer_notification(&id, "Check price again")
+            .answer_notification_as_owner(&id, "Review")
             .unwrap()["recorded"],
-        "Check price again"
+        "Review"
     );
     let repeated = fixture
         .service
-        .answer_notification(&id, "Approve one unit")
+        .answer_notification_as_owner(&id, "Continue")
         .unwrap();
-    assert_eq!(repeated["answered"], "Check price again");
+    assert_eq!(repeated["answered"], "Review");
     assert_eq!(handler.calls.load(Ordering::SeqCst), 2);
 }
 
@@ -103,3 +108,5 @@ fn daemon_owner_question_claims_exclude_concurrent_choices_and_release_on_drop()
     drop(claim);
     assert!(questions.claim("one").is_some());
 }
+
+mod channel_tests;
