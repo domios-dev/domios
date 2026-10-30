@@ -39,12 +39,12 @@ async fn model_discovery_fingerprint_matches_native_observation_on_both_entry_po
     manifest.binary_name = None;
     let raw = serde_json::to_string(&manifest).unwrap();
     let denied = super::super::PluginVm::from_source_sandboxed(
-        "discovery-denied",
+        &manifest.id,
         "module.exports.default = {};".into(),
         Some(raw.clone()),
         std::sync::Arc::new(
             crate::js_runtime::host_api::PluginSandbox::restricted(vec![], vec![])
-                .with_identity("discovery-denied"),
+                .with_identity(&manifest.id),
         ),
     )
     .unwrap();
