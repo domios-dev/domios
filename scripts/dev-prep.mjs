@@ -9,6 +9,7 @@ import { retainLaunchOwner } from "./dev-launch-owner.mjs";
 import { waitForReady } from "./server-readiness.mjs";
 import {
   accessSync,
+  appendFileSync,
   constants,
   existsSync,
   lstatSync,
@@ -64,6 +65,7 @@ const inputPathspecs = [
   "scripts/dev-server.mjs",
   "scripts/dev-rebuild-stop.mjs",
   "scripts/dev-instance-processes.mjs",
+  "scripts/dev-named-target.mjs",
   "scripts/unix-dev-instance-processes.py",
   "scripts/dev-launch-owner.mjs",
   "scripts/dev-launch-file-lock.mjs",
@@ -350,7 +352,10 @@ function checkProvenance(options, serverReload = false) {
   }
   const expectedInstance = instanceFrom(options);
   assertKeys(data.instance, ["name", "apiPort", "vitePort", "cdpPort", "identifier"], "instance");
-  if (JSON.stringify(data.instance) !== JSON.stringify(expectedInstance)) throw new Error("recorded instance does not match this dev instance");
+  // The shared named build record names the instance that built it; any named instance may start from it.
+  if (!options.has("--shared-build") && JSON.stringify(data.instance) !== JSON.stringify(expectedInstance)) {
+    throw new Error("recorded instance does not match this dev instance");
+  }
   assertKeys(data.artifacts, ["app", "cli", "frontend", "server", "inventory", "resources"], "artifacts");
   const paths = artifactPaths(options);
   validateArtifact(data.artifacts.app, paths.app, "file", "app", true);
@@ -504,6 +509,19 @@ function nativeLocatorSink(options) {
   };
 }
 
+// The supervisor's stdio is detached from the launcher, so its own failure goes to the log and the IPC report.
+function supervisorFailureDetail(error, log) {
+  const detail = error instanceof Error ? error.stack || error.message : String(error);
+  try { appendFileSync(log, `\n[dev-prep supervisor] ${detail}\n`); } catch {}
+  try { process.stderr.write(`[dev-prep supervisor] ${detail}\n`); } catch {}
+  return detail;
+}
+
+async function withLaunchOwner(run) {
+  const launchLease = await retainLaunchOwner();
+  try { return await run(); } finally { launchLease?.end(); }
+}
+
 async function supervisePrebuilt(options) {
   const app = resolve(option(options, "--app"));
   const log = resolve(option(options, "--log"));
@@ -514,7 +532,6 @@ async function supervisePrebuilt(options) {
   let startupFailed = false;
   let readinessPhase=0;
   const locator = options.has("--record") ? nativeLocatorSink(options) : () => {};
-  const launchLease = await retainLaunchOwner();
   try {
     const { code, signal } = await runDevApp({ app, log, interactiveDesktop: true, cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => {
       locator(chunk);
@@ -545,22 +562,31 @@ async function supervisePrebuilt(options) {
     }
     process.exitCode = startupFailed ? 1 : code ?? (signal ? 1 : 0);
   } catch (error) {
-    if (process.connected) process.send({ type: "launch-failed", error: error.message });
+    const detail = supervisorFailureDetail(error, log);
+    if (process.connected) process.send({ type: "launch-failed", error: detail });
     process.exitCode = 1;
-  } finally { disconnectSupervisor(); launchLease?.end(); }
+  } finally { disconnectSupervisor(); }
 
 }
 
 async function runPrebuilt(options) {
-  const launchLease = await retainLaunchOwner();
-  try {
-    const locator=nativeLocatorSink(options);
-    const { code, signal } = await runDevApp({
-      app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
-      cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
-    });
-    process.exitCode = code ?? (signal ? 1 : 0);
-  } finally { launchLease?.end(); }
+  const locator=nativeLocatorSink(options);
+  const { code, signal } = await runDevApp({
+    app: resolve(option(options, "--app")), log: resolve(option(options, "--log")), interactiveDesktop: true,
+    cwd: repo, env: devRuntimeEnvironment(process.env, repo), onData: chunk => { locator(chunk); process.stdout.write(chunk); },
+  });
+  process.exitCode = code ?? (signal ? 1 : 0);
+}
+
+function superviseWithFailureReport(options) {
+  const report = error => {
+    const detail = supervisorFailureDetail(error, resolve(option(options, "--log")));
+    if (process.connected) process.send({ type: "launch-failed", error: detail }, () => process.exit(1));
+    else process.exit(1);
+  };
+  process.on("uncaughtException", report);
+  process.on("unhandledRejection", report);
+  return withLaunchOwner(() => supervisePrebuilt(options));
 }
 
 async function launchPrebuilt(options) {
@@ -625,7 +651,7 @@ async function launchPrebuilt(options) {
       });
       child.once("exit", (code, signal) => {
         observedFailure = true;
-        fail(new Error(`prebuilt supervisor exited before readiness (code=${code}, signal=${signal})`));
+        fail(new Error(`prebuilt supervisor exited before readiness (code=${code}, signal=${signal}); see ${log}`));
       });
       child.unref();
       console.log(`[dev-prebuilt] launched pid ${child.pid}, log ${log}`);
@@ -672,8 +698,8 @@ try {
   else if (command === "--check-provenance") checkProvenance(parseOptions(process.argv.slice(3)));
   else if (command === "--check-server-reload") checkProvenance(parseOptions(process.argv.slice(3)), true);
   else if (command === "--check-runtime") checkRuntime(parseOptions(process.argv.slice(3)));
-  else if (command === "--supervise-prebuilt") await supervisePrebuilt(parseOptions(process.argv.slice(3)));
-  else if (command === "--run-prebuilt") await runPrebuilt(parseOptions(process.argv.slice(3)));
+  else if (command === "--supervise-prebuilt") await superviseWithFailureReport(parseOptions(process.argv.slice(3)));
+  else if (command === "--run-prebuilt") await withLaunchOwner(() => runPrebuilt(parseOptions(process.argv.slice(3))));
   else if (command === "--launch-prebuilt") await launchPrebuilt(parseOptions(process.argv.slice(3)));
   else runRegularPrep();
 } catch (error) {

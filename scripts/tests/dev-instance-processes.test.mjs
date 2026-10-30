@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { instanceTreePlan, verifiedQuitProcesses, gracefulQuit } from '../dev-instance-processes.mjs';
+import { instanceTreePlan, namedInstancePlan, namedInstanceRoot, verifiedQuitProcesses, gracefulQuit } from '../dev-instance-processes.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -98,5 +98,40 @@ test('clean shutdown requests the authenticated quit snapshot before posting tha
     });
     assert.deepEqual(calls, ['token', 'snapshot', 'quit']);
     assert.deepEqual(ids, [42]);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+for (const windows of [false, true]) test(`named kill selects only the instance owning its API port in the shared target (${windows ? 'Windows' : 'Unix'})`, () => {
+  const prefix = windows ? 'C:/repo' : '/repo';
+  const root = `${prefix}/src-tauri/target/named-dev`;
+  const row = (pid, executable, parent) => ({ pid, parent, created: `${pid}`, executable: `${root}/debug/${executable}` });
+  const processes = [
+    row(10, 'domios-dev-app', 1), row(11, 'domios-server/domios-server', 10), row(12, 'conpty/x64/OpenConsole.exe', 11),
+    row(20, 'domios-dev-app', 1), row(21, 'domios-server/domios-server', 20),
+    row(30, 'domios-dev-app', 1),
+    { pid: 40, parent: 11, created: '40', executable: `${prefix}/bin/shell` },
+  ];
+  const listeners = [{ port: 17996, pid: 11 }, { port: 17997, pid: 21 }, { port: 7685, pid: 99 }];
+  const plan = namedInstancePlan({ root, windows, port: 17996, processes, listeners });
+  assert.deepEqual(plan.map(row => row.pid), [10, 11, 12]);
+  assert.deepEqual(namedInstancePlan({ root, windows, port: 17996, processes, listeners, seeds: [30] }).map(row => row.pid), [10, 11, 12, 30]);
+  assert.deepEqual(namedInstancePlan({ root, windows, port: 17998, processes, listeners }), []);
+  assert.throws(() => namedInstancePlan({ root, windows, port: 7685, processes, listeners }), /production/);
+});
+
+test('named kill resolves a legacy target only when the instance record names it', () => {
+  const directory = realpathSync.native(mkdtempSync(path.join(tmpdir(), 'named-instance-root-')));
+  try {
+    const legacy = path.join(directory, 'src-tauri/target/dev-instances/qa8');
+    const data = path.join(directory, 'home/.domios-dev-qa8');
+    mkdirSync(legacy, { recursive: true });
+    mkdirSync(data, { recursive: true });
+    const record = server => writeFileSync(path.join(data, 'dev-build-provenance.json'), JSON.stringify({ schema: 3, instance: { name: 'qa8' }, artifacts: { server: { path: server } } }));
+    record(path.join(legacy, 'debug/domios-server'));
+    assert.equal(namedInstanceRoot(directory, data), legacy);
+    record(path.join(directory, 'src-tauri/target/named-dev/debug/domios-server'));
+    assert.equal(namedInstanceRoot(directory, data), path.join(directory, 'src-tauri/target/named-dev'));
+    rmSync(path.join(data, 'dev-build-provenance.json'));
+    assert.equal(namedInstanceRoot(directory, data), path.join(directory, 'src-tauri/target/named-dev'));
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });

@@ -51,19 +51,23 @@ def processes():
     return rows
 
 
-def production_listeners():
+def production_listeners(ports=(7685,)):
     if sys.platform != 'linux':
-        result = subprocess.run(['lsof', '-nP', '-tiTCP:7685', '-sTCP:LISTEN'], capture_output=True, text=True)
-        if result.returncode not in (0, 1):
-            raise RuntimeError('Production listener identity unavailable')
-        return [dict(pid=int(pid), port=7685) for pid in result.stdout.split()]
-    inodes = set()
+        owners = []
+        for port in ports:
+            result = subprocess.run(['lsof', '-nP', f'-tiTCP:{port}', '-sTCP:LISTEN'], capture_output=True, text=True)
+            if result.returncode not in (0, 1):
+                raise RuntimeError('Production listener identity unavailable')
+            owners += [dict(pid=int(pid), port=port) for pid in set(result.stdout.split())]
+        return owners
+    inodes = {}
     for source in ('/proc/net/tcp', '/proc/net/tcp6'):
         with open(source) as table:
             for line in table.readlines()[1:]:
                 fields = line.split()
-                if int(fields[1].split(':')[1], 16) == 7685 and fields[3] == '0A':
-                    inodes.add(fields[9])
+                port = int(fields[1].split(':')[1], 16)
+                if port in ports and fields[3] == '0A':
+                    inodes[f'socket:[{fields[9]}]'] = port
     owners = []
     if not inodes:
         return owners
@@ -71,8 +75,9 @@ def production_listeners():
         try:
             for descriptor in os.scandir(f'/proc/{row["pid"]}/fd'):
                 try:
-                    if os.readlink(descriptor.path) in {f'socket:[{inode}]' for inode in inodes}:
-                        owners.append(dict(pid=row['pid'], port=7685))
+                    port = inodes.get(os.readlink(descriptor.path))
+                    if port is not None:
+                        owners.append(dict(pid=row['pid'], port=port))
                 except OSError:
                     pass
         except OSError:
@@ -206,7 +211,8 @@ def stop_frontend(request):
 def main():
     request = json.load(sys.stdin)
     if sys.argv[1] == 'Inspect':
-        result = dict(processes=processes(), listeners=production_listeners())
+        ports = {7685, *(port for port in request.get('ports', []) if isinstance(port, int) and 0 < port < 65536)}
+        result = dict(processes=processes(), listeners=production_listeners(tuple(sorted(ports))))
     elif sys.argv[1] == 'StopTree' and 0 < request['port'] < 65536 and request['port'] != 7685:
         result = stop_tree(request)
     elif sys.argv[1] == 'StopFrontend' and 0 < request['port'] < 65536 and request['port'] != 7685:
