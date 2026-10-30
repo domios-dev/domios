@@ -138,9 +138,11 @@ function recordBubbleRender(id: string): void {
 }
 
 const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
-  const renderedText = useDeferredValue(message.content);
   const dsScope = useContext(DsRenderContext);
   const sourceIdentity = `${dsScope.authority}:${message.sourceSessionId ?? ""}:${message.sourceMessageId ?? message.id}:${message.contextEpoch ?? 0}`;
+  const source = useMemo(() => ({ authority: sourceIdentity, text: message.content }), [sourceIdentity, message.content]);
+  const deferredSource = useDeferredValue(source);
+  const renderedText = deferredSource.authority === sourceIdentity && message.content.startsWith(deferredSource.text) ? deferredSource.text : message.content;
   const referenceSegments = useDsSegments(message.type === "assistant" ? renderedText : "", { id: `references:${sourceIdentity}`, trusted: dsScope.trusted && origin?.kind !== "neighbor" }, streaming ?? dsScope.streaming, dsScope.cancelled);
   useLayoutEffect(() => { onContentLayout?.(); });
   recordBubbleRender(message.id);
