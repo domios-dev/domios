@@ -67,6 +67,7 @@
     "tab_id": "creator",
     "team_id": "team"
   },
+  "plugin_nodes": {},
   "result": {
     "body_ref": null,
     "reason": null,
