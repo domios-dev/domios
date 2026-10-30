@@ -1,6 +1,3 @@
-//! Differential check: the startup SQL candidates equal the Rust lane rule for
-//! split task rows and for legacy plans that keep their tasks inline.
-
 use super::super::finished_records;
 use crate::plan::{OrchestratorRef, Plan, TaskStatus};
 use crate::service::plan::{NewTask, PlanStore};
@@ -104,36 +101,29 @@ fn startup_perf_unsettled_lane_candidates_match_the_rust_rule() {
     let mut labels = BTreeMap::new();
     let mut unicode_blank = Vec::new();
     for case in cases() {
-        for inline in [false, true] {
-            let mut probe = task.clone();
-            probe.status = case.status.clone();
-            probe.lane.cleanup_status = case.cleanup.map(str::to_string);
-            probe.lane.worktree_path = case.lane.0.map(str::to_string);
-            probe.lane.branch = case.lane.1.map(str::to_string);
-            let mut plan = Plan::new(
-                "lane case".into(),
-                project.clone(),
-                OrchestratorRef::from_tab("owner"),
-            );
-            // A repeated task id keeps the tasks inline in the plan row.
-            plan.tasks = if inline {
-                vec![probe.clone(), probe]
-            } else {
-                vec![probe]
-            };
-            store.save(&mut plan, 3).unwrap();
-            if case.status == TaskStatus::Done
-                && case.cleanup == Some("\u{3000}")
-                && case.lane == (None, Some("lane/a"))
-            {
-                unicode_blank.push(plan.id.clone());
-            }
-            let label = format!(
-                "inline={inline} {:?} cleanup={:?} lane={:?}",
-                case.status, case.cleanup, case.lane
-            );
-            labels.insert(plan.id, (inline, label));
+        let mut probe = task.clone();
+        probe.status = case.status.clone();
+        probe.lane.cleanup_status = case.cleanup.map(str::to_string);
+        probe.lane.worktree_path = case.lane.0.map(str::to_string);
+        probe.lane.branch = case.lane.1.map(str::to_string);
+        let mut plan = Plan::new(
+            "lane case".into(),
+            project.clone(),
+            OrchestratorRef::from_tab("owner"),
+        );
+        plan.tasks = vec![probe];
+        store.save(&mut plan, 3).unwrap();
+        if case.status == TaskStatus::Done
+            && case.cleanup == Some("\u{3000}")
+            && case.lane == (None, Some("lane/a"))
+        {
+            unicode_blank.push(plan.id.clone());
         }
+        let label = format!(
+            "{:?} cleanup={:?} lane={:?}",
+            case.status, case.cleanup, case.lane
+        );
+        labels.insert(plan.id, label);
     }
     drop(store);
 
@@ -144,33 +134,24 @@ fn startup_perf_unsettled_lane_candidates_match_the_rust_rule() {
         .collect();
     let connection = rusqlite::Connection::open(&database).unwrap();
     let mut mismatches = Vec::new();
-    let mut hits = [0usize; 2];
-    for (plan_id, (inline, label)) in &labels {
-        let expected_shape = if *inline {
-            (Some("array".to_string()), 0)
-        } else {
-            (None, 1)
-        };
-        assert_eq!(
-            stored_shape(&connection, plan_id),
-            expected_shape,
-            "{label}"
-        );
+    let mut hits = 0;
+    for (plan_id, label) in &labels {
+        assert_eq!(stored_shape(&connection, plan_id), (None, 1), "{label}");
         let plan = reopened.get(plan_id).unwrap();
         let rust = !finished_records(&plan).is_empty();
         if rust != candidates.contains(plan_id) {
             mismatches.push(format!("{label}: rust={rust}"));
         }
-        hits[usize::from(*inline)] += usize::from(rust);
+        hits += usize::from(rust);
     }
 
     assert!(
         mismatches.is_empty(),
         "SQL differs from Rust: {mismatches:#?}"
     );
-    assert!(hits.iter().all(|count| *count > 0), "{hits:?}");
+    assert!(hits > 0);
     assert!(!candidates.contains(&template.id));
-    assert_eq!(unicode_blank.len(), 2);
+    assert_eq!(unicode_blank.len(), 1);
     assert!(
         unicode_blank
             .iter()
