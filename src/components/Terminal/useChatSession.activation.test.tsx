@@ -32,6 +32,7 @@ async function main() {
   bridge.__setInvokeForTest((async (command: string, args: Record<string, unknown>) => {
     if (command === "chat_start") {
       starts++;
+      if (starts > 1) assert.equal(args.knownWindow, undefined, "gap attachment must request an authoritative snapshot");
       return { ...authority, messages: [...rows], start_offset: 0, offset, cursor: cursor(offset),
         subscription_id: args.subscriptionId, pending: false };
     }
@@ -77,9 +78,9 @@ async function main() {
     console.log("PASS hidden final event reconciles on activation from the committed cursor");
 
     await act(async () => { append("gap-lost", false); append("after-gap", true); });
-    assert.deepEqual(reads, [cursor(110), cursor(120)], "gap reads from before the missing bytes");
+    assert.deepEqual(reads, [cursor(110)], "a proven gap uses a snapshot instead of cursor replay");
     assert.deepEqual(shown, ["initial", "hidden-delivered", "hidden-lost", "gap-lost", "after-gap"]);
-    assert.equal(starts, 1);
+    assert.equal(starts, 2);
     console.log("PASS sequence gap repairs without remounting or advancing past missing bytes");
 
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -87,9 +88,9 @@ async function main() {
     await act(async () => append("background-lost", false));
     Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-    assert.deepEqual(reads, [cursor(110), cursor(120), cursor(140)]);
+    assert.deepEqual(reads, [cursor(110), cursor(140)]);
     assert.equal(shown[shown.length - 1], "background-lost");
-    assert.equal(starts, 1);
+    assert.equal(starts, 2);
     console.log("PASS window visibility return reconciles the selected tab");
   } finally {
     await act(async () => root.unmount());

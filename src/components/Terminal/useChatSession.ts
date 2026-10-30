@@ -527,7 +527,7 @@ export function useChatSession({
               pendingLiveEventsRef.current.push(ev.payload);
               return;
             }
-            if (needsRecovery(commitLiveEvent(ev.payload))) requestRecoveryAttach(false, "recover_gap");
+            if (needsRecovery(commitLiveEvent(ev.payload))) requestRecoveryAttach(true, "recover_gap");
             void reconcileSendStatuses();
             emitDiagnostic({ edge: "state_enqueued", ...diagnosticBase });
             if (attachmentStateRef.current !== "attached") markAttached();

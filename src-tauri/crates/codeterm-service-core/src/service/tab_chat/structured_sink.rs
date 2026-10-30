@@ -308,7 +308,7 @@ impl FlattenDeltaSink {
             );
             out.extend(flattened);
         }
-        if out.is_empty() {
+        if out.is_empty() && start_offset == offset {
             return;
         }
         if let (Some(session_id), Some(binding_nonce)) = (
@@ -356,8 +356,8 @@ impl FlattenDeltaSink {
             tab_id,
             messages: &out,
             cursor: cursor.as_deref(),
-            start_offset: Some(start_offset),
-            offset: Some(offset),
+            start_offset: (start_offset != offset).then_some(start_offset),
+            offset: (start_offset != offset).then_some(offset),
             source_session_id: self.source_session_id.as_deref(),
             session_binding_nonce: self.session_binding_nonce.as_deref(),
         };
@@ -497,6 +497,9 @@ fn source_is_current_binding(
             && binding_nonce.as_deref() == source_binding_nonce
     })
 }
+
+#[cfg(test)]
+mod offset_tests;
 
 #[cfg(test)]
 mod tests {
