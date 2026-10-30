@@ -70,6 +70,8 @@ accepting label. An untapped or declined offer changes nothing. The refusal is
 not agent-specific — the daemon cannot tell you from an agent inside a tab, so
 the same command typed by hand in a Domios tab is refused too.
 
+A question closes when the owner taps a choice or sends the next chat message in the asking tab. After receiving an answer elsewhere, close your own question with `domios notify resolve <id>`. Resolved questions leave Needs you and resume eligible Curator rounds. Host approval offers still require their explicit choice; chat never grants permission. Clearing or resolving questions immediately reschedules eligible Curator plans within the normal delay limits. Mission Control shows the suspension reason and links to pending questions.
+
 A Needs you notification can point at one chat message: `domios notify send
 "…" --level action_needed --target-tab <tab id> --chat-message <message id>`. On
 the Mission Control Board its row is a single jump that leaves the Board, opens
@@ -125,4 +127,4 @@ Provider access refusals from a tab's own session are incidents even when option
 
 Neighbor agent sends refused by limits, plan restrictions or a non-receiving recipient raise metadata-only notices under the same per-friend preference. They contain the failure reason and available reset or retry time, never the outgoing message text. Owner-authored sends and uncertain submissions do not raise these notices.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

@@ -1,5 +1,6 @@
 //! Notification creation with OS toast support.
 mod daemon;
+mod resolution;
 
 mod in_app;
 pub(in crate::service) use in_app::InAppNotice;
@@ -348,6 +349,7 @@ impl ServiceContext {
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);
+        self.reconcile_notification_questions();
         // An offer applies only to the first recording that proved it, so a later tap cannot widen the surface.
         if let Some(proof) = authority::tap_proof(&admission) {
             self.apply_surface_offer(id, label, proof);

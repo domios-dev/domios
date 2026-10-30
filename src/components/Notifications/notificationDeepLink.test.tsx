@@ -22,6 +22,7 @@ import {
 } from "../../lib/notificationDeepLink";
 import type { Notification, Tab, Workspace } from "../../lib/types";
 import type { NeedsYouDeepLinks } from "./NeedsYouNotificationRow";
+import { NotificationBell } from "./NotificationBell";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -173,6 +174,7 @@ describe("notification deep link identity", () => {
         record({ id: "n-foreign", tab_id: "tab-foreign" }),
         record({ id: "n-foreign-target", tab_id: "tab-foreign", target_tab_id: TARGET_TAB }),
         record({ id: "n-read", read: true }),
+        record({ id: "n-resolved", resolved: true }),
         record({ id: "n-verbose", level: "verbose" }),
         record({ id: "n-unlevelled", level: undefined }),
       ],
@@ -185,6 +187,26 @@ describe("notification deep link identity", () => {
 });
 
 describe("Needs you answered and cleared questions", () => {
+  it("opens the pending question with actionable choices from Needs you", async () => {
+    const question = { ...legacyRecord(), body: "opaque question detail",
+      actions: [{ type: "answer" as const, label: "opaque choice" }],
+      answer: { asked_from_tab: "tab-orchestrator", answered: null, delivered: false } };
+    const answer = vi.fn();
+    const noop = () => undefined;
+    const { host } = await render(<>
+      <NeedsYouPanel deepLinks={deepLinks([question])} />
+      <NotificationBell notifications={[question]} onMarkRead={noop} onMarkAllRead={noop}
+        onDelete={noop} onClearAll={noop} onNavigate={noop} onAnswer={answer} />
+    </>);
+    const open = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent === "Answer question")!;
+    await act(async () => open.click());
+    const panel = document.querySelector('[data-testid="notification-panel"]');
+    expect(panel?.textContent).toContain("opaque question detail");
+    const choice = Array.from(panel!.querySelectorAll<HTMLButtonElement>("button")).find(button => button.textContent?.trim() === "opaque choice")!;
+    expect(choice.disabled).toBe(false);
+    await act(async () => choice.click());
+    expect(answer).toHaveBeenCalledWith(question.id, "opaque choice");
+  });
   it("drops answered questions and clears exactly the questions it shows", async () => {
     const onClear = vi.fn();
     const answered = record({
@@ -211,7 +233,7 @@ describe("Needs you answered and cleared questions", () => {
 });
 
 describe("Needs you notification rows", () => {
-  it("renders each row as one keyboard-reachable jump with no action buttons", async () => {
+  it("links questions without a chat target to the asking tab and its choices", async () => {
     const onSelectTab = vi.fn();
     const { host } = await render(
       <NeedsYouPanel
@@ -220,7 +242,7 @@ describe("Needs you notification rows", () => {
     );
     const list = host.querySelector("ul");
     expect(list).not.toBeNull();
-    expect(list!.querySelectorAll("button, [role='button']")).toHaveLength(0);
+    expect(list!.querySelectorAll("button, [role='button']")).toHaveLength(1);
     expect(links(host)).toHaveLength(3);
     for (const link of links(host)) expect(link.tabIndex).toBe(0);
 
@@ -229,9 +251,15 @@ describe("Needs you notification rows", () => {
 
     const legacy = rowFor(host, "n-legacy");
     expect(legacy.textContent).toContain("Recorded before deep links");
-    expect(legacy.querySelector('[role="link"]')?.getAttribute("aria-disabled")).toBe("true");
-    expect(legacy.querySelector('[data-testid="needs-you-notification-unavailable"]')?.textContent)
-      .toBe(DEEP_LINK_UNAVAILABLE_COPY.no_target);
+    expect(legacy.querySelector('[role="link"]')?.getAttribute("aria-disabled")).toBeNull();
+    expect(legacy.textContent).toContain("tab-orchestrator");
+    expect(legacy.querySelector('[data-testid="needs-you-notification-unavailable"]')).toBeNull();
+    await pressEnter(legacy.querySelector('[role="link"]') as HTMLElement);
+    expect(onSelectTab).toHaveBeenCalledWith("ws-1", "tab-orchestrator");
+    const opened = vi.fn();
+    window.addEventListener("codeterm:open-notification-center", opened, { once: true });
+    await act(async () => legacy.querySelector<HTMLButtonElement>("button")!.click());
+    expect(opened.mock.calls[0][0].detail.notificationId).toBe("n-legacy");
 
     const closed = rowFor(host, "n-closed");
     expect(closed.querySelector('[data-testid="needs-you-notification-unavailable"]')?.textContent)

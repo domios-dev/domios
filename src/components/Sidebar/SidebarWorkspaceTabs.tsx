@@ -25,6 +25,7 @@ import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import { isCronRunning } from "../Jobs/jobsModel";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { TabAttention } from "./tabAttention";
+import { curatorTabAttention, tabAttention } from "./tabAttention";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 import { SidebarCronRow } from "./SidebarResourceRow";
 import { SidebarShellRow, SidebarOwnerTabRow, SidebarSortableBlock } from "./SidebarShellRow";
@@ -208,6 +209,11 @@ export function SidebarWorkspaceTabs({
     () => newestActivePlansByTeam(plans as TeamPlan[], planIndex),
     [plans, planIndex],
   );
+  const displayedAttention = useMemo(() => Object.fromEntries(sortedTabs.map(tab => {
+    const attention = tabAttentionByTab?.[tab.id] ?? tabAttention(tab, tabStatuses[tab.id], []);
+    const loop = tab.team_id ? plansByTeam.get(tab.team_id)?.control_loop : undefined;
+    return [tab.id, tab.role_profile === "curator" ? curatorTabAttention(attention, loop) : attention];
+  })), [sortedTabs, tabAttentionByTab, tabStatuses, plansByTeam]);
 
   // Memoized rows compare handlers by identity; these always reach the current props.
   const activateRowTab = useLatestCallback(onActivateTab, []);
@@ -219,7 +225,7 @@ export function SidebarWorkspaceTabs({
     isActiveVisual,
     workspaceCanvasActive,
     tabStatuses,
-    tabAttentionByTab,
+    tabAttentionByTab: displayedAttention,
     orchestrators,
     touchMode,
     uiFontScale,

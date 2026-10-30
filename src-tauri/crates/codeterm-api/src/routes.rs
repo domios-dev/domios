@@ -275,6 +275,10 @@ pub(super) fn create_router_with_preview_admission(
             post(notification_routes::answer_notification),
         )
         .route(
+            "/api/notifications/{id}/resolve",
+            post(notification_routes::resolve_notification),
+        )
+        .route(
             "/api/notifications/{id}",
             axum::routing::delete(notification_routes::delete_notification),
         )
