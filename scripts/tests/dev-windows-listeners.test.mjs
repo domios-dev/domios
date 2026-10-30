@@ -25,7 +25,7 @@ $connections = @(
 )
 $netstat = @(
   ' TCP [::]:7718 [::]:0 LISTENING 43',
-  ' TCP [fd7a:115c:a1e0::1]:7722 [::]:0 LISTENING 48',
+  ' TCP [2001:db8::1]:7722 [::]:0 LISTENING 48',
   ' TCP 127.0.0.1:7723 0.0.0.0:0 LISTENING 49',
   ' TCP 127.0.0.1:7724 127.0.0.1:7717 ESTABLISHED 50',
   ' TCP 127.0.0.1:17717 0.0.0.0:0 LISTENING 51'
