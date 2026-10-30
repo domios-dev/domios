@@ -216,29 +216,45 @@ impl InstallationKeys<'_> {
         self.promote_candidate(rng, false).await
     }
 
-    async fn promote_candidate(&self, rng: &mut (impl RngCore + CryptoRng), recover_revoked: bool) -> Result<PrivateKeys> {
+    async fn promote_candidate(
+        &self,
+        rng: &mut (impl RngCore + CryptoRng),
+        recover_revoked: bool,
+    ) -> Result<PrivateKeys> {
         for attempt in 0..=usize::from(recover_revoked) {
             let candidate = match self.store.load(&self.scope, Slot::Candidate).await? {
                 Some(bytes) => PrivateKeys::from_storage(&bytes)?,
                 None => {
                     let candidate = PrivateKeys::generate(rng);
-                    self.store.save(&self.scope, Slot::Candidate, candidate.storage_bytes()).await?;
+                    self.store
+                        .save(&self.scope, Slot::Candidate, candidate.storage_bytes())
+                        .await?;
                     candidate
                 }
             };
-            let id = match self.registry.enroll(&candidate.signing_spki(), &candidate.encryption_spki()).await {
+            let id = match self
+                .registry
+                .enroll(&candidate.signing_spki(), &candidate.encryption_spki())
+                .await
+            {
                 Err(Error::Revoked) if recover_revoked => {
                     let stored = self.store.load(&self.scope, Slot::Candidate).await?;
-                    if stored.as_ref().map(|bytes| bytes.as_slice()) != Some(candidate.storage_bytes().as_slice()) {
+                    if stored.as_ref().map(|bytes| bytes.as_slice())
+                        != Some(candidate.storage_bytes().as_slice())
+                    {
                         return Err(Error::LocalKeyUnavailable);
                     }
                     self.store.delete(&self.scope, Slot::Candidate).await?;
-                    if attempt == 0 { continue; }
+                    if attempt == 0 {
+                        continue;
+                    }
                     return Err(Error::Revoked);
                 }
                 result => result?,
             };
-            if id != candidate.verifier_key_id(self.uid) { return Err(Error::InvalidKey); }
+            if id != candidate.verifier_key_id(self.uid) {
+                return Err(Error::InvalidKey);
+            }
             drop(candidate);
             return self.reconcile().await?.ok_or(Error::LocalKeyUnavailable);
         }

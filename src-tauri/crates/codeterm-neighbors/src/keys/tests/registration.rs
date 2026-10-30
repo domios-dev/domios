@@ -53,11 +53,21 @@ struct RecoveryRegistry {
 #[async_trait]
 impl KeyRegistry for RecoveryRegistry {
     async fn enroll(&self, signing: &str, _: &str) -> Result<String> {
-        let id = format!("vk_{}", &sha256_hex(format!("verifier-key:owner:{signing}").as_bytes())[..32]);
+        let id = format!(
+            "vk_{}",
+            &sha256_hex(format!("verifier-key:owner:{signing}").as_bytes())[..32]
+        );
         self.requests.lock().unwrap().push(id.clone());
-        if self.transport { return Err(Error::Transport); }
-        if self.reject_all || self.revoked.contains(&id) { return Err(Error::Revoked); }
-        self.active.lock().unwrap().insert("machine".into(), id.clone());
+        if self.transport {
+            return Err(Error::Transport);
+        }
+        if self.reject_all || self.revoked.contains(&id) {
+            return Err(Error::Revoked);
+        }
+        self.active
+            .lock()
+            .unwrap()
+            .insert("machine".into(), id.clone());
         Ok(id)
     }
     async fn revoke(&self, id: &str) -> Result<()> {
@@ -75,20 +85,42 @@ async fn explicit_enrollment_recovers_only_a_definitively_revoked_candidate_with
     let revoked = PrivateKeys::generate(&mut rng);
     let revoked_id = revoked.verifier_key_id("owner");
     let registry = RecoveryRegistry {
-        active: Mutex::new(HashMap::from([("other-machine".into(), "vk_foreign".into())])),
+        active: Mutex::new(HashMap::from([(
+            "other-machine".into(),
+            "vk_foreign".into(),
+        )])),
         revoked: std::collections::HashSet::from([revoked_id.clone()]),
-        requests: Mutex::default(), transport: false, reject_all: false,
+        requests: Mutex::default(),
+        transport: false,
+        reject_all: false,
     };
     let store = Store::default();
     let scope = KeyScope::installation("machine", "owner").unwrap();
-    store.save(&scope, Slot::Candidate, revoked.storage_bytes()).await.unwrap();
-    let lifecycle = InstallationKeys { store: &store, registry: &registry, scope: scope.clone(), uid: "owner" };
+    store
+        .save(&scope, Slot::Candidate, revoked.storage_bytes())
+        .await
+        .unwrap();
+    let lifecycle = InstallationKeys {
+        store: &store,
+        registry: &registry,
+        scope: scope.clone(),
+        uid: "owner",
+    };
     let recovered = lifecycle.enroll(&mut rng).await.unwrap();
     assert_ne!(recovered.verifier_key_id("owner"), revoked_id);
-    assert_eq!(*registry.requests.lock().unwrap(), vec![revoked_id, recovered.verifier_key_id("owner")]);
+    assert_eq!(
+        *registry.requests.lock().unwrap(),
+        vec![revoked_id, recovered.verifier_key_id("owner")]
+    );
     assert_eq!(registry.active.lock().unwrap().len(), 2);
-    assert_eq!(registry.active.lock().unwrap()["other-machine"], "vk_foreign");
-    assert_eq!(lifecycle.load().await.unwrap().unwrap().encryption_key_id(), recovered.encryption_key_id());
+    assert_eq!(
+        registry.active.lock().unwrap()["other-machine"],
+        "vk_foreign"
+    );
+    assert_eq!(
+        lifecycle.load().await.unwrap().unwrap().encryption_key_id(),
+        recovered.encryption_key_id()
+    );
     assert!(store.load(&scope, Slot::Candidate).await.unwrap().is_none());
 }
 
@@ -99,22 +131,59 @@ async fn explicit_candidate_recovery_keeps_transport_uncertainty_and_stops_after
         let candidate = PrivateKeys::generate(&mut rng);
         let current = PrivateKeys::generate(&mut rng);
         let registry = RecoveryRegistry {
-            active: Mutex::new(HashMap::from([("other-machine".into(), "vk_foreign".into())])),
-            revoked: Default::default(), requests: Mutex::default(), transport, reject_all: true,
+            active: Mutex::new(HashMap::from([(
+                "other-machine".into(),
+                "vk_foreign".into(),
+            )])),
+            revoked: Default::default(),
+            requests: Mutex::default(),
+            transport,
+            reject_all: true,
         };
         let store = Store::default();
         let scope = KeyScope::installation("machine", "owner").unwrap();
-        store.save(&scope, Slot::Current, current.storage_bytes()).await.unwrap();
-        store.save(&scope, Slot::Candidate, candidate.storage_bytes()).await.unwrap();
-        let lifecycle = InstallationKeys { store: &store, registry: &registry, scope: scope.clone(), uid: "owner" };
-        let expected = if transport { Error::Transport } else { Error::Revoked };
+        store
+            .save(&scope, Slot::Current, current.storage_bytes())
+            .await
+            .unwrap();
+        store
+            .save(&scope, Slot::Candidate, candidate.storage_bytes())
+            .await
+            .unwrap();
+        let lifecycle = InstallationKeys {
+            store: &store,
+            registry: &registry,
+            scope: scope.clone(),
+            uid: "owner",
+        };
+        let expected = if transport {
+            Error::Transport
+        } else {
+            Error::Revoked
+        };
         assert!(matches!(lifecycle.enroll(&mut rng).await, Err(error) if error == expected));
-        assert_eq!(registry.requests.lock().unwrap().len(), if transport { 1 } else { 2 });
-        assert_eq!(lifecycle.load().await.unwrap().unwrap().encryption_key_id(), current.encryption_key_id());
+        assert_eq!(
+            registry.requests.lock().unwrap().len(),
+            if transport { 1 } else { 2 }
+        );
+        assert_eq!(
+            lifecycle.load().await.unwrap().unwrap().encryption_key_id(),
+            current.encryption_key_id()
+        );
         let saved = store.load(&scope, Slot::Candidate).await.unwrap();
         if transport {
-            assert_eq!(PrivateKeys::from_storage(&saved.unwrap()).unwrap().encryption_key_id(), candidate.encryption_key_id());
-        } else { assert!(saved.is_none()); }
-        assert_eq!(registry.active.lock().unwrap()["other-machine"], "vk_foreign");
+            assert_eq!(
+                PrivateKeys::from_storage(&saved.unwrap())
+                    .unwrap()
+                    .encryption_key_id(),
+                candidate.encryption_key_id()
+            );
+        } else {
+            assert!(saved.is_none());
+        }
+        assert_eq!(
+            registry.active.lock().unwrap()["other-machine"],
+            "vk_foreign"
+        );
     }
 }
