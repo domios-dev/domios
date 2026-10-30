@@ -7,7 +7,7 @@ const input = await new Promise((resolve) => {
   process.stdin.on("data", (chunk) => { value += chunk; });
   process.stdin.on("end", () => resolve(value));
 });
-const data = input ? JSON.parse(input) : null;
+const data = input ? JSON.parse(input).result : null;
 const plan = data?.plan ?? data;
 
 const write = (value) => process.stdout.write(value == null ? "" : String(value));

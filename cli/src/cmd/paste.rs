@@ -70,7 +70,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                         crate::cmd::print::fail(1, format!("HTTP {}: {}", status.as_u16(), msg));
                     }
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else if let Some(id) = val.get("id").and_then(|v| v.as_str()) {
                         println!("{}", id);
                     } else {
@@ -91,7 +91,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                     crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
                 }
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    println!("{}", crate::cmd::output::encode(&val).unwrap());
                     return;
                 }
                 let Some(arr) = val.as_array() else {
@@ -309,7 +309,7 @@ pub(crate) fn render_paste(val: &serde_json::Value, json: bool) -> String {
     if json {
         format!(
             "{}\n",
-            serde_json::to_string_pretty(val).unwrap_or_default()
+            crate::cmd::output::encode(val).unwrap_or_default()
         )
     } else {
         val.get("body")

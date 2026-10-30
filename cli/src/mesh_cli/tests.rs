@@ -1056,6 +1056,7 @@ fn web_link_is_local_only_over_mesh() {
 
 fn mesh_cli(json: bool, command: Commands) -> crate::Cli {
     crate::Cli {
+        verbose: false,
         json,
         mesh: Some("BLACKSTAR".into()),
         command,
@@ -1107,7 +1108,7 @@ fn mesh_tab_list_json_is_formatted_locally_instead_of_relayed_verbatim() {
 
 #[test]
 fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
-    use crate::cmd::print::{tab_list_json_envelope, uniform_id_value, TAB_LIST_JSON_KEY};
+    use crate::cmd::print::{tab_list_json_envelope, uniform_id_value};
 
     let rest_body = serde_json::json!([
         {"id": "tab_1", "title": "one"},
@@ -1115,7 +1116,7 @@ fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
     ]);
 
     let over_mesh = uniform_id_value(&super::tab_list::json_envelope(&rest_body));
-    let local = uniform_id_value(&tab_list_json_envelope(
+    let local = crate::cmd::output::collection_envelope(&tab_list_json_envelope(
         rest_body.as_array().unwrap().clone(),
     ));
 
@@ -1123,7 +1124,7 @@ fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
         over_mesh, local,
         "one command must not return two JSON shapes depending on transport"
     );
-    let tabs = over_mesh[TAB_LIST_JSON_KEY]
+    let tabs = over_mesh["result"]
         .as_array()
         .expect("the printed envelope carries the tabs array");
     assert_eq!(tabs.len(), 2);
@@ -1133,7 +1134,6 @@ fn mesh_tab_list_json_emits_the_same_envelope_as_the_local_path() {
 /// relayed `GET /api/tabs` body stays the bare array its consumers read.
 #[test]
 fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
-    use crate::cmd::print::TAB_LIST_JSON_KEY;
 
     let rest_body = serde_json::json!([{"id": "tab_1", "title": "one"}]);
     let printed = super::tab_list::json_envelope(&rest_body);
@@ -1142,10 +1142,10 @@ fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
         rest_body.is_array(),
         "GET /api/tabs keeps its bare-array response: {rest_body}"
     );
-    assert!(rest_body.get(TAB_LIST_JSON_KEY).is_none());
-    assert_eq!(printed[TAB_LIST_JSON_KEY], rest_body);
+    assert!(rest_body.get("tabs").is_none());
+    assert_eq!(printed["result"], rest_body);
     assert_eq!(
-        super::tab_list::json_envelope(&serde_json::Value::Null)[TAB_LIST_JSON_KEY],
+        super::tab_list::json_envelope(&serde_json::Value::Null)["result"],
         serde_json::json!([]),
         "an absent peer body still carries the tabs key"
     );

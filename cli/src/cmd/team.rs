@@ -91,7 +91,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             if json_output {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
+                    crate::cmd::output::encode(&value).unwrap_or_else(|_| "null".into())
                 );
             } else {
                 print_human(&value);
@@ -126,7 +126,7 @@ fn handle_pair(
             if json_output {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
+                    crate::cmd::output::encode(&value).unwrap_or_else(|_| "null".into())
                 );
             } else {
                 print_pair(&value);

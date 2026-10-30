@@ -61,7 +61,7 @@ pub fn handle_integration(json: bool, action: &IntegrationAction) {
             serde_json::from_str::<serde_json::Value>(&body).map_err(|error| error.to_string())
         });
     match result {
-        Ok(value) if json => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Ok(value) if json => println!("{}", crate::cmd::output::encode(&value).unwrap()),
         Ok(value) => print_object(&value),
         Err(error) => {
             crate::cmd::print::fail(1, error.to_string());

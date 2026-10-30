@@ -500,6 +500,10 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         );
         return;
     }
+    if method == "blueprint.list" && !crate::cmd::output::verbose() {
+        print!("{}", crate::cmd::output::compact_list(&result, None));
+        return;
+    }
     if let Some(jobs) = result.as_array() {
         if jobs.is_empty() {
             println!("No blueprints.");

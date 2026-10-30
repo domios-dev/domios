@@ -151,6 +151,8 @@ fn main_impl() {
         e.exit()
     });
     cmd::error_contract::set_json_mode(cli.json);
+    cmd::output::set_verbose(cli.verbose);
+    cmd::output::configure(&args);
     if let Commands::App { action } = &cli.command {
         cmd::app::handle(action, cli.json, cli.mesh.is_some());
     }
@@ -495,7 +497,7 @@ fn main_impl() {
             match result {
                 Ok(val) => {
                     if cli.json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         print_object(&val);
                     }

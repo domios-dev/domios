@@ -88,6 +88,7 @@ function fleet(manifest, { gate = (from, to) => from.uid === "uid-primary" && to
   link(A, B);
   link(B, A);
   const ok = (json) => ({ exit: 0, stdout: JSON.stringify(json), stderr: "", json, timedOut: false, spawnError: false, ms: 1 });
+  const cliOk = (json) => ok({result: json});
   const err = (code) => ({ exit: 1, stdout: JSON.stringify({ ok: false, error: { code, message: code } }), stderr: "", json: { ok: false, error: { code, message: code } }, timedOut: false, spawnError: false, ms: 1 });
   const tree = { name: "codeterm", subcommands: [
     { name: "identify", subcommands: [] }, { name: "cli-manifest", subcommands: [] },
@@ -115,28 +116,28 @@ function fleet(manifest, { gate = (from, to) => from.uid === "uid-primary" && to
     const meshIdx = args.indexOf("--mesh");
     const peer = meshIdx >= 0 ? byInstance[args[meshIdx + 1]] : null;
     switch (cmd) {
-      case "identify": return ok({ connection: { port: s.t.api_port, instance: s.t.instance ?? null } });
-      case "mesh status": return ok({ instance_id: wrongInstance === s.id ? uuid(77) : s.t.instance_id, api_port: s.t.api_port, build: wrongBuild === s.id ? "abcdef123" : s.build });
-      case "mesh peers": return ok({ paired: Object.values(s.peers), discovered: [], incoming_requests: [] });
-      case "cli-manifest": return ok(tree);
-      case "account status": return ok({ identity: s.uid ? { uid: s.uid, email: "x@y" } : null, pending: false, provider: "firebase", session_only: false });
-      case "account logout": s.uid = null; s.signedOut = true; return ok({ ok: true });
-      case "account mesh-cleanup": return ok({ cleanup: "confirmed" });
-      case "mesh stream-probe": return ok({ delivered: gate(s, byInstance[args[2]]) });
+      case "identify": return cliOk({ connection: { port: s.t.api_port, instance: s.t.instance ?? null } });
+      case "mesh status": return cliOk({ instance_id: wrongInstance === s.id ? uuid(77) : s.t.instance_id, api_port: s.t.api_port, build: wrongBuild === s.id ? "abcdef123" : s.build });
+      case "mesh peers": return cliOk({ paired: Object.values(s.peers), discovered: [], incoming_requests: [] });
+      case "cli-manifest": return cliOk(tree);
+      case "account status": return cliOk({ identity: s.uid ? { uid: s.uid, email: "x@y" } : null, pending: false, provider: "firebase", session_only: false });
+      case "account logout": s.uid = null; s.signedOut = true; return cliOk({ ok: true });
+      case "account mesh-cleanup": return cliOk({ cleanup: "confirmed" });
+      case "mesh stream-probe": return cliOk({ delivered: gate(s, byInstance[args[2]]) });
       case `paste put`: {
         if (!peer || !s.peers[peer.t.instance_id] || !peer.peers[s.t.instance_id]) return err("peer_not_paired");
         if (!gate(s, peer)) return err("mesh_signed_out");
         pasteSeq += 1;
         peer.pastes[`paste:${pasteSeq}`] = input;
-        return ok({ id: `paste:${pasteSeq}` });
+        return cliOk({ id: `paste:${pasteSeq}` });
       }
       default:
         if (cmd.startsWith("paste get")) {
           if (!gate(s, peer)) return err("mesh_signed_out");
           const body = peer.pastes[args[2]];
-          return body === undefined ? err("not_found") : ok({ id: args[2], body });
+          return body === undefined ? err("not_found") : cliOk({ id: args[2], body });
         }
-        if (cmd.startsWith("paste rm")) return ok({ ok: true });
+        if (cmd.startsWith("paste rm")) return cliOk({ ok: true });
         return err("unknown_command");
     }
   };

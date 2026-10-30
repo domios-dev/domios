@@ -46,7 +46,7 @@ pub(crate) fn handle(client: &mut SocketClient, json_mode: bool, action: MemEmbe
     if json_mode {
         println!(
             "{}",
-            serde_json::to_string_pretty(&value).unwrap_or_default()
+            crate::cmd::output::encode(&value).unwrap_or_default()
         );
         return;
     }

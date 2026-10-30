@@ -7,7 +7,7 @@ use std::io::{BufRead, Read, Write};
 pub(super) fn handle(client: &LocalApiClient, json: bool, pad: Option<&str>) {
     let result = run(client, json, pad);
     match result {
-        Ok(value) if json => println!("{value}"),
+        Ok(value) if json => crate::cmd::print::print_json(&value),
         Ok(value) => print_human(&value),
         Err(error) => fail(1, error),
     }
@@ -33,7 +33,7 @@ fn run(
         .as_str()
         .ok_or("Sign-in response has no login ID")?;
     if json {
-        println!("{}", serde_json::json!({"url": url, "pending": true}));
+        eprintln!("{url}");
     } else {
         println!("{url}");
     }
@@ -50,7 +50,7 @@ fn run(
                 .map_err(|e| e.to_string())?
                 == 0
             {
-                return Ok(serde_json::json!({"pending": true}));
+                return Ok(serde_json::json!({"url": url, "pending": true}));
             }
             value
         }

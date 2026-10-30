@@ -37,7 +37,7 @@ pub fn handle(json: bool, action: TraceAction) {
             let chain = select(&events, &id, since);
             let missing = gaps(&chain);
             if json {
-                println!("{}", serde_json::json!({"events": chain, "gaps": missing}));
+                crate::cmd::print::print_json(&serde_json::json!({"events": chain, "gaps": missing}));
             } else {
                 if chain.is_empty() {
                     println!("No retained trace events for {id}");
@@ -62,7 +62,7 @@ pub fn handle(json: bool, action: TraceAction) {
         TraceAction::Recent { limit } => {
             let recent = recent(&events, limit as usize);
             if json {
-                println!("{}", serde_json::json!({"flows": recent}));
+                crate::cmd::print::print_json(&serde_json::json!({"flows": recent}));
             } else {
                 for event in recent {
                     println!(

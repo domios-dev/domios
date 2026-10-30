@@ -65,7 +65,7 @@ test('task-less verification Workers receive only daemon-recorded spawn gates in
    assert.equal(binary,'codeterm');
    assert.deepEqual(argv,['--json','tab','inspect','--tab','worker-tab']);
    assert.equal(options.env.CODETERM_AUTHORIZED_GATES,env.CODETERM_AUTHORIZED_GATES);
-   return JSON.stringify({data:[record]});
+   return JSON.stringify({result:[record]});
   });
   assert.deepEqual(proof.taskless_worker,record);
   assert.equal(authorizedRustGate({env,current:'/canonical',canonical:'/canonical',args,...proof}),true);
@@ -75,7 +75,7 @@ test('task-less gate grants refuse off-canonical, unrecorded, task-bound, and un
  const args=['test-one','app','worker_role_contract'];
  const env={CODETERM_ROLE:'Worker',CODETERM_TAB_ID:'worker-tab',CODETERM_AUTHORIZED_GATES:gateCommand(args)};
  const accepted={id:'worker-tab',role:'Worker',role_profile:'qa',parent_tab_id:'parent-tab',taskless_authorized_gates:[gateCommand(args)]};
- const proofFor=record=>readGateProof(env,undefined,undefined,()=>JSON.stringify({data:[record]}));
+ const proofFor=record=>readGateProof(env,undefined,undefined,()=>JSON.stringify({result:[record]}));
  const proof=proofFor(accepted);
  assert.equal(authorizedRustGate({env,current:'/lane',canonical:'/canonical',args,...proof}),false);
  assert.equal(authorizedRustGate({env,current:'/canonical',canonical:'/canonical',args,...proofFor({...accepted,taskless_authorized_gates:[gateCommand(['verify'])]})}),false);
@@ -102,7 +102,7 @@ test('task-bound workspace grant reads current host attempt instead of stale YAM
  const proof=readGateProof(f.env,()=>{throw new Error('stale YAML must not be read');},undefined,(binary,argv)=>{
   assert.equal(binary,'codeterm');
   assert.deepEqual(argv,['plan','task','show','pl_test','task_test','--json']);
-  return JSON.stringify({data:{task:f.tasks[0]}});
+  return JSON.stringify({result:{task:f.tasks[0]}});
  });
  assert.equal(authorizedRustGate({...f,...proof}),true);
  for(const args of [['nextest','plugin'],['nextest','workspace','all()'],['test-one','app','tests::'],['check-queue']]) {

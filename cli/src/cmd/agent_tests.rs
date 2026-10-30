@@ -218,7 +218,7 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
     let output_json = format_agent_models_json(&descriptor);
     let json_models: serde_json::Value =
         serde_json::from_str(&output_json).expect("CLI model JSON output");
-    let json_models = json_models.as_array().expect("CLI model JSON array");
+    let json_models = json_models["result"].as_array().expect("CLI model JSON array");
     let model = json_models
         .iter()
         .find(|model| model["id"] == "gpt-5.6-sol")

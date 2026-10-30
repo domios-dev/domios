@@ -83,7 +83,7 @@ pub(super) fn export(
     std::fs::write(out, bytes)
         .unwrap_or_else(|error| print::fail(1, &format!("Write snapshot: {error}")));
     if json {
-        println!("{}", serde_json::json!({"out":out,"sanitized":true}));
+        print::print_json(&serde_json::json!({"out":out,"sanitized":true}));
     } else {
         println!("Sanitized read-only desk export: {}", out.display());
     }
@@ -113,7 +113,7 @@ pub(super) fn import(
         request = request.header("Authorization", format!("Bearer {token}"));
     }
     let result = response(request);
-    println!("{result}");
+    print::print_json(&result);
 }
 
 #[cfg(test)]

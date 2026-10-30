@@ -42,7 +42,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
         if json_mode {
             println!(
                 "{}",
-                serde_json::to_string_pretty(&body).unwrap_or_default()
+                crate::cmd::output::encode(&body).unwrap_or_default()
             );
         } else {
             print_human(&body);
@@ -109,7 +109,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
             if json || json_mode {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&body).unwrap_or_default()
+                    crate::cmd::output::encode(&body).unwrap_or_default()
                 );
             } else {
                 let value = body
@@ -271,7 +271,7 @@ pub fn handle_mem_secret(json_mode: bool, action: MemSecretAction) {
             if json_mode {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&json_summary(&declaration, &outcome))
+                    crate::cmd::output::encode(&json_summary(&declaration, &outcome))
                         .unwrap_or_default()
                 );
             } else {

@@ -18,7 +18,7 @@ pub(super) fn run(client: &mut SocketClient, json: bool, action: ProviderCliActi
         }
     };
     match result {
-        Ok(value) if json => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Ok(value) if json => println!("{}", crate::cmd::output::encode(&value).unwrap()),
         Ok(value) if operation.is_none() => {
             for line in crate::cmd::plugin::cli_status::status_lines(&provider, &value) {
                 println!("{line}");

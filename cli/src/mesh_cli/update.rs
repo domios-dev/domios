@@ -61,7 +61,7 @@ pub(crate) fn run_update_apply_via_mesh(
     if json_mode {
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
+            crate::cmd::output::encode(&serde_json::json!({
                 "step": "check",
                 "peer": target,
                 "data": info,
@@ -101,7 +101,7 @@ pub(crate) fn run_update_apply_via_mesh(
     if json_mode {
         println!(
             "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
+            crate::cmd::output::encode(&serde_json::json!({
                 "step": "install",
                 "peer": target,
                 "data": inner,

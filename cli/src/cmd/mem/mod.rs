@@ -149,6 +149,13 @@ fn compact_search_hit(hit: &serde_json::Value) -> serde_json::Value {
 }
 
 pub(crate) fn render_search_hits(value: &serde_json::Value) -> String {
+    if !crate::cmd::output::verbose() {
+        return crate::cmd::output::compact_list(value, None);
+    }
+    render_search_hits_verbose(value)
+}
+
+fn render_search_hits_verbose(value: &serde_json::Value) -> String {
     let Some(hits) = value
         .get("hits")
         .and_then(serde_json::Value::as_array)
@@ -279,6 +286,13 @@ fn wants_human_skill_list(json_mode: bool, action: &MemSkillAction) -> bool {
 }
 
 fn render_mem_skill_list(value: &serde_json::Value) -> String {
+    if !crate::cmd::output::verbose() {
+        return crate::cmd::output::compact_list(value, None);
+    }
+    render_mem_skill_list_verbose(value)
+}
+
+fn render_mem_skill_list_verbose(value: &serde_json::Value) -> String {
     let Some(rows) = value.get("skills").and_then(serde_json::Value::as_array) else {
         return "(no skills)\n".into();
     };

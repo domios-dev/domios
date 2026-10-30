@@ -54,7 +54,12 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
 
     match result {
         Ok(report) => {
-            println!("{}", serde_json::json!({"ok": true, "report": report}));
+            let value = serde_json::json!({"ok": true, "report": report});
+            if crate::cmd::error_contract::json_mode() {
+                crate::cmd::print::print_json(&value);
+            } else {
+                println!("{value}");
+            }
         }
         Err(e) => {
             worker_emit_error(&e);
@@ -64,6 +69,10 @@ pub fn run_mem_worker(kind: &str, db_path_arg: Option<&str>) {
 }
 
 fn worker_emit_error(msg: &str) {
+    if crate::cmd::error_contract::json_mode() {
+        crate::cmd::print::write_cli_error(true, &crate::cmd::print::CliError::new(msg), &mut std::io::stdout(), &mut std::io::stderr());
+        return;
+    }
     println!("{}", serde_json::json!({"ok": false, "error": msg}));
 }
 

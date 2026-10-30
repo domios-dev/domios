@@ -37,7 +37,7 @@ export function createDriver({ manifest, journal, run = runBounded, clock = Date
     const full = args.includes("--json") ? args : [...args, "--json"];
     const result = await run(cliArgv(target, full), { env: targetEnv(target, env), input, deadlineMs: budget() });
     record(label ?? `${target.id}-${args.slice(0, 2).join("-")}`, result, { target: target.id });
-    return result;
+    return { ...result, json: result.exit === 0 ? result.json?.result : result.json };
   }
 
   function vars(role, extra = {}) {
@@ -63,6 +63,7 @@ export function createDriver({ manifest, journal, run = runBounded, clock = Date
       const target = targetOf(role);
       const args = fill(spec.argv, values);
       result = await run(cliArgv(target, args.includes("--json") ? args : [...args, "--json"]), { env: targetEnv(target, env), deadlineMs: budget() });
+      if (result.exit === 0) result = { ...result, json: result.json?.result };
     }
     const fields = {};
     for (const [field, path] of Object.entries(spec.fields)) fields[field] = resolvePath(result.json, path);

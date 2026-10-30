@@ -116,7 +116,7 @@ def run_dc_command(lib_path: Path, instance: str, args: list[str]) -> str:
 
 def config_integer(lib_path: Path, instance: str, key: str, maximum: int) -> int:
     output = run_dc_command(lib_path, instance, ["config", "get", key, "--json"])
-    value = json.loads(output).get("value")
+    value = json.loads(output)["result"].get("value")
     if type(value) is not int or not 0 <= value <= maximum:
         raise RuntimeError(f"unexpected {key} config value: {value!r}")
     return value
@@ -153,7 +153,8 @@ def evaluate_one(
         ["mem", "search", query, "--supporter", "on", "--json"],
     )
     latency_ms = (time.perf_counter() - started) * 1000.0
-    value = json.loads(output)
+    response = json.loads(output)
+    value = {**response.get("meta", {}), "hits": response["result"]}
     hits = value.get("hits")
     if not isinstance(hits, list):
         raise RuntimeError("mem search returned an unexpected JSON shape")
