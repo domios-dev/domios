@@ -72,7 +72,7 @@ export type TabStatusMark = { kind: "attention"; label: string; level: TabAttent
 export function tabStatusMark(title: string, attention: TabAttention | null | undefined, active = false): TabStatusMark | null {
   if (!attention) return null;
   if (attention.curatorSchedule?.kind === "suspended") return { kind: "attention", label: attention.curatorSchedule.label, level: "action_needed" };
-  if (attention.curatorSchedule?.kind === "scheduled" && (!attention.showMark || active)) return attention.curatorSchedule;
+  if (attention.curatorSchedule?.kind === "scheduled" && (!attention.showMark || active)) return { kind: attention.curatorSchedule.kind, label: attention.curatorSchedule.label };
   if (attention.sleeping) return { kind: "sleeping", label: attention.sleepingLabel ?? "Asleep" };
   if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
   if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
