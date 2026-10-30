@@ -19,7 +19,7 @@ public static class DevDesktop {
         "CODETERM_DEV", "CODETERM_DEV_INSTANCE", "CODETERM_DEV_API_PORT",
         "CODETERM_DEV_WORKSPACE_ROOT", "CODETERM_WEB_DIST", "CODETERM_CLI_PATH", "CODETERM_CDP_PORT",
         "CODETERM_VITE_PORT", "CODETERM_DEV_IDENTIFIER", "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
-        "CLAUDE_CONFIG_DIR", "CODEX_HOME"
+        "CLAUDE_CONFIG_DIR", "CODEX_HOME", "DOMIOS_CHAT_TRACE"
     };
     [DllImport("user32.dll")] static extern IntPtr GetShellWindow();
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
