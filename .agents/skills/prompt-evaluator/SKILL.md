@@ -177,6 +177,7 @@ Tips for writing good evals:
 - `evals/orchestrator-control-loop/` — responsive long-operation ownership and proportional verification.
 - `evals/blueprint-reuse/` — recipe-first authoring, built-in GitHub discovery, and custom-node fallback.
 - `evals/spawned-agent-primer/` — shared capabilities, tab identity, and role rules for every spawned agent.
+- `evals/plugin-recall/` — messaging plugin use and chat-first sign-in from per-turn memory hits and actionable refusals.
 - `evals/worker-handoff/` — mandatory structured Worker handoff for partial, blocked, and review-ready turns.
 
 Experimental/historical: `evals/dreamer-repair/`.
@@ -219,4 +220,4 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

@@ -213,8 +213,14 @@ impl ViewProvider for JsViewProvider {
             .map_err(|_| ViewError::Call("invalid view context".into()))?;
         tokio::task::spawn_blocking(move || {
             crate::view_host::with_view_call_context(&plugin, &invocation, || {
-                call_json::<Value>(&vm, "viewCall", &[Value::String(method), args, context])
-                    .map_err(|error| ViewError::Call(format!("{error:?}")))
+                let result = call_json::<Value>(
+                    &vm,
+                    "viewCall",
+                    &[Value::String(method.clone()), args, context],
+                )
+                .map_err(|error| ViewError::Call(format!("{error:?}")))?;
+                vm.observe_connection(&method, &result);
+                Ok(result)
             })
         })
         .await

@@ -4,7 +4,7 @@ use std::{fs, path::Path};
 use codeterm_plugin::agent_verbs::{AgentVerbCatalog, PLUGIN_SKILL_SOURCE_PREFIX};
 use codeterm_plugin::js_runtime::{catalog_from_manifest, PluginManifest};
 use codeterm_plugin::plugin_index::{
-    entries_from_manifest, plan_plugin_index_sync, ExistingPluginIndexEntry, PluginIndexEntry,
+    entries_from_catalog, plan_plugin_index_sync, ExistingPluginIndexEntry, PluginIndexEntry,
 };
 
 use crate::agent_commands::AgentCommandRegistry;
@@ -41,10 +41,11 @@ fn to_new_item(item: PluginIndexEntry) -> NewMemItem {
     }
 }
 
-pub fn sync(mem: &MemManager) {
+pub fn sync(mem: &MemManager, registry: &AgentCommandRegistry) {
     crate::mem::store::with_default_system_author("plugin-skills", || {
         let _serial = SYNC_LOCK.lock();
-        let desired = match installed_plugin_entries() {
+        refresh_connection_states(registry);
+        let desired = match installed_plugin_entries(registry) {
             Ok(entries) => entries,
             Err(error) => {
                 log::warn!("[plugin-index] load installed manifests failed: {error}");
@@ -89,17 +90,46 @@ pub fn sync(mem: &MemManager) {
 }
 
 /// Off the caller's thread: mem writes block, and callers include the async runtime.
-pub fn spawn_sync(mem: Arc<MemManager>) {
-    crate::async_runtime::spawn_blocking(move || sync(&mem));
+pub fn spawn_sync(
+    mem: Arc<MemManager>,
+    registry: crate::agent_commands::AgentCommandRegistryHandle,
+) {
+    crate::async_runtime::spawn_blocking(move || sync(&mem, &registry));
 }
 
-fn installed_plugin_entries() -> Result<Vec<PluginIndexEntry>, String> {
+fn refresh_connection_states(registry: &AgentCommandRegistry) {
+    for handler in registry.active() {
+        if !handler.granted() {
+            continue;
+        }
+        let Some(catalog) = handler.catalog() else {
+            continue;
+        };
+        if catalog.connection_state.is_none()
+            && codeterm_plugin::plugin_connection::login_command(&catalog).is_some()
+            && catalog.verbs.iter().any(|usage| usage == "health")
+        {
+            let _ = handler.on_agent_command("", "health", &[], None);
+        }
+    }
+}
+
+fn installed_plugin_entries(
+    registry: &AgentCommandRegistry,
+) -> Result<Vec<PluginIndexEntry>, String> {
     let root = codeterm_paths::data_dir().join("plugins");
+    installed_plugin_entries_at(&root, registry)
+}
+
+fn installed_plugin_entries_at(
+    root: &Path,
+    registry: &AgentCommandRegistry,
+) -> Result<Vec<PluginIndexEntry>, String> {
     if !root.exists() {
         return Ok(Vec::new());
     }
     let entries =
-        fs::read_dir(&root).map_err(|error| format!("read {}: {error}", root.display()))?;
+        fs::read_dir(root).map_err(|error| format!("read {}: {error}", root.display()))?;
     let mut indexed = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| format!("read plugin entry: {error}"))?;
@@ -121,12 +151,17 @@ fn installed_plugin_entries() -> Result<Vec<PluginIndexEntry>, String> {
                 continue;
             }
         };
-        let catalog = catalog_from_manifest(&manifest, false);
+        let catalog = registry
+            .get(&manifest.id)
+            .filter(|handler| handler.granted())
+            .and_then(|handler| handler.catalog())
+            .unwrap_or_else(|| catalog_from_manifest(&manifest, false));
         let settings_schema = load_settings_schema(&manifest);
-        indexed.extend(entries_from_manifest(
+        indexed.extend(entries_from_catalog(
             &manifest,
             settings_schema.as_ref(),
             catalog.guide.as_deref(),
+            &catalog,
         ));
     }
     Ok(indexed)

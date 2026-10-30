@@ -5,6 +5,41 @@ fn vm_with(src: &str) -> Arc<PluginVm> {
 }
 
 #[tokio::test]
+async fn view_login_and_logout_refresh_agent_catalog_state() {
+    use crate::agent_commands::AgentCommandProvider;
+    use crate::agent_verbs::AgentVerbCatalog;
+    use crate::plugin_connection::PluginConnectionState;
+    let vm = vm_with(
+        r#"module.exports = {
+        viewCall(method) {
+            if (method === 'loginPoll') return {state:'logged-in', deviceCode:'private-code'};
+            if (method === 'logout') return {result:'Signed out'};
+            return {state:'sent'};
+        }
+    }"#,
+    );
+    let handler = crate::js_runtime::JsAgentCommandHandler::new(vm.clone(), "test-view", true)
+        .with_catalog(AgentVerbCatalog::compose(
+            "test-view",
+            "Fixture",
+            None,
+            &["login".into(), "health".into()],
+            None,
+            &[],
+        ));
+    let view = JsViewProvider::new(vm, "test-view");
+    let context = crate::view_host::ViewCallContext::panel("test-view");
+    for (method, expected) in [
+        ("loginPoll", PluginConnectionState::SignedIn),
+        ("send", PluginConnectionState::SignedIn),
+        ("logout", PluginConnectionState::SignedOut),
+    ] {
+        view.call(method, Value::Null, &context).await.unwrap();
+        assert_eq!(handler.catalog().unwrap().connection_state, Some(expected));
+    }
+}
+
+#[tokio::test]
 async fn routes_bridge_calls_to_view_call() {
     let vm = vm_with(
         r#"module.exports.default = {

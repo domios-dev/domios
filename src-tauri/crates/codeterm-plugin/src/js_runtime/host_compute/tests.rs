@@ -25,6 +25,46 @@ fn agent_usage_is_null_until_wired() {
 }
 
 #[test]
+fn login_state_changes_emit_existing_index_invalidation_once() {
+    use crate::agent_commands::AgentCommandProvider;
+    use crate::agent_verbs::{AgentVerbCatalog, PLUGIN_INDEX_CONTRIBUTION_KIND};
+    let host = Arc::new(AnalyticsHost::default());
+    let service: Arc<dyn PluginHostCtx> = host.clone();
+    let vm = Arc::new(
+        PluginVm::from_source(
+            "connection-fixture",
+            r#"
+        module.exports = {onAgentCommand(ctx) {
+            return {result:JSON.stringify({state:ctx.verb === 'logout'?'logged-out':'logged-in'})};
+        }};
+    "#
+            .into(),
+        )
+        .unwrap(),
+    );
+    assert!(vm.set_service(Arc::downgrade(&service)));
+    let handler = crate::js_runtime::JsAgentCommandHandler::new(vm, "connection-fixture", true)
+        .with_catalog(AgentVerbCatalog::compose(
+            "connection-fixture",
+            "Fixture",
+            None,
+            &["login".into(), "health".into(), "logout".into()],
+            None,
+            &[],
+        ));
+    for verb in ["health", "health", "logout", "logout"] {
+        handler.on_agent_command("tab", verb, &[], None).unwrap();
+    }
+    assert_eq!(
+        *host.contributions.lock(),
+        vec![
+            PLUGIN_INDEX_CONTRIBUTION_KIND.to_string(),
+            PLUGIN_INDEX_CONTRIBUTION_KIND.to_string()
+        ]
+    );
+}
+
+#[test]
 fn event_source_plugin_without_graph_events_grant_cannot_emit() {
     let sandbox = Arc::new(
         PluginSandbox::restricted(vec![], vec![])
@@ -49,6 +89,7 @@ fn event_source_plugin_without_graph_events_grant_cannot_emit() {
 #[derive(Default)]
 pub(crate) struct AnalyticsHost {
     pub(crate) recordings: crate::local_recording::LocalRecordingRegistry,
+    contributions: parking_lot::Mutex<Vec<String>>,
 }
 
 fn recording_reply(
@@ -116,7 +157,9 @@ impl PluginHostCtx for AnalyticsHost {
     fn progress_raw_json(&self, _: &str, _: &str) -> String {
         String::new()
     }
-    fn contributions_changed(&self, _: &str) {}
+    fn contributions_changed(&self, kind: &str) {
+        self.contributions.lock().push(kind.into());
+    }
     fn emit_graph_worker_spawned_json(&self, _: &str) {}
     fn socket_display_path(&self) -> String {
         String::new()
