@@ -29,6 +29,7 @@ pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborCommand {
     List {},
+    Refresh {},
     ClaimReferralTrial {},
     Request {
         email: String,
@@ -49,7 +50,7 @@ pub enum NeighborCommand {
 impl NeighborCommand {
     fn callable(self) -> (&'static str, Value) {
         match self {
-            Self::List {} => ("friendsList", json!({})),
+            Self::List {} | Self::Refresh {} => ("friendsList", json!({})),
             Self::ClaimReferralTrial {} => ("claimReferralTrial", json!({})),
             Self::Request { email } => ("friendsRequest", json!({"email": email})),
             Self::Respond { request_id, accept } => (
@@ -72,7 +73,7 @@ impl NeighborCommand {
 
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
-        if matches!(&command, NeighborCommand::List {}) {
+        if matches!(&command, NeighborCommand::Refresh {}) {
             self.rearm_neighbor_reads();
         }
         self.neighbor_registry_owned(command).await
@@ -84,7 +85,7 @@ impl ServiceContext {
     ) -> Result<Value, String> {
         if self.neighbor_access_locked().await {
             return match command {
-                NeighborCommand::List {} => Ok(backend_reads::locked_list()),
+                NeighborCommand::List {} | NeighborCommand::Refresh {} => Ok(backend_reads::locked_list()),
                 NeighborCommand::ClaimReferralTrial {} => Ok(
                     json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null}),
                 ),
@@ -113,8 +114,6 @@ impl ServiceContext {
                 service: self.clone(),
                 uid: session.identity.uid.clone(),
                 generation: session.login_generation,
-                own_keys: Default::default(),
-                receiver_status: Default::default(),
             };
             let result = calls
                 .invoke(name, data)
@@ -179,7 +178,9 @@ impl ServiceContext {
             }
             self.require_neighbor_generation(history_generation)?;
             self.remember_neighbor_registry(&result);
-        } else if name != "friendsRemove" {
+            result["referral"] = metadata.read::<Value>("referral-claim.json".into()).await.map_err(|e| e.to_string())?.unwrap_or(Value::Null);
+        } else if name != "claimReferralTrial" {
+            self.invalidate_neighbor_list();
             self.forget_neighbor_registry();
         }
         if name == "claimReferralTrial" && referral::refresh_required(&result)? {

@@ -242,8 +242,6 @@ impl ServiceContext {
         };
         let registry = Arc::new(FirebaseRegistry {
             calls: Arc::new(callable::Calls {
-                own_keys: Default::default(),
-                receiver_status: Default::default(),
                 service: self.clone(),
                 uid: uid.clone(),
                 generation: session.login_generation,
@@ -637,6 +635,7 @@ impl ServiceContext {
         }
         .await;
         if receiver_mutation {
+            self.rearm_neighbor_updates();
             self.forget_neighbor_registry();
         }
         let result = match result {

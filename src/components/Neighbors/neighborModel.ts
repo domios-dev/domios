@@ -1,3 +1,5 @@
+import { parseReferralClaim, type ReferralClaim } from "./referralTrial";
+
 export interface Neighbor {
   uid: string;
   displayName: string | null;
@@ -49,6 +51,7 @@ export interface OutgoingNeighborRequest {
 }
 
 export interface NeighborList {
+  referral?: ReferralClaim | null;
   schema_version: 1;
   access: "paid" | "locked";
   can_invite?: boolean;
@@ -89,6 +92,7 @@ export function parseNeighbors(value: unknown): NeighborList {
     throw new Error("Invalid Neighbors response");
   }
   if (value.can_invite !== undefined && typeof value.can_invite !== "boolean") throw new Error("Invalid invitation eligibility");
+  if (value.referral !== undefined && value.referral !== null) parseReferralClaim(value.referral);
   return value as unknown as NeighborList;
 }
 

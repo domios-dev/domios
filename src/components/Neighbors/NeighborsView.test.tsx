@@ -145,16 +145,15 @@ it.each([false, undefined])("requires explicit server invitation permission, eve
   expect(client.apply).toHaveBeenCalledExactlyOnceWith({ operation: "respond", request_id: "request", accept: true });
 });
 
-it("consumes an idempotent referral claim before listing requests without opening checkout", async () => {
+it("consumes the persisted referral receipt without claiming on view load", async () => {
   const { client } = await render("paid", { canInvite: false, claim: {
     schema_version: 1, outcome: "already_granted", trial_end: 1700604800, friend_request_id: "a".repeat(64),
   } });
-  expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(client.claimReferralTrial).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(client.list).mock.invocationCallOrder[0]);
+  expect(client.claimReferralTrial).not.toHaveBeenCalled();
   expect(button("Subscribe")).toBeDefined();
   expect(client.apply).not.toHaveBeenCalled();
   await act(async () => button("Refresh Neighbors").click());
-  expect(client.claimReferralTrial).toHaveBeenCalledTimes(1);
+  expect(client.claimReferralTrial).not.toHaveBeenCalled();
   expect(client.apply).not.toHaveBeenCalled();
 });
 
@@ -181,12 +180,12 @@ it("refreshes the server's channel lock when signed entitlement access changes",
   expect(button("Subscribe")).toBeDefined();
 });
 
-it("discards a claim that completes after switching accounts", async () => {
-  let complete!: (claim: ReferralClaim) => void;
-  const previous = new Promise<ReferralClaim>(resolve => { complete = resolve; });
+it("discards a snapshot with a referral receipt that completes after switching accounts", async () => {
+  let complete!: (list: NeighborList) => void;
+  const previous = new Promise<NeighborList>(resolve => { complete = resolve; });
   const client: NeighborClient = {
-    claimReferralTrial: vi.fn<NeighborClient["claimReferralTrial"]>().mockReturnValueOnce(previous).mockResolvedValue({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }),
-    list: vi.fn(async () => ({ schema_version: 1 as const, access: "locked" as const, can_invite: false, friends: [], incoming: [], outgoing: [] })),
+    claimReferralTrial: vi.fn(),
+    list: vi.fn<NeighborClient["list"]>().mockReturnValueOnce(previous).mockResolvedValue({ schema_version: 1, access: "paid", can_invite: false, friends: [], incoming: [], outgoing: [] }),
     apply: vi.fn(async () => {}),
   };
   const host = document.createElement("div"); document.body.append(host);
@@ -195,8 +194,8 @@ it("discards a claim that completes after switching accounts", async () => {
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
   account.model = signedIn;
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={runtime()} />));
-  await act(async () => complete({ schema_version: 1, outcome: "granted", trial_end: 1700604800, friend_request_id: "a".repeat(64) }));
-  expect(client.list).toHaveBeenCalledTimes(1);
+  await act(async () => complete({ schema_version: 1, access: "locked", friends: [], incoming: [], outgoing: [], referral: { schema_version: 1, outcome: "granted", trial_end: 1700604800, friend_request_id: "a".repeat(64) } }));
+  expect(client.list).toHaveBeenCalledTimes(2);
   expect(hasButton("Subscribe")).toBe(false);
 });
 

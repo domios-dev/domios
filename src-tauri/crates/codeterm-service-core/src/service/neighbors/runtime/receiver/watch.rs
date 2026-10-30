@@ -66,6 +66,8 @@ impl DocumentSession for ControlWatch {
         loop {
             listener.changed().await?.ok_or(Error::Transport)?;
             self.current()?;
+            self.service.invalidate_neighbor_list();
+            self.service.invalidate_neighbor_inventory();
             let version = self.service.forget_neighbor_friend_receivers();
             self.service.ui.emit(
                 "neighbor-runtime-status",

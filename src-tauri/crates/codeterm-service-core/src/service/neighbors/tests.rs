@@ -42,6 +42,7 @@ fn list_includes_local_scopes_and_preserves_backend_outgoing_requests() {
 fn registry_commands_match_server_callables_without_extra_fields() {
     let cases = [
         (json!({"operation":"list"}), "friendsList", json!({})),
+        (json!({"operation":"refresh"}), "friendsList", json!({})),
         (
             json!({"operation":"claim_referral_trial"}),
             "claimReferralTrial",

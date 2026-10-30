@@ -142,6 +142,20 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;
         self.drain_neighbor_stop_local(generation).await?;
+        let cached = self.neighbor_cell().registry_snapshot.lock().clone();
+        let list = match cached {
+            Some(list) => list,
+            None => {
+                self.neighbor_registry_owned(super::super::super::NeighborCommand::List {})
+                    .await?
+            }
+        };
+        if !super::super::super::updates::receives_friends(&list, &registry.installation_id) {
+            self.reconcile_neighbor_friend_receiver_rows(&metadata, &registry, &list, None, generation).await?;
+            self.stop_neighbor_listeners();
+            if let Some(task) = self.neighbor_cell().control.lock().take() { task.abort(); }
+            return Ok(());
+        }
         self.watch_neighbor_receiver(transport.clone(), generation)
             .await?;
         let lifecycle = InstallationKeys {
@@ -158,14 +172,6 @@ impl ServiceContext {
             lifecycle.load().await
         }
         .map_err(|error| error.to_string())?;
-        let cached = self.neighbor_cell().registry_snapshot.lock().clone();
-        let list = match cached {
-            Some(list) => list,
-            None => {
-                self.neighbor_registry_owned(super::super::super::NeighborCommand::List {})
-                    .await?
-            }
-        };
         self.require_neighbor_generation(generation)?;
         self.remember_neighbor_names(&list);
         let local_id = local.as_ref().map(|keys| keys.encryption_key_id());

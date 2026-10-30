@@ -49,7 +49,7 @@ function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
 }
 
 async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"]; runtimeClient?: NeighborRuntimeClient; friend?: NeighborList["friends"][number] } = {}) {
-  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [options.friend ?? neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
+  const list: NeighborList = { schema_version: 1, access, referral: options.claim, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [options.friend ?? neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
   const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
     claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
   const host = document.createElement("div"); document.body.append(host);

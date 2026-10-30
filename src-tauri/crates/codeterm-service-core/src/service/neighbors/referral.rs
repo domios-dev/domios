@@ -40,5 +40,24 @@ pub(super) fn refresh_required(value: &serde_json::Value) -> Result<bool, String
     Ok(granted)
 }
 
+pub(super) fn no_claim() -> serde_json::Value {
+    serde_json::json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null})
+}
+
+pub(super) async fn claim_once(
+    metadata: &super::storage::Metadata,
+    load: impl std::future::Future<Output = codeterm_neighbors::Result<serde_json::Value>>,
+) -> codeterm_neighbors::Result<serde_json::Value> {
+    if let Some(receipt) = metadata.read::<serde_json::Value>("referral-claim.json".into()).await? {
+        refresh_required(&receipt).map_err(|_| codeterm_neighbors::Error::InvalidEnvelope)?;
+        return Ok(receipt);
+    }
+    metadata.write("referral-claim.json".into(), no_claim()).await?;
+    let result = load.await?;
+    refresh_required(&result).map_err(|_| codeterm_neighbors::Error::InvalidEnvelope)?;
+    metadata.write("referral-claim.json".into(), result.clone()).await?;
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests;

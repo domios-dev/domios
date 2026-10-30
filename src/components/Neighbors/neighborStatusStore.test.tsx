@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ChannelStatus, NeighborListenerEvent, NeighborRuntimeClient, ReceiverState } from "./neighborRuntimeClient";
+import { resetNeighborStatus } from "./neighborStatusStore";
 import { friendReceiverState, useReceiverState } from "./useReceiverState";
 
 vi.mock("../../lib/bridge", () => ({ listen: vi.fn(async () => () => {}) }));
@@ -26,7 +27,7 @@ function client(...replies: Array<Promise<ChannelStatus>>) {
 }
 
 let unmount: (() => void) | undefined;
-afterEach(() => { unmount?.(); unmount = undefined; });
+afterEach(() => { unmount?.(); unmount = undefined; resetNeighborStatus(); });
 
 function show(runtime: NeighborRuntimeClient, active: boolean) {
   const seen: Array<boolean | null> = [];
@@ -162,4 +163,20 @@ it.each([4, 5])("keeps an unversioned friend event at revision %s when its rerea
   await act(async () => root.render(<Probe />));
   await act(async () => emit({ ...receiver(false, revision), receiver_machine_label: "Laptop", friendship_id: "first" }));
   expect(seen).toMatchObject({ revision, receiver_machine_label: "Laptop" });
+});
+
+
+it("shares one runtime read and subscription across four consumers and five view opens", async () => {
+  const { runtime } = client(Promise.resolve(status(true, 1)));
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  unmount = () => act(() => root.unmount());
+  const Probe = () => { useReceiverState(runtime, true, "first"); return null; };
+  await act(async () => root.render(<>{[0, 1, 2, 3].map(index => <Probe key={index} />)}</>));
+  for (let index = 0; index < 5; index++) {
+    await act(async () => root.render(null));
+    await act(async () => root.render(<Probe />));
+  }
+  expect(runtime.status).toHaveBeenCalledTimes(1);
+  expect(runtime.subscribe).toHaveBeenCalledTimes(1);
 });

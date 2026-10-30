@@ -19,7 +19,6 @@ struct State {
 #[derive(Default)]
 struct ReadGate {
     session_cached: bool,
-    revision: AtomicU64,
     state: tokio::sync::Mutex<State>,
     rearmed: AtomicU64,
 }
@@ -36,16 +35,17 @@ impl ReadGate {
         if locked {
             return Err(Error::Locked);
         }
-        let revision = self.revision.load(Ordering::Acquire);
-        let rearmed = self.rearmed.load(Ordering::Acquire);
         let mut state = self.state.lock().await;
+        let rearmed = self.rearmed.load(Ordering::Acquire);
         if state.key.as_ref() != Some(&key) {
             *state = State {
                 key: Some(key),
                 ..State::default()
             };
         } else if let Some(result) = &state.result {
-            if self.session_cached || self.revision.load(Ordering::Acquire) != revision {
+            if self.session_cached
+                || result.is_ok() && rearmed == state.rearmed
+            {
                 return result.clone();
             }
             if let Err(error) = result {
@@ -70,7 +70,6 @@ impl ReadGate {
             }
         }
         state.result = Some(result.clone());
-        self.revision.fetch_add(1, Ordering::Release);
         result
     }
 
@@ -179,9 +178,28 @@ impl ServiceContext {
             locked,
             Instant::now,
             rand::random,
-            load,
+            async {
+                if route == "claimReferralTrial" {
+                    let metadata = super::storage::Metadata::new(
+                        self.account_data_root().map_err(|_| Error::CursorStore)?, uid,
+                    );
+                    super::referral::claim_once(&metadata, load).await
+                } else {
+                    load.await
+                }
+            },
         )
         .await
+    }
+
+    pub(in crate::service::neighbors) fn invalidate_neighbor_list(&self) {
+        self.extensions.get_or_init(Reads::default).list.rearm();
+    }
+
+    pub(in crate::service::neighbors) fn invalidate_neighbor_inventory(&self) {
+        let reads = self.extensions.get_or_init(Reads::default);
+        reads.keys.rearm();
+        reads.receiver.rearm();
     }
 
     pub(crate) fn rearm_neighbor_reads(&self) {

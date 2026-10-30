@@ -62,6 +62,7 @@ async fn failure_deadlines_cap_reset_on_success_and_permanent_refusals_wait_for_
         Ok(json!(1))
     );
     assert_eq!(gate.state.lock().await.failures, 0);
+    gate.rearm();
     assert_eq!(
         gate.read(("owner".into(), 1), false, || now, || 500, async {
             Err(Error::Transport)
@@ -179,21 +180,49 @@ async fn concurrent_own_key_consumers_share_one_backend_request() {
 }
 
 #[tokio::test]
-async fn referral_claim_is_cached_for_the_login_session_even_across_refresh_and_duplicate_account_events(
-) {
+async fn request_count_oracle_shares_one_snapshot_until_a_signal_or_account_change() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let calls = AtomicUsize::new(0);
-    for generation in [1, 1, 1, 2] {
-        let value = fixture
-            .service
-            .neighbor_backend_read("claimReferralTrial", "owner", generation, async {
-                calls.fetch_add(1, Ordering::SeqCst);
-                Ok(json!({"outcome":"not_invited"}))
-            })
-            .await;
-        assert_eq!(value, Ok(json!({"outcome":"not_invited"})));
-        fixture.service.rearm_neighbor_reads();
-        assert_eq!(calls.load(Ordering::SeqCst), generation as usize);
+    let routes = ["friendsList", "friendsOwnKeys", "friendsReceiverStatus"];
+    let calls = [AtomicUsize::new(0), AtomicUsize::new(0), AtomicUsize::new(0)];
+    for _consumer in 0..4 {
+        for (route, count) in routes.iter().zip(&calls) {
+            fixture.service.neighbor_backend_read(route, "owner", 1, async {
+                count.fetch_add(1, Ordering::SeqCst);
+                Ok(json!([]))
+            }).await.unwrap();
+        }
     }
+    for _focus_or_view_open in 0..15 {
+        for (route, count) in routes.iter().zip(&calls) {
+            fixture.service.neighbor_backend_read(route, "owner", 1, async {
+                count.fetch_add(1, Ordering::SeqCst);
+                Ok(json!([]))
+            }).await.unwrap();
+        }
+    }
+    assert_eq!(calls.each_ref().map(|count| count.load(Ordering::SeqCst)), [1, 1, 1]);
+    fixture.service.invalidate_neighbor_list();
+    for (route, count) in routes.iter().zip(&calls) {
+        fixture.service.neighbor_backend_read(route, "owner", 1, async {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(json!([]))
+        }).await.unwrap();
+    }
+    assert_eq!(calls.each_ref().map(|count| count.load(Ordering::SeqCst)), [2, 1, 1]);
+    fixture.service.invalidate_neighbor_inventory();
+    for (route, count) in routes.iter().zip(&calls) {
+        fixture.service.neighbor_backend_read(route, "owner", 1, async {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(json!([]))
+        }).await.unwrap();
+    }
+    assert_eq!(calls.each_ref().map(|count| count.load(Ordering::SeqCst)), [2, 2, 2]);
+    for (route, count) in routes.iter().zip(&calls) {
+        fixture.service.neighbor_backend_read(route, "owner", 2, async {
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(json!([]))
+        }).await.unwrap();
+    }
+    assert_eq!(calls.each_ref().map(|count| count.load(Ordering::SeqCst)), [3, 3, 3]);
 }

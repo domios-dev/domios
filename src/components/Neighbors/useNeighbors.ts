@@ -1,81 +1,49 @@
 import { useEffect, useRef, useState } from "react";
-import { listen } from "../../lib/bridge";
 import { neighborClient, type NeighborClient } from "./neighborClient";
-import { parseNeighbors, type NeighborCommand, type NeighborList } from "./neighborModel";
-import type { ReferralClaim } from "./referralTrial";
+import type { NeighborCommand, NeighborList } from "./neighborModel";
 import { neighborReads } from "./neighborReads";
 
 interface LoadedNeighbors {
   identity: string | null;
   list: NeighborList | null;
   error: string | null;
-  referral: ReferralClaim | null;
 }
 
 export function useNeighbors(identity: string | null, client: NeighborClient = neighborClient) {
-  const [loaded, setLoaded] = useState<LoadedNeighbors>({ identity, list: null, error: null, referral: null });
-  const [revision, setRevision] = useState(0);
+  const [loaded, setLoaded] = useState<LoadedNeighbors>({ identity, list: null, error: null });
   const [pending, setPending] = useState(false);
   const busy = useRef(false);
-  const generation = useRef(0);
   const currentIdentity = useRef(identity);
   currentIdentity.current = identity;
 
   useEffect(() => {
-    const epoch = ++generation.current;
-    const controller = new AbortController();
     const shared = neighborReads(client, identity);
-    if (!identity) {
-      setLoaded({ identity, list: null, error: null, referral: null });
-      return () => controller.abort();
-    }
-    if (!shared) return;
-    const unsubscribe = shared.list.subscribe(list => {
-      if (!controller.signal.aborted && generation.current === epoch) setLoaded(previous => ({ ...previous, identity, list }));
-    });
-    let latest = 0;
-    let pushes = 0;
-    async function load(force = false, read?: Promise<NeighborList>) {
-      const request = ++latest;
-      const push = pushes;
-      let referral: ReferralClaim | null = null;
-      let referralError: string | null = null;
-      try {
-        try { referral = await shared!.referral(client); }
-        catch { referralError = "Your referral could not be checked for this session."; }
-        if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
-        const list = await (read ?? shared!.list.read(() => client.list(), force));
-        if (controller.signal.aborted || generation.current !== epoch || request !== latest) return;
-        setLoaded(previous => pushes === push ? { identity, list, referral, error: referralError }
-          : { ...previous, referral, error: referralError });
-      } catch (failure: unknown) {
-        if (!controller.signal.aborted && generation.current === epoch && request === latest && pushes === push) {
-          setLoaded(previous => ({ identity, list: previous.identity === identity && previous.list ? { ...previous.list, can_invite: false } : null, referral,
-            error: failure instanceof Error ? failure.message : "Neighbors unavailable" }));
-        }
-      }
-    }
-    void load(revision > 0);
-    const stopReloads = shared.subscribeReloads(client, read => { void load(true, read); });
-    const unlisteners: (() => void)[] = [];
-    const retain = (stop: () => void) => {
-      if (controller.signal.aborted) stop();
-      else unlisteners.push(stop);
+    if (!shared) { setLoaded({ identity, list: null, error: null }); return; }
+    let live = true;
+    const show = (list: NeighborList) => { if (live) setLoaded({ identity, list, error: null }); };
+    const showRead = (read: Promise<NeighborList>) => {
+      void read.then(show, (failure: unknown) => {
+        if (live) setLoaded(previous => ({ identity,
+          list: previous.identity === identity && previous.list ? { ...previous.list, can_invite: false } : null,
+          error: failure instanceof Error ? failure.message : "Neighbors unavailable" }));
+      });
     };
-    void listen<{ uid?: unknown; list?: unknown }>("neighbors-changed", event => {
-      if (controller.signal.aborted || generation.current !== epoch || event.payload?.uid !== identity) return;
-      let list: NeighborList;
-      try { list = parseNeighbors(event.payload.list); }
-      catch { return; }
-      pushes++;
-      shared.list.write(list);
-      setLoaded(previous => ({ identity, list, error: null, referral: previous.identity === identity ? previous.referral : null }));
-      void shared.referral(client).then(referral => {
-        if (!controller.signal.aborted && generation.current === epoch) setLoaded(previous => ({ ...previous, referral }));
-      }).catch(() => {});
-    }).then(retain);
-    return () => { unsubscribe(); stopReloads(); controller.abort(); generation.current++; unlisteners.forEach(stop => stop()); };
-  }, [identity, client, revision]);
+    const unsubscribe = shared.list.subscribe(show);
+    const stopReloads = shared.subscribeReloads(client, showRead);
+    if (shared.list.value) show(shared.list.value);
+    showRead(shared.list.read(() => client.list()));
+    return () => { live = false; unsubscribe(); stopReloads(); };
+  }, [identity, client]);
+
+  async function refresh() {
+    const shared = neighborReads(client, identity);
+    if (!shared) return;
+    try { await shared.list.read(() => client.list(undefined, true), true); }
+    catch (failure: unknown) {
+      if (currentIdentity.current === identity) setLoaded(previous => ({ ...previous,
+        error: failure instanceof Error ? failure.message : "Neighbors unavailable" }));
+    }
+  }
 
   async function apply(command: Exclude<NeighborCommand, { operation: "list" }>): Promise<boolean> {
     if (busy.current || !identity) return false;
@@ -84,7 +52,7 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
     try {
       await client.apply(command);
       if (currentIdentity.current !== identity) return false;
-      setRevision(value => value + 1);
+      await refresh();
       return true;
     } catch (failure: unknown) {
       if (currentIdentity.current === identity) setLoaded(previous => ({ ...previous,
@@ -97,8 +65,7 @@ export function useNeighbors(identity: string | null, client: NeighborClient = n
     }
   }
 
-  return { list: loaded.identity === identity ? loaded.list : null,
-    referral: loaded.identity === identity ? loaded.referral : null,
-    error: loaded.identity === identity ? loaded.error : null, pending, apply,
-    refresh: () => setRevision(value => value + 1) };
+  const list = loaded.identity === identity ? loaded.list : null;
+  return { list, referral: list?.referral ?? null,
+    error: loaded.identity === identity ? loaded.error : null, pending, apply, refresh };
 }

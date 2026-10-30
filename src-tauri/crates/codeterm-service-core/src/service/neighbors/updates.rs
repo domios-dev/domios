@@ -68,7 +68,7 @@ impl ServiceContext {
     {
         let cell = self.neighbor_updates();
         let mut slot = cell.task.lock();
-        if slot.is_some() {
+        if slot.as_ref().is_some_and(|handle| !handle.task.is_finished()) {
             return;
         }
         let (stop, receiver) = watch::channel(false);
@@ -157,7 +157,9 @@ impl Session {
                 .await?;
             self.current()?;
         }
+        self.service.invalidate_neighbor_list();
         if signal.receiver_revision.is_some() {
+            self.service.invalidate_neighbor_inventory();
             self.service
                 .neighbor_receiver_changed(signal.receiver_friendship.as_deref())
                 .await
@@ -176,6 +178,10 @@ impl Session {
         self.service
             .end_missing_neighbor_friendships(&self.metadata, &list, history_generation)
             .await?;
+        if list["access"] != "paid" && list["incoming"].as_array().is_some_and(|rows| !rows.is_empty()) {
+            self.service.neighbor_registry_owned(super::NeighborCommand::ClaimReferralTrial {}).await.map_err(|_| Error::Transport)?;
+        }
+        list["referral"] = self.metadata.read::<serde_json::Value>("referral-claim.json".into()).await?.unwrap_or(serde_json::Value::Null);
         let settings = self.metadata.settings().await?;
         annotate_list(&mut list, &settings).map_err(|_| Error::Transport)?;
         self.service.project_neighbor_pauses(&mut list, &settings);
@@ -289,13 +295,18 @@ async fn run(
         .into(),
         uid: uid.clone(),
         calls: Arc::new(Calls {
-            own_keys: Default::default(),
-            receiver_status: Default::default(),
             service: service.clone(),
             uid,
             generation: expected.login_generation,
         }),
     };
+    let initial = service.neighbor_registry_owned(super::NeighborCommand::List {}).await.map_err(|_| Error::Transport)?;
+    if initial["access"] != "paid" && initial["incoming"].as_array().is_some_and(|rows| !rows.is_empty()) {
+        service.neighbor_registry_owned(super::NeighborCommand::ClaimReferralTrial {}).await.map_err(|_| Error::Transport)?;
+    }
+    if !receives_friends(&initial, &transport.installation_id) {
+        return Ok(());
+    }
     let session = Session {
         service,
         account,
@@ -355,6 +366,10 @@ impl DocumentSession for Session {
             if catch_up || signal.delivery.is_none() && signal.read.is_none() && !signal.ignored {
                 self.refresh(&signal, &mut seen).await?;
             }
+            let cached = self.service.neighbor_cell().registry_snapshot.lock().clone();
+            if cached.as_ref().is_some_and(|list| !receives_friends(list, &self.transport.installation_id)) {
+                return Err(Error::Disabled);
+            }
             self.delivery(&signal, catch_up).await?;
             if health.observe(clock.now(), !catch_up) {
                 self.progress.fetch_add(1, Ordering::AcqRel);
@@ -365,4 +380,12 @@ impl DocumentSession for Session {
             self.state(ListenerState::Receiving);
         }
     }
+}
+
+
+pub(in crate::service::neighbors) fn receives_friends(list: &serde_json::Value, installation: &str) -> bool {
+    list["access"] == "paid" && list["friends"].as_array().is_some_and(|friends| {
+        friends.iter().any(|friend| friend["my_receiver"]["receiving"] == true
+            && friend["my_receiver"]["installation_id"] == installation)
+    })
 }
