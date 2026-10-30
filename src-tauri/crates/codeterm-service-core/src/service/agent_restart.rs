@@ -455,6 +455,11 @@ impl ServiceContext {
             None
         };
 
+        self.validate_completed_restart_binding(
+            &snap.tab_id,
+            restart_binding.as_ref().and_then(Option::as_ref),
+        )
+        .map_err(AgentRestartError::BadRequest)?;
         if mode != RestartMode::SkipExit && mode != RestartMode::Fresh {
             self.require_background_work_safe(&snap.tab_id, force)?;
             crate::service::agent_restart::timing::stage(

@@ -6,6 +6,31 @@ use crate::service::{
 };
 
 #[test]
+fn completed_current_session_generation_is_exact_for_the_own_pty_tab() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("source".into());
+    tab.agent_session_id = Some("session".into());
+    tab.session_binding_nonce = Some("nonce".into());
+    tab.reported_session_binding_nonce = Some("nonce".into());
+    tab.pty_id = Some("pty-generation".into());
+    tab.lifecycle_epoch = Some(3);
+    let proof = super::CurrentSession::capture(tab).unwrap();
+    assert!(proof.matches(tab));
+    tab.lifecycle_epoch = Some(4);
+    assert!(!proof.matches(tab));
+    tab.lifecycle_epoch = Some(3);
+    tab.pty_id = Some("replacement-pty".into());
+    assert!(!proof.matches(tab));
+    tab.pty_id = Some("pty-generation".into());
+    tab.id = "foreign-tab".into();
+    assert!(!proof.matches(tab));
+    tab.id = id;
+    tab.reported_session_binding_nonce = None;
+    assert!(!proof.matches(tab));
+}
+
+#[test]
 fn completed_history_requires_exact_authenticated_terminal_attempt() {
     use crate::plan::TaskExecutionAttempt;
     let (mut mux, id) = MultiplexerState::new();
