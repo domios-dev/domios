@@ -248,11 +248,18 @@ async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
         json!({"method":"item/commandExecution/outputDelta","params":{"threadId":"opaque","turnId":"turn","itemId":"item","delta":"opaque-progress"}}),
     ];
     for frame in frames {
-        peer.write_all(format!("{frame}\n").as_bytes()).await.unwrap();
-        let event = tokio::time::timeout(Duration::from_secs(1),events.recv()).await.unwrap().unwrap();
-        let RuntimeFrame::Notification { method, params } = event else { panic!("unexpected request"); };
-        assert_eq!(method,frame["method"].as_str().unwrap());
-        assert_eq!(params,frame["params"]);
+        peer.write_all(format!("{frame}\n").as_bytes())
+            .await
+            .unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let RuntimeFrame::Notification { method, params } = event else {
+            panic!("unexpected request");
+        };
+        assert_eq!(method, frame["method"].as_str().unwrap());
+        assert_eq!(params, frame["params"]);
     }
     client.close(RuntimeFailure::PipeEof);
 }

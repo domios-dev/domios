@@ -141,7 +141,10 @@ impl Client {
     }
 
     pub(super) fn trace_binding(&self, context: &codeterm_plugin::agent_runtime::RuntimeContext) {
-        self.0.trace_bound.store(super::model::responsiveness::context(context).is_some(), Ordering::Relaxed);
+        self.0.trace_bound.store(
+            super::model::responsiveness::context(context).is_some(),
+            Ordering::Relaxed,
+        );
     }
 
     pub fn ended(&self) -> watch::Receiver<Option<RuntimeFailure>> {

@@ -57,21 +57,50 @@ fn completed_history_requires_exact_authenticated_terminal_attempt() {
         closed_at: Some(2),
         ..Default::default()
     };
-    assert!(super::completed_attempt_matches(tab, &exact, "source", "nonce"));
+    assert!(super::completed_attempt_matches(
+        tab, &exact, "source", "nonce"
+    ));
     for invalid in [
-        TaskExecutionAttempt { executor_tab_id: "foreign".into(), ..exact.clone() },
-        TaskExecutionAttempt { provider: Some("foreign".into()), ..exact.clone() },
-        TaskExecutionAttempt { session_id: Some("foreign".into()), ..exact.clone() },
-        TaskExecutionAttempt { session_binding_nonce: Some("foreign".into()), ..exact.clone() },
-        TaskExecutionAttempt { acknowledged_at: None, ..exact.clone() },
-        TaskExecutionAttempt { closed_at: None, ..exact.clone() },
-        TaskExecutionAttempt { retired_at: Some(3), ..exact.clone() },
+        TaskExecutionAttempt {
+            executor_tab_id: "foreign".into(),
+            ..exact.clone()
+        },
+        TaskExecutionAttempt {
+            provider: Some("foreign".into()),
+            ..exact.clone()
+        },
+        TaskExecutionAttempt {
+            session_id: Some("foreign".into()),
+            ..exact.clone()
+        },
+        TaskExecutionAttempt {
+            session_binding_nonce: Some("foreign".into()),
+            ..exact.clone()
+        },
+        TaskExecutionAttempt {
+            acknowledged_at: None,
+            ..exact.clone()
+        },
+        TaskExecutionAttempt {
+            closed_at: None,
+            ..exact.clone()
+        },
+        TaskExecutionAttempt {
+            retired_at: Some(3),
+            ..exact.clone()
+        },
     ] {
-        assert!(!super::completed_attempt_matches(tab, &invalid, "source", "nonce"));
+        assert!(!super::completed_attempt_matches(
+            tab, &invalid, "source", "nonce"
+        ));
     }
-    assert!(!super::completed_attempt_matches(tab, &exact, "source", "stale"));
+    assert!(!super::completed_attempt_matches(
+        tab, &exact, "source", "stale"
+    ));
     tab.reported_session_binding_nonce = None;
-    assert!(!super::completed_attempt_matches(tab, &exact, "source", "nonce"));
+    assert!(!super::completed_attempt_matches(
+        tab, &exact, "source", "nonce"
+    ));
 }
 
 #[test]

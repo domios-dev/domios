@@ -131,16 +131,24 @@ pub(super) async fn handle(
     };
     let context = session.context.lock().clone();
     let trace = super::super::model::responsiveness::context(&context);
-    if let Some(trace) = trace { trace.mark("reducer_prepare_begin", None, serde_json::json!({})); }
+    if let Some(trace) = trace {
+        trace.mark("reducer_prepare_begin", None, serde_json::json!({}));
+    }
     let state = session.hook_state.lock().clone();
-    if let Some(trace) = trace { trace.batch(&reducible, &state); }
+    if let Some(trace) = trace {
+        trace.batch(&reducible, &state);
+    }
     let result = tokio::time::timeout(
         RUNTIME_HOOK_DEADLINE,
         adapter.runtime_reduce(&context, &state, &reducible),
     )
     .await;
     if let Some(trace) = trace {
-        trace.mark("reducer_return", None, serde_json::json!({"ok": matches!(&result, Ok(Ok(_)))}));
+        trace.mark(
+            "reducer_return",
+            None,
+            serde_json::json!({"ok": matches!(&result, Ok(Ok(_)))}),
+        );
     }
     let reduced = match result {
         Ok(Ok(reduced)) => reduced,

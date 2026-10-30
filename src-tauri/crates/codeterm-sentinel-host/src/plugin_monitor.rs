@@ -90,7 +90,8 @@ fn prepare_monitors(service: &ServiceContext, handle: &Handle) -> Result<Option<
                 owner: job.creator_tab_id.clone(),
             };
             if live(service, &scope)
-                && ledger.job_monitor(&held.operation)?
+                && ledger
+                    .job_monitor(&held.operation)?
                     .is_none_or(|monitor| monitor.stopped.is_none())
             {
                 resume(handle, &job.id, &held.operation)?;
@@ -101,7 +102,10 @@ fn prepare_monitors(service: &ServiceContext, handle: &Handle) -> Result<Option<
             let deadline = match step_deadline(handle, job, held) {
                 Ok(deadline) => deadline,
                 Err(error) => {
-                    log::debug!("[blueprint] plugin step {} deadline unavailable: {error}", job.id);
+                    log::debug!(
+                        "[blueprint] plugin step {} deadline unavailable: {error}",
+                        job.id
+                    );
                     continue;
                 }
             };
@@ -205,7 +209,8 @@ fn prepare_monitors(service: &ServiceContext, handle: &Handle) -> Result<Option<
 }
 
 fn cancel_supported(service: &ServiceContext, record: &OperationRecord) -> bool {
-    service.ext::<Arc<GraphNodeRegistry>>()
+    service
+        .ext::<Arc<GraphNodeRegistry>>()
         .step(&record.request.node_type)
         .is_some_and(|step| {
             step.plugin == record.plugin
@@ -220,31 +225,51 @@ fn step_deadline(
     held: &PluginHold,
 ) -> Result<u64, String> {
     let read = handle.store.lock().typed_pipeline_log(&job.id, 200)?;
-    let entries = read.wait(storage::COMMIT_DEADLINE)
-        .map_err(|error| error.to_string())?.value;
-    let claim = entries.iter()
+    let entries = read
+        .wait(storage::COMMIT_DEADLINE)
+        .map_err(|error| error.to_string())?
+        .value;
+    let claim = entries
+        .iter()
         .filter(|entry| {
-            entry.run_id == held.run && entry.step_name == held.node
+            entry.run_id == held.run
+                && entry.step_name == held.node
                 && entry.state == JournalState::Running
         })
         .min_by_key(|entry| entry.entry_id)
         .ok_or("plugin step start unavailable")?;
-    let version = claim.definition_version.ok_or("plugin step definition unavailable")?;
+    let version = claim
+        .definition_version
+        .ok_or("plugin step definition unavailable")?;
     let pipeline = if version == job.definition_version {
         job.pipeline().cloned()
     } else {
-        let history = handle.store.lock().typed_history(&job.id)?
+        let history = handle
+            .store
+            .lock()
+            .typed_history(&job.id)?
             .ok_or("plugin step history unavailable")?;
-        history.wait(storage::COMMIT_DEADLINE).map_err(|error| error.to_string())?.value
-            .into_iter().find(|definition| definition.version == version)
+        history
+            .wait(storage::COMMIT_DEADLINE)
+            .map_err(|error| error.to_string())?
+            .value
+            .into_iter()
+            .find(|definition| definition.version == version)
             .and_then(|definition| definition.definition.pipeline().cloned())
-    }.ok_or("plugin step definition unavailable")?;
-    let limit = pipeline.steps.iter().find(|step| step.name == held.node)
+    }
+    .ok_or("plugin step definition unavailable")?;
+    let limit = pipeline
+        .steps
+        .iter()
+        .find(|step| step.name == held.node)
         .and_then(|step| step.execution.as_ref())
         .and_then(|execution| execution.limits.as_ref())
         .and_then(|limits| limits.wall_ms)
         .unwrap_or(300_000);
-    Ok(claim.started_at_ms.saturating_add(limit).min(job.expires_at.unwrap_or(u64::MAX)))
+    Ok(claim
+        .started_at_ms
+        .saturating_add(limit)
+        .min(job.expires_at.unwrap_or(u64::MAX)))
 }
 
 fn expire_step(
@@ -263,22 +288,30 @@ fn expire_step(
         {
             return storage::Staged::ready(Ok(false));
         }
-        store.stage_stop(&job.id, "plugin_step_timeout").map(|_| true)
+        store
+            .stage_stop(&job.id, "plugin_step_timeout")
+            .map(|_| true)
     })?;
     if !stopped {
         return Ok(());
     }
     let now = handle.store.lock().clock.now_ms();
-    storage::commit(&handle.store, |store| store.stage_pipeline_journal(&job.id,
-        BlueprintJournalWrite::CloseRun {
-            run_id: held.run.clone(),
-            state: JournalState::Failed,
-            outcome: "failed".into(),
-            at_ms: now,
-            reason: Some(JournalReason::Deadline),
-        }))?;
+    storage::commit(&handle.store, |store| {
+        store.stage_pipeline_journal(
+            &job.id,
+            BlueprintJournalWrite::CloseRun {
+                run_id: held.run.clone(),
+                state: JournalState::Failed,
+                outcome: "failed".into(),
+                at_ms: now,
+                reason: Some(JournalReason::Deadline),
+            },
+        )
+    })?;
     let ledger = plugin::ledger(service)?;
-    let record = ledger.get(&held.operation)?.ok_or("plugin operation unavailable")?;
+    let record = ledger
+        .get(&held.operation)?
+        .ok_or("plugin operation unavailable")?;
     if record.request.context.scope.workspace != job.workspace_id
         || record.request.context.scope.team != job.team_id
         || record.request.context.owner != job.creator_tab_id
@@ -288,13 +321,19 @@ fn expire_step(
         return Err("plugin timeout operation scope changed".into());
     }
     let record = ledger.request_cancel(
-        &held.operation, &record.request.context.scope, &record.request.context.owner,
+        &held.operation,
+        &record.request.context.scope,
+        &record.request.context.owner,
     )?;
     if let Some(monitor) = ledger.job_monitor(&held.operation)? {
         if !record.state.terminal() && cancel_supported(service, &record) {
             ledger.request_job_cancel(&held.operation, &monitor.registration.scope)?;
         } else {
-            ledger.stop_job_monitor(&held.operation, &monitor.registration.scope, MonitorStop::Deadline)?;
+            ledger.stop_job_monitor(
+                &held.operation,
+                &monitor.registration.scope,
+                MonitorStop::Deadline,
+            )?;
         }
     }
     handle.notify();
@@ -318,7 +357,11 @@ pub(crate) fn reconcile(service: &ServiceState, handle: &Handle) -> Result<Optio
             handle.notify();
         });
     }
-    Ok(ledger.next_job_check()?.into_iter().chain(step_deadline).min())
+    Ok(ledger
+        .next_job_check()?
+        .into_iter()
+        .chain(step_deadline)
+        .min())
 }
 
 fn run_check(service: &ServiceContext, handle: &Handle, claim: MonitorClaim) -> Result<(), String> {
@@ -429,11 +472,26 @@ fn check(service: &ServiceContext, handle: &Handle, claim: MonitorClaim) -> Resu
     if !live(service, &registration.scope) {
         return Err("plugin job scope removed".into());
     }
-    let PluginJobOrigin::Blueprint { blueprint, run, node, attempt } = &registration.origin;
-    let job = handle.store.lock().get(blueprint).cloned().ok_or("plugin Blueprint unavailable")?;
-    let held = job.admission.plugin_hold.as_ref().filter(|held| {
-        held.operation == registration.operation && &held.run == run && &held.node == node
-    }).ok_or("plugin hold identity changed")?;
+    let PluginJobOrigin::Blueprint {
+        blueprint,
+        run,
+        node,
+        attempt,
+    } = &registration.origin;
+    let job = handle
+        .store
+        .lock()
+        .get(blueprint)
+        .cloned()
+        .ok_or("plugin Blueprint unavailable")?;
+    let held = job
+        .admission
+        .plugin_hold
+        .as_ref()
+        .filter(|held| {
+            held.operation == registration.operation && &held.run == run && &held.node == node
+        })
+        .ok_or("plugin hold identity changed")?;
     if job.workspace_id != registration.scope.workspace
         || job.team_id != registration.scope.team
         || job.creator_tab_id != registration.scope.owner
@@ -445,7 +503,9 @@ fn check(service: &ServiceContext, handle: &Handle, claim: MonitorClaim) -> Resu
     } else {
         Some(step_deadline(handle, &job, held)?)
     };
-    let remaining = registration.deadline_ms.min(authored_deadline.unwrap_or(u64::MAX))
+    let remaining = registration
+        .deadline_ms
+        .min(authored_deadline.unwrap_or(u64::MAX))
         .saturating_sub(handle.store.lock().clock.now_ms());
     if remaining == 0 {
         return Err("plugin monitor deadline reached".into());
@@ -548,7 +608,10 @@ pub(crate) fn resume(handle: &Handle, blueprint: &str, operation: &str) -> Resul
         {
             return storage::Staged::ready(Ok(false));
         }
-        if job.machine.held.as_deref()
+        if job
+            .machine
+            .held
+            .as_deref()
             .is_some_and(|reason| !reason.starts_with("plugin_step_"))
         {
             return storage::Staged::ready(Ok(false));

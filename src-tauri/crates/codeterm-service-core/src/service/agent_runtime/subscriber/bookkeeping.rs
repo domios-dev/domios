@@ -105,9 +105,12 @@ pub async fn account(
     ) {
         Resolution::Resync => {
             let context = session.context.lock().clone();
-            let mut trace = super::super::model::responsiveness::span(&context, "resync_begin", "resync_end");
+            let mut trace =
+                super::super::model::responsiveness::span(&context, "resync_begin", "resync_end");
             let result = resync(svc, session, process).await;
-            if let Some(trace) = &mut trace { trace.finish(result.is_ok()); }
+            if let Some(trace) = &mut trace {
+                trace.finish(result.is_ok());
+            }
             recovery_step(result, session)
         }
         Resolution::Continue { .. } => Step::Continue,
@@ -187,7 +190,11 @@ pub(super) async fn resync(
             .unwrap_or_default()
             .to_string()
     };
-    let mut resume_trace = super::super::model::responsiveness::span(&context, "resync_resume_begin", "resync_resume_end");
+    let mut resume_trace = super::super::model::responsiveness::span(
+        &context,
+        "resync_resume_begin",
+        "resync_resume_end",
+    );
     let loaded = engine::run(
         svc,
         &session.provider,
@@ -200,7 +207,9 @@ pub(super) async fn resync(
         },
     )
     .await;
-    if let Some(trace) = &mut resume_trace { trace.finish(loaded.is_ok()); }
+    if let Some(trace) = &mut resume_trace {
+        trace.finish(loaded.is_ok());
+    }
     drop(resume_trace);
     let loaded = loaded?;
     let RuntimeResult::ThreadLoaded {
@@ -219,7 +228,11 @@ pub(super) async fn resync(
     let mut cursor = None;
     let mut seen = std::collections::HashSet::new();
     loop {
-        let mut page_trace = super::super::model::responsiveness::span(&context, "resync_page_begin", "resync_page_end");
+        let mut page_trace = super::super::model::responsiveness::span(
+            &context,
+            "resync_page_begin",
+            "resync_page_end",
+        );
         let page = engine::run(
             svc,
             &session.provider,
@@ -232,7 +245,9 @@ pub(super) async fn resync(
             },
         )
         .await;
-        if let Some(trace) = &mut page_trace { trace.finish(page.is_ok()); }
+        if let Some(trace) = &mut page_trace {
+            trace.finish(page.is_ok());
+        }
         drop(page_trace);
         let page = page?;
         let RuntimeResult::HistoryPage {

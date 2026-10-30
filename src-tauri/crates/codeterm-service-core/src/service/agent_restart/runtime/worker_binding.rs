@@ -46,27 +46,49 @@ struct CurrentSession {
 
 impl CurrentSession {
     fn capture(tab: &crate::multiplexer::types::Tab) -> Result<Self, String> {
-        let provider = tab.agent_type.clone().filter(|id| !id.is_empty())
+        let provider = tab
+            .agent_type
+            .clone()
+            .filter(|id| !id.is_empty())
             .ok_or("Completed continuity provider absent")?;
-        let thread = tab.agent_session_id.clone().filter(|id| !id.is_empty())
+        let thread = tab
+            .agent_session_id
+            .clone()
+            .filter(|id| !id.is_empty())
             .ok_or("Completed continuity session absent")?;
-        let nonce = tab.session_binding_nonce.clone().filter(|id| !id.is_empty())
+        let nonce = tab
+            .session_binding_nonce
+            .clone()
+            .filter(|id| !id.is_empty())
             .ok_or("Completed continuity nonce absent")?;
         if tab.reported_session_binding_nonce.as_ref() != Some(&nonce) {
             return Err("Completed continuity session unverified".into());
         }
-        let runtime = if matches!(&tab.backing, crate::multiplexer::types::TabBacking::ChatBackend { .. }) {
+        let runtime = if matches!(
+            &tab.backing,
+            crate::multiplexer::types::TabBacking::ChatBackend { .. }
+        ) {
             let session = crate::service::agent_runtime::engine::for_tab(&tab.id)
                 .ok_or("Completed continuity runtime absent")?;
             let context = session.context.lock().clone();
-            if session.provider != provider || context.tab_id != tab.id
-                || context.thread_id.as_ref() != Some(&thread) || context.binding_nonce != nonce
+            if session.provider != provider
+                || context.tab_id != tab.id
+                || context.thread_id.as_ref() != Some(&thread)
+                || context.binding_nonce != nonce
             {
                 return Err("Completed continuity runtime changed".into());
             }
-            let process = session.process.lock().as_ref().map(Arc::downgrade)
+            let process = session
+                .process
+                .lock()
+                .as_ref()
+                .map(Arc::downgrade)
                 .ok_or("Completed continuity runtime process absent")?;
-            Some(RuntimeGeneration { session: Arc::downgrade(&session), process, epoch: context.epoch })
+            Some(RuntimeGeneration {
+                session: Arc::downgrade(&session),
+                process,
+                epoch: context.epoch,
+            })
         } else if matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty) {
             if tab.pty_id.as_deref().is_none_or(str::is_empty) || tab.lifecycle_epoch.is_none() {
                 return Err("completed_continuity_pty_generation_missing: wake or resume this tab into a verified live PTY, then retry the provider handoff".into());
@@ -76,8 +98,13 @@ impl CurrentSession {
             return Err("Completed continuity transport unavailable".into());
         };
         Ok(Self {
-            tab_id: tab.id.clone(), provider, thread, nonce, lifecycle_epoch: tab.lifecycle_epoch,
-            pty_id: tab.pty_id.clone(), runtime,
+            tab_id: tab.id.clone(),
+            provider,
+            thread,
+            nonce,
+            lifecycle_epoch: tab.lifecycle_epoch,
+            pty_id: tab.pty_id.clone(),
+            runtime,
         })
     }
 
@@ -89,16 +116,26 @@ impl CurrentSession {
             (None, None) => true,
             (Some(expected), Some(actual)) => {
                 expected.epoch == actual.epoch
-                    && expected.session.upgrade().zip(actual.session.upgrade())
-                    .is_some_and(|(expected, actual)| Arc::ptr_eq(&expected, &actual))
-                    && expected.process.upgrade().zip(actual.process.upgrade())
-                    .is_some_and(|(expected, actual)| Arc::ptr_eq(&expected, &actual))
+                    && expected
+                        .session
+                        .upgrade()
+                        .zip(actual.session.upgrade())
+                        .is_some_and(|(expected, actual)| Arc::ptr_eq(&expected, &actual))
+                    && expected
+                        .process
+                        .upgrade()
+                        .zip(actual.process.upgrade())
+                        .is_some_and(|(expected, actual)| Arc::ptr_eq(&expected, &actual))
             }
             _ => false,
         };
-        self.tab_id == current.tab_id && self.provider == current.provider && self.thread == current.thread
-            && self.nonce == current.nonce && self.lifecycle_epoch == current.lifecycle_epoch
-            && self.pty_id == current.pty_id && runtime_matches
+        self.tab_id == current.tab_id
+            && self.provider == current.provider
+            && self.thread == current.thread
+            && self.nonce == current.nonce
+            && self.lifecycle_epoch == current.lifecycle_epoch
+            && self.pty_id == current.pty_id
+            && runtime_matches
     }
 }
 
@@ -116,7 +153,10 @@ static COMPLETED_SESSIONS: LazyLock<Mutex<HashMap<(usize, String), CompletedSess
 
 fn prune_completed_sessions(sessions: &mut HashMap<(usize, String), CompletedSession>) {
     sessions.retain(|(_, tab), proof| {
-        proof.owner.upgrade().is_some_and(|owner| owner.read().get_tab(tab).is_some())
+        proof
+            .owner
+            .upgrade()
+            .is_some_and(|owner| owner.read().get_tab(tab).is_some())
     });
 }
 
@@ -141,7 +181,10 @@ fn completed_attempt_matches(
         && attempt.acknowledged_at.is_some()
         && attempt.provider.as_deref() == Some(source)
         && attempt.session_id == tab.agent_session_id
-        && attempt.session_id.as_deref().is_some_and(|id| !id.is_empty())
+        && attempt
+            .session_id
+            .as_deref()
+            .is_some_and(|id| !id.is_empty())
         && attempt.session_binding_nonce.as_deref() == Some(nonce)
 }
 
@@ -177,20 +220,29 @@ impl ServiceContext {
             return Ok(false);
         };
         let tab = self.mux.read().get_tab(tab_id).cloned();
-        if tab.as_ref().is_none_or(|tab| {
-            tab.task_binding.as_ref() != Some(&proof.binding)
-        }) {
+        if tab
+            .as_ref()
+            .is_none_or(|tab| tab.task_binding.as_ref() != Some(&proof.binding))
+        {
             COMPLETED_SESSIONS.lock().remove(&key(self, tab_id));
             return Ok(false);
         }
         let tab = tab.ok_or("Completed continuity tab disappeared")?;
-        let exact = proof.owner.upgrade().is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
-            && proof.current.thread == thread && proof.current.nonce == nonce
+        let exact = proof
+            .owner
+            .upgrade()
+            .is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
+            && proof.current.thread == thread
+            && proof.current.nonce == nonce
             && proof.current.matches(&tab)
-            && self.plan_store.show_task(&proof.task.id).is_some_and(|detail| {
-                detail.plan_id == proof.plan_id && detail.task == proof.task
-            })
-            && self.plan_store.live_task_attempts_for_tab(tab_id).is_empty();
+            && self
+                .plan_store
+                .show_task(&proof.task.id)
+                .is_some_and(|detail| detail.plan_id == proof.plan_id && detail.task == proof.task)
+            && self
+                .plan_store
+                .live_task_attempts_for_tab(tab_id)
+                .is_empty();
         if !exact {
             return Err("Completed current-session continuity changed".into());
         }
@@ -206,20 +258,34 @@ impl ServiceContext {
             let bound = self.mux.read().get_tab(tab_id).is_none_or(|tab| {
                 super::super::restart_carries_task_attempt(tab.task_binding.as_ref())
             });
-            if bound || !self.plan_store.live_task_attempts_for_tab(tab_id).is_empty() {
+            if bound
+                || !self
+                    .plan_store
+                    .live_task_attempts_for_tab(tab_id)
+                    .is_empty()
+            {
                 return Err("provider_switch_binding_refused: source task binding changed".into());
             }
             return Ok(());
         };
         let request = &authority.request;
         if request.executor_tab_id != tab_id
-            || !authority.owner.upgrade().is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
+            || !authority
+                .owner
+                .upgrade()
+                .is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
         {
             return Err("provider_switch_binding_refused: source owner changed".into());
         }
-        let tab = self.mux.read().get_tab(tab_id).cloned()
+        let tab = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .cloned()
             .ok_or("provider_switch_binding_refused: tab disappeared")?;
-        let detail = self.plan_store.show_task(&request.task_id)
+        let detail = self
+            .plan_store
+            .show_task(&request.task_id)
             .ok_or("provider_switch_binding_refused: task disappeared")?;
         let exact = detail.plan_id == request.plan_id
             && tab.agent_type.as_deref() == Some(request.provider.as_str())
@@ -233,9 +299,15 @@ impl ServiceContext {
             });
         let unchanged = if let Some(completed) = &authority.completed_task {
             detail.task == *completed
-                && authority.completed_source.as_ref().is_some_and(|source| source.matches(&tab))
+                && authority
+                    .completed_source
+                    .as_ref()
+                    .is_some_and(|source| source.matches(&tab))
                 && tab.task_binding == authority.completed_binding
-                && self.plan_store.live_task_attempts_for_tab(tab_id).is_empty()
+                && self
+                    .plan_store
+                    .live_task_attempts_for_tab(tab_id)
+                    .is_empty()
         } else {
             detail.task.assigned_tab_id.as_deref() == Some(tab_id)
                 && detail.task.interruption.owner_epoch == request.owner_epoch
@@ -243,8 +315,14 @@ impl ServiceContext {
                 && detail.task.interruption.owner_session_id.as_deref()
                     == Some(request.old_thread.as_str())
                 && self.plan_store.open_attempt_task_for_effort_for_tab(
-                    tab_id, &request.old_thread, &request.old_nonce
-                ) == Some((request.plan_id.clone(), request.task_id.clone(), request.attempt_id.clone()))
+                    tab_id,
+                    &request.old_thread,
+                    &request.old_nonce,
+                ) == Some((
+                    request.plan_id.clone(),
+                    request.task_id.clone(),
+                    request.attempt_id.clone(),
+                ))
                 && detail.task.execution_attempts.iter().any(|attempt| {
                     attempt.id == request.attempt_id
                         && attempt.provider.as_deref() == Some(request.provider.as_str())
@@ -263,11 +341,13 @@ impl ServiceContext {
         target: &str,
         nonce: &str,
     ) -> Result<Option<RestartBindingAuthority>, String> {
-        if let Some(authority) =
-            self.completed_restart_binding(
-                tab_id, source, Some(target), nonce, RuntimeRestartMode::ProviderSwitch,
-            )?
-        {
+        if let Some(authority) = self.completed_restart_binding(
+            tab_id,
+            source,
+            Some(target),
+            nonce,
+            RuntimeRestartMode::ProviderSwitch,
+        )? {
             return Ok(Some(authority));
         }
         if !self.restore_provider_switch_task_binding(tab_id, source, nonce)? {
@@ -294,7 +374,11 @@ impl ServiceContext {
         nonce: &str,
         mode: RuntimeRestartMode,
     ) -> Result<Option<RestartBindingAuthority>, String> {
-        let tab = self.mux.read().get_tab(tab_id).cloned()
+        let tab = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .cloned()
             .ok_or("provider_switch_binding_refused: tab not found")?;
         let retained = {
             let mut sessions = COMPLETED_SESSIONS.lock();
@@ -304,9 +388,15 @@ impl ServiceContext {
         if let Some(retained) = &retained {
             if tab.task_binding.as_ref() != Some(&retained.binding)
                 || !retained.current.matches(&tab)
-                || !retained.owner.upgrade().is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
+                || !retained
+                    .owner
+                    .upgrade()
+                    .is_some_and(|owner| Arc::ptr_eq(&owner, &self.mux))
             {
-                return Err("provider_switch_binding_refused: completed current-session proof changed".into());
+                return Err(
+                    "provider_switch_binding_refused: completed current-session proof changed"
+                        .into(),
+                );
             }
         }
         let Some(binding) = tab.task_binding.as_ref() else {
@@ -319,7 +409,9 @@ impl ServiceContext {
         };
         let Some(detail) = self.plan_store.show_task(task) else {
             if retained.is_some() {
-                return Err("provider_switch_binding_refused: completed task history disappeared".into());
+                return Err(
+                    "provider_switch_binding_refused: completed task history disappeared".into(),
+                );
             }
             return Ok(None);
         };
@@ -331,35 +423,62 @@ impl ServiceContext {
         if detail.task.status != crate::plan::TaskStatus::Done {
             return Ok(None);
         }
-        if !matches!(mode, RuntimeRestartMode::ProviderSwitch | RuntimeRestartMode::Resume) {
+        if !matches!(
+            mode,
+            RuntimeRestartMode::ProviderSwitch | RuntimeRestartMode::Resume
+        ) {
             return Err("provider_switch_binding_refused: completed history only permits provider handoff or same-session resume".into());
         }
-        let matches = detail.task.execution_attempts.iter()
+        let matches = detail
+            .task
+            .execution_attempts
+            .iter()
             .filter(|entry| entry.id == *attempt)
             .collect::<Vec<_>>();
-        let valid = matches.as_slice().first().filter(|_| matches.len() == 1)
+        let valid = matches
+            .as_slice()
+            .first()
+            .filter(|_| matches.len() == 1)
             .is_some_and(|old| {
                 completed_attempt_matches(&tab, old, source, nonce)
                     && old.interruption.owner_epoch == detail.task.interruption.owner_epoch
             });
-        if (retained.is_none() && (!valid
-            || detail.task.interruption.owner_session_id != tab.agent_session_id))
+        if (retained.is_none()
+            && (!valid || detail.task.interruption.owner_session_id != tab.agent_session_id))
             || detail.plan_id != *plan
             || tab.agent_type.as_deref() != Some(source)
             || tab.session_binding_nonce.as_deref() != Some(nonce)
-            || detail.task.execution_attempts.iter().filter(|entry| {
-                entry.id == *attempt
-            }).count() != 1
-            || (retained.is_none() && detail.task.execution_attempts.iter().filter(|entry| {
-                completed_attempt_matches(&tab, entry, source, nonce)
-            }).count() != 1)
+            || detail
+                .task
+                .execution_attempts
+                .iter()
+                .filter(|entry| entry.id == *attempt)
+                .count()
+                != 1
+            || (retained.is_none()
+                && detail
+                    .task
+                    .execution_attempts
+                    .iter()
+                    .filter(|entry| completed_attempt_matches(&tab, entry, source, nonce))
+                    .count()
+                    != 1)
             || detail.task.assigned_tab_id.is_some()
             || detail.task.interruption.owner_epoch == 0
             || detail.task.interruption.owner_tab_id.as_deref() != Some(tab_id)
-            || detail.task.execution_attempts.iter().any(|entry| entry.closed_at.is_none())
-            || !self.plan_store.live_task_attempts_for_tab(tab_id).is_empty()
+            || detail
+                .task
+                .execution_attempts
+                .iter()
+                .any(|entry| entry.closed_at.is_none())
+            || !self
+                .plan_store
+                .live_task_attempts_for_tab(tab_id)
+                .is_empty()
         {
-            return Err("provider_switch_binding_refused: completed task history is not exact".into());
+            return Err(
+                "provider_switch_binding_refused: completed task history is not exact".into(),
+            );
         }
         let current = CurrentSession::capture(&tab)
             .map_err(|reason| format!("provider_switch_binding_refused: {reason}"))?;
@@ -438,10 +557,16 @@ impl ServiceContext {
             );
         }
         let prior = tab.task_binding.clone().unwrap_or_default();
-        let detail = self.plan_store.show_task(&task_id)
+        let detail = self
+            .plan_store
+            .show_task(&task_id)
             .ok_or("provider_switch_binding_refused: task disappeared")?;
-        let source_attempt = detail.task.execution_attempts.iter()
-            .filter(|entry| entry.id == attempt_id).collect::<Vec<_>>();
+        let source_attempt = detail
+            .task
+            .execution_attempts
+            .iter()
+            .filter(|entry| entry.id == attempt_id)
+            .collect::<Vec<_>>();
         if source_attempt.len() != 1
             || source_attempt[0].provider.as_deref() != Some(source)
             || detail.task.assigned_tab_id.as_deref() != Some(tab_id)
@@ -545,9 +670,9 @@ impl ServiceContext {
         nonce: &str,
         mode: RuntimeRestartMode,
     ) -> Result<Option<RestartBindingAuthority>, String> {
-        if let Some(history) = self.completed_restart_binding(
-            tab_id, provider, None, nonce, mode,
-        )? {
+        if let Some(history) =
+            self.completed_restart_binding(tab_id, provider, None, nonce, mode)?
+        {
             return Ok(Some(history));
         }
         match self.try_authorize_runtime_restart_binding(tab_id, provider, nonce, mode) {
@@ -671,10 +796,11 @@ impl ServiceContext {
         let authority = BINDINGS.lock().get(&key(self, tab_id)).cloned();
         authority.is_some_and(|authority| {
             authority.completed_task.is_none()
-                && self.ext::<super::super::RestartTracker>()
-                .lock()
-                .in_progress
-                .contains(tab_id)
+                && self
+                    .ext::<super::super::RestartTracker>()
+                    .lock()
+                    .in_progress
+                    .contains(tab_id)
                 && authority
                     .owner
                     .upgrade()
@@ -739,41 +865,60 @@ impl ServiceContext {
             if thread.is_empty() || nonce.is_empty() || nonce == request.old_nonce {
                 return Err("Completed provider switch target is unverified".into());
             }
-            if !self.plan_store.show_task(&request.task_id).is_some_and(|detail| {
-                detail.plan_id == request.plan_id && detail.task == *completed
-            }) || !self.plan_store.live_task_attempts_for_tab(tab_id).is_empty() {
+            if !self
+                .plan_store
+                .show_task(&request.task_id)
+                .is_some_and(|detail| {
+                    detail.plan_id == request.plan_id && detail.task == *completed
+                })
+                || !self
+                    .plan_store
+                    .live_task_attempts_for_tab(tab_id)
+                    .is_empty()
+            {
                 return Err("Completed provider switch history changed".into());
             }
-            if authority.carried
-                && (request.new_thread != thread || request.new_nonce != nonce)
-            {
+            if authority.carried && (request.new_thread != thread || request.new_nonce != nonce) {
                 return Err("Completed provider switch target changed".into());
             }
             if request.mode == RuntimeRestartMode::Resume && thread != request.old_thread {
                 return Err("Completed resume changed the current session".into());
             }
-            let tab = self.mux.read().get_tab(tab_id).cloned()
+            let tab = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .cloned()
                 .ok_or("Completed continuity tab disappeared")?;
             if tab.task_binding != authority.completed_binding
-                || (authority.carried && !authority.completed_target.as_ref()
-                    .is_some_and(|target| target.matches(&tab)))
+                || (authority.carried
+                    && !authority
+                        .completed_target
+                        .as_ref()
+                        .is_some_and(|target| target.matches(&tab)))
             {
                 return Err("Completed continuity generation or binding changed".into());
             }
             let current = CurrentSession::capture(&tab).map_err(PlanBindingFailure::from)?;
-            let binding = authority.completed_binding.clone()
+            let binding = authority
+                .completed_binding
+                .clone()
                 .ok_or("Completed continuity historical binding absent")?;
             let mut sessions = COMPLETED_SESSIONS.lock();
             prune_completed_sessions(&mut sessions);
-            sessions.insert(key(self, tab_id), CompletedSession {
-                owner: authority.owner.clone(),
-                plan_id: request.plan_id.clone(),
-                task: completed.clone(),
-                binding,
-                current: current.clone(),
-            });
+            sessions.insert(
+                key(self, tab_id),
+                CompletedSession {
+                    owner: authority.owner.clone(),
+                    plan_id: request.plan_id.clone(),
+                    task: completed.clone(),
+                    binding,
+                    current: current.clone(),
+                },
+            );
             drop(sessions);
-            let stored = bindings.get_mut(&key(self, tab_id))
+            let stored = bindings
+                .get_mut(&key(self, tab_id))
                 .ok_or("Completed provider switch continuity disappeared")?;
             stored.request.new_thread = thread.into();
             stored.request.new_nonce = nonce.into();

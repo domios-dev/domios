@@ -38,7 +38,13 @@ impl BlueprintStep for Adapter {
             },
             outcome: self.complete.load(Ordering::SeqCst).then(|| "done".into()),
             outputs: if self.complete.load(Ordering::SeqCst) {
-                [("text".into(), vec![PortValue::Text { text: "opaque final".into() }])].into()
+                [(
+                    "text".into(),
+                    vec![PortValue::Text {
+                        text: "opaque final".into(),
+                    }],
+                )]
+                .into()
             } else {
                 PortValues::new()
             },
@@ -153,14 +159,17 @@ fn fixture_with_state(cancel: bool, initial: OperationState) -> Fixture {
         .unwrap()
         .unwrap()
         .request;
-    assert!(crate::pipeline::write_journal(&handle, &lease.job,
+    assert!(crate::pipeline::write_journal(
+        &handle,
+        &lease.job,
         codeterm_storage::BlueprintJournalWrite::CloseRun {
             run_id: "run".into(),
             state: codeterm_blueprint_types::blueprint_journal::JournalState::Held,
             outcome: "held".into(),
             at_ms: 1000,
             reason: Some("plugin_step_running".into()),
-        }));
+        }
+    ));
     let job = lease.job.id;
     let continuation = handle
         .store
@@ -410,9 +419,25 @@ fn plugin_monitor_reconciles_running_job_and_resumes_run() {
         .unwrap()
         .unwrap();
     assert_eq!(record.outcome.as_deref(), Some("done"));
-    assert_eq!(record.outputs["text"], vec![PortValue::Text { text: "opaque final".into() }]);
-    let read = fixture.handle.store.lock().typed_pipeline_log(&fixture.job, 1).unwrap();
-    assert!(read.wait(storage::COMMIT_DEADLINE).unwrap().value.iter().any(|entry| entry.step_name == "downstream" && entry.state == codeterm_blueprint_types::blueprint_journal::JournalState::Done));
+    assert_eq!(
+        record.outputs["text"],
+        vec![PortValue::Text {
+            text: "opaque final".into()
+        }]
+    );
+    let read = fixture
+        .handle
+        .store
+        .lock()
+        .typed_pipeline_log(&fixture.job, 1)
+        .unwrap();
+    assert!(read
+        .wait(storage::COMMIT_DEADLINE)
+        .unwrap()
+        .value
+        .iter()
+        .any(|entry| entry.step_name == "downstream"
+            && entry.state == codeterm_blueprint_types::blueprint_journal::JournalState::Done));
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.adapter.checks.load(Ordering::SeqCst), 1);
 }
@@ -420,25 +445,66 @@ fn plugin_monitor_reconciles_running_job_and_resumes_run() {
 #[test]
 fn plugin_monitor_completion_before_original_close_defers_resume_until_lease_release() {
     let fixture = fixture_with_state(false, OperationState::Running);
-    fixture.handle.store.lock().active.insert(fixture.job.clone(), Default::default());
+    fixture
+        .handle
+        .store
+        .lock()
+        .active
+        .insert(fixture.job.clone(), Default::default());
     fixture.adapter.complete.store(true, Ordering::SeqCst);
     fixture.clock.set_ms(2000);
     let ledger = plugin::ledger(&fixture.service.service).unwrap();
-    run_check(&fixture.service.service, &fixture.handle, ledger.claim_job_check(2000).unwrap().unwrap()).unwrap();
-    assert!(fixture.handle.store.lock().get(&fixture.job).unwrap().admission.plugin_hold.is_some());
-    let job = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
-    assert!(crate::pipeline::write_journal(&fixture.handle, &job,
+    run_check(
+        &fixture.service.service,
+        &fixture.handle,
+        ledger.claim_job_check(2000).unwrap().unwrap(),
+    )
+    .unwrap();
+    assert!(fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .admission
+        .plugin_hold
+        .is_some());
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
+    assert!(crate::pipeline::write_journal(
+        &fixture.handle,
+        &job,
         codeterm_storage::BlueprintJournalWrite::CloseRun {
-            run_id: "run".into(), state: codeterm_blueprint_types::blueprint_journal::JournalState::Held,
-            outcome: "held".into(), at_ms: 2000, reason: Some("plugin_step_running".into()),
-        }));
+            run_id: "run".into(),
+            state: codeterm_blueprint_types::blueprint_journal::JournalState::Held,
+            outcome: "held".into(),
+            at_ms: 2000,
+            reason: Some("plugin_step_running".into()),
+        }
+    ));
     fixture.handle.store.lock().release(&fixture.job);
     fixture.handle.notify();
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
-    let job = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     assert!(job.admission.plugin_hold.is_none());
     assert!(job.machine.held.is_none());
-    assert_eq!(storage::commit(&fixture.handle.store, |store| store.stage_due()).unwrap().len(), 1);
+    assert_eq!(
+        storage::commit(&fixture.handle.store, |store| store.stage_due())
+            .unwrap()
+            .len(),
+        1
+    );
     fixture.handle.store.lock().release(&fixture.job);
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.adapter.checks.load(Ordering::SeqCst), 1);
@@ -447,24 +513,66 @@ fn plugin_monitor_completion_before_original_close_defers_resume_until_lease_rel
 #[test]
 fn plugin_monitor_authored_deadline_stops_unobserved_run_without_replay() {
     let fixture = fixture_with_state(false, OperationState::Running);
-    let job = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     let held = job.admission.plugin_hold.as_ref().unwrap();
     let deadline = step_deadline(&fixture.handle, &job, held).unwrap();
     assert_eq!(deadline, 11_000);
     fixture.clock.set_ms(deadline - 1);
-    assert_eq!(prepare_monitors(&fixture.service.service, &fixture.handle).unwrap(), Some(deadline));
-    assert!(!fixture.handle.store.lock().get(&fixture.job).unwrap().machine.stopped);
+    assert_eq!(
+        prepare_monitors(&fixture.service.service, &fixture.handle).unwrap(),
+        Some(deadline)
+    );
+    assert!(
+        !fixture
+            .handle
+            .store
+            .lock()
+            .get(&fixture.job)
+            .unwrap()
+            .machine
+            .stopped
+    );
     fixture.clock.set_ms(deadline);
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
-    let job = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     assert!(job.machine.stopped);
     assert_eq!(job.last_reason.as_deref(), Some("plugin_step_timeout"));
-    assert!(storage::commit(&fixture.handle.store, |store| store.stage_due()).unwrap().is_empty());
-    let read = fixture.handle.store.lock().typed_pipeline_log(&fixture.job, 1).unwrap();
+    assert!(
+        storage::commit(&fixture.handle.store, |store| store.stage_due())
+            .unwrap()
+            .is_empty()
+    );
+    let read = fixture
+        .handle
+        .store
+        .lock()
+        .typed_pipeline_log(&fixture.job, 1)
+        .unwrap();
     let entries = read.wait(storage::COMMIT_DEADLINE).unwrap().value;
-    let close = entries.iter().find(|entry| entry.step_name == "$run").unwrap();
-    assert_eq!(close.state, codeterm_blueprint_types::blueprint_journal::JournalState::Failed);
-    assert_eq!(close.reason, Some(codeterm_blueprint_types::blueprint_journal::JournalReason::Deadline));
+    let close = entries
+        .iter()
+        .find(|entry| entry.step_name == "$run")
+        .unwrap();
+    assert_eq!(
+        close.state,
+        codeterm_blueprint_types::blueprint_journal::JournalState::Failed
+    );
+    assert_eq!(
+        close.reason,
+        Some(codeterm_blueprint_types::blueprint_journal::JournalReason::Deadline)
+    );
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.adapter.checks.load(Ordering::SeqCst), 0);
 }
@@ -478,7 +586,12 @@ fn plugin_monitor_completion_during_observation_releases_hold_once() {
     *fixture.adapter.gate.lock() = Some((entered, resume));
     fixture.clock.set_ms(2000);
     let claim = ledger.claim_job_check(2000).unwrap().unwrap();
-    let service = fixture.service.service.ext::<std::sync::Weak<ServiceContext>>().upgrade().unwrap();
+    let service = fixture
+        .service
+        .service
+        .ext::<std::sync::Weak<ServiceContext>>()
+        .upgrade()
+        .unwrap();
     let handle = fixture.handle.clone();
     let worker = std::thread::spawn(move || run_check(&service, &handle, claim));
     observed.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -486,7 +599,13 @@ fn plugin_monitor_completion_during_observation_releases_hold_once() {
     release.send(()).unwrap();
     worker.join().unwrap().unwrap();
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
-    let job = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     assert!(job.machine.held.is_none());
     assert!(job.admission.plugin_hold.is_none());
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
@@ -501,14 +620,24 @@ fn plugin_monitor_foreign_held_run_cannot_consume_completion() {
         let mut job = store.get(&fixture.job).unwrap().clone();
         job.admission.plugin_hold.as_mut().unwrap().run = "foreign-run".into();
         store.stage_admission(&fixture.job, job.admission)
-    }).unwrap();
+    })
+    .unwrap();
     fixture.adapter.complete.store(true, Ordering::SeqCst);
     fixture.clock.set_ms(2000);
     let ledger = plugin::ledger(&fixture.service.service).unwrap();
     let claim = ledger.claim_job_check(2000).unwrap().unwrap();
     assert!(run_check(&fixture.service.service, &fixture.handle, claim).is_err());
-    let job = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
-    assert_eq!(job.admission.plugin_hold.as_ref().unwrap().run, "foreign-run");
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        job.admission.plugin_hold.as_ref().unwrap().run,
+        "foreign-run"
+    );
     assert!(job.machine.held.is_some());
     assert_eq!(fixture.adapter.checks.load(Ordering::SeqCst), 0);
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
@@ -523,7 +652,12 @@ fn plugin_monitor_deadline_during_observation_cannot_release_late_success() {
     *fixture.adapter.gate.lock() = Some((entered, resume));
     fixture.clock.set_ms(2000);
     let claim = ledger.claim_job_check(2000).unwrap().unwrap();
-    let service = fixture.service.service.ext::<std::sync::Weak<ServiceContext>>().upgrade().unwrap();
+    let service = fixture
+        .service
+        .service
+        .ext::<std::sync::Weak<ServiceContext>>()
+        .upgrade()
+        .unwrap();
     let handle = fixture.handle.clone();
     let worker = std::thread::spawn(move || run_check(&service, &handle, claim));
     observed.recv_timeout(Duration::from_secs(2)).unwrap();
@@ -531,10 +665,20 @@ fn plugin_monitor_deadline_during_observation_cannot_release_late_success() {
     fixture.adapter.complete.store(true, Ordering::SeqCst);
     release.send(()).unwrap();
     worker.join().unwrap().unwrap();
-    let job = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let job = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     assert!(job.machine.stopped);
     assert_eq!(job.last_reason.as_deref(), Some("plugin_step_timeout"));
-    assert!(storage::commit(&fixture.handle.store, |store| store.stage_due()).unwrap().is_empty());
+    assert!(
+        storage::commit(&fixture.handle.store, |store| store.stage_due())
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.adapter.checks.load(Ordering::SeqCst), 1);
 }
@@ -545,26 +689,57 @@ fn plugin_monitor_deadline_dispatches_supported_cancel_once_before_monitor_stop(
     let ledger = plugin::ledger(&fixture.service.service).unwrap();
     fixture.clock.set_ms(11_000);
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
-    let record = ledger.get(&fixture.request.context.operation).unwrap().unwrap();
+    let record = ledger
+        .get(&fixture.request.context.operation)
+        .unwrap()
+        .unwrap();
     assert!(record.cancel_requested);
     assert!(!record.cancel_dispatched);
-    assert!(ledger.job_monitor(&record.request.context.operation).unwrap().unwrap().stopped.is_none());
+    assert!(ledger
+        .job_monitor(&record.request.context.operation)
+        .unwrap()
+        .unwrap()
+        .stopped
+        .is_none());
     assert_eq!(fixture.adapter.cancels.load(Ordering::SeqCst), 0);
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
     let claim = ledger.claim_job_check(11_000).unwrap().unwrap();
     run_check(&fixture.service.service, &fixture.handle, claim).unwrap();
     assert_eq!(fixture.adapter.cancels.load(Ordering::SeqCst), 1);
-    assert!(ledger.get(&record.request.context.operation).unwrap().unwrap().cancel_dispatched);
+    assert!(
+        ledger
+            .get(&record.request.context.operation)
+            .unwrap()
+            .unwrap()
+            .cancel_dispatched
+    );
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
-    assert!(ledger.job_monitor(&record.request.context.operation).unwrap().unwrap().stopped.is_some());
+    assert!(ledger
+        .job_monitor(&record.request.context.operation)
+        .unwrap()
+        .unwrap()
+        .stopped
+        .is_some());
     assert!(ledger.claim_job_check(16_000).unwrap().is_none());
     assert_eq!(fixture.adapter.cancels.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 1);
-    assert!(storage::commit(&fixture.handle.store, |store| store.stage_due()).unwrap().is_empty());
-    let read = fixture.handle.store.lock().typed_pipeline_log(&fixture.job, 1).unwrap();
+    assert!(
+        storage::commit(&fixture.handle.store, |store| store.stage_due())
+            .unwrap()
+            .is_empty()
+    );
+    let read = fixture
+        .handle
+        .store
+        .lock()
+        .typed_pipeline_log(&fixture.job, 1)
+        .unwrap();
     let entries = read.wait(storage::COMMIT_DEADLINE).unwrap().value;
-    let close = entries.iter().find(|entry| entry.step_name == "$run").unwrap();
+    let close = entries
+        .iter()
+        .find(|entry| entry.step_name == "$run")
+        .unwrap();
     assert_eq!(close.state, JournalState::Failed);
     assert_eq!(close.reason, Some(JournalReason::Deadline));
 }
@@ -572,19 +747,50 @@ fn plugin_monitor_deadline_dispatches_supported_cancel_once_before_monitor_stop(
 #[test]
 fn plugin_monitor_missing_claim_is_isolated_while_second_held_job_times_out() {
     let fixture = fixture_with_state(false, OperationState::Running);
-    let original = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let original = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     let mut document = original.document.clone().unwrap();
     document["name"] = json!("Healthy monitor");
-    let mut healthy = fixture.handle.store.lock().prepare_document(document, crate::store::Owner {
-        creator_tab_id: original.creator_tab_id.clone(), workspace_id: original.workspace_id.clone(),
-        team_id: original.team_id.clone(), cwd: original.cwd.clone(),
-    }, false).unwrap();
+    let mut healthy = fixture
+        .handle
+        .store
+        .lock()
+        .prepare_document(
+            document,
+            crate::store::Owner {
+                creator_tab_id: original.creator_tab_id.clone(),
+                workspace_id: original.workspace_id.clone(),
+                team_id: original.team_id.clone(),
+                cwd: original.cwd.clone(),
+            },
+            false,
+        )
+        .unwrap();
     let mut pipeline = original.pipeline().unwrap().clone();
     pipeline.name = "Healthy monitor".into();
     healthy.set_pipeline(Some(pipeline));
-    let healthy = storage::commit(&fixture.handle.store, |store| store.stage_insert(healthy)).unwrap();
-    let lease = crate::store::Lease { job: healthy, cancelled: Default::default(), event: None };
-    assert_eq!(crate::pipeline::run_plugin_fixture(&fixture.handle, &fixture.service.service, &lease, "healthy-run").unwrap(), JournalState::Held);
+    let healthy =
+        storage::commit(&fixture.handle.store, |store| store.stage_insert(healthy)).unwrap();
+    let lease = crate::store::Lease {
+        job: healthy,
+        cancelled: Default::default(),
+        event: None,
+    };
+    assert_eq!(
+        crate::pipeline::run_plugin_fixture(
+            &fixture.handle,
+            &fixture.service.service,
+            &lease,
+            "healthy-run"
+        )
+        .unwrap(),
+        JournalState::Held
+    );
     let ledger = plugin::ledger(&fixture.service.service).unwrap();
     let mut missing = fixture.request.clone();
     missing.context.operation = "missing-claim-operation".into();
@@ -598,13 +804,26 @@ fn plugin_monitor_missing_claim_is_isolated_while_second_held_job_times_out() {
         held.run = missing.context.scope.run.clone();
         held.node = missing.context.node.clone();
         store.stage_admission(&fixture.job, job.admission)
-    }).unwrap();
+    })
+    .unwrap();
     fixture.clock.set_ms(11_000);
     prepare_monitors(&fixture.service.service, &fixture.handle).unwrap();
-    let bad = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let bad = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     assert!(!bad.machine.stopped);
     assert!(bad.admission.plugin_hold.is_some());
-    let healthy = fixture.handle.store.lock().get(&lease.job.id).unwrap().clone();
+    let healthy = fixture
+        .handle
+        .store
+        .lock()
+        .get(&lease.job.id)
+        .unwrap()
+        .clone();
     assert!(healthy.machine.stopped);
     assert_eq!(healthy.last_reason.as_deref(), Some("plugin_step_timeout"));
     assert_eq!(fixture.adapter.submits.load(Ordering::SeqCst), 2);
@@ -615,14 +834,47 @@ fn plugin_monitor_missing_claim_is_isolated_while_second_held_job_times_out() {
 #[test]
 fn plugin_monitor_stale_timeout_hold_cannot_mutate_ledger_or_monitor() {
     let fixture = fixture_with_state(true, OperationState::Running);
-    let original = fixture.handle.store.lock().get(&fixture.job).unwrap().clone();
+    let original = fixture
+        .handle
+        .store
+        .lock()
+        .get(&fixture.job)
+        .unwrap()
+        .clone();
     let mut stale = original.admission.plugin_hold.clone().unwrap();
     stale.run = "foreign-run".into();
     let ledger = plugin::ledger(&fixture.service.service).unwrap();
-    let before = ledger.get(&fixture.request.context.operation).unwrap().unwrap();
-    let monitor = ledger.job_monitor(&fixture.request.context.operation).unwrap().unwrap();
+    let before = ledger
+        .get(&fixture.request.context.operation)
+        .unwrap()
+        .unwrap();
+    let monitor = ledger
+        .job_monitor(&fixture.request.context.operation)
+        .unwrap()
+        .unwrap();
     expire_step(&fixture.service.service, &fixture.handle, &original, &stale).unwrap();
-    assert_eq!(ledger.get(&fixture.request.context.operation).unwrap().unwrap(), before);
-    assert_eq!(ledger.job_monitor(&fixture.request.context.operation).unwrap().unwrap(), monitor);
-    assert!(!fixture.handle.store.lock().get(&fixture.job).unwrap().machine.stopped);
+    assert_eq!(
+        ledger
+            .get(&fixture.request.context.operation)
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    assert_eq!(
+        ledger
+            .job_monitor(&fixture.request.context.operation)
+            .unwrap()
+            .unwrap(),
+        monitor
+    );
+    assert!(
+        !fixture
+            .handle
+            .store
+            .lock()
+            .get(&fixture.job)
+            .unwrap()
+            .machine
+            .stopped
+    );
 }

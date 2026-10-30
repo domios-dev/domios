@@ -56,9 +56,10 @@ impl ServiceContext {
         .to_string();
         let context = crate::service::launch_diagnostics::redact_secrets(&context);
         let context = provider_handoff::input::inert_json(&context);
-        let instructions = if task.as_ref().is_some_and(|detail| {
-            detail.task.status == crate::plan::TaskStatus::Done
-        }) {
+        let instructions = if task
+            .as_ref()
+            .is_some_and(|detail| detail.task.status == crate::plan::TaskStatus::Done)
+        {
             COMPLETED_INSTRUCTIONS
         } else {
             INSTRUCTIONS

@@ -56,7 +56,11 @@ pub fn emit_chat_msgs(
         &mut messages,
     );
     let event = format!("tab-chat-msg-{}", tab_id);
-    let trace = crate::service::agent_runtime::model::responsiveness::binding(tab_id, source_session_id, session_binding_nonce);
+    let trace = crate::service::agent_runtime::model::responsiveness::binding(
+        tab_id,
+        source_session_id,
+        session_binding_nonce,
+    );
     let payload = ChatMsgEvent {
         diagnostic_epoch: trace.and_then(|trace| trace.epoch()),
         tab_id,
@@ -68,14 +72,18 @@ pub fn emit_chat_msgs(
         session_binding_nonce,
     };
     if let Some(trace) = trace {
-        for row in &messages { trace.row("host_emit_begin", row); }
+        for row in &messages {
+            trace.row("host_emit_begin", row);
+        }
     }
     ui.emit(
         &event,
         serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
     );
     if let Some(trace) = trace {
-        for row in &messages { trace.row("host_emit_end", row); }
+        for row in &messages {
+            trace.row("host_emit_end", row);
+        }
     }
 }
 
@@ -1135,4 +1143,3 @@ mod tests {
         ));
     }
 }
-
