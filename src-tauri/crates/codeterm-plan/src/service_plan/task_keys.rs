@@ -11,10 +11,8 @@ impl PlanStore {
 
     /// Largest stored key number per prefix across every loaded plan.
     pub fn task_key_high_water(&self) -> HashMap<String, u64> {
-        let plans: Vec<_> = self.plans.read().values().cloned().collect();
         let mut keys = Vec::new();
-        for plan in plans {
-            let plan = plan.lock();
+        for plan in self.list_full() {
             keys.extend(plan.tasks.iter().filter_map(|task| task.key.clone()));
         }
         task_key::high_water(keys.iter().map(String::as_str))
@@ -36,7 +34,7 @@ impl PlanStore {
     }
 
     fn task_key_scope(&self, plan_id: &str) -> Option<TaskKeyScope> {
-        let plan = self.plans.read().get(plan_id).cloned()?;
+        let plan = self.plan_arc(plan_id).ok()?;
         let plan = plan.lock();
         Some(TaskKeyScope {
             plan_id: plan.id.clone(),
@@ -47,7 +45,7 @@ impl PlanStore {
     }
 
     pub fn task_display_key(&self, plan_id: &str, task_ref: &str) -> Option<String> {
-        let plan = self.plans.read().get(plan_id).cloned()?;
+        let plan = self.plan_arc(plan_id).ok()?;
         let plan = plan.lock();
         task_key::find_task(&plan.tasks, task_ref).map(|task| task.display_key())
     }

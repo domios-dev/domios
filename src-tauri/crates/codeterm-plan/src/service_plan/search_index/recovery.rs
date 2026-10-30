@@ -1,23 +1,6 @@
 use super::*;
 
 impl super::super::PlanStore {
-    pub(crate) fn seed_search_indexes(&self) {
-        let plans = self.list_full();
-        let specs = self.list_specs_full();
-        let roots = plans
-            .iter()
-            .map(|plan| super::super::paths::project_root(plan_project_root(plan)))
-            .chain(
-                specs
-                    .iter()
-                    .map(|spec| super::super::paths::project_root(spec_project_root(spec))),
-            )
-            .collect::<HashSet<_>>();
-        for root in roots {
-            self.enqueue_project_index(&root, &plans, &specs);
-        }
-    }
-
     pub(super) fn enqueue_project_index(
         &self,
         root: &Path,

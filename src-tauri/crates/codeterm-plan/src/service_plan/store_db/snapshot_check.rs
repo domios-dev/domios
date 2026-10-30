@@ -8,9 +8,7 @@ const TARGET_ENV: &str = "DOMIOS_PLAN_SNAPSHOT_PLAN";
 
 fn loaded(database: &PlanDatabase) -> BTreeMap<String, serde_json::Value> {
     database
-        .load_snapshots()
-        .unwrap()
-        .0
+        .load_plans_for_test()
         .into_iter()
         .map(|plan| (plan.id.clone(), serde_json::to_value(plan).unwrap()))
         .collect()
@@ -73,7 +71,7 @@ fn production_snapshot_current_rows_survive_mutation_and_reopen() {
     let started = Instant::now();
     let expected = loaded(&database);
     let load = started.elapsed();
-    let plans = database.load_snapshots().unwrap().0;
+    let plans = database.load_plans_for_test();
     let tasks: usize = plans.iter().map(|plan| plan.tasks.len()).sum();
     let milestones: usize = plans
         .iter()

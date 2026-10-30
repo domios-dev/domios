@@ -76,6 +76,10 @@ impl PlanStore {
                     for original in originals.iter().take(persisted) {
                         let _ = self.persist_plan_and_spec(original);
                     }
+                    // A partly written batch leaves nothing cached that disk may not hold.
+                    for candidate in &staged {
+                        self.plan_cache.evict(&candidate.id);
+                    }
                     return Err(PlanError::Io(error.to_string()));
                 }
             }
@@ -97,9 +101,10 @@ impl PlanStore {
         let _writer_turn = self.mutation_writer.enter();
         let mut restored = Vec::new();
         for original in &transaction.original_plans {
-            let path = self
-                .persist_plan_and_spec(original)
-                .map_err(|error| PlanError::Io(error.to_string()))?;
+            let path = self.persist_plan_and_spec(original).map_err(|error| {
+                self.plan_cache.evict(&original.id);
+                PlanError::Io(error.to_string())
+            })?;
             restored.push(path);
         }
         for (original, path) in transaction.original_plans.iter().zip(restored) {
@@ -113,21 +118,15 @@ impl PlanStore {
         staged: &Plan,
         path: std::path::PathBuf,
     ) -> Result<(), PlanError> {
-        let arc = self
-            .plans
-            .read()
-            .get(&staged.id)
-            .cloned()
-            .ok_or(PlanError::NotFound)?;
+        let arc = self.plan_arc(&staged.id)?;
         {
             let mut plan = arc.lock();
             *plan = staged.clone();
         }
+        self.plan_cache.commit(&staged.id, &arc);
         self.note_plan_write(staged, &path);
         self.record_committed_snapshot(staged);
-        self.index
-            .write()
-            .insert(staged.id.clone(), Self::index_entry(staged, path));
+        self.note_index(staged);
         self.reset_bound_tabs(staged);
         Ok(())
     }

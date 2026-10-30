@@ -115,7 +115,7 @@ impl PlanStore {
         );
         let active: Vec<(String, Option<String>, u64)> = candidates
             .filter_map(|id| {
-                let plan = self.plan_entry(&id)?;
+                let plan = self.plan_arc(&id).ok()?;
                 let plan = plan.lock();
                 (plan.status == PlanStatus::Active && !plan.is_orphaned_active())
                     .then(|| (plan.id.clone(), plan.team_id.clone(), plan.updated_at))
@@ -170,11 +170,14 @@ impl PlanStore {
         F: Fn(&str) -> bool,
     {
         let mut ids: Vec<_> = self
-            .list_full()
-            .into_iter()
-            .filter_map(|plan| {
-                let bound_team = plan.team_id.as_deref();
-                bound_team.filter(|team| matches(team)).map(|_| plan.id)
+            .index
+            .read()
+            .values()
+            .filter_map(|row| {
+                let bound_team = row.team_id.as_deref();
+                bound_team
+                    .filter(|team| matches(team))
+                    .map(|_| row.id.clone())
             })
             .collect();
         ids.sort();
@@ -198,24 +201,19 @@ impl PlanStore {
     }
 
     fn restore_team_plan(&self, original: &Plan) -> Result<(), PlanError> {
-        let arc = self
-            .plans
-            .read()
-            .get(&original.id)
-            .cloned()
-            .ok_or(PlanError::NotFound)?;
+        let arc = self.plan_arc(&original.id)?;
         let staged = original.clone();
-        let path = self
-            .persist_plan_and_spec(&staged)
-            .map_err(|error| PlanError::Io(error.to_string()))?;
+        let path = self.persist_plan_and_spec(&staged).map_err(|error| {
+            self.plan_cache.evict(&staged.id);
+            PlanError::Io(error.to_string())
+        })?;
         {
             let mut plan = arc.lock();
             *plan = staged.clone();
         }
+        self.plan_cache.commit(&staged.id, &arc);
         self.note_plan_write(&staged, &path);
-        self.index
-            .write()
-            .insert(staged.id.clone(), Self::index_entry(&staged, path));
+        self.note_index(&staged);
         Ok(())
     }
 }

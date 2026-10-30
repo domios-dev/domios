@@ -130,13 +130,31 @@ impl PlanDatabase {
         count as usize
     }
 
-    pub(super) fn load_snapshots(&self) -> Result<(Vec<Plan>, Vec<Spec>), PlanError> {
+    pub(super) fn load_specs(&self) -> Result<Vec<Spec>, PlanError> {
         let connection = self.connection.lock();
-        let plans = load_all_plans(&connection)?;
-        let specs = load_documents::<Spec>(&connection, "spec", "SELECT id, row_json FROM specs")?;
-        Ok((plans, specs))
+        load_documents::<Spec>(&connection, "spec", "SELECT id, row_json FROM specs")
     }
 
+    /// Every parseable plan, for test oracles only; the store loads plans one at a time.
+    #[cfg(test)]
+    pub(super) fn load_plans_for_test(&self) -> Vec<Plan> {
+        let ids: Vec<String> = {
+            let connection = self.connection.lock();
+            let mut statement = connection
+                .prepare("SELECT id FROM plans ORDER BY id")
+                .expect("prepare plan ids");
+            statement
+                .query_map([], |row| row.get(0))
+                .expect("query plan ids")
+                .collect::<Result<_, _>>()
+                .expect("read plan ids")
+        };
+        ids.iter()
+            .filter_map(|id| self.load_plan(id).ok().flatten())
+            .collect()
+    }
+
+    /// `Ok(None)` when no row exists; rows that do not parse are `PlanError::Quarantined`.
     pub(super) fn load_plan(&self, id: &str) -> Result<Option<Plan>, PlanError> {
         let connection = self.connection.lock();
         let header: Option<String> = connection
@@ -148,8 +166,13 @@ impl PlanDatabase {
         let Some(header) = header else {
             return Ok(None);
         };
-        let value = store_sync::load_plan_rows(&connection, id, &header).map_err(PlanError::Io)?;
-        serde_json::from_value(value).map(Some).map_err(json_error)
+        store_sync::load_plan_rows(&connection, id, &header)
+            .and_then(parse_plan_value)
+            .map(Some)
+            .map_err(|reason| PlanError::Quarantined {
+                plan_id: id.to_string(),
+                reason,
+            })
     }
 
     pub(super) fn delete_spec(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
@@ -418,32 +441,6 @@ fn upsert_spec(transaction: &rusqlite::Transaction<'_>, spec: &Spec) -> Result<(
     Ok(())
 }
 
-fn load_all_plans(connection: &Connection) -> Result<Vec<Plan>, PlanError> {
-    let mut statement = connection
-        .prepare("SELECT id, header_json FROM plans")
-        .map_err(db_error)?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(db_error)?;
-    let mut plans = Vec::new();
-    let headers = rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
-    drop(statement);
-    for (record_id, header) in headers {
-        let joined = store_sync::load_plan_rows(connection, &record_id, &header);
-        match joined.and_then(parse_plan_value) {
-            Ok(plan) => plans.push(plan),
-            Err(error) => log::error!(
-                "[plan.store] quarantined plan record {} during startup: {}; source left unchanged",
-                record_id,
-                error
-            ),
-        }
-    }
-    Ok(plans)
-}
-
 #[cfg(test)]
 fn parse_plan_json(document: &str) -> Result<Plan, String> {
     parse_plan_value(serde_json::from_str(document).map_err(|error| error.to_string())?)
@@ -519,6 +516,8 @@ fn json_error(error: serde_json::Error) -> PlanError {
     PlanError::Io(error.to_string())
 }
 
+mod index_queries;
+pub(super) use index_queries::PlanIndexRow;
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]

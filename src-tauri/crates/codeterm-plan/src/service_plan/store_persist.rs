@@ -9,11 +9,6 @@ impl PlanStore {
         *self.persistence_hook.write() = hook;
     }
 
-    #[cfg(test)]
-    fn file_path(plan: &Plan) -> std::io::Result<PathBuf> {
-        paths::plan_json_path(paths::plan_sidecar_root(plan), &plan.status, &plan.id)
-    }
-
     /// Persist one canonical plan transaction, including its owned spec.
     pub(super) fn persist_plan_and_spec(&self, plan: &Plan) -> std::io::Result<PathBuf> {
         #[cfg(test)]
@@ -55,25 +50,6 @@ impl PlanStore {
             let entry = Self::spec_index_entry(&spec, spec_path);
             self.spec_index.write().insert(spec.id.clone(), entry);
         }
-        Ok(path)
-    }
-
-    /// Legacy plan.json + md-sidecar writer. Retained ONLY for the one-off
-    /// conversion tool and tests; the live daemon never calls this.
-    #[cfg(test)]
-    pub(super) fn write_atomic(plan: &Plan) -> std::io::Result<PathBuf> {
-        let path = Self::file_path(plan)?;
-        let mut normalized = plan.clone();
-        if normalized.canonical_project_path.trim().is_empty() {
-            normalized.canonical_project_path = normalized.project_path.clone();
-        }
-        tag_model::normalize_plan(&mut normalized);
-        body_files::persist_bodies(&normalized)?;
-        let json_plan = body_files::strip_bodies(&normalized);
-        let json = serde_json::to_string_pretty(&json_plan)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        atomic_write::write_atomic(&path, json)?;
-        Self::remove_other_status_dir(plan, &path)?;
         Ok(path)
     }
 

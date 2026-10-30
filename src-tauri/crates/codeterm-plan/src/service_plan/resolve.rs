@@ -239,20 +239,12 @@ pub struct ResolvedMilestone {
 impl PlanStore {
     /// Any id currently in the store (plan / spec / task / section / milestone). Mint-time check.
     pub(super) fn id_taken(&self, id: &str) -> bool {
-        if self.specs.read().contains_key(id) {
+        if self.specs.read().contains_key(id) || self.index.read().contains_key(id) {
             return true;
         }
-        let plans = self.plans.read();
-        if plans.contains_key(id) {
-            return true;
-        }
-        plans.values().any(|arc| {
-            let p = arc.lock();
-            p.tasks.iter().any(|t| t.id == id)
-                || p.tasks
-                    .iter()
-                    .any(|t| t.milestones.iter().any(|m| m.id == id))
-                || section_tree_contains(&p.sections, id)
+        self.database.id_in_use(id).unwrap_or_else(|error| {
+            log::warn!("[plan.store] id collision query failed: {error}");
+            false
         })
     }
 
@@ -262,24 +254,21 @@ impl PlanStore {
     }
 
     fn plan_match_items(&self) -> Vec<MatchItem> {
-        self.plans
+        self.index
             .read()
             .values()
-            .map(|arc| {
-                let p = arc.lock();
-                MatchItem {
-                    id: p.id.clone(),
-                    key: None,
-                    handle: None,
-                    label: p.title.clone(),
-                    plan_id: None,
-                }
+            .map(|row| MatchItem {
+                id: row.id.clone(),
+                key: None,
+                handle: None,
+                label: row.title.clone(),
+                plan_id: None,
             })
             .collect()
     }
 
     pub fn resolve_plan_id(&self, reference: &str) -> Result<String, ResolveError> {
-        if self.plans.read().contains_key(reference) {
+        if self.index.read().contains_key(reference) {
             return Ok(reference.to_string());
         }
         pick(self.plan_match_items(), reference, RefKind::Plan).map(|m| m.id)
@@ -361,8 +350,7 @@ impl PlanStore {
 
     pub fn resolve_loop_id(&self, reference: &str) -> Result<String, ResolveError> {
         let mut items = Vec::new();
-        for arc in self.plans.read().values() {
-            let p = arc.lock();
+        for p in self.list_full() {
             for l in &p.loops {
                 items.push(MatchItem {
                     id: l.id.clone(),
@@ -383,9 +371,8 @@ impl PlanStore {
     ) -> Result<(String, String), ResolveError> {
         let plan_id = self.resolve_plan_id(plan_ref)?;
         let items = self
-            .plans
-            .read()
-            .get(&plan_id)
+            .plan_arc(&plan_id)
+            .ok()
             .map(|arc| {
                 let p = arc.lock();
                 p.elements
@@ -413,9 +400,8 @@ impl PlanStore {
         let plan_id = resolved_task.plan_id;
         let task_id = resolved_task.task_id;
         let items = self
-            .plans
-            .read()
-            .get(&plan_id)
+            .plan_arc(&plan_id)
+            .ok()
             .and_then(|arc| {
                 let p = arc.lock();
                 p.tasks.iter().find(|t| t.id == task_id).map(|task| {
@@ -440,9 +426,8 @@ impl PlanStore {
     }
 
     fn task_items_for_plan(&self, plan_id: &str) -> Vec<MatchItem> {
-        self.plans
-            .read()
-            .get(plan_id)
+        self.plan_arc(plan_id)
+            .ok()
             .map(|arc| {
                 let p = arc.lock();
                 p.tasks.iter().map(|t| MatchItem::task(t, &p.id)).collect()
@@ -452,17 +437,15 @@ impl PlanStore {
 
     fn task_items_all(&self) -> Vec<MatchItem> {
         let mut out = Vec::new();
-        for arc in self.plans.read().values() {
-            let p = arc.lock();
+        for p in self.list_full() {
             out.extend(p.tasks.iter().map(|t| MatchItem::task(t, &p.id)));
         }
         out
     }
 
     fn section_items_for_plan(&self, plan_id: &str) -> Vec<MatchItem> {
-        self.plans
-            .read()
-            .get(plan_id)
+        self.plan_arc(plan_id)
+            .ok()
             .map(|arc| {
                 let p = arc.lock();
                 let mut flat = Vec::new();
@@ -482,8 +465,7 @@ impl PlanStore {
 
     fn section_items_all(&self) -> Vec<MatchItem> {
         let mut out = Vec::new();
-        for arc in self.plans.read().values() {
-            let p = arc.lock();
+        for p in self.list_full() {
             let mut flat = Vec::new();
             flatten(&p.sections, &mut flat);
             for s in flat {
@@ -498,12 +480,6 @@ impl PlanStore {
         }
         out
     }
-}
-
-fn section_tree_contains(sections: &[Section], id: &str) -> bool {
-    sections
-        .iter()
-        .any(|s| s.id == id || section_tree_contains(&s.subsections, id))
 }
 
 #[cfg(test)]

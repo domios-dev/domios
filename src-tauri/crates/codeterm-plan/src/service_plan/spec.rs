@@ -319,11 +319,10 @@ impl PlanStore {
         let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
         // Scrub references from every plan that points at this spec.
         let referencing: Vec<String> = self
-            .plans
-            .read()
-            .iter()
-            .filter(|(_, plan)| plan.lock().spec_refs.iter().any(|r| r == spec_id))
-            .map(|(id, _)| id.clone())
+            .list_full()
+            .into_iter()
+            .filter(|plan| plan.spec_refs.iter().any(|r| r == spec_id))
+            .map(|plan| plan.id)
             .collect();
         for plan_id in referencing {
             self.with_plan(&plan_id, now_ms, |plan| {
@@ -366,11 +365,9 @@ impl PlanStore {
     }
 
     pub fn list_spec_links(&self, spec_id: &str) -> Vec<(String, SpecLink)> {
-        self.plans
-            .read()
-            .values()
+        self.list_full()
+            .into_iter()
             .flat_map(|plan| {
-                let plan = plan.lock();
                 plan.spec_links
                     .iter()
                     .filter(|link| link.spec_id == spec_id)

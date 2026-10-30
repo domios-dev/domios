@@ -211,9 +211,7 @@ fn legacy_values(path: &Path) -> BTreeMap<String, Result<Value, String>> {
 
 fn loaded_values(database: &PlanDatabase) -> BTreeMap<String, Value> {
     database
-        .load_snapshots()
-        .unwrap()
-        .0
+        .load_plans_for_test()
         .into_iter()
         .map(|plan| (plan.id.clone(), serde_json::to_value(plan).unwrap()))
         .collect()
@@ -395,7 +393,7 @@ fn unparseable_legacy_plan_is_quarantined_and_counted() {
         })
     );
     let database = PlanDatabase::open(path.clone()).unwrap();
-    assert_eq!(database.load_snapshots().unwrap().0, vec![good]);
+    assert_eq!(database.load_plans_for_test(), vec![good]);
     assert_eq!(count(&path, "SELECT COUNT(*) FROM plans"), 1);
     assert_eq!(count(&path, "SELECT COUNT(*) FROM specs"), 0);
     assert_eq!(
@@ -488,9 +486,8 @@ fn production_snapshot_round_trips_after_conversion() {
     let database = PlanDatabase::open(path.clone()).unwrap();
     let after = loaded_values(&database);
     let after_specs: BTreeMap<String, Value> = database
-        .load_snapshots()
+        .load_specs()
         .unwrap()
-        .1
         .into_iter()
         .map(|spec| (spec.id.clone(), serde_json::to_value(spec).unwrap()))
         .collect();

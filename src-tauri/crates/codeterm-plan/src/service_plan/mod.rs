@@ -31,6 +31,7 @@ pub mod paths;
 pub mod pause;
 pub mod pause_operation;
 pub mod peer_mandate;
+mod plan_cache;
 pub mod plan_skills;
 pub mod planner_replay;
 pub mod planner_requests;
@@ -157,9 +158,10 @@ pub use types::{
 
 pub struct PlanStore {
     product_observer: RwLock<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
-    plans: RwLock<HashMap<String, Arc<Mutex<Plan>>>>,
+    plan_cache: plan_cache::PlanCache,
     specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
-    index: RwLock<HashMap<String, IndexEntry>>,
+    /// Id, status, team, project, title and update time of every plan row, read from SQL columns.
+    index: RwLock<HashMap<String, store_db::PlanIndexRow>>,
     spec_index: RwLock<HashMap<String, SpecIndexEntry>>,
     last_writes: RwLock<HashMap<PathBuf, SystemTime>>,
     turn_counter: RwLock<Option<Arc<reminders::TurnCounter>>>,
@@ -176,6 +178,8 @@ pub struct PlanStore {
     full_plan_clones: std::sync::atomic::AtomicUsize,
     #[cfg(any(test, feature = "test-support"))]
     plan_touches: Mutex<Vec<String>>,
+    #[cfg(any(test, feature = "test-support"))]
+    plan_loads: Mutex<Vec<String>>,
 }
 
 #[derive(Default)]
@@ -231,14 +235,21 @@ impl PlanStore {
         Self::open(path).expect("open test PlanStore database")
     }
 
+    /// Reads the plan index from SQL columns and the specs; no plan row is parsed.
     pub fn open(database_path: PathBuf) -> Result<Self, PlanError> {
         let database = Arc::new(store_db::PlanDatabase::open(database_path)?);
-        let (plans, specs) = database.load_snapshots()?;
+        let index_rows = database.load_index_rows()?;
+        let specs = database.load_specs()?;
         let store = Self {
             product_observer: RwLock::new(None),
-            plans: RwLock::new(HashMap::new()),
+            plan_cache: plan_cache::PlanCache::new(plan_cache::PLAN_CACHE_CAPACITY),
             specs: RwLock::new(HashMap::new()),
-            index: RwLock::new(HashMap::new()),
+            index: RwLock::new(
+                index_rows
+                    .into_iter()
+                    .map(|row| (row.id.clone(), row))
+                    .collect(),
+            ),
             spec_index: RwLock::new(HashMap::new()),
             last_writes: RwLock::new(HashMap::new()),
             turn_counter: RwLock::new(None),
@@ -254,16 +265,9 @@ impl PlanStore {
             full_plan_clones: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(any(test, feature = "test-support"))]
             plan_touches: Mutex::new(Vec::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            plan_loads: Mutex::new(Vec::new()),
         };
-        for plan in plans {
-            let id = plan.id.clone();
-            let entry = Self::index_entry(&plan, store.database.path());
-            store
-                .plans
-                .write()
-                .insert(id.clone(), Arc::new(Mutex::new(plan)));
-            store.index.write().insert(id, entry);
-        }
         for spec in specs {
             let id = spec.id.clone();
             let entry = Self::spec_index_entry(&spec, store.database.path());
@@ -273,7 +277,6 @@ impl PlanStore {
                 .insert(id.clone(), Arc::new(Mutex::new(spec)));
             store.spec_index.write().insert(id, entry);
         }
-        store.seed_search_indexes();
         Ok(store)
     }
 

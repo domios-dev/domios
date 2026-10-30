@@ -11,23 +11,22 @@ impl PlanStore {
         if project_path.is_empty() {
             return None;
         }
-        self.plans.read().values().find_map(|arc| {
-            let plan = arc.lock();
-            (plan.status == PlanStatus::Active && plan.project_path == project_path)
-                .then(|| (plan.id.clone(), plan.title.clone()))
+        self.index.read().values().find_map(|row| {
+            (row.status == PlanStatus::Active && row.project_path == project_path)
+                .then(|| (row.id.clone(), row.title.clone()))
         })
     }
 
+    /// `None` when the plan is unknown or quarantined (the quarantine is logged).
     pub fn get(&self, id: &str) -> Option<Plan> {
-        self.plan_entry(id).map(|p| p.lock().clone())
-    }
-
-    /// The one handle by-id readers and writers lock; test builds record each
-    /// id so a sweep can prove which plans it opened.
-    pub(in crate::service_plan) fn plan_entry(&self, id: &str) -> Option<Arc<Mutex<Plan>>> {
-        #[cfg(any(test, feature = "test-support"))]
-        self.plan_touches.lock().push(id.to_string());
-        self.plans.read().get(id).cloned()
+        match self.try_get(id) {
+            Ok(plan) => Some(plan),
+            Err(PlanError::NotFound) => None,
+            Err(error) => {
+                log::warn!("[plan.store] {error}; source left unchanged");
+                None
+            }
+        }
     }
 
     /// Plan ids opened by id since the last call.
@@ -38,19 +37,16 @@ impl PlanStore {
 
     /// `None` when the plan is unknown; the inner value is the plan's Team binding.
     pub fn plan_team_id(&self, id: &str) -> Option<Option<String>> {
-        self.plans.read().get(id).map(|p| p.lock().team_id.clone())
+        self.index.read().get(id).map(|row| row.team_id.clone())
     }
 
     pub fn live_active_plan_ids(&self) -> Vec<String> {
-        self.plans
-            .read()
-            .values()
-            .filter_map(|plan| {
-                let plan = plan.lock();
-                (plan.status == PlanStatus::Active && !plan.is_orphaned_active())
-                    .then(|| plan.id.clone())
+        self.database
+            .live_active_plan_ids()
+            .unwrap_or_else(|error| {
+                log::warn!("[plan.store] live active plan query failed: {error}");
+                Vec::new()
             })
-            .collect()
     }
 
     pub fn get_spec(&self, id: &str) -> Option<Spec> {
@@ -144,8 +140,7 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.plans.read().values() {
-            let plan = plan.lock();
+        for plan in self.list_full() {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -193,8 +188,7 @@ impl PlanStore {
             return None;
         }
         let mut matched = None;
-        for plan in self.plans.read().values() {
-            let plan = plan.lock();
+        for plan in self.list_full() {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -225,8 +219,7 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.plans.read().values() {
-            let plan = plan.lock();
+        for plan in self.list_full() {
             if plan.status != PlanStatus::Active || plan.mode != PlanMode::Execution {
                 continue;
             }
@@ -251,8 +244,7 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.plans.read().values() {
-            let plan = plan.lock();
+        for plan in self.list_full() {
             if plan.status != PlanStatus::Active
                 || plan.mode != PlanMode::Execution
                 || plan.owner.tab_id.as_deref() != Some(tab_id)
@@ -272,8 +264,7 @@ impl PlanStore {
         if tab_id.trim().is_empty() {
             return None;
         }
-        for plan in self.plans.read().values() {
-            let plan = plan.lock();
+        for plan in self.list_full() {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -301,8 +292,7 @@ impl PlanStore {
             return Vec::new();
         }
         let mut candidates: Vec<String> = Vec::new();
-        for plan in self.plans.read().values() {
-            let plan = plan.lock();
+        for plan in self.list_full() {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -366,23 +356,37 @@ impl PlanStore {
             .collect()
     }
 
+    /// Built from SQL aggregates over the stored rows; no plan is loaded.
     pub fn list_index(&self) -> Vec<IndexEntry> {
-        self.index.read().values().cloned().collect()
+        self.database.list_index_entries().unwrap_or_else(|error| {
+            log::warn!("[plan.store] plan index query failed: {error}");
+            Vec::new()
+        })
     }
 
     pub fn list_spec_index(&self) -> Vec<SpecIndexEntry> {
         self.spec_index.read().values().cloned().collect()
     }
 
+    // removed by the 1.18 consumer task
+    /// Loads every plan one at a time from SQL, bypassing the cache.
     pub fn list_full(&self) -> Vec<Plan> {
         #[cfg(any(test, feature = "test-support"))]
         self.full_plan_clones
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.plans
-            .read()
-            .values()
-            .map(|p| p.lock().clone())
-            .collect()
+        let ids: Vec<String> = self.index.read().keys().cloned().collect();
+        ids.iter().filter_map(|id| self.stream_plan(id)).collect()
+    }
+
+    /// One plan from SQL without caching it; a quarantined plan is logged and skipped.
+    fn stream_plan(&self, id: &str) -> Option<Plan> {
+        match self.load_plan_from_sql(id) {
+            Ok(plan) => plan,
+            Err(error) => {
+                log::warn!("[plan.store] {error}; source left unchanged");
+                None
+            }
+        }
     }
 
     /// How often `list_full` cloned the whole plan set; startup must not pay it.
@@ -405,46 +409,33 @@ impl PlanStore {
 
     /// Judges one plan under its lock without cloning it; unknown is `false`.
     pub fn plan_matches(&self, id: &str, matches: impl FnOnce(&Plan) -> bool) -> bool {
-        self.plan_entry(id)
-            .is_some_and(|plan| matches(&plan.lock()))
+        self.plan_arc(id).is_ok_and(|plan| matches(&plan.lock()))
     }
 
-    /// Clones only plans the index marks Active with tasks; reminder ticks never
+    // removed by the 1.18 consumer task
+    /// Loads only plans the stored rows mark Active with tasks; reminder ticks never
     /// need archived or empty plans.
     pub fn list_full_reminder_candidates(&self) -> Vec<Plan> {
-        let candidate_ids: Vec<String> = self
-            .index
-            .read()
-            .values()
+        self.list_index()
+            .into_iter()
             .filter(|entry| entry.status == PlanStatus::Active && entry.task_count > 0)
-            .map(|entry| entry.plan_id.clone())
-            .collect();
-        let plans = self.plans.read();
-        candidate_ids
-            .iter()
-            .filter_map(|id| plans.get(id).map(|plan| plan.lock().clone()))
+            .filter_map(|entry| self.stream_plan(&entry.plan_id))
             .collect()
     }
 
+    // removed by the 1.18 consumer task
     pub fn list_full_reminder_candidates_for_owner(&self, owner_tab_id: &str) -> Vec<Plan> {
         if owner_tab_id.trim().is_empty() {
             return Vec::new();
         }
-        let candidate_ids: Vec<String> = self
-            .index
-            .read()
-            .values()
+        self.list_index()
+            .into_iter()
             .filter(|entry| {
                 entry.status == PlanStatus::Active
                     && entry.task_count > 0
                     && entry.owner.tab_id.as_deref() == Some(owner_tab_id)
             })
-            .map(|entry| entry.plan_id.clone())
-            .collect();
-        let plans = self.plans.read();
-        candidate_ids
-            .iter()
-            .filter_map(|id| plans.get(id).map(|plan| plan.lock().clone()))
+            .filter_map(|entry| self.stream_plan(&entry.plan_id))
             .collect()
     }
 
@@ -478,15 +469,10 @@ impl PlanStore {
 
     /// Drop a plan from the in-memory index + search units without touching disk.
     /// The plan's owned spec (1:1, co-located) lives and dies with it.
-    pub(super) fn forget_plan(&self, id: &str) -> (Option<Plan>, Option<PathBuf>) {
-        let plan = self
-            .plans
-            .write()
-            .remove(id)
-            .map(|plan| plan.lock().clone());
-        let entry_path = self.index.write().remove(id).map(|e| e.file_path);
+    pub(super) fn forget_plan(&self, id: &str) {
+        self.plan_cache.evict(id);
+        self.index.write().remove(id);
         self.forget_owned_spec(id);
-        (plan, entry_path)
     }
 
     fn forget_owned_spec(&self, plan_id: &str) {
@@ -511,40 +497,5 @@ fn unix_time_millis() -> u64 {
         .as_millis() as u64
 }
 
-#[cfg(all(test, windows))]
-mod tests {
-    use super::*;
-    use crate::plan::OrchestratorRef;
-
-    /// Windows paths are case-insensitive on disk; a query naming the same
-    /// project directory with different letter casing must still resolve.
-    #[test]
-    fn active_plan_for_project_matches_a_differently_cased_windows_path() {
-        let root = tempfile::tempdir().unwrap();
-        let project_dir = root.path().join("MyProject");
-        std::fs::create_dir(&project_dir).unwrap();
-        let store = PlanStore::new_for_test(&project_dir);
-        store
-            .create_plan_for_team(
-                "Windows casing".into(),
-                project_dir.display().to_string(),
-                OrchestratorRef::from_tab("orch"),
-                "team_case".into(),
-                vec![],
-                1,
-            )
-            .unwrap();
-
-        let canonical = project_dir.canonicalize().unwrap().display().to_string();
-        let differently_cased = canonical.replace("MyProject", "myproject");
-        assert_ne!(
-            differently_cased, canonical,
-            "fixture path has no casing to flip"
-        );
-
-        assert!(
-            store.active_plan_for_project(&differently_cased).is_some(),
-            "a differently-cased query for the same directory must still resolve"
-        );
-    }
-}
+#[cfg(test)]
+mod tests;

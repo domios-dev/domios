@@ -103,7 +103,7 @@ fn a_large_plan_round_trips_through_rows_in_order() {
     drop(database);
 
     let reopened = PlanDatabase::open(path.clone()).unwrap();
-    assert_eq!(reopened.load_snapshots().unwrap().0, vec![plan.clone()]);
+    assert_eq!(reopened.load_plans_for_test(), vec![plan.clone()]);
     assert_eq!(reopened.load_plan(&plan.id).unwrap(), Some(plan));
     assert!(!plan_row(&path, "pl_rows").contains("\"tasks\""));
 }
@@ -227,7 +227,7 @@ fn whole_document_rows_are_refused_without_rewriting_them() {
         error.contains("unsupported whole-document plan row"),
         "{error}"
     );
-    assert!(reopened.load_snapshots().unwrap().0.is_empty());
+    assert!(reopened.load_plans_for_test().is_empty());
     assert_eq!(plan_row(&path, &retired.id), original);
     assert_eq!(row_counts(&path), [0, 0, 0]);
 }

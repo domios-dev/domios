@@ -58,9 +58,8 @@ fn plan_round_trips_from_one_wal_database() {
     drop(database);
 
     let reopened = PlanDatabase::open(path).unwrap();
-    let (plans, specs) = reopened.load_snapshots().unwrap();
-    assert_eq!(plans, vec![plan]);
-    assert!(specs.is_empty());
+    assert_eq!(reopened.load_plans_for_test(), vec![plan]);
+    assert!(reopened.load_specs().unwrap().is_empty());
     let connection = reopened.connection.lock();
     let mode: String = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
@@ -403,7 +402,7 @@ fn new_shape_round_trips_every_plan_field() {
     drop(database);
 
     let reopened = PlanDatabase::open(path).unwrap();
-    let (plans, _) = reopened.load_snapshots().unwrap();
+    let plans = reopened.load_plans_for_test();
     let expected = serde_json::to_value(&plan).unwrap();
     let actual = serde_json::to_value(&plans[0]).unwrap();
     assert_eq!(

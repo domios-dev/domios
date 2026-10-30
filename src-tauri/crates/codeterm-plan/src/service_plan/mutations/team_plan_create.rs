@@ -93,8 +93,7 @@ pass an absolute path with --project, or omit --project to use the current worki
         plan.team_id = Some(team_id);
         plan.milestone_kinds = kinds;
         if let Err(error) = self.save_in_writer(&mut plan, now_ms) {
-            self.plans.write().remove(&plan.id);
-            self.index.write().remove(&plan.id);
+            self.forget_plan(&plan.id);
             return Err(PlanError::Io(error.to_string()));
         }
         if observed {
@@ -108,10 +107,9 @@ pass an absolute path with --project, or omit --project to use the current worki
         if team_id.is_empty() {
             return None;
         }
-        self.plans.read().values().find_map(|arc| {
-            let plan = arc.lock();
-            (plan.status == PlanStatus::Active && plan.team_id.as_deref() == Some(team_id))
-                .then(|| (plan.id.clone(), plan.title.clone()))
+        self.index.read().values().find_map(|row| {
+            (row.status == PlanStatus::Active && row.team_id.as_deref() == Some(team_id))
+                .then(|| (row.id.clone(), row.title.clone()))
         })
     }
 
