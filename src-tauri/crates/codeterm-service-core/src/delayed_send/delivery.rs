@@ -39,7 +39,6 @@ pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<
         .prepend_worker_charter_for_tab(&tab_id, &body);
     let deliver_tab_id = tab_id.clone();
     tokio::task::spawn_blocking(move || {
-        require_idle(&svc_for_deliver, &deliver_tab_id)?;
         svc_for_deliver.gateway_deliver(
             &deliver_tab_id,
             envelope,
@@ -51,25 +50,4 @@ pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<
     .map_err(|e| format!("delayed delivery task failed: {e}"))
     .and_then(|res| res)
     .map(|_| ())
-}
-
-fn require_idle(svc: &ServiceState, tab: &str) -> Result<(), String> {
-    let runtime_busy = crate::service::agent_runtime::engine::for_tab(tab)
-        .is_some_and(|session| session.context.lock().active_turn_id.is_some());
-    let pty = svc
-        .mux
-        .read()
-        .get_tab(tab)
-        .and_then(|tab| tab.pty_id.clone());
-    let pty_busy = pty.is_some_and(|pty| {
-        svc.agent_tracker
-            .lock()
-            .get_status_if_tracked(&pty)
-            .is_some_and(|status| status != crate::agent::status::TabStatus::Idle)
-    });
-    if runtime_busy || pty_busy {
-        Err("Delayed message recipient is busy".into())
-    } else {
-        Ok(())
-    }
 }

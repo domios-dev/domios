@@ -979,7 +979,13 @@ async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), 
     }
     let last_tick_send_sequence = latest_ledger_sequence(svc, &msg.tab_id);
     let tab_id = msg.tab_id.clone();
-    let result = delivery::deliver(svc, &msg).await;
+    let skip_retry =
+        crate::service::agent_runtime::capacity_retry::skip_busy_retry(&msg.tab_id, &msg.id);
+    let result = if skip_retry {
+        Ok(())
+    } else {
+        delivery::deliver(svc, &msg).await
+    };
     match result {
         Ok(_) => {
             svc.ext::<crate::delayed_send::DelayedSendQueue>()

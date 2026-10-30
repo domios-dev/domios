@@ -68,6 +68,22 @@ pub(crate) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     Ok(())
 }
 
+pub(crate) fn skip_busy_retry(tab: &str, message: &str) -> bool {
+    let Some(session) = engine::for_tab(tab) else {
+        return false;
+    };
+    let busy = {
+        let context = session.context.lock();
+        context.active_turn_id.is_some() || !context.active_turns.is_empty()
+    };
+    let mut retry = session.capacity_retry.lock();
+    if retry.pending.as_deref() != Some(message) {
+        return false;
+    }
+    retry.pending = None;
+    busy
+}
+
 fn reset(svc: &ServiceContext, session: &engine::Session) -> Result<(), String> {
     let tab = session.context.lock().tab_id.clone();
     let mut retry = session.capacity_retry.lock();

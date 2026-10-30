@@ -79,7 +79,7 @@ fn capacity_retry_user_send_and_interrupt_cancel_pending_and_reset_count() {
 }
 
 #[test]
-fn capacity_retry_ordinary_delayed_delivery_refuses_busy_runtime() {
+fn capacity_retry_active_turn_silently_drops_retry_and_preserves_count() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture();
     let session = for_tab(&tab).unwrap();
     fail(&fixture.service, &session, "first");
@@ -93,26 +93,55 @@ fn capacity_retry_ordinary_delayed_delivery_refuses_busy_runtime() {
         .unwrap()
         .boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
     session.context.lock().active_turn_id = Some("busy".into());
+    let rows_before = session.cache.lock().snapshot().len();
     let result = crate::async_runtime::block_on(crate::delayed_send::send_message_now(
         Arc::new(fixture.service.clone()),
         message.id,
     ));
-    assert_eq!(result.unwrap_err(), "Delayed message recipient is busy");
+    result.unwrap();
     assert!(fixture.service.chat_send_ledger.reconcile(&tab).is_empty());
-    assert_eq!(
-        queue.list(Some(&tab))[0].state,
-        crate::delayed_send::DelayedMessageState::Failed
-    );
+    assert!(queue.list(Some(&tab)).is_empty());
+    assert_eq!(session.cache.lock().snapshot().len(), rows_before);
+    fail(&fixture.service, &session, "busy");
+    assert!(session
+        .cache
+        .lock()
+        .snapshot()
+        .iter()
+        .any(|item| item.content == "Automatic retry: attempt 2/10"));
 }
 
 #[test]
 fn capacity_retry_ordinary_continue_uses_normal_send_once_and_keeps_count() {
+    assert_delayed_continue(false);
+}
+
+#[test]
+fn capacity_retry_ordinary_delayed_continue_reaches_busy_runtime() {
+    assert_delayed_continue(true);
+}
+
+fn assert_delayed_continue(busy: bool) {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let (fixture, tab, peer, _cleanup) = runtime_fixture();
     let session = for_tab(&tab).unwrap();
     fail(&fixture.service, &session, "first");
     let queue = fixture.service.ext::<DelayedSendQueue>();
-    let message = queue.list(Some(&tab)).pop().unwrap();
+    let message = if busy {
+        session.context.lock().active_turn_id = Some("busy".into());
+        queue
+            .enqueue(
+                tab.clone(),
+                None,
+                Some("own-thread".into()),
+                "continue".into(),
+                Some(10_123),
+                Default::default(),
+            )
+            .unwrap()
+    } else {
+        queue.list(Some(&tab)).pop().unwrap()
+    };
     fixture
         .service
         .mux
@@ -147,7 +176,7 @@ fn capacity_retry_ordinary_continue_uses_normal_send_once_and_keeps_count() {
     ))
     .unwrap();
     let (_peer, send_id) = crate::async_runtime::block_on(responder).unwrap();
-    assert!(queue.list(Some(&tab)).is_empty());
+    assert_eq!(queue.list(Some(&tab)).len(), usize::from(busy));
     assert!(
         crate::async_runtime::block_on(crate::delayed_send::send_message_now(
             Arc::new(fixture.service.clone()),
