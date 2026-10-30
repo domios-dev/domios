@@ -213,6 +213,9 @@ function collectSlashCommands(content: string): PrefixMatch | null {
     .map((t) => t.value.trim())
     .filter(Boolean);
 
+  const commandNames = tags.filter((tag) => tag.kind === "command-name").map((tag) => tag.value.trim());
+  const commandArgs = tags.filter((tag) => tag.kind === "command-args").map((tag) => tag.value.trim());
+
   let commands: SlashCommand[];
   if (inlineCommands.length > 0) {
     // New format: /cmd lines outside any wrapper, paired with stdouts by order.
@@ -224,6 +227,12 @@ function collectSlashCommands(content: string): PrefixMatch | null {
     for (let i = inlineCommands.length; i < stdouts.length; i++) {
       commands.push({ name: "local-command-stdout", stdout: stdouts[i] });
     }
+  } else if (commandNames.length > 0) {
+    commands = commandNames.map((name, index) => ({
+      name: name.startsWith("/") ? name : `/${name}`,
+      args: commandArgs[index] || undefined,
+      stdout: stdouts[index] || undefined,
+    }));
   } else if (stdouts.length > 0) {
     // Orphan stdouts with no command association.
     commands = stdouts.map((s) => ({ name: "local-command-stdout", stdout: s }));

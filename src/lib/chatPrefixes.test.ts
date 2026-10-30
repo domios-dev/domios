@@ -198,6 +198,10 @@ No response requested.
   eq(r, null, "plain /path message returns null (no tags, not a cmd-only line)");
 }
 
-eq(detectChatPrefix("<command-name>/model</command-name><command-args>opaque</command-args>"), null, "obsolete command tags are ordinary content");
+eq(
+  detectChatPrefix("<command-name>/effort</command-name><command-message>effort</command-message><command-args>low</command-args>"),
+  { origin: { kind: "command", commands: [{ name: "/effort", args: "low" }] }, body: "" },
+  "current multi-tag command keeps its name and args",
+);
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);
