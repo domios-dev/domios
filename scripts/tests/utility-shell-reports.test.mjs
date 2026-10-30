@@ -124,9 +124,25 @@ function makeHarness() {
   const authority = "source scripts/lane-rust-guard.sh";
   const setup = "*) setup_env ;;";
   assert.ok(buildSource.includes(authority) && buildSource.includes(setup), "build fixture must isolate host authorization and toolchain setup");
-  writeFileSync(fixtureBuild, buildSource.replace(gateway, 'enter_cargo_gateway() { :; }')
+  const reservation = buildSource.match(/^case "\$CMD" in\n  dev\|dev-prebuilt\|dev-server\)[^]*?^esac$/m)?.[0];
+  const launch = buildSource.match(/^case "\$CMD" in\n  dev\|dev-prebuilt\)[^]*?^esac$/m)?.[0];
+  const localEnv = 'source scripts/local-build-env.sh';
+  assert.ok(reservation?.includes('--target-reservation') && launch?.includes('CODETERM_DEV_LAUNCH_CHILD'), 'fixture must isolate both real launch guards');
+  assert.ok(buildSource.includes(localEnv), 'fixture must isolate the local build environment loader');
+  const seamRecord = path.join(dir, 'pure-build-seams.txt');
+  const seam = (stage) => `printf '%s\\n' '${stage}' >> ${shellQuote(seamRecord)}`;
+  const pureEnv = `ct_uses_local_build_env() { ${seam('local-env-skipped')}; return 1; }
+ct_load_local_build_env() { echo 'unexpected real environment loader' >&2; return 93; }`;
+  const pureReservation = `fixture_target_reservation() { case "$1" in dev|dev-prebuilt|dev-server) ${seam('pure-target-reservation')} ;; esac; }
+fixture_target_reservation "$CMD"`;
+  const pureLaunch = `fixture_launch_guard() { case "$1" in dev|dev-prebuilt) ${seam('pure-launch-guard')} ;; esac; }
+fixture_launch_guard "$CMD"`;
+  const fixtureSource = buildSource.replace(gateway, 'enter_cargo_gateway() { :; }')
     .replace(authority, 'require_canonical_rust_tests() { :; }')
-    .replace(setup, '*) : ;;'));
+    .replace(setup, '*) : ;;').replace(localEnv, pureEnv)
+    .replace(reservation, pureReservation).replace(launch, pureLaunch);
+  assert.ok(!fixtureSource.includes(localEnv) && !fixtureSource.includes('exec node scripts/dev-launch-owner.mjs'), 'copied fixture must never reach real environment/launch helpers');
+  writeFileSync(fixtureBuild, fixtureSource);
   writeFakeCli(parentCli, parentRecord);
   writeFakeCli(devCli, devRecord);
   mkdirSync(padPath, { recursive: true });
@@ -139,7 +155,7 @@ function makeHarness() {
     parentCli,
     devCli,
     padPath,
-    env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, BUILD_NOTIFICATION_PAD_PATH: padPath, PATH: parentBin + path.delimiter + pathWithoutInstalledCli() }),
+    env: cleanEnv({ BUILD_NOTIFICATION_FIXTURE_PATH: fixtureBuild, BUILD_NOTIFICATION_SEAM_RECORD: seamRecord, BUILD_NOTIFICATION_PAD_PATH: padPath, PATH: parentBin + path.delimiter + pathWithoutInstalledCli() }),
   };
 }
 
@@ -161,7 +177,7 @@ test("harness_preserves_utilities_beside_installed_cli", { skip: process.platfor
     for (const name of cliNames) writeFileSync(path.join(dir, name), "#!/bin/sh\nexit 99\n", { mode: 0o755 });
     for (const name of ["dirname", "mkdir"]) {
       const result = runBash(["-c", `command -v ${name}`], cleanEnv());
-      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
       symlinkSync(result.stdout.trim(), path.join(dir, name));
     }
     const env = cleanEnv({ PATH: pathWithoutInstalledCli(dir + path.delimiter + dir) });
@@ -207,7 +223,18 @@ function runBash(args, env, cwd = root) {
   const runEnv = commandArgs[0] === env.BUILD_NOTIFICATION_FIXTURE_PATH
     ? { CODETERM_DEV_INSTANCE: "reportfixture", CODETERM_DEV_API_PORT: "17695", ...env }
     : env;
-  return spawnSync(bash, commandArgs, { cwd, env: runEnv, encoding: "utf8" });
+  const seamLines = () => env.BUILD_NOTIFICATION_SEAM_RECORD && existsSync(env.BUILD_NOTIFICATION_SEAM_RECORD)
+    ? readFileSync(env.BUILD_NOTIFICATION_SEAM_RECORD, 'utf8').trim().split("\n").filter(Boolean) : [];
+  const previous = seamLines().length;
+  const result = spawnSync(bash, commandArgs, { cwd, env: runEnv, encoding: "utf8" });
+  const seams = seamLines().slice(previous);
+  result.diagnostic = JSON.stringify({ command: commandArgs.slice(0, 8).map(arg => String(arg).slice(0, 500)), cwd,
+    status: result.status, signal: result.signal, error: result.error?.message,
+    stdout: result.stdout?.slice(-4096), stderr: result.stderr?.slice(-4096), seams: seams.slice(-12) });
+  if (commandArgs[0] === env.BUILD_NOTIFICATION_FIXTURE_PATH && commandArgs[1] === 'dev' && result.status === 0) {
+    for (const required of ['local-env-skipped', 'pure-target-reservation', 'pure-launch-guard']) assert.ok(seams.includes(required), result.diagnostic);
+  }
+  return result;
 }
 
 function runQa(harness, label, commands, extraEnv = {}) {
@@ -235,7 +262,7 @@ test("qa_report_pass_sends_one_summary", () => {
       CODETERM_DATA_DIR: path.join(h.dir, "parent-data"),
       CODETERM_TAB_ID: "parent-caller",
     });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     assert.match(result.stdout, /QA smoke: PASS \(2\/2 ok\)/);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
@@ -371,7 +398,7 @@ test("qa_report_parent_env_survives_instance_exports", () => {
       CODETERM_SOCKET_PATH: "parent.sock",
       CODETERM_TAB_ID: "parent-tab",
     });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].env.CODETERM_INSTANCE, null);
@@ -397,7 +424,7 @@ test("dev_notify_ready_sends_one_short_sha_receipt", () => {
       "dev_notify_ready_once " + shellQuote(marker) + " agent-tab named 7690 " + sha + " 4321 " + shellQuote(root),
     ].join("\n");
     const result = runBash(["-c", script], h.env);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].body, `READY instance=named api_port=7690 build=${sha}\n`);
@@ -418,7 +445,7 @@ test("dev_notify_failure_sends_stage_and_first_compiler_errors", () => {
       "dev_notify_failure_once " + shellQuote(marker) + " agent-tab health named 7690 " + shellQuote(log) + " 7",
     ].join("\n");
     const result = runBash(["-c", script], h.env);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const body = records(h.parentRecord)[0].body;
     assert.match(body, /^FAILED stage=health rc=7 instance=named api_port=7690\n/);
     assert.match(body, /Compiler errors:\nerror\[E0432\]: unresolved import/);
@@ -453,7 +480,7 @@ test("dev_notify_uses_parent_env_when_instance_set", () => {
       CODETERM_SESSION_BINDING_NONCE: "parent-nonce",
       CODETERM_WORKER_ID: "parent-worker",
     });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].executable, h.parentCli);
@@ -486,7 +513,7 @@ test("dev_notify_sends_remote_receipts_through_codeterm_mesh", () => {
       "dev_notify_send origin-owner " + shellQuote(bodyFile),
     ].join("\n");
     const result = runBash(["-c", script], h.env);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].args, ["send", "--mesh", "paired-origin-id", "--tab", "origin-owner", "--from-file", bodyFile, "--system-context", "build"]);
@@ -595,7 +622,7 @@ test("dev_notify_stream_waiter_deadline", () => {
     } finally {
       closeSync(logWriter);
     }
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     assert.deepEqual(readFileSync(tailArgs, "utf8").trim().split("\n"), ["-F", "-n", "+1", log]);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
@@ -639,7 +666,7 @@ test("dev_notify_stream_waiter_tail_exit_reports_stream_failure", () => {
       TAIL_ARGS_FILE: tailArgs,
     };
     const result = runBash(["-c", script], env);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     assert.deepEqual(readFileSync(tailArgs, "utf8").trim().split("\n"), ["-F", "-n", "+1", log]);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
@@ -659,15 +686,15 @@ test("build_sh_parses_notify_tab_before_path_change", () => {
     };
     mkdirSync(env.HOME, { recursive: true });
     const separated = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
-    assert.equal(separated.status, 0, separated.stderr);
+    assert.equal(separated.status, 0, separated.diagnostic);
     assert.match(separated.stdout, /notify_tab=agent-tab/);
     assert.ok(separated.stdout.includes("parent_cli="));
     assert.ok(!separated.stdout.includes(path.join(env.HOME, ".domios-dev", "bin")));
     const equals = runBash([buildPath, "dev", "--notify-tab=agent-tab"], env);
-    assert.equal(equals.status, 0, equals.stderr);
+    assert.equal(equals.status, 0, equals.diagnostic);
     assert.match(equals.stdout, /notify_tab=agent-tab/);
     const empty = runBash([buildPath, "dev", "--notify-tab="], env);
-    assert.equal(empty.status, 2);
+    assert.equal(empty.status, 2, empty.diagnostic);
     assert.match(empty.stderr, /non-empty tab id/);
   } finally {
     rmSync(h.dir, { recursive: true, force: true });
@@ -695,7 +722,7 @@ test("build_sh_notifies_parent_when_caller_sets_named_instance", () => {
     };
     mkdirSync(env.HOME, { recursive: true });
     const result = runBash([buildPath, "dev", "--notify-tab", "agent-tab"], env);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     assert.ok(result.stdout.includes("parent_cli="));
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
@@ -739,7 +766,7 @@ test("build_notify_tab_success_sends_one_ok_receipt", () => {
   try {
     writeFakeTool(h.dir, "rustfmt", "exit 0");
     const result = runBash([buildPath, "fmt-check", "--notify-tab", "agent-tab"], h.env);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "agent-tab"]);
@@ -780,7 +807,7 @@ test("build_dev_defaults_to_the_inspected_parent_and_sends_ready_once", () => {
       CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
       CODETERM_TEST_SEND_PARENT_REPORT: "1",
     });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.deepEqual(sent[0].args.slice(0, 3), ["send", "--tab", "live-owner"]);
@@ -802,7 +829,7 @@ test("build_dev_uses_one_self_notification_for_ready_without_a_parent", () => {
       CODETERM_TEST_PRINT_DEV_GATEWAY_POLICY: "1",
       CODETERM_TEST_SEND_PARENT_REPORT: "1",
     });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     const sent = records(h.parentRecord);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].args[0], "notify");
@@ -919,7 +946,7 @@ test('powershell launcher forwards checks without writing shared Git configurati
     writeFileSync(path.join(directory, 'build.sh'), '#!/usr/bin/env bash\nprintf "FORWARDED %s\\n" "$*"\n');
     const quoted = launcher.replaceAll("'", "''");
     const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', `function global:git { throw 'unexpected shared config write' }; & '${quoted}' check-queue opaque-sha -NotifyTab opaque-tab`], { encoding: 'utf8' });
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
     assert.match(result.stdout, /FORWARDED check-queue opaque-sha --notify-tab opaque-tab/);
     assert.doesNotMatch(result.stdout + result.stderr, /unexpected shared config write/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
@@ -954,7 +981,7 @@ test("early_failure_receipt_names_the_guard_failure_not_gateway_bookkeeping", ()
     const firstFailure = (contents) => {
       writeFileSync(log, contents);
       const result = runBash(["-c", `source ${shellQuote(helperPath)}\nreport_first_failure ${shellQuote(log)}`], h.env);
-      assert.equal(result.status, 0, result.stderr);
+      assert.equal(result.status, 0, result.diagnostic ?? result.stderr);
       return result.stdout.trim();
     };
     assert.equal(firstFailure(captured), 'Provider boundary FAIL: added occurrence src/agent/x.rs:"codex" (1 > 0)');

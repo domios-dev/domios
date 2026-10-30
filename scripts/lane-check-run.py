@@ -32,24 +32,53 @@ def foreign_paths(paths, edits):
 
 def read_cli(args):
     result = subprocess.run(['domios', *args, '--json'], capture_output=True, text=True, timeout=10, check=True)
-    return json.loads(result.stdout)['result']
+    return json.loads(result.stdout)
+
+
+def nonempty_id(value):
+    return isinstance(value, str) and bool(value.strip())
 
 
 def diagnostic_binding(env, inspect):
     task_id = env.get('CODETERM_TASK_ID')
     attempt_id = env.get('CODETERM_ATTEMPT_ID')
-    if task_id and attempt_id:
-        return task_id, attempt_id
+    if task_id or attempt_id:
+        return (task_id, attempt_id) if nonempty_id(task_id) and nonempty_id(attempt_id) else None
     parent = env.get('CODETERM_PARENT_TAB_ID')
     if not parent or env.get('CODETERM_ROLE'):
         return None
-    worker = inspect(['tab', 'inspect', '--tab', parent])
-    if not isinstance(worker, dict) or worker.get('id') != parent or str(worker.get('role') or '').lower() != 'worker':
+    rows = inspect(['tab', 'inspect', '--tab', parent])
+    if not isinstance(rows, list) or len(rows) != 1:
+        return None
+    worker = rows[0]
+    if not isinstance(worker, dict) or worker.get('id') != parent or worker.get('tab_id', parent) != parent or str(worker.get('role') or '').lower() != 'worker':
         return None
     binding = worker.get('task_binding') or {}
-    if binding.get('task_id') and binding.get('attempt_id'):
+    if isinstance(binding, dict) and nonempty_id(binding.get('task_id')) and nonempty_id(binding.get('attempt_id')):
         return binding['task_id'], binding['attempt_id']
     return None
+
+
+def shared_attempt_task(value, task_id, attempt_id):
+    if not isinstance(value, dict) or value.get('ok') is False or value.get('error') is not None or not isinstance(value.get('task'), dict):
+        return None
+    task = value['task']
+    attempts = task.get('execution_attempts')
+    files = task.get('files')
+    if task.get('id') != task_id or not isinstance(attempts, list) or not isinstance(files, dict):
+        return None
+    edits = files.get('edit')
+    if not isinstance(edits, list) or not all(nonempty_id(edit) for edit in edits):
+        return None
+    if not all(isinstance(attempt, dict) and nonempty_id(attempt.get('id')) for attempt in attempts):
+        return None
+    matches = [attempt for attempt in attempts if attempt['id'] == attempt_id]
+    if len(matches) != 1:
+        return None
+    attempt = matches[0]
+    if attempt.get('closed_at') is not None or attempt.get('retired_at') is not None or attempt.get('placement') != 'shared':
+        return None
+    return task
 
 
 def report_foreign_errors(errors, env=None, read=read_cli, checkout=None, output=sys.stderr):
@@ -60,16 +89,13 @@ def report_foreign_errors(errors, env=None, read=read_cli, checkout=None, output
         if not binding:
             return
         task_id, attempt_id = binding
-        task = read(['task', 'show', task_id])['task']
-        attempt = next((attempt for attempt in reversed(task.get('execution_attempts', []))
-                        if not attempt.get('closed_at') and not attempt.get('retired_at')
-                        and attempt.get('id') == attempt_id), None)
-        if not attempt or attempt.get('placement') != 'shared':
+        task = shared_attempt_task(read(['task', 'show', task_id]), task_id, attempt_id)
+        if task is None:
             return
         paths = [source for error in errors for source in diagnostic_paths(error, checkout or os.getcwd())]
         for source in sorted(set(foreign_paths(paths, task.get('files', {}).get('edit', [])))):
             print(f'lane-check: foreign compile failure in {source}; report to the Orchestrator, do not edit outside ownership', file=output)
-    except (OSError, ValueError, KeyError, subprocess.SubprocessError):
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         print('lane-check: compile ownership unavailable; failure remains unclassified', file=output)
 
 

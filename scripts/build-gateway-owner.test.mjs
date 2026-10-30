@@ -13,6 +13,63 @@ import { nativeIdentity } from './build-gateway-guard.mjs';
 const root = path.resolve(import.meta.dirname, '..');
 const windowsOwner = { pid: '501', start_token: 'msys-start', native_pid: '9001', native_start_token: 'windows-start' };
 
+
+function gatewayDiagnosticTrace(directory, stage) {
+  const events = [], watchers = new Map();
+  let dropped = 0, stopped = false;
+  const read = file => {
+    let fd;
+    try {
+      fd = fs.openSync(file, 'r');
+      const buffer = Buffer.alloc(1024);
+      const size = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      return buffer.subarray(0, size).toString('utf8').trim();
+    } catch (error) { return { unavailable: error.code }; }
+    finally { if (fd !== undefined) fs.closeSync(fd); }
+  };
+  const tuple = location => Object.fromEntries(['job_id', 'pid', 'start_token', 'pid_namespace', 'native_pid', 'native_start_token']
+    .map(key => [key, read(path.join(location, key))]));
+  const names = location => {
+    try { const all = fs.readdirSync(location).sort(); return { total: all.length, entries: all.slice(0, 16) }; }
+    catch (error) { return { unavailable: error.code, entries: [] }; }
+  };
+  const mark = (label, force = false) => {
+    if (stopped) return;
+    if (events.length === 64) { dropped++; if (!force) return; events.shift(); }
+    events.push({ at: Date.now(), stage: stage(), label: String(label).slice(0, 160),
+      slot: tuple(path.join(directory, 'lock')), metadata: tuple(path.join(directory, 'state.lock')),
+      metadataPublication: read(path.join(directory, 'state.lock/metadata.json')),
+      publicationGuard: read(path.join(directory, 'state.lock.guard')), queue: names(path.join(directory, 'queue')) });
+  };
+  const attach = () => {
+    if (stopped) return;
+    for (const location of [...(path.basename(directory) === 'state' ? [path.dirname(directory)] : []), directory, path.join(directory, 'queue'), path.join(directory, 'jobs'), path.join(directory, 'lock'), path.join(directory, 'state.lock')]) {
+      if (watchers.has(location) || !fs.existsSync(location)) continue;
+      try {
+        const watcher = fs.watch(location, (event, file) => { if (events.length === 64) { dropped++; return; } mark(`${path.basename(location)}:${event}:${file ?? ''}`); attach(); });
+        watcher.on('error', error => mark(`watch-error:${error.code}`));
+        watchers.set(location, watcher);
+      } catch (error) { mark(`watch-unavailable:${error.code}`); }
+    }
+  };
+  const snapshot = () => {
+    const jobs = names(path.join(directory, 'jobs'));
+    return { directory, dropped, events, current: { slot: tuple(path.join(directory, 'lock')), metadata: tuple(path.join(directory, 'state.lock')),
+      publicationGuard: read(path.join(directory, 'state.lock.guard')), queue: names(path.join(directory, 'queue')) },
+      jobs: jobs.entries.filter(name => name.endsWith('.json')).map(name => {
+        try {
+          const file = path.join(directory, 'jobs', name);
+          const size = fs.statSync(file).size;
+          if (size > 16384) return { name, bytes: size, truncated: true };
+          const row = JSON.parse(fs.readFileSync(file, 'utf8'));
+          return Object.fromEntries(['job_id', 'state', 'owner_pid', 'owner_start_token', 'owner_pid_namespace', 'owner_native_pid', 'owner_native_start_token', 'queue_key', 'exit_code', 'outcome'].map(key => [key, row[key]]));
+        } catch (error) { return { name, unavailable: error.code ?? error.name }; }
+      }), jobsTotal: jobs.total };
+  };
+  mark('trace-start'); attach();
+  return { mark: label => { mark(label, true); attach(); }, sample: label => { if (events.length === 64) { dropped++; return; } mark(label); attach(); }, snapshot, close() { stopped = true; for (const watcher of watchers.values()) watcher.close(); } };
+}
+
 test('Windows reaping uses the captured native waiter identity rather than its MSYS number', () => {
   assert.equal(ownerState(windowsOwner, pid => { assert.equal(pid, '9001'); return { state: 'present', token: 'windows-start' }; }, 'win32'), 'alive');
   assert.equal(ownerState(windowsOwner, () => ({ state: 'gone' }), 'win32'), 'gone');
@@ -51,14 +108,16 @@ test('a PowerShell build.ps1 queued waiter survives a native-namespace reap pass
   const bash = 'C:/Program Files/Git/bin/bash.exe';
   const source = `source ${quote(path.join(root, 'scripts/build-gateway.sh').replaceAll('\\', '/'))}\nct_gateway_set_fixture_dir ${quote(state.replaceAll('\\', '/'))}\n`;
   const children = [];
+  let phase = 'holder acquisition';
+  const trace = gatewayDiagnosticTrace(state, () => phase);
   function launch(command, args, extra = {}) {
     const child = spawn(command, args, { cwd: directory, env: { ...process.env, ...extra }, stdio: ['pipe', 'pipe', 'pipe'] });
     const lines = readline.createInterface({ input: child.stdout });
     let output = '', errors = '';
-    child.stdout.on('data', chunk => { output += chunk; });
-    child.stderr.on('data', chunk => { errors += chunk; });
+    child.stdout.on('data', chunk => { output += chunk; trace.sample(`child-output:${child.pid}`); });
+    child.stderr.on('data', chunk => { errors += chunk; trace.sample(`child-stderr:${child.pid}`); });
     const exited = once(child, 'close').then(([code]) => ({ code, output, errors }));
-    const result = { child, lines, exited };
+    const result = { child, lines, exited, snapshot: () => ({ nativeChildPid: child.pid, exitCode: child.exitCode, signal: child.signalCode, output: output.slice(-4096), errors: errors.slice(-4096) }) };
     children.push(result);
     return result;
   }
@@ -80,6 +139,8 @@ test('a PowerShell build.ps1 queued waiter survives a native-namespace reap pass
       holder.lines.on('line', observe);
     });
     assert.equal(ready, 'HOLDER_READY');
+    trace.mark('holder READY');
+    phase = 'waiter identity and queue publication';
     fs.writeFileSync(path.join(directory, 'build.ps1'), fs.readFileSync(path.join(root, 'build.ps1'), 'utf8'));
     fs.writeFileSync(path.join(directory, 'build.sh'), source + `
       waiter_pid="$BASHPID"
@@ -105,6 +166,8 @@ test('a PowerShell build.ps1 queued waiter survives a native-namespace reap pass
     assert.equal(String(record.owner_native_pid), windowsPid);
     assert.equal(record.owner_pid_namespace, 'msys');
     assert.equal(nativeIdentity(windowsPid).token, record.owner_native_start_token);
+    trace.mark(`waiter MSYS=${msysPid} native=${windowsPid}`);
+    phase = 'native-namespace reap';
     const reap = launch(bash, ['-c', source + `
       ct_gateway_mutex_acquire ${quote(state.replaceAll('\\', '/'))} || exit $?
       ct_gateway_pid_namespace() { echo native; }
@@ -116,13 +179,22 @@ test('a PowerShell build.ps1 queued waiter survives a native-namespace reap pass
     assert.doesNotMatch(reaped.errors, /vanished|owner_lost/);
     assert.equal(fs.readFileSync(path.join(state, 'jobs/waiter.json'), 'utf8').includes('"state": "queued"'), true);
     assert.ok(fs.existsSync(path.join(state, 'queue', record.queue_key)));
+    phase = 'holder release';
+    trace.mark('before holder release');
     holder.child.stdin.end('release\n');
-    assert.equal((await holder.exited).code, 0);
+    const holderResult = await holder.exited;
+    trace.mark('after confirmed holder exit');
+    assert.equal(holderResult.code, 0);
+    phase = 'waiter slot acquisition';
     const finished = await waiter.exited;
     assert.equal(finished.code, 0, finished.errors);
     assert.match(finished.output, /COMMAND_REACHED/);
     assert.equal(JSON.parse(fs.readFileSync(path.join(state, 'jobs/waiter.json'), 'utf8')).state, 'completed');
+  } catch (error) {
+    trace.mark('failure snapshot');
+    throw new Error(`${error.message}\n${JSON.stringify({ phase, trace: trace.snapshot(), children: children.map(child => child.snapshot()) })}`, { cause: error });
   } finally {
+    trace.close();
     for (const result of children) {
       result.lines.close();
       if (result.child.exitCode === null) result.child.kill('SIGKILL');

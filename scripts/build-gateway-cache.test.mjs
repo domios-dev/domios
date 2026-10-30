@@ -61,6 +61,63 @@ async function cleanup(directory, clients) {
 }
 const statusBody = 'source scripts/build-gateway.sh; ct_gateway_set_fixture_dir "$1/state"; ct_gateway_status';
 
+
+function gatewayDiagnosticTrace(directory, stage) {
+  const events = [], watchers = new Map();
+  let dropped = 0, stopped = false;
+  const read = file => {
+    let fd;
+    try {
+      fd = fs.openSync(file, 'r');
+      const buffer = Buffer.alloc(1024);
+      const size = fs.readSync(fd, buffer, 0, buffer.length, 0);
+      return buffer.subarray(0, size).toString('utf8').trim();
+    } catch (error) { return { unavailable: error.code }; }
+    finally { if (fd !== undefined) fs.closeSync(fd); }
+  };
+  const tuple = location => Object.fromEntries(['job_id', 'pid', 'start_token', 'pid_namespace', 'native_pid', 'native_start_token']
+    .map(key => [key, read(path.join(location, key))]));
+  const names = location => {
+    try { const all = fs.readdirSync(location).sort(); return { total: all.length, entries: all.slice(0, 16) }; }
+    catch (error) { return { unavailable: error.code, entries: [] }; }
+  };
+  const mark = (label, force = false) => {
+    if (stopped) return;
+    if (events.length === 64) { dropped++; if (!force) return; events.shift(); }
+    events.push({ at: Date.now(), stage: stage(), label: String(label).slice(0, 160),
+      slot: tuple(path.join(directory, 'lock')), metadata: tuple(path.join(directory, 'state.lock')),
+      metadataPublication: read(path.join(directory, 'state.lock/metadata.json')),
+      publicationGuard: read(path.join(directory, 'state.lock.guard')), queue: names(path.join(directory, 'queue')) });
+  };
+  const attach = () => {
+    if (stopped) return;
+    for (const location of [...(path.basename(directory) === 'state' ? [path.dirname(directory)] : []), directory, path.join(directory, 'queue'), path.join(directory, 'jobs'), path.join(directory, 'lock'), path.join(directory, 'state.lock')]) {
+      if (watchers.has(location) || !fs.existsSync(location)) continue;
+      try {
+        const watcher = fs.watch(location, (event, file) => { if (events.length === 64) { dropped++; return; } mark(`${path.basename(location)}:${event}:${file ?? ''}`); attach(); });
+        watcher.on('error', error => mark(`watch-error:${error.code}`));
+        watchers.set(location, watcher);
+      } catch (error) { mark(`watch-unavailable:${error.code}`); }
+    }
+  };
+  const snapshot = () => {
+    const jobs = names(path.join(directory, 'jobs'));
+    return { directory, dropped, events, current: { slot: tuple(path.join(directory, 'lock')), metadata: tuple(path.join(directory, 'state.lock')),
+      publicationGuard: read(path.join(directory, 'state.lock.guard')), queue: names(path.join(directory, 'queue')) },
+      jobs: jobs.entries.filter(name => name.endsWith('.json')).map(name => {
+        try {
+          const file = path.join(directory, 'jobs', name);
+          const size = fs.statSync(file).size;
+          if (size > 16384) return { name, bytes: size, truncated: true };
+          const row = JSON.parse(fs.readFileSync(file, 'utf8'));
+          return Object.fromEntries(['job_id', 'state', 'owner_pid', 'owner_start_token', 'owner_pid_namespace', 'owner_native_pid', 'owner_native_start_token', 'queue_key', 'exit_code', 'outcome'].map(key => [key, row[key]]));
+        } catch (error) { return { name, unavailable: error.code ?? error.name }; }
+      }), jobsTotal: jobs.total };
+  };
+  mark('trace-start'); attach();
+  return { mark: label => { mark(label, true); attach(); }, sample: label => { if (events.length === 64) { dropped++; return; } mark(label); attach(); }, snapshot, close() { stopped = true; for (const watcher of watchers.values()) watcher.close(); } };
+}
+
 test('an awaited readiness event rejects when its fixture exits without output', async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-ready-exit-'));
   const client = shell(directory, 'exit 17');
@@ -202,6 +259,7 @@ test('cache reset metadata failure stops server restart before compile', { timeo
 
 test('mixed build verbs share one cache startup and persist four completed history rows', { timeout: 60000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'gateway-mixed-verbs-'));
+  let phase = 'fixture preparation';
   const source = fs.readFileSync(path.join(root, 'build.sh'), 'utf8');
   const dispatch = '\ncase "$CMD" in\n  process-probe|lane-wrapper-check|';
   assert.equal(source.split('ct_configure_sccache\n').length - 1, 1);
@@ -267,19 +325,30 @@ test('mixed build verbs share one cache startup and persist four completed histo
   const fixtureScript = path.join(directory, 'build.sh');
   fs.writeFileSync(fixtureScript, source.replace('source scripts/lane-rust-guard.sh', 'require_canonical_rust_tests() { :; }').replace('*) setup_env ;;', '*) : ;;').replace(dispatch, fixture + dispatch));
   const verbs = [['test-one', 'plan', 'fixture'], ['test-one', 'cli', 'fixture'], ['nextest', 'plan'], ['check-queue', '--all']];
+  const trace = gatewayDiagnosticTrace(path.join(directory, 'state'), () => phase);
   const clients = verbs.map((args, i) => shell(directory, `
     export BUILD_NOTIFY_CHILD=1 MIXED_FIXTURE_DIR="$1" CT_BUILD_JOB_ID="$2" CT_BUILD_GATEWAY_NO_TEE=1 CODETERM_BUILD_GATEWAY_MODE=queue
     unset CODETERM_BUILD_GATEWAY_FIXTURE_DIR CT_BUILD_GATEWAY_SCOPE BUILD_NOTIFY_TAB
     source "$1/build.sh" ${args.join(' ')}
   `, `mixed-${i}`));
+  for (const client of clients) {
+    client.child.stdout.on('data', () => trace.sample(`client-output:${client.id}`));
+    client.child.stderr.on('data', () => trace.sample(`client-stderr:${client.id}`));
+  }
   try {
+    phase = 'client readiness';
     await Promise.all(clients.map(c => c.ready));
+    trace.mark('all clients READY');
+    phase = 'cache starting event';
     const starting = observed(directory, () => fs.existsSync(path.join(directory, 'starting')) && fs.readFileSync(path.join(directory, 'starting'), 'utf8').trim());
     for (const c of clients) c.child.stdin.write('start\n');
+    trace.mark('start released to four clients');
     const starter = await Promise.race([starting, ...clients.map(async client => {
       const result = await client.exited;
       throw new Error(`${client.id} exited before startup: ${result.code}\n${result.output}\n${result.errors}`);
     })]);
+    trace.mark(`cache starter ${starter}`);
+    phase = 'all jobs registered';
     await Promise.race([observed(path.join(directory, 'state', 'jobs'), () => {
       const jobs = path.join(directory, 'state', 'jobs');
       return fs.readdirSync(jobs).filter(name => name.endsWith('.json')).length === 4;
@@ -287,8 +356,12 @@ test('mixed build verbs share one cache startup and persist four completed histo
       const result = await client.exited;
       throw new Error(`${client.id} exited before all jobs registered: ${result.code}\n${result.output}\n${result.errors}`);
     })]);
+    phase = 'cache permit and job completion';
+    trace.mark('before starter permit');
     clients.find(c => c.id === starter).child.stdin.end('permit\n');
     const results = await Promise.all(clients.map(c => c.exited));
+    trace.mark('all clients exited');
+    phase = 'history assertions';
     for (const result of results) {
       assert.equal(result.code, 0, result.output + result.errors);
       assert.doesNotMatch(result.errors, /10048|EPERM|Timed out/);
@@ -305,13 +378,10 @@ test('mixed build verbs share one cache startup and persist four completed histo
     }
     assert.equal(new Set(fs.readFileSync(path.join(directory, 'cargo'), 'utf8').trim().split(/\r?\n/).map(line => line.split(' ')[0])).size, 4);
   } catch (error) {
-    const jobs = path.join(directory, 'state', 'jobs');
-    const records = fs.existsSync(jobs) ? fs.readdirSync(jobs).filter(name => name.endsWith('.json')).map(name => {
-      try { const row = JSON.parse(fs.readFileSync(path.join(jobs, name), 'utf8')); return { id: row.job_id, state: row.state }; }
-      catch { return { id: name, state: 'unreadable' }; }
-    }) : [];
-    throw new Error(`${error.message}\n${JSON.stringify({ records, files: fs.readdirSync(directory), clients: clients.map(c => ({ id: c.id, ...c.snapshot() })) })}`);
-  } finally { await cleanup(directory, clients); }
+    trace.mark('failure snapshot');
+    throw new Error(`${error.message}\n${JSON.stringify({ phase, trace: trace.snapshot(), clients: clients.map(c => ({ id: c.id, nativeChildPid: c.child.pid, exitCode: c.child.exitCode, signal: c.child.signalCode,
+      output: c.snapshot().output.slice(-4096), errors: c.snapshot().errors.slice(-4096) })) })}`, { cause: error });
+  } finally { trace.close(); await cleanup(directory, clients); }
 });
 
 test('every cargo dispatch is covered by the common entry', () => {
