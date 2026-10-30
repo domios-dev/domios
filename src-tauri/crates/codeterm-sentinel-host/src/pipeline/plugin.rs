@@ -32,25 +32,6 @@ pub(crate) fn media(service: &ServiceContext) -> Result<RunMediaRegistry, String
     )
 }
 
-pub fn resolve_run_view(
-    service: &ServiceContext,
-    context: &codeterm_plugin::view_host::ViewCallContext,
-    reference: &str,
-) -> Result<serde_json::Value, String> {
-    service.validate_plugin_view_context(context)?;
-    let scope = context.owner_scope().ok_or("owned run view required")?;
-    let view = ledger(service)?.resolve_run_view(reference)?;
-    if view.scope.workspace != scope.workspace
-        || view.scope.team != scope.team
-        || view.owner != scope.owner
-    {
-        return Err("run view scope refused".into());
-    }
-    Ok(
-        serde_json::json!({"workspaceId":view.scope.workspace,"target":{"blueprintId":view.blueprint,"runId":view.scope.run,"teamId":view.scope.team}}),
-    )
-}
-
 pub(crate) fn operation(run: &str, node: &str) -> String {
     let mut hash = Sha256::new();
     hash.update(b"blueprint-plugin-step-v1\0");
@@ -68,7 +49,7 @@ pub(super) fn run(
 ) -> Result<StepResult, JournalReason> {
     let StepKind::Plugin {
         node_type,
-        config,
+        revision,
         params,
         ..
     } = &step.kind
@@ -79,6 +60,9 @@ pub(super) fn run(
     let Some(registered) = registered else {
         return Ok(held("plugin_step_unavailable"));
     };
+    if registered.descriptor.revision != *revision {
+        return Ok(held("plugin_step_unavailable"));
+    }
     let ledger = match ledger(ctx.service) {
         Ok(ledger) => ledger,
         Err(_) => return Ok(held("plugin_step_store_unavailable")),
@@ -88,26 +72,7 @@ pub(super) fn run(
         team: ctx.lease.job.team_id.clone(),
         run: ctx.run_id.into(),
     };
-    if ledger
-        .admit_run(&scope, &config.spending.unit, config.spending.run_ceiling)
-        .is_err()
-    {
-        return Ok(held("plugin_step_authorization_unavailable"));
-    }
     let operation = operation(ctx.run_id, &step.name);
-    let view = match ledger.run_view(
-        &scope,
-        &ctx.lease.job.creator_tab_id,
-        &ctx.lease.job.id,
-        ctx.lease
-            .job
-            .pipeline()
-            .map(|spec| spec.name.as_str())
-            .unwrap_or("Blueprint"),
-    ) {
-        Ok(view) => view,
-        Err(_) => return Ok(held("plugin_step_store_unavailable")),
-    };
     let existing = match ledger.get(&operation) {
         Ok(existing) => existing,
         Err(_) => return Ok(held("plugin_step_store_unavailable")),
@@ -151,17 +116,13 @@ pub(super) fn run(
             node: step.name.clone(),
             attempt: uuid::Uuid::new_v4().simple().to_string(),
             operation,
-            run_view: view.reference,
-            run_label: view.label,
             node_label: label(&registered.descriptor.title, 128),
             input_lineage: Vec::new(),
         },
         node_type: node_type.clone(),
-        revision: config.revision,
+        revision: *revision,
         params: params.clone(),
         inputs,
-        unit: config.spending.unit.clone(),
-        step_allowance: config.spending.step_allowance,
     };
     if let Some(existing) = existing {
         request.context = existing.request.context;
@@ -200,7 +161,6 @@ pub(super) fn run(
     let record = runtime.drive(
         &registered.plugin,
         &request,
-        || now(ctx.handle),
         Instant::now() + limit,
         ctx.lease.cancelled.conversion_token(),
     );
@@ -283,7 +243,6 @@ fn result(record: OperationRecord) -> Result<StepResult, JournalReason> {
             decision: None,
             uncertain: false,
         }),
-        OperationState::WaitingForOwnerOk => Ok(held("plugin_step_waiting_for_owner_ok")),
         OperationState::Queued => Ok(held("plugin_step_queued")),
         OperationState::Running => Ok(held("plugin_step_running")),
         OperationState::Submitting => Ok(held("plugin_step_submitting")),

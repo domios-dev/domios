@@ -116,22 +116,15 @@ impl CapabilityRegistries {
         }
         if !caps.graph_nodes.steps.is_empty() {
             let exports = super::has_method(vm, "blueprintSubmit")
-                && (!caps
-                    .graph_nodes
-                    .steps
-                    .iter()
-                    .any(|s| s.effects.potentially_paid)
-                    || super::has_method(vm, "blueprintEstimate"))
                 && (!caps.graph_nodes.steps.iter().any(|s| s.lifecycle.reconcile)
                     || super::has_method(vm, "blueprintReconcile"))
                 && (!caps.graph_nodes.steps.iter().any(|s| s.lifecycle.cancel)
                     || super::has_method(vm, "blueprintCancel"));
             if exports {
-                if let Err(error) = self.graph_nodes.register_steps_with_units(
+                if let Err(error) = self.graph_nodes.register_steps(
                     id,
                     &caps.graph_nodes.steps,
                     Arc::new(super::JsBlueprintStep::new(vm.clone())),
-                    caps.cost_units.clone(),
                 ) {
                     log::error!("[plugin] step registration refused: {error}");
                 }
@@ -186,7 +179,10 @@ impl CapabilityRegistries {
                 Arc::new(super::JsBubbleProvider::new(vm.clone(), id.clone())),
             );
         }
-        if caps.view || caps.remote_task.is_some() {
+        if caps.view
+            || caps.remote_task.is_some()
+            || caps.media_delivery.is_some() && !caps.graph_nodes.steps.is_empty()
+        {
             crate::media_delivery::revoke_plugin(&id);
             self.view.register(
                 id.clone(),
@@ -198,8 +194,7 @@ impl CapabilityRegistries {
                     )
                     .with_host_actions(caps.view_host_actions.clone())
                     .with_view_inputs(caps.view_inputs.as_ref())
-                    .with_media_delivery(caps.media_delivery.clone())
-                    .with_job_lifecycle(caps.job_lifecycle.clone()),
+                    .with_media_delivery(caps.media_delivery.clone()),
                 ),
             );
         }

@@ -12,7 +12,6 @@ pub(super) fn run_step(
     input_display: &str,
     cleanup: Option<std::sync::Arc<crate::input::Cleanup>>,
     limit: Duration,
-    agent_media: Vec<codeterm_plugin::agent_task::AgentTaskMedia>,
     run_id: &str,
 ) -> StepResult {
     let previous_text = input.payload_text();
@@ -55,7 +54,6 @@ pub(super) fn run_step(
                     profile: profile.clone(),
                     task: task.clone(),
                     input: previous.into(),
-                    media: agent_media,
                     timeout_ms: deadline
                         .saturating_duration_since(Instant::now())
                         .as_millis()
@@ -79,7 +77,7 @@ pub(super) fn run_step(
                 });
             let (mut done, _) = crate::agent_stage::result_fields(&result);
             let verdict = if *review && done {
-                super::agent_media::review_verdict(&result.output).ok()
+                super::agent_review::review_verdict(&result.output).ok()
             } else {
                 None
             };

@@ -71,7 +71,7 @@ pub fn node(document: &Document, node: &Node) -> Result<Step, String> {
             let mut params = value.as_object().cloned().ok_or("Invalid plugin params")?;
             params.remove("kind");
             value = json!({"kind":"plugin","node_type":node.kind(),"params":params,
-                "config":node.plugin.as_ref().ok_or("Plugin config required")?,"outcomes":if node.outcomes.is_empty(){vec!["done".to_string(),"failed".to_string()]}else{node.outcomes.clone()}});
+                "revision":0,"outcomes":node.outcomes});
         }
         serde_json::from_value(value)
             .map_err(|e| format!("Unsupported native callee node {}: {e}", node.id))?

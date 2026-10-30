@@ -337,47 +337,15 @@ impl ServiceContext {
             CallPlan::Run { tab_id, actor } => (tab_id, actor),
         };
         if is_view {
-            let views = self.ext::<codeterm_plugin::view_host::ViewRegistryHandle>();
-            let jobs = views.get(plugin_id).is_some_and(|provider| {
-                provider
-                    .job_lifecycle()
-                    .is_some_and(|descriptor| descriptor.valid())
-            });
-            let (context, invocation) = {
+            let context = {
                 let mux = self.mux.read();
-                let context =
-                    super::view::view_context(&mux, plugin_id, &surface.id, &tab_id, &caller_tab)?;
-                let tab = mux.get_tab(&tab_id).ok_or("surface instance closed")?;
-                let invocation = jobs
-                    .then(|| {
-                        let owner = tab.parent_tab_id.clone()?;
-                        Some(
-                            codeterm_plugin::surface_invocation::SurfaceInvocationContext {
-                                plugin: plugin_id.into(),
-                                registration: views.registration_id(plugin_id).unwrap_or_default(),
-                                surface: surface.id.clone(),
-                                instance: tab.surface()?.instance_id.clone(),
-                                tab: tab_id.clone(),
-                                owner: owner.clone(),
-                                actor: caller_tab.clone(),
-                                workspace: mux.find_workspace_for_tab(&owner)?,
-                                team: mux.get_tab(&owner)?.team_id.clone(),
-                            },
-                        )
-                    })
-                    .flatten();
-                (context, invocation)
+                super::view::view_context(&mux, plugin_id, &surface.id, &tab_id, &caller_tab)?
             };
             self.note_surface_activity(&tab_id, verb, actor.as_deref());
             if !surface.agent_verbs.iter().any(|v| v == verb) {
                 return Ok(json!({"result":format!("opened {noun} {tab_id}")}));
             }
-            let invocation = invocation
-                .map(codeterm_plugin::surface_invocation::issue)
-                .transpose()?;
-            return Ok(
-                json!({"view_dispatch":{"context":context,"verb":verb,"args":args,"invocation":invocation}}),
-            );
+            return Ok(json!({"view_dispatch":{"context":context,"verb":verb,"args":args}}));
         }
         let (runtime, binding) = self
             .surface_runtime(&tab_id)

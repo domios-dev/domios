@@ -11,15 +11,15 @@ fn unavailable_plugin_errors_preserve_typed_step_locations() {
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let document = codeterm_blueprint_types::blueprint_document::parse(
         "fixture.yaml",
-        include_str!("../../../../../tests/fixtures/blueprint-plugin-media-review.yaml"),
+        include_str!("../../../../../tests/fixtures/blueprint-plugin-nodes.yaml"),
     )
     .unwrap()
     .document;
     let lowered = document.lower().unwrap();
     let spec: BlueprintSpec = serde_json::from_value(lowered["spec"].clone()).unwrap();
     let errors = plugin_validation::validate(&fixture.service, &spec);
-    assert_eq!(errors.len(), 4);
-    for (error, index) in errors.iter().zip([0, 2, 3, 4]) {
+    assert_eq!(errors.len(), 2);
+    for (error, index) in errors.iter().zip([0, 1]) {
         assert_eq!(error.reason, "plugin_step_unavailable");
         assert_eq!(error.field, format!("steps[{index}].plugin"));
         assert_eq!(
@@ -37,9 +37,6 @@ fn unavailable_plugin_errors_preserve_typed_step_locations() {
 }
 
 impl BlueprintStep for Unavailable {
-    fn estimate(&self, _: &StepCall<'_>) -> Result<Option<Estimate>, String> {
-        Err("not invoked".into())
-    }
     fn submit(&self, _: &StepCall<'_>) -> Result<JobUpdate, String> {
         Err("not invoked".into())
     }
@@ -60,7 +57,7 @@ fn plugin_steps_catalog_is_discoverable_and_removal_revokes_admission() {
         .ext::<Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>();
     let descriptors=parse_descriptors(&json!([{"contractVersion":1,"revision":1,"id":"fixture.generate","title":"Generate","description":"Fixture",
         "params":{"type":"object","properties":{}},"inputs":{},"outputs":{},"outcomes":["done","failed"],
-        "effects":{"sideEffects":false,"potentiallyPaid":false},"lifecycle":{"reconcile":false,"cancel":false}}])).unwrap();
+        "effects":{"sideEffects":false},"lifecycle":{"reconcile":false,"cancel":false}}])).unwrap();
     registry
         .register_steps("fixture", &descriptors, Arc::new(Unavailable))
         .unwrap();

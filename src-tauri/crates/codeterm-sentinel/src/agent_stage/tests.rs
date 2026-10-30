@@ -110,7 +110,6 @@ fn blueprint_agent_cancel_aborts_and_expired_deadline_refuses_dispatch() {
                 profile: "fixture".into(),
                 task: "opaque".into(),
                 input: String::new(),
-                media: Vec::new(),
                 timeout_ms: 1000,
                 max_tokens: 100,
                 max_turns: 1,

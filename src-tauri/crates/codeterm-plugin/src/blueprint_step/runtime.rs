@@ -26,44 +26,10 @@ pub struct StepRuntime<'a> {
 }
 
 impl StepRuntime<'_> {
-    pub fn refresh_estimate(
-        &self,
-        request: &StepRequest,
-        now_ms: impl FnOnce() -> u64,
-        deadline: Instant,
-        cancellation: ConversionCancellation,
-    ) -> Result<OperationRecord, String> {
-        let _lease = self
-            .ledger
-            .try_acquire(&request.context.operation)
-            .ok_or("plugin operation busy")?;
-        let record = self.record(request)?;
-        self.validate(&record.plugin, request, true)?;
-        if record.state != OperationState::WaitingForOwnerOk
-            || record.job.is_some()
-            || record.reserved != 0
-        {
-            return Err("price refresh requires an unsubmitted held operation".into());
-        }
-        if cancellation.is_cancelled() || Instant::now() >= deadline {
-            return Err("price refresh interrupted".into());
-        }
-        let call = StepCall {
-            request,
-            job: None,
-            deadline,
-            cancellation,
-        };
-        let estimate = self.adapter.estimate(&call).ok().flatten();
-        self.ledger
-            .refresh_price(&request.context.operation, estimate, now_ms())
-    }
-
     pub fn drive(
         &self,
         plugin: &str,
         request: &StepRequest,
-        now_ms: impl FnOnce() -> u64,
         deadline: Instant,
         cancellation: ConversionCancellation,
     ) -> Result<OperationRecord, String> {
@@ -89,9 +55,6 @@ impl StepRuntime<'_> {
             })?;
             return self.record(request);
         }
-        if existing.state == OperationState::WaitingForOwnerOk && existing.authorized.is_none() {
-            return Ok(existing);
-        }
         if cancellation.is_cancelled() || Instant::now() >= deadline {
             return self.cancel_before_submit(request);
         }
@@ -101,21 +64,13 @@ impl StepRuntime<'_> {
             deadline,
             cancellation: cancellation.clone(),
         };
-        let estimate = if self.descriptor.effects.potentially_paid {
-            self.adapter.estimate(&call).ok().flatten()
-        } else {
-            Some(Estimate {
-                amount: 0,
-                unit: self.unit(request)?,
-                valid_until_ms: MAX_COST_AMOUNT,
-            })
-        };
-        let admitted = self
-            .ledger
-            .reserve(&request.context.operation, estimate, now_ms())?;
-        if admitted.state != OperationState::Submitting {
-            return Ok(admitted);
-        }
+        self.ledger.change(&request.context.operation, |record| {
+            if record.state != OperationState::Prepared {
+                return Err("operation already crossed submission boundary".into());
+            }
+            record.state = OperationState::Submitting;
+            Ok(())
+        })?;
         if cancellation.is_cancelled() || Instant::now() >= deadline {
             return self.cancel_before_submit(request);
         }
@@ -140,12 +95,7 @@ impl StepRuntime<'_> {
             .ok_or("plugin operation busy")?;
         let record = self.record(request)?;
         self.validate(&record.plugin, request, false)?;
-        if record.state.terminal()
-            || matches!(
-                record.state,
-                OperationState::Prepared | OperationState::WaitingForOwnerOk
-            )
-        {
+        if record.state.terminal() || matches!(record.state, OperationState::Prepared) {
             return Ok(record);
         }
         if !self.descriptor.lifecycle.reconcile {
@@ -180,10 +130,7 @@ impl StepRuntime<'_> {
         if record.state.terminal() {
             return Ok(record);
         }
-        if matches!(
-            record.state,
-            OperationState::Prepared | OperationState::WaitingForOwnerOk
-        ) {
+        if matches!(record.state, OperationState::Prepared) {
             return self.cancel_before_submit(request);
         }
         if record.job.is_none() {
@@ -217,9 +164,6 @@ impl StepRuntime<'_> {
         fresh_inputs: bool,
     ) -> Result<(), String> {
         self.descriptor.validate()?;
-        if !token(&request.unit) || request.step_allowance > MAX_COST_AMOUNT {
-            return Err("invalid step spending authorization".into());
-        }
         if !self.descriptor.id.starts_with(&format!("{plugin}."))
             || request.node_type != self.descriptor.id
             || request.revision != self.descriptor.revision
@@ -239,15 +183,9 @@ impl StepRuntime<'_> {
                 return Err("invalid trusted step identity".into());
             }
         }
-        if context.run_label.len() > 256
-            || context.node_label.len() > 128
-            || context.run_view.len() > 512
+        if context.node_label.len() > 128
             || context.input_lineage.len() > 16
-            || context
-                .run_label
-                .chars()
-                .chain(context.node_label.chars())
-                .any(char::is_control)
+            || context.node_label.chars().any(char::is_control)
             || serde_json::to_vec(request)
                 .map_err(|_| "invalid step request")?
                 .len()
@@ -290,10 +228,6 @@ impl StepRuntime<'_> {
         Ok(())
     }
 
-    fn unit(&self, request: &StepRequest) -> Result<String, String> {
-        self.ledger.run_unit(&request.context.scope, &request.unit)
-    }
-
     fn record(&self, request: &StepRequest) -> Result<OperationRecord, String> {
         let record = self
             .ledger
@@ -309,12 +243,8 @@ impl StepRuntime<'_> {
 
     fn cancel_before_submit(&self, request: &StepRequest) -> Result<OperationRecord, String> {
         self.ledger.change(&request.context.operation, |record| {
-            if matches!(
-                record.state,
-                OperationState::Prepared | OperationState::WaitingForOwnerOk
-            ) {
+            if matches!(record.state, OperationState::Prepared) {
                 record.state = OperationState::Canceled;
-                record.waiting = None;
             } else if !record.state.terminal() {
                 record.cancel_requested = true;
                 record.state = OperationState::Unknown;

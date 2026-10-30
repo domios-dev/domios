@@ -142,8 +142,8 @@ fn pipeline(doc: &Document) -> Result<Value, String> {
         } else {
             match node.uses.as_ref().ok_or("Node kind required")? {
                 NodeKind::Plugin(id) => json!({"kind":"plugin","node_type":id,
-                    "config":node.plugin.as_ref().ok_or("Plugin step config required")?,"params":with,
-                    "outcomes":if node.outcomes.is_empty(){vec!["done".to_string(),"failed".to_string()]}else{node.outcomes.clone()}}),
+                    "revision":0,"params":with,
+                    "outcomes":node.outcomes}),
                 NodeKind::Http | NodeKind::Github => json!({"kind":node.kind(),"probe":with}),
                 NodeKind::Ask => {
                     with["kind"] = json!("ask");

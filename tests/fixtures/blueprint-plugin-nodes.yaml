@@ -1,0 +1,19 @@
+schema_version: 2
+kind: pipeline
+name: Generic plugin ports
+owner: tab
+trigger:
+  type: input
+  kind: {lit: text}
+  source: {lit: {text: fixture}}
+steps:
+  - id: a
+    uses: fixture.produce
+    with: {}
+  - id: b
+    uses: fixture.consume
+    bind: {file: a.out.file}
+  - id: sink
+    run: {lit: 'python -c "import sys; from pathlib import Path; Path(''stdin.txt'').write_bytes(sys.stdin.buffer.read())"'}
+    bind: {in: a.out.text}
+result: {to: notify}

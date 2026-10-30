@@ -453,6 +453,14 @@ fn binding(
     let Some(source_node) = doc.nodes().find(|n| n.id == source) else {
         return;
     };
+    if source_node
+        .uses
+        .as_ref()
+        .is_some_and(super::super::NodeKind::plugin)
+        && source_node.output.is_none()
+    {
+        return;
+    }
     let actual = source_node
         .output
         .clone()
