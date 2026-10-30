@@ -449,6 +449,7 @@ impl FlattenDeltaSink {
         let event = format!("tab-chat-msg-{}", tab_id);
         let payload = ChatMsgEvent {
             diagnostic_epoch: None,
+            diagnostic_live: None,
             tab_id,
             messages: &out,
             cursor: cursor.as_deref(),
