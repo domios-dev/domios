@@ -15,16 +15,19 @@ fn native_exclusions_deliver_clean_marker_without_heavy_churn() {
         std::fs::create_dir_all(path).unwrap();
     }
     std::fs::create_dir(root.join("src")).unwrap();
+    let settled = root.join("src/settled.rs");
     let marker = root.join("src/marker.rs");
-    let marker_callback = marker.clone();
+    let awaited = [settled.clone(), marker.clone()];
     let observed = Arc::new(Mutex::new(Vec::new()));
     let recorded = observed.clone();
-    let (ready, delivered) = mpsc::channel();
+    let (arrived, arrivals) = mpsc::channel();
     let mut port = NativePort::new(move |event| {
-        let marker_seen = event.paths.contains(&marker_callback);
-        recorded.lock().unwrap().extend(event.paths);
-        if marker_seen {
-            let _ = ready.send(());
+        let mut paths = recorded.lock().unwrap();
+        for path in event.paths {
+            if awaited.contains(&path) {
+                let _ = arrived.send(path.clone());
+            }
+            paths.push(path);
         }
     });
     let stream = stream_plan::start(
@@ -35,15 +38,17 @@ fn native_exclusions_deliver_clean_marker_without_heavy_churn() {
         },
     )
     .unwrap();
+    // Fixture setup can still arrive after a SinceNow start; event ids order it before this write.
+    std::fs::write(&settled, "settled").unwrap();
+    await_delivery(&arrivals, &settled);
+    observed.lock().unwrap().clear();
     for path in &excluded {
         for number in 0..32 {
             std::fs::write(path.join(format!("churn-{number}")), "output").unwrap();
         }
     }
     std::fs::write(&marker, "source").unwrap();
-    delivered
-        .recv_timeout(Duration::from_secs(15))
-        .expect("clean marker was not delivered");
+    await_delivery(&arrivals, &marker);
     unsafe {
         fs::FSEventStreamFlushSync(stream.raw);
         dispatch_sync_f(stream.queue, std::ptr::null_mut(), barrier);
@@ -56,4 +61,12 @@ fn native_exclusions_deliver_clean_marker_without_heavy_churn() {
             .all(|path| !excluded.iter().any(|ignored| path.starts_with(ignored))),
         "native callback received excluded churn: {paths:?}"
     );
+}
+
+fn await_delivery(arrivals: &mpsc::Receiver<PathBuf>, expected: &Path) {
+    while arrivals
+        .recv_timeout(Duration::from_secs(15))
+        .unwrap_or_else(|_| panic!("{expected:?} was not delivered"))
+        != expected
+    {}
 }
