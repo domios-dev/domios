@@ -141,7 +141,7 @@ describe("My machines projection", () => {
     expect(result.headline).toBe(SIGN_IN_COPY);
     expect(result.blocked).toBe(false);
     expect(result.saved[0].status).toBe("legacy");
-    expect(result.saved[0].detail).toContain("online");
+    expect(result.saved[0].detail).toBe("Waiting for both machines to have current membership in the same account");
     expect(noControls(result.saved[0])).toBe(true);
   });
 
