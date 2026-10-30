@@ -142,6 +142,27 @@ Only the Dockerfile's explicit `ARCHIVE_SOURCE=ci-smoke` plus `ALLOW_CI_SMOKE=1`
 path accepts these unsigned inputs; production defaults to minisign verification.
 Run the resulting image only through `.github/workflows/docker-smoke.yml`.
 
+## Debug staging without runtime launch
+
+`./build.sh dev --build-only` uses the existing named DEV target and normal
+CLI/server/client/frontend build, staging and schema3 provenance. Supply the
+existing `CODETERM_DEV_INSTANCE` and its private `CODETERM_DEV_API_PORT`; all
+instances from that target, including the selected instance, must already be
+stopped. Running or unknown liveness refuses; this mode never stops a process.
+After staging and provenance verification it releases mapping/gateway ownership
+and returns `BUILD/STAGED`, not READY. There is no GUI/server/account initialization,
+retained-window swap or prebuilt handoff. `--wait` is accepted but unnecessary.
+Empty/qa `DOMIOS_ACCOUNT_TARGET` remains the ordinary compile-time selection;
+source/account changes require a fresh build, never receipt edits or endpoint
+redirection of a running QA artifact. See dev-run for the stopped-instance recipe
+and separate isolated common-layout capture boundary.
+
+Deferred focused coverage after source review:
+`node --test scripts/tests/dev-gateway-handoff.test.mjs scripts/tests/dev-shared-target.test.mjs`.
+Pure fixtures prove no launch/stop callbacks, staging failure, account selection,
+provenance-before-release ordering and liveness refusals; actual build-only staging
+still requires the parent-authorized canonical build and artifact readback.
+
 ## Rebuild cost
 
 Named `dev` and `dev-server` compile incrementally (owner rule). Every named

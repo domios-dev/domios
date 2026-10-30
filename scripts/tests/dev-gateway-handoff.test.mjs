@@ -7,6 +7,8 @@ import { spawnSync } from 'node:child_process';
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8');
 const phaseFn = source.match(/^dev_build_phase\(\) \{[\s\S]*?^\}/m)[0];
 const fn = `${phaseFn}\n${source.match(/^build_and_launch_dev\(\) \{[\s\S]*?^\}/m)[0]}`;
+const modeFn = source.match(/^parse_dev_build_mode\(\) \{[\s\S]*?^\}/m)[0];
+const replacementFn = source.match(/^prepare_dev_replacement\(\) \{[\s\S]*?^\}/m)[0];
 const clientFn = source.match(/^build_dev_client\(\) \{[\s\S]*?^\}/m)[0];
 const serverFn = source.match(/^build_dev_server\(\) \{[\s\S]*?^\}/m)[0];
 const config = fs.readFileSync(new URL('../firebase-build-config.sh', import.meta.url), 'utf8');
@@ -25,9 +27,10 @@ printf '%s\\n' "$@"
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'dev\n--wait\n--notify-tab\nopaque tab');
 });
-for (const failure of [0, 42]) {
+for (const buildOnly of [false, true]) {
+for (const failure of (buildOnly ? [0, 42, 43, 44] : [0, 42, 43])) {
  for (const target of ['', 'qa']) {
-  test(`dev releases gateway before prebuilt launch; account target=${target || 'default'}; cargo exit=${failure}`, () => {
+  test(`dev releases gateway before prebuilt launch; build-only=${buildOnly}; account target=${target || 'default'}; failure=${failure}`, () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'dev-gateway-'));
     fs.mkdirSync(path.join(directory, '.domios-dev-build'));
     fs.writeFileSync(path.join(directory, '.domios-dev-build/cli.jsonl'), 'cli-artifact');
@@ -36,6 +39,8 @@ for (const failure of [0, 42]) {
 ${clientFn}
 ${serverFn}
 ${config}
+${modeFn}
+${replacementFn}
 ${fn.replace('exec bash ./build.sh', 'launch')}
 unset DOMIOS_FIREBASE_API_KEY DOMIOS_FIREBASE_PROJECT_ID DOMIOS_FIREBASE_APP_ID DOMIOS_ACCOUNT_REDEEM_URL DOMIOS_BILLING_FUNCTIONS_URL
 DOMIOS_QA_PROJECT_ID=inherited-wrong-project
@@ -56,8 +61,13 @@ built_cli_hash=opaque-hash CT_VITE_PORT=1520 CT_IDENTIFIER=opaque-dev-identifier
 unset CODETERM_SERVER_DEV_IDENTIFIER CODETERM_SERVER_DEV_FRONTEND_ORIGIN
 export CODETERM_VITE_PORT=1520 CODETERM_DEV_IDENTIFIER=opaque-dev-identifier
 owned=1
-named_dev_isolated() { return 1; }
+named_dev_isolated() { return ${buildOnly ? 0 : 1}; }
+refuse_named_dev_rebuild_while_running() { echo liveness-refused-callback >&2; return 0; }
+dev_window_retainable() { echo unexpected-retain; return 0; }
+dev_live_window_exe() { echo unexpected-inspect; return 91; }
+swap_dev_server_keep_window() { echo unexpected-swap; return 91; }
 gateway_cwd="$PWD"
+prepare_local_macos_signing() { [ "$owned" = 1 ]; }
 configure_dev_cargo() { CT_DEV_CARGO_PROFILE=dev; CT_DEV_CARGO_FEATURES=opaque; }
 dev_conf_path() { printf /dev/null; }
 node() {
@@ -66,6 +76,7 @@ node() {
   [ "$1" = scripts/server-artifact.mjs ] && [ "$2" = stage-dev ]
   [ "$(cat "$3")" = server-artifact ] && [ "$(cat "$4")" = server-tree ] && [ "$(cat "$5")" = cli-artifact ]
   [ "$6" = "$gateway_cwd" ] && [ "$7" = "$(dev_resource_dir)" ] && [ "$8" = "$(dev_built_app_path)" ] && [ "$9" = "$CODETERM_BUILD_SHA" ]
+  [ ${failure} != 43 ] || return 43
   echo staged
 }
 cargo() {
@@ -77,12 +88,13 @@ cargo() {
     [ "$DOMIOS_QA_FIREBASE_API_KEY" = opaque-qa-key ] || return 96
     [ "$DOMIOS_QA_FIREBASE_APP_ID" = opaque-qa-app ] || return 97
     [ "$DOMIOS_ACCOUNT_TARGET" = '${target}' ] || return 98
+    [[ "$*" == *'--profile dev --no-default-features --features domios-server/embeddings,domios-server/mem-postgres'* ]] || return 89
     [ -z "$DOMIOS_FIREBASE_API_KEY$DOMIOS_FIREBASE_APP_ID" ] || return 99
   else
     [ "$DOMIOS_QA_PROJECT_ID" = inherited-wrong-project ] || return 95
   fi
   printf 'cargo %s\\n' "$*" >&2
-  if [ ${failure} != 0 ]; then return ${failure}; fi
+  if [ ${failure} = 42 ]; then return 42; fi
   case "$*" in
     'build --manifest-path src-tauri/Cargo.toml -p domios-server '*) echo server-artifact ;;
     'tree --manifest-path src-tauri/Cargo.toml -p domios-server '*) echo server-tree ;;
@@ -94,6 +106,9 @@ git() { printf opaque-sha; }
 build_dev_frontend() { [ "$owned" = 1 ]; echo frontend; }
 stop_dev_before_replacement() { [ "$owned" = 1 ]; echo stopped; }
 write_dev_provenance() { [ "$owned" = 1 ]; echo provenance; }
+write_named_dev_build_record() { [ "$owned" = 1 ]; echo shared-provenance; }
+validate_dev_provenance() { [ "$owned" = 1 ]; [ "$CT_DEV_PROVENANCE_SHA" = "$CODETERM_BUILD_SHA" ]; [ ${failure} != 44 ] || return 44; echo validated; }
+dev_provenance_record() { echo opaque-record; }
 retain_dev_pdb() { :; }
 release_stable_build_path() { [ "$owned" = 1 ]; mapping=0; cd /; }
 tauri_debug_dir() { printf '%s' '${directory.replaceAll('\\', '/')}'; }
@@ -102,6 +117,11 @@ dev_built_app_path() { echo opaque-client; }
 record_dev_target() { [ "$mapping" = 0 ]; }
 complete_build_gateway_before_handoff() { [ "$mapping" = 0 ]; owned=0; echo released; }
 launch() { [ "$owned" = 0 ]; [ "$PWD" != "$gateway_cwd" ]; [ "$CT_DEV_HANDOFF_SHA" = "$CODETERM_BUILD_SHA" ]; [ "$CT_DEV_HANDOFF_HASH" = "$CODETERM_BUILD_HASH" ]; printf 'launch %s\\n' "$*"; }
+CT_INSTANCE=opaque-instance
+DEV_FRONT_EXTERNAL=0
+CT_DEV_RETAIN_WINDOW=${buildOnly ? 1 : 0}
+parse_dev_build_mode dev ${buildOnly ? '--build-only' : ''} --wait --notify-tab opaque-tab
+${buildOnly ? 'prepare_dev_replacement' : ''}
 build_and_launch_dev --wait --notify-tab opaque-tab`;
     const result = spawnSync(bash, ['-s'], { input: script, encoding: 'utf8',
       env: { ...process.env, CI: '', CT_LOCAL_BUILD_ENV_LOADED: '0', DEV_NOTIFY_PARENT_CLI: '', CT_DEV_QA_PROJECT_PINNED: '0' },
@@ -110,13 +130,20 @@ build_and_launch_dev --wait --notify-tab opaque-tab`;
     assert.match(result.stderr, /cargo build .*--bin domios-server/);
     assert.match(result.stdout, /QA project config: present/);
     assert.doesNotMatch(result.stdout + result.stderr, /fixture-qa-project|inherited-wrong-project/);
-    if (!failure) assert.match(result.stderr, /cargo build .*--bin domios-app --profile dev --no-default-features\n/);
-    if (failure) assert.doesNotMatch(result.stdout, /frontend|staged|provenance|released|launch/);
-    else assert.match(result.stdout, /frontend\nstopped\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
+    if (failure !== 42) assert.match(result.stderr, /cargo build .*--bin domios-app --profile dev --no-default-features\n/);
+    if (failure === 42) assert.doesNotMatch(result.stdout, /frontend|staged|provenance|released|launch|BUILD\/STAGED/);
+    else if (failure === 43) assert.doesNotMatch(result.stdout, /provenance|released|launch|BUILD\/STAGED/);
+    else if (failure === 44) assert.doesNotMatch(result.stdout, /validated|released|launch|BUILD\/STAGED/);
+    else if (buildOnly) {
+      assert.match(result.stdout, /frontend\nstaged\nprovenance\nshared-provenance\nvalidated\nreleased\nBUILD\/STAGED instance=opaque-instance build=opaque-sha account_target=(?:default|qa) record=opaque-record/);
+    } else assert.match(result.stdout, /frontend\nstopped\nstaged\nprovenance\nreleased\n[^\n]*\nlaunch dev-prebuilt --wait --notify-tab opaque-tab/);
+    if (buildOnly) assert.doesNotMatch(result.stdout, /stopped|launch|unexpected-|READY/);
     } finally { fs.rmSync(directory, { recursive: true, force: true }); }
   });
  }
 }
+}
+
 test('prebuilt retains its single provenance validation before stopping dev', () => {
   const prebuilt = source.slice(source.indexOf('  dev-prebuilt)'), source.indexOf('  dev)'));
   assert.ok(prebuilt.indexOf('validate_dev_provenance') < prebuilt.indexOf('    stop_dev_before_replacement'));
@@ -142,3 +169,80 @@ ${preparation}
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'watch\nstatic');
 });
+
+for (const args of ['dev --build-only --build-only', 'dev --build-only --unknown', 'dev-prebuilt --build-only']) {
+  test(`build-only rejects conflicting or unknown arguments: ${args}`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${modeFn}
+parse_dev_build_mode ${args}
+echo unexpected-admission`], { encoding: 'utf8' });
+    assert.equal(result.status, 2, result.stderr);
+    assert.doesNotMatch(result.stdout, /unexpected-admission/);
+  });
+}
+
+test('build-only rejects external frontend and cannot inherit an unchecked mode flag', () => {
+  const result = spawnSync(bash, ['-c', `set -euo pipefail
+${modeFn}
+CT_DEV_BUILD_ONLY=1
+parse_dev_build_mode dev --wait
+[ "$CT_DEV_BUILD_ONLY" = 0 ]
+DEV_FRONT_EXTERNAL=1
+parse_dev_build_mode dev --build-only`], { encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+});
+
+for (const blocker of ['selected', 'other-instance', 'unknown-liveness']) {
+  test(`build-only refuses ${blocker} without stopping or compiling`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${replacementFn}
+CT_DEV_BUILD_ONLY=1
+named_dev_isolated() { return 0; }
+refuse_named_dev_rebuild_while_running() { echo '${blocker}' >&2; return 2; }
+stop_dev_before_replacement() { echo unexpected-stop; }
+dev_window_retainable() { echo unexpected-inspect; }
+prepare_dev_replacement
+echo unexpected-compile`], { encoding: 'utf8' });
+    assert.equal(result.status, 2, result.stderr);
+    assert.match(result.stderr, new RegExp(blocker));
+    assert.doesNotMatch(result.stdout, /unexpected-/);
+  });
+}
+
+test('build-only refuses an unnamed target without stopping a DEV', () => {
+  const result = spawnSync(bash, ['-c', `set -euo pipefail
+${replacementFn}
+CT_DEV_BUILD_ONLY=1
+named_dev_isolated() { return 1; }
+stop_dev_before_replacement() { echo unexpected-stop; }
+prepare_dev_replacement`], { encoding: 'utf8' });
+  assert.equal(result.status, 2, result.stderr);
+  assert.doesNotMatch(result.stdout, /unexpected-/);
+});
+
+test('build-only accepts optional wait without changing its staged-only mode', () => {
+  for (const wait of ['', '--wait']) {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${modeFn}
+DEV_FRONT_EXTERNAL=0
+parse_dev_build_mode dev --build-only ${wait}
+[ "$CT_DEV_BUILD_ONLY" = 1 ]`], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  }
+});
+
+for (const retained of [true, false]) {
+  test(`ordinary dev retains its existing replacement decision: retain=${retained}`, () => {
+    const result = spawnSync(bash, ['-c', `set -euo pipefail
+${replacementFn}
+CT_DEV_BUILD_ONLY=0
+CT_DEV_RETAIN_WINDOW=0
+dev_window_retainable() { return ${retained ? 0 : 1}; }
+stop_dev_before_replacement() { echo stopped; }
+refuse_named_dev_rebuild_while_running() { echo unexpected-build-only-guard; }
+prepare_dev_replacement
+printf 'retained=%s\\n' "$CT_DEV_RETAIN_WINDOW"`], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), retained ? 'retained=1' : 'stopped\nretained=0');
+  });
+}
