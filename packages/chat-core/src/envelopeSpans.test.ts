@@ -34,7 +34,23 @@ const fixtures: Fixture[] = [
   { name: "Unicode CRLF offsets", prefix: "😀 example\r\n", raw: `${opening}\r\n${hidden}\r\n</domios>`, suffix: `\r\n\r\n${visible}`, complete: true },
   { name: "fenced whole pasted example", prefix: "```xml\n", raw: `${opening}\n${hidden}\n</domios>`, suffix: `\n\`\`\`\n\n${visible}`, complete: true },
   { name: "context whole pasted example", prefix: "<context>\n", raw: `${opening}\n${hidden}\n</domios>`, suffix: `\n</context>\n\n${visible}`, complete: true },
+  { name: "closed context shields unmatched example fence", raw: '<domios from="tab">\n<context>\n```html\n</domios>\n</context>\n</domios>', suffix: `\n\n${visible}`, complete: true },
+  { name: "nested closed contexts shield unmatched fence", raw: `${opening}\n<context>\n<handoff>\n\`\`\`html\n</domios>\n</handoff>\n</context>\n</domios>`, suffix: `\n\n${visible}`, complete: true },
+  { name: "closed context shields unmatched tilde fence", raw: `${opening}\n<context>\n~~~html\n</domios>\n</context>\n</domios>`, suffix: `\n\n${visible}`, complete: true },
+  { name: "matched context close permits Rust whitespace", raw: `${opening}\n<context>\n</domios>\n</context \t>\n</domios>`, suffix: `\n\n${visible}`, complete: true },
+  { name: "mismatched context remains refused after later matching closes", raw: '<domios from="tab"><context><handoff></context></handoff></context></domios>\n<ds-document src="/outside.md" />', complete: false, malformed: true },
+  { name: "malformed context close remains refused after later matching close", raw: `${opening}<context></context invalid></context></domios>\n${hidden}`, complete: false, malformed: true },
+  { name: "missing nested context close with unmatched fence", raw: `${opening}\n<context>\n<handoff>\n\`\`\`html\n</domios>\n${hidden}`, complete: false },
 ];
+for (const [name, literal] of [
+  ["inline code", '`</context></domios>`'],
+  ["unmatched inline tick", '` ordinary context text'],
+  ["comment", '<!-- </context></domios> -->'],
+  ["CDATA", '<![CDATA[</context></domios>]]>'],
+  ["raw script", '<script>\n</context></domios>\n</script>'],
+] as const) {
+  fixtures.push({ name: `context-first ${name} preserves its real close`, raw: `${opening}\n<context>\n${literal}\n</context>\n</domios>`, suffix: `\n\n${visible}`, complete: true });
+}
 for (const [name, body] of [
   ["comment", `<!-- </domios> -->\n${hidden}`],
   ["CDATA", `<![CDATA[</domios>]]>\n${hidden}`],
@@ -63,11 +79,18 @@ for (const fixture of fixtures) {
     const prefix = fixture.prefix ?? "";
     const source = prefix + fixture.raw + (fixture.suffix ?? "");
     const expected: RawEnvelopeExclusion = { start: prefix.length, end: prefix.length + fixture.raw.length, kind: fixture.kind ?? "domios", complete: fixture.complete, malformed: fixture.malformed ?? false };
+    const expectedDocuments = fixture.suffix?.includes(visible) ? ["/legitimate-direct.md"] : [];
     assert.deepEqual(rawEnvelopeExclusions(source), [expected]);
-    assert.deepEqual(eligibleDocuments(source), fixture.suffix?.includes(visible) ? ["/legitimate-direct.md"] : []);
+    assert.deepEqual(eligibleDocuments(source), expectedDocuments);
     for (let split = 0; split <= source.length; split++) {
       assert.deepEqual(rawEnvelopeExclusions(source.slice(0, split) + source.slice(split)), [expected], `UTF-16 split ${split}`);
-      assert.ok(!eligibleDocuments(source.slice(0, split)).includes("/public-but-unreferenced.md"), `premature nested file at ${split}`);
+      if (split > prefix.length) {
+        const range = rawEnvelopeExclusions(source.slice(0, split)).find((span) => span.start === prefix.length);
+        assert.ok(range, `missing exclusion at prefix ${split}`);
+        assert.equal(range.end, Math.min(split, expected.end), `exclusion end at prefix ${split}`);
+        assert.equal(range.complete, fixture.complete && split >= expected.end, `completion at prefix ${split}`);
+      }
+      assert.ok(eligibleDocuments(source.slice(0, split)).every((path) => expectedDocuments.includes(path)), `premature or forbidden file at ${split}`);
     }
     const bytes = new TextEncoder().encode(source);
     const byteStart = new TextEncoder().encode(prefix).length;
@@ -83,7 +106,7 @@ for (const fixture of fixtures) {
     const decoder = new TextDecoder();
     for (const byte of bytes) {
       restored += decoder.decode(Uint8Array.of(byte), { stream: true });
-      assert.ok(!eligibleDocuments(restored).includes("/public-but-unreferenced.md"));
+      assert.ok(eligibleDocuments(restored).every((path) => expectedDocuments.includes(path)));
     }
     restored += decoder.decode();
     assert.deepEqual(rawEnvelopeExclusions(restored), [expected]);

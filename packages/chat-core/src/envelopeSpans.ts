@@ -77,8 +77,16 @@ function extent(source: string, start: number, kind: RawEnvelopeKind): RawEnvelo
   let malformed = false;
   for (let cursor = start; cursor < source.length; cursor++) {
     if (lexer.inData && cursor !== start) {
-      const quoted = quotedEnd(source, cursor);
-      if (quoted !== null) { cursor = quoted - 1; continue; }
+      if (!contexts.length) {
+        const quoted = quotedEnd(source, cursor);
+        if (quoted !== null) { cursor = quoted - 1; continue; }
+      } else if (source[cursor] === "`") {
+        let width = 1;
+        while (source[cursor + width] === "`") width++;
+        const end = width < 3 ? source.indexOf("`".repeat(width), cursor + width) : -1;
+        cursor = end < 0 ? cursor + width - 1 : end + width - 1;
+        continue;
+      }
     }
     if (lexer.inData) tokenStart = cursor;
     lexer.feed(source[cursor]);
@@ -97,7 +105,11 @@ function extent(source: string, start: number, kind: RawEnvelopeKind): RawEnvelo
     }
     if (!token.startsWith("</") || !token.endsWith(">")) continue;
     if (contexts.length) {
-      if (token === `</${contexts[contexts.length - 1]}>`) contexts.pop();
+      const name = /^<\/([A-Za-z][A-Za-z0-9_-]*)(?=[\t\r\n />])/.exec(token)?.[1];
+      if (name && CONTEXTS.has(name)) {
+        if (name !== contexts[contexts.length - 1] || token.slice(name.length + 2, -1).trim()) return { start, end: source.length, kind, complete: false, malformed: true };
+        contexts.pop();
+      }
       continue;
     }
     const active = stack[stack.length - 1];
