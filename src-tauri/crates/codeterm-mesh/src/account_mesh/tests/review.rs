@@ -329,3 +329,26 @@ async fn account_mesh_signed_out_peer_is_unavailable_and_returns_on_the_same_ado
     assert_eq!(a.mesh.lock().paired_peers.len(), 1);
     assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn account_mesh_adoption_transport_backoff_and_rate_deadline_are_visible() {
+    let clock = clock();
+    let (a, b) = (machine(1, &clock), machine(2, &clock));
+    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
+    a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    let mut manager = a.mesh.lock();
+    assert!(manager.begin_adoption(&b.id()));
+    manager.finish_adoption(&b.id(), &Err(AdmissionRefusal::PeerUnreachable));
+    assert!(!manager.begin_adoption(&b.id()));
+    clock.store(START + 29, Ordering::SeqCst);
+    assert!(!manager.begin_adoption(&b.id()));
+    clock.store(START + 30, Ordering::SeqCst);
+    assert!(manager.begin_adoption(&b.id()));
+    manager.finish_adoption(&b.id(), &Err(AdmissionRefusal::RateLimited { retry_after_seconds: 900 }));
+    let detail = manager.account_mesh_pairs()[0].adoption_detail.clone().unwrap();
+    clock.store(START + 929, Ordering::SeqCst);
+    assert!(!manager.begin_adoption(&b.id()));
+    assert_eq!(manager.account_mesh_pairs()[0].adoption_detail.as_ref(), Some(&detail));
+    clock.store(START + 930, Ordering::SeqCst);
+    assert!(manager.begin_adoption(&b.id()));
+}

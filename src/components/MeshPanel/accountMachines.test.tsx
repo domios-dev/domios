@@ -240,7 +240,7 @@ it("shows a publication refusal and the scheduled retry in mesh status", () => {
     publication_failure: { reason: "rate-limited", retry_after_seconds: 7 },
     retry_at: NOW + 7,
   })));
-  expect(result.notes.join(" ")).toContain("publication was refused");
+  expect(result.notes.join(" ")).toContain("Busy, retrying at");
   expect(result.notes.join(" ")).toContain("Waiting to retry at");
 });
 
@@ -265,4 +265,13 @@ describe("account link approval projection", () => {
     expect(row.controls.add).toEqual({ reason: null });
     expect(settledLinks(new Set([macRow.installation_id]), state)).toEqual([macRow.installation_id]);
   });
+});
+
+it("uses a legacy pair's recorded adoption reason and never treats an untyped refusal as removal", () => {
+  const result = accountView(view("signed_in", snapshot({
+    enrollment: "refused", last_refusal: { reason: "forbidden" },
+    pairs: [{ instance_id: "legacy-test", installation_id: null, admission: "legacy", online: true, name: "Legacy test", adoption_detail: "Waiting for the other machine to sign in" }],
+  })));
+  expect(result.removed).toBe(false);
+  expect(result.saved[0].detail).toBe("Waiting for the other machine to sign in");
 });

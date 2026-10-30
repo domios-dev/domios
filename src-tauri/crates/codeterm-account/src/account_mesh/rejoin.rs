@@ -24,67 +24,41 @@ impl AccountMesh {
         &self,
         signed: &mut Signed,
     ) -> Result<MeshResult, AccountMeshRefusal> {
-        let mut active_target = self
-            .state()
-            .registry
-            .as_ref()
-            .and_then(|registry| {
-                registry
-                    .rows
-                    .iter()
-                    .find(|row| row.installation_id == self.installation() && row.active)
-                    .map(|row| row.target())
-            })
-            .or_else(|| self.cached_active_target(signed));
-        let generation = self.generation(signed).await?;
-        if let Some(target) = active_target
-            .as_ref()
-            .filter(|target| generation > target.key_generation)
-        {
-            match self
-                .rejoin_admission(
-                    signed,
-                    MeshOperation::Recover {
-                        target: target.clone(),
-                    },
-                )
-                .await
-            {
-                Err(AccountMeshRefusal::Forbidden) => active_target = None,
-                result => return result,
+        let target = self.state().registry.as_ref().and_then(|registry| {
+            registry.rows.iter().find(|row| row.installation_id == self.installation() && row.active).map(|row| row.target())
+        }).or_else(|| self.cached_active_target(signed));
+        if !self.own_removed() && !self.with(|inner| inner.rejoin_required) {
+            if let Some(target) = target {
+                if self.generation(signed).await? > target.key_generation {
+                    return self.rejoin_admission(signed, MeshOperation::Recover {
+                        target: super::wire::RecoveryTarget::Exact(target), target_policy: None,
+                    }).await;
+                }
             }
         }
-        self.with(|inner| {
+        let allowed = self.with(|inner| {
             if !inner.is_current(signed.epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
             }
+            inner.rejoin_required = true;
+            if !inner.rejoin_authorized || inner.rotation_attempt == Some(signed.epoch) {
+                return Err(inner.state.last_refusal.unwrap_or(AccountMeshRefusal::ReauthRequired));
+            }
+            inner.rotation_attempt = Some(signed.epoch);
+            inner.rejoin_authorized = false;
             inner.update(&self.watch, |state| state.membership = None);
             Ok(())
-        })?;
-        let attempt = signed.epoch;
-        self.with(|inner| {
-            if !inner.is_current(signed.epoch) {
-                return Err(AccountMeshRefusal::Cancelled);
-            }
-            if inner.rotation_attempt == Some(attempt) {
-                return Err(inner
-                    .state
-                    .last_refusal
-                    .unwrap_or(AccountMeshRefusal::Revoked));
-            }
-            inner.rotation_attempt = Some(attempt);
-            Ok(())
-        })?;
+        });
+        allowed?;
+        let existing = self.with(|inner| inner.record.keys.contains_key(&signed.account) || inner.record.slots.contains_key(&signed.account));
         let _guard = self.key_lock.lock().await;
         let key = Arc::new(InstallationKey::generate());
-        let next_generation = generation
-            .checked_add(1)
-            .ok_or(AccountMeshRefusal::Invalid)?;
         let body = InstallationKeyBody {
             installation_id: self.installation(),
             public_key_spki_base64: key.spki_base64(),
             operation: KeyOperation::Recover,
-            expected_generation: generation,
+            expected_generation: 0,
+            generation_policy: Some(super::wire::GenerationPolicy::Assign),
         };
         signed.key = key.clone();
         let proof = self
@@ -92,14 +66,17 @@ impl AccountMesh {
                 signed,
                 ProofEndpoint::EnrollInstallation,
                 &body,
-                next_generation,
+                0,
             )
             .await?;
         let request = InstallationEnrollment { body, proof };
         let enrolled = self
             .call(self.ports.registry.enroll_key(&signed.session, &request))
-            .await?;
-        if enrolled.key_id != key.key_id() || enrolled.generation != next_generation {
+            .await.map_err(|refusal| match refusal {
+                AccountMeshRefusal::ProofInvalid => AccountMeshRefusal::ReauthRequired,
+                other => other,
+            })?;
+        if enrolled.key_id != key.key_id() || enrolled.generation == 0 {
             return Err(AccountMeshRefusal::Invalid);
         }
         self.ports
@@ -124,21 +101,15 @@ impl AccountMesh {
         })?;
         self.persist().await;
         drop(_guard);
-        if let Some(target) = active_target {
-            match self
-                .rejoin_admission(signed, MeshOperation::Recover { target })
-                .await
-            {
-                Err(AccountMeshRefusal::Forbidden) => {}
-                result => return result,
+        let operation = if existing {
+            MeshOperation::Recover {
+                target: super::wire::RecoveryTarget::Own { installation_id: self.installation() },
+                target_policy: Some(super::wire::OwnTargetPolicy::Own),
             }
-        }
-        self.rejoin_admission(
-            signed,
-            MeshOperation::Enroll {
-                expected_slot_revision: 0,
-            },
-        )
+        } else {
+            MeshOperation::Enroll { expected_slot_revision: 0 }
+        };
+        self.rejoin_admission(signed, operation)
         .await
     }
 
@@ -147,8 +118,10 @@ impl AccountMesh {
         signed: &Signed,
         operation: MeshOperation,
     ) -> Result<MeshResult, AccountMeshRefusal> {
+        let own = matches!(operation, MeshOperation::Recover { target_policy: Some(_), .. });
         match self.admission(signed, operation).await? {
-            MeshResult::Recovered(result) => {
+            MeshResult::Membership(result) => Ok(MeshResult::Membership(result)),
+            MeshResult::Recovered(result) if !own => {
                 Ok(MeshResult::Membership(super::wire::MembershipResult {
                     operation: super::wire::MembershipOperation::Recover,
                     installation_id: result.installation_id,
@@ -157,7 +130,7 @@ impl AccountMesh {
                     membership: result.membership.ok_or(AccountMeshRefusal::Invalid)?,
                 }))
             }
-            result => Ok(result),
+            _ => Err(AccountMeshRefusal::Invalid),
         }
     }
 }

@@ -11,10 +11,13 @@ use crate::account_mesh::{
 use crate::MeshState;
 
 pub(super) enum AdoptionAttempt {
-    InFlight,
+    InFlight { failures: u32 },
     Refused {
         account_epoch: u64,
         advertised: Option<String>,
+        refusal: AdmissionRefusal,
+        retry_at: u64,
+        failures: u32,
     },
 }
 
@@ -248,6 +251,20 @@ impl MeshManager {
                     instance_id: peer.instance_id.clone(),
                     installation_id: record.installation_id().map(str::to_string),
                     admission: record.admission.label().to_string(),
+                    adoption_detail: self.is_legacy_link(&peer.instance_id).then(|| {
+                        match self.adoptions.get(&peer.instance_id) {
+                            Some(AdoptionAttempt::InFlight { .. }) => "Joining account membership".to_owned(),
+                            Some(AdoptionAttempt::Refused { refusal, retry_at, .. }) => match refusal {
+                                AdmissionRefusal::Unauthenticated | AdmissionRefusal::SignedOut => "Waiting for both machines to sign in to the same account".to_owned(),
+                                AdmissionRefusal::RateLimited { .. } => format!("Busy, retrying at {}", chrono::DateTime::from_timestamp(*retry_at as i64, 0).map(|at| at.to_rfc3339()).unwrap_or_else(|| "the server deadline".into())),
+                                AdmissionRefusal::HandshakeFailed { detail } => format!("Account membership pending: {detail}"),
+                                other => format!("Account membership pending: {other}"),
+                            },
+                            None if !peer.online => "Waiting for the other machine to come online".to_owned(),
+                            None if self.account.current_membership(self.now()).is_none() => "Waiting for this machine to join the account mesh".to_owned(),
+                            None => "Waiting for the other machine to advertise membership in the same account".to_owned(),
+                        }
+                    }),
                     online: peer.online
                         && !record.installation_id().is_some_and(|installation| {
                             self.account
@@ -270,17 +287,24 @@ impl MeshManager {
 
     pub(crate) fn begin_adoption(&mut self, peer_id: &str) -> bool {
         let advertised = self.advertised_memberships.get(peer_id).cloned();
+        let now = self.now();
+        let failures = match self.adoptions.get(peer_id) {
+            Some(AdoptionAttempt::Refused { failures, .. }) => *failures,
+            _ => 0,
+        };
         let blocked = match self.adoptions.get(peer_id) {
-            Some(AdoptionAttempt::InFlight) => true,
-            Some(AdoptionAttempt::Refused {
-                account_epoch,
-                advertised: seen,
-            }) => *account_epoch == self.account.account_epoch && *seen == advertised,
+            Some(AdoptionAttempt::InFlight { .. }) => true,
+            Some(AdoptionAttempt::Refused { refusal, retry_at, account_epoch, advertised: seen, .. }) => {
+                if matches!(refusal, AdmissionRefusal::RateLimited { .. } | AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable) {
+                    now < *retry_at
+                } else {
+                    *account_epoch == self.account.account_epoch && *seen == advertised
+                }
+            },
             None => false,
         };
         if !blocked {
-            self.adoptions
-                .insert(peer_id.to_string(), AdoptionAttempt::InFlight);
+            self.adoptions.insert(peer_id.to_string(), AdoptionAttempt::InFlight { failures });
         }
         !blocked
     }
@@ -292,16 +316,21 @@ impl MeshManager {
         outcome: &Result<(), AdmissionRefusal>,
     ) {
         match outcome {
-            Ok(())
-            | Err(AdmissionRefusal::PeerUnreachable)
-            | Err(AdmissionRefusal::Offline)
-            | Err(AdmissionRefusal::Cancelled) => {
+            Ok(()) | Err(AdmissionRefusal::Cancelled) => {
                 self.adoptions.remove(peer_id);
             }
-            Err(_) => {
+            Err(refusal) => {
+                let failures = match self.adoptions.get(peer_id) {
+                    Some(AdoptionAttempt::InFlight { failures }) => *failures,
+                    _ => 0,
+                };
+                let delay = (30u64 << failures.min(4)).min(300);
                 let refused = AdoptionAttempt::Refused {
                     account_epoch: self.account.account_epoch,
                     advertised: self.advertised_memberships.get(peer_id).cloned(),
+                    refusal: refusal.clone(),
+                    retry_at: self.now().saturating_add(match refusal { AdmissionRefusal::RateLimited { retry_after_seconds } => (*retry_after_seconds).max(delay), _ => delay }),
+                    failures: failures.saturating_add(1),
                 };
                 self.adoptions.insert(peer_id.to_string(), refused);
             }

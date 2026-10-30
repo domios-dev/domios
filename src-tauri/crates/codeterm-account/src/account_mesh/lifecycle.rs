@@ -110,6 +110,8 @@ pub(super) struct Inner {
     pub(super) record: AccountMeshRecord,
     pub(super) key: Option<Arc<InstallationKey>>,
     pub(super) rotation_attempt: Option<u64>,
+    pub(super) rejoin_required: bool,
+    pub(super) rejoin_authorized: bool,
     pub(super) last_request: Option<String>,
     pub(super) pending_renew: Option<super::wire::MeshAdmissionBody>,
     pub(super) metadata_revision: Option<u64>,
@@ -184,6 +186,7 @@ impl Inner {
     fn begin_epoch(&mut self) {
         self.cancel_flight();
         self.auth_parked = None;
+        self.rejoin_authorized = false;
         self.pending_renew = None;
         self.refreshed_credentials = None;
         self.notice_epoch = None;
@@ -235,6 +238,8 @@ impl AccountMesh {
                 record: AccountMeshRecord::default(),
                 key: None,
                 rotation_attempt: None,
+                rejoin_required: false,
+                rejoin_authorized: false,
                 last_request: None,
                 pending_renew: None,
                 metadata_revision: None,
@@ -373,6 +378,7 @@ impl AccountMesh {
                     return false;
                 }
                 inner.begin_epoch();
+                inner.rejoin_required = false;
                 if inner.record.signed_out {
                     inner.record.admission_cache = None;
                 }
@@ -517,16 +523,20 @@ impl AccountMesh {
 
     pub fn enrollment_signed_in(&self) {
         self.with(|inner| {
-            inner.auth_parked = None;
+            if inner.state.signed_in_account().is_none() { return; }
+            inner.rejoin_required |= matches!(inner.state.last_refusal,
+                Some(AccountMeshRefusal::Revoked | AccountMeshRefusal::GenerationMismatch | AccountMeshRefusal::KeyConflict));
+            inner.begin_epoch();
+            inner.record.admission_cache = None;
+            inner.rejoin_authorized = true;
             inner.rotation_attempt = None;
-            inner.retry.resume();
-            if inner.state.last_refusal != Some(AccountMeshRefusal::ReauthRequired) {
-                return;
-            }
-            inner.retry = Default::default();
             inner.lease += 1;
             inner.update(&self.watch, |state| {
+                state.account_epoch += 1;
+                state.membership = None;
                 state.last_refusal = None;
+                state.publication_failure = None;
+                state.registry_failure = None;
                 state.enrollment = Enrollment::Idle;
                 state.retry_at = None;
             });
@@ -554,6 +564,9 @@ impl AccountMesh {
                 {
                     inner.retry = Default::default();
                 }
+            }
+            if inner.rejoin_required && !inner.rejoin_authorized && inner.state.membership.is_none() {
+                return Err(inner.state.last_refusal.unwrap_or(AccountMeshRefusal::ReauthRequired));
             }
             if inner.auth_parked.is_some() {
                 return Err(AccountMeshRefusal::Unauthenticated);
@@ -639,6 +652,10 @@ impl AccountMesh {
                     inner.flight = None;
                 }
                 return None;
+            }
+            if matches!(result, Err(AccountMeshRefusal::GenerationMismatch | AccountMeshRefusal::KeyConflict | AccountMeshRefusal::Revoked)) {
+                inner.rejoin_required = true;
+                inner.rejoin_authorized = false;
             }
             inner.retry.settle(self.now(), *result);
             if inner.state.membership.is_some() {

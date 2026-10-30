@@ -12,9 +12,9 @@ describe("enrollment budget projection", () => {
     expect(row?.controls).toEqual({ add: null, revoke: null, unpairInstanceId: null });
     expect(row?.canSignOut).toBe(false);
     expect(view.self?.readOnly).toBe(true);
-    expect(enrollmentRetryMessage(state, NOW)).toContain("Try again in 3 min");
+    expect(enrollmentRetryMessage(state, NOW)).toContain(new Date((NOW + 121) * 1000).toISOString());
     expect(view.notes).toContain(enrollmentRetryMessage(state, NOW));
-    expect(enrollmentRetryMessage(state, NOW + 61)).toContain("Try again in 1 min");
+    expect(enrollmentRetryMessage(state, NOW + 61)).toContain(new Date((NOW + 121) * 1000).toISOString());
   });
 
   it("uses no countdown without a server deadline and stops promising an exhausted retry", () => {

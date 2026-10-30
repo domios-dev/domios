@@ -42,6 +42,7 @@ export interface LocalPairFact {
   instance_id: string;
   installation_id: string | null;
   admission: "legacy" | "adopted";
+  adoption_detail?: string;
   online: boolean;
   name: string;
 }

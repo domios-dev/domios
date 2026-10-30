@@ -223,7 +223,7 @@ impl AccountMesh {
             return Ok(binding.generation);
         }
         let expected_generation = known.as_ref().map_or(0, |binding| binding.generation);
-        let mut generation = expected_generation
+        let generation = expected_generation
             .checked_add(1)
             .ok_or(AccountMeshRefusal::Invalid)?;
         let body = InstallationKeyBody {
@@ -235,32 +235,18 @@ impl AccountMesh {
                 KeyOperation::Recover
             },
             expected_generation,
+            generation_policy: None,
         };
         let proof = self
             .prove(signed, ProofEndpoint::EnrollInstallation, &body, generation)
             .await?;
         let request = InstallationEnrollment { body, proof };
-        let enrolled = match self
+        let enrolled = self
             .call(self.ports.registry.enroll_key(&signed.session, &request))
-            .await
-        {
-            Err(AccountMeshRefusal::Conflict) if known.is_none() => {
-                generation = 2;
-                let body = InstallationKeyBody {
-                    installation_id: self.installation(),
-                    public_key_spki_base64: signed.key.spki_base64(),
-                    operation: KeyOperation::Recover,
-                    expected_generation: 1,
-                };
-                let proof = self
-                    .prove(signed, ProofEndpoint::EnrollInstallation, &body, generation)
-                    .await?;
-                let request = InstallationEnrollment { body, proof };
-                self.call(self.ports.registry.enroll_key(&signed.session, &request))
-                    .await?
-            }
-            result => result?,
-        };
+            .await.map_err(|refusal| match refusal {
+                AccountMeshRefusal::Conflict => AccountMeshRefusal::KeyConflict,
+                other => other,
+            })?;
         if enrolled.key_id != key_id || enrolled.generation != generation {
             return Err(AccountMeshRefusal::Invalid);
         }
@@ -332,6 +318,11 @@ impl AccountMesh {
 
     pub(super) async fn enroll_once(&self, epoch: u64, _trigger: EnrollTrigger) -> Outcome<()> {
         let mut signed = self.signed(Some(epoch)).await?;
+        self.with(|inner| {
+            if inner.rejoin_authorized && inner.record.keys.get(&signed.account).is_some_and(|binding| binding.key_id != signed.key.key_id()) {
+                inner.rejoin_required = true;
+            }
+        });
         let observed_registry = self.restore_admission(&signed).await;
         if !observed_registry && self.with(|inner| inner.record.peer_presence_refresh) {
             let _ = self.read_registry(&signed).await;
@@ -343,7 +334,7 @@ impl AccountMesh {
                 .current_membership(now)
                 .is_some_and(|membership| now < membership.verified.refresh_after())
         });
-        if current && !self.own_removed() {
+        if current && !self.own_removed() && !self.with(|inner| inner.rejoin_required) {
             if self.with(|inner| inner.sync_pending) {
                 return self.sync_registry(&signed).await;
             }
@@ -357,7 +348,7 @@ impl AccountMesh {
             .as_ref()
             .map(|registry| registry.registry_revision);
         let removed = self.own_removed();
-        let result = if removed {
+        let result = if removed || self.with(|inner| inner.rejoin_required) {
             self.rejoin(&mut signed).await?
         } else {
             let operation = match self.own_slot(&signed.account) {
@@ -371,6 +362,11 @@ impl AccountMesh {
             match self.admission(&signed, operation).await {
                 Ok(result) => result,
                 Err(AccountMeshRefusal::Revoked) => self.rejoin(&mut signed).await?,
+                Err(AccountMeshRefusal::GenerationMismatch | AccountMeshRefusal::KeyConflict)
+                    if self.with(|inner| inner.rejoin_authorized) => {
+                        self.with(|inner| inner.rejoin_required = true);
+                        self.rejoin(&mut signed).await?
+                    },
                 Err(AccountMeshRefusal::Conflict | AccountMeshRefusal::Forbidden) => {
                     match self.reconcile_slot(&signed).await {
                         Ok(Some(slot_revision)) => {
@@ -435,6 +431,8 @@ impl AccountMesh {
             if !inner.is_current(epoch) {
                 return false;
             }
+            inner.rejoin_required = false;
+            inner.rejoin_authorized = false;
             inner
                 .record
                 .slots
@@ -488,6 +486,11 @@ impl AccountMesh {
             return Err(AccountMeshRefusal::Cancelled);
         }
         self.persist().await;
+        if result.operation == MembershipOperation::Recover && self.with(|inner| inner.rotation_attempt == Some(epoch)) {
+            let observed = self.read_registry(&signed).await;
+            self.ports.transport.installation_revoked(&installation).await;
+            observed?;
+        }
         let unchanged = reuse_registry && self.with(|inner| !inner.sync_pending);
         if unchanged {
             self.set_registry_presence(&signed, RegistryPresence::Present)
@@ -953,7 +956,7 @@ impl AccountMesh {
     /// Fresh online slot identity of an active, eligible installation; no endpoint needed.
     pub async fn resolve_link_identity(&self, installation_id: &str) -> Outcome<MeshTarget> {
         let signed = self.signed(None).await?;
-        let observation = self.read_registry(&signed).await?;
+        let observation = self.list().await?;
         let row = observation
             .rows
             .iter()
@@ -975,7 +978,7 @@ impl AccountMesh {
     /// Fresh online registry read; the only source of a new-link address.
     pub async fn resolve_link_target(&self, installation_id: &str) -> Outcome<LinkTarget> {
         let signed = self.signed(None).await?;
-        let observation = self.read_registry(&signed).await?;
+        let observation = self.list().await?;
         let now = self.now();
         let row = observation
             .rows
@@ -1034,8 +1037,14 @@ impl AccountMesh {
         if request.local_installation_id != self.installation() {
             return Err(AccountMeshRefusal::Invalid);
         }
-        let resolved =
-            self.with(|inner| inner.resolved.get(&request.peer_installation_id).cloned());
+        let resolved = self.with(|inner| {
+            inner.resolved.get(&request.peer_installation_id).cloned().or_else(|| {
+                inner.state.registry.as_ref()?.rows.iter()
+                    .find(|row| row.installation_id == request.peer_installation_id && row.active
+                        && row.eligibility == Eligibility::Eligible && row.presence == RegistryPresence::Present)
+                    .map(|row| row.target())
+            })
+        });
         // A responder authorizes on the initiator's slot identity; it never dials that peer.
         let peer = match resolved {
             Some(peer) => peer,

@@ -122,6 +122,7 @@ export function MachineManagement({ machines }: { machines: MachinesController }
           onSignOut={() => machines.revokeSession(row)}
           onUnpair={(instanceId) => void unpair(row, instanceId)}
           failure={machines.failures.get(row.key)?.failure}
+          retryAt={machines.failures.get(row.key)?.retryAt}
         />
       ))}
     </ul>
@@ -181,8 +182,8 @@ export function MachineManagement({ machines }: { machines: MachinesController }
       <Notes notes={view.notes} />
       {enrollmentRefused && !view.machineLimit && (
         <div className="flex gap-2">
-          {view.removed || view.reauthRequired || snapshot?.last_refusal?.reason === "unauthenticated" || snapshot?.last_refusal?.reason === "app-check" ? (
-            <button type="button" onClick={() => void signIn()} disabled={signingIn} className={PRIMARY_BTN}>{view.removed ? "Sign in and rejoin" : "Sign in again"}</button>
+          {view.removed || view.reauthRequired ? (
+            <button type="button" onClick={() => void signIn()} disabled={signingIn} className={PRIMARY_BTN}>Rejoin mesh</button>
           ) : (
             <button type="button" onClick={() => void retryEnrollment()} className={ACTION_BTN}>{view.removed ? "Rejoin" : "Retry enrollment"}</button>
           )}
@@ -286,7 +287,7 @@ function SelfRow({ self, onRename, onPlans }: {
   );
 }
 
-function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair, onSignOut, failure }: {
+function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, onAskConfirm, onCancelConfirm, onRevoke, onUnpair, onSignOut, failure, retryAt }: {
   row: MachineRowView;
   busy: boolean;
   confirm: "revoke" | "unpair" | null;
@@ -300,10 +301,11 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
   onSignOut: () => Promise<boolean>;
   onUnpair: (instanceId: string) => void;
   failure?: AccountMeshFailure;
+  retryAt?: number;
 }) {
   const reasonId = useId();
   const [alsoSignOut, setAlsoSignOut] = useState(false);
-  const pill = STATUS_PILL[row.status];
+  const pill = failure?.reason === "rate-limited" ? { label: "Busy", tone: "muted" as const } : STATUS_PILL[row.status];
   const { add, revoke, unpairInstanceId } = row.controls;
   const linking = row.status === "linking";
   const lock = meshMachineLockedView(row);
@@ -359,7 +361,7 @@ function MachineRow({ row, busy, confirm, register, onDecision, onAdd, onPlans, 
       </div>
       {row.canSignOut && <MachineSessionControls name={row.name} busy={busy} onSignOut={onSignOut} />}
       <div className={UI_TEXT.metaMuted}>{row.detail}</div>
-      {failure && <InlineErrorNotice description={{ title: "The machine action could not be completed", cause: failureMessage(failure), raw: JSON.stringify(failure), actions: [] }} />}
+      {failure?.reason === "rate-limited" ? <p role="status" className={UI_TEXT.metaMuted}>{failureMessage(failure, undefined, retryAt)}</p> : failure && <InlineErrorNotice description={{ title: "The machine action could not be completed", cause: failureMessage(failure), raw: JSON.stringify(failure), actions: [] }} />}
       {add?.reason && !linking && <div id={reasonId} className={UI_TEXT.metaMuted}>{add.reason}</div>}
       {confirm === "revoke" && revoke && (
         <ConfirmStrip

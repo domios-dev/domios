@@ -32,7 +32,7 @@ export function MachineReauthentication({ signingIn, onSignIn }: { signingIn: bo
   return <div role="group" aria-label="Add this machine to your mesh" className="flex flex-col gap-2 border-t border-[var(--ct-border)] px-3.5 py-2.5" onClick={(event) => event.stopPropagation()}>
     <p role="status" className="m-0 text-[12px] text-[var(--ct-muted-fg)]">{REAUTH_REQUIRED_COPY}</p>
     <button type="button" onClick={onSignIn} disabled={signingIn} aria-busy={signingIn} className={`${UI_BUTTON.primary} ${UI_BUTTON.compact}`}>
-      {signingIn ? "Signing in…" : "Sign in again"}
+      {signingIn ? "Signing in…" : "Rejoin mesh"}
     </button>
   </div>;
 }
@@ -66,6 +66,7 @@ function ApprovalControls({ row, busy, actions }: { row: MachineRowView; busy: b
 }
 
 function Callout({ callout, onRetry, onDismiss }: { callout: MachineCallout; onRetry?: () => void; onDismiss: () => void }) {
+  if (callout.transient) return <p role="status" className={UI_TEXT.metaMuted}>{callout.message}</p>;
   return <InlineErrorNotice
     role="alert"
     description={{ title: callout.title, cause: callout.message, raw: callout.message, actions: [] }}

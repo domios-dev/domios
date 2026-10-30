@@ -158,16 +158,13 @@ where
     if adopt {
         let mesh_state = state.mesh.clone();
         let peer_id = sender_id.clone();
+        let service = state.svc.clone();
         codeterm_service_core::async_runtime::spawn(async move {
-            if let Err(refusal) =
-                codeterm_service_core::mesh::account_mesh::link::adopt_peer(&mesh_state, &peer_id)
-                    .await
-            {
-                log::debug!(
-                    "[mesh/account] adoption of {} deferred: {}",
-                    peer_id,
-                    refusal
-                );
+            let previous = mesh_state.lock().account_mesh_pairs();
+            let _ = codeterm_service_core::mesh::account_mesh::link::adopt_peer(&mesh_state, &peer_id).await;
+            if previous != mesh_state.lock().account_mesh_pairs() {
+                service.ui.emit("account-mesh-changed", serde_json::Value::Null);
+                service.ui.emit("mesh-state-changed", serde_json::Value::Null);
             }
         });
     }

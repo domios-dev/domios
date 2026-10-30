@@ -42,7 +42,7 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
     onRetryEnrollment: account.presence === "signed_in" && snapshot?.enrollment === "refused" && snapshot.retry_at == null
-      && ["unavailable", "offline", "authority-unavailable", "rate-limited", "enrollment_budget"].includes(snapshot.last_refusal?.reason ?? "")
+      && ["unavailable", "offline", "authority-unavailable", "enrollment_budget"].includes(snapshot.last_refusal?.reason ?? "")
       ? () => { void retryEnrollment(); } : undefined,
   }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines, account.presence, retryEnrollment]);
 }

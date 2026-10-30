@@ -200,6 +200,7 @@ async fn account_mesh_recovers_when_the_enroll_key_reply_is_lost() {
     assert_eq!(harness.calls("enroll_key"), 1);
 
     harness.clock.set(harness.state().retry_at.unwrap());
+    harness.mesh.enrollment_signed_in();
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
     assert_eq!(harness.calls("enroll_key"), 2);
     assert_eq!(harness.calls("recover_key"), 1);
@@ -223,11 +224,12 @@ async fn account_mesh_reenrolls_when_its_remote_row_is_inactive() {
     let harness = enrolled().await;
     harness.registry.revoke_self(UID);
     harness.clock.set(START + 3600);
-
+    assert_eq!(harness.mesh.refresh(EnrollTrigger::Explicit).await, Err(AccountMeshRefusal::ReauthRequired));
+    harness.mesh.enrollment_signed_in();
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
-
-    assert_eq!(harness.calls("enroll"), 2);
-    assert_eq!(harness.registry.slot(UID), Some(1));
+    assert_eq!(harness.calls("enroll"), 1);
+    assert_eq!(harness.calls("recover"), 1);
+    assert_eq!(harness.registry.slot(UID), Some(2));
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
 }
 

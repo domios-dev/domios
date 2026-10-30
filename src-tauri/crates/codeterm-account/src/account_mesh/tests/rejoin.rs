@@ -137,6 +137,7 @@ async fn account_mesh_rejoin_in_process_refreshes_key_endpoint_and_revocation() 
     harness.registry.revoke_self(UID);
     harness.logout().await;
     harness.sign_in(UID).await;
+    harness.mesh.enrollment_signed_in();
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
     let state = harness.state();
     let own = state.self_installation.as_ref().unwrap();
@@ -192,6 +193,7 @@ async fn removed() -> Harness {
     harness.sign_in(UID).await;
     auth_time(&harness, START);
     harness.log.lock().unwrap().clear();
+    harness.mesh.enrollment_signed_in();
     harness
 }
 
@@ -202,13 +204,13 @@ async fn account_mesh_rejoin_rotates_then_enrolls_then_syncs() {
     let old = harness.store.record.lock().unwrap().keys[&account_id(UID)].clone();
     harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
-    assert_eq!(harness.calls("enroll"), 1);
+    assert_eq!(harness.calls("recover"), 1);
     assert_eq!(harness.calls("sync"), 1);
     assert!(
         position(&harness.log, "registry:recover_key:")
-            < position(&harness.log, "registry:enroll:")
+            < position(&harness.log, "registry:recover:")
     );
-    assert!(position(&harness.log, "registry:enroll:") < position(&harness.log, "registry:sync:"));
+    assert!(position(&harness.log, "registry:recover:") < position(&harness.log, "registry:sync:"));
     let state = harness.state();
     let own = state.self_installation.as_ref().unwrap();
     assert_eq!(own.installation_id, INSTALLATION);
@@ -281,7 +283,7 @@ async fn account_mesh_rejoin_same_generation_is_refused() {
     );
     assert_eq!(harness.calls("recover_key"), 0);
     assert_eq!(harness.calls("sync"), 0);
-    assert!(harness.registry.slot(UID).is_none());
+    assert!(harness.registry.slot(UID).is_some());
 }
 
 #[tokio::test]
@@ -296,6 +298,6 @@ async fn account_mesh_rejoin_retries_sync_without_another_rotation() {
     harness.clock.set(START + 30);
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert_eq!(harness.calls("recover_key"), 1);
-    assert_eq!(harness.calls("enroll"), 1);
+    assert_eq!(harness.calls("recover"), 1);
     assert_eq!(harness.calls("sync"), 2);
 }

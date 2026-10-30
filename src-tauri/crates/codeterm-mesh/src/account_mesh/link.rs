@@ -509,12 +509,6 @@ pub async fn on_account_state_applied(mesh: MeshState) {
             .collect()
     };
     for peer_id in legacy {
-        if let Err(refusal) = adopt_peer(&mesh, &peer_id).await {
-            log::debug!(
-                "[mesh/account] adoption of {} deferred: {}",
-                peer_id,
-                refusal
-            );
-        }
+        let _ = adopt_peer(&mesh, &peer_id).await;
     }
 }

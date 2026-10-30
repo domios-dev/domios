@@ -30,7 +30,7 @@ describe("account mesh failure reasons", () => {
     const failure = linkFailure(error);
 
     expect(failure).toEqual({ reason: "rate-limited", retry_after_seconds: 60 });
-    expect(failureMessage(failure)).toContain("60 seconds");
+    expect(failureMessage(failure, false, 1_700_000_060)).toBe("Busy until 2023-11-14T22:14:20.000Z");
     expect(failureMessage(failure)).not.toContain("undefined");
   });
 });

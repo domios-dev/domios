@@ -175,8 +175,8 @@ describe("Mesh canvas wiring", () => {
     await act(async () => element!.click());
   };
 
-  it.each(["unavailable", "offline", "authority-unavailable", "rate-limited"] as const)("restarts stopped %s enrollment through its visible retry and reloads the snapshot", async reason => {
-    const refusal = reason === "rate-limited" ? { reason, retry_after_seconds: 30 } : { reason };
+  it.each(["unavailable", "offline", "authority-unavailable"] as const)("restarts stopped %s enrollment through its visible retry and reloads the snapshot", async reason => {
+    const refusal = { reason };
     const client = new FakeAccountMeshClient(snapshot({ enrollment: "refused", last_refusal: refusal, retry_at: null, registry: null }));
     const enroll = vi.spyOn(client, "enroll").mockImplementation(async () => {
       client.state = snapshot();
@@ -389,7 +389,7 @@ describe("Mesh canvas wiring", () => {
     client.renameOutcomes = [{ ok: false, failure: { reason: "rate-limited", retry_after_seconds: 15 } }];
     await mount(client);
     await editName("Studio PC", "Desk", "Enter");
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe("Too many requests. Try again in 15 seconds.");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("Busy until ");
     expect(host.querySelector<HTMLInputElement>("input")?.value).toBe("Desk");
     expect(client.renameCalls).toHaveLength(1);
   });
@@ -452,7 +452,7 @@ describe("Mesh canvas wiring", () => {
   });
 
   it("signs in and rejoins a removed machine with one action", async () => {
-    const client = new FakeAccountMeshClient(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "forbidden" } }));
+    const client = new FakeAccountMeshClient(snapshot({ self: null, registry: null, enrollment: "refused", last_refusal: { reason: "revoked" } }));
     await mount(client);
     const group = host.querySelector('[role="group"][aria-label="Rejoin your mesh"]');
     expect(group).not.toBeNull();
@@ -514,6 +514,30 @@ describe("Mesh canvas wiring", () => {
     await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "req-2", refusal: { reason: "handshake-failed" } })));
     await click(button("Dismiss: Could not connect MacBook"));
     expect(node("MacBook")?.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("shows rate limiting as transient status and keeps its deadline stable across refreshes", async () => {
+    const client = new FakeAccountMeshClient(snapshot());
+    await mount(client);
+    await click(button("Connect MacBook"));
+    await act(async () => client.linkOutcome.reject(new AccountMeshRefusalError({ requestId: "busy-1", refusal: { reason: "rate-limited", retry_after_seconds: 60 } })));
+    const status = () => [...node("MacBook")!.querySelectorAll('[role="status"]')].map(element => element.textContent).find(text => text?.startsWith("Busy until"));
+    expect(node("MacBook")?.querySelector('[role="alert"]')).toBeNull();
+    const deadline = status();
+    expect(deadline).toBeTruthy();
+    await act(async () => client.emit(snapshot()));
+    expect(status()).toBe(deadline);
+    expect(client.linkCalls).toHaveLength(1);
+    await act(async () => client.emit(snapshot({ pairs: [pair("mesh-mac", "MacBook", { installation_id: macRow.installation_id })] })));
+    expect(status()).toBeUndefined();
+  });
+
+  it("does not offer enrollment retry during rate backoff", async () => {
+    const client = new FakeAccountMeshClient(snapshot({ enrollment: "refused", last_refusal: { reason: "rate-limited", retry_after_seconds: 60 }, retry_at: NOW + 60 }));
+    await mount(client);
+    expect([...host.querySelectorAll("button")].some(element => element.textContent === "Retry enrollment")).toBe(false);
+    expect(client.enrollCalls).toBe(0);
+    expect(presence.signIns).toBe(0);
   });
 
   it("disables a signed-out paired card and relay despite the last peer heartbeat being online", async () => {
