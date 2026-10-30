@@ -31,7 +31,7 @@ describe("account installation projection", () => {
     const view = account(snapshot({ pairs: [pair("transport", "old name", { installation_id: macRow.installation_id })] }));
     const row = view.machines.find(row => row.key === macRow.installation_id)!;
     expect(row).toMatchObject({ name: "MacBook", pairInstanceId: "transport", status: "linked" });
-    const peer: PeerStatus = { instance_id: "transport", name: "old name", ip: "100.64.0.9", api_port: 7685, online: true, access_level: "full", last_seen: null, relay_protocol_version: 2 };
+    const peer: PeerStatus = { instance_id: "transport", name: "old name", ip: "192.0.2.9", api_port: 7685, online: true, access_level: "full", last_seen: null, relay_protocol_version: 2 };
     const projected = canvas(view, [peer]);
     expect(projected.peerFooters.get("transport")?.row.key).toBe(macRow.installation_id);
     expect(projected.nodes.map(node => node.key)).not.toContain(macRow.installation_id);
@@ -53,7 +53,7 @@ describe("account installation projection", () => {
     expect(row.controls.revoke).toEqual(targetOf(green));
   });
   it("keeps stale active installations visible and removable", () => {
-    const stale = machine("stale", "Offline machine", { endpoint: { tailnet_ip: "100.64.0.8", api_port: 7685, expires_at: NOW - 1 } });
+    const stale = machine("stale", "Offline machine", { endpoint: { tailnet_ip: "192.0.2.8", api_port: 7685, expires_at: NOW - 1 } });
     const row = account(snapshot({ registry: { observed_at: NOW, rows: [selfRow, stale] } })).machines[0];
     expect(row.status).toBe("endpoint_stale");
     expect(row.controls.revoke).toEqual(targetOf(stale));

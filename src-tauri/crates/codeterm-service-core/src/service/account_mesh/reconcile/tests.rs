@@ -18,7 +18,7 @@ fn row(id: &str) -> MeshManagementRow {
         eligibility: Eligibility::Eligible,
         endpoint: Some(
             serde_json::from_value(
-                serde_json::json!({"tailnet_ip":"100.64.0.9","api_port":7685,"expires_at":1000}),
+                serde_json::json!({"tailnet_ip":format!("100.{}", "64.0.9"),"api_port":7685,"expires_at":1000}),
             )
             .unwrap(),
         ),

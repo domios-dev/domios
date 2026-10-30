@@ -31,7 +31,7 @@ fn paired_peer_routes_without_set_addr() {
         .find(|p| p.instance_id == "peer-a")
         .expect("peer-a listed in peers_response");
     assert!(
-        rendered.addresses.iter().any(|a| a.ip == "100.64.1.9"),
+        rendered.addresses.iter().any(|a| a.ip == "192.0.2.9"),
         "the real address renders, not a placeholder"
     );
 }

@@ -4,7 +4,7 @@ pub(super) fn paired_peer(id: &str) -> PairedPeer {
     PairedPeer {
         instance_id: id.into(),
         instance_name: "peer".into(),
-        addresses: vec![types::PeerAddress::from_ip("100.64.1.9")],
+        addresses: vec![types::PeerAddress::from_ip("192.0.2.9")],
         api_port: 7685,
         public_key: "pub".into(),
         paired_at: "now".into(),
@@ -48,7 +48,7 @@ fn apply_gossip_peer_info_updates_last_active() {
     mesh.apply_gossip_peer_info(&types::GossipPeerInfo {
         instance_id: "peer-1".into(),
         instance_name: "peer".into(),
-        addresses: vec![types::PeerAddress::from_ip("100.64.1.9")],
+        addresses: vec![types::PeerAddress::from_ip("192.0.2.9")],
         api_port: 7685,
         dev: false,
         last_active_ms: Some(42_000),
