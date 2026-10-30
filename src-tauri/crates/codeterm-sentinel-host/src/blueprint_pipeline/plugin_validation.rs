@@ -27,7 +27,7 @@ pub(super) fn validate(service: &ServiceContext, spec: &BlueprintSpec) -> Vec<Va
                     let StepKind::Plugin { node_type, .. } = &source.kind else {
                         continue;
                     };
-                    if registry.step(node_type).is_none_or(|source| {
+                    if registry.step(node_type).is_some_and(|source| {
                         !source.descriptor.outputs.contains_key(binding.selection)
                     }) {
                         errors.push(ValidationError::new(
