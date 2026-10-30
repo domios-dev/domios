@@ -366,7 +366,7 @@ pub enum Commands {
         action: BridgeAction,
     },
 
-    /// Mesh networking — peer discovery, pairing, relay
+    /// Account mesh — installations, status and authenticated relay
     Mesh {
         #[command(subcommand)]
         action: MeshAction,

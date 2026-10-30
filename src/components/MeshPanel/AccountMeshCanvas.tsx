@@ -7,5 +7,6 @@ type Props = Omit<ComponentProps<typeof MeshCanvas>, "account"> & { onAccountCha
 /** The Mesh canvas with the account's machines on it; mounted only while the canvas is shown. */
 export function AccountMeshCanvas({ onAccountChanged, registryRefreshKey = 0, ...props }: Props) {
   const account = useCanvasAccount(props.peers, onAccountChanged, registryRefreshKey);
-  return <MeshCanvas {...props} account={account} />;
+  const peers = props.peers.filter(peer => account.canvas.peerFooters.has(peer.instance_id));
+  return <MeshCanvas {...props} peers={peers} account={account} />;
 }

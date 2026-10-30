@@ -4,7 +4,6 @@ pub mod account_mesh;
 pub mod broadcast;
 pub mod contract;
 pub mod crown;
-pub mod disconnect;
 pub mod discovery;
 pub mod health;
 pub mod identity;

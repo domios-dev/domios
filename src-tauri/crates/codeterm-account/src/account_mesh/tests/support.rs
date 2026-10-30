@@ -694,6 +694,13 @@ impl MeshRegistry for FakeRegistry {
                 if changed {
                     account.metadata_revision += 1;
                 }
+                let (registry_revision, cursor) = {
+                    let script = self.script.lock().unwrap();
+                    (
+                        script.registry_revision.unwrap_or(9),
+                        script.sync_cursor.clone(),
+                    )
+                };
                 let mut result = SyncResult {
                     installation_id: INSTALLATION.into(),
                     display_name: account.display_name.clone(),
@@ -707,16 +714,11 @@ impl MeshRegistry for FakeRegistry {
                     previous_metadata_revision: previous,
                     metadata_revision: account.metadata_revision,
                     slot_revision: account.slot.unwrap(),
-                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(9),
+                    registry_revision,
                     registry: PageResult {
-                        registry_revision: self
-                            .script
-                            .lock()
-                            .unwrap()
-                            .registry_revision
-                            .unwrap_or(9),
+                        registry_revision,
                         rows: Vec::new(),
-                        cursor: self.script.lock().unwrap().sync_cursor.clone(),
+                        cursor,
                     },
                 };
                 drop(accounts);
@@ -804,9 +806,11 @@ impl MeshRegistry for FakeRegistry {
                     return Err(refusal);
                 }
                 drop(accounts);
+                let registry_revision = self.script.lock().unwrap().registry_revision.unwrap_or(7);
+                let rows = self.rows(&uid, &proof.key_id);
                 Ok(MeshResult::Page(PageResult {
-                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(7),
-                    rows: self.rows(&uid, &proof.key_id),
+                    registry_revision,
+                    rows,
                     cursor: None,
                 }))
             }

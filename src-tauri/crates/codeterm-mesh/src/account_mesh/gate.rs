@@ -44,7 +44,6 @@ impl TrafficDecision {
 pub fn decide(
     record: Option<&LinkRecord>,
     peer_public_key: &str,
-    owner_account: Option<&str>,
     state: &AccountMeshState,
     now: u64,
 ) -> TrafficDecision {
@@ -61,21 +60,7 @@ pub fn decide(
         return Blocked(KeyMismatch);
     }
     match &record.admission {
-        LinkAdmission::Legacy { .. } => match (&state.presence, owner_account) {
-            // Not yet restored is not a sign-out: legacy needs no account until one signs in.
-            (AccountPresence::NeverSignedIn, _) => TrafficDecision::Open,
-            (AccountPresence::SignedIn { account_id }, owner) => {
-                if owner.is_some_and(|owner| owner != account_id.as_str()) {
-                    Blocked(OtherAccount)
-                } else if state.plan_limit_locked {
-                    Blocked(PlanLimitLocked)
-                } else {
-                    TrafficDecision::Open
-                }
-            }
-            (AccountPresence::SignedOut, _) => Blocked(SignedOut),
-        },
-        LinkAdmission::Adopted {
+        LinkAdmission::Account {
             account_id,
             installation_id,
             ..
@@ -111,12 +96,9 @@ pub fn decide(
     }
 }
 
-/// Earliest signed boundary at which an open adopted edge must be re-decided.
+/// Earliest signed boundary at which an open account connection must be re-decided.
 pub fn admission_deadline(record: Option<&LinkRecord>, state: &AccountMeshState) -> Option<u64> {
     let record = record?;
-    if !matches!(record.admission, LinkAdmission::Adopted { .. }) {
-        return None;
-    }
     let local = state.membership.as_ref().map(|m| m.verified.expires_at);
     let remote = record
         .remote_membership

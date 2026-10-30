@@ -16,7 +16,7 @@ fn presence_notice_requires_a_signed_in_receiver_and_paired_nonreplayed_signatur
         "Receiver".into(),
         7685,
     );
-    mesh.insert_legacy_pair_for_test(PairedPeer {
+    mesh.insert_account_peer_for_test(PairedPeer {
         instance_id: "sender".into(),
         instance_name: "Sender".into(),
         addresses: vec![],
@@ -86,7 +86,6 @@ fn account_registry_block_allows_signed_notice_then_reopens_only_after_observati
     use codeterm_service_core::mesh::account_mesh::{
         protocol::PartyDescriptor, transcript::Party, SignedMembership, VerifiedMembership,
     };
-    use codeterm_service_core::mesh::manager::LinkOrigin;
     let (private, public) = crown::generate_peer_keypair();
     let sender = "00000000-0000-4000-8000-000000000001";
     let mut mesh = MeshManager::in_memory(
@@ -134,7 +133,6 @@ fn account_registry_block_allows_signed_notice_then_reopens_only_after_observati
         &[],
         membership("sender-installation"),
         "account",
-        LinkOrigin::Remote,
         "fixture",
     )
     .unwrap();
@@ -144,8 +142,7 @@ fn account_registry_block_allows_signed_notice_then_reopens_only_after_observati
         .insert("sender-installation".into());
     mesh.apply_account_state(state.clone());
     assert!(!mesh.traffic_open(sender));
-    assert!(!mesh.is_revoked(sender));
-    assert!(!mesh.is_blocked(sender));
+    assert!(!mesh.account_peer_revoked(sender));
     let notice = crown::sign_request(&private, sender).unwrap();
     assert_eq!(authorize_notice(&mut mesh, &notice).unwrap(), sender);
     assert!(!mesh.traffic_open(sender));

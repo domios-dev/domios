@@ -42,7 +42,7 @@ async fn repeated_mesh_client_construction_reuses_one_keep_alive_connection() {
     let mut local_ports = Vec::with_capacity(REQUESTS);
 
     for _ in 0..REQUESTS {
-        let client = codeterm_service_core::mesh::transport::PeerClient::new_unauthenticated(
+        let client = codeterm_service_core::mesh::transport::PeerClient::new_for_test_without_auth(
             "127.0.0.1",
             address.port(),
         );

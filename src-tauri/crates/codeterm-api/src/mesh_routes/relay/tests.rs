@@ -258,13 +258,13 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     // `MeshManager::new` loads real disk state — start from empty so this
     // test is never polluted by the running machine's own paired peers.
     mesh.paired_peers.clear();
-    mesh.insert_legacy_pair_for_test(paired_peer_fixture(
+    mesh.insert_account_peer_for_test(paired_peer_fixture(
         "a4db6f3d-dead",
         "BLACKSTAR",
         false,
         codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1,
     ));
-    mesh.insert_legacy_pair_for_test(paired_peer_fixture(
+    mesh.insert_account_peer_for_test(paired_peer_fixture(
         "2556b3f9-live",
         "BLACKSTAR",
         true,
@@ -297,8 +297,8 @@ fn peer_relay_refusal_names_both_dead_records_and_the_id_route() {
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("test-host".into(), 7685);
     mesh.disk_persist = false;
     mesh.paired_peers.clear();
-    mesh.insert_legacy_pair_for_test(paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0));
-    mesh.insert_legacy_pair_for_test(paired_peer_fixture(
+    mesh.insert_account_peer_for_test(paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0));
+    mesh.insert_account_peer_for_test(paired_peer_fixture(
         "c9112abc-alsodead",
         "BLACKSTAR",
         false,
@@ -830,7 +830,7 @@ fn relay_refusal_distinguishes_unroutable_from_unpaired() {
         consecutive_misses: 0,
         last_active_ms: None,
     };
-    mesh.insert_legacy_pair_for_test(peer.clone());
+    mesh.insert_account_peer_for_test(peer.clone());
 
     // Genuinely unknown peer: no paired record at all.
     let unpaired = match resolve_relay_peer(&mesh, "no-such-peer") {
@@ -870,7 +870,7 @@ fn relay_refusal_distinguishes_unroutable_from_unpaired() {
         .push(codeterm_service_core::mesh::types::PeerAddress::from_ip(
             "100.65.0.30",
         ));
-    mesh.insert_legacy_pair_for_test(peer);
+    mesh.insert_account_peer_for_test(peer);
     assert!(resolve_relay_peer(&mesh, "peer-a").is_ok());
 }
 
@@ -1039,7 +1039,10 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
     // Port 1 (TCPMUX) never has a listener — a synchronous refusal, no
     // bind/drop race for a free ephemeral port.
     let refused_client =
-        codeterm_service_core::mesh::transport::PeerClient::new_unauthenticated("127.0.0.1", 1);
+        codeterm_service_core::mesh::transport::PeerClient::new_for_test_without_auth(
+            "127.0.0.1",
+            1,
+        );
     let refused_err = refused_client
         .send_relay(&probe_cmd)
         .await
@@ -1084,10 +1087,11 @@ async fn sender_transport_failure_reports_the_same_vocabulary_as_the_receiver() 
             }
         }
     });
-    let closing_client = codeterm_service_core::mesh::transport::PeerClient::new_unauthenticated(
-        &addr.ip().to_string(),
-        addr.port(),
-    );
+    let closing_client =
+        codeterm_service_core::mesh::transport::PeerClient::new_for_test_without_auth(
+            &addr.ip().to_string(),
+            addr.port(),
+        );
     let loopback_deadline = std::time::Duration::from_secs(5);
     let stalled_err =
         tokio::time::timeout(loopback_deadline, closing_client.send_relay(&probe_cmd))

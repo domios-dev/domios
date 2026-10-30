@@ -57,7 +57,7 @@ specific shell id).
 
 ## Adding a machine to the mesh
 
-New machines come only from the account: sign both in to the same account, then `domios mesh link <installation-id>` (or Add in the Mesh tab). Both must be online and directly reachable; there is no broadcast, scan or manual address. Signing out blocks the mesh without unpairing; signing back in to the same account restores it. See `domios docs MESH`.
+Sign in on each machine with the same Domios account. Active installations connect automatically when online and reachable, using account membership and fresh online permits. Remove from mesh revokes the installation slot. Signing out blocks traffic; sign in again on the named machine to restore it. See `domios docs MESH`.
 
 ## References
 
@@ -83,4 +83,4 @@ Local models use the bundled OpenCode provider: `domios model-provider add|remov
 
 The always-on protocol lives in your provider rules and fires regardless of which skill is loaded. Save only durable facts. Instructions for the current session or task (model or worker choice for now, temporary priorities, 'this time', 'for this release') stay in the conversation or plan, never in memory. If durability is uncertain, do not save; ask only when the user says remember. Even an explicit remember of a session-scoped instruction requires the user to say it is permanent. Explicit "remember" requests for durable facts still mean save now.
 
-<!-- revision: 87 -->
+<!-- revision: 88 -->

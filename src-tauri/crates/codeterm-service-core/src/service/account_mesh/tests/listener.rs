@@ -127,15 +127,34 @@ async fn lifecycle() {
     service
         .ext::<crate::config::ConfigState>()
         .lock()
-        .api
+        .mesh
         .enabled = false;
     service
         .events
         .publish_generic("config-changed", serde_json::Value::Null);
     wait_for_ready(&mut ready, remote, false).await;
     let rebound =
-        codeterm_util::tcp_listener::bind(remote).expect("API disable releases the listener");
+        codeterm_util::tcp_listener::bind(remote).expect("Mesh disable releases the listener");
     drop(rebound);
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .mesh
+        .enabled = true;
+    service
+        .events
+        .publish_generic("config-changed", serde_json::Value::Null);
+    wait_for_ready(&mut ready, remote, true).await;
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .api
+        .enabled = false;
+    service
+        .events
+        .publish_generic("config-changed", serde_json::Value::Null);
+    wait_for_ready(&mut ready, remote, false).await;
+    drop(codeterm_util::tcp_listener::bind(remote).expect("API disable releases the listener"));
     task.abort();
     let _ = task.await;
     control.shutdown_and_wait().await.unwrap();

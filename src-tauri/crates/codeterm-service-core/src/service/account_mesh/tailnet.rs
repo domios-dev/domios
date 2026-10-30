@@ -262,11 +262,15 @@ pub(super) async fn run_with_network(
     loop {
         let enabled = {
             let config = service.ext::<crate::config::ConfigState>().lock();
-            config.api.enabled
+            config.api.enabled && config.mesh.enabled
         };
         let port = control.bound_addr().map_or(0, |address| address.port());
         let listening = rest.borrow_and_update().phase == RestApiPhase::Listening;
-        let desired = network.selected(enabled && listening, port).await;
+        let desired = if enabled && listening {
+            network.selected(true, port).await
+        } else {
+            Vec::new()
+        };
         let primary = if listening {
             control.listeners.primary_ready()
         } else {

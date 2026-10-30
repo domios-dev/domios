@@ -353,9 +353,7 @@ impl ServiceContext {
         if let Some(result) = self.answer_host_question(id, label) {
             return result;
         }
-        if let Some(result) = self.answer_mesh_link_notification(id, label) {
-            return result;
-        }
+
         // The guard is dropped before the event fans out: nothing downstream of
         // an emit may re-enter the store while it is still held.
         let admission = self.notif.lock().record_answer(id, label);

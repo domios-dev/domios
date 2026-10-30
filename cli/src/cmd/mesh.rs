@@ -30,7 +30,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         MeshAction::Status => match client.call("mesh.status", None) {
             Ok(mut val) => {
                 let account = http
-                    .get(format!("{}/api/account/mesh", base))
+                    .get(format!("{}/api/account/mesh/summary", base))
                     .header(
                         "Authorization",
                         format!("Bearer {}", token.as_deref().unwrap_or("")),
@@ -58,7 +58,7 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0);
                     println!("{} ({})", name, &id[..id.len().min(8)]);
-                    println!("Paired: {}", paired);
+                    println!("Account connections: {}", paired);
                     for line in account_mesh_status_lines(&val["account_mesh"]) {
                         println!("{}", line);
                     }
@@ -73,38 +73,34 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
                 if json {
                     println!("{}", serde_json::to_string_pretty(&val).unwrap());
                 } else {
-                    if let Some(paired) = val.get("paired").and_then(|v| v.as_array()) {
-                        if !paired.is_empty() {
-                            println!("Paired:");
-                        }
-                        for p in paired {
-                            let name = p
-                                .get("instance_name")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("?");
-                            let online = p.get("online").and_then(|v| v.as_bool()).unwrap_or(false);
-                            let ip = p
-                                .get("addresses")
-                                .and_then(|v| v.as_array())
-                                .and_then(|a| a.first())
-                                .and_then(|a| a.get("ip"))
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("?");
-                            let dot = if online { "●" } else { "○" };
-                            println!(
-                                "  {} {} ({}) {}",
-                                dot,
-                                name,
-                                ip,
-                                if p.get("is_primary")
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(false)
-                                {
-                                    "★"
-                                } else {
-                                    ""
-                                }
-                            );
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    if let Some(rows) = val.get("installations").and_then(|rows| rows.as_array()) {
+                        for row in rows {
+                            let name = row["name"].as_str().unwrap_or("Unnamed machine");
+                            let id = row["installation_id"].as_str().unwrap_or("?");
+                            let status = if row["active"] == false {
+                                "Removed"
+                            } else if row["signed_out"] == true {
+                                "Sign in on this machine"
+                            } else if row["membership_expires_at"]
+                                .as_u64()
+                                .is_some_and(|at| at <= now)
+                            {
+                                "Membership expired"
+                            } else if row["online"] == true {
+                                "Connected"
+                            } else if row["endpoint_expires_at"]
+                                .as_u64()
+                                .is_none_or(|at| at <= now)
+                            {
+                                "Stale endpoint"
+                            } else {
+                                "Connecting automatically"
+                            };
+                            println!("  {name} ({id}): {status}");
                         }
                     }
                 }
@@ -115,84 +111,6 @@ pub fn handle_mesh(client: &mut SocketClient, json: bool, action: MeshAction) {
         },
         MeshAction::Tabs { target } => {
             mesh_cli::mesh_relay_cmd(&target, "tabs", "", json);
-        }
-        MeshAction::Link { installation_id } => {
-            let body = serde_json::json!({"installation_id": installation_id});
-            let result = http
-                .post(format!("{}/api/mesh/link", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .json(&body)
-                .send()
-                .map_err(|e| e.to_string())
-                .and_then(handle_resp);
-            match result {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        println!(
-                            "Waiting for approval on {}. Open Mesh for the result.",
-                            installation_id
-                        );
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
-        }
-        MeshAction::Disconnect { instance_id } => {
-            let body = serde_json::json!({"instance_id": instance_id});
-            let result = http
-                .post(format!("{}/api/mesh/disconnect", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .json(&body)
-                .send()
-                .map_err(|e| e.to_string())
-                .and_then(handle_resp);
-            match result {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        println!("Disconnected from {}", instance_id);
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
-        }
-        MeshAction::Unrevoke { instance_id } => {
-            let body = serde_json::json!({"instance_id": instance_id});
-            let result = http
-                .post(format!("{}/api/mesh/unrevoke", base))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", token.as_deref().unwrap_or("")),
-                )
-                .json(&body)
-                .send()
-                .map_err(|e| e.to_string())
-                .and_then(handle_resp);
-            match result {
-                Ok(val) => {
-                    if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
-                    } else {
-                        println!("Revocation lifted for {}", instance_id);
-                    }
-                }
-                Err(e) => {
-                    crate::cmd::print::fail(1, e.to_string());
-                }
-            }
         }
         MeshAction::Refresh => match http.post(format!("{}/api/mesh/refresh", base)).send() {
             Ok(resp) if resp.status().is_success() => {

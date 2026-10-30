@@ -1,12 +1,12 @@
 use parking_lot::Mutex;
 use std::{collections::HashSet, sync::Arc};
 
-pub struct PairingObserver {
+pub struct ConnectionObserver {
     committed: Mutex<HashSet<String>>,
     emit: Arc<dyn Fn(usize) + Send + Sync>,
     counts: Arc<dyn Fn(usize) + Send + Sync>,
 }
-impl PairingObserver {
+impl ConnectionObserver {
     pub fn new(
         peers: HashSet<String>,
         emit: Arc<dyn Fn(usize) + Send + Sync>,

@@ -45,15 +45,11 @@ fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
     }
     for path in [
         "/api/mesh/link/hello",
-        "/api/mesh/link/approval",
-        "/api/mesh/disconnect-notice",
         "/api/mesh/link/confirm",
         "/api/mesh/link/commit",
         "/api/mesh/relay",
         "/api/mesh/announce",
         "/api/mesh/account-presence",
-        "/api/mesh/adopt/offer",
-        "/api/mesh/adopt/commit",
     ] {
         assert!(tailnet_exempt(&Method::POST, path));
         assert!(!tailnet_exempt(&Method::GET, path));
@@ -94,7 +90,7 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
     {
         let mut mesh = state.mesh.lock();
-        mesh.insert_legacy_pair_for_test(PairedPeer {
+        mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "paired".into(),
             instance_name: "paired".into(),
             addresses: vec![],
@@ -237,7 +233,7 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
         },
         ..Default::default()
     });
-    state.mesh.lock().unpair("paired").unwrap();
+    state.mesh.lock().remove_account_peer("paired");
     assert_eq!(
         router
             .clone()
@@ -308,11 +304,11 @@ fn plugin_ui_document_and_assets_require_bearer_authentication() {
 fn custom_auth_only_exempts_self_verifying_paths() {
     // Self-verifying: skip the bearer middleware.
     assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
-    assert!(is_custom_auth(&Method::POST, "/api/mesh/adopt/offer"));
-    assert!(is_custom_auth(&Method::POST, "/api/mesh/adopt/commit"));
+    assert!(!is_custom_auth(&Method::POST, "/api/mesh/adopt/offer"));
+    assert!(!is_custom_auth(&Method::POST, "/api/mesh/adopt/commit"));
     assert!(!is_custom_auth(&Method::POST, "/api/mesh/introduce"));
-    assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
-                                                                        // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
+    assert!(!is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
+                                                                         // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
     assert!(is_custom_auth(
         &Method::GET,
         "/api/mesh/relay-asset/peer1/plugins/foo/ui/index.html"
@@ -445,7 +441,7 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
     };
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("auth-test".into(), 7685);
     mesh.disk_persist = false;
-    mesh.insert_legacy_pair_for_test(PairedPeer {
+    mesh.insert_account_peer_for_test(PairedPeer {
         instance_id: "air".into(),
         instance_name: "air".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.7")],
@@ -628,7 +624,6 @@ fn public_paths_recognized() {
         "/api/mesh/pair/confirm",
         "/api/mesh/pair/reject",
         "/api/mesh/link",
-        "/api/mesh/adopt/offer",
     ] {
         assert!(!PUBLIC_PATHS.contains(&removed), "{removed}");
     }
@@ -650,7 +645,7 @@ fn custom_auth_paths() {
     assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
     assert!(!is_custom_auth(&Method::POST, "/api/mesh/link"));
     // Unpair self-verifies; only the DELETE on the bare id is exempt.
-    assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/some-id"));
+    assert!(!is_custom_auth(&Method::DELETE, "/api/mesh/peers/some-id"));
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/some-id"));
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers"));
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/status"));
@@ -750,7 +745,7 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
     };
     {
         let mut mesh = state.mesh.lock();
-        mesh.insert_legacy_pair_for_test(PairedPeer {
+        mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "locked-peer".into(),
             instance_name: "locked".into(),
             addresses: vec![],

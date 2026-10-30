@@ -8,11 +8,6 @@ use classify::classify_relay_response;
 pub(crate) use classify::tailscale_unreachable_hint;
 pub(crate) use classify::{AnsweringPeer, RefusalClass, RelayAnswer};
 
-#[cfg(test)]
-use super::compat::{
-    dialect_from_identify, request_for_dialect, response_for_dialect, MeshApiDialect,
-};
-
 /// A logical tab send (POST `.../send`) — the only relay shape that gets a
 /// delivery id for at-most-once dedupe on the target, and the only one whose
 /// success must be confirmed by the peer's own body rather than the relay hop.
@@ -232,43 +227,6 @@ pub(crate) fn perform_mesh_relay_call(
     let status = resp.status();
     let bytes = resp.bytes().unwrap_or_default();
     classify_relay_response(peer_name, (method, path), status, &bytes)
-}
-
-#[cfg(test)]
-fn perform_compatible_mesh_relay_call(
-    http: &reqwest::blocking::Client,
-    peer_url: &str,
-    signed_token: &str,
-    peer_name: &str,
-    method: &str,
-    path: &str,
-    body: Option<&str>,
-) -> Result<serde_json::Value, MeshSpawnFailure> {
-    let dialect = if path == "/api/identify" {
-        MeshApiDialect::Current
-    } else {
-        let identify = perform_mesh_relay_call(
-            http,
-            peer_url,
-            signed_token,
-            peer_name,
-            "GET",
-            "/api/identify",
-            None,
-        )?;
-        dialect_from_identify(&identify)
-    };
-    let (path, body) = request_for_dialect(dialect, path, body);
-    perform_mesh_relay_call(
-        http,
-        peer_url,
-        signed_token,
-        peer_name,
-        method,
-        &path,
-        body.as_deref(),
-    )
-    .map(|value| response_for_dialect(dialect, value))
 }
 
 fn peer_relay_envelope(
@@ -542,7 +500,7 @@ pub(crate) fn spawn_and_maybe_register_at_resolved_peer(
     spawn_body: &serde_json::Value,
     body: Option<&str>,
 ) -> Result<serde_json::Value, MeshSpawnFailure> {
-    let data = perform_compatible_mesh_relay_call(
+    let data = perform_mesh_relay_call(
         http,
         peer_url,
         signed_token,

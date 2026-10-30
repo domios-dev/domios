@@ -6,8 +6,6 @@ use clap::Subcommand;
 use super::{Commands, TabAction, UpdateAction};
 
 pub(crate) mod api_map;
-#[cfg(test)]
-mod compat;
 mod parse;
 mod relay;
 mod rpc;
@@ -41,28 +39,12 @@ fn remote_close_tab_id(command: &Commands) -> Option<&str> {
 pub enum MeshAction {
     /// Show mesh status (identity, peers)
     Status,
-    /// List paired peers
+    /// List account installations and their connection state
     Peers,
     /// List tabs on a remote mesh peer
     Tabs {
         /// Target peer name or instance ID
         target: String,
-    },
-    /// Link a machine enrolled in this account. Both machines must be signed in,
-    /// online to the registry and directly reachable; no approval on the other side.
-    Link {
-        /// Installation ID from the account's machine list
-        installation_id: String,
-    },
-    /// Disconnect (unpair) from a paired peer
-    Disconnect {
-        /// Instance ID of the paired peer
-        instance_id: String,
-    },
-    /// Explicitly lift a local peer identity revocation
-    Unrevoke {
-        /// Instance ID of the revoked peer
-        instance_id: String,
     },
     /// Re-detect local addresses (Tailscale + LAN) and announce them to all
     /// paired peers. Use after a network swap so peers update their cache
@@ -162,13 +144,7 @@ pub fn run_via_mesh(cli: super::Cli, target: &str) {
 
     // Mesh management commands are local-only — cannot be relayed.
     if let super::Commands::Mesh {
-        action:
-            MeshAction::Link { .. }
-            | MeshAction::Disconnect { .. }
-            | MeshAction::Unrevoke { .. }
-            | MeshAction::Peer { .. }
-            | MeshAction::Offline
-            | MeshAction::Online,
+        action: MeshAction::Peer { .. } | MeshAction::Offline | MeshAction::Online,
     } = &cli.command
     {
         eprintln!(

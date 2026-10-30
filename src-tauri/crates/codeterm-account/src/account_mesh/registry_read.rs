@@ -33,7 +33,7 @@ impl AccountMesh {
         self.registry_list(true).await
     }
 
-    pub(super) async fn list_fresh(&self) -> Outcome {
+    pub async fn list_fresh(&self) -> Outcome {
         self.registry_list(false).await
     }
 

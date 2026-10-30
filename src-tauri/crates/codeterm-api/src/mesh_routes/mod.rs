@@ -13,8 +13,6 @@ mod version_tests;
 pub mod account_link;
 pub mod announce;
 pub mod connection;
-pub mod disconnect;
-pub mod pairing;
 mod presence;
 pub use presence::account_presence;
 pub mod relay;
@@ -27,13 +25,8 @@ pub mod worker_observation;
 pub mod worker_transfer;
 pub use worker_observation::mesh_worker_observation;
 
-pub use account_link::{
-    mesh_adopt_commit, mesh_adopt_offer, mesh_link_approval, mesh_link_commit, mesh_link_confirm,
-    mesh_link_hello,
-};
+pub use account_link::{mesh_link_commit, mesh_link_confirm, mesh_link_hello};
 pub use announce::{mesh_announce_all, mesh_announce_inbound, mesh_refresh, mesh_set_peer_addr};
-pub use connection::{mesh_account_link, mesh_disconnect_peer, mesh_disconnect_peer_by_id};
-pub use pairing::{mesh_unpair, mesh_unrevoke};
 pub use relay::{mesh_relay, mesh_relay_asset, mesh_relay_stream, mesh_relay_to_peer, mesh_sync};
 pub use rpc::mesh_rpc;
 pub use worker_dispatch::{
@@ -63,15 +56,10 @@ pub(crate) fn current_peer_version_header() -> HeaderMap {
 }
 
 pub async fn mesh_ping(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    AxumState(_state): AxumState<AppState>,
+    _headers: HeaderMap,
 ) -> Json<serde_json::Value> {
-    let token = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    let notice = token.and_then(|token| state.mesh.lock().disconnect_notice_for(token));
-    Json(serde_json::json!({"mesh": true, "disconnect_notice": notice}))
+    Json(serde_json::json!({"mesh": true}))
 }
 
 pub async fn mesh_debug_sign(
@@ -125,56 +113,6 @@ pub async fn mesh_peers(
     check_auth(&state, &headers)?;
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::to_value(mesh.peers_response()).unwrap()))
-}
-
-/// Web-mirror twin of the `mesh_exit` Tauri command — notify paired peers
-/// then clear all local mesh state.
-pub async fn mesh_exit(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let peers_info = {
-        let m = state.mesh.lock();
-        let our_id = m.ident.identity.instance_id.clone();
-        m.paired_peers
-            .values()
-            .filter_map(|p| {
-                let token = m.sign_request_for(&p.instance_id).ok()?;
-                Some((
-                    p.addresses.first().map(|a| a.ip.clone()),
-                    p.api_port,
-                    our_id.clone(),
-                    token,
-                ))
-            })
-            .collect::<Vec<_>>()
-    };
-
-    {
-        let http = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_default();
-        for (ip, port, our_id, token) in &peers_info {
-            if let Some(ip) = ip {
-                let url = format!("http://{}:{}/api/mesh/peers/{}", ip, port, our_id);
-                let _ = http
-                    .delete(&url)
-                    .header("Authorization", format!("Bearer {}", token))
-                    .send()
-                    .await;
-            }
-        }
-    }
-
-    state.mesh.lock().exit_mesh();
-    state.svc.ui.emit(
-        "mesh-state-changed",
-        serde_json::to_value(serde_json::Value::Null).unwrap_or_default(),
-    );
-    log::info!("[mesh/api] Exited mesh");
-    Ok(Json(serde_json::json!({"ok": true})))
 }
 
 #[derive(serde::Deserialize)]
