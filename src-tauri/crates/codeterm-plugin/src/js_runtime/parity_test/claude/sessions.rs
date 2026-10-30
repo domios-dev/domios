@@ -964,7 +964,7 @@ fn parse_session_delta_advances_offset_when_plugin_blows_up() {
 #[test]
 fn live_multi_tag_commands_reach_frontend_enrichment_unchanged() {
     require_plugins().expect("bundled plugins are required for the live command fixture");
-    let provider = load_js("claude");
+    let (_, provider) = pair();
     let records: Vec<serde_json::Value> = serde_json::from_str(&provider_fixture(
         provider.id(),
         "model-switch/live-command-records.json",
