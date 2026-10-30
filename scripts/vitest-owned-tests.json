@@ -3,6 +3,7 @@
   "src/lib/pluginViewChannel.test.ts",
   "src/lib/pluginViewConsent.test.ts",
   "src/components/Sidebar/TabItem.activity.test.tsx",
+  "src/components/Sidebar/curatorIconState.test.ts",
   "src/components/Terminal/ChatWindowRow.streamingTools.test.tsx",
   "src/components/Sidebar/Sidebar.neighbors.test.tsx",
   "src/lib/updatePresentation.test.ts",

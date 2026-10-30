@@ -256,6 +256,8 @@ pub struct AnswerSlot {
     pub answered: Option<String>,
     #[serde(default)]
     pub answered_via: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub answered_by: Option<String>,
     /// Whether the standing answer reached the asking tab. Recording an answer
     /// and carrying it back are separate facts, so a refused send cannot render
     /// as answered-and-delivered.
@@ -270,6 +272,7 @@ impl AnswerSlot {
             asked_from_tab: tab_id.map(str::to_string),
             answered: None,
             answered_via: None,
+            answered_by: None,
             delivered: false,
         }
     }

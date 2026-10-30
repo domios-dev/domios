@@ -448,6 +448,7 @@ fn main_impl() {
                 Some(serde_json::json!({ "unread_only": unread })),
             ),
             NotifyAction::Clear => client.call("notification.clear", None),
+            NotifyAction::Resolve { id } => client.call("notification.resolve", Some(serde_json::json!({"id": id}))),
         },
 
         Commands::Bridge { action } => {

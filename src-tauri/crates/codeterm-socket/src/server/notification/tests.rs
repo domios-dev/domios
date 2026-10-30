@@ -14,6 +14,23 @@ const LIVE: [(&str, &str, &str); 2] = [
     ("04482ebb", "Sonnet snake demo", "ws_team"),
 ];
 
+#[test]
+fn notify_resolve_socket_dispatch_enforces_the_asking_tab() {
+    use codeterm_service_core::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    use codeterm_service_core::notification::store::NotificationSeverity;
+    use codeterm_notification_core::contract::NotificationAction;
+    let (mux, asker) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let svc = Arc::new(fixture.service.clone());
+    let id = svc.notif.lock().add_ext("opaque question".into(), None, NotificationSeverity::Info,
+        NotificationProvenance { tab_id: Some(asker.clone()), ..Default::default() },
+        Ask::offering(Some(vec![NotificationAction::Answer { label: "opaque answer".into() }])), None, None);
+    assert!(super::dispatch("notification.resolve", &Some(json!({"id":id,"caller_tab_id":"foreign"})), &svc).is_err());
+    let result = super::dispatch("notification.resolve", &Some(json!({"id":id,"caller_tab_id":asker})), &svc).unwrap();
+    assert_eq!(result["ok"], true);
+    assert!(svc.notif.lock().notification(&id).unwrap().resolved);
+}
+
 fn live(candidate: &str) -> Option<NotificationProvenance> {
     LIVE.iter()
         .find(|(id, _, _)| *id == candidate)

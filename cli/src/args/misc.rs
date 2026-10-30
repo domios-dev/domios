@@ -538,6 +538,8 @@ pub enum NotifyAction {
     },
     /// Clear all notifications
     Clear,
+    /// Resolve a question asked by this tab after receiving its answer
+    Resolve { id: String },
 }
 
 #[derive(Subcommand)]

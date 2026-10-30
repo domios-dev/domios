@@ -8,6 +8,13 @@ use clap::Parser;
 use crate::args::misc::{NotifyAction, PasteAction};
 use crate::{Cli, Commands};
 
+#[test]
+fn notify_resolve_requires_one_notification_id() {
+    let cli = Cli::try_parse_from(["domios", "notify", "resolve", "question-id"]).unwrap();
+    assert!(matches!(cli.command, Commands::Notify { action: NotifyAction::Resolve { id } } if id == "question-id"));
+    assert!(Cli::try_parse_from(["domios", "notify", "resolve"]).is_err());
+}
+
 fn parse_error(argv: &[&str]) -> clap::Error {
     match Cli::try_parse_from(argv) {
         Ok(_) => panic!("this form must be refused at parse time"),

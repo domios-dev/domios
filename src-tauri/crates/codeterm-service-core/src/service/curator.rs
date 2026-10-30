@@ -30,6 +30,8 @@ pub(crate) mod policy;
 mod scheduling;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod notification_tests;
 pub use authority::CuratorIdentity;
 pub(crate) use events::CuratorTabs;
 
@@ -148,9 +150,10 @@ impl ServiceContext {
     }
 
     pub fn control_loop_show(&self, plan_id: &str) -> Result<ControlLoop, String> {
+        let now = self.curator_now()?;
+        self.reconcile_curator_id(plan_id, now);
         let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
         let mut state = plan.control_loop.clone();
-        let now = self.curator_now()?;
         state.refresh_counts(now);
         state.suspended_reason = self.curator_suspended_reason(&plan);
         if state.suspended_reason.is_some() {

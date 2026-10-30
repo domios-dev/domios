@@ -27,6 +27,8 @@ export interface NotificationAnswer {
   daemon_request?: string;
   asked_from_tab: string | null;
   answered: string | null;
+  answered_by?: string;
+  answered_via?: string;
   /** Whether the standing answer reached the asking tab. Recording an answer and
    * carrying it back are separate facts, so a refused send never reads as done. */
   delivered: boolean;

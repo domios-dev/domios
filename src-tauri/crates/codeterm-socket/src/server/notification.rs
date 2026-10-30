@@ -149,8 +149,16 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("id"))
                 .and_then(|v| v.as_str());
 
-            let mut store = svc.notif.lock();
-            store.clear(id);
+            svc.clear_notifications(id);
+            Ok(serde_json::json!({"ok": true}))
+        }
+
+        "notification.resolve" => {
+            let id = get_string_param(params, "id")?;
+            let caller = string_at(params, "caller_tab_id");
+            svc.resolve_notification(&id, caller.as_deref()).map_err(|message| JsonRpcError {
+                code: -32602, message, data: None,
+            })?;
             Ok(serde_json::json!({"ok": true}))
         }
 
