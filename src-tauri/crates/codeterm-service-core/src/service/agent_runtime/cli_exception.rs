@@ -265,9 +265,15 @@ pub(super) async fn validate_before_operation(svc: &ServiceContext, context: &Ru
         .map_err(|_| RuntimeFailure::Superseded)?.map_err(RuntimeFailure::Refused)
 }
 
-pub(super) fn revoke(tab: &str) {
+pub(super) fn revoke(tab: &str) -> Result<(), String> {
     let lease = LEASES.lock().remove(tab);
-    if let Some(lease) = lease { remove_owned(&lease.policy); }
+    let Some(lease) = lease else { return Ok(()); };
+    remove_owned(&lease.policy);
+    let (directory, _, _) = paths(&lease.policy);
+    let removed = fs::symlink_metadata(directory).is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound);
+    #[cfg(debug_assertions)]
+    log::debug!("[runtime-policy] phase=cli_exception_revoke tab={} epoch={} removed={}", tab, lease.policy.epoch, removed);
+    if removed { Ok(()) } else { Err("Restricted CLI policy cleanup incomplete; preserved unmatched or inaccessible files".into()) }
 }
 
 #[cfg(test)]

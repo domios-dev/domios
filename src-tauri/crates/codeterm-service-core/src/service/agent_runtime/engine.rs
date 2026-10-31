@@ -152,6 +152,48 @@ fn stop_blocking_with(
     }
 }
 
+pub fn shutdown_blocking(svc: &ServiceContext) -> Result<(), String> {
+    let sessions: Vec<_> = SESSIONS.lock().iter()
+        .map(|(tab, session)| (tab.clone(), session.clone())).collect();
+    let owned: Vec<_> = sessions.into_iter().filter(|(id, session)| {
+        let context = session.context.lock().clone();
+        svc.mux.read().get_tab(id).is_some_and(|tab| {
+            tab.agent_type.as_deref() == Some(session.provider.as_str())
+                && tab.session_binding_nonce.as_deref() == Some(context.binding_nonce.as_str())
+        })
+    }).collect();
+    #[cfg(debug_assertions)]
+    log::debug!("[runtime-policy] phase=runtime_shutdown owned_sessions={}", owned.len());
+    let finish = || crate::async_runtime::block_on(async {
+        let mut stops = tokio::task::JoinSet::new();
+        for (tab, session) in owned {
+            let svc = svc.clone();
+            stops.spawn(async move { stop_session(&svc, &tab, session).await });
+        }
+        let mut errors = Vec::new();
+        let result = tokio::time::timeout(Duration::from_secs(30), async {
+            while let Some(result) = stops.join_next().await {
+                match result {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => errors.push(error),
+                    Err(error) => errors.push(error.to_string()),
+                }
+            }
+        }).await;
+        if result.is_err() { errors.push("Runtime shutdown deadline exceeded".into()); }
+        #[cfg(debug_assertions)]
+        log::debug!("[runtime-policy] phase=runtime_shutdown_complete success={}", errors.is_empty());
+        if errors.is_empty() { Ok(()) } else { Err(errors.join("; ")) }
+    });
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(finish)
+        }
+        Ok(_) => Err("Runtime shutdown requires a multithread or blocking executor".into()),
+        Err(_) => finish(),
+    }
+}
+
 pub(crate) fn stop_removed_provider(svc: &ServiceContext, provider: &str) {
     if svc.agent_registry.provider_arc(provider).is_some() {
         return;
@@ -230,15 +272,15 @@ async fn stop_session(
     super::environment::revoke(tab);
     super::capture::revoke(tab);
     let cli_tab = tab.to_string();
-    tokio::task::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
-        .await.map_err(|error| error.to_string())?;
+    let cli_cleanup = tokio::task::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
+        .await.map_err(|error| error.to_string()).and_then(|result| result);
     super::login::forget(&session);
     session.state.lock().phase = RuntimePhase::Unloaded {
         reason: Some("Runtime stopped".into()),
     };
     session.control_changes.send_replace(());
     session.process.close();
-    Ok(())
+    cli_cleanup
 }
 
 fn cancel_stop_retry(svc: &ServiceContext, tab: &str) {
@@ -383,7 +425,7 @@ async fn ensure_with_fork(
     if retired_cli {
         let cli_tab = tab.to_string();
         tokio::task::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
-            .await.map_err(|_| RuntimeFailure::Superseded)?;
+            .await.map_err(|_| RuntimeFailure::Superseded)?.map_err(RuntimeFailure::Refused)?;
     }
     let attempted = std::sync::atomic::AtomicBool::new(false);
     let result = tokio::time::timeout(Duration::from_secs(60), async {

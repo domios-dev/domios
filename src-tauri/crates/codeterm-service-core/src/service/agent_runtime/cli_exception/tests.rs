@@ -120,3 +120,43 @@ fn linked_policy_or_executable_refuses() {
     std::os::unix::fs::symlink(config,rule).unwrap();
     assert!(verify_files(&policy).is_err());
 }
+
+#[test]
+fn normal_runtime_shutdown_releases_matching_policy_without_erasing_saved_tab() {
+    let (service, tab_id, _peer, _cleanup) = super::super::engine::test_support::runtime_fixture();
+    let (_foreign_service, foreign_tab, _foreign_peer, _foreign_cleanup) = super::super::engine::test_support::runtime_fixture();
+    let (_directory, mut context, sandbox, executable) = fixture();
+    let session = super::super::engine::for_tab(&tab_id).unwrap();
+    let binding = session.context.lock().clone();
+    context.tab_id = binding.tab_id;
+    context.binding_nonce = binding.binding_nonce;
+    context.epoch = binding.epoch;
+    let policy = provision(&context, &sandbox, &executable).unwrap();
+    let (directory, _, _) = paths(&policy);
+    LEASES.lock().insert(tab_id.clone(), Lease {
+        policy, sandbox, provider:session.provider.clone(), _executable_pin:pin_executable(&executable).unwrap(),
+    });
+    let before = serde_json::to_value(service.service.mux.read().get_tab(&tab_id).unwrap()).unwrap();
+    super::super::engine::shutdown_blocking(&service.service).unwrap();
+    assert!(super::super::engine::for_tab(&tab_id).is_none());
+    assert!(super::super::engine::for_tab(&foreign_tab).is_some());
+    assert!(!LEASES.lock().contains_key(&tab_id));
+    assert!(!directory.exists());
+    let after = serde_json::to_value(service.service.mux.read().get_tab(&tab_id).unwrap()).unwrap();
+    assert_eq!(before, after);
+    super::super::engine::shutdown_blocking(&service.service).unwrap();
+}
+
+#[test]
+fn lease_revocation_reports_preserved_foreign_policy() {
+    let (_directory, mut context, sandbox, executable) = fixture();
+    context.tab_id = uuid::Uuid::new_v4().to_string();
+    let policy = provision(&context, &sandbox, &executable).unwrap();
+    let (_, _, rule) = paths(&policy);
+    LEASES.lock().insert(context.tab_id.clone(), Lease {
+        policy, sandbox, provider:"opaque-provider".into(), _executable_pin:pin_executable(&executable).unwrap(),
+    });
+    fs::write(&rule, b"foreign-policy").unwrap();
+    assert!(revoke(&context.tab_id).is_err());
+    assert_eq!(fs::read(rule).unwrap(), b"foreign-policy");
+}
