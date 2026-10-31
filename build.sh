@@ -2587,7 +2587,7 @@ prepare_release_bundle_inputs() {
     export CODETERM_SERVER_CLI_SHA256
     cargo build --release --manifest-path src-tauri/Cargo.toml -p domios-server --bin domios-server \
       --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --target "$release_target" \
-      --message-format=json > "$release_logs/server.jsonl"
+      --message-format=json-render-diagnostics > "$release_logs/server.jsonl"
     cargo tree --manifest-path src-tauri/Cargo.toml -p domios-server --target "$release_target" \
       --no-default-features --features domios-server/embeddings,domios-server/mem-postgres --edges normal,build --prefix none \
       --format '{p}' > "$release_logs/closure.txt"

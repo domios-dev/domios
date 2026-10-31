@@ -202,11 +202,14 @@ export function RichMarkdown(props: RichMarkdownProps) {
   const scope = useContext(DsRenderContext);
   const instance = useId();
   const tab = useLocalArtifactTabId();
-  const trusted = scope.trusted && props.interactivePreviews !== false && props.localArtifacts !== false;
+  const trusted = scope.trusted && props.interactivePreviews !== false;
   const sourceIdentity = props.sourceIdentity ?? inheritedContext?.id ?? instance;
   const segments = useDsSegments(props.text, { id: `${scope.authority}:${tab ?? ""}:${sourceIdentity}`, trusted }, props.streaming ?? scope.streaming, props.cancelled ?? scope.cancelled);
   return <>{segments.map((segment) => {
     if (segment.type === "markdown") return <MarkdownProse key={segment.id} {...props} interactivePreviews={trusted} text={segment.text} sourceOffset={segment.start} fences={segment.fences} pendingFence={segment.pendingFence} />;
+    if (props.localArtifacts === false && segment.type === "block" && segment.block.kind !== "html") {
+      return <DsSegmentView key={segment.id} segment={{ ...segment, type: "inert", text: props.text.slice(segment.start, segment.end) }} fontScale={props.fontScale} />;
+    }
     return <MessagePartView key={segment.id} className={context ? "ct-message-part" : undefined} data-message-part-id={context ? `${context.id}:${segment.start}` : undefined} data-src-start={context || props.sourcePositions ? String(segment.start) : undefined} data-src-end={context || props.sourcePositions ? String(segment.end) : undefined}><DsSegmentView segment={segment} fontScale={props.fontScale} /></MessagePartView>;
   })}</>;
 }

@@ -468,6 +468,8 @@ test("chatBackend read_file and write_file render file cards", async () => {
     assert(host.querySelectorAll('[data-testid="chat-tool-call"]').length === 2, "expected read and edit cards");
     assertIncludes(host, "main.ts", "read_file name");
     assertIncludes(host, "src/out.ts", "write_file path");
+    assert(!textOf(host).includes("export const ready = true;"), "write_file details start collapsed");
+    await expandToolCard(host, "src/out.ts");
     assertIncludes(host, "export const ready = true;", "write_file preview");
   } finally {
     await act(async () => root.unmount());

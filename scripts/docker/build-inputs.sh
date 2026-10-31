@@ -12,13 +12,13 @@ logs="target/docker-smoke/logs/$CARGO_BUILD_TARGET"
 mkdir -p "$logs"
 pnpm build
 cargo build --locked --release --manifest-path cli/Cargo.toml \
-  --target "$CARGO_BUILD_TARGET" --message-format=json > "$logs/cli.jsonl"
+  --target "$CARGO_BUILD_TARGET" --message-format=json-render-diagnostics > "$logs/cli.jsonl"
 CODETERM_SERVER_CLI_SHA256=$(node scripts/docker/package-ci.mjs cli-digest "$logs/cli.jsonl")
 export CODETERM_SERVER_CLI_SHA256
 cargo build --locked --release --manifest-path src-tauri/Cargo.toml \
   -p domios-server --bin domios-server --no-default-features \
   --features domios-server/embeddings,domios-server/mem-postgres \
-  --target "$CARGO_BUILD_TARGET" --message-format=json > "$logs/server.jsonl"
+  --target "$CARGO_BUILD_TARGET" --message-format=json-render-diagnostics > "$logs/server.jsonl"
 cargo tree --locked --manifest-path src-tauri/Cargo.toml -p domios-server \
   --target "$CARGO_BUILD_TARGET" --no-default-features \
   --features domios-server/embeddings,domios-server/mem-postgres \

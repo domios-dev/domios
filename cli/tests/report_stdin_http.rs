@@ -53,6 +53,7 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
         let address = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
             let mut identify_probes = 0;
+            let mut admissions = 0;
             for incoming in listener.incoming() {
                 let mut stream = incoming.unwrap();
                 let Some((headers, body)) = request(&stream) else {
@@ -64,8 +65,24 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                 );
                 if body["method"] == "system.identify" {
                     identify_probes += 1;
-                    assert_eq!(identify_probes, 1);
+                    assert!(identify_probes <= 2);
                     reply(&mut stream, true, json!({"result":{"ok":true}}));
+                    continue;
+                }
+                if body["method"] == "cli.local.authorize" {
+                    admissions += 1;
+                    assert_eq!(admissions, 1);
+                    assert_eq!(identify_probes, 1);
+                    assert_eq!(body["params"]["operation"], "maintenance");
+                    assert_eq!(
+                        headers.get("x-codeterm-tab-id").map(String::as_str),
+                        Some("fixture-worker")
+                    );
+                    assert_eq!(
+                        headers.get("x-codeterm-binding-nonce").map(String::as_str),
+                        Some("own-nonce")
+                    );
+                    reply(&mut stream, true, json!({"result":{"authorized":true}}));
                     continue;
                 }
                 if body["method"] == "plan.binding.resolve" {
@@ -73,7 +90,8 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                     continue;
                 }
                 assert_eq!(body["method"], "agent.report");
-                assert_eq!(identify_probes, 1);
+                assert_eq!(identify_probes, 2);
+                assert_eq!(admissions, 1);
                 let params = &body["params"];
                 let matches = [
                     ("x-codeterm-tab-id", "tab_id"),

@@ -12,6 +12,7 @@ fn fixture() -> (
     fs::create_dir(&cwd).unwrap();
     let executable = directory.path().join("trusted-cli.exe");
     fs::write(&executable, b"opaque-cli-bytes").unwrap();
+    let executable = executable.canonicalize().unwrap();
     let cwd = plain_path(&cwd.canonicalize().unwrap()).unwrap();
     let context = RuntimeContext {
         epoch: 7,

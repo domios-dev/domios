@@ -153,15 +153,35 @@ it("loads a conversation before calling it empty, and retries a failed first rea
 });
 
 it("runs a friend's html only once the owner allowed interactive content from them", async () => {
-  const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "```html\n<p>hi</p>\n```", at: 1700000000000, message_id: "i1" }];
+  const entries: HistoryEntry[] = [{ direction: "in", kind: "question", author: "friend", body: "```html\n<p>inert fence</p>\n```\n\n<ds-html><p>hi</p></ds-html>\n\n<ds-page src=\"/private/example.html\" />\n\n<ds-image src=\"/private/example.png\" />\n\n<ds-setting key=\"plugins.example.enabled\" />", at: 1700000000000, message_id: "i1" }];
   const runtimeClient = runtime();
-  vi.mocked(runtimeClient.permission).mockResolvedValue({ allowed: true, scope: "anything", allow_tab_requests: false, allow_interactive_content: true });
+  const permission = { allowed: true, scope: "anything", allow_tab_requests: false, allow_interactive_content: false };
+  vi.mocked(runtimeClient.permission).mockResolvedValue(permission);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
   const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
-  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={concierge(entries)} />));
-  expect(document.querySelector("iframe")).not.toBeNull();
+  const conciergeClient = concierge(entries);
+  let changedPermission = (_friendship: string) => {};
+  vi.mocked(conciergeClient.onPermissionChanged).mockImplementation(async handler => {
+    changedPermission = handler;
+    return () => {};
+  });
+  await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtimeClient} conciergeClient={conciergeClient} />));
+  expect(host.querySelector("iframe")).toBeNull();
+  vi.mocked(runtimeClient.permission).mockResolvedValue({ ...permission, allow_interactive_content: true });
+  await act(async () => changedPermission("pair"));
+  const frame = host.querySelector("iframe");
+  expect(frame?.getAttribute("srcdoc")).toContain("<p>hi</p>");
+  expect(frame?.getAttribute("srcdoc")).not.toContain("inert fence");
+  expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
+  expect(host.querySelectorAll("iframe")).toHaveLength(1);
+  expect(host.querySelector("img, [role=switch]")).toBeNull();
+  expect(host.textContent).toContain('/private/example.html');
+  expect(host.textContent).toContain('plugins.example.enabled');
+  vi.mocked(runtimeClient.permission).mockResolvedValue(permission);
+  await act(async () => changedPermission("pair"));
+  expect(host.querySelector("iframe")).toBeNull();
 });
 
 it("keeps an ended conversation readable but takes no new messages", async () => {
