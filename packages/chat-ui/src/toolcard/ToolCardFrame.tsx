@@ -1,6 +1,6 @@
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
-import { Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
+import { ArrowUpRight, Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
@@ -146,10 +146,11 @@ export function ToolCardActionButton({ label, onClick, testId, primary = false }
       data-testid={testId}
       title={label}
       onClick={onClick}
-      className={`ct-bar-pill w-fit${primary ? " ct-bar-pill--primary" : ""}`}
-      style={{ height: 22 }}
+      className={primary ? "ct-bar-pill ct-bar-pill--primary w-fit" : "ct-tool-action"}
+      style={primary ? { height: 22 } : undefined}
     >
       {label}
+      {!primary && <ArrowUpRight aria-hidden="true" size={12} />}
     </button>
   );
 }
