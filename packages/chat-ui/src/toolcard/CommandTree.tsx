@@ -62,13 +62,14 @@ const LINE_CLASS = "flex w-full min-w-0 items-center gap-1.5 rounded px-1 text-l
 const QUIET = "var(--ct-muted-fg)";
 
 /** Compact inline branches under a call, capped with "+N more"; at most one detail opens inline. */
-export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, label }: {
+export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, label, quiet = false }: {
   branches: Branch[];
   cap?: number;
   openIndex: number | null;
   onBranch: (index: number) => void;
   renderDetail?: (index: number) => ReactNode;
   label: string;
+  quiet?: boolean;
 }) {
   const [showAll, setShowAll] = useState(false);
   const limit = showAll ? undefined : cap;
@@ -92,16 +93,16 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
               className={LINE_CLASS}
             >
               <span aria-hidden="true" className="shrink-0" style={branchColor}>{index === branches.length - 1 ? "└" : "├"}</span>
-              {Glyph && <Glyph aria-hidden="true" size={12} className="shrink-0" style={{ color: branch.color }} />}
+              {Glyph && <Glyph aria-hidden="true" size={12} className="shrink-0" style={{ color: quiet ? QUIET : branch.color }} />}
               <span
                 data-testid="chat-command-tree-lead"
                 className={branch.kind === "output" ? "min-w-0 truncate" : "shrink-0"}
-                style={{ color: branch.color ?? QUIET }}
+                style={{ color: quiet ? QUIET : branch.color ?? QUIET }}
               >
                 {branch.lead}
               </span>
               {branch.object && (
-                <span data-testid="chat-command-tree-object" className="min-w-0 truncate" style={{ color: branch.dim ? QUIET : "var(--ct-fg)" }}>{branch.object}</span>
+                <span data-testid="chat-command-tree-object" className="min-w-0 truncate" style={{ color: quiet || branch.dim ? QUIET : "var(--ct-fg)" }}>{branch.object}</span>
               )}
               {branch.marker && (
                 <span data-testid="chat-command-tree-marker" className="shrink-0 text-[10px]" style={{ color: "var(--ct-red)", opacity: 0.75 }}>{branch.marker}</span>
@@ -131,15 +132,16 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
 }
 
 /** One compact tree line per shell segment of a chained call. */
-export function CommandTree({ rows, cap, openIndex, onLine, renderDetail, label = "Commands" }: {
+export function CommandTree({ rows, cap, openIndex, onLine, renderDetail, label = "Commands", quiet = false }: {
   rows: CommandRow[];
   cap?: number;
   openIndex: number | null;
   onLine: (index: number) => void;
   renderDetail?: (index: number) => ReactNode;
   label?: string;
+  quiet?: boolean;
 }) {
   const resolvePlugin = usePluginNameResolver();
   const branches = useMemo(() => rows.map((row) => segmentBranch(row, resolvePlugin)), [rows, resolvePlugin]);
-  return <BranchList branches={branches} cap={cap} openIndex={openIndex} onBranch={onLine} renderDetail={renderDetail} label={label} />;
+  return <BranchList branches={branches} cap={cap} openIndex={openIndex} onBranch={onLine} renderDetail={renderDetail} label={label} quiet={quiet} />;
 }
