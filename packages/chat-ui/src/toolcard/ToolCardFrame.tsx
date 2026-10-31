@@ -108,14 +108,14 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           aria-expanded={expanded}
           aria-controls={detailsId}
           onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          className={`flex min-w-0 flex-1 gap-2 text-left ${subtitle ? "items-start" : "items-center"}`}
         >
-          <span className="ct-card__icon" style={{ color: visual.color }}>
+          <span className="ct-card__icon" style={{ color: visual.color, ...(subtitle ? { height: 20, alignSelf: "flex-start" as const } : {}) }}>
             <Glyph aria-hidden="true" size={14} strokeWidth={2} />
           </span>
-          <span className={subtitle ? "flex min-w-0 flex-1 flex-col items-start gap-0.5 font-mono text-[12.5px]" : "flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
+          <span className={subtitle ? "flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
             {label && <span className={inlineCommand ? "sr-only" : "max-w-[60%] shrink-0 truncate font-semibold"} style={{ color: communication ? "var(--ct-fg)" : visual.color }}>{label}</span>}
-            {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
+            {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal leading-[14px]" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
             <span className={summary === "" ? "hidden" : "min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />
