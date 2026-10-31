@@ -149,13 +149,14 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
 }
 
 fn paths(policy: &RestrictedCliPolicy) -> (PathBuf, PathBuf, PathBuf) {
-    let directory = Path::new(&policy.cwd).join(".codex");
+    let directory = Path::new(&policy.cwd).join(&policy.metadata_directory);
     let config = directory.join("config.toml");
     let rule = directory.join("rules").join(RULE);
     (directory, config, rule)
 }
 
 fn verify_files(policy: &RestrictedCliPolicy) -> Result<(), String> {
+    if !RestrictedCliCapability::valid_metadata_directory(&policy.metadata_directory) { return Err(DENIED.into()); }
     let (directory, config, rule) = paths(policy);
     reject_links(&directory)?;
     reject_links(Path::new(&policy.executable))?;
@@ -210,7 +211,9 @@ fn provision(
     context: &RuntimeContext,
     sandbox: &ExecutionSandboxPolicy,
     executable: &Path,
+    metadata_directory: &str,
 ) -> Result<RestrictedCliPolicy, String> {
+    if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) { return Err(DENIED.into()); }
     let cwd = Path::new(&context.cwd);
     reject_links(cwd)?;
     reject_links(executable)?;
@@ -232,6 +235,7 @@ fn provision(
         binding_nonce: context.binding_nonce.clone(),
         epoch: context.epoch,
         cwd: context.cwd.clone(),
+        metadata_directory: metadata_directory.into(),
         executable_sha256: file_digest(Path::new(&executable))?,
         executable,
         config_sha256: digest(CONFIG),
@@ -251,9 +255,10 @@ fn provision(
     result.map(|_| policy)
 }
 
-fn require_fresh_project(cwd: &Path) -> Result<(), String> {
+fn require_fresh_project(cwd: &Path, metadata_directory: &str) -> Result<(), String> {
+    if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) { return Err(DENIED.into()); }
     for ancestor in cwd.ancestors() {
-        if ancestor.join(".codex").try_exists().map_err(|_| DENIED)?
+        if ancestor.join(metadata_directory).try_exists().map_err(|_| DENIED)?
             || ancestor.join(".git").try_exists().map_err(|_| DENIED)?
         {
             return Err("Restricted CLI exception requires a fresh project configuration".into());
@@ -263,6 +268,7 @@ fn require_fresh_project(cwd: &Path) -> Result<(), String> {
 }
 
 fn remove_owned(policy: &RestrictedCliPolicy) {
+    if !RestrictedCliCapability::valid_metadata_directory(&policy.metadata_directory) { return; }
     let (directory, config, rule) = paths(policy);
     if reject_links(&directory).is_err() {
         return;
@@ -317,6 +323,17 @@ fn sandbox(
     Ok(Some(policy.clone()))
 }
 
+fn metadata_directory(svc: &ServiceContext, provider: &str) -> Result<Option<String>, String> {
+    let capability = svc.agent_registry.with_provider(provider, |provider| {
+        provider.agent_runtime().and_then(|capability| capability.restricted_cli)
+    }).flatten();
+    capability.map(|capability| {
+        let directory = capability.metadata_directory();
+        if !RestrictedCliCapability::valid_metadata_directory(directory) { return Err(DENIED.into()); }
+        Ok(directory.to_owned())
+    }).transpose()
+}
+
 pub(super) fn prepare(
     svc: &ServiceContext,
     provider: &str,
@@ -325,18 +342,9 @@ pub(super) fn prepare(
     if !cfg!(windows) {
         return Ok(None);
     }
-    let supported = svc
-        .agent_registry
-        .with_provider(provider, |provider| {
-            provider
-                .agent_runtime()
-                .and_then(|capability| capability.restricted_cli)
-        })
-        .flatten()
-        == Some(RestrictedCliCapability::ExecpolicyServiceOperations);
-    if !supported {
+    let Some(metadata_directory) = metadata_directory(svc, provider)? else {
         return Ok(None);
-    }
+    };
     let Some(sandbox) = sandbox(svc, context)? else {
         return Ok(None);
     };
@@ -345,6 +353,7 @@ pub(super) fn prepare(
     if let Some(mut lease) = existing {
         if lease.provider != provider
             || lease.sandbox != sandbox
+            || lease.policy.metadata_directory != metadata_directory
             || lease.policy.binding_nonce != context.binding_nonce
             || command_path(&executable.canonicalize().map_err(|_| DENIED)?)?
                 != lease.policy.executable
@@ -365,10 +374,11 @@ pub(super) fn prepare(
         record_policy(&policy);
         return Ok(Some(policy));
     }
-    require_fresh_project(Path::new(&context.cwd))?;
+    require_fresh_project(Path::new(&context.cwd), &metadata_directory)?;
     let executable_pin = pin_executable(&executable)?;
-    let policy = provision(context, &sandbox, &executable)?;
-    if !self::sandbox(svc, context).is_ok_and(|current| current.as_ref() == Some(&sandbox)) {
+    let policy = provision(context, &sandbox, &executable, &metadata_directory)?;
+    if !self::sandbox(svc, context).is_ok_and(|current| current.as_ref() == Some(&sandbox))
+        || !self::metadata_directory(svc, provider).is_ok_and(|current| current.as_deref() == Some(metadata_directory.as_str())) {
         remove_owned(&policy);
         return Err(DENIED.into());
     }
@@ -391,7 +401,8 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     };
     let current = sandbox(svc, context)?.ok_or(DENIED)?;
     let lease = LEASES.lock().get(&context.tab_id).cloned().ok_or(DENIED)?;
-    if lease.policy != *policy || lease.sandbox != current || !binding_matches(policy, context) {
+    if lease.policy != *policy || lease.sandbox != current || !binding_matches(policy, context)
+        || metadata_directory(svc, &lease.provider)?.as_deref() != Some(policy.metadata_directory.as_str()) {
         return Err(DENIED.into());
     }
     let executable = crate::service::instance_env::instance_cli_binary_path().ok_or(DENIED)?;
@@ -418,7 +429,8 @@ pub(super) fn validate_binding(
     let current = sandbox(svc, context)?.ok_or(DENIED)?;
     let leases = LEASES.lock();
     let lease = leases.get(&context.tab_id).ok_or(DENIED)?;
-    if lease.policy != *policy || lease.sandbox != current || !binding_matches(policy, context) {
+    if lease.policy != *policy || lease.sandbox != current || !binding_matches(policy, context)
+        || metadata_directory(svc, &lease.provider)?.as_deref() != Some(policy.metadata_directory.as_str()) {
         return Err(DENIED.into());
     }
     Ok(())

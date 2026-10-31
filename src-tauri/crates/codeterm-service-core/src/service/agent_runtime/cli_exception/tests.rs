@@ -40,27 +40,37 @@ fn fixture() -> (
 #[test]
 fn provisions_only_fresh_protected_policy_and_exact_executable_prefix() {
     let (_directory, context, sandbox, executable) = fixture();
-    let policy = provision(&context, &sandbox, &executable).unwrap();
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
     assert_eq!(policy.tab_id, context.tab_id);
     assert_eq!(policy.binding_nonce, context.binding_nonce);
     assert_eq!(policy.epoch, context.epoch);
+    assert_eq!(policy.metadata_directory, ".runtime-policy");
     assert_eq!(policy.executable_sha256, digest(b"opaque-cli-bytes"));
     verify_files(&policy).unwrap();
     let (directory, config, rule) = paths(&policy);
     let bytes = fs::read(&rule).unwrap();
     assert_eq!(bytes, rule_bytes(&policy.executable).unwrap());
     assert!(!String::from_utf8(bytes).unwrap().contains("identify"));
-    assert!(provision(&context, &sandbox, &executable).is_err());
+    assert!(provision(&context, &sandbox, &executable, ".runtime-policy").is_err());
     remove_owned(&policy);
     assert!(!directory.exists());
     assert!(!config.exists());
 }
 
 #[test]
+fn metadata_directory_is_a_protected_direct_component_before_any_write() {
+    let (_directory, context, sandbox, executable) = fixture();
+    for directory in ["", ".", "..", ".git", ".GIT", "../foreign", ".own/foreign", ".own\\foreign", "C:/foreign", ".own:stream", ".own."] {
+        assert!(provision(&context, &sandbox, &executable, directory).is_err(), "{directory}");
+        assert_eq!(fs::read_dir(&context.cwd).unwrap().count(), 0);
+    }
+}
+
+#[test]
 fn changed_executable_or_rule_or_new_project_configuration_refuses() {
     for target in ["executable", "rule", "config", "extra"] {
         let (_directory, context, sandbox, executable) = fixture();
-        let policy = provision(&context, &sandbox, &executable).unwrap();
+        let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
         let (directory, config, rule) = paths(&policy);
         match target {
             "executable" => fs::write(&executable, b"different-cli-bytes").unwrap(),
@@ -78,12 +88,12 @@ fn foreign_metadata_writable_executable_and_changed_cwd_refuse_without_overwrite
     sandbox
         .writable_roots
         .push(plain_path(executable.parent().unwrap()).unwrap());
-    assert!(provision(&context, &sandbox, &executable).is_err());
+    assert!(provision(&context, &sandbox, &executable, ".runtime-policy").is_err());
     sandbox.writable_roots.pop();
-    let directory = Path::new(&context.cwd).join(".codex");
+    let directory = Path::new(&context.cwd).join(".runtime-policy");
     fs::create_dir(&directory).unwrap();
     fs::write(directory.join("config.toml"), b"foreign-config").unwrap();
-    assert!(provision(&context, &sandbox, &executable).is_err());
+    assert!(provision(&context, &sandbox, &executable, ".runtime-policy").is_err());
     assert_eq!(
         fs::read(directory.join("config.toml")).unwrap(),
         b"foreign-config"
@@ -91,20 +101,20 @@ fn foreign_metadata_writable_executable_and_changed_cwd_refuse_without_overwrite
     fs::remove_file(directory.join("config.toml")).unwrap();
     fs::remove_dir(directory).unwrap();
     sandbox.cwd = plain_path(executable.parent().unwrap()).unwrap();
-    assert!(provision(&context, &sandbox, &executable).is_err());
+    assert!(provision(&context, &sandbox, &executable, ".runtime-policy").is_err());
 }
 
 #[test]
 fn foreign_ancestor_project_metadata_refuses_trust() {
     let (directory, context, _, _) = fixture();
-    fs::create_dir(directory.path().join(".codex")).unwrap();
-    assert!(require_fresh_project(Path::new(&context.cwd)).is_err());
+    fs::create_dir(directory.path().join(".runtime-policy")).unwrap();
+    assert!(require_fresh_project(Path::new(&context.cwd), ".runtime-policy").is_err());
 }
 
 #[test]
 fn cleanup_preserves_foreign_changed_file() {
     let (_directory, context, sandbox, executable) = fixture();
-    let policy = provision(&context, &sandbox, &executable).unwrap();
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
     let (directory, _, rule) = paths(&policy);
     fs::write(&rule, b"foreign-rule").unwrap();
     remove_owned(&policy);
@@ -115,7 +125,7 @@ fn cleanup_preserves_foreign_changed_file() {
 #[test]
 fn changed_lifecycle_identity_refuses() {
     let (_directory, context, sandbox, executable) = fixture();
-    let policy = provision(&context, &sandbox, &executable).unwrap();
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
     assert!(binding_matches(&policy, &context));
     for changed in [
         RuntimeContext {
@@ -145,8 +155,8 @@ fn linked_policy_or_executable_refuses() {
     let (_directory, context, sandbox, executable) = fixture();
     let alias = executable.with_extension("alias");
     std::os::unix::fs::symlink(&executable, &alias).unwrap();
-    assert!(provision(&context, &sandbox, &alias).is_err());
-    let policy = provision(&context, &sandbox, &executable).unwrap();
+    assert!(provision(&context, &sandbox, &alias, ".runtime-policy").is_err());
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
     let (_, config, rule) = paths(&policy);
     fs::remove_file(&rule).unwrap();
     std::os::unix::fs::symlink(config, rule).unwrap();
@@ -164,7 +174,7 @@ fn normal_runtime_shutdown_releases_matching_policy_without_erasing_saved_tab() 
     context.tab_id = binding.tab_id;
     context.binding_nonce = binding.binding_nonce;
     context.epoch = binding.epoch;
-    let policy = provision(&context, &sandbox, &executable).unwrap();
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
     let (directory, _, _) = paths(&policy);
     LEASES.lock().insert(
         tab_id.clone(),
@@ -191,7 +201,7 @@ fn normal_runtime_shutdown_releases_matching_policy_without_erasing_saved_tab() 
 fn lease_revocation_reports_preserved_foreign_policy() {
     let (_directory, mut context, sandbox, executable) = fixture();
     context.tab_id = uuid::Uuid::new_v4().to_string();
-    let policy = provision(&context, &sandbox, &executable).unwrap();
+    let policy = provision(&context, &sandbox, &executable, ".runtime-policy").unwrap();
     let (_, _, rule) = paths(&policy);
     LEASES.lock().insert(
         context.tab_id.clone(),
@@ -250,7 +260,7 @@ fn full_concierge_skips_optional_exception_only_with_current_host_bypass_grant()
     svc.prepare_neighbor_restore_grant(&tab_id, "opaque-pty", &params)
         .unwrap();
     assert_eq!(sandbox(svc, &context).unwrap(), None);
-    assert!(!Path::new(&context.cwd).join(".codex").exists());
+    assert!(!Path::new(&context.cwd).join(".runtime-policy").exists());
     {
         let mut mux = svc.mux.write();
         mux.get_tab_mut(&tab_id)
@@ -312,5 +322,5 @@ fn spaced_cli_path_uses_only_a_verified_existing_literal_alias_or_refuses() {
         Err(reason) => assert!(reason.contains("literal")),
     }
     assert_eq!(fs::read(&executable).unwrap(), b"opaque-cli");
-    assert!(!directory.path().join(".codex").exists());
+    assert!(!directory.path().join(".runtime-policy").exists());
 }

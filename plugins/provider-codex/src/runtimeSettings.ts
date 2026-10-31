@@ -8,7 +8,7 @@ export function codexRestrictedCliConfig(ctx: RuntimeContext): Record<string, Js
   if (!policy) return {};
   const hash = (value: string) => /^[0-9a-f]{64}$/.test(value);
   if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch
-    || policy.cwd !== ctx.cwd || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false
+    || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false
     || !/^[A-Za-z0-9/\\:._-]+$/.test(policy.executable)
     || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0")
     || ![policy.executableSha256,policy.configSha256,policy.ruleSha256].every(hash))
