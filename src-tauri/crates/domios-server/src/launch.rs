@@ -17,7 +17,7 @@ use detached::{with_stderr_detail, StderrTail};
 
 const STDERR_CLOSE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
-pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--pid-file ABS_PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nIsolated verification: domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
+pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--pid-file ABS_PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nIsolated verification (debug requires --instance NAME; release forbids it): domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HumanStartMode {
@@ -113,6 +113,7 @@ fn isolated_verification_options(
     development_artifact: bool,
 ) -> io::Result<HumanStart> {
     let mut verify = false;
+    let mut instance = None;
     let mut data_dir = None;
     let mut config_dir = None;
     let mut port = None;
@@ -120,6 +121,9 @@ fn isolated_verification_options(
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--verify-isolated" if !verify => verify = true,
+            "--instance" if instance.is_none() => {
+                instance = Some(human_value(&mut args)?.to_owned());
+            }
             "--data-dir" if data_dir.is_none() => {
                 data_dir = Some(PathBuf::from(human_value(&mut args)?));
             }
@@ -146,6 +150,7 @@ fn isolated_verification_options(
     }
     let options = LaunchOptions {
         instance: InstanceSelector::IsolatedVerification {
+            instance,
             data_dir: data_dir
                 .ok_or_else(|| io::Error::other("Verification requires --data-dir"))?,
             config_dir: config_dir
@@ -323,6 +328,7 @@ pub fn run_isolated_verification(executable: &Path, options: &LaunchOptions) -> 
         data_dir,
         config_dir,
         bind,
+        ..
     } = &options.instance
     else {
         return Err(io::Error::other(
@@ -497,12 +503,16 @@ pub fn install_selectors(options: &LaunchOptions) -> io::Result<()> {
             }
         }
         InstanceSelector::IsolatedVerification {
+            instance,
             data_dir,
             config_dir,
             bind,
         } => {
             let data_dir = data_dir.canonicalize()?;
             let config_dir = config_dir.canonicalize()?;
+            if let Some(instance) = instance {
+                std::env::set_var("CODETERM_INSTANCE", instance);
+            }
             std::env::set_var("CODETERM_DATA_DIR", data_dir);
             std::env::set_var("CODETERM_CONFIG_DIR", config_dir);
             std::env::set_var("CODETERM_API_PORT", bind.port().to_string());
