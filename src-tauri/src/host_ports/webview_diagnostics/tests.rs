@@ -300,7 +300,7 @@ fn preflight_receipt_is_bounded_and_records_compiled_eligibility_and_phase() {
             "requested_port": 9222,
             "compiled_debug": true,
             "compiled_windows": true,
-            "phase": "after_builder_before_build",
+            "phase": "before_starting_webview",
             "bind_outcome": "bind_failed",
             "bind_error_kind": "PermissionDenied",
             "raw_os_error": null,
@@ -377,7 +377,7 @@ fn observed_client_ancestry_never_overrides_occupied_refusal() {
             "requested_port": 9222,
             "compiled_debug": true,
             "compiled_windows": true,
-            "phase": "after_builder_before_build",
+            "phase": "before_starting_webview",
             "bind_outcome": "address_in_use",
             "bind_error_kind": "AddrInUse",
             "raw_os_error": null,
@@ -389,4 +389,23 @@ fn observed_client_ancestry_never_overrides_occupied_refusal() {
             },
         })
     );
+}
+
+#[test]
+fn starting_document_cannot_attest_main_target_even_with_current_generation() {
+    let generation = ClientViewGeneration { view: 8, navigation: 21 };
+    let main = with_root_generation(
+        &Url::parse("http://127.0.0.1:15017/index.html").unwrap(),
+        generation,
+    );
+    for starting in [
+        "http://domios-startup.localhost/starting",
+        "domios-startup://localhost/starting",
+    ] {
+        let starting = with_root_generation(&Url::parse(starting).unwrap(), generation);
+        assert!(!target_matches(
+            "page", starting.as_str(), "ws://127.0.0.1:9417/devtools/page/starting",
+            9417, generation, &main,
+        ));
+    }
 }
