@@ -307,9 +307,13 @@ impl PortPreflight {
     ) -> Self {
         if self.debug
             && self.windows
-            && matches!(self.bind, BindOutcome::Failed {
-                kind: io::ErrorKind::AddrInUse, ..
-            })
+            && matches!(
+                self.bind,
+                BindOutcome::Failed {
+                    kind: io::ErrorKind::AddrInUse,
+                    ..
+                }
+            )
         {
             self.failure_listener = Some(observe());
         }
