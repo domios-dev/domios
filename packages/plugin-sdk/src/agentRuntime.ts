@@ -61,6 +61,7 @@ export interface RuntimeContext {
 }
 export interface RestrictedCliPolicy {
   tabId:string; bindingNonce:string; epoch:number; cwd:string;
+  metadataDirectory:string;
   executable:string; executableSha256:string; configSha256:string; ruleSha256:string;
 }
 export type HistoryOrder = "asc" | "desc";
@@ -128,7 +129,7 @@ export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRed
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
-  restrictedCli?:"execpolicy-service-operations";
+  restrictedCli?:{kind:"execpolicy-service-operations";metadataDirectory:string};
   runtimeModes?:readonly {id:string; displayName:string}[];
   serviceTiers?:readonly RuntimeServiceTier[];
   backgroundProcesses?:boolean;

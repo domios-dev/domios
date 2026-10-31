@@ -48,9 +48,36 @@ pub struct AgentRuntimeCapability {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum RestrictedCliCapability {
-    ExecpolicyServiceOperations,
+    ExecpolicyServiceOperations {
+        #[serde(rename = "metadataDirectory", deserialize_with = "deserialize_metadata_directory")]
+        metadata_directory: String,
+    },
+}
+
+impl RestrictedCliCapability {
+    pub fn metadata_directory(&self) -> &str {
+        match self {
+            Self::ExecpolicyServiceOperations { metadata_directory } => metadata_directory,
+        }
+    }
+
+    pub fn valid_metadata_directory(value: &str) -> bool {
+        (2..=64).contains(&value.len())
+            && value.starts_with('.')
+            && !value.eq_ignore_ascii_case(".git")
+            && value[1..].bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+    }
+}
+
+fn deserialize_metadata_directory<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if RestrictedCliCapability::valid_metadata_directory(&value) {
+        Ok(value)
+    } else {
+        Err(serde::de::Error::custom("restricted CLI metadata must be a direct protected directory component"))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

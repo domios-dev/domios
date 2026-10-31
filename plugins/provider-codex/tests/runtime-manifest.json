@@ -1,6 +1,6 @@
 {
   "agentRuntime": {
-    "restrictedCli": "execpolicy-service-operations",
+    "restrictedCli": {"kind":"execpolicy-service-operations","metadataDirectory":".codex"},
     "storedHistory": true,
     "runtime": "stdio-jsonrpc",
     "runtimeModes": [

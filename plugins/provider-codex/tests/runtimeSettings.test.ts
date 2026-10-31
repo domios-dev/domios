@@ -11,14 +11,14 @@ const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../test
 const cliContext: RuntimeContext = {
   tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",hostVersion:"1.18.0",
   settings:{mode:"workspace-write",networkAccess:false},providerSettings:{},activeTurns:[],threadParents:[],claimedSends:[],
-  restrictedCli:{tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",executable:"C:/trusted/cli.exe",
+  restrictedCli:{tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",metadataDirectory:".codex",executable:"C:/trusted/cli.exe",
     executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64)},
 };
 assert.deepEqual(codexRestrictedCliConfig(cliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined}),{});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined,settings:{mode:"full-access"},providerSettings:{restrictedCli:cliContext.restrictedCli as never}}),{});
 for (const changed of [
-  {tabId:"foreign"},{bindingNonce:"foreign"},{epoch:3},{cwd:"C:/foreign"},{executable:"relative.exe"},
+  {tabId:"foreign"},{bindingNonce:"foreign"},{epoch:3},{cwd:"C:/foreign"},{metadataDirectory:".other"},{metadataDirectory:"../escape"},{executable:"relative.exe"},
   {executableSha256:"unknown"},{ruleSha256:"unknown"},{configSha256:"unknown"},
   {executable:"C:/unsafe path/cli.exe"},
 ]) assert.throws(()=>codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,...changed}}));

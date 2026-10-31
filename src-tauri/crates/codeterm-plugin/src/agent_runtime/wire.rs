@@ -206,6 +206,7 @@ pub struct RestrictedCliPolicy {
     pub binding_nonce: String,
     pub epoch: u64,
     pub cwd: String,
+    pub metadata_directory: String,
     pub executable: String,
     pub executable_sha256: String,
     pub config_sha256: String,

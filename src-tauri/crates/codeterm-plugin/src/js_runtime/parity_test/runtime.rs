@@ -73,7 +73,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
             ((*kind).into(), methods)
         })
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":"execpolicy-service-operations","storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -679,6 +679,7 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
         binding_nonce: ctx.binding_nonce.clone(),
         epoch: ctx.epoch,
         cwd: ctx.cwd.clone(),
+        metadata_directory: ".runtime-policy".into(),
         executable: "/trusted/cli".into(),
         executable_sha256: "a".repeat(64),
         config_sha256: "b".repeat(64),
@@ -693,7 +694,7 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
             .await
             .unwrap()
     );
-    for field in ["tab", "nonce", "epoch", "cwd", "executable"] {
+    for field in ["tab", "nonce", "epoch", "cwd", "metadata", "malformed-metadata", "executable"] {
         let mut changed = ctx.clone();
         let policy = changed.restricted_cli.as_mut().unwrap();
         match field {
@@ -701,6 +702,8 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
             "nonce" => policy.binding_nonce = "foreign".into(),
             "epoch" => policy.epoch += 1,
             "cwd" => policy.cwd = "foreign".into(),
+            "metadata" => policy.metadata_directory = ".foreign".into(),
+            "malformed-metadata" => policy.metadata_directory = "../foreign".into(),
             _ => policy.executable = "C:/unsafe path/cli.exe".into(),
         }
         assert!(native
