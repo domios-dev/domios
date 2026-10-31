@@ -2,9 +2,9 @@ import { MarkdownPlanLinksContext, MarkdownPlanRef, rehypePlanRefs, type Markdow
 import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
 import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageModel";
 import { BoundedMessageContent } from "./BoundedMessageContent";
-import React, { useMemo, useContext, useRef, useState } from "react";
-import type { SlashCommand, EditPair } from "@codeterm/chat-core";
-import { attachmentPathName, localArtifactTextParts, parseMarker } from "@codeterm/chat-core";
+import React, { useMemo, useContext, useRef, useState, useId } from "react";
+import type { SlashCommand, EditPair, DsFenceSpan } from "@codeterm/chat-core";
+import { attachmentPathName, parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Play, Settings } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { MarkdownLink, markdownUrlTransform } from "./MarkdownLink";
@@ -15,10 +15,12 @@ import { CompactCode } from "./CompactCode";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, rehypeScrubInlineStyles } from "./htmlSanitize";
-import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
-import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
-import { parseChatBlocks } from "./blocks/registry";
-import { messageParts, normalizedMarkdown } from "./messageParts";
+import { DsSegmentView } from "./blocks/DsSegmentView";
+import { DsText } from "./blocks/DsText";
+import { DsRenderContext } from "./blocks/DsRenderContext";
+import { useDsSegments } from "./blocks/useDsSegments";
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
+import { markdownMessageParts, normalizedMarkdown } from "./messageParts";
 import { MessagePartView, MessagePartsContext } from "./MessagePartsContext";
 import { rehypeMessageParts, rehypeSourceOffsets } from "./sourceOffsets";
 import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
@@ -65,20 +67,6 @@ function wrapsCodeElement(node: unknown): boolean {
   return children.some((child) => child.type === "element" && child.tagName === "code");
 }
 
-function sourceForStandaloneLine(source: string, node: unknown): string | null {
-  const position = (node as {
-    position?: { start?: { offset?: number }; end?: { offset?: number } };
-  } | undefined)?.position;
-  const start = position?.start?.offset;
-  const end = position?.end?.offset;
-  if (typeof start !== "number" || typeof end !== "number") return null;
-  const lineStart = source.lastIndexOf("\n", start - 1) + 1;
-  const nextLine = source.indexOf("\n", end);
-  const lineEnd = nextLine < 0 ? source.length : nextLine;
-  if (source.slice(lineStart, start).trim() || source.slice(end, lineEnd).trim()) return null;
-  return source.slice(start, end);
-}
-
 function isBlockCodeNode(node: unknown): boolean {
   if (!node || typeof node !== "object" || !("position" in node)) return false;
   const position = (node as { position?: { start?: { line?: number }; end?: { line?: number } } }).position;
@@ -87,7 +75,8 @@ function isBlockCodeNode(node: unknown): boolean {
 
 // Untrusted text (a Neighbor's message) must not run: html previews and diagrams render as inert code.
 const InteractivePreviewsContext = React.createContext(true);
-const RUNNABLE_LANGUAGES = new Set(["html", "mermaid"]);
+const MarkdownFenceContext = React.createContext<{ fences: readonly DsFenceSpan[]; pending?: number; original: (offset: number) => number }>({ fences: [], original: (offset) => offset });
+const RUNNABLE_LANGUAGES = new Set(["mermaid"]);
 
 function MarkdownCode({
   node,
@@ -97,7 +86,15 @@ function MarkdownCode({
 }: React.ComponentProps<"code"> & { node?: unknown }) {
   const interactive = useContext(InteractivePreviewsContext);
   const resolved = resolveCodeLanguage(className, children);
-  const language = !interactive && resolved && RUNNABLE_LANGUAGES.has(resolved.toLowerCase()) ? null : resolved;
+  const fenceContext = useContext(MarkdownFenceContext);
+  const position = (node as { position?: { start?: { offset?: number }; end?: { offset?: number } } } | undefined)?.position;
+  const start = fenceContext.original(position?.start?.offset ?? -1);
+  const end = fenceContext.original(position?.end?.offset ?? -1);
+  const complete = fenceContext.fences.some((fence) => start >= fence.start && start < fence.bodyStart && end <= fence.end);
+  const pending = fenceContext.pending !== undefined && start >= fenceContext.pending;
+  const runnable = resolved && RUNNABLE_LANGUAGES.has(resolved.toLowerCase());
+  if (interactive && runnable && pending) return <div role="status" data-ds-state="pending" className="my-2 text-xs text-[var(--ct-muted-fg)]">Incomplete diagram</div>;
+  const language = runnable && (!interactive || !complete) ? null : resolved;
   const { "data-code-text": rawText, "data-code-block": rawBlock, ...codeProps } = props as typeof props & { "data-code-text"?: string; "data-code-block"?: boolean | string };
   const plainCode = rawText ?? extractCodeText(children);
   const blockCode = rawBlock === undefined ? isBlockCodeNode(node) : rawBlock === true || rawBlock === "true";
@@ -139,9 +136,6 @@ function MarkdownCode({
       </code>
       </CompactCode>
     );
-  }
-  if (language === "html") {
-    return <HtmlPreviewBlock text={plainCode} />;
   }
   return (
     <CodeBlock
@@ -189,18 +183,51 @@ const HTML_REHYPE_PLUGINS = [
 
 const LINE_BREAK_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks] as unknown as RehypePlugins;
 
-// Read by renderers instead of captured, so component identities survive streamed text and the DOM is reconciled, not remounted.
-const MarkdownSourceContext = React.createContext("");
 
+export interface RichMarkdownProps {
+  text: string;
+  fontScale?: number;
+  localArtifacts?: boolean;
+  interactivePreviews?: boolean;
+  sourcePositions?: boolean;
+  planLinks?: MarkdownPlanLinks;
+  sourceIdentity?: string;
+  streaming?: boolean;
+  cancelled?: boolean;
+}
 
-export function RichMarkdown({
+export function RichMarkdown(props: RichMarkdownProps) {
+  const inheritedContext = useContext(MessagePartsContext);
+  const context = inheritedContext?.source === props.text ? inheritedContext : null;
+  const scope = useContext(DsRenderContext);
+  const instance = useId();
+  const tab = useLocalArtifactTabId();
+  const trusted = scope.trusted && props.interactivePreviews !== false;
+  const sourceIdentity = props.sourceIdentity ?? inheritedContext?.id ?? instance;
+  const segments = useDsSegments(props.text, { id: `${scope.authority}:${tab ?? ""}:${sourceIdentity}`, trusted }, props.streaming ?? scope.streaming, props.cancelled ?? scope.cancelled);
+  return <>{segments.map((segment) => {
+    if (segment.type === "markdown") return <MarkdownProse key={segment.id} {...props} interactivePreviews={trusted} text={segment.text} sourceOffset={segment.start} fences={segment.fences} pendingFence={segment.pendingFence} />;
+    if (props.localArtifacts === false && segment.type === "block" && segment.block.kind !== "html") {
+      return <DsSegmentView key={segment.id} segment={{ ...segment, type: "inert", text: props.text.slice(segment.start, segment.end) }} fontScale={props.fontScale} />;
+    }
+    return <MessagePartView key={segment.id} className={context ? "ct-message-part" : undefined} data-message-part-id={context ? `${context.id}:${segment.start}` : undefined} data-src-start={context || props.sourcePositions ? String(segment.start) : undefined} data-src-end={context || props.sourcePositions ? String(segment.end) : undefined}><DsSegmentView segment={segment} fontScale={props.fontScale} /></MessagePartView>;
+  })}</>;
+}
+
+function MarkdownProse({
   text,
   fontScale,
   localArtifacts = true,
   interactivePreviews = true,
   sourcePositions = false,
   planLinks,
+  sourceOffset = 0,
+  fences,
+  pendingFence,
 }: {
+  sourceOffset?: number;
+  fences: readonly DsFenceSpan[];
+  pendingFence?: number;
   text: string;
   fontScale?: number;
   localArtifacts?: boolean;
@@ -211,11 +238,15 @@ export function RichMarkdown({
   planLinks?: MarkdownPlanLinks;
 }) {
   const partContext = useContext(MessagePartsContext);
-  const parts = useMemo(() => partContext?.source === text ? messageParts(partContext.id, text) : null, [partContext?.id, partContext?.source, text]);
+  const associated = partContext?.source.slice(sourceOffset, sourceOffset + text.length) === text;
+  const parts = useMemo(() => partContext && associated ? markdownMessageParts(partContext.id, text, sourceOffset) : null, [partContext?.id, associated, text, sourceOffset]);
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const normalized = useMemo(() => normalizedMarkdown(text), [text]);
+  const normalized = useMemo(() => {
+    const local = normalizedMarkdown(text);
+    return { text: local.text, start: (offset: number) => local.start(offset) + sourceOffset, end: (offset: number) => local.end(offset) + sourceOffset };
+  }, [text, sourceOffset]);
   const renderedText = normalized.text;
   const rehypePlugins = useMemo(() => {
     const plugins = containsHtmlMarkup(renderedText) ? HTML_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
@@ -243,32 +274,7 @@ export function RichMarkdown({
         h6: ({ node: _node, ...props }) => (
           <h6 className="text-xs font-semibold mt-1 mb-0.5" style={{ color: "var(--ct-muted-fg)" }} {...props} />
         ),
-        p: ({ node, children, ...props }) => {
-          const source = useContext(MarkdownSourceContext);
-          const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
-            ? React.Children.toArray(children).join("")
-            : null;
-          const directiveSource = sourceForStandaloneLine(source, node) ?? textChild;
-          const blockSource = localArtifacts ? sourceForStandaloneLine(source, node) : null;
-          const blocks = blockSource ? parseChatBlocks(blockSource) : null;
-          if (blocks) {
-            return <>{blocks.map((block, index) => <React.Fragment key={`${index}:${block.source}`}>{block.render()}</React.Fragment>)}</>;
-          }
-          const directive = localArtifacts && directiveSource
-            ? parseLocalArtifactDirective(directiveSource)
-            : null;
-          if (directive) {
-            return (
-              <LocalArtifactBlock
-                directive={directive}
-                renderMarkdown={(source) => (
-                  <RichMarkdown text={source} fontScale={fontScale} localArtifacts={false} />
-                )}
-              />
-            );
-          }
-          return <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</p>;
-        },
+        p: ({ node: _node, children, ...props }) => <p className={`my-1 whitespace-pre-wrap ${TEXT_WRAP_CLASS}`} {...props}>{children}</p>,
         ul: ({ node: _node, ...props }) => <ul className="my-1.5 list-disc pl-5 marker:text-[var(--ct-muted-fg)]" {...props} />,
         ol: ({ node, ...props }) => {
           const count = node?.children.filter((child) => child.type === "element" && child.tagName === "li").length ?? 0;
@@ -366,8 +372,8 @@ export function RichMarkdown({
     }),
     [fontScale, h1Text, h2Text, h3Text, localArtifacts],
   );
-  const splitParts = parts && parts.length > 1 ? parts : null;
-  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, interactivePreviews, sourcePositions, Boolean(planLinks?.onOpenPlan), splitParts ? partContext?.id ?? null : null]);
+  const splitParts = parts;
+  const cacheKey = JSON.stringify([renderedText, fontScale ?? null, localArtifacts, interactivePreviews, sourcePositions, Boolean(planLinks?.onOpenPlan), splitParts ? partContext?.id ?? null : null, sourceOffset]);
   const cachedKeyRef = useRef<string | null>(null);
   const rendered = useMemo(() => {
     const previousKey = cachedKeyRef.current;
@@ -376,12 +382,12 @@ export function RichMarkdown({
     return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
       urlTransform: markdownUrlTransform,
       remarkPlugins: REMARK_PLUGINS,
-      rehypePlugins: [...(rehypePlugins ?? []), rehypePlanRefs, ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
+      rehypePlugins: [...(rehypePlugins ?? []), ...(interactivePreviews ? [rehypePlanRefs] : []), ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
       components,
       children: renderedText,
     }));
-  }, [cacheKey, renderedText, rehypePlugins, splitParts, components, planLinks?.onOpenPlan]);
-  return <InteractivePreviewsContext.Provider value={interactivePreviews}><MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownSourceContext.Provider value={renderedText}>{rendered}</MarkdownSourceContext.Provider></MarkdownPlanLinksContext.Provider></InteractivePreviewsContext.Provider>;
+  }, [cacheKey, renderedText, rehypePlugins, splitParts, components, planLinks?.onOpenPlan, interactivePreviews]);
+  return <InteractivePreviewsContext.Provider value={interactivePreviews}><MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownFenceContext.Provider value={{ fences, pending: pendingFence, original: normalized.start }}>{rendered}</MarkdownFenceContext.Provider></MarkdownPlanLinksContext.Provider></InteractivePreviewsContext.Provider>;
 }
 
 const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata];
@@ -774,13 +780,7 @@ export function PluginConfigCard({ c, renderText }: { c: ParsedPluginConfig; ren
 }
 
 export function renderUserContent(rawContent: string, parseTransport = true, renderText?: (text: string) => React.ReactNode): React.ReactNode {
-  const parts = localArtifactTextParts(rawContent);
-  if (parts.some((part) => part.directive)) {
-    return <>{parts.map((part, index) => part.directive
-      ? <RichMarkdown key={index} text={part.text} />
-      : <React.Fragment key={index}>{renderPlainUserContent(part.text, parseTransport, renderText)}</React.Fragment>)}</>;
-  }
-  return renderPlainUserContent(rawContent, parseTransport, renderText);
+  return <DsText text={rawContent} renderText={(source) => renderPlainUserContent(source, parseTransport, renderText)} />;
 }
 
 function renderPlainUserContent(rawContent: string, parseTransport: boolean, renderText?: (text: string) => React.ReactNode): React.ReactNode {
@@ -818,7 +818,7 @@ function renderPlainUserContent(rawContent: string, parseTransport: boolean, ren
   let key = 0;
 
   while ((match = attachRe.exec(content)) !== null) {
-    const before = content.slice(lastIndex, match.index).trim();
+    const before = content.slice(lastIndex, match.index);
     if (before) {
       parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(before) : before}</pre>);
     }
@@ -843,7 +843,7 @@ function renderPlainUserContent(rawContent: string, parseTransport: boolean, ren
     lastIndex = match.index + match[0].length;
   }
 
-  const rest = content.slice(lastIndex).trim();
+  const rest = content.slice(lastIndex);
   if (rest) {
     parts.push(<pre key={key++} className={`${PRE_WRAP_CLASS} font-[inherit] m-0 select-text`}>{renderText ? renderText(rest) : rest}</pre>);
   }

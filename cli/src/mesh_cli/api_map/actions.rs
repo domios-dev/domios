@@ -88,7 +88,7 @@ pub(crate) fn send_text_to_api<R: std::io::Read>(
     stdin: &mut R,
 ) -> (String, String, Option<String>) {
     let p = tab.as_deref().unwrap_or("general");
-    let source = std::env::var("CODETERM_TAB_ID").unwrap_or_default();
+    let source = crate::nonempty_env("CODETERM_TAB_ID");
     let (body_text, input_source) = match resolve_send_text_input(
         text.clone(),
         from_file.clone(),
@@ -210,6 +210,7 @@ pub(super) fn now_ms() -> u64 {
 pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>) {
     let enc = urlencoding::encode;
     match action {
+        MemAction::NeighborSave { .. } => unsupported("mem neighbor-save requires its local Neighbor tab credential and cannot run over --mesh"),
         MemAction::Search { query, kind, area, scope, project, limit, supporter, .. } => {
             let mut path = format!("/api/mem/search?q={}&limit={}", enc(query), limit);
             if let Some(k) = kind { path.push_str(&format!("&kind={}", enc(k))); }
@@ -259,7 +260,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         MemAction::Area { action: crate::args::mem::MemAreaAction::Merge { from, into, dry_run } } => (
             "POST".into(), "/api/mem/area/merge".into(),
             Some(json!({ "from": from, "into": into, "dry_run": dry_run,
-                "worker_id": std::env::var("CODETERM_WORKER_ID").ok() }).to_string()),
+                "worker_id": crate::nonempty_env("CODETERM_WORKER_ID") }).to_string()),
         ),
         MemAction::Taxonomy { workspace } => {
             let path = match workspace {
@@ -519,6 +520,8 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
         // Local-only subcommands (PTY/subprocess/folders/keychain) never relay.
         // Return explicit errors; `Secret` is rejected upstream.
         MemAction::RunWorker { .. }
+        | MemAction::Backend { .. }
+        | MemAction::Backup { .. }
         | MemAction::Skill { .. }
         | MemAction::Worker { .. }
         | MemAction::Secret { .. }
@@ -787,6 +790,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
             provider_reserve_pct,
             non_user_facing,
             unplanned,
+            tags: _,
             reason: _,
         } => {
             if matches!(location, Some(crate::args::agent::SpawnLocation::Cloud)) || environment.is_some() {
@@ -855,9 +859,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
                 body["plan_id"] = serde_json::json!(pl);
             }
             let report_to = report_to.clone().or_else(|| {
-                std::env::var("CODETERM_TAB_ID")
-                    .ok()
-                    .filter(|s| !s.is_empty())
+                crate::nonempty_env("CODETERM_TAB_ID")
             });
             if let Some(rt) = report_to {
                 body["report_to"] = serde_json::json!(rt);

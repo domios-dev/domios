@@ -20,6 +20,8 @@ export type {
   HostWorker,
   HostWorkspace,
   HostAgent,
+  HostAgentRun,
+  HostAgentRunReply,
   HostMem,
   HostAnalytics,
   AnalyticsBucket,
@@ -48,6 +50,7 @@ export type {
   ReceiverTargetRefusal,
 } from "./host";
 export * from "./capabilities";
+export * from "./blueprintSteps";
 export type { ProviderCompatibilityManifest, ProviderCompatibilityReason } from "./providerCompatibility";
 export type { ChatMsg } from "./gen/ChatMsg";
 export { recordedTextDiff, recordedPatchDiff, type RecordedFileDiff } from "./fileDiffs";
@@ -61,3 +64,7 @@ export type { ParsedSessionRecord, JsonlRecordFilter, JsonlRecordSource, JsonlRe
 export type { ExecutionSandboxCapability, ExecutionSandboxMode } from "./executionSandbox";
 export { activityLabel, activityCommand, type ActivityTool } from "./activityLabel";
 export type { ChatAttachment } from "./gen/ChatAttachment";
+
+export * from "./mediaDelivery";
+
+export * from "./binaryTransfer";

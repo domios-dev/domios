@@ -45,8 +45,8 @@ const first = value => Array.isArray(value) ? value[0] : value;
 const data = unwrap;
 const shellQuote = value => "'" + String(value).replaceAll("'", "'\"'\"'") + "'";
 const assert = (condition, evidence) => { if (!condition) throw new Error(JSON.stringify(evidence)); };
-const inspect = async id => first(await cli('tab', 'inspect', id));
-const history = async id => (await cli('tab', 'chat', '--tab', id)).messages;
+const inspect = async id => first(data(await cli('tab', 'inspect', id)));
+const history = async id => data(await cli('tab', 'chat', '--tab', id)).messages;
 async function poll(read, predicate, label) {
   const deadline = performance.now() + cap;
   let evidence;
@@ -98,11 +98,11 @@ let bare, orchestrator, planner, worker, session, models, nativeBefore, restartO
 try {
   const health = await get('/api/health');
   console.log(`EVIDENCE build=${health.build_sha} provider=${provider} output=${out}`);
-  const providers = await cli('agent', 'providers');
+  const providers = data(await cli('agent', 'providers'));
   const descriptor = providers.find(item => item.id === provider);
   assert(descriptor?.agent_runtime || descriptor?.agentRuntime, { provider, reason: 'agentRuntime capability required' });
-  models = await cli('agent', 'models', provider);
-  const ws = resumeFixture?.workspace || await cli('workspace', 'create', runId, '--provision');
+  models = data(await cli('agent', 'models', provider));
+  const ws = resumeFixture?.workspace || data(await cli('workspace', 'create', runId, '--provision'));
   assert(ws.id && ws.provisioned && !ws.protected, ws);
   owned.workspace = ws.id;
   await row('1', 'system_at_start_and_cli_send', async () => {
@@ -172,7 +172,7 @@ try {
     async function confirm(id, model) {
       await ask(id, 'Reply only with READY. Do not call tools or send messages.');
       const tabs = await cli('tab', 'list', '--workspace', owned.workspace);
-      const list = Array.isArray(tabs) ? tabs : tabs.tabs;
+      const list = data(tabs);
       const tab = list.find(tab => tab.id === id || tab.tab_id === id);
       assert(tab?.agent_session_model === model || tab?.model === model, { expected: model, tab });
       confirmations.push({ id, model, tab });
@@ -327,14 +327,14 @@ try {
     }
     for (const id of owned.workers) {
       await cleanupCall(async () => {
-        const current = await cli('mem', 'worker', 'get', id);
+        const current = data(await cli('mem', 'worker', 'get', id));
         if (!['done', 'completed'].includes((current.worker || current).status)) await cli('mem', 'worker', 'kill', id);
       });
     }
     for (const id of owned.crons) {
       await cleanupCall(async () => {
         const jobs = await cli('cron', 'list');
-        const list = Array.isArray(jobs) ? jobs : jobs.jobs || jobs.crons || [];
+        const list = data(jobs);
         if (list.some(job => job.id === id)) {
           await cli('cron', 'cancel', id);
           await cli('cron', 'delete', id);

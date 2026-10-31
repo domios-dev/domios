@@ -1,5 +1,4 @@
-//! `graphNodes` — a plugin's graph node declarations: media conversions the
-//! host chains by declared capability, and typed, bounded event sources.
+//! `graphNodes` — plugin media conversions, bounded event sources and typed steps.
 //!
 //! Parsing is strict and closed: no bool form, no raw schema `Value`s, and none
 //! of the open JSON Schema surface (`$ref`, combinators, nested objects).
@@ -19,17 +18,16 @@ pub const MAX_ARRAY_ITEMS: u32 = 256;
 
 const ROOT: &str = "capabilities.graphNodes";
 
-/// `capabilities.graphNodes` — converters and event sources, both optional
-/// lists; a present block must declare at least one node.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GraphNodesCap {
     pub converters: Vec<Conversion>,
     pub event_sources: Vec<EventSourceDecl>,
+    pub steps: Vec<crate::blueprint_step::StepDescriptor>,
 }
 
 impl GraphNodesCap {
     pub fn is_empty(&self) -> bool {
-        self.converters.is_empty() && self.event_sources.is_empty()
+        self.converters.is_empty() && self.event_sources.is_empty() && self.steps.is_empty()
     }
 
     pub fn enabled(&self) -> bool {
@@ -234,6 +232,9 @@ impl<'de> Deserialize<'de> for GraphNodesCap {
 impl GraphNodesCap {
     pub fn to_value(&self) -> Value {
         let mut object = Map::new();
+        if !self.steps.is_empty() {
+            object.insert("steps".into(), serde_json::json!(self.steps));
+        }
         if !self.converters.is_empty() {
             object.insert(
                 "converters".into(),
@@ -269,7 +270,7 @@ impl GraphNodesCap {
             .as_object()
             .ok_or_else(|| format!("{ROOT}: expected an object"))?;
         for key in object.keys() {
-            if key != "converters" && key != "eventSources" {
+            if key != "converters" && key != "eventSources" && key != "steps" {
                 return Err(format!("{ROOT}: unknown field `{key}`"));
             }
         }
@@ -281,14 +282,20 @@ impl GraphNodesCap {
             None => Vec::new(),
             Some(declared) => parse_event_sources(declared)?,
         };
-        if converters.is_empty() && event_sources.is_empty() {
+        let steps = object
+            .get("steps")
+            .map(crate::blueprint_step::parse_descriptors)
+            .transpose()?
+            .unwrap_or_default();
+        if converters.is_empty() && event_sources.is_empty() && steps.is_empty() {
             return Err(format!(
-                "{ROOT}: declare at least one converter or event source"
+                "{ROOT}: declare at least one converter, event source or step"
             ));
         }
         Ok(Self {
             converters,
             event_sources,
+            steps,
         })
     }
 }
@@ -654,6 +661,9 @@ impl EventSourceDecl {
 }
 
 impl NodeSchema {
+    pub fn from_value(value: &Value) -> Result<Self, String> {
+        parse_node_schema(value, "schema")
+    }
     pub fn to_value(&self) -> Value {
         let mut properties = Map::new();
         for property in &self.properties {

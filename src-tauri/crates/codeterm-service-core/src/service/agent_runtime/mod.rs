@@ -7,6 +7,7 @@ mod bootstrap;
 pub(crate) mod capacity_retry;
 pub(crate) mod capture;
 pub mod children;
+mod cli_exception;
 mod completions;
 pub(crate) mod controls;
 pub mod engine;

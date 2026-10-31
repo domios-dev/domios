@@ -133,10 +133,12 @@ pub(crate) fn compose_observed(
                         );
                         codeterm_service_core::service::mirror_skills_to_providers();
                         for provider in bridge_registry.all_provider_arcs() {
-                            codeterm_service_core::agent::model_binary_watch::install(provider);
+                            codeterm_service_core::agent::model_binary_watch::install_in_background(
+                                provider,
+                            );
                         }
                         for provider in bridge_chatbackend_registry.active() {
-                            codeterm_service_core::agent::model_binary_watch::install_chatbackend(
+                            codeterm_service_core::agent::model_binary_watch::install_chatbackend_in_background(
                                 provider,
                                 bridge_chatbackend_registry.clone(),
                             );
@@ -325,8 +327,11 @@ pub(crate) fn compose_observed(
 
     let phase = startup::StartupStep::debug("memory initialization");
     let startup_step = startup::StartupStep::logged("memory initialization");
-    let mem = mem::MemManager::open(&codeterm_service_core::paths::data_dir())
-        .expect("mem manager init failed");
+    let config = states.config.lock().clone();
+    let data_dir = codeterm_service_core::paths::data_dir();
+    let store = crate::mem_backend::open_configured(&data_dir, &config, &secret_registry)
+        .map_err(|error| error.to_string())?;
+    let mem = mem::MemManager::open_store(store, &data_dir)?;
     {
         let mut readiness = mem::docs_source::subscribe_vector_readiness();
         let api = api.clone();
@@ -467,9 +472,12 @@ pub(crate) fn compose_observed(
             service_state
                 .ext::<codeterm_service_core::agent_commands::AgentCommandRegistryHandle>(),
         );
-        codeterm_service_core::service::plugin_skills::spawn_sync(service_state.mem.clone());
+        codeterm_service_core::service::plugin_skills::spawn_sync(
+            service_state.mem.clone(),
+            agent_command_registry.clone(),
+        );
         for provider in chatbackend_registry.active() {
-            codeterm_service_core::agent::model_binary_watch::install_chatbackend(
+            codeterm_service_core::agent::model_binary_watch::install_chatbackend_in_background(
                 provider,
                 chatbackend_registry.clone(),
             );
@@ -514,6 +522,10 @@ pub(crate) fn compose_observed(
     let lane_watch_service = service_state.clone();
     codeterm_service_core::async_runtime::spawn_blocking(move || {
         lane_watch_service.restore_lane_watches();
+    });
+    let search_seed_store = std::sync::Arc::clone(&service_state.plan_store);
+    codeterm_service_core::async_runtime::spawn_blocking(move || {
+        search_seed_store.seed_missing_search_indexes();
     });
     codeterm_service_core::delayed_send::start_scheduler(service_state.clone());
     codeterm_service_core::service::start_plan_reminder_scheduler(service_state.clone());

@@ -1,7 +1,10 @@
+mod agent_review;
 mod checkpoint;
 mod code;
 mod dispatch;
 mod execution;
+pub(crate) mod plugin;
+mod plugin_binding;
 pub(crate) mod previews;
 pub(crate) use checkpoint::retained_inputs;
 mod sources;
@@ -128,7 +131,10 @@ fn finish_run(
             reason: Some(completion.reason.clone()),
         },
     );
-    if completion.reason.as_str() == "plan_limit_locked" {
+    if completion.reason.as_str() == "plan_limit_locked"
+        || completion.reason.as_str().starts_with("plugin_step_")
+            && completion.state == JournalState::Held
+    {
         handle.notify();
         return;
     }
@@ -373,7 +379,7 @@ fn run_pipeline(
                 let _ = run.advance(InputRun::Converting);
             }
         }
-        let result = match execute_step(&mut ctx, step, envelope) {
+        let result = match execute_step(&mut ctx, step, envelope.clone()) {
             Ok(result) => result,
             Err(reason) => {
                 let held = matches!(
@@ -394,6 +400,29 @@ fn run_pipeline(
                 ));
             }
         };
+        if result.state == JournalState::Held && matches!(step.kind, StepKind::Plugin { .. }) {
+            let reason = result.reason.unwrap_or_else(|| "plugin_step_held".into());
+            checkpoint::hold_plugin(
+                &ctx,
+                &state,
+                &envelope,
+                &text,
+                codeterm_sentinel::admission::PluginHold {
+                    run: run_id.into(),
+                    node: step.name.clone(),
+                    operation: plugin::operation(run_id, &step.name),
+                    state: match reason.as_str() {
+                        "plugin_step_queued" => "queued",
+                        "plugin_step_running" => "running",
+                        "plugin_step_submitting" => "submitting",
+                        _ => "unknown",
+                    }
+                    .into(),
+                    reason: reason.as_str().into(),
+                },
+            )?;
+            return Ok(RunCompletion::held(reason));
+        }
         if result.state == JournalState::Failed {
             if let (Some(run), Some(reason)) = (input_run.as_mut(), result.reason.as_ref()) {
                 let _ = run.advance(InputRun::Failed(reason.as_str().into()));
@@ -869,7 +898,20 @@ fn now(handle: &Handle) -> u64 {
 }
 
 #[cfg(test)]
+mod plugin_tests;
+#[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 mod runtime_tests;
+
+#[cfg(test)]
+pub(crate) fn run_plugin_fixture(
+    handle: &Handle,
+    service: &ServiceContext,
+    lease: &Lease,
+    run: &str,
+) -> Result<JournalState, JournalReason> {
+    run_pipeline(handle, service, lease, run, &std::cell::Cell::new(false))
+        .map(|completion| completion.state)
+}

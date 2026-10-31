@@ -33,6 +33,7 @@ fn init_process_boundary_test_logger() {
 
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        restricted_cli: None,
         runtime_modes: Vec::new(),
         service_tiers: Vec::new(),
         background_processes: false,
@@ -55,6 +56,7 @@ fn capability() -> AgentRuntimeCapability {
             "control".into(),
             vec![
                 "fixture/environment".into(),
+                "fixture/cli-resolution".into(),
                 "fixture/exit".into(),
                 "fixture/drop".into(),
             ],
@@ -240,6 +242,124 @@ async fn own_tab_environment_reaches_the_child_and_its_shell_commands() {
         .unwrap();
     assert_eq!(result["environment"], serde_json::to_value(env).unwrap());
     process.finish().await.unwrap();
+}
+
+fn write_cli_probe(directory: &Path, artifact: &str) {
+    std::fs::create_dir_all(directory).unwrap();
+    let peer = Path::new(&capability().command.args[0])
+        .canonicalize()
+        .unwrap();
+    for alias in ["domios", "codeterm"] {
+        #[cfg(windows)]
+        let (name, script) = (
+            format!("{alias}.cmd"),
+            format!(
+                "@node \"{}\" --cli-probe {artifact} \"%~f0\"\r\n",
+                peer.display()
+            ),
+        );
+        #[cfg(unix)]
+        let (name, script) = (
+            alias.to_string(),
+            format!(
+                "#!/bin/sh\nexec node '{}' --cli-probe {artifact} \"$0\"\n",
+                peer.to_str().unwrap().replace('\'', "'\\''")
+            ),
+        );
+        let path = directory.join(name);
+        std::fs::write(&path, script).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+    }
+}
+
+#[tokio::test]
+async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells() {
+    use crate::service::instance_env::InstanceEnv;
+    use crate::service::pty_io::tab_env::{compose_launch_env, LaunchSurface, TabLaunchEnv};
+
+    let dir = tempfile::tempdir().unwrap();
+    let pinned = dir.path().join("private worker");
+    let stale = dir.path().join("stale bin");
+    write_cli_probe(&pinned, "pinned");
+    write_cli_probe(&stale, "stale");
+    let suffix = if cfg!(windows) { ".cmd" } else { "" };
+    let instance = InstanceEnv {
+        socket_path: "fixture-own-socket".into(),
+        api_url: "http://127.0.0.1:17686".into(),
+        api_port: "17686".into(),
+        cli_path: Some(pinned.join(format!("codeterm{suffix}"))),
+    };
+    let tab = TabLaunchEnv {
+        tab_id: "fixture-own-tab".into(),
+        pad_dir: None,
+        session_binding_nonce: "fixture-own-nonce".into(),
+        shell_nonce: "fixture-own-shell-nonce".into(),
+        api_token: Some("fixture-own-token".into()),
+        identity: HashMap::new(),
+        task: HashMap::new(),
+    };
+    let mut env = compose_launch_env(&instance, Some(&tab), LaunchSurface::Service);
+    let mut identity = env.clone();
+    identity.remove("CODETERM_SHELL_NONCE");
+    let inherited = std::env::var_os("PATH").unwrap();
+    let inherited_path = std::env::join_paths(
+        std::iter::once(stale.clone()).chain(std::env::split_paths(&inherited)),
+    )
+    .unwrap()
+    .into_string()
+    .unwrap();
+    env.insert("PATH".into(), inherited_path.clone());
+    let process = spawn(
+        Path::new("node"),
+        &capability(),
+        dir.path().to_str().unwrap(),
+        env,
+        "fixture-own-tab",
+    )
+    .unwrap();
+    let result = process
+        .client
+        .request_guarded(
+            &RpcCall {
+                target: None,
+                method: "fixture/cli-resolution".into(),
+                params: serde_json::json!({"inheritedPath": inherited_path}),
+            },
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    process.finish().await.unwrap();
+    for (surface, artifact, directory) in [
+        ("baseline", "stale", &stale),
+        ("child", "pinned", &pinned),
+        ("grandchild", "pinned", &pinned),
+    ] {
+        let probes = result[surface].as_array().unwrap();
+        assert_eq!(probes.len(), 2, "{surface}");
+        for (probe, alias) in probes.iter().zip(["domios", "codeterm"]) {
+            assert_eq!(probe["artifact"], artifact, "{surface}: {alias}");
+            assert_eq!(
+                Path::new(probe["executable"].as_str().unwrap())
+                    .canonicalize()
+                    .unwrap(),
+                directory
+                    .join(format!("{alias}{suffix}"))
+                    .canonicalize()
+                    .unwrap(),
+                "{surface}: {alias}"
+            );
+            assert_eq!(
+                probe["environment"],
+                serde_json::to_value(&identity).unwrap()
+            );
+        }
+    }
 }
 #[tokio::test]
 async fn child_exit_reports_status_and_stderr() {

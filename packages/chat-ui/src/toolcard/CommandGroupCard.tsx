@@ -107,6 +107,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       </button>
       <CommandGroupDetail event={event} rows={rows} expanded={expanded} {...navigation} />
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
+        {expanded && event.result && <ToolOutputContent text={event.result} maxHeight="12rem" />}
       </div>
     </section>
   );

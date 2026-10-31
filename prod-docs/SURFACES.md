@@ -1,15 +1,13 @@
 # Plugin surface tabs
 
-A surface tab is a tab whose content a plugin renders. Domios owns the frame:
-the tab's identity, owner, header, lifecycle and restore. The plugin owns what
-is inside. Surface tabs sit in the sidebar next to terminals and chats, nested
-under the tab that owns them, and render the same way in the desktop app and
-the web mirror.
+A surface tab is a tab whose content a plugin renders. Domios owns the frame: the tab's identity, owner,
+header, lifecycle and restore. The plugin owns what is inside. Surface tabs sit in the sidebar next to
+terminals and chats, nested under the tab that owns them, and render the same way in the desktop app and the
+web mirror.
 
-A surface renders in one of two ways. A `view` surface shows the plugin's
-sandboxed view (`ui/index.html`), the same page the plugin shows as a panel. A
-`stream` surface shows live frames from a core surface runtime, such as the
-browser, and the viewer's clicks and keys go back to that runtime.
+A surface renders in one of two ways. A `view` surface shows the plugin's sandboxed view (`ui/index.html`),
+the same page the plugin shows as a panel. A `stream` surface shows live frames from a core surface runtime,
+such as the browser, and the viewer's clicks and keys go back to that runtime.
 
 ## Declaring a surface
 
@@ -33,6 +31,8 @@ A plugin declares its surfaces in `plugin.json`:
 | `chrome` | Optional, `stream` only: a toolbar spec object core passes to the frontend untouched |
 | `agentBound` | Optional. The tab is labelled after its owner, e.g. `Jev's Board` |
 | `restore` | Optional: `relaunch` (default), `placeholder` or `none` |
+| `agentVerbs` | View only: up to 32 unique lowercase kebab verbs of 1-32 bytes; defaults empty |
+| `stateInvalidation` | View only: opt into identity-only state hints; defaults false |
 | `icon` | Optional: a Lucide icon name for the tab, lowercase kebab of at most 40 characters (e.g. `globe`); an invalid name is ignored with a warning instead of failing the load. `GET /api/surfaces` carries it on the declared row |
 
 A plugin declares at most 8 surfaces. A manifest that breaks a rule fails to
@@ -48,10 +48,40 @@ the browser runtime reloads its last http(s) or file page in the same profile,
 falling back to the clean profile when that profile is gone. `placeholder` and
 `none` keep the tab and start the runtime fresh.
 
-The view page receives `surface`, `instance` and `tab` through `ct.surface`
-and talks to the plugin through `ct.invoke`, exactly like
-the panel view. One plugin view can serve several surfaces by reading
-`surface`, and several open copies of one surface by reading `instance`.
+The page reads `ct.surface` for presentation only. `ct.invoke(method,args)` calls
+`viewCall(method,args,context)` with host-resolved `{plugin,origin,surface,instance,tab,owner,workspace,team,actor,frame}`.
+`actor` is `{kind:"local"}`; document `origin` is `document` and `frame` is a non-secret identity. Surface fields
+are null for unowned panels, which cannot register owned jobs. Resolve callback
+results against this context's owner/scope, never `args.owner`, query words or echoed context.
+The host verifies the live tuple, owner, provider and document lease before/after callbacks.
+Close, reload, provider replacement and owner changes refuse stale calls; reload retires backend context/media before proof mints fresh authority; no lease reaches iframe HTML or URLs.
+This grants no run/budget authority. A stopped document cannot erase a previously committed job receipt.
+Host UI remote-task controls use a separate Local-only live-tab/provider/session port (`remote_task` origin); recording suggestions use a declared/granted selection-only port (`recording_setup`).
+Those host contexts have `frame:null`; generic view calls always require their private document lease.
+
+### Host actions from a view
+
+A view may ask the host, through `ct.host`, only for actions its manifest
+declares in `capabilities.viewHostActions` (requires `view`): `copyText(text)`;
+`saveAs(mediaHandle, suggestedName)` through the save dialog (the web mirror
+downloads); `reveal(mediaHandle)` in the file manager (desktop only); and
+`pickFile({ accept?, multiple? })`, which asks the user for files of the kinds
+`capabilities.viewInputs` declares (passive media `accept`, `maxBytes`,
+`maxFiles`) and answers `inputs: [{ handle, fileName, contentType, size }]`.
+Each call resolves to `{ ok: true }` or `{ ok: false, code, reason }` with code
+`denied`, `unavailable` or `invalid`, and never throws.
+
+Call them from a click or key handler. They use a recent-activation heuristic,
+not proof that one fresh click asked for one effect: they act only while the
+view is shown, its frame holds focus and the app had user activation, all
+observed by the app; one call runs at a time per frame and effects are limited
+to one per second (`denied` / `busy`). saveAs and pickFile also get the user's
+own choice in a system dialog. Every copy shows a "Copied from <plugin>" notice
+the plugin cannot hide. A call pending when its frame is hidden, reloaded or
+replaced gets `denied` / `stale`. `ct.host.availability()` booleans hide
+unsupported actions and grant nothing. Handles are opaque, frame-scoped, never
+paths; a reloaded frame gets new ones, and `media_expired` means this frame's
+access lapsed, not that the file is gone.
 
 ## Opening, listing and closing
 
@@ -124,15 +154,36 @@ delivered or read.
 
 ### Plugin access
 
-A plugin reaches its stream surface only through `host.surface.call(verb,
-argsJson)`, which returns the JSON text `{ result }` or `{ error }`. It works
-only inside `onAgentCommand`, acts on the calling agent's own surface of the
-plugin's first stream declaration, and needs the `surfaces` permission, which
-the user can revoke like `agentCommands`. `argsJson` may instead be
-`{ args, of }`: the core resolves `of` (a tab id or exact agent title) inside
-the caller's workspace, refuses mesh-controlled callers, and runs the verb on
-that owner's open surface with the caller named as the activity's `actor`.
-`annotate` delivers an element card to the surface owner, signed by the caller.
+A plugin calls `host.surface.call(verb, argsJson)` inside `onAgentCommand`,
+with the `surfaces` permission. The first declared stream or view with nonempty
+`agentVerbs` is selected. The result is JSON text `{result:string}` or `{error:string}`.
+Arguments are a word array or `{args,of}`, at most 32768 UTF-8 bytes. `of` resolves
+an agent id/title only inside the caller's workspace; mesh-controlled callers
+cannot use it. Own `open` creates the attachment; another agent may drive an
+already-open attachment but cannot open or close it. Activity contains only the
+sanitized verb and acting agent label, never arguments.
+
+For a view, declared verbs call the synchronous export
+`onSurfaceCall(context, verb, args): string`. The host supplies
+`context = {surface,instance,tab,owner,actor,actorLabel}`. Owner and actor are tab
+ids; actorLabel is sanitized display text. Arguments cannot override this context.
+`open`/`close` remain host lifecycle verbs; declaring `open` also calls the export
+after opening. An undeclared view verb refuses before dispatch. Missing handlers,
+exceptions and oversized results return an error. A result does not imply a remote
+job finished; keep job state and cancellation support in the plugin.
+
+With `stateInvalidation:true`, backend exports may call
+`host.surface.invalidate({surface,instance,tab})` and receive `{ok:true}` or `{error}`.
+The host stamps the plugin id and emits `surface-state-invalidated` only for that
+plugin's exact live view instance. The input is strict, at most 1024 UTF-8 bytes;
+no custom event payload is accepted. Closed, replaced or unloaded instances refuse.
+The exact document receives a hint without reload or polling. Subscribe through
+`ct.onSurfaceStateChanged(callback)`; its return value unsubscribes. Refetch through
+`ct.invoke`, also on initial mount; hints carry no state or delivery guarantee.
+Frame readiness supplies a catch-up hint. Reopening never refreshes the old instance.
+
+Stream verbs continue through their core runtime. Stream `annotate` delivers an
+element card to the surface owner, signed by the caller.
 
 ## REST
 
@@ -141,7 +192,6 @@ that owner's open surface with the caller named as the activity's `actor`.
 | GET | `/api/surfaces` | — | `{ declared: [...], open: [...] }` |
 | POST | `/api/surfaces/open` | `{ target, owner_tab_id?, caller_tab_id?, workspace_id?, title_from_owner? }` | The opened tab row |
 | POST | `/api/surfaces/close` | `{ tab_id, caller_tab_id? }` | `{ tab_id, warnings }` |
-
 | GET | `/api/surfaces/{tab_id}/stream?w=&h=&dpr=` | — | SSE stream of a stream surface |
 | POST | `/api/surfaces/{tab_id}/call` | `{ method, args }` | `{ result }` or `{ error }` |
 
@@ -185,4 +235,4 @@ Refusals carry `{ ok: false, error: { code, message } }`:
 | `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
 | `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 6 -->
+<!-- revision: 12 -->

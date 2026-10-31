@@ -226,7 +226,8 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
         .prepare(
             r#"SELECT id, kind, title, summary, area, tags_json, importance,
                       body_inline, body_blob_path,
-                      access_count, recurrence_count
+                      access_count, recurrence_count,
+                      author_kind, author_uid, author_friendship, author_label
                FROM mem_items
                WHERE kind != 'archived'"#,
         )
@@ -245,6 +246,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
                 r.get::<_, Option<String>>(8)?,
                 r.get::<_, i64>(9)?,
                 r.get::<_, i64>(10)?,
+                super::MemAuthor::from_row(r, 11)?,
             ))
         })
         .map_err(|e| format!("query graph nodes: {}", e))?;
@@ -263,6 +265,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
             body_blob_path,
             access_count,
             recurrence_count,
+            author,
         ) = row.map_err(|e| format!("row graph nodes: {}", e))?;
         let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
         let has_body = body_inline
@@ -272,6 +275,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
             || body_blob_path.is_some();
         let has_vector = vector_ids.contains(&id);
         nodes.push(GraphNode {
+            author: Some(author),
             id,
             kind,
             title,
@@ -307,6 +311,7 @@ pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
                     .and_then(|v| v.get("label").and_then(|l| l.as_str()).map(String::from))
                     .unwrap_or_else(|| id.clone());
                 nodes.push(GraphNode {
+                    author: None,
                     id: id.clone(),
                     kind: entity_type.to_lowercase(),
                     title: label,

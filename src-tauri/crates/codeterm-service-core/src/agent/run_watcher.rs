@@ -31,8 +31,17 @@ const MAX_RESTARTS: u32 = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AgentRunKind {
-    MemWorker { worker_id: String },
-    Cron { job_id: String, run_id: String },
+    MemWorker {
+        worker_id: String,
+    },
+    Cron {
+        job_id: String,
+        run_id: String,
+    },
+    /// A Blueprint step's one-prompt agent; its end settles `step_agent_run`.
+    StepRun {
+        run_id: String,
+    },
 }
 
 #[derive(Debug, Default)]
@@ -482,7 +491,10 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             && !provider_prompt_pending
             && agent_dropped_to_shell(&svc, &state.pty_id)
         {
-            if matches!(state.kind, AgentRunKind::MemWorker { .. }) {
+            if matches!(
+                state.kind,
+                AgentRunKind::MemWorker { .. } | AgentRunKind::StepRun { .. }
+            ) {
                 svc.run_watcher.fail_now(
                     &svc,
                     &state.pty_id,
@@ -554,6 +566,7 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         }
 
         if idle_secs >= IDLE_COMPLETE_SECS
+            && !matches!(&state.kind, AgentRunKind::StepRun { .. })
             && svc.run_completion_for_tab(&state.tab_id)
                 == crate::service::role_policy::RunCompletion::TurnEnd
         {
@@ -956,6 +969,21 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
                     cwd: run_cwd.as_deref(),
                 },
             );
+        }
+        AgentRunKind::StepRun { run_id } => {
+            if let Some(attempt) = crate::service::launch_readiness::LaunchAttempt::current(
+                &svc.mux,
+                &state.tab_id,
+                &state.pty_id,
+            ) {
+                crate::service::launch_readiness::retire_attempt(&attempt);
+            }
+            let messages = if success {
+                crate::service::step_agent_run::pty_messages(svc, &state.tab_id)
+            } else {
+                Ok(vec![])
+            };
+            crate::service::step_agent_run::finish(svc, run_id, success, summary, messages);
         }
     }
 }

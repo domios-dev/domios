@@ -1,4 +1,5 @@
 import {
+  buildMarker,
   markVoice,
   markMesh,
   markReport,
@@ -16,9 +17,7 @@ import {
 import {
   buildDomiosMessage,
   buildDomiosOpeningTag,
-  DOMIOS_LEGACY_TYPED_INSTRUCTION,
   PASTED_MARKER_TAIL,
-  LEGACY_CHAT_FOLLOW_UPS,
   stripPlainTypedTail,
   parseDomiosMessage,
 } from "./domios";
@@ -84,7 +83,7 @@ eq(
 const typedDomios = buildDomiosMessage(
   { from: "tab", tab: "abc12345" },
   "opaque routed body",
-  ` [to reply, run: codeterm send "YOUR REPLY" --tab abc12345] ${DOMIOS_LEGACY_TYPED_INSTRUCTION}`,
+  " <tip>opaque reply instruction</tip>",
 );
 eq(
   parseDomiosMessage(typedDomios)?.body,
@@ -98,15 +97,21 @@ eq(
 );
 eq(
   parseDomiosMessage(
-    buildDomiosMessage({ from: "tab", tab: "abc12345" }, `opaque routed body${PASTED_MARKER_TAIL}`, " [to reply, run: codeterm send \"X\"]"),
+    buildDomiosMessage({ from: "tab", tab: "abc12345" }, `opaque routed body${PASTED_MARKER_TAIL}`, " <tip>opaque reply instruction</tip>"),
   )?.body,
   "opaque routed body",
   "marker before the reply hint is stripped from the routed message body",
 );
-for (const tail of [PASTED_MARKER_TAIL,...LEGACY_CHAT_FOLLOW_UPS]) {
+for (const tail of [PASTED_MARKER_TAIL]) {
   eq(stripPlainTypedTail(`plain message${tail}`), "plain message", "typed chat tail is stripped");
 }
 eq(stripPlainTypedTail("plain message"), "plain message", "untailed chat text is unchanged");
+for (const tail of [" Handle the paste as my request.", " Handle the pasted message above as my request.", " Handle the message above.", " [to reply, run: codeterm send opaque]"]) {
+  const body = `opaque body${tail}`;
+  eq(parseDomiosMessage(buildDomiosMessage({ from: "tab" }, body))?.body, body, "obsolete instruction text stays ordinary content");
+}
+const embeddedTip = "body <tip>quoted content</tip> continues";
+eq(parseDomiosMessage(buildDomiosMessage({ from: "tab" }, embeddedTip))?.body, embeddedTip, "embedded tip is body content");
 eq(parseMarker("-=-codeterm:tab label=Main tab=abc12345-=-body"), null, "legacy route grammar is rejected");
 
 // `message_markers_tests.rs` PARITY[6] exactly (name space percent-encoded).
@@ -116,6 +121,9 @@ eq(
   "markPluginConfig wire matches Rust parity fixture",
 );
 
+for (const kind of ["photo", "file", "document", "video", "opaque-service"]) {
+  eq(parseMarker(buildMarker(kind, [["file", "/opaque/path"]]))?.kind, kind, "current extensible non-voice marker kinds remain readable");
+}
 const systemPrompt = "You are CodeTerm.\nUse tools carefully.";
 const systemPromptWire = markSystemPrompt(systemPrompt);
 eq(
@@ -148,12 +156,13 @@ eq(
   "untranscribed voice keeps status and emits no transcript element",
 );
 const persistedVoice = '<domios type="attachment" kind="voice" path="/u/v.webm" label="voice" />\nпривет';
-eq(parseMarker(persistedVoice), parseMarker(markVoice("/u/v.webm", "привет")), "persisted bare transcript is still one voice part");
+eq(parseMarker(persistedVoice), null, "old bare transcript is rejected");
 for (const [legacy, wire] of [
   ["-=-codeterm:voice file=/u/v.webm-=-\nпривет", markVoice("/u/v.webm", "привет")],
   ["-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nno daemon", markVoice("/u/v.webm", null, "no daemon")],
 ]) {
-  eq(parseMarker(wire), parseMarker(legacy), "old and new voice project identically");
+  eq(parseMarker(legacy), null, "old voice marker is rejected");
+  eq(parseMarker(wire)?.kind, "voice", "current voice marker parses");
   eq(wire.includes(MARKER_OPEN), false, "voice producer emits no legacy marker");
 }
 eq(parseMarker('<domios type="attachment" kind="voice" path="/u/v.webm">token'), null, "unclosed voice attachment rejected");

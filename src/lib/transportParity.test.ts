@@ -80,3 +80,8 @@ describe("audited command registry", () => {
     expect(routes.some(route => routeMatches(route, "POST", "/api/config"))).toBe(false);
   });
 });
+
+it("audits local-owner POST wrappers as the same concrete POST route",()=>{
+  expect(rustRouteContracts('router.route("/api/plugins/view-call", plugin_host_action_routes::owner_post(handler))'))
+    .toEqual([{method:"POST",path:"/api/plugins/view-call"}]);
+});

@@ -239,7 +239,7 @@ fn parse_full_manifest() {
                 "settingsPath": "~/.claude/settings.json"
             },
             "rule": {
-                "path": "~/.claude/rules/codeterm.md"
+                "path": "~/.claude/rules/domios.md"
             },
             "models": [
                 { "id": "sonnet", "displayName": "Claude Sonnet 4.6", "description": "Best for everyday tasks." }
@@ -1018,25 +1018,18 @@ fn permission_request_roster_resolution_rejects_unknown_verdict() {
 }
 
 #[test]
-fn manifest_accepts_legacy_icon_fields_shipped_by_channel_plugins() {
-    let manifest = PluginManifest::from_json_str(
-        r##"{
-            "id": "legacy",
+fn retired_manifest_icon_fields_are_refused() {
+    for field in ["iconHint", "iconSvg"] {
+        let mut document = serde_json::json!({
+            "id": "retired-icon",
             "version": "1.0.0",
-            "displayName": "Legacy",
-            "description": "Still loads",
-            "iconHint": "lock",
-            "iconColor": "#175ddc",
-            "iconSvg": "<svg viewBox=\"0 0 1 1\"></svg>",
-            "capabilities": { "view": true }
-        }"##,
-    )
-    .expect("pre-1.10.21 channel manifests keep loading");
-    assert_eq!(manifest.description.as_deref(), Some("Still loads"));
-    assert!(
-        manifest.icon_svg.is_none(),
-        "legacy inline SVG is never trusted as the icon"
-    );
+            "displayName": "Retired icon"
+        });
+        document[field] = serde_json::json!("old");
+        let error = PluginManifest::from_json_str(&document.to_string()).unwrap_err();
+        assert!(error.contains("unknown field"), "{error}");
+        assert!(error.contains(field), "{error}");
+    }
 }
 
 #[test]

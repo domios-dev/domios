@@ -1,5 +1,6 @@
 {
   "agentRuntime": {
+    "restrictedCli": {"kind":"execpolicy-service-operations","metadataDirectory":".codex"},
     "storedHistory": true,
     "runtime": "stdio-jsonrpc",
     "runtimeModes": [
@@ -38,10 +39,14 @@
         "account/rateLimits/read"
       ],
       "openThread": [
+        "config/read",
+        "configRequirements/read",
         "thread/start",
         "thread/inject_items"
       ],
       "resumeThread": [
+        "config/read",
+        "configRequirements/read",
         "thread/resume",
         "thread/read",
         "thread/unarchive"

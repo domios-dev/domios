@@ -6,7 +6,7 @@ fn scoped_permission_matrix_is_identical_in_native_and_plugin_fresh_resume_resto
     if require_plugins().is_none() {
         return;
     }
-    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let native = crate::js_runtime::native_provider_fixture();
     let js = load_js("claude");
     let root = tempfile::tempdir().unwrap();
     codeterm_util::task_files::capture_in(root.path(), "scoped-parity", || {

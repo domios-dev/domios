@@ -1,7 +1,9 @@
-use crate::bridge::traits::OutboundContent;
+use crate::bridge::traits::{validate_caller_buttons, InlineKeyboard, OutboundContent};
 use serde_json::Value;
 
 pub fn outbound_content(params: &Option<Value>) -> Result<OutboundContent, String> {
+    caller_buttons(params.as_ref().and_then(|params| params.get("buttons")))
+        .map_err(str::to_string)?;
     let mut content_type = params
         .as_ref()
         .and_then(|p| p.get("type"))
@@ -71,3 +73,19 @@ fn required(params: &Option<Value>, key: &str) -> Result<String, String> {
         .map(str::to_string)
         .ok_or_else(|| format!("Missing required parameter: {key}"))
 }
+
+/// Shared caller boundary for REST and socket bridge sends; internal notification pushes bypass it.
+pub fn caller_buttons(value: Option<&Value>) -> Result<Option<InlineKeyboard>, &'static str> {
+    let buttons = value
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            serde_json::from_value::<InlineKeyboard>(value.clone())
+                .map_err(|_| "Invalid bridge buttons")
+        })
+        .transpose()?;
+    validate_caller_buttons(buttons.as_ref())?;
+    Ok(buttons)
+}
+
+#[cfg(test)]
+mod tests;

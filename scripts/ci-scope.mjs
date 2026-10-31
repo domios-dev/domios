@@ -1,4 +1,4 @@
-// Caller: CI release.yml, tests-fast.yml, tests-rust.yml; scripts tests/ci-scope.test.mjs; skill github-release
+// Caller: CI release.yml, tests-fast.yml, tests-rust.yml; skill github-release
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,8 +8,6 @@ const pluginTooling = new Set([
   "scripts/check-plugin.mjs", "scripts/release-plugin.mjs",
   "scripts/plugin-release-metadata.mjs", "scripts/sync-plugin-versions.mjs",
   "scripts/build-plugin.mjs", "scripts/build-plugin-ui.mjs", "scripts/plugin-tests.sh",
-  "scripts/tests/plugin-releases.test.mjs",
-  "scripts/tests/sync-plugin-versions-min-codeterm.test.mjs",
   ".github/workflows/plugin-release.yml",
 ]);
 
@@ -17,7 +15,7 @@ const frontendFiles = new Set([
   "index.html", "vite.config.mts", "vitest.config.ts", "package.json",
   "pnpm-lock.yaml", "pnpm-workspace.yaml", "frontend-release-contract.json",
   "biome.json", "knip.json", "scripts/vitest-owned-tests.json",
-  "scripts/run-ts-unit-tests.mjs", "scripts/run-ts-unit-tests.test.mjs",
+  "scripts/run-ts-unit-tests.mjs",
   "scripts/ts-unit-tests.sh", "scripts/ts-test-assets.mjs", "scripts/ts-test-asset-hook.mjs",
 ]);
 

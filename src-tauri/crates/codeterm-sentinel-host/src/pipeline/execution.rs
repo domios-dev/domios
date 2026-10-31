@@ -64,6 +64,14 @@ impl<'a> RunCtx<'a> {
     }
 
     pub fn resolve_binding(&self, path: &str) -> Result<ExecutionEnvelope, JournalReason> {
+        self.resolve_step_binding(path, None)
+    }
+
+    fn resolve_step_binding(
+        &self,
+        path: &str,
+        consumer: Option<&Step>,
+    ) -> Result<ExecutionEnvelope, JournalReason> {
         let binding = codeterm_blueprint_types::blueprint_document::bindings::parse(path)
             .map_err(|_| JournalReason::ContractViolation)?;
         let name = binding.node;
@@ -73,6 +81,11 @@ impl<'a> RunCtx<'a> {
             .ok_or(JournalReason::ContractViolation)?;
         if binding.selection.is_empty() {
             return Ok(original.clone());
+        }
+        if !consumer.is_some_and(|step| matches!(step.kind, StepKind::Plugin { .. })) {
+            if let Some(value) = super::plugin_binding::resolve(self, &binding, consumer)? {
+                return Ok(value);
+            }
         }
         let mut value = &original.value;
         for field in binding.selection.split('.') {
@@ -189,7 +202,9 @@ pub fn execute_step(
         if ctx.remaining().is_zero() {
             return Err(JournalReason::Deadline);
         }
-        let input = contract.bind_input(&input, |binding| ctx.resolve_binding(binding))?;
+        let input = contract.bind_input(&input, |binding| {
+            ctx.resolve_step_binding(binding, Some(step))
+        })?;
         input_previews = previews::inputs(&contract, &input);
         check(&input, false)?;
         if matches!(
@@ -213,6 +228,9 @@ pub fn execute_step(
             return Err(JournalReason::Deadline);
         }
         let result = match &step.kind {
+            StepKind::Plugin { .. } if !simulate => {
+                super::plugin::run(ctx, step, &input, operation_limit)?
+            }
             StepKind::Call { call, grants } => crate::blueprint_calls::execute(
                 ctx,
                 &step.name,
@@ -237,8 +255,12 @@ pub fn execute_step(
                 &ctx.input_display,
                 ctx.cleanup.clone(),
                 operation_limit,
+                ctx.run_id,
             ),
         };
+        if result.state == JournalState::Held {
+            return Ok((result, input));
+        }
         if result.uncertain {
             return Err(JournalReason::UncertainEffect);
         }

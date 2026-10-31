@@ -1,6 +1,85 @@
 use super::*;
 
 #[test]
+fn starting_and_main_webviews_share_browser_options_for_the_same_profile() {
+    let configured =
+        "--disable-features=opaque-feature --remote-debugging-port=9441 --opaque-option=value";
+    let config: tauri::utils::config::Config = serde_json::from_value(serde_json::json!({
+        "identifier":"opaque.app",
+        "app":{"windows":[{"label":"main","additionalBrowserArgs":configured}]}
+    }))
+    .unwrap();
+    let mode = crate::LocalWebviewDiagnosticsMode::RequestedPort(9441);
+    let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+        PortPreflight::evaluate(true, true, || Ok(()))
+    });
+    let mut starting = initial_document::starting_window_config(&config).unwrap();
+    let mut main = initial_document::window_config(&config).unwrap();
+    for window in [&mut starting, &mut main] {
+        window.additional_browser_args =
+            window_browser_arguments(window.additional_browser_args.as_deref(), mode, &startup)
+                .unwrap();
+    }
+    assert_eq!(starting.label, "starting");
+    assert_eq!(main.label, "main");
+    assert_eq!(
+        starting.additional_browser_args,
+        main.additional_browser_args
+    );
+    assert_eq!(
+        main.additional_browser_args.unwrap(),
+        format!("{configured} --remote-debugging-address=127.0.0.1 --remote-debugging-port=9441")
+    );
+}
+
+#[test]
+fn browser_options_preserve_disabled_unavailable_and_unrequested_diagnostics() {
+    let configured = "--opaque-option=value";
+    let disabled =
+        StartupDiagnosticsPreflight::capture(crate::LocalWebviewDiagnosticsMode::Disabled, |_| {
+            panic!("unexpected probe")
+        });
+    assert_eq!(
+        window_browser_arguments(
+            Some(configured),
+            crate::LocalWebviewDiagnosticsMode::Disabled,
+            &disabled
+        ),
+        Ok(Some(configured.into()))
+    );
+    assert_eq!(
+        window_browser_arguments(
+            None,
+            crate::LocalWebviewDiagnosticsMode::Disabled,
+            &disabled
+        ),
+        Ok(None)
+    );
+    let mode = crate::LocalWebviewDiagnosticsMode::RequestedPort(9441);
+    for (debug, windows) in [(false, true), (true, false), (true, true)] {
+        let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+            PortPreflight::evaluate(debug, windows, || {
+                Err(std::io::Error::from(std::io::ErrorKind::AddrInUse))
+            })
+        });
+        assert_eq!(
+            window_browser_arguments(Some(configured), mode, &startup),
+            Ok(Some(configured.into()))
+        );
+    }
+    assert!(window_browser_arguments(Some(configured), mode, &disabled).is_err());
+    let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+        PortPreflight::evaluate(true, true, || Ok(()))
+    });
+    assert!(window_browser_arguments(
+        Some(configured),
+        crate::LocalWebviewDiagnosticsMode::RequestedPort(9442),
+        &startup
+    )
+    .is_err());
+}
+
+#[test]
 fn frontend_shell_contract_reopen_wakes_the_existing_supervisor_without_listener_restart() {
     let app = tauri::test::mock_builder()
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
@@ -450,4 +529,110 @@ fn completed_root_acknowledgement_cannot_reveal_a_newer_navigation_or_view() {
             navigation: 4
         }
     ));
+}
+
+#[test]
+fn startup_diagnostics_binds_once_before_starting_view_and_reuses_outcome() {
+    use crate::host_ports::webview_diagnostics::initial_status;
+    use codeterm_types::native_host::{
+        NativeWebviewDiagnosticsStatus, NativeWebviewDiagnosticsUnavailableReason,
+    };
+    use std::cell::Cell;
+
+    for kind in [
+        None,
+        Some(std::io::ErrorKind::AddrInUse),
+        Some(std::io::ErrorKind::PermissionDenied),
+    ] {
+        let binds = Cell::new(0);
+        let starting_created = Cell::new(false);
+        let startup = StartupDiagnosticsPreflight::capture(
+            crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+            |port| {
+                assert_eq!(port, 9417);
+                assert!(!starting_created.get());
+                PortPreflight::evaluate(true, true, || {
+                    assert_eq!(binds.replace(binds.get() + 1), 0, "second bind");
+                    match kind {
+                        None => Ok(()),
+                        Some(kind) => Err(kind.into()),
+                    }
+                })
+            },
+        );
+        starting_created.set(true);
+        let starting_decision = startup.for_port(9417).unwrap();
+        let expected_reason = match kind {
+            None => NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
+            Some(std::io::ErrorKind::AddrInUse) => {
+                NativeWebviewDiagnosticsUnavailableReason::PortOccupied
+            }
+            Some(_) => NativeWebviewDiagnosticsUnavailableReason::WebviewInitializationFailed,
+        };
+        for _view in ["main", "recovery", "reopen"] {
+            let preflight = startup.for_port(9417).unwrap();
+            assert_eq!(preflight, starting_decision);
+            assert_eq!(preflight.available(), kind.is_none());
+            assert_eq!(
+                initial_status(Some(9417), preflight),
+                NativeWebviewDiagnosticsStatus::Unavailable {
+                    reason: expected_reason,
+                }
+            );
+        }
+        assert_eq!(binds.get(), 1);
+    }
+}
+
+#[test]
+fn startup_diagnostics_missing_or_mismatched_port_refuses_without_probe() {
+    let absent =
+        StartupDiagnosticsPreflight::capture(crate::LocalWebviewDiagnosticsMode::Disabled, |_| {
+            panic!("disabled diagnostics probed")
+        });
+    assert_eq!(
+        absent.for_port(9417),
+        Err("Native diagnostics startup preflight is missing")
+    );
+    let requested = StartupDiagnosticsPreflight::capture(
+        crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+        |_| PortPreflight::evaluate(true, true, || Ok(())),
+    );
+    assert_eq!(
+        requested.for_port(9418),
+        Err("Native diagnostics port does not match startup preflight")
+    );
+    assert!(requested.for_port(9417).unwrap().available());
+}
+
+#[test]
+fn shell_initialization_captures_diagnostics_before_any_view_and_refuses_recapture() {
+    use std::cell::Cell;
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    crate::install_client_startup_options(
+        app.handle(),
+        crate::ClientStartupOptions {
+            local_webview_diagnostics: crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+        },
+    )
+    .unwrap();
+    let evaluations = Cell::new(0);
+    initialize_with_preflight(app.handle(), |port| {
+        assert_eq!(port, 9417);
+        assert!(app.webview_windows().is_empty());
+        evaluations.set(evaluations.get() + 1);
+        PortPreflight::evaluate(true, true, || Ok(()))
+    })
+    .unwrap();
+    assert_eq!(evaluations.get(), 1);
+    let supervisor = app.state::<ShellSupervisor>();
+    assert!(supervisor
+        .diagnostics_preflight
+        .for_port(9417)
+        .unwrap()
+        .available());
+    assert!(initialize_with_preflight(app.handle(), |_| panic!("second evaluation")).is_err());
+    assert_eq!(evaluations.get(), 1);
 }

@@ -23,7 +23,10 @@ def main():
     value = first_json(sys.stdin.read())
     if value is None:
         return 0
-    result = eval(sys.argv[1], {"d": value})
+    payload = value if sys.argv[2:] == ["--raw"] else value["result"]
+    if payload is None:
+        return 0
+    result = eval(sys.argv[1], {"d": payload})
     if result is not None:
         print(result)
     return 0

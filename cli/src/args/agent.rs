@@ -447,6 +447,9 @@ pub enum AgentAction {
         /// Create and dispatch a visible exceptional task for this Worker.
         #[arg(long)]
         unplanned: bool,
+        /// Work tags for an unplanned Worker task; omitted work tags are inferred.
+        #[arg(long = "tag", requires = "unplanned")]
+        tags: Vec<String>,
         /// Why this Worker needs an unplanned task.
         #[arg(long, allow_hyphen_values = true)]
         reason: Option<String>,

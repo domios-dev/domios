@@ -196,7 +196,7 @@ if (!tabOutputHost.host.textContent?.includes("tab get-text") || !tabOutputHost.
 if (!tabOutputHost.host.querySelector(".lucide-scroll-text") || tabOutputHost.host.querySelector(".lucide-terminal")) throw new Error("tab get-text icon must differ from shell command");
 const wrappedTabList = await render(<CodetermActionCard event={{
   ...event("codeterm tab list"),
-  result: `Exit code: 0\nOutput:\n${JSON.stringify([{ id: "one" }, { id: "two" }, { id: "three" }], null, 2)}`,
+  result: `Exit code: 0\nOutput:\n${JSON.stringify({ result: [{ id: "one" }, { id: "two" }, { id: "three" }] }, null, 2)}`,
 }} expanded={false} onToggle={() => {}} />);
 if (!wrappedTabList.host.textContent?.includes("3 tabs") || wrappedTabList.host.textContent.includes("11 tabs")) throw new Error("wrapped tab list must count JSON entries instead of output lines");
 const compactTabList = await render(<CodetermActionCard event={{
@@ -207,10 +207,10 @@ if (!compactTabList.host.querySelector('[data-testid="tab-list-compact"]') || co
 if (!compactTabList.host.textContent?.includes("Adele") || !compactTabList.host.textContent.includes("Working")) throw new Error("compact tab list labels regression");
 const jsonTabList = await render(<CodetermActionCard event={{
   ...event("codeterm tab list --json"),
-  result: '{"tabs":[{"id":"aaaa1111","title":"Adele"},{"id":"bbbb2222","title":"Scout"}]}',
+  result: '{"result":[{"id":"aaaa1111","title":"Adele"},{"id":"bbbb2222","title":"Scout"}]}',
 }} expanded onToggle={() => {}} />);
 if (!jsonTabList.host.querySelector('[data-testid="tab-list-json"]') || jsonTabList.host.querySelector('[data-testid="tab-list-compact"]') || !jsonTabList.host.textContent?.includes("JSON inspection")) throw new Error("tab list JSON must remain full inspection output");
-if (!jsonTabList.host.textContent?.includes("2 tabs")) throw new Error("tab list --json count must read the tabs key of the shipped envelope");
+if (!jsonTabList.host.textContent?.includes("2 tabs")) throw new Error("tab list --json count must read the result key of the shipped envelope");
 const meshTabs = await render(<CodetermActionCard event={event("codeterm mesh tabs peer-a")} expanded onToggle={() => {}} />);
 if (meshTabs.host.querySelector('[data-testid="tab-list-compact"]')) throw new Error("mesh tabs must not use the local tab list renderer");
 

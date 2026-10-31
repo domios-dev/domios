@@ -1,3 +1,4 @@
+import { MemoryProvenance } from "./MemoryProvenance";
 import { daemonFetch } from "../../lib/webApi";
 import { memoryListControlsVisible } from "./memoryDetailModel";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -202,7 +203,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, onDetailOp
               <div className="flex items-start gap-2.5 px-2 py-2 cursor-pointer" onClick={() => setEditorItemId(n.id)}>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color }} />
+                    <span className="w-2 h-2 rounded-full shrink-0" style={{ background: color, outline: n.author?.kind === "neighbor" ? "1px solid var(--ct-accent)" : undefined, outlineOffset: 2 }} />
                     <span className="flex-1 text-xs text-[var(--ct-fg)] truncate font-medium">{n.title}</span>
                     <button
                       type="button"
@@ -217,6 +218,7 @@ function MemoryListTabImpl({ api, nodes, onViewInGraph, onSelectItem, onDetailOp
                     </button>
                     <span className="text-[10px] text-[var(--ct-muted-fg)] shrink-0 tabular-nums">{n.created_at ? relTime(n.created_at) : ""}</span>
                   </div>
+                  <div className="pl-[18px] mt-1"><MemoryProvenance author={n.author} compact /></div>
                   <div className="flex items-center gap-2 pl-[18px] mt-0.5 flex-wrap">
                     <span className="px-1.5 py-px rounded-[3px] text-[10px] font-semibold" style={{ background: `${color}22`, color }}>{n.kind}</span>
                     {n.area && <><span className="text-[10px] text-[var(--ct-muted-fg)]">&middot;</span><span className="px-1.5 py-px rounded-[3px] text-[10px] bg-[var(--ct-bg-hover)] text-[var(--ct-muted-fg)]">{n.area}</span></>}

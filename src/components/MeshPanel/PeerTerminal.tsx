@@ -47,16 +47,10 @@ function PeerTerminalComponent({
       role="group"
       aria-label={name}
       onClick={disabled ? undefined : onClick}
-      className={`relative bg-[var(--ct-bg)] rounded-md cursor-pointer transition-shadow ${
-        isThisMachine
-          ? offline
-            ? "border border-[var(--ct-border)] shadow-none"
-            : "border border-[color-mix(in_srgb,var(--ct-accent)_72%,var(--ct-border))] shadow-[var(--ct-shadow-capsule)]"
-          : "border border-[var(--ct-border)] shadow-sm"
-      }`}
+      className="ct-card relative cursor-pointer"
       style={{ width: 360 }}
     >
-      <div className={`flex items-center gap-2 px-3.5 py-2 rounded-t-md ${dim}`}>
+      <div className={`ct-card__head ${dim}`}>
         <span role="button" tabIndex={disabled ? -1 : 0} aria-disabled={disabled} aria-label={`Open ${name}`}
           onKeyDown={(event) => { if (event.code === "Enter" || event.code === "Space") { event.preventDefault(); if (!disabled) onClick?.(); } }}
           className="flex items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
@@ -67,7 +61,7 @@ function PeerTerminalComponent({
         <span className="ml-2 min-w-0 flex-1 text-[14px] text-[var(--ct-fg)] font-medium truncate">
           <MachineName name={name} onRename={onRename} disabledReason={renameDisabledReason} />
         </span>
-        <span className="ml-auto max-w-[45%] truncate text-[11px] text-[var(--ct-muted)] font-mono whitespace-nowrap">
+        <span className="ml-auto max-w-[45%] truncate text-[11px] text-[var(--ct-muted-fg)] font-mono whitespace-nowrap">
           {ip}
           {isThisMachine ? (offline ? " · offline" : " · this") : ""}
         </span>

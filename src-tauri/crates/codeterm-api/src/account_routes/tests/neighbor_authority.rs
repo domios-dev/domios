@@ -192,8 +192,14 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
 
 #[tokio::test]
 async fn unrelated_tabs_are_refused_all_runtime_surfaces_and_lifecycle_is_owner_only() {
+    use codeterm_service_core::service::neighbors::NeighborRuntimeCommand;
+
     let (_fixture, state, _, _, general, other) = fixture();
     let router = crate::routes::create_router(state);
+    assert!(serde_json::from_value::<NeighborRuntimeCommand>(json!({
+        "operation":"enroll", "takeover_confirmed":true, "expected_receiver_revision":0
+    }))
+    .is_err());
     for command in [
         json!({"operation":"status"}),
         json!({"operation":"history","friendship_id":"a".repeat(64)}),
@@ -201,10 +207,10 @@ async fn unrelated_tabs_are_refused_all_runtime_surfaces_and_lifecycle_is_owner_
         json!({"operation":"delivery_status","message_id":"b".repeat(32)}),
         json!({"operation":"retry","friendship_id":"a".repeat(64)}),
         json!({"operation":"own_keys"}),
-        json!({"operation":"enroll","takeover_confirmed":true,"expected_receiver_revision":0}),
         json!({"operation":"rotate"}),
         json!({"operation":"revoke"}),
     ] {
+        serde_json::from_value::<NeighborRuntimeCommand>(command.clone()).unwrap();
         let response = router
             .clone()
             .oneshot(request(&other, &command))
@@ -214,10 +220,7 @@ async fn unrelated_tabs_are_refused_all_runtime_surfaces_and_lifecycle_is_owner_
         let body: Value =
             serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(body["reason"], "neighbor_forbidden");
-        if matches!(
-            command["operation"].as_str(),
-            Some("enroll" | "rotate" | "revoke")
-        ) {
+        if matches!(command["operation"].as_str(), Some("rotate" | "revoke")) {
             assert_eq!(
                 router
                     .clone()

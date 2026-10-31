@@ -44,7 +44,7 @@ export function LocalArtifactBlock({
 }: LocalArtifactProps) {
   if (directive.kind === "image") return <LocalImageGallery directive={directive} fullscreenRequest={fullscreenRequest} onLoaded={onLoaded} bare={bare} renderError={renderError} />;
   if (directive.kind === "page" && !/\.(md|markdown)$/i.test(directive.path)) {
-    return <HtmlPreviewBlock text={`@file ${directive.path}`} renderError={renderError} fullscreenRequest={fullscreenRequest} />;
+    return <HtmlPreviewBlock filePath={directive.path} renderError={renderError} fullscreenRequest={fullscreenRequest} />;
   }
   return (
     <LoadedLocalArtifact directive={directive.kind === "page" ? { ...directive, kind: "document" } : directive} renderMarkdown={renderMarkdown} renderText={renderText} renderError={renderError} fullscreenRequest={fullscreenRequest} bare={bare} onLoaded={onLoaded} />

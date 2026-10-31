@@ -253,8 +253,7 @@ export const MeshCanvas = memo(function MeshCanvas({
       onTouchStartCapture={() => { userAdjustedRef.current = true; }}
       style={{
         minHeight: height,
-        background:
-          "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
+        background: "var(--ct-bg)",
         cursor: isDragging ? "grabbing" : "grab",
         userSelect: "none",
         touchAction: "none",

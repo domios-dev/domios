@@ -59,7 +59,7 @@ export function devCli(root, connection, args, signal, beforeSpawn = () => {}) {
       if (code !== 0) return reject(Error(`DEV CLI exit ${code}: ${stderr.slice(0, 1000)}`));
       try {
         const value = JSON.parse(stdout);
-        resolve(value?.data ?? value);
+        resolve(value.result);
       } catch (error) { reject(error); }
     });
   });

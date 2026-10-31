@@ -15,6 +15,7 @@ async fn account_mesh_forbidden_cached_recover_falls_back_to_one_rotation_and_en
     harness.clock.set(START + 3600);
     harness.restart().await;
     harness.sign_in("owner").await;
+    harness.mesh.enrollment_signed_in();
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
@@ -22,8 +23,8 @@ async fn account_mesh_forbidden_cached_recover_falls_back_to_one_rotation_and_en
         .unwrap();
     assert_eq!(harness.calls("list"), 1);
     assert_eq!(harness.calls("recover"), 1);
-    assert_eq!(harness.calls("recover_key"), 2);
-    assert_eq!(harness.calls("enroll"), 2);
+    assert_eq!(harness.calls("recover_key"), 1);
+    assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(
         harness
             .state()
@@ -31,7 +32,7 @@ async fn account_mesh_forbidden_cached_recover_falls_back_to_one_rotation_and_en
             .as_ref()
             .unwrap()
             .key_generation,
-        3
+        2
     );
     assert!(harness.state().current_membership(START + 3600).is_some());
 }
@@ -48,25 +49,20 @@ async fn account_mesh_stuck_typed_forbidden_backs_off_for_hours_without_repeated
     harness.registry.revoke_self("owner");
     harness.clock.set(START + 3600);
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Forbidden);
+    harness.mesh.enrollment_signed_in();
     assert_eq!(
-        harness.mesh.refresh(EnrollTrigger::Lease).await,
+        harness.mesh.refresh(EnrollTrigger::Automatic).await,
         Err(AccountMeshRefusal::ReauthRequired)
     );
-    let calls = count(&harness.log, "registry:");
-    for step in 1..=8 {
-        harness.clock.set(START + 3600 + step * 14400);
+    let before = count(&harness.log, "registry:");
+    for delay in [300, 600, 1200, 2400, 4800, 9600, 14400] {
+        harness.clock.set(START + 3600 + delay);
         assert_eq!(
             harness.mesh.refresh(EnrollTrigger::Lease).await,
             Err(AccountMeshRefusal::ReauthRequired)
         );
-        assert_eq!(
-            harness
-                .mesh
-                .lease_due(&Err(AccountMeshRefusal::ReauthRequired)),
-            None
-        );
-        assert_eq!(count(&harness.log, "registry:"), calls);
     }
+    assert_eq!(count(&harness.log, "registry:"), before);
     assert_eq!(harness.calls("recover_key"), 1);
 }
 

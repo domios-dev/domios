@@ -6,6 +6,9 @@ use codeterm_blueprint_types::blueprint_pipeline::{
 use serde_json::{json, Value};
 
 use crate::scheduler::Handle;
+#[cfg(test)]
+mod plugin_steps_tests;
+mod plugin_validation;
 use codeterm_service_core::service::ServiceContext;
 
 pub trait BlueprintExt {
@@ -59,8 +62,29 @@ impl BlueprintExt for ServiceContext {
     fn blueprint_pipeline_validate(
         &self,
         caller: &crate::service_adapter::SentinelCaller,
-        spec: BlueprintSpec,
+        mut spec: BlueprintSpec,
     ) -> Result<PipelinePreview, String> {
+        for step in &mut spec.steps {
+            if let StepKind::Plugin {
+                node_type,
+                revision,
+                outcomes,
+                ..
+            } = &mut step.kind
+            {
+                if *revision == 0 {
+                    if let Some(registered) = self
+                        .ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>()
+                        .step(node_type)
+                    {
+                        *revision = registered.descriptor.revision;
+                        if outcomes.is_empty() {
+                            *outcomes = registered.descriptor.outcomes;
+                        }
+                    }
+                }
+            }
+        }
         let errors = self.pipeline_validation_errors(&spec)?;
         let trigger_available = match &spec.trigger {
             Trigger::Event { kind, .. } => self
@@ -111,6 +135,7 @@ impl BlueprintExt for ServiceContext {
                     checks.push(field_check(&format!("steps[{index}].github"), &errors));
                 }
                 StepKind::Command { .. }
+                | StepKind::Plugin { .. }
                 | StepKind::Code { .. }
                 | StepKind::Call { .. }
                 | StepKind::Effect { .. } => {}
@@ -162,6 +187,16 @@ impl BlueprintExt for ServiceContext {
             .chain(codeterm_blueprint_types::blueprint_catalog::SOURCES_AND_MODES)
             .map(codeterm_blueprint_types::blueprint_catalog::NodeDescriptor::value)
             .collect::<Vec<_>>();
+        for step in self
+            .ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>()
+            .steps()
+        {
+            nodes.push(
+                json!({"role":"step", "kind":step.descriptor.id, "title":step.descriptor.title,
+                "plugin":step.plugin, "descriptor":step.descriptor,
+                "available":true}),
+            );
+        }
         for (_, conversion) in self
             .ext::<std::sync::Arc<codeterm_plugin::converter::ConverterRegistry>>()
             .available()
@@ -256,6 +291,7 @@ impl BlueprintExt for ServiceContext {
         let mut errors = codeterm_blueprint_types::blueprint_pipeline::validate(spec, &converters)
             .err()
             .unwrap_or_default();
+        errors.extend(plugin_validation::validate(self, spec));
         for (index, step) in spec.steps.iter().enumerate() {
             if let StepKind::Agent { provider, .. } = &step.kind {
                 if !self

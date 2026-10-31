@@ -63,6 +63,16 @@ pub fn node(document: &Document, node: &Node) -> Result<Step, String> {
                 .remove("kind");
             value = json!({"kind":kind,"probe":value});
         }
+        if node
+            .uses
+            .as_ref()
+            .is_some_and(super::super::NodeKind::plugin)
+        {
+            let mut params = value.as_object().cloned().ok_or("Invalid plugin params")?;
+            params.remove("kind");
+            value = json!({"kind":"plugin","node_type":node.kind(),"params":params,
+                "revision":0,"outcomes":node.outcomes});
+        }
         serde_json::from_value(value)
             .map_err(|e| format!("Unsupported native callee node {}: {e}", node.id))?
     };

@@ -535,6 +535,7 @@ mod tests {
         use codeterm_service_core::mem::store::MemItem;
         SearchHit {
             item: MemItem {
+                author: Default::default(),
                 id: "id".into(),
                 uid: "uid".into(),
                 kind: "preference".into(),

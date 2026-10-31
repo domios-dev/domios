@@ -226,8 +226,13 @@ impl BridgeTabPort for TestTab {
         unreachable!()
     }
 
-    fn claim_channel_answer(&self, _callback_data: &str) -> bool {
-        false
+    fn claim_channel_answer(
+        &self,
+        _callback_data: &str,
+        _chat_id: i64,
+        _message_id: Option<i64>,
+    ) -> Option<Result<(), String>> {
+        None
     }
 
     fn record_channel_placement(&self, receipt: &PlacementReceipt, locator: &str) {
@@ -579,9 +584,14 @@ async fn route_text_and_notifications_share_the_thread_fallback() {
         .is_some());
     route_transport.fail_next_threaded_send();
 
+    let mut caller_keyboard = keyboard();
+    caller_keyboard[0][0].data = Some("choice:ship".into());
     let placed = route_tab
         .threads
-        .route_text(&route_tab.tabs, text(WORKER, "route", Some(keyboard())))
+        .route_text(
+            &route_tab.tabs,
+            text(WORKER, "route", Some(caller_keyboard)),
+        )
         .await
         .expect("route fallback placement");
 

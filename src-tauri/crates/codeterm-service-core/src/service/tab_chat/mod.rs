@@ -13,7 +13,7 @@
 pub mod chatbackend_history;
 mod content;
 pub mod context_window;
-mod file_events;
+pub(crate) mod file_events;
 pub mod fork_history;
 pub mod history_gap;
 pub mod host_context;

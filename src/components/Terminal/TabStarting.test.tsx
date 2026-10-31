@@ -17,13 +17,11 @@ function parsed(element: React.ReactNode) {
   host.innerHTML = renderToStaticMarkup(element);
   return host;
 }
-function assertLoading(host: ReturnType<typeof parsed>, label?: string, role = "status") {
-  const mark = host.querySelector('[data-testid="tab-loading-mark"]');
+function assertLoading(host: ReturnType<typeof parsed>, label: string) {
+  const mark = host.querySelector('[role="status"][aria-label]');
   assert.ok(mark);
-  assert.equal(mark.getAttribute("role"), role);
   assert.ok(mark.getAttribute("aria-label"));
-  if (label) assert.equal(mark.getAttribute("aria-label"), label);
-  assert.equal(host.querySelector('[data-activity-state]'), null);
+  assert.equal(mark.getAttribute("aria-label"), label);
 }
 /** A starting terminal is a whole area waiting: the shared branded Loader, not the small starting mark. */
 function assertAreaLoader(host: ReturnType<typeof parsed>, label: string) {
@@ -37,10 +35,14 @@ for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as co
   const attention = tabAttention(starting, "Working", []);
   const mark = tabStatusMark(tab.title, attention)!;
   const row = parsed(<TabItem tab={starting} status="Working" hasAgent index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="ws" />);
-  assertLoading(row, mark.label, "img");
+  assertLoading(row, mark.label);
+  const titleLine = row.querySelector('[data-testid="tab-title"]')?.parentElement;
+  assert.ok(titleLine?.querySelector(`[role="status"][aria-label="${mark.label}"]`), "starting status follows the title in its line");
+  assert.equal(row.querySelector('[data-testid="tab-tab-icon"] [role="status"]'), null, "starting status does not overlap the icon");
+  assert.equal(row.querySelectorAll(`[role="status"][aria-label="${mark.label}"]`).length, 1, "starting status appears once");
   assert.equal(row.querySelector('[data-testid="tab-working-activity"]'), null);
   const rail = parsed(<SidebarCompactRail groups={[{ workspaceId: "ws", label: "group-token", tabs: [starting], activeTabId: null }]} tabStatuses={{ [tab.id]: "Working" }} attentionByTab={{ [tab.id]: attention }} onActivate={() => {}} />);
-  assertLoading(rail, mark.label, "img");
+  assertLoading(rail, mark.label);
   const chat = parsed(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="provider-token" />);
   assert.ok(chat.querySelector('[role="progressbar"][aria-valuetext]'));
   assert.ok(chat.querySelector('[role="status"][aria-label]'));

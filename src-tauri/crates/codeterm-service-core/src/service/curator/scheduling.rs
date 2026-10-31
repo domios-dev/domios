@@ -282,15 +282,13 @@ impl ServiceContext {
                         .cron_id
                         .as_ref()
                         .and_then(|id| cron.lock().get(id).cloned());
-                    if existing
+                    let job_running = existing
                         .as_ref()
-                        .is_some_and(|job| cron.lock().is_job_running(&job.id))
-                    {
-                        return Ok(());
-                    }
-                    if existing
-                        .as_ref()
-                        .is_none_or(|job| job.next_run != Some(next) || !job.enabled)
+                        .is_some_and(|job| cron.lock().is_job_running(&job.id));
+                    if !job_running
+                        && existing
+                            .as_ref()
+                            .is_none_or(|job| job.next_run != Some(next) || !job.enabled)
                     {
                         let workspace = plan
                             .team_id

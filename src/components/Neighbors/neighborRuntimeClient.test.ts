@@ -18,8 +18,8 @@ it.each(["set", "reset"] as const)("moves only the requested friend for %s", asy
 it("keeps machine quota metadata and new receiver refusals typed", async () => {
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "key_limit", limit: 5, active: 5, message: "All machine slots are in use" }), { status: 409 }));
   await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "key_limit", limit: 5, active: 5 });
-  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "feature_unsupported", message: "Update the account receiver" }), { status: 409 }));
-  await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "feature_unsupported" });
+  vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiver_revision_stale", message: "Receiving changed; confirm again" }), { status: 409 }));
+  await expect(neighborRuntimeClient.receiveFriend("f".repeat(64), 1)).rejects.toMatchObject({ reason: "receiver_revision_stale" });
 });
 
 it("opens a saved file from the desktop app so it comes to the front, and falls back to the daemon open", async () => {
@@ -70,4 +70,14 @@ it("preserves a named receiving refusal and a separate none-chosen code", async 
   await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiving_elsewhere", message });
   vi.mocked(localFetch).mockResolvedValueOnce(new Response(JSON.stringify({ code: "receiver_not_chosen", message: "No receiver chosen" }), { status: 409 }));
   await expect(runtimeCall({ operation: "set_permission" })).rejects.toMatchObject({ reason: "receiver_not_chosen", message: "No receiver chosen" });
+});
+
+it("sends write areas explicitly and defaults them to an empty grant", async () => {
+  const { neighborConciergeClient } = await import("./neighborConciergeClient");
+  for (const memory_write_areas of [undefined, ["project"]]) {
+    vi.mocked(localFetch).mockResolvedValueOnce(new Response("{}", { status: 200 }));
+    await neighborConciergeClient.setPermission("pair", { allowed: true, scope: "opaque", allow_tab_requests: false, memory_write_areas });
+    const request = vi.mocked(localFetch).mock.lastCall![1]!;
+    expect(JSON.parse(String(request.body)).permission.memory_write_areas).toEqual(memory_write_areas ?? []);
+  }
 });

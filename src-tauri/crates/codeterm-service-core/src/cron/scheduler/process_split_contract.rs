@@ -29,6 +29,7 @@ fn process_split_contract_manual_and_scheduled_cron_publish_exact_internal_run()
             assert_eq!(spec.workspace_id.as_deref(), Some(workspace.as_str()));
             let tab_id = svc.mux.write().create_tab(&workspace)?;
             Ok(crate::service::spawn::TabHandle {
+                command_submission: None,
                 tab_id,
                 pty_id: None,
                 workspace_id: workspace.clone(),

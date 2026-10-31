@@ -9,16 +9,28 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use super::vm::{call_json, PluginVm};
-use crate::js_runtime::WebhookReceiverKind;
+mod media_lookup;
+use crate::js_runtime::{ViewHostAction, WebhookReceiverKind};
 use crate::view_host::{ViewError, ViewProvider};
 
 pub struct JsViewProvider {
     vm: Arc<PluginVm>,
     id: String,
     webhook_receiver_kind: Option<WebhookReceiverKind>,
+    host_actions: Vec<ViewHostAction>,
+    view_inputs: Option<crate::media_delivery::ViewInputDescriptor>,
+    media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
 }
 
 impl JsViewProvider {
+    pub fn with_media_delivery(
+        mut self,
+        descriptor: Option<crate::media_delivery::MediaDeliveryDescriptor>,
+    ) -> Self {
+        self.media_delivery = descriptor;
+        self
+    }
+
     pub fn new(vm: Arc<PluginVm>, id: impl Into<String>) -> Self {
         Self::with_webhook_receiver(vm, id, None)
     }
@@ -32,12 +44,38 @@ impl JsViewProvider {
             vm,
             id: id.into(),
             webhook_receiver_kind,
+            host_actions: Vec::new(),
+            view_inputs: None,
+            media_delivery: None,
         }
+    }
+
+    /// The manifest's `viewHostActions`, the only gesture actions the host performs for this view.
+    pub fn with_host_actions(mut self, host_actions: Vec<ViewHostAction>) -> Self {
+        self.host_actions = host_actions;
+        self
+    }
+
+    /// The manifest's `viewInputs`: what `pickFile` may ingest, as media delivery's descriptor.
+    pub fn with_view_inputs(mut self, inputs: Option<&crate::js_runtime::ViewInputs>) -> Self {
+        self.view_inputs = inputs.map(|inputs| crate::media_delivery::ViewInputDescriptor {
+            accept: inputs
+                .accept
+                .iter()
+                .map(|kind| kind.as_str().to_owned())
+                .collect(),
+            max_bytes: inputs.max_bytes,
+            max_files: inputs.max_files,
+        });
+        self
     }
 }
 
 #[async_trait]
 impl ViewProvider for JsViewProvider {
+    fn invocation_runtime(&self) -> Option<String> {
+        Some(self.vm.runtime_identity().into())
+    }
     fn id(&self) -> &str {
         &self.id
     }
@@ -46,87 +84,89 @@ impl ViewProvider for JsViewProvider {
         self.webhook_receiver_kind
     }
 
-    async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError> {
+    fn host_actions(&self) -> &[ViewHostAction] {
+        &self.host_actions
+    }
+
+    fn view_inputs(&self) -> Option<crate::media_delivery::ViewInputDescriptor> {
+        self.view_inputs.clone().filter(|inputs| inputs.valid())
+    }
+
+    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> {
+        self.media_delivery.clone().filter(|value| value.valid())
+    }
+
+    async fn media_file(
+        &self,
+        id: &str,
+        context: &crate::view_host::ViewCallContext,
+    ) -> Result<crate::media_delivery::MediaFile, ViewError> {
+        if self.media_delivery().is_none() || id.is_empty() || id.len() > 256 {
+            return Err(ViewError::Call("media delivery denied".into()));
+        }
+        media_lookup::lookup(
+            self.vm.clone(),
+            self.id.clone(),
+            id.to_owned(),
+            context.clone(),
+            crate::converter::ConversionCancellation::default(),
+            media_lookup::deadline(),
+        )
+        .await
+    }
+
+    async fn run_media_file(
+        &self,
+        id: &str,
+        context: &crate::media_delivery::RunMediaLookupContext,
+    ) -> Result<crate::media_delivery::MediaFile, ViewError> {
+        if self.media_delivery().is_none()
+            || id.is_empty()
+            || id.len() > 256
+            || !context.valid_for(&self.id)
+        {
+            return Err(ViewError::Call("durable media lookup denied".into()));
+        }
+        media_lookup::lookup_run(
+            self.vm.clone(),
+            self.id.clone(),
+            id.into(),
+            context.clone(),
+            crate::converter::ConversionCancellation::default(),
+            media_lookup::deadline(),
+        )
+        .await
+    }
+
+    async fn call(
+        &self,
+        method: &str,
+        args: Value,
+        context: &crate::view_host::ViewCallContext,
+    ) -> Result<Value, ViewError> {
         // A plugin-supplied cwd must not mint a read grant; only host context can do so.
         let vm = self.vm.clone();
         let method = method.to_string();
+        let invocation = context.clone();
+        let plugin = self.id.clone();
+        let context = serde_json::to_value(context)
+            .map_err(|_| ViewError::Call("invalid view context".into()))?;
         tokio::task::spawn_blocking(move || {
-            call_json::<Value>(&vm, "viewCall", &[Value::String(method), args])
+            crate::view_host::with_view_call_context(&plugin, &invocation, || {
+                let result = call_json::<Value>(
+                    &vm,
+                    "viewCall",
+                    &[Value::String(method.clone()), args, context],
+                )
+                .map_err(|error| ViewError::Call(format!("{error:?}")))?;
+                vm.observe_connection(&method, &result);
+                Ok(result)
+            })
         })
         .await
         .map_err(|e| ViewError::Call(format!("view task failed: {e}")))?
-        .map_err(|e| ViewError::Call(format!("{e:?}")))
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn vm_with(src: &str) -> Arc<PluginVm> {
-        Arc::new(PluginVm::from_source("test-view", src.to_string()).expect("vm"))
-    }
-
-    #[tokio::test]
-    async fn routes_bridge_calls_to_view_call() {
-        let vm = vm_with(
-            r#"module.exports.default = {
-                viewCall(method, args) {
-                    if (method === "echo") return { got: args.x * 2 };
-                    return { error: "unknown" };
-                }
-            }"#,
-        );
-        let v = JsViewProvider::new(vm, "test-view");
-        let out = v
-            .call("echo", serde_json::json!({ "x": 21 }))
-            .await
-            .unwrap();
-        assert_eq!(out["got"], 42);
-    }
-
-    /// NEGATIVE CONTROL for the grant seam: view-call args are iframe-authored
-    /// (the host stamps cwd only when the iframe omits it), so an `args.cwd`
-    /// must never mint a read grant — otherwise any drop-in with a view could
-    /// self-issue read access to arbitrary paths. Reads under a tab cwd work
-    /// only after a host-driven bubble/glance call granted that root.
-    #[tokio::test]
-    async fn view_args_cwd_never_mints_a_read_grant() {
-        use crate::js_runtime::host_api::PluginSandbox;
-        let tmp = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(tmp.path().join("loot")).unwrap();
-        let sandbox = Arc::new(PluginSandbox::restricted(vec![], vec![]));
-        let vm = Arc::new(
-            PluginVm::from_source_sandboxed(
-                "confined-view",
-                r#"module.exports.default = {
-                    viewCall(method, args) { return { names: host.listChildDirs(args.cwd) }; }
-                }"#
-                .to_string(),
-                None,
-                sandbox.clone(),
-            )
-            .expect("vm"),
-        );
-        let v = JsViewProvider::new(vm, "confined-view");
-        let cwd = tmp.path().to_string_lossy().into_owned();
-
-        let out = v
-            .call("probe", serde_json::json!({ "cwd": cwd }))
-            .await
-            .unwrap();
-        assert_eq!(
-            out["names"],
-            serde_json::Value::Null,
-            "an iframe-supplied cwd must stay denied"
-        );
-
-        // Once the HOST granted the same cwd (bubble/glance path), the view works.
-        sandbox.grant_cwd_read_root(&cwd);
-        let out = v
-            .call("probe", serde_json::json!({ "cwd": cwd }))
-            .await
-            .unwrap();
-        assert_eq!(out["names"], serde_json::json!(["loot"]));
-    }
-}
+mod tests;

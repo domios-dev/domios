@@ -752,6 +752,33 @@ append boundary. They parse only supplied JSON and add no host filesystem,
 network or subprocess access. Native/JS parity must cover every declared shape;
 additional system records never become foreign user turns.
 
+## Agent-callable view surfaces
+
+For host 1.18+, declare `capabilities.view`, a view surface's `agentVerbs` and
+`stateInvalidation`, plus the `surfaces`/`agentCommands` grants. Forward agent
+commands to `host.surface.call`; implement `onSurfaceCall(context,verb,args)`.
+Context is host-owned `{surface,instance,tab,owner,actor,actorLabel}`; never infer
+caller authority from words. Native host ports and the JS bridge share the same
+ownership planner and descriptor. Dispatch stays in the active VM, avoiding a
+reentrant registry/VM lock. Return a string; job ids/state remain plugin-owned.
+
+Backend changes call `host.surface.invalidate({surface,instance,tab})`; the
+capability-gated port rejects stale identities and arbitrary payloads. Views use
+`ct.onSurfaceStateChanged` and release the subscription on unmount. This is a
+state-refetch hint, not a reload, job ledger or durable media handle. The host API
+adds no FS/network/env reach; activity includes only sanitized verbs and labels.
+Test two agents, cross-workspace refusal, declaration/instance bounds, native/JS
+port parity, late frame events and teardown. See `domios docs SURFACES` for usage.
+
+View backends implement `viewCall(method,args,context)`, with a host-resolved
+`ViewCallContext` (plugin, surface/instance/tab/owner/workspace/team, local actor,
+non-secret frame id). Authorize result reads/mutations by this scope, never args
+or `ct.surface`. Panels are unowned and cannot admit owned jobs. Native adapters
+receive the same required context. The host holds the private lease outside the
+iframe; callbacks and late results are fenced across close/reload/provider changes.
+The Rust-only invocation projection is not a plugin setter or a run/budget grant.
+Test stale/foreign tuples, owner changes, native/JS parity and stale async replies.
+
 ## Claude repository verification
 
 - [Canonical oracles](claude-canonical-oracles.md) owns repository build and live QA procedures.

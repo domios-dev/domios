@@ -7,10 +7,7 @@ use parking_lot::Mutex;
 use reqwest::redirect::Policy;
 #[cfg(windows)]
 use std::net::{Ipv4Addr, SocketAddrV4};
-use std::{
-    sync::atomic::{AtomicBool, Ordering},
-    time::Duration,
-};
+use std::{io, time::Duration};
 use url::Url;
 use uuid::Uuid;
 
@@ -38,7 +35,7 @@ pub(crate) fn dev_locator_enabled(
 
 pub(crate) struct DiagnosticsSession {
     requested_port: Option<u16>,
-    occupied: AtomicBool,
+    preflight: Mutex<PortPreflight>,
     status: Mutex<Option<NativeWebviewDiagnosticsStatus>>,
 }
 
@@ -50,20 +47,27 @@ impl DiagnosticsSession {
         };
         Self {
             requested_port,
-            occupied: AtomicBool::new(false),
+            preflight: Mutex::new(PortPreflight::pending(
+                cfg!(debug_assertions),
+                cfg!(windows),
+            )),
             status: Mutex::new(None),
         }
     }
 
-    #[cfg(windows)]
-    pub(crate) fn set_port_preflight(&self, port: u16, available: bool) {
+    pub(crate) fn set_port_preflight(&self, port: u16, preflight: PortPreflight) {
         if self.requested_port == Some(port) {
-            self.occupied.store(!available, Ordering::Release);
+            *self.preflight.lock() = preflight;
         }
     }
 
+    #[cfg(debug_assertions)]
+    pub(crate) fn preflight_receipt(&self) -> serde_json::Value {
+        self.preflight.lock().receipt(self.requested_port)
+    }
+
     pub(crate) fn bind_view(&self) -> NativeWebviewDiagnosticsStatus {
-        let status = initial_status(self.requested_port, self.occupied.load(Ordering::Acquire));
+        let status = initial_status(self.requested_port, *self.preflight.lock());
         *self.status.lock() = Some(status.clone());
         status
     }
@@ -77,13 +81,8 @@ impl DiagnosticsSession {
         generation: ClientViewGeneration,
         url: Url,
     ) -> NativeWebviewDiagnosticsStatus {
-        status_for_view(
-            self.requested_port,
-            generation,
-            url,
-            self.occupied.load(Ordering::Acquire),
-        )
-        .await
+        let preflight = *self.preflight.lock();
+        status_for_view(self.requested_port, generation, url, preflight).await
     }
 
     pub(crate) fn adopt_status(&self, status: NativeWebviewDiagnosticsStatus) {
@@ -220,21 +219,201 @@ fn target_matches(
         && web_socket.path().starts_with("/devtools/page/")
 }
 
-#[cfg(windows)]
-pub(crate) fn port_is_available(port: u16) -> bool {
-    codeterm_util::tcp_listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into()).is_ok()
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindOutcome {
+    NotAttempted,
+    Available,
+    Failed {
+        kind: io::ErrorKind,
+        raw_os_error: Option<i32>,
+    },
+}
+
+#[cfg(debug_assertions)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+struct FailureListenerObservation {
+    listener_pid_before: Option<u32>,
+    listener_pid_after: Option<u32>,
+    client_ancestry_verified: Option<bool>,
+}
+
+#[cfg(debug_assertions)]
+impl FailureListenerObservation {
+    fn capture(
+        mut listener_pid: impl FnMut() -> Option<u32>,
+        ancestry_matches: impl FnOnce(u32) -> bool,
+    ) -> Self {
+        let before = listener_pid();
+        let ancestry = before.map(ancestry_matches);
+        let after = listener_pid();
+        Self {
+            listener_pid_before: before,
+            listener_pid_after: after,
+            client_ancestry_verified: if before == after { ancestry } else { None },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PortPreflight {
+    debug: bool,
+    windows: bool,
+    bind: BindOutcome,
+    #[cfg(debug_assertions)]
+    failure_listener: Option<FailureListenerObservation>,
+    #[cfg(debug_assertions)]
+    starting_view_present: Option<bool>,
+}
+
+impl PortPreflight {
+    fn pending(debug: bool, windows: bool) -> Self {
+        Self {
+            debug,
+            windows,
+            bind: BindOutcome::NotAttempted,
+            #[cfg(debug_assertions)]
+            failure_listener: None,
+            #[cfg(debug_assertions)]
+            starting_view_present: None,
+        }
+    }
+
+    pub(crate) fn evaluate(
+        debug: bool,
+        windows: bool,
+        bind: impl FnOnce() -> io::Result<()>,
+    ) -> Self {
+        let mut preflight = Self::pending(debug, windows);
+        if debug && windows {
+            preflight.bind = match bind() {
+                Ok(()) => BindOutcome::Available,
+                Err(error) => BindOutcome::Failed {
+                    kind: error.kind(),
+                    raw_os_error: error.raw_os_error(),
+                },
+            };
+        }
+        preflight
+    }
+
+    pub(crate) fn available(self) -> bool {
+        self.debug && self.windows && self.bind == BindOutcome::Available
+    }
+
+    #[cfg(debug_assertions)]
+    fn observe_address_in_use(
+        mut self,
+        observe: impl FnOnce() -> FailureListenerObservation,
+    ) -> Self {
+        if self.debug
+            && self.windows
+            && matches!(
+                self.bind,
+                BindOutcome::Failed {
+                    kind: io::ErrorKind::AddrInUse,
+                    ..
+                }
+            )
+        {
+            self.failure_listener = Some(observe());
+        }
+        self
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn with_starting_view_present(mut self, present: bool) -> Self {
+        self.starting_view_present = Some(present);
+        self
+    }
+
+    #[cfg(debug_assertions)]
+    fn receipt(self, requested_port: Option<u16>) -> serde_json::Value {
+        let (outcome, kind, raw_os_error) = match self.bind {
+            BindOutcome::NotAttempted => ("not_attempted", None, None),
+            BindOutcome::Available => ("available", None, None),
+            BindOutcome::Failed { kind, raw_os_error } => (
+                if kind == io::ErrorKind::AddrInUse {
+                    "address_in_use"
+                } else {
+                    "bind_failed"
+                },
+                Some(format!("{kind:?}")),
+                raw_os_error,
+            ),
+        };
+        serde_json::json!({
+            "requested_port": requested_port,
+            "compiled_debug": self.debug,
+            "compiled_windows": self.windows,
+            "phase": "before_starting_webview",
+            "bind_outcome": outcome,
+            "bind_error_kind": kind,
+            "raw_os_error": raw_os_error,
+            "failure_listener": self.failure_listener,
+            "starting_view_present": self.starting_view_present,
+        })
+    }
+}
+
+pub(crate) fn port_preflight(port: u16) -> PortPreflight {
+    let preflight = PortPreflight::evaluate(cfg!(debug_assertions), cfg!(windows), || {
+        #[cfg(windows)]
+        {
+            codeterm_util::tcp_listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into())
+                .map(drop)
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(())
+        }
+    });
+    #[cfg(debug_assertions)]
+    let preflight = preflight.observe_address_in_use(|| {
+        #[cfg(windows)]
+        {
+            FailureListenerObservation::capture(
+                || windows_listener::listener_process_id(port),
+                |pid| windows_listener::listener_is_owned_by_client(pid, std::process::id()),
+            )
+        }
+        #[cfg(not(windows))]
+        {
+            FailureListenerObservation::capture(|| None, |_| false)
+        }
+    });
+    log::debug!(
+        "[webview-diagnostics] preflight requested_port={port} phase=before_starting_webview {preflight:?}"
+    );
+    preflight
 }
 
 pub(crate) fn initial_status(
     requested_port: Option<u16>,
-    occupied: bool,
+    preflight: PortPreflight,
 ) -> NativeWebviewDiagnosticsStatus {
     match requested_port {
         None => NativeWebviewDiagnosticsStatus::Disabled,
-        Some(_) if !cfg!(windows) => NativeWebviewDiagnosticsStatus::Unsupported,
-        Some(_) if occupied => NativeWebviewDiagnosticsStatus::Unavailable {
-            reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
-        },
+        Some(_) if !preflight.debug || !preflight.windows => {
+            NativeWebviewDiagnosticsStatus::Unsupported
+        }
+        Some(_)
+            if matches!(
+                preflight.bind,
+                BindOutcome::Failed {
+                    kind: io::ErrorKind::AddrInUse,
+                    ..
+                }
+            ) =>
+        {
+            NativeWebviewDiagnosticsStatus::Unavailable {
+                reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
+            }
+        }
+        Some(_) if matches!(preflight.bind, BindOutcome::Failed { .. }) => {
+            NativeWebviewDiagnosticsStatus::Unavailable {
+                reason: NativeWebviewDiagnosticsUnavailableReason::WebviewInitializationFailed,
+            }
+        }
         Some(_) => NativeWebviewDiagnosticsStatus::Unavailable {
             reason: NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
         },
@@ -245,12 +424,14 @@ pub(crate) async fn status_for_view(
     requested_port: Option<u16>,
     generation: ClientViewGeneration,
     main_url: Url,
-    occupied: bool,
+    preflight: PortPreflight,
 ) -> NativeWebviewDiagnosticsStatus {
     match requested_port {
         None => NativeWebviewDiagnosticsStatus::Disabled,
-        Some(_) if !cfg!(windows) => NativeWebviewDiagnosticsStatus::Unsupported,
-        Some(port) => inspect_main_webview_diagnostics(port, generation, main_url, occupied).await,
+        Some(_) if !preflight.debug || !preflight.windows => {
+            NativeWebviewDiagnosticsStatus::Unsupported
+        }
+        Some(port) => inspect_main_webview_diagnostics(port, generation, main_url, preflight).await,
     }
 }
 
@@ -258,7 +439,7 @@ pub(crate) async fn inspect_main_webview_diagnostics(
     port: u16,
     generation: ClientViewGeneration,
     main_url: Url,
-    occupied: bool,
+    preflight: PortPreflight,
 ) -> NativeWebviewDiagnosticsStatus {
     #[derive(serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
@@ -269,10 +450,8 @@ pub(crate) async fn inspect_main_webview_diagnostics(
         web_socket_debugger_url: Option<String>,
     }
 
-    if occupied {
-        return NativeWebviewDiagnosticsStatus::Unavailable {
-            reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
-        };
+    if !preflight.available() {
+        return initial_status(Some(port), preflight);
     }
     let unavailable = || NativeWebviewDiagnosticsStatus::Unavailable {
         reason: NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
@@ -506,119 +685,4 @@ mod windows_listener {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn main_target_requires_exact_document_and_view_navigation_pair() {
-        let generation = ClientViewGeneration {
-            view: 8,
-            navigation: 21,
-        };
-        let main = with_root_generation(
-            &Url::parse("http://127.0.0.1:7686/index.html?theme=dark").unwrap(),
-            generation,
-        );
-        let same_document = Url::parse("http://127.0.0.1:7686/index.html?theme=dark").unwrap();
-        let stale_navigation = with_root_generation(
-            &Url::parse("http://127.0.0.1:7686/index.html?theme=dark").unwrap(),
-            ClientViewGeneration {
-                navigation: generation.navigation + 1,
-                ..generation
-            },
-        );
-        assert_eq!(root_generation_from_url(&main), Some(generation));
-        assert_eq!(
-            without_root_generation(&main),
-            without_root_generation(&same_document)
-        );
-        assert_ne!(
-            root_generation_from_url(&stale_navigation),
-            Some(generation)
-        );
-        assert!(target_matches(
-            "page",
-            main.as_str(),
-            "ws://127.0.0.1:9222/devtools/page/main",
-            9222,
-            generation,
-            &main,
-        ));
-        assert!(!target_matches(
-            "page",
-            stale_navigation.as_str(),
-            "ws://127.0.0.1:9222/devtools/page/main",
-            9222,
-            generation,
-            &main,
-        ));
-        assert!(!target_matches(
-            "page",
-            main.as_str(),
-            "ws://127.0.0.1:9223/devtools/page/main",
-            9222,
-            generation,
-            &main,
-        ));
-    }
-
-    #[test]
-    #[cfg(not(windows))]
-    fn requested_diagnostics_are_unsupported_off_windows() {
-        for occupied in [true, false] {
-            assert_eq!(
-                initial_status(Some(9222), occupied),
-                NativeWebviewDiagnosticsStatus::Unsupported
-            );
-        }
-        assert_eq!(
-            initial_status(None, false),
-            NativeWebviewDiagnosticsStatus::Disabled
-        );
-    }
-
-    #[test]
-    #[cfg(windows)]
-    fn unavailable_diagnostics_never_claims_a_foreign_or_unverified_listener() {
-        assert!(matches!(
-            initial_status(Some(9222), true),
-            NativeWebviewDiagnosticsStatus::Unavailable {
-                reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied
-            }
-        ));
-        assert!(matches!(
-            initial_status(Some(9222), false),
-            NativeWebviewDiagnosticsStatus::Unavailable {
-                reason: NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed
-            }
-        ));
-        assert_eq!(
-            initial_status(None, false),
-            NativeWebviewDiagnosticsStatus::Disabled
-        );
-    }
-
-    #[test]
-    fn diagnostics_listener_must_be_a_webview_process_owned_by_this_client() {
-        let processes = [
-            ProcessIdentity {
-                pid: 10,
-                parent_pid: 1,
-                image: "domios-app.exe".into(),
-            },
-            ProcessIdentity {
-                pid: 11,
-                parent_pid: 10,
-                image: "msedgewebview2.exe".into(),
-            },
-        ];
-        assert!(is_owned_webview_listener(11, 10, &processes));
-        assert!(!is_owned_webview_listener(99, 10, &processes));
-        assert!(!is_owned_webview_listener(11, 2, &processes));
-        let foreign_image = [ProcessIdentity {
-            image: "other.exe".into(),
-            ..processes[1].clone()
-        }];
-        assert!(!is_owned_webview_listener(11, 10, &foreign_image));
-    }
-}
+mod tests;

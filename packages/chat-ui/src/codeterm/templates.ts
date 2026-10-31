@@ -120,13 +120,9 @@ function safeObject(value: string | undefined, fallback: string): string {
 }
 
 function collectionLength(value: unknown): number | undefined {
-  if (Array.isArray(value)) return value.length;
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
-  for (const key of ["items", "tabs", "workspaces", "results", "data"]) {
-    if (Array.isArray(record[key])) return record[key].length;
-  }
-  return undefined;
+  return Array.isArray(record.result) ? record.result.length : undefined;
 }
 
 function balancedJsonEnd(text: string, start: number): number | undefined {
@@ -396,7 +392,8 @@ function sentTitle(inv: CodetermInvocation, resolve?: TabNameResolver): string {
 function deliveredStatus(result?: string): CardStatus | undefined {
   if (!result) return undefined;
   try {
-    const parsed = JSON.parse(result);
+    const envelope = JSON.parse(result);
+    const parsed = envelope.ok === false ? envelope : envelope.result;
     if (parsed?.delivery === "pending" || parsed?.pending?.length) return { ok: false, label: "pending", pending: true };
     if (parsed?.delivery === "sent" || parsed?.delivered?.length) return { ok: true, label: "sent" };
     if (parsed?.ok === true) return { ok: false, label: "pending", pending: true };
@@ -489,7 +486,7 @@ function resolvedSendText(result?: string): { text: string; truncated: boolean }
     } catch {}
   }
   try {
-    const evidence = JSON.parse(result ?? "")?.sent_message;
+    const evidence = JSON.parse(result ?? "")?.result?.sent_message;
     if (typeof evidence?.text === "string") return { text: evidence.text.slice(0, 16_384), truncated: evidence.truncated === true || evidence.text.length > 16_384 };
   } catch {}
   return undefined;

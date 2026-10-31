@@ -21,9 +21,8 @@ use std::time::Duration;
 use tokio::sync::{watch, OnceCell};
 
 mod authority;
-mod disconnect;
-mod link_approval;
 mod presence;
+mod reconcile;
 pub mod tailnet;
 pub use authority::{mesh_state, AccountAuthority};
 
@@ -36,6 +35,7 @@ pub const ACCOUNT_MESH_CHANGED: &str = "account-mesh-changed";
 pub struct AccountMeshCell(OnceCell<Arc<AccountMeshService>>);
 
 pub struct AccountMeshService {
+    installation_id: String,
     pub mesh: Arc<AccountMesh>,
     listener: Arc<ListenerEndpoint>,
     mesh_state: watch::Sender<codeterm_mesh::account_mesh::AccountMeshState>,
@@ -117,6 +117,7 @@ impl EndpointSource for ListenerEndpoint {
 }
 
 struct TransportBridge {
+    installation_id: String,
     service: Weak<ServiceContext>,
     mesh_state: watch::Sender<codeterm_mesh::account_mesh::AccountMeshState>,
 }
@@ -131,6 +132,15 @@ impl MeshTransport for TransportBridge {
             if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
                 let mut manager = mesh.lock();
                 manager.apply_account_state(projected.clone());
+                let own = self.installation_id.as_str();
+                manager.account_installations = state.registry.as_ref().map(|registry| registry.rows.iter()
+                    .filter(|row| row.installation_id != own)
+                    .map(|row| codeterm_mesh::types::AccountInstallation {
+                        installation_id: row.installation_id.clone(), name: row.display_name.clone().unwrap_or_else(|| "Unnamed machine".into()),
+                        active: row.active, signed_out: row.presence == codeterm_account::account_mesh::wire::RegistryPresence::SignedOut,
+                        membership_expires_at: row.membership_expires_at, endpoint_expires_at: row.endpoint.as_ref().map(|endpoint| endpoint.expires_at),
+                        instance_id: None, online: false,
+                    }).collect()).unwrap_or_default();
                 manager.registry_revision = state.signed_in_account().and_then(|account| {
                     state.registry_security.as_ref().map(|registry| {
                         codeterm_mesh::types::RegistryRevision {
@@ -153,13 +163,13 @@ impl MeshTransport for TransportBridge {
     }
 }
 
-/// `account_mesh_state`: account-owned fields plus the transport's saved pairs.
+/// `account_mesh_state`: account-owned fields plus authenticated runtime connections.
 #[derive(Clone, Debug, Serialize)]
 pub struct AccountMeshSnapshot {
+    pub local_installation_id: String,
     #[serde(flatten)]
     pub view: AccountMeshView,
     pub pairs: Vec<serde_json::Value>,
-    pub link_requests: Vec<codeterm_mesh::account_mesh::approval::LinkRequest>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -239,7 +249,7 @@ impl ServiceContext {
                 let mesh_state = watch::channel(Default::default()).0;
                 let mesh = AccountMesh::new(
                     AccountMeshConfig {
-                        installation_id,
+                        installation_id: installation_id.clone(),
                         default_display_name: Some(self.configuration().mesh.instance_name.clone()),
                         trust: trust(),
                         call_deadline: Duration::from_secs(15),
@@ -256,6 +266,7 @@ impl ServiceContext {
                         store: Arc::new(FileAccountMeshStore::new(self.account_data_root()?)),
                         endpoint: listener.clone(),
                         transport: Arc::new(TransportBridge {
+                            installation_id: installation_id.as_str().to_owned(),
                             service: self.weak_self(),
                             mesh_state: mesh_state.clone(),
                         }),
@@ -264,6 +275,7 @@ impl ServiceContext {
                 );
                 mesh.load().await;
                 Ok::<_, String>(Arc::new(AccountMeshService {
+                    installation_id: installation_id.as_str().to_owned(),
                     mesh,
                     listener,
                     mesh_state,
@@ -352,12 +364,9 @@ impl ServiceContext {
     pub async fn account_mesh_snapshot(&self) -> Result<AccountMeshSnapshot, String> {
         let service = self.account_mesh().await?;
         Ok(AccountMeshSnapshot {
+            local_installation_id: service.installation_id.clone(),
             view: service.mesh.state().view(),
             pairs: self.account_mesh_pairs(),
-            link_requests: self
-                .try_ext::<crate::MeshStateHandle>()
-                .map(|mesh| mesh.lock().link_requests())
-                .unwrap_or_default(),
         })
     }
 
@@ -381,7 +390,7 @@ impl ServiceContext {
     }
 
     /// Binds the Mesh gate to the account lifecycle and the ready listener to enrollment;
-    /// each account state reaches the gate before adoption runs.
+    /// each account state reaches the gate before connection reconciliation.
     pub fn start_account_mesh_transport(&self) {
         let Some(service) = self.weak_self().upgrade() else {
             return;
@@ -408,13 +417,22 @@ impl ServiceContext {
             };
             mesh.lock().bind_account_authority(account_mesh.authority());
             crate::async_runtime::spawn(push_account_mesh_listener(service.clone(), mesh.clone()));
+            crate::async_runtime::spawn(reconcile::run(
+                service.clone(),
+                account_mesh.clone(),
+                mesh.clone(),
+            ));
             let mut states = account_mesh.mesh_states();
             loop {
                 let state = states.borrow_and_update().clone();
                 mesh.lock().apply_account_state(state);
-                crate::async_runtime::spawn(
-                    codeterm_mesh::account_mesh::link::on_account_state_applied(mesh.clone()),
-                );
+                let previous = mesh.lock().account_mesh_pairs();
+                let _ = codeterm_mesh::broadcast_announce(&mesh, None).await;
+                if previous != mesh.lock().account_mesh_pairs() {
+                    service
+                        .ui
+                        .emit(ACCOUNT_MESH_CHANGED, serde_json::Value::Null);
+                }
                 if states.changed().await.is_err() {
                     return;
                 }

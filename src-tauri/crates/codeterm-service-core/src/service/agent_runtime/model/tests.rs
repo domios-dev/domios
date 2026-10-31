@@ -244,6 +244,7 @@ fn resume_idle_without_a_turn_cannot_settle_a_turn_started_after_the_request() {
 fn completed_parent_retains_ancestry_and_descendant_interrupt_authority() {
     use codeterm_plugin::agent_runtime::*;
     let mut context = RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("root".into()),
         ..Default::default()
     };
@@ -275,6 +276,7 @@ fn completed_parent_retains_ancestry_and_descendant_interrupt_authority() {
 fn old_completion_cannot_remove_an_auto_started_goal_turn() {
     use codeterm_plugin::agent_runtime::*;
     let mut context = RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("root".into()),
         ..Default::default()
     };
@@ -465,4 +467,182 @@ fn identity_free_provider_evidence_requires_its_exact_live_send_claim() {
         ..claim
     };
     assert!(validated_evidence(&[foreign], &[evidence]).is_empty());
+}
+
+#[test]
+fn responsiveness_selection_and_metrics_preserve_exact_authority_without_bodies() {
+    use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeFrame};
+    let selection: responsiveness::Selection = serde_json::from_value(serde_json::json!({
+        "trace":"opaque-trace", "tab":"tab", "session":"session", "nonce":"nonce",
+        "epoch":7, "turn":"turn", "item":"item"
+    }))
+    .unwrap();
+    assert!(selection.valid());
+    let context = RuntimeContext {
+        restricted_cli: None,
+        tab_id: "tab".into(),
+        thread_id: Some("session".into()),
+        binding_nonce: "nonce".into(),
+        epoch: 7,
+        ..RuntimeContext::default()
+    };
+    assert!(selection.matches(&context));
+    for foreign in [
+        RuntimeContext {
+            restricted_cli: None,
+            epoch: 8,
+            ..context.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            binding_nonce: "other".into(),
+            ..context.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            thread_id: Some("other".into()),
+            ..context.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            tab_id: "other".into(),
+            ..context.clone()
+        },
+    ] {
+        assert!(!selection.matches(&foreign));
+    }
+    let frame = RuntimeFrame::Notification {
+        method: "opaque/method".into(),
+        params: serde_json::json!({
+            "threadId":"session", "turnId":"turn", "itemId":"item", "delta":"\u{03bb}",
+            "secret":"opaque-body-must-not-escape"
+        }),
+    };
+    let metrics = selection.frame_metrics(&frame).unwrap();
+    assert_eq!(metrics["delta_bytes"], 2);
+    assert_eq!(metrics.as_object().unwrap().len(), 4);
+    assert!(!metrics.to_string().contains("opaque-body"));
+    let foreign = RuntimeFrame::Notification {
+        method: "opaque/method".into(),
+        params: serde_json::json!({
+            "threadId":"other", "turnId":"turn", "itemId":"item", "delta":"opaque"
+        }),
+    };
+    assert!(selection.frame_metrics(&foreign).is_none());
+    let missing = RuntimeFrame::Notification {
+        method: "opaque/method".into(),
+        params: serde_json::json!({
+            "threadId":"session", "itemId":"item", "delta":"opaque"
+        }),
+    };
+    assert!(selection.frame_metrics(&missing).is_none());
+}
+
+#[test]
+fn responsiveness_state_byte_helper_keeps_the_existing_limit_policy() {
+    let state = serde_json::json!({"opaque":"\u{03bb}"});
+    assert_eq!(
+        validated_state_bytes(&state).unwrap(),
+        serde_json::to_vec(&state).unwrap().len()
+    );
+    assert!(validate_state_size(&state).is_ok());
+    let oversized = serde_json::Value::String(
+        "x".repeat(codeterm_plugin::agent_runtime::MAX_RUNTIME_STATE_BYTES),
+    );
+    assert!(matches!(
+        validated_state_bytes(&oversized),
+        Err(RuntimeFailure::Refused(_))
+    ));
+    assert!(matches!(
+        validate_state_size(&oversized),
+        Err(RuntimeFailure::Refused(_))
+    ));
+}
+
+#[test]
+fn responsiveness_native_record_cap_and_disposal_are_observational() {
+    let selection: responsiveness::Selection = serde_json::from_value(serde_json::json!({
+        "trace":"opaque-trace", "tab":"tab", "session":"session", "nonce":"nonce",
+        "epoch":7, "turn":"turn", "item":"item"
+    }))
+    .unwrap();
+    let trace = responsiveness::Trace::new(selection);
+    for _ in 0..2050 {
+        trace.mark("fixture", None, serde_json::json!({"count":1}));
+    }
+    assert_eq!(trace.counts(), (2050, 2, false));
+    trace.dispose();
+    assert_eq!(trace.counts(), (2051, 2, true));
+    trace.mark("fixture", None, serde_json::json!({"count":2}));
+    trace.dispose();
+    assert_eq!(trace.counts(), (2051, 2, true));
+}
+
+#[test]
+fn responsiveness_first_binding_latches_without_following_a_replacement_epoch() {
+    use codeterm_plugin::agent_runtime::RuntimeContext;
+    let selection: responsiveness::Selection = serde_json::from_value(serde_json::json!({
+        "trace":"opaque-trace", "tab":"tab", "session":"session", "item_type":"commandExecution"
+    }))
+    .unwrap();
+    assert!(selection.valid());
+    let trace = responsiveness::Trace::new(selection);
+    let context = RuntimeContext {
+        restricted_cli: None,
+        tab_id: "tab".into(),
+        thread_id: Some("session".into()),
+        binding_nonce: "first".into(),
+        epoch: 4,
+        ..RuntimeContext::default()
+    };
+    assert!(trace.bind(&context));
+    assert!(trace.bind(&context));
+    assert!(!trace.bind(&RuntimeContext {
+        restricted_cli: None,
+        epoch: 5,
+        ..context.clone()
+    }));
+    assert!(!trace.bind(&RuntimeContext {
+        restricted_cli: None,
+        binding_nonce: "second".into(),
+        ..context.clone()
+    }));
+    assert!(!trace.bind(&RuntimeContext {
+        restricted_cli: None,
+        thread_id: Some("foreign".into()),
+        ..context
+    }));
+}
+
+#[test]
+fn responsiveness_first_live_item_does_not_follow_foreign_or_later_items() {
+    use codeterm_plugin::agent_runtime::{RuntimeContext, RuntimeFrame};
+    let selection: responsiveness::Selection = serde_json::from_value(serde_json::json!({
+        "trace":"opaque-trace", "tab":"tab", "session":"session", "item_type":"commandExecution"
+    }))
+    .unwrap();
+    let trace = responsiveness::Trace::new(selection);
+    assert!(trace.bind(&RuntimeContext {
+        restricted_cli: None,
+        tab_id: "tab".into(),
+        thread_id: Some("session".into()),
+        binding_nonce: "nonce".into(),
+        epoch: 1,
+        ..RuntimeContext::default()
+    }));
+    let started = |thread: &str, id: &str, kind: &str| RuntimeFrame::Notification {
+        method: "item/started".into(),
+        params: serde_json::json!({"threadId":thread,"turnId":"turn",
+            "item":{"id":id,"type":kind,"text":"opaque-body"}}),
+    };
+    trace.frame(&started("session", "user", "userMessage"));
+    trace.frame(&started("foreign", "item", "commandExecution"));
+    assert_eq!(trace.counts(), (0, 0, false));
+    trace.frame(&started("session", "item", "commandExecution"));
+    assert_eq!(trace.counts(), (1, 0, false));
+    trace.frame(&started("session", "different", "commandExecution"));
+    assert_eq!(trace.counts(), (1, 0, false));
+    trace.frame(&RuntimeFrame::Notification { method:"item/commandExecution/outputDelta".into(),
+        params:serde_json::json!({"threadId":"session","turnId":"turn","itemId":"item","delta":"opaque"}) });
+    assert_eq!(trace.counts(), (2, 0, false));
 }

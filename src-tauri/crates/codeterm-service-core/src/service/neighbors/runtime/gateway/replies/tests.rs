@@ -36,16 +36,7 @@ fn gateway(fixture: &ServiceFixture) -> Gateway {
     fixture
         .service
         .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
-    *fixture.service.neighbor_cell().receiver.lock() =
-        Some(codeterm_neighbors::adapter::ReceiverStatus {
-            receiver_revision: 1,
-            receiver_installation_id: Some("machine".into()),
-            receiver_key_id: None,
-            receiver_machine_label: Some("Here".into()),
-            receiving_enabled: true,
-            is_me: true,
-            legacy_active: false,
-        });
+
     let (_, stopped) = tokio::sync::watch::channel(false);
     Gateway {
         service: fixture.service.clone(),

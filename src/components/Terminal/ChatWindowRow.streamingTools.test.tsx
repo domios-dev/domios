@@ -165,7 +165,12 @@ it("preserves historical group presentation for a first-seen settled call in a d
   await remountPart(historical);
   expect(host?.querySelector('[data-testid="chat-tool-call"]')).toBeNull();
   expect(host?.querySelector('[data-testid="chat-command-group"]')).not.toBeNull();
-  expect(host?.querySelector('[data-testid="chat-command-group-toggle"]')?.getAttribute("aria-expanded")).toBe("true");
+  const toggle = host?.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
+  expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+  expect(host?.textContent).not.toContain("opaque_done");
+  await act(async () => toggle?.click());
+  expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+  expect(host?.querySelectorAll('[data-testid="chat-command-tree-line"]').length).toBeGreaterThan(1);
 });
 
 it("keeps structured single-command diffs behind the retained explicit disclosure", async () => {

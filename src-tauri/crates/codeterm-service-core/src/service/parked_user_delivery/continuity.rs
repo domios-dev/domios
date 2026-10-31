@@ -59,6 +59,19 @@ impl super::super::ServiceContext {
         Ok(())
     }
 
+    pub fn inspect_retained_send(&self, send_id: &str) -> Result<Option<ChatSendStatus>, String> {
+        let Some(retained) = self.chat_send_ledger.status(send_id) else {
+            return Ok(None);
+        };
+        let statuses = self.reconcile_user_send_statuses(&retained.tab_id)?;
+        Ok(Some(
+            statuses
+                .into_iter()
+                .find(|status| status.send_id == send_id)
+                .unwrap_or(retained),
+        ))
+    }
+
     pub fn reconcile_user_send_statuses(
         &self,
         tab_id: &str,

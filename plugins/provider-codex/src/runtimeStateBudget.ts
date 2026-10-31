@@ -31,6 +31,27 @@ export function capText(value: string, cap: number): string {
   return TRUNCATED + body.slice(body.length - (cap - TRUNCATED.length));
 }
 
+function capAgentPayload(input: Record<string,unknown>, cap: number): Record<string,unknown> {
+  const bounded = {...input};
+  const fields = (["agent_result","agent_description"] as const)
+    .filter(key => typeof input[key] === "string" && (input[key] as string).length > 0)
+    .sort((a,b) => (input[b] as string).length - (input[a] as string).length);
+  for (const key of fields) {
+    if (utf8Bytes(JSON.stringify(bounded)) <= cap) break;
+    const text = bounded[key] as string;
+    const body = text.startsWith(TRUNCATED) ? text.slice(TRUNCATED.length) : text;
+    const room = cap - utf8Bytes(JSON.stringify({...bounded,[key]:""})) - utf8Bytes(JSON.stringify(TRUNCATED));
+    // One UTF-16 unit needs at most six JSON bytes, including escaped control characters.
+    const keep = Math.max(0, Math.floor(room / 6));
+    let start = Math.max(0, body.length - keep);
+    const unit = body.charCodeAt(start), previous = body.charCodeAt(start - 1);
+    if (unit >= 0xdc00 && unit <= 0xdfff && previous >= 0xd800 && previous <= 0xdbff) start++;
+    bounded[key] = TRUNCATED + body.slice(start);
+  }
+  // Required metadata remains counted by the aggregate and host limits, even when it cannot fit a row cap.
+  return bounded;
+}
+
 export function capRow<T extends ChatMsg>(row: T, cap: number): T {
   let capped: T | undefined;
   for (const key of HEAVY) {
@@ -39,9 +60,15 @@ export function capRow<T extends ChatMsg>(row: T, cap: number): T {
     capped ??= {...row};
     (capped as ChatMsg)[key] = capText(value, cap);
   }
-  if (row.toolInput !== undefined && JSON.stringify(row.toolInput).length > cap) {
-    capped ??= {...row};
-    delete capped.toolInput;
+  if (row.toolInput !== undefined) {
+    const serialized = JSON.stringify(row.toolInput);
+    const agentInput = row.toolKind === "agent" && row.toolName === "agent_activity"
+      && row.toolInput !== null && typeof row.toolInput === "object" && !Array.isArray(row.toolInput);
+    if ((agentInput ? utf8Bytes(serialized) : serialized.length) > cap) {
+      capped ??= {...row};
+      if (agentInput) capped.toolInput = capAgentPayload(row.toolInput as Record<string,unknown>,cap);
+      else delete capped.toolInput;
+    }
   }
   return capped ?? row;
 }

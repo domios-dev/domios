@@ -270,7 +270,7 @@ mod tests {
     fn app_state(fixture: &ServiceFixture) -> crate::routes::AppState {
         let config = codeterm_service_core::config::schema::AppConfig::default();
         let mut mesh = codeterm_service_core::mesh::MeshManager::new("bundle-origin".into(), 0);
-        mesh.insert_legacy_pair_for_test(codeterm_service_core::mesh::types::PairedPeer {
+        mesh.insert_account_peer_for_test(codeterm_service_core::mesh::types::PairedPeer {
             instance_id: "peer-origin".into(),
             instance_name: "Origin".into(),
             addresses: vec![],

@@ -101,8 +101,6 @@ pub enum AdmissionRefusal {
         detail: String,
     },
     Cancelled,
-    Declined,
-    Expired,
 }
 
 impl AdmissionRefusal {
@@ -124,8 +122,6 @@ impl AdmissionRefusal {
             Self::PeerUnreachable => "peer-unreachable",
             Self::HandshakeFailed { .. } => "handshake-failed",
             Self::Cancelled => "cancelled",
-            Self::Declined => "declined",
-            Self::Expired => "expired",
         }
     }
 }

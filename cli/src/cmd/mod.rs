@@ -34,6 +34,7 @@ pub mod model_error;
 pub mod model_provider;
 pub mod notify;
 pub mod orchestrator;
+pub mod output;
 pub mod pad;
 pub mod paste;
 pub mod payload_source;

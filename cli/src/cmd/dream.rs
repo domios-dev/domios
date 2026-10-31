@@ -65,9 +65,14 @@ fn run_diary(limit: usize) -> ! {
             .map_err(|e| format!("query: {}", e))?;
 
         let mut count = 0usize;
+        let mut output = Vec::new();
         for row in rows {
             let (id, title, summary, body, created_at) = row.map_err(|e| e.to_string())?;
             count += 1;
+            if crate::cmd::error_contract::json_mode() {
+                output.push(serde_json::json!({"id": id, "title": title, "summary": summary, "body": body, "created_at": created_at}));
+                continue;
+            }
             println!("─── {} ───────────────────────────────", title);
             println!("id:      {}", id);
             println!("created: {}", created_at);
@@ -78,7 +83,9 @@ fn run_diary(limit: usize) -> ! {
             println!("{}", body.unwrap_or_default());
             println!();
         }
-        if count == 0 {
+        if crate::cmd::error_contract::json_mode() {
+            crate::cmd::print::print_json(&serde_json::json!(output));
+        } else if count == 0 {
             println!("No dream diary entries yet — the Dreamer hasn't logged anything in _dreams.");
             println!("Trigger a dream cycle with: domios mem dream run");
         }
@@ -112,7 +119,7 @@ fn run_dream_phase(phase: &str) -> ! {
     match resp {
         Ok(r) if r.status().is_success() => {
             let val: serde_json::Value = r.json().unwrap_or(serde_json::json!({}));
-            println!("{}", val);
+            crate::cmd::print::print_json(&val);
             std::process::exit(0);
         }
         Ok(r) => {
@@ -154,16 +161,13 @@ fn run_apply(plan_file: &str, db_path: Option<&str>) -> ! {
                     plan_path.clone()
                 }
             };
-            println!(
-                "{}",
-                serde_json::json!({
-                    "ok": true,
-                    "applied": applied,
-                    "failed": failed,
-                    "warnings": warnings,
-                    "plan": renamed.display().to_string(),
-                })
-            );
+            crate::cmd::print::print_json(&serde_json::json!({
+                "ok": true,
+                "applied": applied,
+                "failed": failed,
+                "warnings": warnings,
+                "plan": renamed.display().to_string(),
+            }));
             std::process::exit(0);
         }
         Err(e) => {

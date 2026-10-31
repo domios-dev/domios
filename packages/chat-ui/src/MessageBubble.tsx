@@ -1,10 +1,10 @@
-import React, { useState, useMemo, useCallback, useEffect, useDeferredValue, useLayoutEffect } from "react";
+import React, { useState, useMemo, useCallback, useContext, useEffect, useDeferredValue, useLayoutEffect } from "react";
 import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
 import { retainStreamedCommandShell, toolPresentationKey } from "./toolPresentationState";
-import { toolCommandShape } from "./codeterm/commandShape";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { OrderedAttachmentContent } from "./OrderedAttachmentContent";
 import { EnvelopeContent } from "./EnvelopeContent";
@@ -43,7 +42,6 @@ import {
   isLargeArtifact,
   renderUserContent,
 } from "./MarkdownBody";
-import { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 import type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 import { pickUiFontScaleValue } from "./uiFontScale";
 import { ToolOutputContent } from "./ToolOutputContent";
@@ -53,13 +51,10 @@ import { WatcherVerdictCard } from "./WatcherVerdictCard";
 import { hasCanonicalMentions } from "./codeterm/canonicalMentions";
 import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
-import { recognize } from "./codeterm/recognize";
-import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
-import { parseDsTasksMessage } from "./codeterm/dsTasksBlock";
+import { useDsSegments } from "./blocks/useDsSegments";
+import { DsRenderContext } from "./blocks/DsRenderContext";
 import { ChatBlockMessageProvider } from "./blocks/ChatBlockHost";
-import { TasksBlock } from "./blocks/TasksBlock";
-import { tasksBlockSource, tasksSpecFromBlock } from "./blocks/tasksBlockModel";
 import { normalizedTimelineMarker, TimelineMarkerRow } from "./timelineMarkers";
 import {
   hasMeaningfulToolResult,
@@ -108,22 +103,7 @@ interface MessageBubbleProps {
   onJumpToMessage?: (messageId: string) => void;
 }
 
-const INTERACTIVE_QUESTIONS_ENABLED = false;
-const BLOCK_GAP = "\n\n";
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
-
-function hasVisibleEdit(item: TimelineItem | undefined): boolean {
-  return item?.kind === "tool"
-    && item.event.kind === "edit"
-    && Boolean(item.event.edits?.length);
-}
-
-function isOutboundMessage(item: TimelineItem | undefined): boolean {
-  if (item?.kind !== "tool") return false;
-  const { command, argv } = toolCommand(item.event);
-  const invocation = recognize(command, argv);
-  return invocation != null && isSend(invocation);
-}
 
 function tabOriginTitle(origin: Extract<ChatOrigin, { kind: "tab" }>, resolveTabName?: TabNameResolver): string {
   const tabRef = shortTabRef(origin.tabIdShort);
@@ -141,21 +121,24 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, onContentLayout, userFooter, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
-  const renderedText = useDeferredValue(message.content);
+const MessageBubbleContent = React.memo(function MessageBubbleContent({ message, streaming, onContentLayout, userFooter, userProgress, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, onOpenJobs, onJumpToMessage }: MessageBubbleProps) {
+  const dsScope = useContext(DsRenderContext);
+  const sourceIdentity = `${dsScope.authority}:${message.sourceSessionId ?? ""}:${message.sourceMessageId ?? message.id}:${message.contextEpoch ?? 0}`;
+  const source = useMemo(() => ({ authority: sourceIdentity, text: message.content }), [sourceIdentity, message.content]);
+  const deferredSource = useDeferredValue(source);
+  const renderedText = deferredSource.authority === sourceIdentity && message.content.startsWith(deferredSource.text) ? deferredSource.text : message.content;
+  const referenceSegments = useDsSegments(message.type === "assistant" ? renderedText : "", { id: `references:${sourceIdentity}`, trusted: dsScope.trusted && origin?.kind !== "neighbor" }, streaming ?? dsScope.streaming, dsScope.cancelled);
   useLayoutEffect(() => { onContentLayout?.(); });
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
-  const isCommandGroup = item?.kind === "tool" && !item.event.stream
-    && (item.event.kind === "command" || item.event.kind === "codeterm")
-    && toolCommandShape(item.event)?.kind === "group";
   const [startedPendingCommand] = useState(() => {
     const event = item?.kind === "tool" ? item.event : materializeToolEvent(message);
     return event ? retainStreamedCommandShell(event) : false;
   });
-  const shouldAutoExpand = !startedPendingCommand && (isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item));
+  const isToolOperation = item?.kind === "tool" || message.type === "tool_call" || message.type === "tool_result";
+  const shouldAutoExpand = !isToolOperation && !startedPendingCommand && isInboundCommunication && !isCoordinationReport && !isCompactStatusReport;
   const persistKey = toolPresentationKey(message, item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
@@ -164,17 +147,18 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
+      const referenceText = !dsScope.trusted || origin?.kind === "neighbor" ? "" : referenceSegments.flatMap((segment) => segment.type === "markdown" ? [segment.text] : []).join("\n\n");
       return (
         <>
           <ChatBlockMessageProvider messageId={message.id}>
-            <RichMarkdown text={renderedText} fontScale={fontScale} />
+            <RichMarkdown text={renderedText} fontScale={fontScale} sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={origin?.kind !== "neighbor"} />
           </ChatBlockMessageProvider>
-          <PlanRefCards text={renderedText} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+          <PlanRefCards text={referenceText} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         </>
       );
     }
     return null;
-  }, [message.id, message.type, renderedText, fontScale, onOpenPlan, resolvePlanRef]);
+  }, [message.id, message.type, renderedText, fontScale, onOpenPlan, resolvePlanRef, streaming, origin?.kind, sourceIdentity, referenceSegments, dsScope.trusted, dsScope.cancelled, dsScope.streaming]);
 
   useEffect(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
@@ -355,12 +339,10 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
       );
     })() : null;
 
-    const dsTasks = effectiveOrigin ? null : parseDsTasksMessage(message.content);
-    const tasksSpec = dsTasks ? tasksSpecFromBlock(dsTasks.block) : null;
-    const userContent = dsTasks ? [dsTasks.before, dsTasks.after].filter(Boolean).join(BLOCK_GAP) : message.content;
+    const userContent = message.content;
     const userAttachments = message.segments ? { text: userContent, images: attachments ?? [], files: [], inline: null, reply: null } : userMessageAttachments(userContent, attachments);
-    const visibleUserContent = userAttachments.text;
     const renderUserText = (content: string) => {
+      if (effectiveOrigin?.kind === "neighbor") return <RichMarkdown text={content} sourceIdentity={sourceIdentity} streaming={streaming} interactivePreviews={false} localArtifacts={false} fontScale={fontScale} />;
       if (effectiveOrigin?.kind === "command") return <CommandBody commands={effectiveOrigin.commands} body={message.content} />;
       const renderText = (text: string) => hasPlanRefs(text) || hasCanonicalMentions(text)
         ? <LinkedText text={text} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : text;
@@ -391,12 +373,10 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           />
         )}
         {userProgress ?? (message.segments
-        ? <EnvelopeContent segments={dsTasks ? [{ type: "text", text: userContent }, ...message.segments.filter((segment) => segment.type === "attachment")] : message.segments} attachments={attachments} renderText={renderUserText} onJumpToMessage={onJumpToMessage} />
-          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} />)}
+        ? <EnvelopeContent segments={message.segments} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} onJumpToMessage={onJumpToMessage} />
+          : <OrderedAttachmentContent content={userContent} attachments={attachments} renderText={renderUserText} renderInlineText={renderUserText} />)}
       </>
     );
-
-    const showUserBubble = Boolean(userFooter) || !dsTasks || visibleUserContent.trim().length > 0 || Boolean(attachments?.length) || reply !== null;
 
     return (
       <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
@@ -404,23 +384,18 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
           <div className="group flex w-full min-w-0">
             <div className="relative min-w-0 w-full">
               {originHeader}
-              {showUserBubble && <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
+              <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
                 <div
                   role="group"
                   aria-label="User message"
                   className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
                 >
-                  {userBubbleInner}
+                  <DsRenderContext.Provider value={{ authority: sourceIdentity, trusted: dsScope.trusted && effectiveOrigin?.kind !== "neighbor", streaming: streaming ?? dsScope.streaming, cancelled: dsScope.cancelled }}>{userBubbleInner}</DsRenderContext.Provider>
                 </div>
                 {userFooter}
-              </div>}
+              </div>
             </div>
           </div>
-          {tasksSpec && (
-            <div className="flex w-full min-w-0">
-              <TasksBlock spec={tasksSpec} source={tasksBlockSource(tasksSpec)} />
-            </div>
-          )}
         </div>
       </div>
     );
@@ -555,21 +530,6 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             </pre>
           )}
         </div>
-      </div>
-    );
-  }
-
-  if (INTERACTIVE_QUESTIONS_ENABLED && message.interactive && message.interactive.length > 0) {
-    return (
-      <div className="w-full">
-        {message.interactive.map((el) => (
-          <InteractiveElementRenderer
-            key={el.id}
-            element={el}
-            onAnswer={onAnswerInteractive}
-            answered={answeredInteractiveIds?.has(el.id)}
-          />
-        ))}
       </div>
     );
   }

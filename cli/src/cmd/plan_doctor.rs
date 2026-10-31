@@ -55,7 +55,7 @@ pub fn run(
     let ok = report.get("ok").and_then(Value::as_bool).unwrap_or(false);
     if json_mode {
         if !ok {
-            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            println!("{}", crate::cmd::output::encode(&report).unwrap());
             std::process::exit(1);
         }
         return Ok(Some(report));

@@ -9,6 +9,7 @@ use codeterm_types::server_bootstrap::{AttachRequest, BootstrapOperation, Server
 pub use codeterm_types::server_bootstrap::{InstanceSelector, LaunchOptions};
 
 mod detached;
+pub mod pid_file;
 #[cfg(windows)]
 use detached::retry_without_breakaway;
 pub use detached::{ensure_detached, release_launch_stderr, JobMembership};
@@ -16,7 +17,7 @@ use detached::{with_stderr_detail, StderrTail};
 
 const STDERR_CLOSE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(2);
 
-pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nIsolated verification: domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
+pub const HUMAN_START_USAGE: &str = "domios-server start --production [--resources PATH] [--pid-file ABS_PATH] [--json]\nDebug artifact: domios-server start --development --port PORT [--instance NAME] [--resources PATH] [--json]\nIsolated verification (debug requires --instance NAME; release forbids it): domios-server start --verify-isolated --data-dir ABS_DIR --config-dir ABS_DIR --port PORT";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HumanStartMode {
@@ -28,6 +29,7 @@ pub struct HumanStart {
     pub options: LaunchOptions,
     pub json: bool,
     pub mode: HumanStartMode,
+    pub pid_file: Option<PathBuf>,
 }
 
 pub fn human_start_options(
@@ -43,6 +45,7 @@ pub fn human_start_options(
     let mut port = None;
     let mut resources = None;
     let mut json = false;
+    let mut pid_file = None;
     let mut args = args.iter();
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -62,6 +65,13 @@ pub fn human_start_options(
                     })?);
             }
             "--json" if !json => json = true,
+            "--pid-file" if pid_file.is_none() => {
+                let path = PathBuf::from(human_value(&mut args)?);
+                if !path.is_absolute() {
+                    return Err(io::Error::other("PID file path must be absolute"));
+                }
+                pid_file = Some(path);
+            }
             _ => return Err(io::Error::other("Unknown or repeated headless option")),
         }
     }
@@ -86,12 +96,14 @@ pub fn human_start_options(
         resources,
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     options.validate(development_artifact)?;
     Ok(HumanStart {
         options,
         json,
         mode: HumanStartMode::Detached,
+        pid_file,
     })
 }
 
@@ -101,6 +113,7 @@ fn isolated_verification_options(
     development_artifact: bool,
 ) -> io::Result<HumanStart> {
     let mut verify = false;
+    let mut instance = None;
     let mut data_dir = None;
     let mut config_dir = None;
     let mut port = None;
@@ -108,6 +121,9 @@ fn isolated_verification_options(
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--verify-isolated" if !verify => verify = true,
+            "--instance" if instance.is_none() => {
+                instance = Some(human_value(&mut args)?.to_owned());
+            }
             "--data-dir" if data_dir.is_none() => {
                 data_dir = Some(PathBuf::from(human_value(&mut args)?));
             }
@@ -134,6 +150,7 @@ fn isolated_verification_options(
     }
     let options = LaunchOptions {
         instance: InstanceSelector::IsolatedVerification {
+            instance,
             data_dir: data_dir
                 .ok_or_else(|| io::Error::other("Verification requires --data-dir"))?,
             config_dir: config_dir
@@ -146,12 +163,14 @@ fn isolated_verification_options(
         resources: common_resources(executable)?,
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     options.validate(development_artifact)?;
     Ok(HumanStart {
         options,
         json: false,
         mode: HumanStartMode::IsolatedVerification,
+        pid_file: None,
     })
 }
 
@@ -309,6 +328,7 @@ pub fn run_isolated_verification(executable: &Path, options: &LaunchOptions) -> 
         data_dir,
         config_dir,
         bind,
+        ..
     } = &options.instance
     else {
         return Err(io::Error::other(
@@ -483,12 +503,16 @@ pub fn install_selectors(options: &LaunchOptions) -> io::Result<()> {
             }
         }
         InstanceSelector::IsolatedVerification {
+            instance,
             data_dir,
             config_dir,
             bind,
         } => {
             let data_dir = data_dir.canonicalize()?;
             let config_dir = config_dir.canonicalize()?;
+            if let Some(instance) = instance {
+                std::env::set_var("CODETERM_INSTANCE", instance);
+            }
             std::env::set_var("CODETERM_DATA_DIR", data_dir);
             std::env::set_var("CODETERM_CONFIG_DIR", config_dir);
             std::env::set_var("CODETERM_API_PORT", bind.port().to_string());

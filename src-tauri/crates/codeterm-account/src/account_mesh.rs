@@ -8,6 +8,7 @@ mod callable_budget;
 mod key;
 mod lease_timer;
 mod lifecycle;
+mod link_authorization;
 mod membership;
 mod notice;
 mod operations;

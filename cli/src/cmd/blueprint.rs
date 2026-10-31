@@ -218,6 +218,10 @@ fn render_nodes(nodes: &Value) {
             .iter()
             .filter(|node| node["role"].as_str().unwrap_or("step") == role)
         {
+            if let Some(line) = plugin_step_line(node) {
+                println!("{line}");
+                continue;
+            }
             println!(
                 "{role} {}: {}",
                 node["type"].as_str().unwrap_or("?"),
@@ -228,6 +232,53 @@ fn render_nodes(nodes: &Value) {
             }
         }
     }
+}
+
+fn typed_ports(ports: &Value) -> String {
+    let listed = ports
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(name, port)| {
+            format!(
+                "{name}:{}[{}..{}]",
+                port["kind"].as_str().unwrap_or("?"),
+                port["minItems"].as_u64().unwrap_or_default(),
+                port["maxItems"].as_u64().unwrap_or_default()
+            )
+        })
+        .collect::<Vec<_>>();
+    if listed.is_empty() {
+        "-".into()
+    } else {
+        listed.join(", ")
+    }
+}
+
+/// One palette line per plugin step: id, title, plugin, typed ports and outcomes.
+fn plugin_step_line(node: &Value) -> Option<String> {
+    let descriptor = node.get("descriptor")?;
+    let outcomes = descriptor["outcomes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let unavailable = if node["available"].as_bool() == Some(false) {
+        " [unavailable]"
+    } else {
+        ""
+    };
+    Some(format!(
+        "step {}: {} (plugin {}){unavailable} in {} -> out {} | outcomes {}",
+        node["kind"].as_str().unwrap_or("?"),
+        node["title"].as_str().unwrap_or("?"),
+        node["plugin"].as_str().unwrap_or("?"),
+        typed_ports(&descriptor["inputs"]),
+        typed_ports(&descriptor["outputs"]),
+        outcomes
+    ))
 }
 
 fn render_log(entries: &Value) {
@@ -314,8 +365,8 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     };
     let (method, params) = request(
         action,
-        std::env::var("CODETERM_TAB_ID").ok(),
-        std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
+        crate::nonempty_env("CODETERM_TAB_ID"),
+        crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE"),
     )
     .unwrap_or_else(|error| {
         if let Some(source) = apply_source.as_deref() {
@@ -498,6 +549,10 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
             "{}",
             escalation_resolved_message(transition_id.as_deref(), &result)
         );
+        return;
+    }
+    if method == "blueprint.list" && !crate::cmd::output::verbose() {
+        print!("{}", crate::cmd::output::compact_list(&result, None));
         return;
     }
     if let Some(jobs) = result.as_array() {
@@ -689,7 +744,10 @@ fn request(
         | BlueprintAction::Project { .. }
         | BlueprintAction::Schema
         | BlueprintAction::Tags => return Err("Blueprint command is handled offline".into()),
-        BlueprintAction::List => "blueprint.list",
+        BlueprintAction::List { all } => {
+            params["all"] = json!(all);
+            "blueprint.list"
+        }
         BlueprintAction::Input {
             id,
             from_pad,

@@ -1,4 +1,4 @@
-use super::index::{self, cosine, Slot};
+use super::index::{cosine, Slot};
 use crate::blueprint_wl;
 use crate::MemManager;
 use serde::{Deserialize, Serialize};
@@ -65,14 +65,8 @@ pub fn decide(scores: &Scores, thresholds: &Thresholds) -> Verdict {
 
 impl MemManager {
     pub fn blueprint_pair_scores(&self, a: &str, b: &str) -> Result<(Scores, String), String> {
-        let conn = self.conn.lock();
-        let row = |id: &str| -> Result<_, String> {
-            Ok((
-                index::read_row(&conn, id)?.ok_or_else(|| format!("{id} is not indexed"))?,
-                index::read_vectors(&conn, id, &self.embedder.identity())?,
-            ))
-        };
-        let ((row_a, vectors_a), (row_b, vectors_b)) = (row(a)?, row(b)?);
+        let ((row_a, vectors_a), (row_b, vectors_b)) =
+            self.store.blueprint_pair(a, b, &self.embedder)?;
         let best = |slot: Slot| {
             vectors_a
                 .slot(slot)

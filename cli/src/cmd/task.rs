@@ -14,9 +14,7 @@ fn caller_tab(client: &dyn RpcClient) -> Option<String> {
     if client.is_remote() {
         return None;
     }
-    std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
+    crate::nonempty_env("CODETERM_TAB_ID")
 }
 
 fn cwd_project(client: &dyn RpcClient) -> Option<String> {
@@ -135,7 +133,7 @@ fn empty_task_list_message(val: &Value) -> String {
 
 pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
     if json {
-        println!("{}", serde_json::to_string_pretty(val).unwrap());
+        println!("{}", crate::cmd::output::encode(val).unwrap());
         return;
     }
 

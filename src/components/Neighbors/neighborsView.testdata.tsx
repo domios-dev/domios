@@ -2,9 +2,11 @@ import { createRoot } from "react-dom/client";
 import { afterEach, vi } from "vitest";
 import { act } from "react";
 import { resetPausedFriends } from "./neighborPause";
+import { resetNeighborReads } from "./neighborReads";
+import { resetNeighborStatus } from "./neighborStatusStore";
 import type { NeighborRuntimeClient } from "./neighborRuntimeClient";
 import type { NeighborList } from "./neighborModel";
-import type { ReferralClaim } from "./referralTrial";
+import type { ReferralTrial } from "./referralTrial";
 import type { NeighborClient } from "./neighborClient";
 import { NeighborsView } from "./NeighborsView";
 import { SidebarNeighborsSection } from "./SidebarNeighborsSection";
@@ -23,6 +25,8 @@ afterEach(async () => {
   if (mounted.current) { await act(async () => mounted.current!.root.unmount()); mounted.current.host.remove(); mounted.current = null; }
   localStorage.clear();
   resetPausedFriends();
+  resetNeighborReads();
+  resetNeighborStatus();
   notices.publishNotice.mockClear();
   transport.localFetch.mockReset();
   transport.localFetch.mockImplementation(async () => new Response("{}", { status: 200 }));
@@ -43,15 +47,14 @@ function emit(event: string, payload: unknown = null) {
 
 function runtime(bindings: Record<string, string> = {}): NeighborRuntimeClient {
   return {
-    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings, receiving_here: false, receiving_enabled: false, receiver_machine_label: null, revision: 0 })), enroll: vi.fn(async () => {}), receiveFriend: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
+    subscribe: vi.fn(async () => () => {}), status: vi.fn(async () => ({ enrolled: false, bindings, friend_receivers: {} })), receiveFriend: vi.fn(async () => {}), rotate: vi.fn(async () => {}),
     permission: vi.fn(async () => ({ allowed: false, scope: "", allow_tab_requests: false })), send: vi.fn(), deliveryStatus: vi.fn(), retry: vi.fn(async () => {}),
   };
 }
 
-async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; claim?: ReferralClaim; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"]; runtimeClient?: NeighborRuntimeClient; friend?: NeighborList["friends"][number] } = {}) {
-  const list: NeighborList = { schema_version: 1, access, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [options.friend ?? neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
-  const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => options.claim ?? { schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null }) };
+async function render(access: NeighborList["access"] = "paid", options: { canInvite?: boolean; omitEligibility?: boolean; trial?: ReferralTrial; bindings?: Record<string, string>; outgoing?: NeighborList["outgoing"]; runtimeClient?: NeighborRuntimeClient; friend?: NeighborList["friends"][number] } = {}) {
+  const list: NeighborList = { schema_version: 1, access, referral_trial: options.trial, can_invite: options.omitEligibility ? undefined : options.canInvite ?? access === "paid", friends: [options.friend ?? neighbor], incoming: [request], outgoing: options.outgoing ?? [] };
+  const client: NeighborClient = { list: vi.fn(async () => structuredClone(list)), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborsView client={client} runtimeClient={options.runtimeClient ?? runtime(options.bindings)} />));
@@ -63,8 +66,7 @@ const sentText = () => (bridge.invoke.mock.calls as unknown as Array<[string, { 
 
 async function renderSection(friends: NeighborList["friends"], bindings: Record<string, string> = {}) {
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends, incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<SidebarNeighborsSection touchMode={false} client={client} runtimeClient={runtime(bindings)} />));
@@ -87,22 +89,19 @@ function concierge(entries: HistoryEntry[]): NeighborConciergeClient & { changed
 }
 
 function pendingClient(): NeighborClient {
-  return { list: vi.fn(() => new Promise<NeighborList>(() => {})), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  return { list: vi.fn(() => new Promise<NeighborList>(() => {})), apply: vi.fn(async () => {}) };
 }
 
 /** Ada as the one paid friend, so a conversation renders at once. */
 function friendClient(): NeighborClient {
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [neighbor], incoming: [], outgoing: [] };
-  return { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  return { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
 }
 
 async function renderConversation(friend: NeighborList["friends"][number]) {
   const conciergeClient = concierge([]);
   const list: NeighborList = { schema_version: 1, access: "paid", can_invite: true, friends: [friend], incoming: [], outgoing: [] };
-  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}),
-    claimReferralTrial: vi.fn(async (): Promise<ReferralClaim> => ({ schema_version: 1, outcome: "not_invited", trial_end: null, friend_request_id: null })) };
+  const client: NeighborClient = { list: vi.fn(async () => list), apply: vi.fn(async () => {}) };
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host); mounted.current = { root, host };
   await act(async () => root.render(<NeighborConversationView friendship="pair" client={client} runtimeClient={runtime()} conciergeClient={conciergeClient} />));

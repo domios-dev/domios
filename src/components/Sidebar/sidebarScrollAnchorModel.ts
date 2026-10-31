@@ -1,8 +1,11 @@
+/// Content that fits has no scroll range, and its height reads as the viewport's (scrollHeight floors at
+/// clientHeight), so a retained offset would be an unreachable write the browser clamps.
 export function sidebarScrollAnchorLayout(
   desiredScrollTop: number,
   contentHeight: number,
   viewportHeight: number,
 ): { scrollTop: number; trailingSpace: number } {
+  if (contentHeight <= viewportHeight) return { scrollTop: 0, trailingSpace: 0 };
   const scrollTop = Math.max(0, desiredScrollTop);
   const naturalMaximum = Math.max(0, contentHeight - viewportHeight);
   return { scrollTop, trailingSpace: Math.max(0, Math.ceil(scrollTop - naturalMaximum)) };

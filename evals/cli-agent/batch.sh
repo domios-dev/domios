@@ -35,8 +35,8 @@ while read -r CID; do
   [ -n "$PROMPT" ] || { echo "  ! no prompt for $CID"; continue; }
   (
     SB="$SBROOT/$CID"; mkdir -p "$SB"
-    WS=$(dc workspace create "bench-$CID" --cwd "$SB" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("id",""))')
-    TAB=$(dc agent spawn "$PROVIDER" ${MODEL:+--model "$MODEL"} --workspace "$WS" --cwd "$SB" --title "$CID" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("tab_id",""))')
+    WS=$(dc workspace create "bench-$CID" --cwd "$SB" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"].get("id",""))')
+    TAB=$(dc agent spawn "$PROVIDER" ${MODEL:+--model "$MODEL"} --workspace "$WS" --cwd "$SB" --title "$CID" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"].get("tab_id",""))')
     sleep 8
     [ -n "$TAB" ] && dc send "$PROMPT" --tab "$TAB" >/dev/null 2>&1
     printf '%s\t%s\t%s\t%s\n' "$CID" "$WS" "$TAB" "$PROMPT" >> "$TABS"
@@ -51,7 +51,7 @@ for round in $(seq 1 50); do
   alldone=1
   while IFS=$'\t' read -r CID WS TAB PROMPT; do
     [ -n "$TAB" ] || continue
-    c=$(dc tab chat --tab "$TAB" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+    c=$(dc tab chat --tab "$TAB" --json 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin)["result"].get("count",0))' 2>/dev/null || echo 0)
     if [ "$c" = "${prev[$CID]:-x}" ] && [ "$c" -gt 0 ]; then stable[$CID]=$(( ${stable[$CID]:-0}+1 )); else stable[$CID]=0; fi
     prev[$CID]=$c
     [ "${stable[$CID]:-0}" -ge 3 ] || alldone=0

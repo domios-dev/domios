@@ -1,5 +1,5 @@
 use super::*;
-use crate::session::store::StorageDeskAdapter;
+use crate::session::store::{SaveIntent, StorageDeskAdapter, WorkspaceSnapshot};
 
 fn close(authority: StorageAuthority) {
     shutdown_bounded(&authority).expect("shutdown");
@@ -21,12 +21,6 @@ fn startup_uses_only_state_db_and_preserves_legacy_files() {
             .unwrap()
             .workspaces
             .is_empty());
-        assert!(storage
-            .legacy_import_marker()
-            .wait(STARTUP_DEADLINE)
-            .unwrap()
-            .value
-            .is_none());
         assert_eq!(std::fs::read(&source).unwrap(), original);
         assert_eq!(std::fs::read(root.path().join("crons.json")).unwrap(), b"{");
         close(authority);
@@ -56,10 +50,34 @@ fn unavailable_authority_returns_a_typed_error() {
 #[test]
 fn current_db_restores_workspace_cwd_without_reading_stale_json() {
     let root = tempfile::tempdir().unwrap();
-    let first =
-        StorageAuthority::Ready(Storage::open(root.path(), StorageConfig::default()).unwrap());
+    let first = open_instance_storage_at(root.path());
     let adapter = StorageDeskAdapter::from_storage(first.storage().unwrap().clone());
-    adapter.import_legacy(r#"{"version":"1","timestamp":1,"active_workspace_id":"ws-current","teams":[],"workspaces":[{"id":"ws-current","name":"Current project","tabs":[],"active_tab_id":null,"cwd":"database-cwd","provisioned_cwd":null}]}"#, None).unwrap();
+    let state = adapter.state().unwrap();
+    let mut snapshot = adapter.snapshot().unwrap();
+    snapshot.timestamp = 1;
+    snapshot.active_workspace_id = Some("ws-current".into());
+    snapshot.workspaces.push(WorkspaceSnapshot {
+        id: "ws-current".into(),
+        name: "Current project".into(),
+        tabs: Vec::new(),
+        active_tab_id: None,
+        cwd: Some("database-cwd".into()),
+        provisioned_cwd: None,
+        protected: false,
+        created_at_ms: 0,
+        sort_order: 0,
+        task_keys: Default::default(),
+    });
+    adapter
+        .delta_snapshot(
+            &snapshot,
+            state.snapshot.agent_session_identities,
+            state.revision,
+            SaveIntent::PreserveDesk,
+        )
+        .unwrap()
+        .wait(STARTUP_DEADLINE)
+        .unwrap();
     drop(adapter);
     close(first);
     let source = root.path().join("sessions/last.json");

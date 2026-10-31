@@ -1,12 +1,14 @@
-import { attachmentPathName as fileName } from "@codeterm/chat-core";
-import { Fragment, useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
+import { attachmentPathName as fileName, inlineArtifactBlockBoundary } from "@codeterm/chat-core";
+import { Fragment, useCallback, useContext, useId, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type ReactNode } from "react";
 import { Button } from "./Button";
 import { AnchoredPopover } from "./AnchoredPopover";
 import { X, Maximize2, Mic, Diff, Film, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
-import { attachmentFileName, attachmentPreviewKind, inlineArtifactParts, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, visibleAttachmentLabel, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
+import { attachmentFileName, attachmentPreviewKind, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, visibleAttachmentLabel, inlineAttachmentSrc, type ChatAttachment, type PlacedAttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
-import { LocalArtifactBlock } from "./LocalArtifactBlock";
-import { RichMarkdown } from "./MarkdownBody";
+import { DsRenderContext } from "./blocks/DsRenderContext";
+import { useDsSegments } from "./blocks/useDsSegments";
+import { useLocalArtifactTabId } from "./LocalArtifactScope";
+import { DsSegmentView } from "./blocks/DsSegmentView";
 import { PRE_WRAP_CLASS } from "./CodeBlock";
 import { VideoFullscreen } from "./VideoFullscreen";
 import { ImageFullscreen, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
@@ -193,6 +195,39 @@ function InteractiveAttachmentCapsule({ attachment, image: nativeImage, labelCon
 
 /** User text with its capsules rendered where they were typed; a copy keeps capsules as tags for a composer. */
 export function InlineAttachmentText({ segments, renderText }: { segments: PlacedAttachmentSegment[]; renderText?: (text: string) => ReactNode }) {
+  const scope = useContext(DsRenderContext);
+  const instance = useId();
+  const tab = useLocalArtifactTabId();
+  let source = "";
+  const attachments: Array<{ offset: number; index: number; segment: Extract<PlacedAttachmentSegment, { attachment: AttachmentMarker }> }> = [];
+  for (const [index, segment] of segments.entries()) {
+    if ("text" in segment) source += segment.text;
+    else { attachments.push({ offset: source.length, index, segment }); source += "\0"; }
+  }
+  const attachmentOffsets = attachments.map(({ offset }) => offset);
+  const parsed = useDsSegments(source, { id: `${scope.authority}:${tab ?? ""}:${instance}`, trusted: scope.trusted }, scope.streaming, scope.cancelled);
+  const children = parsed.flatMap((part): ReactNode[] => {
+    const capsules = attachments.filter(({ offset }) => offset >= part.start && offset < part.end);
+    if (part.type !== "markdown" && capsules.length === 0) return [inlineArtifactBlockBoundary(source, part.start, part.end, attachmentOffsets)
+      ? <DsSegmentView key={part.id} segment={part} />
+      : <Fragment key={part.id}>{source.slice(part.start, part.end)}</Fragment>];
+    const result: ReactNode[] = [];
+    let cursor = part.start;
+    const text = (start: number, end: number) => {
+      if (end <= start) return;
+      const value = source.slice(start, end);
+      result.push(part.type === "markdown" && renderText
+        ? <DsRenderContext.Provider key={`text:${start}`} value={{ ...scope, proseOnly: true }}>{renderText(value)}</DsRenderContext.Provider>
+        : <Fragment key={`text:${start}`}>{value}</Fragment>);
+    };
+    for (const capsule of capsules) {
+      text(cursor, capsule.offset);
+      result.push(<AttachmentCapsule key={`${capsule.index}:${capsule.segment.attachment.path}`} attachment={capsule.segment.attachment} image={capsule.segment.image} />);
+      cursor = capsule.offset + 1;
+    }
+    text(cursor, part.end);
+    return result;
+  });
   const copy = (event: ClipboardEvent<HTMLDivElement>) => {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return;
@@ -206,11 +241,7 @@ export function InlineAttachmentText({ segments, renderText }: { segments: Place
   };
   return (
     <div data-testid="chat-inline-attachment-text" className={`${PRE_WRAP_CLASS} m-0 select-text font-[inherit]`} onCopy={copy}>
-      {inlineArtifactParts(segments).map((segment, index) => ("directive" in segment
-        ? <LocalArtifactBlock key={index} directive={segment.directive} renderMarkdown={(text) => <RichMarkdown text={text} localArtifacts={false} />} />
-        : "text" in segment
-        ? <Fragment key={index}>{renderText ? renderText(segment.text) : segment.text}</Fragment>
-        : <AttachmentCapsule key={`${index}:${segment.attachment.path}`} attachment={segment.attachment} image={segments.flatMap((part) => "attachment" in part && part.attachment === segment.attachment && part.image ? [part.image] : [])[0]} />))}
+      {children}
     </div>
   );
 }

@@ -2,6 +2,113 @@ use super::*;
 
 mod file_authority;
 
+struct NoConfirmationCalls;
+
+#[async_trait]
+impl codeterm_neighbors::adapter::AuthenticatedCall for NoConfirmationCalls {
+    async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
+        panic!("retired or unauthorized confirmation reached a backend port")
+    }
+    async fn id_token(&self) -> codeterm_neighbors::Result<Zeroizing<String>> {
+        panic!("confirmation reached authentication")
+    }
+}
+
+fn committed_receiver(
+    fixture: &crate::service::test_fixture::ServiceFixture,
+) -> receiver::selection::Committed {
+    receiver::selection::Committed {
+        result: json!({"schema_version":1,"receiver":{"friendship_id":"a".repeat(64),"revision":1,"is_me":true,"receiving":true,"machine_label":null}}),
+        friendship: "a".repeat(64),
+        revision: 1,
+        generation: 0,
+        login_generation: 1,
+        registry: Arc::new(FirebaseRegistry {
+            calls: Arc::new(NoConfirmationCalls),
+            uid: "owner".into(),
+            installation_id: "fixture".into(),
+            machine_label: "Fixture".into(),
+        }),
+        scope: KeyScope::installation("fixture", "owner").unwrap(),
+        metadata: Metadata::new(fixture.temp.path().to_owned(), "owner"),
+    }
+}
+
+#[tokio::test]
+async fn retired_committed_confirmation_returns_assignment_without_late_local_effects() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let committed = committed_receiver(&fixture);
+    let expected = committed.result.clone();
+    fixture
+        .service
+        .neighbor_cell()
+        .generation
+        .store(1, Ordering::Release);
+    assert_eq!(
+        fixture
+            .service
+            .reconcile_committed_neighbor_receiver(&committed, false)
+            .await,
+        Err(Error::Revoked)
+    );
+    let outcome = fixture
+        .service
+        .run_neighbor_operation(
+            1,
+            Operation::ConfirmReceiver(Box::new(ReceiverCommit {
+                committed,
+                continuation: None,
+            })),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(outcome, Outcome::Value(value) if value == expected));
+    assert!(fixture
+        .service
+        .neighbor_friend_receiver_views()
+        .as_object()
+        .unwrap()
+        .is_empty());
+    assert!(fixture.ui.0.lock().is_empty());
+}
+
+#[tokio::test]
+async fn resumed_owner_action_rechecks_original_caller_nonce_before_local_reconciliation() {
+    let (mut mux, general) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&general).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.agent_session_id = Some("general-session".into());
+    tab.session_binding_nonce = Some("new-nonce".into());
+    tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+    tab.role_profile = Some(crate::service::general_agent::GENERAL_AGENT_KIND.into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let phase = ReceiverCommit {
+        committed: committed_receiver(&fixture),
+        continuation: Some(Continuation {
+            command: NeighborRuntimeCommand::SetPermission {
+                friendship_id: "a".repeat(64),
+                permission: json!({}),
+            },
+            caller: Some(general),
+            nonce: Some("old-nonce".into()),
+        }),
+    };
+    let result = fixture
+        .service
+        .run_neighbor_operation(0, Operation::ConfirmReceiver(Box::new(phase)))
+        .await;
+    assert!(result.err().unwrap().contains("neighbor_forbidden"));
+    assert!(fixture
+        .service
+        .neighbor_friend_receiver_views()
+        .as_object()
+        .unwrap()
+        .is_empty());
+}
+
 #[tokio::test]
 async fn public_empty_send_and_failed_pad_read_never_enter_owner_queue_or_network_dispatch() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(

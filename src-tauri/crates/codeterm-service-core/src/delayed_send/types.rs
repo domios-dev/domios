@@ -13,8 +13,6 @@ pub enum DelayedMessageState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DelayedMessage {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub turn_retry: Option<TurnRetry>,
     pub id: String,
     pub tab_id: String,
     pub workspace_id: Option<String>,
@@ -50,16 +48,6 @@ pub struct DelayedMessage {
     pub reason: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ticks: Vec<DeliveryTickView>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TurnRetry {
-    pub kind: codeterm_plugin::agent_runtime::RuntimeRetryableErrorKind,
-    pub attempt: u8,
-    pub epoch: u64,
-    pub binding_nonce: String,
-    pub thread_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

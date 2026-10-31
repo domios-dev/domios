@@ -20,7 +20,7 @@ import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWritableRootsConfirmed } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions } from "./runtimeSettings";
 import { modelServiceTiers, serviceTierSelection, tierAvailable } from "./runtimeServiceTiers";
 export { runtimeReduce } from "./runtimeReduce";
 
@@ -31,14 +31,20 @@ function request(method: string, params: unknown, state: unknown = {stage:method
   const target = method === "turn/interrupt" ? {threadId:String(object(params).threadId),turnId:String(object(params).turnId)} : undefined;
   return {action:{kind:"request",call:{method,params:json(params),...(target ? {target} : {})}},state:json(state)};
 }
-function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string): Record<string,unknown> {
+function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string, windowsSandbox?: "mxc"): Record<string,unknown> {
+  instructions = codexRestrictedCliInstructions(ctx,instructions);
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
-  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:codexThreadConfig(settings,ctx.hostOwned),
+  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:{...codexThreadConfig(settings,ctx.hostOwned),...codexRestrictedCliConfig(ctx),...(windowsSandbox ? {"windows.sandbox":windowsSandbox} : {})},
     ...(policies.runtimeWorkspaceRoots ? {runtimeWorkspaceRoots:policies.runtimeWorkspaceRoots} : {}),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
     ...(instructions !== undefined ? {developerInstructions:instructions} : {})};
+}
+function threadPlan(ctx: RuntimeContext, op: Extract<Operation,{kind:"openThread"|"resumeThread"}>, windowsSandbox?: "mxc"): RuntimePlan {
+  const params = settingsParams(ctx,op.settings,op.instructions,windowsSandbox);
+  return op.kind === "openThread" ? request("thread/start",params)
+    : request("thread/resume",{...params,threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",...(windowsSandbox ? {windowsSandbox} : {})});
 }
 function turnParams(ctx: RuntimeContext, op: Extract<Operation,{kind:"submitTurn"}>): Record<string,unknown> {
   const input: unknown[] = [{type:"text",text:op.input.text}];
@@ -117,9 +123,10 @@ function planOperation(ctx: RuntimeContext, op: Operation): RuntimePlan {
     case "backgroundProcesses": return backgroundPlan(ctx,op);
     case "initialize":
       return request("initialize",{clientInfo:{name:"domios",version:ctx.hostVersion},capabilities:{experimentalApi:true,optOutNotificationMethods:[]}});
-    case "openThread": return request("thread/start",settingsParams(ctx,op.settings,op.instructions));
+    case "openThread":
+    case "resumeThread": return op.settings.mode === "workspace-write"
+      ? request("config/read",{includeLayers:false,cwd:ctx.cwd},{stage:"windowsSandboxConfig"}) : threadPlan(ctx,op);
     case "forkThread": return forkThreadPlan(ctx,op);
-    case "resumeThread": return request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true});
     case "readHistory":
       if (op.order === "desc") return pagedHistoryPlan(op);
       return request("thread/turns/list",{threadId:op.threadId,itemsView:"notLoaded",sortDirection:op.order ?? "asc",limit:8,cursor:op.cursor},
@@ -229,10 +236,18 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
       return continuation(request("turn/start",turnParams(ctx,op)),true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived
       && archivedResume(reply.error.message))
-      return continuation(request("thread/unarchive",{threadId:op.threadId},{stage:"unarchive"}));
+      return continuation(request("thread/unarchive",{threadId:op.threadId},{stage:"unarchive",...(state.windowsSandbox === "mxc" ? {windowsSandbox:"mxc"} : {})}));
     return refused(reply.error.message,op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error,op.activeTurnId));
   }
   const value = object(reply.value);
+  if (op.kind === "openThread" || op.kind === "resumeThread") {
+    if (state.stage === "windowsSandboxConfig") {
+      codexValidateCliTrust(ctx,value);
+      return continuation(codexNeedsWindowsSandboxSelection(value)
+        ? request("configRequirements/read",null,{stage:"windowsSandboxRequirements"}) : threadPlan(ctx,op));
+    }
+    if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx,op,codexWindowsSandboxOverride(value)));
+  }
   switch (op.kind) {
     case "initialize":
       if (state.stage === "initialize") return continuation({action:{kind:"notification",notification:{method:"initialized",params:{}}},state:json({stage:"initializedNotification",binaryVersion:runtimeBinaryVersion(value.userAgent)})});
@@ -246,12 +261,14 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
+      if (op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (!codexWritableRootsConfirmed(op.settings,value)) return refused("Provider did not confirm the exact read-only writable roots");
       return {kind:"complete",result:{kind:"threadLoaded",threadId,settings:codexEffectiveSettings(op.settings,value)}};
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true}));
+      if (state.stage === "unarchive") return continuation(request("thread/resume",{...settingsParams(ctx,op.settings,op.instructions,state.windowsSandbox === "mxc" ? "mxc" : undefined),threadId:op.threadId,excludeTurns:true},{stage:"thread/resume",unarchived:true,...(state.windowsSandbox === "mxc" ? {windowsSandbox:"mxc"} : {})}));
       if (!userThread(value,op.threadId)) return refused("Resumed thread identity unverified");
+      if (state.stage !== "verify" && op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings,value)) return refused("Provider did not confirm the exact read-only writable roots");
       if (state.stage !== "verify") return continuation(request("thread/read",{threadId:op.threadId,includeTurns:false},{stage:"verify",settings:codexEffectiveSettings(op.settings,value)}));
       const idle = threadStatus(object(value.thread).status)?.state === "idle";

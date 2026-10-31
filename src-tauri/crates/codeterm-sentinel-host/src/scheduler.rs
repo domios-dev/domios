@@ -203,6 +203,28 @@ pub fn start(
         apply_lock: Arc::new(Mutex::new(())),
     };
     super::blueprint_memory::subscribe_changes(&svc);
+    if svc
+        .host_extension::<crate::pipeline::plugin::PluginStepStoreRoot>()
+        .is_none()
+    {
+        let _ = svc.register_host_extension(Arc::new(
+            crate::pipeline::plugin::PluginStepStoreRoot(data_dir.to_path_buf()),
+        ));
+    }
+    if crate::pipeline::plugin::ledger(&svc)
+        .and_then(|ledger| ledger.recover_inflight())
+        .is_err()
+    {
+        log::error!("[blueprint] plugin operation recovery unavailable");
+    }
+    if svc
+        .register_host_extension(Arc::new(codeterm_plugin::blueprint_step::RunInputs(
+            Arc::new(crate::plugin_run_inputs::Inputs(Arc::downgrade(&svc))),
+        )))
+        .is_err()
+    {
+        return None;
+    }
     let callback = shutdown_callback(&handle);
     match codeterm_service_core::crash::shutdown::subscribe_sentinel_shutdown(callback) {
         Ok(subscription) => handle._shutdown = Some(Arc::new(subscription)),
@@ -239,6 +261,7 @@ pub fn start(
         let (generation, wake_condvar) = &*wake;
         let mut unavailable_incident: Option<String> = None;
         loop {
+            let mut plugin_deadline = None;
             let Some(owner) = probe_owner.upgrade() else {
                 return;
             };
@@ -276,6 +299,12 @@ pub fn start(
                     return;
                 }
                 super::run_binding::process_pending(&svc, &run_handle);
+                match crate::plugin_monitor::reconcile(&svc, &run_handle) {
+                    Ok(deadline) => plugin_deadline = deadline,
+                    Err(error) => {
+                        log::error!("[blueprint] plugin reconciliation unavailable: {error}")
+                    }
+                }
                 super::run_binding::reconcile_runs(&svc, &run_handle);
                 expire_escalations(&store, &svc);
                 run_handle.reconcile_terminal_sources(&svc);
@@ -311,8 +340,14 @@ pub fn start(
             }
             let now = store.lock().clock.now_ms();
             let terminal_deadline = inbox.lock().deadline();
-            let wait_ms = scheduler_wait_ms(&store.lock())
-                .min(terminal_deadline.map_or(u64::MAX, |at| at.saturating_sub(now).max(1)));
+            let wait_ms = scheduler_wait_ms(&store.lock()).min(
+                terminal_deadline
+                    .into_iter()
+                    .chain(plugin_deadline)
+                    .map(|at| at.saturating_sub(now).max(1))
+                    .min()
+                    .unwrap_or(u64::MAX),
+            );
             let event_wait_only = store.lock().event_wait_only();
             let guard = match generation.lock() {
                 Ok(guard) => guard,
@@ -321,7 +356,7 @@ pub fn start(
             if *guard != observed {
                 continue;
             }
-            if event_wait_only && terminal_deadline.is_none() {
+            if event_wait_only && terminal_deadline.is_none() && plugin_deadline.is_none() {
                 drop(wake_condvar.wait_while(guard, |value| *value == observed));
             } else {
                 let _ = wake_condvar.wait_timeout_while(

@@ -2,6 +2,13 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum PlanTaskAction {
+    /// Extend this Worker's declared edit files; overlapping live ownership is refused
+    ExtendFiles {
+        plan_id: Option<String>,
+        task_id: Option<String>,
+        #[arg(long = "edit-file", value_name = "PATH", required = true)]
+        edit: Vec<String>,
+    },
     /// Replace structured task context files (relative paths resolve against the Worker cwd)
     Files {
         plan_id: String,
@@ -47,13 +54,20 @@ pub enum PlanTaskAction {
     /// Add a task to a plan (carries model/why routing + quality fields)
     Add {
         plan_id: String,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(long, allow_hyphen_values = true, default_value = "")]
         name: String,
         #[arg(long = "type", allow_hyphen_values = true)]
         kind: Option<String>,
-        #[arg(long)]
+        #[arg(
+            long,
+            help = "Section selectors; omission uses area matching or the plan's sole section"
+        )]
         sections: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            help = "Provider:model, model id, or bare provider resolved at dispatch"
+        )]
         model: Option<String>,
         #[arg(
             long,
@@ -100,7 +114,6 @@ pub enum PlanTaskAction {
         #[arg(
             long,
             allow_hyphen_values = true,
-            required_unless_present = "role_guidance_file",
             help = "REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment"
         )]
         role_guidance: Option<String>,
@@ -112,6 +125,7 @@ pub enum PlanTaskAction {
         role_guidance_file: Option<String>,
         #[arg(
             long = "executor-role",
+            default_value = "",
             allow_hyphen_values = true,
             help = "REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced"
         )]
@@ -120,7 +134,8 @@ pub enum PlanTaskAction {
             long,
             allow_hyphen_values = true,
             value_name = "ONE_WORD_PERSONA",
-            help = "REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'"
+            default_value = "",
+            help = "Executor's one-word persona; defaults to the first word of the task name"
         )]
         personality: String,
         #[arg(long, allow_hyphen_values = true)]
@@ -374,6 +389,8 @@ pub enum PlanTaskAction {
             help = "Opt this mutating Worker into the canonical checkout as its one exclusive writer; never inferred"
         )]
         canonical_writer: bool,
+        #[arg(long, value_parser = ["shared", "lane"], conflicts_with = "canonical_writer")]
+        placement: Option<String>,
         #[arg(
             long = "kind",
             help = "Select a built-in Worker prompt kind without changing the task's executor_role"

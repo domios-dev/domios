@@ -18,9 +18,3 @@ After completion the live driver must verify two rendered user rows, reload
 its own page, and retain a separate post-reload ledger snapshot showing the
 same claims. No uncertain send is replayed. All live access uses the DEV bench
 lib; this module does not contact a daemon itself.
-
-Pure regression command:
-
-```bash
-node --test scripts/tests/chat-echo-status.test.mjs
-```

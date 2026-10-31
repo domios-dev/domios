@@ -6,7 +6,16 @@ mod events;
 mod filter;
 mod handles;
 mod identity;
+mod ignore_plan;
+#[cfg(target_os = "macos")]
+mod macos_backend;
+#[cfg(target_os = "macos")]
+mod macos_stream;
 mod registry;
+#[cfg(any(target_os = "macos", test))]
+mod stream_plan;
+mod subscriptions;
+mod tracked;
 mod unresolved;
 
 #[cfg(test)]

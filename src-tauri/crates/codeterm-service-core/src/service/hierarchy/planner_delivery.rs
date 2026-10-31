@@ -30,7 +30,8 @@ impl crate::service::ServiceContext {
             return;
         };
         let now_ms = epoch_ms();
-        for plan in self.plan_store.list_full() {
+        let candidates = crate::service::plan::PlanMatch::Planner(tab_id.to_string());
+        for plan in self.plan_store.plans_matching(&candidates) {
             let Some(crate::plan::PlannerRef::Tab { tab_id: bound, .. }) = &plan.planner else {
                 continue;
             };

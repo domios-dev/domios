@@ -7,6 +7,7 @@ pub mod keys;
 pub mod permissions;
 pub mod receive;
 pub mod registry;
+pub mod state;
 pub mod supervisor;
 pub mod wire;
 
@@ -36,6 +37,7 @@ pub enum Error {
     LocalKeyUnavailable,
     SecretStore,
     Transport,
+    Unavailable,
     Http {
         status: u16,
         retry_after_seconds: u64,
@@ -49,14 +51,12 @@ pub enum Error {
         limit: u64,
         active: u64,
     },
-    FeatureUnsupported,
     EntitlementsUnavailable,
     Refused,
     ReceiverElsewhere,
     ReceivingElsewhere,
     ReceiverNotChosen,
     ReceiverStatusUnknown,
-    ReceiversPresent,
     ReceiverRevisionStale,
     NotReceiver,
     RecipientNotReceiving,
@@ -168,17 +168,16 @@ impl std::fmt::Display for Error {
             Self::LocalKeyUnavailable => "Neighbor recipient key recovery required",
             Self::SecretStore => "Neighbor OS secret store unavailable",
             Self::Transport => "Neighbor transport unavailable",
+            Self::Unavailable => "Neighbor callable unavailable",
             Self::Http { .. } => unreachable!(),
             Self::CursorStore => "Neighbor cursor storage unavailable",
             Self::Gateway => "Neighbor gateway unavailable",
             Self::Locked => "friends_locked: Upgrade to use your Neighbors channel",
             Self::Revoked => "key_revoked: Neighbor installation key revoked",
             Self::KeyNotFound => "key_not_found: Neighbor installation key not found",
-            Self::FeatureUnsupported => "feature_unsupported: The account receiver must update before moving one friend",
             Self::EntitlementsUnavailable => "entitlements_unavailable: The service could not verify access; try again",
             Self::ReceiverElsewhere => "receiver_elsewhere: Receiving on another machine",
             Self::ReceiverStatusUnknown => "receiver_status_unknown: Receiving status is not known yet; refresh before choosing",
-            Self::ReceiversPresent => "receivers_present: Receiving was already chosen; refresh and choose this friend explicitly",
             Self::ReceiverNotChosen => "receiver_not_chosen: No machine has been chosen to receive this friend",
             Self::ReceivingElsewhere => "receiving_elsewhere: This machine is not receiving; no concierge can run here",
             Self::ReceiverRevisionStale => {

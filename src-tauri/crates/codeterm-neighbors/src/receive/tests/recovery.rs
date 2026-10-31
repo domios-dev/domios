@@ -58,16 +58,13 @@ impl Registry {
 }
 #[async_trait]
 impl KeyRegistry for Registry {
-    async fn enroll(&self, signing: &str, _: &str, replace: bool) -> Result<String> {
+    async fn enroll(&self, signing: &str, _: &str) -> Result<String> {
         let id = format!(
             "vk_{}",
             &crate::crypto::sha256_hex(format!("verifier-key:{}:{signing}", self.uid).as_bytes())
                 [..32]
         );
         let mut active = self.active.lock().unwrap();
-        if replace {
-            active.clear();
-        }
         if !active.contains(&id) {
             active.push(id.clone());
         }
@@ -261,7 +258,7 @@ async fn failed_initial_settings_write_keeps_registry_enrollment_visible() {
     };
     assert!(matches!(
         lifecycle
-            .enroll_and_enable(true, &mut StdRng::seed_from_u64(4), &FailedSettings)
+            .enroll_and_enable(&mut StdRng::seed_from_u64(4), &FailedSettings)
             .await,
         Err(Error::CursorStore)
     ));

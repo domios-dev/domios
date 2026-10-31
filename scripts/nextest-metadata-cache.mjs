@@ -10,7 +10,16 @@ export function prepareNextestMetadata({ root = process.cwd(), manifest, targets
   const options = { cwd: root, env, encoding: "utf8", maxBuffer: 128 * 1024 * 1024, stdio: ["ignore", "pipe", "inherit"] };
   const timed = (phase, action) => {
     const start = performance.now();
-    try { return action(); } finally { log(`[test-loop] ${phase} ${(performance.now() - start).toFixed(1)}ms`); }
+    try { return action(); } catch (error) {
+      for (const line of String(error.stdout ?? "").split(/\r?\n/)) {
+        let row;
+        try { row = JSON.parse(line); } catch { continue; }
+        if (row?.reason === "compiler-message" && ["error", "warning"].includes(row.message?.level)) {
+          log(row.message.rendered?.trimEnd() || row.message.message);
+        }
+      }
+      throw error;
+    } finally { log(`[test-loop] ${phase} ${(performance.now() - start).toFixed(1)}ms`); }
   };
   const files = run("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], options)
     .split("\0").filter(file => /(^|\/)(Cargo\.(toml|lock)|rust-toolchain(\.toml)?|config(\.toml)?)$/.test(file));

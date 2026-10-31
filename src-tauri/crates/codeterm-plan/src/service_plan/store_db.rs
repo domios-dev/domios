@@ -1,9 +1,68 @@
 use super::store_rows;
-use super::store_sync::{self, RowWrites};
+use super::store_sync::{self, RowWrites, StoredStrides};
 use super::{Plan, PlanError, Spec};
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::PathBuf;
+
+/// `PRAGMA user_version` of the 1.18 row schema; older databases are converted once on open.
+pub(super) const SCHEMA_VERSION: i64 = 1;
+
+const PLAN_SCHEMA: &str = r#"
+    CREATE TABLE IF NOT EXISTS plans (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        team_id TEXT,
+        project_path TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        stride_count INTEGER NOT NULL DEFAULT 0,
+        stride_digest INTEGER NOT NULL DEFAULT 0,
+        header_json TEXT NOT NULL,
+        owner_tab_id TEXT GENERATED ALWAYS AS (json_extract(header_json, '$.owner.tab_id')) VIRTUAL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS one_active_plan_per_team
+        ON plans(team_id)
+        WHERE team_id IS NOT NULL AND status = 'active';
+    CREATE INDEX IF NOT EXISTS plans_status_updated
+        ON plans(status, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS plans_owner_tab_id
+        ON plans(owner_tab_id) WHERE owner_tab_id IS NOT NULL;
+
+    CREATE TABLE IF NOT EXISTS specs (
+        id TEXT PRIMARY KEY,
+        plan_id TEXT,
+        project_path TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        row_json TEXT NOT NULL,
+        FOREIGN KEY(plan_id) REFERENCES plans(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS plan_operations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        entity_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('queued','running','committed','failed')),
+        submitted_at INTEGER NOT NULL,
+        finished_at INTEGER,
+        error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS plan_operations_state_id
+        ON plan_operations(state, id);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS plan_fts USING fts5(
+        plan_id UNINDEXED,
+        title,
+        body
+    );
+"#;
+
+/// Creates every missing table and index of the current schema.
+pub(super) fn create_schema(connection: &Connection) -> rusqlite::Result<()> {
+    connection.execute_batch(PLAN_SCHEMA)?;
+    connection.execute_batch(store_sync::TASK_SCHEMA)?;
+    connection.execute_batch(store_sync::PLAN_LEVEL_SCHEMA)
+}
 
 pub(super) struct PlanDatabase {
     path: PathBuf,
@@ -15,63 +74,26 @@ impl PlanDatabase {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(io_error)?;
         }
-        let connection = Connection::open(&path).map_err(db_error)?;
+        let mut connection = if path.exists() {
+            Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        } else {
+            Connection::open_in_memory()
+        }
+        .map_err(db_error)?;
+        super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
+        create_schema(&connection).map_err(db_error)?;
         connection
-            .execute_batch(
-                r#"
-                PRAGMA journal_mode = WAL;
-                PRAGMA synchronous = NORMAL;
-                PRAGMA foreign_keys = ON;
-
-                CREATE TABLE IF NOT EXISTS plans (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    team_id TEXT,
-                    project_path TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    document_json TEXT NOT NULL
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS one_active_plan_per_team
-                    ON plans(team_id)
-                    WHERE team_id IS NOT NULL AND status = 'active';
-                CREATE INDEX IF NOT EXISTS plans_status_updated
-                    ON plans(status, updated_at DESC);
-
-                CREATE TABLE IF NOT EXISTS specs (
-                    id TEXT PRIMARY KEY,
-                    plan_id TEXT,
-                    project_path TEXT NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    document_json TEXT NOT NULL,
-                    FOREIGN KEY(plan_id) REFERENCES plans(id) ON DELETE CASCADE
-                );
-
-                CREATE TABLE IF NOT EXISTS plan_operations (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    entity_id TEXT NOT NULL,
-                    kind TEXT NOT NULL,
-                    state TEXT NOT NULL CHECK(state IN ('queued','running','committed','failed')),
-                    submitted_at INTEGER NOT NULL,
-                    finished_at INTEGER,
-                    error TEXT
-                );
-                CREATE INDEX IF NOT EXISTS plan_operations_state_id
-                    ON plan_operations(state, id);
-
-                CREATE VIRTUAL TABLE IF NOT EXISTS plan_fts USING fts5(
-                    plan_id UNINDEXED,
-                    title,
-                    body
-                );
-                "#,
-            )
+            .pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(db_error)?;
         connection
-            .execute_batch(store_sync::TASK_SCHEMA)
+            .execute_batch(
+                "PRAGMA journal_mode = WAL;
+                 PRAGMA synchronous = NORMAL;
+                 PRAGMA foreign_keys = ON;",
+            )
             .map_err(db_error)?;
         connection
             .execute(
@@ -106,22 +128,49 @@ impl PlanDatabase {
         count as usize
     }
 
-    pub(super) fn load_snapshots(&self) -> Result<(Vec<Plan>, Vec<Spec>), PlanError> {
+    pub(super) fn load_specs(&self) -> Result<Vec<Spec>, PlanError> {
         let connection = self.connection.lock();
-        let plans = load_plan_documents(&connection)?;
-        let specs =
-            load_documents::<Spec>(&connection, "spec", "SELECT id, document_json FROM specs")?;
-        Ok((plans, specs))
+        load_documents::<Spec>(&connection, "spec", "SELECT id, row_json FROM specs")
     }
 
+    /// Every parseable plan, for test oracles only; the store loads plans one at a time.
+    #[cfg(test)]
+    pub(super) fn load_plans_for_test(&self) -> Vec<Plan> {
+        let ids: Vec<String> = {
+            let connection = self.connection.lock();
+            let mut statement = connection
+                .prepare("SELECT id FROM plans ORDER BY id")
+                .expect("prepare plan ids");
+            statement
+                .query_map([], |row| row.get(0))
+                .expect("query plan ids")
+                .collect::<Result<_, _>>()
+                .expect("read plan ids")
+        };
+        ids.iter()
+            .filter_map(|id| self.load_plan(id).ok().flatten())
+            .collect()
+    }
+
+    /// `Ok(None)` when no row exists; rows that do not parse are `PlanError::Quarantined`.
     pub(super) fn load_plan(&self, id: &str) -> Result<Option<Plan>, PlanError> {
         let connection = self.connection.lock();
-        let Some(document) = store_sync::plan_document(&connection, id).map_err(db_error)? else {
+        let header: Option<String> = connection
+            .query_row("SELECT header_json FROM plans WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(db_error)?;
+        let Some(header) = header else {
             return Ok(None);
         };
-        let value =
-            store_sync::load_plan_value(&connection, id, &document).map_err(PlanError::Io)?;
-        serde_json::from_value(value).map(Some).map_err(json_error)
+        store_sync::load_plan_rows(&connection, id, &header)
+            .and_then(parse_plan_value)
+            .map(Some)
+            .map_err(|reason| PlanError::Quarantined {
+                plan_id: id.to_string(),
+                reason,
+            })
     }
 
     pub(super) fn delete_spec(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
@@ -279,53 +328,7 @@ fn upsert_plan(
     plan: &Plan,
     rows: &store_rows::PlanRows,
 ) -> Result<RowWrites, PlanError> {
-    let status = serde_json::to_value(&plan.status)
-        .map_err(json_error)?
-        .as_str()
-        .unwrap_or("active")
-        .to_string();
-    let previous_header: Option<(String, String, String, String)> = transaction
-        .query_row(
-            "SELECT title, status, project_path,
-                    coalesce(json_extract(document_json, '$.canonical_project_path'), '')
-             FROM plans WHERE id = ?1",
-            [&plan.id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()
-        .map_err(db_error)?;
-    transaction
-        .execute(
-            "INSERT INTO plans(id, title, status, team_id, project_path, updated_at, document_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(id) DO UPDATE SET title=excluded.title, status=excluded.status,
-             team_id=excluded.team_id,
-             project_path=excluded.project_path, updated_at=excluded.updated_at,
-             document_json=excluded.document_json",
-            params![
-                plan.id,
-                plan.title,
-                status,
-                plan.team_id,
-                plan.project_path,
-                plan.updated_at,
-                rows.plan
-            ],
-        )
-        .map_err(db_error)?;
-    let mut writes =
-        store_sync::sync_task_rows(transaction, &plan.id, &rows.tasks).map_err(db_error)?;
-    if let Some((title, previous_status, project_path, canonical_project_path)) = previous_header {
-        if project_path != plan.project_path
-            || canonical_project_path != plan.canonical_project_path
-        {
-            writes.previous_project_paths = Some((project_path, canonical_project_path));
-        }
-        writes.header_identity_changed = title != plan.title
-            || previous_status != status
-            || writes.previous_project_paths.is_some();
-    }
-    writes.header_identity_changed |= rows.kept_whole.is_some();
+    let writes = write_plan_rows(transaction, plan, rows)?;
     transaction
         .execute("DELETE FROM plan_fts WHERE plan_id = ?1", [&plan.id])
         .map_err(db_error)?;
@@ -338,15 +341,92 @@ fn upsert_plan(
     Ok(writes)
 }
 
+/// Writes a plan's header, task and plan-level rows, touching only the rows that changed.
+pub(super) fn write_plan_rows(
+    transaction: &rusqlite::Transaction<'_>,
+    plan: &Plan,
+    rows: &store_rows::PlanRows,
+) -> Result<RowWrites, PlanError> {
+    let status = serde_json::to_value(&plan.status)
+        .map_err(json_error)?
+        .as_str()
+        .unwrap_or("active")
+        .to_string();
+    let previous_header: Option<(String, String, String, String, StoredStrides)> = transaction
+        .query_row(
+            "SELECT title, status, project_path,
+                    coalesce(json_extract(header_json, '$.canonical_project_path'), ''),
+                    stride_count, stride_digest
+             FROM plans WHERE id = ?1",
+            [&plan.id],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    StoredStrides {
+                        count: row.get::<_, i64>(4)? as usize,
+                        digest: row.get(5)?,
+                    },
+                ))
+            },
+        )
+        .optional()
+        .map_err(db_error)?;
+    transaction
+        .execute(
+            "INSERT INTO plans(id, title, status, team_id, project_path, updated_at, stride_count, stride_digest, header_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET title=excluded.title, status=excluded.status,
+             team_id=excluded.team_id,
+             project_path=excluded.project_path, updated_at=excluded.updated_at,
+             stride_count=excluded.stride_count, stride_digest=excluded.stride_digest,
+             header_json=excluded.header_json",
+            params![
+                plan.id,
+                plan.title,
+                status,
+                plan.team_id,
+                plan.project_path,
+                plan.updated_at,
+                rows.strides.len() as i64,
+                rows.stride_digest(),
+                rows.header
+            ],
+        )
+        .map_err(db_error)?;
+    let mut writes =
+        store_sync::sync_task_rows(transaction, &plan.id, &rows.tasks).map_err(db_error)?;
+    let stored_strides = previous_header
+        .as_ref()
+        .map(|header| header.4)
+        .unwrap_or_default();
+    store_sync::sync_plan_level_rows(transaction, &plan.id, rows, stored_strides, &mut writes)
+        .map_err(db_error)?;
+    if let Some((title, previous_status, project_path, canonical_project_path, _)) = previous_header
+    {
+        if project_path != plan.project_path
+            || canonical_project_path != plan.canonical_project_path
+        {
+            writes.previous_project_paths = Some((project_path, canonical_project_path));
+        }
+        writes.header_identity_changed = title != plan.title
+            || previous_status != status
+            || writes.previous_project_paths.is_some();
+    }
+    Ok(writes)
+}
+
 fn upsert_spec(transaction: &rusqlite::Transaction<'_>, spec: &Spec) -> Result<(), PlanError> {
     let document = serde_json::to_string(spec).map_err(json_error)?;
     transaction
         .execute(
-            "INSERT INTO specs(id, plan_id, project_path, updated_at, document_json)
+            "INSERT INTO specs(id, plan_id, project_path, updated_at, row_json)
              VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(id) DO UPDATE SET plan_id=excluded.plan_id,
              project_path=excluded.project_path, updated_at=excluded.updated_at,
-             document_json=excluded.document_json",
+             row_json=excluded.row_json",
             params![
                 spec.id,
                 spec.plan_id,
@@ -359,34 +439,8 @@ fn upsert_spec(transaction: &rusqlite::Transaction<'_>, spec: &Spec) -> Result<(
     Ok(())
 }
 
-fn load_plan_documents(connection: &Connection) -> Result<Vec<Plan>, PlanError> {
-    let mut statement = connection
-        .prepare("SELECT id, document_json FROM plans")
-        .map_err(db_error)?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(db_error)?;
-    let mut plans = Vec::new();
-    let documents = rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
-    drop(statement);
-    for (record_id, document) in documents {
-        let joined = store_sync::load_plan_value(connection, &record_id, &document);
-        match joined.and_then(parse_plan_value) {
-            Ok(plan) => plans.push(plan),
-            Err(error) => log::error!(
-                "[plan.store] quarantined plan record {} during startup: {}; source left unchanged",
-                record_id,
-                error
-            ),
-        }
-    }
-    Ok(plans)
-}
-
 #[cfg(test)]
-fn parse_plan_document(document: &str) -> Result<Plan, String> {
+fn parse_plan_json(document: &str) -> Result<Plan, String> {
     parse_plan_value(serde_json::from_str(document).map_err(|error| error.to_string())?)
 }
 
@@ -460,9 +514,15 @@ fn json_error(error: serde_json::Error) -> PlanError {
     PlanError::Io(error.to_string())
 }
 
+pub(super) mod admission;
+mod index_queries;
+pub(super) use index_queries::PlanIndexRow;
+mod match_queries;
+pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]
 mod snapshot_check;
+mod startup_queries;
 #[cfg(test)]
 mod tests;

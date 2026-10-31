@@ -22,8 +22,8 @@ fn request(action: &BlueprintWebhookAction) -> Result<(&str, Value), String> {
         id,
         json!({
             "action":operation,"reveal":reveal,
-            "caller_tab_id":std::env::var("CODETERM_TAB_ID").ok(),
-            "session_binding_nonce":std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
+            "caller_tab_id":crate::nonempty_env("CODETERM_TAB_ID"),
+            "session_binding_nonce":crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE"),
         }),
     ))
 }

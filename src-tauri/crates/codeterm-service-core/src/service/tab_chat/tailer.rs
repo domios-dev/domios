@@ -1,4 +1,5 @@
 use parking_lot::Mutex;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::Arc;
@@ -38,6 +39,7 @@ pub struct TailerHandle {
     offset: Arc<AtomicU64>,
     join: Mutex<Option<thread::JoinHandle<()>>>,
     wake: Option<SyncSender<()>>,
+    reattach: Option<Arc<AtomicBool>>,
 }
 
 impl TailerHandle {
@@ -79,11 +81,27 @@ impl TailerHandle {
             offset,
             join: Mutex::new(Some(join)),
             wake: None,
+            reattach: None,
         }
     }
 
     pub(crate) fn session_owned(&self) -> bool {
         self.wake.is_some()
+    }
+
+    /// Re-read; the subscription is rebuilt only when its watch has proven dead.
+    pub(crate) fn reattach(&self) {
+        if let Some(reattach) = &self.reattach {
+            reattach.store(true, Ordering::Release);
+        }
+        self.wake();
+    }
+
+    /// Coalesced re-read; the bounded channel folds a burst into one pending read.
+    pub(crate) fn wake(&self) {
+        if let Some(wake) = &self.wake {
+            let _ = wake.try_send(());
+        }
     }
 
     pub(crate) fn event_driven(
@@ -97,6 +115,7 @@ impl TailerHandle {
             offset,
             join: Mutex::new(Some(join)),
             wake: Some(wake),
+            reattach: None,
         }
     }
 }
@@ -135,7 +154,29 @@ pub fn spawn_sourced_tailer(
     registry: Arc<AgentRegistry>,
     sink: Arc<dyn DeltaSink>,
 ) -> TailerHandle {
-    spawn_sourced_tailer_inner(cfg, source, registry, sink, || {})
+    spawn_sourced_tailer_inner(cfg, source, registry, sink, || {}, native_watch)
+}
+
+/// File notifications are a fast path only; host wakes must work without them.
+pub(super) trait LiveWatch: Send {
+    fn armed(&self) -> bool;
+}
+
+impl LiveWatch for super::file_events::WatchGuard {
+    fn armed(&self) -> bool {
+        super::file_events::WatchGuard::armed(self)
+    }
+}
+
+pub(super) type WatchSource =
+    fn(&Path, SyncSender<()>) -> Result<Option<Box<dyn LiveWatch>>, String>;
+
+fn native_watch(path: &Path, wake: SyncSender<()>) -> Result<Option<Box<dyn LiveWatch>>, String> {
+    super::file_events::watch(path, wake).map(|guard| Some(Box::new(guard) as Box<dyn LiveWatch>))
+}
+
+fn parent_present(path: &Path) -> bool {
+    path.parent().is_some_and(Path::is_dir)
 }
 
 #[cfg(test)]
@@ -145,9 +186,27 @@ pub(super) fn spawn_tailer_with_ready(
     sink: Arc<dyn DeltaSink>,
     ready: mpsc::Sender<()>,
 ) -> TailerHandle {
-    spawn_sourced_tailer_inner(cfg, None, registry, sink, move || {
-        let _ = ready.send(());
-    })
+    spawn_tailer_watched_by(cfg, registry, sink, ready, native_watch)
+}
+
+#[cfg(test)]
+pub(super) fn spawn_tailer_watched_by(
+    cfg: TailConfig,
+    registry: Arc<AgentRegistry>,
+    sink: Arc<dyn DeltaSink>,
+    ready: mpsc::Sender<()>,
+    watch: WatchSource,
+) -> TailerHandle {
+    spawn_sourced_tailer_inner(
+        cfg,
+        None,
+        registry,
+        sink,
+        move || {
+            let _ = ready.send(());
+        },
+        watch,
+    )
 }
 
 fn spawn_sourced_tailer_inner(
@@ -156,6 +215,7 @@ fn spawn_sourced_tailer_inner(
     registry: Arc<AgentRegistry>,
     sink: Arc<dyn DeltaSink>,
     on_ready: impl FnOnce() + Send + 'static,
+    watch: WatchSource,
 ) -> TailerHandle {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let offset = Arc::new(AtomicU64::new(cfg.start_offset));
@@ -164,6 +224,8 @@ fn spawn_sourced_tailer_inner(
     let off = offset.clone();
     let (wake, events) = mpsc::sync_channel(1);
     let thread_wake = wake.clone();
+    let reattach = Arc::new(AtomicBool::new(false));
+    let thread_reattach = reattach.clone();
     let join = thread::Builder::new()
         .name(format!("chat-jsonl-{}", cfg.tab_id))
         .spawn(move || {
@@ -176,7 +238,8 @@ fn spawn_sourced_tailer_inner(
                 log::warn!("[tab_chat] no JSONL path for tab={}", cfg.tab_id);
                 return;
             };
-            let _watcher = match super::file_events::watch(&path, thread_wake.clone()) {
+            let mut armed_on_parent = parent_present(&path);
+            let mut watcher = match watch(&path, thread_wake.clone()) {
                 Ok(watcher) => watcher,
                 Err(error) => {
                     log::error!("[tab_chat] tab={} watcher failed: {}", cfg.tab_id, error);
@@ -190,6 +253,23 @@ fn spawn_sourced_tailer_inner(
             while events.recv().is_ok() {
                 if stop.load(Ordering::Acquire) {
                     return;
+                }
+                // Every send reattaches, so a live watch only reads: rebuilding the stream
+                // per send churns fseventsd. A watch armed before the session directory
+                // existed may never see it appear; re-arm once on it, then read below.
+                let dead = !watcher.as_ref().is_some_and(|current| current.armed());
+                let rearm = (thread_reattach.swap(false, Ordering::AcqRel) && dead)
+                    || (!armed_on_parent && parent_present(&path));
+                if rearm {
+                    drop(watcher.take());
+                    armed_on_parent = parent_present(&path);
+                    match watch(&path, thread_wake.clone()) {
+                        Ok(current) => watcher = current,
+                        Err(error) => {
+                            log::error!("[tab_chat] tab={} reattach failed: {}", cfg.tab_id, error);
+                            return;
+                        }
+                    }
                 }
                 let observation = source.as_ref().map(|source| {
                     source.observe(
@@ -238,7 +318,7 @@ fn spawn_sourced_tailer_inner(
                         let _ = thread_wake.try_send(());
                     }
                 }
-                if !delta.messages.is_empty() {
+                if delta.new_offset != from || !delta.messages.is_empty() {
                     sink.emit_sourced(
                         &cfg.tab_id,
                         delta.messages,
@@ -253,7 +333,9 @@ fn spawn_sourced_tailer_inner(
         })
         .expect("chat worker thread could not start");
 
-    TailerHandle::event_driven(stop_flag, offset, join, wake)
+    let mut handle = TailerHandle::event_driven(stop_flag, offset, join, wake);
+    handle.reattach = Some(reattach);
+    handle
 }
 
 // Raw-text tailer emits byte chunks only; JS parses JSONL via `parseJsonlSession`.

@@ -343,6 +343,7 @@ pub(super) fn run_dispatch(
         agent,
         authorized_gates,
         canonical_writer,
+        placement,
         worker_kind,
         model,
         speed,
@@ -373,6 +374,8 @@ pub(super) fn run_dispatch(
     }
     if canonical_writer {
         params["placement"] = json!("canonical_writer");
+    } else if let Some(placement) = placement {
+        params["placement"] = json!(placement);
     }
     if let Some(kind) = worker_kind {
         params["worker_kind"] = json!(kind);
@@ -423,6 +426,12 @@ pub(super) fn run_dispatch(
         }
     }
     print_safety_nudges(&val);
+    if let Some(reason) = val.get("placement_reason").and_then(Value::as_str) {
+        println!(
+            "Placement: {} ({reason})",
+            val["placement"].as_str().unwrap_or("unknown")
+        );
+    }
     print!("{}", render_dispatch_response(&val));
     Ok(None)
 }
@@ -433,6 +442,28 @@ pub(super) fn run_task(
     action: PlanTaskAction,
 ) -> Result<Option<Value>, String> {
     match action {
+        PlanTaskAction::ExtendFiles {
+            plan_id,
+            task_id,
+            edit,
+        } => {
+            let (plan_id, task_id) = if plan_id.is_none() && task_id.is_none() {
+                (
+                    std::env::var("CODETERM_PLAN_ID").ok(),
+                    std::env::var("CODETERM_TASK_ID").map_err(|_| {
+                        "extend-files requires a task reference or Worker task binding"
+                    })?,
+                )
+            } else {
+                split_task_ref(plan_id, task_id)
+            };
+            let mut params = json!({"task_id": task_id, "edit": edit});
+            if let Some(plan_id) = plan_id {
+                params["plan_id"] = json!(plan_id);
+            }
+            inject_trusted_session(&mut params);
+            call(client, "plan.task.extend_files", params).map(Some)
+        }
         PlanTaskAction::Files {
             plan_id,
             task_id,
@@ -543,8 +574,8 @@ pub(super) fn run_task(
             from_file,
         } => {
             let children: Vec<Value> = if let Some(path) = from_file {
-                let content =
-                    std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+                let content = crate::local_admission::read_local_text(&path)
+                    .map_err(|e| format!("read {path}: {e}"))?;
                 serde_json::from_str(&content)
                     .map_err(|e| format!("parse children file {path}: {e}"))?
             } else {
@@ -607,15 +638,7 @@ pub(super) fn run_task(
         } => {
             let why_text = resolve_text(why, why_file)?;
             let body_text = resolve_text(body, body_file)?;
-            if executor_role.trim().is_empty() {
-                return Err(
-                    "--executor-role names who executes this task and cannot be blank".to_string(),
-                );
-            }
-            let personality = codeterm_types::plan::validate_executor_name(&personality)
-                .map_err(|err| format!("--personality: {err}"))?;
-            let role_guidance_text =
-                super::resolve_role_guidance(role_guidance, role_guidance_file)?;
+            let role_guidance_text = resolve_text(role_guidance, role_guidance_file)?;
             let intent_text = resolve_text(intent, intent_file)?;
             let qa_plan_text = resolve_text(qa_plan, qa_plan_file)?;
             let test_plan = resolve_text(test_plan, test_plan_file)?;
@@ -669,7 +692,9 @@ pub(super) fn run_task(
                 params["role_guidance"] = json!(guidance);
             }
             params["executor_role"] = json!(executor_role);
-            params["personality"] = json!(personality);
+            if !personality.is_empty() {
+                params["personality"] = json!(personality);
+            }
             if let Some(i) = intent_text {
                 params["intent"] = json!(i);
             }
@@ -907,8 +932,8 @@ pub(super) fn run_task(
             task_id,
             attempt_id,
         } => {
-            let worker_tab_id = std::env::var("CODETERM_TAB_ID")
-                .map_err(|_| "remote ACK requires CODETERM_TAB_ID".to_string())?;
+            let worker_tab_id = crate::nonempty_env("CODETERM_TAB_ID")
+                .ok_or_else(|| "remote ACK requires CODETERM_TAB_ID".to_string())?;
             call(
                 client,
                 "plan.task.remote_ack",
@@ -939,8 +964,8 @@ pub(super) fn run_task(
                 .filter(|message| !message.trim().is_empty())
                 .ok_or_else(|| "remote report message is required".to_string())?;
             let report_id = format!("remote-report:{attempt_id}");
-            let reporter_tab_id = std::env::var("CODETERM_TAB_ID")
-                .map_err(|_| "remote report requires CODETERM_TAB_ID".to_string())?;
+            let reporter_tab_id = crate::nonempty_env("CODETERM_TAB_ID")
+                .ok_or_else(|| "remote report requires CODETERM_TAB_ID".to_string())?;
             call(
                 client,
                 "plan.task.remote_report",
@@ -1048,7 +1073,7 @@ pub(super) fn run_task(
             }
             if let Some(parent) = parent {
                 params["parent_tab_id"] = json!(parent);
-            } else if let Ok(parent) = std::env::var("CODETERM_TAB_ID") {
+            } else if let Some(parent) = crate::nonempty_env("CODETERM_TAB_ID") {
                 if !parent.trim().is_empty() {
                     params["parent_tab_id"] = json!(parent);
                 }
@@ -1146,8 +1171,6 @@ pub(super) fn run_task(
 mod tests;
 
 fn remote_worker_nonce() -> Result<String, String> {
-    std::env::var("CODETERM_SESSION_BINDING_NONCE")
-        .ok()
-        .filter(|nonce| !nonce.trim().is_empty())
+    crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE")
         .ok_or_else(|| "remote worker requires CODETERM_SESSION_BINDING_NONCE".into())
 }

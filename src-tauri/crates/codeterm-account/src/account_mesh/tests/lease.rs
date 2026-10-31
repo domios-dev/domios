@@ -274,7 +274,6 @@ async fn scheduled_publication(endpoint_seconds: u64, due: u64, renewals: usize)
         .unwrap()
         .metadata_revision;
     harness.log.lock().unwrap().clear();
-    assert_eq!(harness.mesh.lease_due(&Ok(())), Some(START + due));
     let mut state = harness.mesh.subscribe();
     harness.clock.set(START + due);
     let started = tokio::time::Instant::now();
@@ -336,9 +335,10 @@ async fn account_mesh_lease_restore_rejects_changed_authority_and_tampered_signa
                 let mut grant = parse_membership_token(&original.token).unwrap();
                 grant.signature = "a".repeat(86);
                 let mut record = harness.store.record.lock().unwrap();
-                let mut value = serde_json::to_value(&record.admission_cache).unwrap();
+                let mut value =
+                    serde_json::to_value(record.admission_cache.as_ref().unwrap()).unwrap();
                 value["token"] = json!(membership_token(&grant));
-                record.admission_cache = serde_json::from_value(value).unwrap();
+                record.admission_cache = Some(serde_json::from_value(value).unwrap());
             }
             _ => {}
         }

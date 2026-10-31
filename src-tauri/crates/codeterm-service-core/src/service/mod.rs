@@ -12,6 +12,7 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+pub mod cli_local_admission;
 mod construct;
 mod provider_refresh;
 pub use construct::build_service_context;
@@ -89,6 +90,7 @@ pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
 mod paired_planner;
+mod plan_projects;
 pub mod role_policy;
 mod tab_input_policy;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
@@ -160,6 +162,7 @@ pub mod managed_tabs;
 pub mod plugin_host;
 pub mod plugin_prompt;
 pub mod plugin_skills;
+mod plugin_step_host;
 pub mod provider_identity;
 pub(crate) mod pty_activation;
 pub mod pty_io;
@@ -198,6 +201,7 @@ mod spawn_chatbackend;
 mod spawn_cli;
 pub mod spawn_cwd;
 pub mod spawn_speed;
+pub mod step_agent_run;
 pub use spawn_cwd::CwdRefusal;
 mod remote_execution;
 pub mod spawn_factory;
@@ -258,6 +262,8 @@ pub use task_lane_guard::{
 // ServiceContext wrapper instead.
 #[cfg(any(test, feature = "test-support"))]
 pub use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
+#[cfg(test)]
+mod consumer_load_tests;
 #[cfg(test)]
 mod persistence_roundtrip_tests;
 #[cfg(any(test, feature = "test-support"))]
@@ -452,12 +458,6 @@ pub struct MuxEmitPending(pub Arc<AtomicBool>);
 
 pub(crate) struct PublishedTabStatuses(
     pub(crate) Arc<parking_lot::Mutex<HashMap<String, crate::agent::status::TabStatus>>>,
-);
-
-pub struct PlanWatchers(
-    pub  Arc<
-        parking_lot::Mutex<HashMap<std::path::PathBuf, crate::service::plan::watcher::PlanWatcher>>,
-    >,
 );
 
 pub struct LoadedPlanProjects(
@@ -791,50 +791,6 @@ impl ServiceContext {
         for id in pty_ids {
             let _ = manager.kill(id);
         }
-    }
-
-    pub fn ensure_plan_project_loaded(
-        &self,
-        project_path: &std::path::Path,
-    ) -> Result<std::path::PathBuf, crate::service::plan::PlanError> {
-        let project_root = crate::service::plan::paths::project_root(project_path);
-        let should_scan = {
-            let loaded = self.ext::<crate::service::LoadedPlanProjects>().0.lock();
-            !loaded.contains(&project_root)
-        };
-        if should_scan {
-            self.plan_store.scan_project(&project_root)?;
-            self.ext::<crate::service::LoadedPlanProjects>()
-                .0
-                .lock()
-                .insert(project_root.clone());
-            let live_team_ids = team_core::live_team_ids(self);
-            team_core::reconcile_dangling_team_plan_bindings_and_emit(
-                self,
-                &live_team_ids,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-            )?;
-        }
-        let legacy_plans_dir = project_root.join(".domios").join("plans");
-        let mut watchers = self.ext::<crate::service::PlanWatchers>().0.lock();
-        if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
-            match crate::service::plan::watcher::PlanWatcher::watch_project(
-                &project_root,
-                self.plan_store.clone(),
-                std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
-                    self.ui.clone(),
-                )),
-            ) {
-                Ok(watcher) => {
-                    watchers.insert(project_root.clone(), watcher);
-                }
-                Err(e) => log::warn!("[plan] failed to watch {}: {}", project_root.display(), e),
-            }
-        }
-        Ok(project_root)
     }
 
     pub fn plans_startup_loaded(&self) -> bool {

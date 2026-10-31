@@ -93,6 +93,7 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
             agent: Some("codex".into()),
             authorized_gates: Vec::new(),
             canonical_writer: false,
+            placement: None,
             worker_kind: None,
             speed: None,
             model: Some("gpt-9-bogus".into()),
@@ -117,12 +118,12 @@ fn plan_task_dispatch_json_error_keeps_invalid_model_details() {
     let output: Value = serde_json::from_slice(&out).expect("one JSON error envelope");
     assert_eq!(output["ok"], false);
     assert_eq!(output["kind"], "error");
-    assert_eq!(output["data"]["type"], "invalid_model");
-    assert_eq!(output["data"]["provider"], "codex");
-    assert_eq!(output["data"]["requested_model"], "gpt-9-bogus");
-    assert_eq!(output["data"]["valid_model_ids"][0], "gpt-6-sol");
+    assert_eq!(output["result"]["type"], "invalid_model");
+    assert_eq!(output["result"]["provider"], "codex");
+    assert_eq!(output["result"]["requested_model"], "gpt-9-bogus");
+    assert_eq!(output["result"]["valid_model_ids"][0], "gpt-6-sol");
     assert_eq!(
-        output["data"]["refresh_command"],
+        output["result"]["refresh_command"],
         "domios agent models codex"
     );
     assert_eq!(output["error"]["rpc_code"], -32602);
@@ -136,6 +137,7 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         agent: None,
         authorized_gates: Vec::new(),
         canonical_writer: false,
+        placement: None,
         worker_kind: None,
         speed: None,
         model: None,
@@ -148,6 +150,34 @@ fn dispatch_action(cwd: &str) -> PlanTaskAction {
         sandbox: None,
         provider_reserve_pct: 0.0,
     }
+}
+
+#[test]
+fn dispatch_forwards_shared_placement_and_extension_is_a_bound_task_mutation() {
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"tab_id":"worker"})]);
+    let mut action = dispatch_action("checkout");
+    let PlanTaskAction::Dispatch { placement, .. } = &mut action else {
+        unreachable!()
+    };
+    *placement = Some("shared".into());
+    run_dispatch(&mut client, true, action, None).unwrap();
+    assert_eq!(client.calls[1].1.as_ref().unwrap()["placement"], "shared");
+    let mut client = FakeRpc::scripted([owner_epoch_task(), json!({"extended":true})]);
+    run_task(
+        &mut client,
+        true,
+        PlanTaskAction::ExtendFiles {
+            plan_id: Some("plan_a".into()),
+            task_id: Some("task_a".into()),
+            edit: vec!["new.rs".into()],
+        },
+    )
+    .unwrap();
+    assert_eq!(client.methods(), ["task.show", "plan.task.extend_files"]);
+    assert_eq!(
+        client.calls[1].1.as_ref().unwrap()["edit"],
+        json!(["new.rs"])
+    );
 }
 
 #[test]

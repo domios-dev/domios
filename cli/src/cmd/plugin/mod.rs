@@ -78,10 +78,12 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
                 }
             }
             if json {
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                println!("{}", crate::cmd::output::encode(&value).unwrap());
             } else {
                 print_human(&value);
-                cli_status::print(&value);
+                if crate::cmd::output::verbose() || !crate::cmd::output::is_collection() {
+                    cli_status::print(&value);
+                }
             }
         }
         Err(e) => {
@@ -172,6 +174,13 @@ fn convert_channel(action: PluginChannelAction) -> ChannelAction {
 }
 
 fn print_human(value: &serde_json::Value) {
+    if crate::cmd::output::is_collection()
+        && !crate::cmd::output::verbose()
+        && crate::cmd::output::has_collection(value)
+    {
+        print!("{}", crate::cmd::output::compact_list(value, None));
+        return;
+    }
     if let Some(arr) = value.get("plugins").and_then(|v| v.as_array()) {
         if arr.is_empty() {
             println!("No plugins installed.");
@@ -252,10 +261,8 @@ fn pass_command(parts: Vec<String>) -> Result<serde_json::Value, String> {
     let (args, body) = body_source::resolve(it.collect())?;
 
     let (mut client, _) = crate::client::SocketClient::connect_local()?;
-    let session_id = std::env::var("CODETERM_WORKER_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("CODETERM_TAB_ID").ok())
+    let session_id = crate::nonempty_env("CODETERM_WORKER_ID")
+        .or_else(|| crate::nonempty_env("CODETERM_TAB_ID"))
         .unwrap_or_default();
     let method = format!("plugin:{id}.{verb}");
     let mut params = serde_json::json!({ "args": args, "sessionId": session_id });

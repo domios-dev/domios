@@ -77,7 +77,7 @@ jobs:
           pattern: hosted-rust-warnings-*
           merge-multiple: true
           path: ci-rust-warnings
-      - name: Merge warnings and enforce ratchet
+      - name: Report advisory warnings and verify collection completeness
         env:
           WARNING_ARTIFACTS: ${{ inputs.artifacts }}
           WARNING_SEED: ${{ inputs.comment }}

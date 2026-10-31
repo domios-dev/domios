@@ -97,11 +97,14 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     && (!tab.backing || tab.backing.kind === "pty");
   const readyShell = utility && shell && tab?.boot_stage === "shell_ready";
   const lazyComposerReady = lazyFirstTurnComposerIsLive(tab);
+  const curatorWorking = tab?.role_profile === "curator" && live?.state === "working"
+    && sessionBound && Boolean(tab.session_binding_nonce)
+    && tab.reported_session_binding_nonce === tab.session_binding_nonce;
   const launching = ((tab?.boot_stage !== "agent_ready" && tab?.agent_booting === true)
     || (startingStages.has(tab?.boot_stage) && !readyShell)
     || tab?.boot_stage === "awaiting_owner_prompt"
     || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready"))
-    && !lazyComposerReady && !boundSessionRetiresShellStartup(tab);
+    && !lazyComposerReady && !boundSessionRetiresShellStartup(tab) && !curatorWorking;
   const authoritativeStatus = status ?? (live?.state === "working" ? "Working"
     : live?.state === "question" ? "Waiting" : "Idle");
   let kind: TabActivity["kind"];

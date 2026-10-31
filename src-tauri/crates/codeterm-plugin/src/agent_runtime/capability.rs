@@ -19,6 +19,8 @@ pub struct AgentRuntimeCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restricted_cli: Option<RestrictedCliCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_modes: Vec<RuntimeModeDescriptor>,
     #[serde(default)]
@@ -43,6 +45,48 @@ pub struct AgentRuntimeCapability {
     pub login: Option<RuntimeLoginCapability>,
     pub request_methods: BTreeMap<String, Vec<String>>,
     pub notification_methods: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum RestrictedCliCapability {
+    ExecpolicyServiceOperations {
+        #[serde(
+            rename = "metadataDirectory",
+            deserialize_with = "deserialize_metadata_directory"
+        )]
+        metadata_directory: String,
+    },
+}
+
+impl RestrictedCliCapability {
+    pub fn metadata_directory(&self) -> &str {
+        match self {
+            Self::ExecpolicyServiceOperations { metadata_directory } => metadata_directory,
+        }
+    }
+
+    pub fn valid_metadata_directory(value: &str) -> bool {
+        (2..=64).contains(&value.len())
+            && value.starts_with('.')
+            && !value.eq_ignore_ascii_case(".git")
+            && value[1..]
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+    }
+}
+
+fn deserialize_metadata_directory<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if RestrictedCliCapability::valid_metadata_directory(&value) {
+        Ok(value)
+    } else {
+        Err(serde::de::Error::custom(
+            "restricted CLI metadata must be a direct protected directory component",
+        ))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

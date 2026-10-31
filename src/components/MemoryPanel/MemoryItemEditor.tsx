@@ -1,3 +1,5 @@
+import { MemoryProvenance } from "./MemoryProvenance";
+import type { MemItemFull } from "./types";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ApiConfig } from "../../lib/types";
@@ -16,11 +18,7 @@ interface Props {
 }
 
 export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }: Props) {
-  const [item, setItem] = useState<{
-    id: string; kind: string; title: string; body: string;
-    area?: string; tags?: string[]; importance?: number;
-    created_at?: string; updated_at?: string; accessed_at?: string;
-  } | null>(null);
+  const [item, setItem] = useState<MemItemFull | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -37,7 +35,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
     fetchItemFull(api, itemId)
       .then(data => {
         if (!active) return;
-        setItem(data as typeof item);
+        setItem(data);
         setDraftTitle(data.title);
         setDraftBody(data.body || "");
         setDraftArea(data.area || "");
@@ -132,8 +130,8 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
               </span>
             )}
             <div className="min-w-0">
-              <h2 className="text-xs font-semibold truncate" data-testid="memory-item-heading">{identity.title}</h2>
-              {identity.identifier && <span className="text-[10px] text-[var(--ct-muted-fg)] truncate block">{identity.identifier}</span>}
+              <h2 className="text-[15px] font-semibold truncate" data-testid="memory-item-heading">{identity.title}</h2>
+              <MemoryProvenance author={item?.author} createdAt={item?.created_at} />
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -162,10 +160,10 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
         )}
 
         {item && (
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
             {/* Title */}
             <div>
-              <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Title</label>
+              <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Title</label>
               <input
                 data-testid="memory-item-title-input"
                 className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -177,7 +175,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
             {/* Area + Tags row */}
             <div className="flex gap-3">
               <div className="flex-1">
-                <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Area</label>
+                <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Area</label>
                 <input
                   data-testid="memory-item-area-input"
                   className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -187,7 +185,7 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
                 />
               </div>
               <div className="flex-1">
-                <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Tags</label>
+                <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Tags</label>
                 <input
                   data-testid="memory-item-tags-input"
                   className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
@@ -200,22 +198,24 @@ export function MemoryItemEditor({ itemId, api, onClose, onDeleted, onUpdated }:
 
             {/* Body */}
             <div className="flex-1">
-              <label className="text-[10px] text-[var(--ct-muted-fg)] block mb-1">Body</label>
+              <label className="text-xs text-[var(--ct-muted-fg)] block mb-1">Body</label>
               <textarea
                 ref={bodyRef}
                 data-testid="memory-item-body-input"
-                className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-2 text-[11px] text-[var(--ct-fg)] font-mono leading-relaxed focus:border-[var(--ct-accent)] focus:outline-none resize-y"
+                className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-2 text-[14px] text-[var(--ct-fg)] leading-relaxed focus:border-[var(--ct-accent)] focus:outline-none resize-y"
                 style={{ minHeight: "200px" }}
                 value={draftBody}
                 onChange={e => setDraftBody(e.target.value)}
               />
             </div>
 
+            <details className="text-xs text-[var(--ct-muted-fg)]"><summary>Technical</summary><div className="break-all mt-2">{item.id}</div></details>
+
             {/* Metadata (read-only) */}
             <div className="flex items-center gap-4 text-[10px] text-[var(--ct-muted-fg)] pt-1">
               {item.created_at && <span>Created: {new Date(item.created_at).toLocaleString()}</span>}
               {item.updated_at && <span>Updated: {new Date(item.updated_at).toLocaleString()}</span>}
-              {item.importance != null && <span>Importance: {item.importance}</span>}
+              {item.importance != null && <span>Importance: {item.importance} of 5</span>}
               <button
                 data-testid="memory-item-delete"
                 onClick={handleDelete}

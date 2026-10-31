@@ -108,6 +108,7 @@ pub(super) fn dispatch(
                 "tab.focus",
                 "tab.close",
                 "tab.send_text",
+                "tab.send_status",
                 "tab.get_output",
                 "tab.rename",
                 "tab.resize",
@@ -115,6 +116,7 @@ pub(super) fn dispatch(
                 "notification.create",
                 "notification.list",
                 "notification.clear",
+                "notification.resolve",
                 "mesh.status",
                 "mesh.peers",
                 "model_provider.add",
@@ -190,6 +192,7 @@ pub(super) fn dispatch(
                 "plan.task.split",
                 "plan.review.authorize-reporter",
                 "plan.task.update",
+                "plan.task.extend_files",
                 "plan.task.attach",
                 "plan.task.close",
                 "plan.task.assign",
@@ -391,6 +394,7 @@ pub(super) fn dispatch(
             "task.take"
                 | "task.drop"
                 | "plan.task.update"
+                | "plan.task.extend_files"
                 | "plan.task.attach"
                 | "plan.task.close"
                 | "plan.task.assign"

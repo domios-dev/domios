@@ -65,10 +65,8 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | GET | `/api/plugins/{id}/ui/{*path}` | Read a sandboxed plugin UI asset. |
 | PATCH | `/api/services/{id}` | Patch service fields. |
 | POST | `/api/mesh/enabled` | Enable or disable Mesh. |
-| POST | `/api/mesh/exit` | Leave the Mesh. |
 | POST | `/api/mesh/peers/{id}/access` | Set peer access permissions. |
 | POST | `/api/mesh/peers/{id}/crons/{cron_id}/{action}` | Apply a peer cron action. |
-| POST | `/api/mesh/unrevoke` | Lift a peer identity revocation. |
 | POST | `/api/mesh/worker-dispatch` | Admit a signed remote Worker dispatch. |
 | POST | `/api/mesh/worker-dispatch-status` | Read a signed remote dispatch status. |
 | POST | `/api/mesh/worker-lane-bundle` | Transfer a signed remote lane Git bundle. |
@@ -80,9 +78,18 @@ Peer actions retain Mesh access checks; plugin operations retain their granted c
 | POST | `/api/plugins/chatbackend/switch-model` | Switch a plugin chat-backend model. |
 | POST | `/api/plugins/glance` | Read a plugin glance. |
 | POST | `/api/plugins/tab-menu/action` | Invoke a plugin tab-menu action. |
-| POST | `/api/plugins/view-call` | Invoke a plugin view method. |
+| POST | `/api/plugins/remote-task-call` | Local owner only: `{tabId,pluginId,sessionId,method,args?}`, only live remote `read/refresh/submit`; claims must match live backing. |
+| POST | `/api/plugins/recording-suggestion` | Local owner only: `{pluginId,args:{inputs,microphones}}`; declared/granted recording plugin, fixed selection callback. |
+| POST | `/api/plugins/view-call` | Local owner only: `{pluginId,viewFrame,method,args?}`. Host-private document lease required; callback gets resolved owner context. See SURFACES. |
+| POST | `/api/plugins/view-frame/revoke` | Local host loader only: `{pluginId,registration}` retires context and all media handles; strict 1 KiB body. |
+| POST | `/api/plugins/view-frame/register` | Local host loader after document proof: `{pluginId,registration,scope}` remints a fresh lease/context. Original owner/workspace/Team/provider registration must still match; strict 16 KiB body. |
+| POST | `/api/plugins/view-host-action` | Check or perform a plugin view's declared user-gesture action; refusals are typed results. |
+| POST | `/api/plugins/view-host-action/download` | Stream a plugin view's own media file as a download. |
+| POST | `/api/plugins/view-input` | Ingest a file the user picked for a plugin view; answers an opaque frame handle. |
+| DELETE | `/api/plugins/{plugin}/media-frame/{frame}` | Local owner only: retire this presentation frame and all its media handles; returns 204. |
+| POST | `/api/plugins/{plugin}/media-register/{frame}` | Local owner only: `{id,viewFrame}` resolves a declared plugin media ID with the private current document lease. Returns `{handle,url,file_name,content_type,expires_in_seconds}`; `url` may be null for gesture-only files. The lease and live owner/workspace/Team/provider registration must match this exact frame; unavailable media returns 404. |
 | POST | `/api/services/smart-add-inspect` | Inspect a candidate service before registration. |
 | PUT | `/api/mesh/peers/{id}/crons/{cron_id}` | Update a peer cron job. |
 | PUT | `/api/plugins/{id}/receiver-target` | Set a plugin receiver destination. |
 
-<!-- revision: 6 -->
+<!-- revision: 15 -->

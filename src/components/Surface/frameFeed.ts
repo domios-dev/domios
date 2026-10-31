@@ -39,6 +39,8 @@ export interface DecodedFrame {
 
 export type FrameDecoder = (frame: StreamFrame) => Promise<DecodedFrame>;
 
+export const JPEG_DECODE_BACKEND = "HTMLImageElement/jpeg";
+
 export function frameBytes(data: StreamFrame["data"]): Uint8Array<ArrayBuffer> {
   if (typeof data !== "string") return new Uint8Array(data);
   const decoded = decodeBase64(data);
@@ -46,6 +48,21 @@ export function frameBytes(data: StreamFrame["data"]): Uint8Array<ArrayBuffer> {
 }
 
 export const decodeJpegFrame: FrameDecoder = async (frame) => {
-  const bitmap = await createImageBitmap(new Blob([frameBytes(frame.data)], { type: "image/jpeg" }));
-  return { width: bitmap.width, height: bitmap.height, image: bitmap, close: () => bitmap.close() };
+  const image = new Image();
+  if (typeof image.decode !== "function") throw new Error("JPEG image decoding is unavailable");
+  const url = URL.createObjectURL(new Blob([frameBytes(frame.data)], { type: "image/jpeg" }));
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    URL.revokeObjectURL(url);
+  };
+  try {
+    image.src = url;
+    await image.decode();
+    return { width: image.naturalWidth, height: image.naturalHeight, image, close };
+  } catch (error) {
+    close();
+    throw error;
+  }
 };

@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
 import { accountCanvas } from "./accountCanvas";
-import type { MachineRowView } from "./accountMachines";
-import type { MeshTarget } from "./accountMeshClient";
 import type { CanvasAccount } from "./MeshCanvas";
 import type { PeerStatus } from "./useMeshData";
 import { useMeshAccount } from "./useMeshAccount";
@@ -11,7 +9,7 @@ import { useMyMachines } from "./useMyMachines";
 export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => void, registryRefreshKey = 0): CanvasAccount {
   const account = useMeshAccount();
   const machines = useMyMachines({ account: account.presence, onSignIn: account.signIn, onChanged });
-  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, connect, decide, disconnect, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession, retryEnrollment } = machines;
+  const { view, snapshot, loadFailed, listFailure, failures, busy, signingIn, openPlans, dismissFailure, signIn, load, rename, renameSelf, revoke, revokeSession, retryEnrollment } = machines;
   const lastRefreshKey = useRef(registryRefreshKey);
   useEffect(() => {
     if (lastRefreshKey.current === registryRefreshKey) return;
@@ -27,13 +25,10 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
   const actions = useMemo(() => ({
     onSignOut: revokeSession,
     onRemove: revoke,
-    onDecide: (row: MachineRowView, notificationId: string, approve: boolean) => { void decide(row, notificationId, approve); },
     onRename: rename,
-    onConnect: (row: MachineRowView, target: MeshTarget) => { void connect(row, target); },
-    onDisconnect: (row: MachineRowView, instanceId: string) => { void disconnect(row, instanceId); },
     onPlans: openPlans,
     onDismiss: dismissFailure,
-  }), [connect, decide, disconnect, openPlans, dismissFailure, rename, revoke, revokeSession]);
+  }), [openPlans, dismissFailure, rename, revoke, revokeSession]);
   const self = view.kind === "account" ? view.self : null;
   return useMemo(() => ({
     moreMachines: !!snapshot?.registry?.cursor,
@@ -42,7 +37,7 @@ export function useCanvasAccount(peers: readonly PeerStatus[], onChanged: () => 
     onSignIn: () => { void signIn(); },
     onRetry: () => { void load(); },
     onRetryEnrollment: account.presence === "signed_in" && snapshot?.enrollment === "refused" && snapshot.retry_at == null
-      && ["unavailable", "offline", "authority-unavailable", "rate-limited", "enrollment_budget"].includes(snapshot.last_refusal?.reason ?? "")
+      && ["unavailable", "offline", "authority-unavailable", "enrollment_budget"].includes(snapshot.last_refusal?.reason ?? "")
       ? () => { void retryEnrollment(); } : undefined,
   }), [canvas, busy, signingIn, now, actions, self, renameSelf, view, signIn, load, snapshot, machines, account.presence, retryEnrollment]);
 }

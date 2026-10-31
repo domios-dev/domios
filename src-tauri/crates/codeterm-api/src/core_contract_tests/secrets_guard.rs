@@ -2,7 +2,6 @@ const STATUS_SIGNATURE: &str = "pub async fn status(";
 const CAPABILITY_SRC: &str = include_str!("../../../codeterm-secrets/src/capability.rs");
 const LIB_SRC: &str = include_str!("../../../codeterm-secrets/src/lib.rs");
 const JS_BACKEND_SRC: &str = include_str!("../../../codeterm-secrets/src/js_backend.rs");
-const LEGACY_SRC: &str = include_str!("../../../codeterm-secrets/src/legacy.rs");
 
 fn decision_half() -> &'static str {
     CAPABILITY_SRC
@@ -38,10 +37,6 @@ fn no_status_path_module_reads_the_retired_credential_drop() {
             "no status-path module may read the retired credential drop"
         );
     }
-    assert!(
-        LEGACY_SRC.contains("remove_file"),
-        "the one module naming the legacy drop must be the one that erases it"
-    );
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use axum::{
     extract::{Path, Query, State as AxumState},
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use std::io::Read;
@@ -13,6 +13,9 @@ use codeterm_service_core::notification::vet::{
 };
 
 const NOTIFICATION_FILE_READ_LIMIT: u64 = 16 * 1024 * 1024;
+
+#[cfg(test)]
+mod owner_tests;
 
 #[derive(Deserialize)]
 pub struct ListNotifQuery {
@@ -125,7 +128,14 @@ pub async fn clear_notifications(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.notif.lock().clear(None);
+    tokio::task::spawn_blocking(move || state.svc.clear_notifications(None))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Notification clear failed",
+            )
+        })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -147,7 +157,14 @@ pub async fn delete_notification(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state.svc.notif.lock().clear(Some(&id));
+    tokio::task::spawn_blocking(move || state.svc.clear_notifications(Some(&id)))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Notification clear failed",
+            )
+        })?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 
@@ -156,32 +173,59 @@ pub struct AnswerNotifBody {
     label: String,
 }
 
+pub async fn resolve_notification(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+    let caller = crate::auth::caller_claim(&state, &headers, None)?;
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .resolve_notification(&id, caller.as_deref())
+            .map(|()| Json(serde_json::json!({"ok": true})))
+            .map_err(|message| (StatusCode::CONFLICT, message))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+}
+
 /// Record the user's choice. The path names the record and the body names the
 /// chosen label; neither can name a command, arguments, or a target tab.
 pub async fn answer_notification(
     AxumState(state): AxumState<AppState>,
+    caller: Option<Extension<crate::auth::CallerIdentity>>,
     headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<AnswerNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
+    let owner = matches!(
+        caller.as_ref().map(|caller| &caller.0),
+        Some(crate::auth::CallerIdentity::Local)
+    );
     if state
         .svc
         .notif
         .lock()
         .answer_slot(&id)
         .is_some_and(|slot| slot.daemon_request.is_some())
-        && !crate::auth::is_local_caller(&state, &headers)
+        && !owner
     {
         return Err((
             StatusCode::FORBIDDEN,
-            "Connection approval requires the receiving machine owner".into(),
+            "Daemon questions require the local owner".into(),
         ));
     }
     blocking_answer(move || {
         let started = std::time::Instant::now();
         log::debug!("[notify-answer] {id} delivery started off runtime");
-        let result = state.svc.answer_notification(&id, &body.label);
+        let result = if owner {
+            state.svc.answer_notification_as_owner(&id, &body.label)
+        } else {
+            state.svc.answer_notification(&id, &body.label)
+        };
         log::debug!(
             "[notify-answer] {id} delivery finished in {}ms success={}",
             started.elapsed().as_millis(),

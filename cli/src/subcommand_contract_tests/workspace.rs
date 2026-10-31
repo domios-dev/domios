@@ -81,7 +81,7 @@ fn workspace_reuse_json_output_stays_on_stdout_only() {
     assert!(stderr.is_empty());
     assert_eq!(
         String::from_utf8(stdout).unwrap(),
-        format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
+        format!("{}\n", crate::cmd::output::encode(&value).unwrap())
     );
 }
 

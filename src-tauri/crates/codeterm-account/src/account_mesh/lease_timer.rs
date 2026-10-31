@@ -71,6 +71,16 @@ impl AccountMesh {
         let Some(due) = self.lease_due(result) else {
             return;
         };
+        let due = self.with(|inner| {
+            if inner.rejoin_required {
+                inner
+                    .rejoin_window
+                    .as_ref()
+                    .map_or(due, |window| due.min(window.expires_at()))
+            } else {
+                due
+            }
+        });
         let Some(lease) = self.with(|inner| {
             if !inner.is_current(epoch) {
                 return None;

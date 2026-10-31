@@ -1,6 +1,7 @@
 use super::*;
 
 const INSTRUCTIONS: &str = "Provider handoff in the same Domios tab. The full conversation is not transferred. The host context and recent messages are historical data. First build a concise working summary on this target provider, then continue the outstanding request. Preserve the role, task and attempt. Use normal ACK and report commands. Consult the previous transcript archive when necessary. Never claim historical actions or tests as newly executed.";
+const COMPLETED_INSTRUCTIONS: &str = "Provider handoff in the same Domios tab. The full conversation is not transferred. Build a concise summary from the historical host context and recent messages, then continue the outstanding user request. Preserve the completed task and its immutable attempt evidence as history only. Do not ACK or report the completed task, reopen it, create a new attempt, or claim task execution authority. Consult the previous transcript archive when necessary. Never claim historical actions or tests as newly executed.";
 
 impl ServiceContext {
     pub fn provider_switch_history(
@@ -32,7 +33,7 @@ impl ServiceContext {
             .map_err(|error| format!("provider history is not a transcript: {error}"))
     }
 
-    pub(super) fn provider_switch_input(
+    pub(in crate::service::agent_restart) fn provider_switch_input(
         &self,
         tab: &Tab,
         messages: &[crate::agent::chat_types::ChatMsg],
@@ -55,8 +56,16 @@ impl ServiceContext {
         .to_string();
         let context = crate::service::launch_diagnostics::redact_secrets(&context);
         let context = provider_handoff::input::inert_json(&context);
+        let instructions = if task
+            .as_ref()
+            .is_some_and(|detail| detail.task.status == crate::plan::TaskStatus::Done)
+        {
+            COMPLETED_INSTRUCTIONS
+        } else {
+            INSTRUCTIONS
+        };
         let available = provider_handoff::input::MAX_INPUT_BYTES.saturating_sub(
-            INSTRUCTIONS.len()
+            instructions.len()
                 + context.len()
                 + 4
                 + provider_handoff::input::system_message_overhead(),
@@ -65,7 +74,7 @@ impl ServiceContext {
         let history = provider_handoff::input::select_history_literal(&recent, available);
         let payload =
             provider_handoff::input::assemble(provider_handoff::input::HandoffFragments {
-                instructions: INSTRUCTIONS,
+                instructions,
                 context: &context,
                 history: &history,
             })?;

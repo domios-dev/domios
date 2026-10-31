@@ -87,6 +87,7 @@ impl AgentProvider for Adapter {
     }
     fn agent_runtime(&self) -> Option<AgentRuntimeCapability> {
         Some(AgentRuntimeCapability {
+            restricted_cli: None,
             runtime_modes: Vec::new(),
             service_tiers: Vec::new(),
             background_processes: false,
@@ -246,6 +247,7 @@ pub(super) fn scene() -> Scene {
         provider: "runtime-subscriber-fixture".into(),
         adapter: Mutex::new(Some(adapter)),
         context: Mutex::new(RuntimeContext {
+            restricted_cli: None,
             host_owned: Default::default(),
             epoch,
             tab_id: tab,

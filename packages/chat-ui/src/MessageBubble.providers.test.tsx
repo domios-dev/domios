@@ -59,6 +59,8 @@ for (const fixture of providerTranscriptFixtures) {
       await expandToolCard(host, fixture.expected.toolLabels[0]);
       assertIncludes(host, fixture.expected.resultNeedle, `${fixture.provider} tool result`);
       if (fixture.expected.diffNeedle) {
+        assert(!textOf(host).includes(fixture.expected.diffNeedle), "edit details start collapsed");
+        await expandToolCard(host, "edit");
         assertIncludes(host, fixture.expected.diffNeedle, `${fixture.provider} structured edit added line`);
       }
       if (fixture.expected.diffRemovedNeedle) {
@@ -266,6 +268,8 @@ test("codex structured apply_patch renders diff from real-session patch text", a
   try {
     assertIncludes(host, "edit", "structured edit tool label");
     assertIncludes(host, "mem/mod.rs", "structured edit file path");
+    assert(!textOf(host).includes("let body = text.trim()"), "structured edit starts collapsed");
+    await expandToolCard(host, "edit");
     assertIncludes(host, "let body = text.trim()", "structured edit added hunk");
     assertIncludes(host, "val.to_string()", "structured edit removed hunk");
     assertIncludes(host, "+", "structured edit shows added line count");
@@ -319,7 +323,7 @@ test("codex exec_command rg search does not render as structured edit diff", asy
   }
 });
 
-test("semantic edit diffs auto-expand independently of provider label", async () => {
+test("semantic edit diffs expand explicitly independently of provider label", async () => {
   const { host, root } = await renderMessages([
     toolCall("semantic-edit", "edit", {
       provider: "provider-one",
@@ -329,8 +333,11 @@ test("semantic edit diffs auto-expand independently of provider label", async ()
   try {
     const card = host.querySelector<HTMLElement>('[data-testid="chat-tool-call"]');
     assert(card, "expected semantic edit card");
-    assert(card.querySelector('[aria-label="Collapse tool details"]'), "semantic edit should start expanded");
-    assert(card.querySelector('[data-testid="toolcard-edit-file"]'), "semantic edit should show its visible diff");
+    assert(card.querySelector('[aria-label="Expand tool details"]'), "semantic edit should start collapsed");
+    assert(!card.querySelector('[data-testid="toolcard-edit-file"]'), "collapsed semantic edit hides its diff");
+    await expandToolCard(host, "semantic-edit");
+    assert(card.querySelector('[aria-label="Collapse tool details"]'), "semantic edit opens explicitly");
+    assert(card.querySelector('[data-testid="toolcard-edit-file"]'), "expanded semantic edit shows its diff");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -371,8 +378,10 @@ test("explicit expansion choices persist across rerenders", async () => {
   };
   const { host, root } = await renderMessages([message]);
   try {
+    assert(host.querySelector('[aria-label="Expand tool details"]'), "semantic edit should start collapsed");
+    await expandToolCard(host, "src/persist.ts");
     const collapse = host.querySelector<HTMLButtonElement>('[aria-label="Collapse tool details"]');
-    assert(collapse, "semantic edit should start expanded");
+    assert(collapse, "semantic edit opens explicitly");
     await act(async () => {
       collapse.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true }));
     });
@@ -391,6 +400,21 @@ test("explicit expansion choices persist across rerenders", async () => {
     });
     await waitForEffects();
     assert(host.querySelector('[aria-label="Expand tool details"]'), "explicit collapse should survive a provider-label rerender");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test("transcript interactive metadata preserves ordinary message content", async () => {
+  const message: NormalizedChatMessage = {
+    id: "ordinary-content-with-question-metadata", type: "assistant", timestamp: "2026-01-01T00:00:00Z",
+    content: "Opaque ordinary answer.",
+    interactive: [{ type: "question", id: "question", toolUseId: "tool", prompt: "Opaque question", options: [], multiSelect: false }],
+  };
+  const { host, root } = await renderMessages([message]);
+  try {
+    assertIncludes(host, "Opaque ordinary answer.", "ordinary content survives interactive metadata");
   } finally {
     await act(async () => root.unmount());
     host.remove();

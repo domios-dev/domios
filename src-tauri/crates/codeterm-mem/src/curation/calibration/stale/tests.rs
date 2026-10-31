@@ -352,3 +352,25 @@ fn stale_archive_rows_do_not_trip_weekly_reentry_guard() {
     let weekly = super::super::run_calibration_sweep(&conn, true).unwrap();
     assert_ne!(weekly["skipped_reason"], "recent_run");
 }
+
+#[test]
+fn stale_archive_has_a_system_author_and_preserves_neighbor_content_attribution() {
+    let conn = open_test_conn();
+    insert(&conn, Item::old("neighbor"));
+    conn.execute("UPDATE mem_items SET author_kind='neighbor',author_uid='friend',author_friendship='friendship',author_label=NULL WHERE id='neighbor'", []).unwrap();
+    let report =
+        run_stale_archive(&conn, &enabled(20), Utc::now(), StaleMode::Apply, None).unwrap();
+    assert_eq!(report["archived"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        crate::store::item_author(&conn, "neighbor")
+            .unwrap()
+            .unwrap(),
+        crate::store::MemAuthor::neighbor("friend".into(), "friendship".into())
+    );
+    let history = crate::store::get_item_history(&conn, "neighbor").unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(
+        history[0].author,
+        crate::store::MemAuthor::system(STALE_ACTOR)
+    );
+}

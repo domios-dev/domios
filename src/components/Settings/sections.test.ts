@@ -62,17 +62,11 @@ test("notification_settings_home: no nav id resolves to a different section", ()
   assert(resolveSettingsLink(undefined) === undefined, "no section stays no section");
 });
 
-test("the retired integrations link lands on the Messengers card in General", () => {
-  const route = resolveSettingsLink("integrations");
-  assert(route?.section === "general" && route.card === "telegram-bridge", "integrations routes to the Telegram bridge card");
-  assert(!SETTINGS_SECTIONS.some((s) => (s.id as string) === "integrations"), "integrations is no longer a nav entry");
-});
-
 test("the messengers link opens the Messengers card and unknown links are rejected", () => {
   const route = resolveSettingsLink("messengers");
   assert(route?.section === "general" && route.card === "telegram-bridge", "messengers routes to the Telegram bridge card");
-  assert(isSettingsLinkId("messengers") && isSettingsLinkId("general") && isSettingsLinkId("integrations"), "known link rejected");
-  assert(!isSettingsLinkId("nope") && !isSettingsLinkId("toString"), "unknown link accepted");
+  assert(isSettingsLinkId("messengers") && isSettingsLinkId("general"), "known link rejected");
+  assert(!isSettingsLinkId("integrations") && !isSettingsLinkId("nope") && !isSettingsLinkId("toString"), "unknown link accepted");
 });
 
 test("the plans link opens the subscription plans card in Account", () => {

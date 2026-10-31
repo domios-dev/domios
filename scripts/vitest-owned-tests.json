@@ -1,5 +1,12 @@
 [
+  "src/components/Terminal/ChatLiveOperation.test.tsx",
+  "src/components/Automation/blueprint/replayModel.test.ts",
+  "src/components/Automation/blueprint/triggerModel.test.tsx",
+  "src/components/Jobs/useTabJobs.blueprints.test.tsx",
+  "src/lib/pluginViewChannel.test.ts",
+  "src/lib/pluginViewConsent.test.ts",
   "src/components/Sidebar/TabItem.activity.test.tsx",
+  "src/components/Sidebar/curatorIconState.test.ts",
   "src/components/Terminal/ChatWindowRow.streamingTools.test.tsx",
   "src/components/Sidebar/Sidebar.neighbors.test.tsx",
   "src/lib/updatePresentation.test.ts",
@@ -128,6 +135,7 @@
   "src/components/Snake/simulation.test.ts",
   "src/components/Canvas/missionControl/BoardSpendChart.test.tsx",
   "src/components/Extensions/PluginView.activation.test.tsx",
+  "src/lib/pluginViewHostActions.test.ts",
   "src/components/Extensions/PluginList.loadError.test.tsx",
   "src/components/Extensions/PluginList.updates.test.tsx",
   "src/lib/pluginSnapshotStore.test.ts",
@@ -138,6 +146,7 @@
   "plugins/analytics/tests/plugin.test.ts",
   "plugins/browser/tests/plugin.test.ts",
   "plugins/browser/tests/atomic.test.ts",
+  "plugins/browser/tests/blueprintStep.test.ts",
   "plugins/analytics/ui/src/model/model.test.ts",
   "plugins/analytics/ui/src/Dashboard.test.tsx",
   "plugins/analytics/ui/src/Dashboard.freshness.test.tsx",
@@ -363,5 +372,6 @@
   "src/components/MeshPanel/enrollmentRefusal.test.ts",
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
-  "src/hooks/terminal/useXterm.composition.test.tsx"
+  "src/hooks/terminal/useXterm.composition.test.tsx",
+  "plugins/provider-shared/tests/runPromptStep.test.ts"
 ]

@@ -14,7 +14,9 @@ pub use installation::{FileInstallationStore, InstallationId, InstallationStore}
 
 pub use account::{Account, Status};
 use async_trait::async_trait;
-pub use flow::{Callback, LoginFlow, LoginHint, LoginMode, LoginProvider, Redemption};
+pub use flow::{
+    Callback, LoginFlow, LoginHint, LoginMode, LoginProvider, PasteCallbackError, Redemption,
+};
 pub use loopback::Loopback;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -158,6 +160,8 @@ impl Default for Config {
         adapters::default_config()
     }
 }
+#[cfg(test)]
+mod build_guard;
 pub mod legacy_credentials;
 #[cfg(test)]
 mod tests;

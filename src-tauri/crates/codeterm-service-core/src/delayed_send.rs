@@ -21,9 +21,7 @@ pub use system_entries::{
 };
 
 mod types;
-pub use types::{
-    DelayedMessage, DelayedMessageState, DelayedMessageView, ReminderCreator, TurnRetry,
-};
+pub use types::{DelayedMessage, DelayedMessageState, DelayedMessageView, ReminderCreator};
 
 const QUEUE_VERSION: u32 = 3;
 
@@ -43,35 +41,17 @@ struct QueueInner {
 pub struct DelayedSendQueue {
     path: PathBuf,
     inner: Arc<Mutex<QueueInner>>,
+    #[cfg(test)]
+    persistence_refusal: Arc<Mutex<Option<String>>>,
 }
 
 impl DelayedSendQueue {
-    pub(crate) fn enqueue_turn_retry(
-        &self,
-        tab: &str,
-        text: &str,
-        at: u64,
-        retry: TurnRetry,
-    ) -> Result<DelayedMessage, String> {
-        let mut msg = Self::prepare_message(
-            tab.into(),
-            None,
-            Some(retry.thread_id.clone()),
-            text.into(),
-            Some(at),
-            ReminderCreator::default(),
-            None,
-            None,
-            0,
-        )?;
-        msg.turn_retry = Some(retry);
-        self.insert(msg.clone())?;
-        Ok(msg)
-    }
     pub(crate) fn empty(path: PathBuf) -> Self {
         Self {
             path,
             inner: Arc::new(Mutex::new(QueueInner::default())),
+            #[cfg(test)]
+            persistence_refusal: Default::default(),
         }
     }
 
@@ -111,6 +91,8 @@ impl DelayedSendQueue {
         Ok(Self {
             path,
             inner: Arc::new(Mutex::new(QueueInner { messages })),
+            #[cfg(test)]
+            persistence_refusal: Default::default(),
         })
     }
 
@@ -244,7 +226,6 @@ impl DelayedSendQueue {
             recurrence::validate(rule, scheduled_at_ms)?;
         }
         let msg = DelayedMessage {
-            turn_retry: None,
             id: format!("dmsg-{}", uuid::Uuid::new_v4().simple()),
             tab_id,
             workspace_id,
@@ -554,7 +535,16 @@ impl DelayedSendQueue {
         Ok(Some(updated))
     }
 
+    #[cfg(test)]
+    pub(crate) fn refuse_persistence(&self, reason: Option<&str>) {
+        *self.persistence_refusal.lock() = reason.map(str::to_owned);
+    }
+
     fn persist(&self) -> Result<(), String> {
+        #[cfg(test)]
+        if let Some(reason) = self.persistence_refusal.lock().clone() {
+            return Err(reason);
+        }
         let messages = self.inner.lock().messages.clone();
         let json = serde_json::to_string_pretty(&QueueFile {
             version: QUEUE_VERSION,
@@ -582,8 +572,8 @@ fn queue_records(root: &serde_json::Value) -> Result<&Vec<serde_json::Value>, St
 fn validate_queue_strict(text: &str) -> Result<(), String> {
     let root: serde_json::Value = serde_json::from_str(text).map_err(|e| e.to_string())?;
     for (index, record) in queue_records(&root)?.iter().enumerate() {
-        let mut record = record.clone();
-        normalize_queue_record(&mut record).map_err(|e| format!("record {index}: {e}"))?;
+        reject_legacy_queue_fields(record).map_err(|e| format!("record {index}: {e}"))?;
+        let record = record.clone();
         serde_json::from_value::<DelayedMessage>(record)
             .map_err(|e| format!("record {index}: {e}"))?;
     }
@@ -602,38 +592,19 @@ fn parse_queue(path: &Path, text: &str) -> Result<Vec<DelayedMessage>, String> {
 fn parse_queue_record(
     path: &Path,
     index: usize,
-    mut record: serde_json::Value,
+    record: serde_json::Value,
 ) -> Option<DelayedMessage> {
     let record_id = record
         .get("id")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("<unknown>")
         .to_string();
-    let normalized = match normalize_queue_record(&mut record) {
-        Ok(normalized) => normalized,
-        Err(error) => {
-            log::error!(
-                "[delayed_send] quarantined record {} at index {} in {}: {}; source left unchanged",
-                record_id,
-                index,
-                path.display(),
-                error
-            );
-            return None;
-        }
-    };
+    if let Err(error) = reject_legacy_queue_fields(&record) {
+        log::error!("[delayed_send] quarantined record {record_id} at index {index} in {}: {error}; source left unchanged", path.display());
+        return None;
+    }
     match serde_json::from_value(record) {
-        Ok(message) => {
-            if normalized > 0 {
-                log::warn!(
-                    "[delayed_send] normalized {} pane-era fields in record {} from {}; source left unchanged",
-                    normalized,
-                    record_id,
-                    path.display()
-                );
-            }
-            Some(message)
-        }
+        Ok(message) => Some(message),
         Err(error) => {
             log::error!(
                 "[delayed_send] quarantined record {} at index {} in {}: {}; source left unchanged",
@@ -647,26 +618,15 @@ fn parse_queue_record(
     }
 }
 
-fn normalize_queue_record(record: &mut serde_json::Value) -> Result<usize, String> {
-    let Some(object) = record.as_object_mut() else {
-        return Err("record is not an object".into());
-    };
-    let mut normalized = 0;
-    for (legacy, current) in [("paneId", "tabId"), ("createdByPane", "createdByTab")] {
-        let Some(legacy_value) = object.get(legacy).cloned() else {
-            continue;
-        };
-        if let Some(current_value) = object.get(current) {
-            if current_value != &legacy_value {
-                return Err(format!("ambiguous fields {legacy} and {current}"));
-            }
-        } else {
-            object.insert(current.into(), legacy_value);
+fn reject_legacy_queue_fields(record: &serde_json::Value) -> Result<(), String> {
+    for field in ["paneId", "createdByPane"] {
+        if record.get(field).is_some() {
+            return Err(format!(
+                "unsupported legacy delayed-send field {field}; use current tab fields"
+            ));
         }
-        object.remove(legacy);
-        normalized += 1;
     }
-    Ok(normalized)
+    Ok(())
 }
 
 pub fn now_ms() -> u64 {
@@ -851,9 +811,6 @@ pub fn delete_message(
     let msg = svc
         .ext::<crate::delayed_send::DelayedSendQueue>()
         .delete(&id)?;
-    if msg.turn_retry.is_some() {
-        crate::service::agent_runtime::capacity_retry::cancel_message(svc, &msg.tab_id, &msg.id)?;
-    }
     emit_changed(svc, &msg.tab_id);
     Ok(to_view(svc, msg))
 }
@@ -993,7 +950,7 @@ pub fn start_scheduler(svc: ServiceState) {
     });
 }
 
-async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
+pub(crate) async fn deliver_claimed(svc: &ServiceState, msg: DelayedMessage) -> Result<(), String> {
     if !target_tab_exists(svc, &msg.tab_id) {
         let error = format!("recipient tab {} no longer exists", msg.tab_id);
         if msg.recurrence.is_some() {

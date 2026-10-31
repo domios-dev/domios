@@ -34,7 +34,13 @@ pub enum CheckpointResult {
 
 impl ServiceContext {
     pub fn restore_lane_watches(&self) {
-        for plan in self.plan_store.list_full() {
+        let candidates = crate::service::plan::PlanMatch::Task(crate::service::plan::TaskMatch {
+            statuses: Some(crate::service::plan::plan_match::NON_TERMINAL_TASK_STATUSES.to_vec()),
+            set: vec!["$.lane.worktree_path"],
+            unset: vec!["$.lane.cleanup_status"],
+            ..Default::default()
+        });
+        for plan in self.plan_store.plans_matching(&candidates) {
             let canonical_path = if plan.canonical_project_path.trim().is_empty() {
                 &plan.project_path
             } else {
@@ -162,36 +168,44 @@ fn record_lane_turn(
     }
 }
 
-fn find_lane_attempt(store: &PlanStore, tab_id: &str) -> Option<LaneAttemptTarget> {
-    store.list_full().into_iter().find_map(|plan| {
-        plan.tasks.iter().find_map(|task| {
-            let attempt = task.execution_attempts.iter().rev().find(|attempt| {
-                attempt.executor_tab_id == tab_id
-                    && attempt.closed_at.is_none()
-                    && attempt.placement.is_isolated_lane()
-                    && attempt.worktree_path.is_some()
-            })?;
-            let worktree_path = attempt.worktree_path.clone()?;
-            let canonical_path = if plan.canonical_project_path.trim().is_empty() {
-                plan.project_path.clone()
-            } else {
-                plan.canonical_project_path.clone()
-            };
-            Some(LaneAttemptTarget {
-                plan_id: plan.id.clone(),
-                task_id: task.id.clone(),
-                attempt_id: attempt.id.clone(),
-                worktree_path,
-                canonical_path,
-                turn: attempt
-                    .lane_turn_stats
-                    .iter()
-                    .map(|stats| stats.turn)
-                    .max()
-                    .unwrap_or_default(),
+pub(crate) fn find_lane_attempt(store: &PlanStore, tab_id: &str) -> Option<LaneAttemptTarget> {
+    let candidates = crate::service::plan::AttemptMatch::executor(
+        tab_id,
+        crate::service::plan::AttemptState::Unclosed,
+    )
+    .into_match();
+    store
+        .plans_matching(&candidates)
+        .into_iter()
+        .find_map(|plan| {
+            plan.tasks.iter().find_map(|task| {
+                let attempt = task.execution_attempts.iter().rev().find(|attempt| {
+                    attempt.executor_tab_id == tab_id
+                        && attempt.closed_at.is_none()
+                        && attempt.placement.is_isolated_lane()
+                        && attempt.worktree_path.is_some()
+                })?;
+                let worktree_path = attempt.worktree_path.clone()?;
+                let canonical_path = if plan.canonical_project_path.trim().is_empty() {
+                    plan.project_path.clone()
+                } else {
+                    plan.canonical_project_path.clone()
+                };
+                Some(LaneAttemptTarget {
+                    plan_id: plan.id.clone(),
+                    task_id: task.id.clone(),
+                    attempt_id: attempt.id.clone(),
+                    worktree_path,
+                    canonical_path,
+                    turn: attempt
+                        .lane_turn_stats
+                        .iter()
+                        .map(|stats| stats.turn)
+                        .max()
+                        .unwrap_or_default(),
+                })
             })
         })
-    })
 }
 
 fn reserve_turn(

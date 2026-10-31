@@ -1,9 +1,13 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
-import logoUrl from "../../assets/logo.png";
+import { BrandMark } from "../brand/BrandMark";
+import { DotMatrixCanvas } from "../brand/DotMatrixCanvas";
+import { useBusyWaves } from "../brand/useBusyWaves";
+import { usePrefersReducedMotion } from "../brand/usePrefersReducedMotion";
 import { installSource, launchProviderInstaller } from "../../lib/providerInstall";
-import { ProviderCard } from "./ProviderCard";
+import { ProviderCard, PROVIDER_CARD_LAYOUT } from "./ProviderCard";
+import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 import { preselectProviderId, providerAvailability } from "./preselectProvider";
 import { useProviderAvailability } from "./useProviderAvailability";
 import { listen } from "../../lib/bridge";
@@ -15,6 +19,7 @@ interface AgentProviderPickerProps {
   headline: string;
   subhead: string;
   providers: ProviderDescriptor[];
+  providersLoading?: boolean;
   confirmLabel?: string;
   busy?: boolean;
   retry?: boolean;
@@ -22,7 +27,7 @@ interface AgentProviderPickerProps {
   onInstall?: (providerId: string) => void;
   progress?: string | null;
   children?: ReactNode;
-  belowProviders?: ReactNode;
+  belowConfirm?: ReactNode;
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
@@ -32,6 +37,7 @@ export function AgentProviderPicker({
   headline,
   subhead,
   providers,
+  providersLoading = false,
   confirmLabel = "Confirm",
   busy,
   retry,
@@ -39,7 +45,7 @@ export function AgentProviderPicker({
   onInstall: installOverride,
   progress,
   children,
-  belowProviders,
+  belowConfirm,
   navigation,
   home,
 }: AgentProviderPickerProps) {
@@ -59,6 +65,9 @@ export function AgentProviderPicker({
     [observed, selectedId],
   );
   const needsInstall = selected ? providerAvailability(selected) === "unavailable" : false;
+  const reducedMotion = usePrefersReducedMotion();
+  const working = Boolean(busy || installBusy);
+  const { matrix, emitWave } = useBusyWaves(working, Boolean(retry));
 
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
@@ -102,21 +111,23 @@ export function AgentProviderPicker({
       role="region"
       aria-labelledby={headlineId}
       data-testid="agent-provider-picker"
-      className="flex h-full w-full items-center justify-center p-6 overflow-auto"
+      className="brand-dot-stage flex h-full w-full flex-col items-center overflow-auto px-6 pb-4 pt-6"
     >
+      {/* The boot cover's dot field carries on here: the mark opens, then each beat sends a ring of dots out; starting the agent turns them up. */}
+      <DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={working ? 3.5 : 2.5} restIntensity={5} />
       {/* One centred column: the header, the cards and the confirm share an axis however many providers are shown. */}
-      <div className="flex w-fit max-w-full flex-col items-center gap-6" data-testid="agent-picker-group">
+      <div className="my-auto flex w-fit max-w-full flex-col items-center gap-7" data-testid="agent-picker-group">
         {installError && <InlineErrorNotice error={installError} operation="installing this provider" blocking />}
-        <div className="flex max-w-full items-center gap-3">
-          <img src={logoUrl} alt="" className="h-8 w-8 flex-none rounded-lg" />
+        <div className="flex max-w-full flex-col items-center gap-4 text-center">
+          <BrandMark motion="load" size={72} onRelease={emitWave} beatEvery={2} />
           <div className="min-w-0">
             <h1
               id={headlineId}
-              className="text-[17px] font-semibold tracking-[-0.01em] text-[var(--ct-fg)]"
+              className="agent-picker-headline font-semibold text-[var(--ct-fg)]"
             >
               {headline}
             </h1>
-            <p className="mt-0.5 text-[13px] leading-snug text-[var(--ct-muted-fg)]">{subhead}</p>
+            <p className="mx-auto mt-2 max-w-[34rem] text-sm leading-relaxed text-[var(--ct-muted-fg)]">{subhead}</p>
           </div>
         </div>
 
@@ -126,10 +137,16 @@ export function AgentProviderPicker({
         <div
           role="group"
           aria-label="Agent providers"
-          className="flex max-w-full flex-wrap justify-center gap-3"
+          aria-busy={providersLoading || undefined}
+          className="flex max-w-full flex-wrap justify-center gap-4"
           data-testid="agent-picker-cards"
         >
-          {observed.map((provider) => (
+          {providersLoading ? <Skeleton className="flex max-w-full flex-wrap justify-center gap-4">
+            {[0, 1, 2].map(index => <div key={index} className={`ct-panel-card ${PROVIDER_CARD_LAYOUT}`}>
+              <SkeletonBlock shape="circle" width="2rem" height="2rem" />
+              <SkeletonBlock width="4.5rem" height="1rem" />
+            </div>)}
+          </Skeleton> : observed.map((provider) => (
             <ProviderCard
               key={provider.id}
               provider={provider}
@@ -138,7 +155,6 @@ export function AgentProviderPicker({
             />
           ))}
         </div>
-        {belowProviders}
 
         {/* The command line is out of flow so the row never changes height;
             Re-check unfurls in flow so the pair spreads apart in one motion. */}
@@ -148,7 +164,7 @@ export function AgentProviderPicker({
               variant="primary"
               size="lg"
               data-testid="agent-picker-confirm"
-              disabled={!selected || state === "checking" || (needsInstall && !selected.install_command)}
+              disabled={providersLoading || !selected || state === "checking" || (needsInstall && !selected.install_command)}
               loading={busy || installBusy}
               onClick={() => {
                 if (!selected) return;
@@ -181,6 +197,8 @@ export function AgentProviderPicker({
           </div>
         </div>
       </div>
+      {/* Last in the region: pinned to the bottom edge, still after the confirm in reading order. */}
+      {belowConfirm && <div className="pt-4">{belowConfirm}</div>}
     </div>
   );
 }

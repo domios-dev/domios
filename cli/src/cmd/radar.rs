@@ -15,7 +15,8 @@ fn read_path_or_stdin(path: &str) -> Result<String, String> {
             .map_err(|e| format!("failed to read stdin: {e}"))?;
         Ok(buf)
     } else {
-        std::fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))
+        crate::local_admission::read_local_text(path)
+            .map_err(|e| format!("failed to read {path}: {e}"))
     }
 }
 
@@ -43,16 +44,14 @@ fn caller_tab(client: &dyn RpcClient) -> Option<String> {
     if client.is_remote() {
         return None;
     }
-    std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|s| !s.is_empty())
+    crate::nonempty_env("CODETERM_TAB_ID")
 }
 
 pub fn handle_radar(client: &mut dyn RpcClient, json: bool, action: RadarAction) {
     let val =
         run_radar(client, action).unwrap_or_else(|e| exit_with_cli_error(json, &CliError::new(e)));
     if json {
-        println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+        println!("{}", crate::cmd::output::encode(&val).unwrap_or_default());
     } else {
         print!("{}", render_radar_result(&val));
     }

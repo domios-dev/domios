@@ -67,7 +67,7 @@ fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixt
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("relay-owner-gate".into(), 0);
     mesh.disk_persist = false;
     mesh.paired_peers.clear();
-    mesh.insert_legacy_pair_for_test(isolated_peer());
+    mesh.insert_account_peer_for_test(isolated_peer());
     AppState {
         frontend_dev_url: None,
         svc: std::sync::Arc::new(fixture.service.clone()),
@@ -113,7 +113,7 @@ fn relay_fences_a_closed_peer_before_forwarding() {
         error: None,
         data: Some(serde_json::json!({"protected": "mesh data"})),
     };
-    state.mesh.lock().unpair(ISOLATED_PEER).unwrap();
+    state.mesh.lock().remove_account_peer(ISOLATED_PEER);
 
     assert!(relay_prewrite_refusal(&state, ISOLATED_PEER).is_some());
     assert!(

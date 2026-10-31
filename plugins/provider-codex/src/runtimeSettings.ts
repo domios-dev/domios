@@ -1,5 +1,94 @@
-import type { HostOwnedCapabilities, JsonValue, RuntimeSettings } from "@codeterm/plugin-sdk";
+import type { HostOwnedCapabilities, JsonValue, RuntimeSettings, RuntimeContext } from "@codeterm/plugin-sdk";
 import { object, text } from "./runtimeProtocol";
+
+const windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+
+export function codexRestrictedCliConfig(ctx: RuntimeContext): Record<string, JsonValue> {
+  const policy = ctx.restrictedCli;
+  if (!policy) return {};
+  const hash = (value: string) => /^[0-9a-f]{64}$/.test(value);
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch
+    || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false
+    || !/^[A-Za-z0-9/\\:._-]+$/.test(policy.executable)
+    || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0")
+    || ![policy.executableSha256,policy.configSha256,policy.ruleSha256].every(hash))
+    throw {code:"binding_mismatch",message:"Restricted CLI policy differs from the bound launch"};
+  return {projects:{[ctx.cwd]:{trust_level:"trusted"}}};
+}
+
+export function codexValidateCliTrust(ctx: RuntimeContext, raw: unknown): void {
+  if (!ctx.restrictedCli) return;
+  codexRestrictedCliConfig(ctx);
+  const root = object(raw);
+  if (!root.config || typeof root.config !== "object" || Array.isArray(root.config))
+    throw {code:"invalid_schema",message:"Restricted CLI project trust was not reported"};
+  const config = object(root.config);
+  if (config.projects === undefined || config.projects === null) return;
+  if (typeof config.projects !== "object" || Array.isArray(config.projects))
+    throw {code:"invalid_schema",message:"Invalid configured project trust"};
+  const normalize = (path: string) => path.replace(/\\/g,"/").replace(/\/$/,"").toLowerCase();
+  const cwd = normalize(ctx.cwd);
+  for (const [path,value] of Object.entries(object(config.projects))) {
+    if (cwd !== normalize(path) && !cwd.startsWith(normalize(path)+"/")) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw {code:"invalid_schema",message:"Invalid configured project trust"};
+    const project = object(value);
+    const trust = project.trust_level ?? project.trustLevel;
+    if (trust !== undefined && trust !== null && trust !== "trusted")
+      throw {code:"provider_refused",message:"Configured project trust refuses the restricted CLI exception"};
+  }
+}
+
+export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
+  const root = object(raw);
+  if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
+    throw {code:"invalid_schema",message:"Windows sandbox configuration was not reported"};
+  const config = object(root.config);
+  const windows = object(config.windows);
+  if (config.windows != null && (typeof config.windows !== "object" || Array.isArray(config.windows)))
+    throw {code:"invalid_schema",message:"Invalid Windows sandbox configuration"};
+  if (windows.sandbox != null) {
+    if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
+      throw {code:"invalid_schema",message:"Unknown configured Windows sandbox"};
+    return false;
+  }
+  if (windows.allow_mxc !== undefined) {
+    if (typeof windows.allow_mxc !== "boolean") throw {code:"invalid_schema",message:"Invalid Windows MXC policy"};
+    if (!windows.allow_mxc) return false;
+  }
+  if (config.features != null && (typeof config.features !== "object" || Array.isArray(config.features)))
+    throw {code:"invalid_schema",message:"Invalid Windows sandbox features"};
+  const features = object(config.features);
+  for (const key of windowsSandboxFeatures) {
+    if (features[key] !== undefined) {
+      if (typeof features[key] !== "boolean") throw {code:"invalid_schema",message:"Invalid Windows sandbox feature selection"};
+      return false;
+    }
+  }
+  return true;
+}
+
+export function codexWindowsSandboxOverride(raw: unknown): "mxc" | undefined {
+  const root = object(raw);
+  if (root.requirements === null) return "mxc";
+  if (typeof root.requirements !== "object" || Array.isArray(root.requirements))
+    throw {code:"invalid_schema",message:"Windows sandbox requirements were not reported"};
+  const requirements = object(root.requirements);
+  const allowed = requirements.allowedWindowsSandboxImplementations;
+  if (allowed !== null && (!Array.isArray(allowed) || allowed.some(mode => !["mxc", "elevated", "unelevated"].includes(String(mode)))))
+    throw {code:"invalid_schema",message:"Windows sandbox implementation requirements are unknown"};
+  if (Array.isArray(allowed) && !allowed.includes("mxc")) return undefined;
+  const modes = requirements.allowedSandboxModes;
+  if (modes !== null && (!Array.isArray(modes) || modes.some(mode => !["read-only", "workspace-write", "danger-full-access"].includes(String(mode)))))
+    throw {code:"invalid_schema",message:"Sandbox mode requirements are unknown"};
+  if (Array.isArray(modes) && !modes.includes("workspace-write")) return undefined;
+  if (requirements.defaultPermissions != null || requirements.allowedPermissionProfiles != null) return undefined;
+  if (requirements.featureRequirements != null && (typeof requirements.featureRequirements !== "object" || Array.isArray(requirements.featureRequirements)))
+    throw {code:"invalid_schema",message:"Windows sandbox feature requirements are unknown"};
+  const features = object(requirements.featureRequirements);
+  if (windowsSandboxFeatures.some(key => features[key] !== undefined)) return undefined;
+  return "mxc";
+}
 
 export function codexServiceTier(settings: RuntimeSettings): Record<string, string | null> {
   return settings.serviceTier === undefined ? {} : {serviceTier:settings.serviceTier.id};
@@ -64,6 +153,15 @@ export function codexEffectiveSettings(requested: RuntimeSettings, reply: unknow
   return {...other,...codexReportedSettings(reply,requested)};
 }
 
+export function codexWorkspaceWriteConfirmed(raw: unknown): boolean {
+  const root = object(raw);
+  const settings = root.threadSettings ? object(root.threadSettings) : root;
+  const thread = object(settings.thread);
+  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox);
+  return codexReportedSettings(raw).mode === "workspace-write" && sandbox.type === "workspaceWrite"
+    && (settings.approvalPolicy ?? thread.approvalPolicy) === "never" && sandbox.networkAccess === false;
+}
+
 export function codexWritableRootsConfirmed(settings: RuntimeSettings, reply: unknown): boolean {
   if (settings.mode !== "read-only-with-writable-roots") return true;
   const root = object(reply);
@@ -74,4 +172,11 @@ export function codexWritableRootsConfirmed(settings: RuntimeSettings, reply: un
   const same = (value: unknown) => Array.isArray(value) && value.length === expected.length && value.every(path => typeof path === "string" && expected.includes(path));
   return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite"
     && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
+}
+
+export function codexRestrictedCliInstructions(ctx: RuntimeContext, instructions?: string): string | undefined {
+  if (!ctx.restrictedCli) return instructions;
+  codexRestrictedCliConfig(ctx);
+  const executable = ctx.restrictedCli.executable;
+  return [instructions, `Trusted Domios CLI executable: ${executable}. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Single-quote opaque string arguments, especially IDs beginning with digits; keep the executable itself unquoted. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox.`].filter(value=>value!==undefined).join("\n\n");
 }

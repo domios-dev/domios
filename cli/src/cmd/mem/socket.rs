@@ -36,6 +36,23 @@ pub(super) fn socket_request(
     action: &MemAction,
 ) -> Option<(&'static str, Option<serde_json::Value>)> {
     match action {
+        MemAction::NeighborSave {
+            kind,
+            area,
+            title,
+            from_pad,
+            summary,
+            tags,
+        } => {
+            let body = crate::cmd::payload_source::read_from_pad(from_pad)
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error));
+            Some((
+                "mem.neighbor_save",
+                Some(super::neighbor_save::payload(
+                    kind, area, title, body, summary, tags,
+                )),
+            ))
+        }
         MemAction::Area {
             action:
                 crate::args::mem::MemAreaAction::Merge {
@@ -47,7 +64,7 @@ pub(super) fn socket_request(
             "mem.area_merge",
             Some(
                 serde_json::json!({ "from": from, "into": into, "dry_run": dry_run,
-                "worker_id": std::env::var("CODETERM_WORKER_ID").ok() }),
+                "worker_id": crate::nonempty_env("CODETERM_WORKER_ID") }),
             ),
         )),
         MemAction::Stats => Some(("mem.stats", None)),
@@ -75,7 +92,7 @@ pub(super) fn socket_request(
                 "limit": limit,
                 "rerank": rerank,
             });
-            if let Ok(tab_id) = std::env::var("CODETERM_TAB_ID") {
+            if let Some(tab_id) = crate::nonempty_env("CODETERM_TAB_ID") {
                 if !tab_id.is_empty() {
                     params["caller_tab_id"] = serde_json::json!(tab_id);
                 }
@@ -334,7 +351,7 @@ pub(super) fn socket_request(
                 "body": resolve_or_exit(body.clone(), body_file.clone()),
                 "conflict": conflict,
                 "changed_by": changed_by,
-                "worker_id": std::env::var("CODETERM_WORKER_ID").ok(),
+                "worker_id": crate::nonempty_env("CODETERM_WORKER_ID"),
             })),
         )),
         MemAction::Reembed { scope } => {

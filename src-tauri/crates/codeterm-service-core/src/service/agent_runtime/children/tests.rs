@@ -6,6 +6,7 @@ mod restore;
 #[test]
 fn child_read_authority_requires_exact_epoch_nonce_root_and_recorded_child() {
     let mut ctx = RuntimeContext {
+        restricted_cli: None,
         host_owned: Default::default(),
         epoch: 4,
         thread_id: Some("root".into()),
@@ -56,6 +57,7 @@ fn child_read_authority_requires_exact_epoch_nonce_root_and_recorded_child() {
 #[test]
 fn metadata_is_epoch_scoped_and_observation_does_not_rebind_the_root() {
     let mut ctx = RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("root".into()),
         ..Default::default()
     };
@@ -92,6 +94,7 @@ fn metadata_is_epoch_scoped_and_observation_does_not_rebind_the_root() {
 #[test]
 fn history_restores_only_own_root_relations_without_claiming_liveness() {
     let mut context = RuntimeContext {
+        restricted_cli: None,
         host_owned: Default::default(),
         epoch: 2,
         thread_id: Some("root".into()),

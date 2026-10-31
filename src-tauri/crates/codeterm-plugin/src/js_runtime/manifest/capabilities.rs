@@ -404,6 +404,10 @@ pub struct Capabilities {
     /// exports. Behind a loud install grant.
     #[serde(default)]
     pub view: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_delivery: Option<crate::media_delivery::MediaDeliveryDescriptor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binary_transfer: Option<crate::binary_transfer::BinaryTransferDescriptor>,
     /// Drives a non-PTY tab as a full conversational backend (e.g. LM Studio).
     /// The tab routes send/read through the plugin instead of a terminal.
     /// Bool (registered, backend-only) or `{ spawnable }` object (user-openable).
@@ -426,6 +430,12 @@ pub struct Capabilities {
     /// App tabs whose content the plugin renders; core owns the frame.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub surfaces: Vec<SurfaceDecl>,
+    /// User-gesture actions the plugin's view may ask the host for; requires `view`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub view_host_actions: Vec<super::ViewHostAction>,
+    /// What `pickFile` may bring in; required by, and only allowed with, that action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_inputs: Option<super::ViewInputs>,
     #[serde(default, flatten, skip_serializing)]
     pub(crate) unknown: std::collections::BTreeMap<String, serde_json::Value>,
 }

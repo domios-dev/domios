@@ -63,7 +63,7 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
         from: &AgentRef,
-        report: BoundWorkerReport,
+        mut report: BoundWorkerReport,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
         let Some(reporter_tab) = from.tab_id.as_deref() else {
@@ -75,6 +75,11 @@ impl PlanStore {
             .transpose()
             .map_err(|error| PlanError::Io(error.into()))?
             .flatten();
+        let shared_inspection = if transition == Some(TaskStatus::InReview) {
+            self.inspect_shared_report(plan_id, task_id, reporter_tab, report.sha.as_deref())?
+        } else {
+            None
+        };
         self.with_plan(plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
@@ -137,6 +142,15 @@ impl PlanStore {
                 transition
             };
             let committed_review = accepted_transition == Some(TaskStatus::InReview);
+            if committed_review {
+                if let Some(paths) = super::super::shared_checkout::SharedReportInspection::recheck(
+                    &plan.tasks[task_index],
+                    reporter_tab,
+                    shared_inspection.as_ref(),
+                )? {
+                    report.changed_files = paths.to_vec();
+                }
+            }
             if let Some(next) = accepted_transition
                 .as_ref()
                 .filter(|next| *next != &current)

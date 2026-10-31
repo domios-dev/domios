@@ -82,7 +82,14 @@ fn blueprint_v2_project_each_run_uses_its_immutable_callee_and_own_journal() {
         &BTreeSet::new(),
         &codeterm_plugin::graph_events::SubscriptionTable::new(),
     );
-    project(&mut view, std::slice::from_ref(&job), &journals, &versions).unwrap();
+    project(
+        &mut view,
+        std::slice::from_ref(&job),
+        &journals,
+        &versions,
+        &Default::default(),
+    )
+    .unwrap();
     let root = &view.blueprints[0];
     assert_eq!(root["graph_definition_version"], 2);
     assert_eq!(
@@ -114,6 +121,7 @@ fn blueprint_v2_project_each_run_uses_its_immutable_callee_and_own_journal() {
             expected
                 .map(|(_, version)| version)
                 .or_else(|| (id == "evicted").then_some(99)),
+            &Default::default(),
         )
         .unwrap();
         for field in [
@@ -161,6 +169,7 @@ fn blueprint_v2_project_watch_and_unstarted_pipeline_have_current_graph_without_
             std::slice::from_ref(&job),
             &BTreeMap::new(),
             &definitions,
+            &codeterm_plugin::graph_nodes::GraphNodeRegistry::default(),
         )
         .unwrap();
         assert_eq!(view.blueprints[0]["call_graph"]["kind"], source["kind"]);
@@ -206,8 +215,13 @@ fn blueprint_v2_project_loads_retained_definition_history_before_projection() {
     assert_eq!(retained[&job.id][&1], old);
     assert_eq!(retained[&job.id][&2], current);
     assert_eq!(
-        run_projection(&job, &journals[&job.id], retained.get(&job.id)).unwrap()
-            ["graph_definition_version"],
+        run_projection(
+            &job,
+            &journals[&job.id],
+            retained.get(&job.id),
+            &codeterm_plugin::graph_nodes::GraphNodeRegistry::default()
+        )
+        .unwrap()["graph_definition_version"],
         1
     );
 }

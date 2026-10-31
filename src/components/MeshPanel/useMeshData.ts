@@ -58,9 +58,9 @@ const DEFAULT_DATA: MeshData = {
   loaded: false,
 };
 
-const CACHE_SCOPE = "codeterm:mesh-tab-cache:v3";
+const CACHE_SCOPE = "codeterm:mesh-tab-cache:v4";
 const CACHE_MAX_AGE_MS = 24 * 3600 * 1000;
-const CACHE_SCHEMA = 3;
+const CACHE_SCHEMA = 4;
 
 interface CachePayload {
   thisMachine: MeshData["thisMachine"];

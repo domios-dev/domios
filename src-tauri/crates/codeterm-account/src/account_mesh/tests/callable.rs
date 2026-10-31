@@ -150,6 +150,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
                         installation_id: "caller".into(),
                         public_key_spki_base64: "key".into(),
                         operation: KeyOperation::Enroll,
+                        generation_policy: None,
                         expected_generation: 0
                     },
                     proof: proof.clone(),
@@ -348,4 +349,101 @@ fn http_status_body_matrix_preserves_permanent_auth_transient_and_throttle_class
             retry_after_seconds: 1
         }
     );
+}
+
+#[test]
+fn callable_function_names_resolve_without_changing_admitted_base_or_spelling() {
+    for base in [
+        crate::firebase_endpoints::PRODUCTION.functions,
+        "https://us-central1-domios-signin-qa.cloudfunctions.net/",
+        "https://example.invalid:8443/custom/functions/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/",
+    ] {
+        let base = url::Url::parse(base).unwrap();
+        for route in [
+            ROUTE_CHALLENGE,
+            ROUTE_ENROLL_KEY,
+            ROUTE_ADMISSION,
+            "revokePriorInstallationSessions",
+            "issueInstallationChallenge",
+            "redeemGiftKey",
+            "friendsList",
+            "friendsRequest",
+            "friendsRespond",
+            "friendsRemove",
+            "friendsSetLimit",
+            "friendsSend",
+            "friendsAck",
+            "friendsPeerKeys",
+            "friendsDeliveryStatus",
+            "friendsOwnKeys",
+            "friendsEnrollVerifierKey",
+            "friendsRevokeVerifierKey",
+            "friendsFileUsage",
+            "friendsSetFileDailyLimit",
+            "friendsFileDownload",
+            "friendsFileConfirm",
+            "friendsFileGrant",
+            "friendsRead",
+            "friendsSetFriendReceiver",
+            "friendsSetPaused",
+            "Function_1-with-hyphen",
+        ] {
+            let target = callable_url(&base, route).unwrap();
+            assert_eq!(target.as_str(), format!("{}{route}", base.as_str()));
+            assert_eq!(target.origin(), base.origin());
+            assert!(target.query().is_none() && target.fragment().is_none());
+            assert!(target.username().is_empty() && target.password().is_none());
+        }
+    }
+}
+
+#[test]
+fn malformed_callable_routes_are_refused_by_pure_pre_send_resolution() {
+    let bases = [
+        "https://example.invalid/functions/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/",
+    ];
+    for base in bases {
+        let base = url::Url::parse(base).unwrap();
+        for route in [
+            "",
+            " ",
+            " friendsList",
+            "friendsList ",
+            "friendsList\n",
+            "friends\tList",
+            "https://evil.invalid/steal",
+            "http://127.0.0.1:15002/steal",
+            "//evil.invalid/steal",
+            "/friendsList",
+            "./friendsList",
+            "../friendsList",
+            "nested/friendsList",
+            r"nested\friendsList",
+            "friendsList?query=x",
+            "friendsList#fragment",
+            "user@host",
+            "friends:List",
+            "%66riendsList",
+            "friends%2fList",
+            "friends%5cList",
+            "%2e%2e",
+            "friends%00List",
+            "frıendsList",
+            "friends😀List",
+            "?",
+            "#",
+        ] {
+            assert_eq!(
+                callable_url(&base, route),
+                Err(CallableFailure::Status {
+                    status: 400,
+                    retry_after_seconds: None,
+                    body: None,
+                }),
+                "{route:?}"
+            );
+        }
+    }
 }

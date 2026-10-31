@@ -9,6 +9,10 @@ fn fields(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 }
 
 fn codex_credential(dir: &std::path::Path) -> CredentialConfig {
+    fixture_credential(dir, "codexAuth")
+}
+
+fn fixture_credential(dir: &std::path::Path, id: &str) -> CredentialConfig {
     let file = dir.join("auth.json");
     std::fs::write(
         &file,
@@ -17,7 +21,7 @@ fn codex_credential(dir: &std::path::Path) -> CredentialConfig {
     .unwrap();
     CredentialConfig {
         file_environment: None,
-        id: "codexAuth".into(),
+        id: id.into(),
         file: file.to_string_lossy().into_owned(),
         public: fields(&[("accountId", "tokens.account_id")]),
         secret: fields(&[("accessToken", "tokens.access_token")]),
@@ -238,6 +242,7 @@ fn account_home_diagnostic_credential_reads_selected_home_without_writes() {
     let denied = declared_files(&credentials);
     assert!(denied.contains(&default_file));
     assert!(denied.contains(&selected_file));
+    assert_eq!(resolved_files(&credentials), vec![selected_file.clone()]);
     assert_eq!(std::fs::read(&default_file).unwrap(), default_bytes);
     assert_eq!(
         std::fs::read_to_string(&selected_file).unwrap(),
@@ -246,7 +251,58 @@ fn account_home_diagnostic_credential_reads_selected_home_without_writes() {
     env.set("FIXTURE_CREDENTIAL_HOME", "");
     assert_eq!(declared_files(&credentials), vec![default_file]);
     assert_eq!(
+        resolved_files(&credentials),
+        vec![default.path().join("auth.json")]
+    );
+    assert_eq!(
         public_json(&credentials, "codexAuth"),
         Some(r#"{"accountId":"acct-42"}"#.into())
     );
+}
+
+#[test]
+fn catalogue_credential_home_never_falls_back_when_selected_file_is_missing() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    let default = tempfile::tempdir().unwrap();
+    let selected = tempfile::tempdir().unwrap();
+    let mut credential = fixture_credential(default.path(), "fixtureAuth");
+    credential.file_environment = Some(super::super::manifest::ReadRootEnvironment {
+        variable: "FIXTURE_CREDENTIAL_HOME".into(),
+        subdir: "auth.json".into(),
+    });
+    env.set("FIXTURE_CREDENTIAL_HOME", selected.path());
+    assert_eq!(
+        resolved_files(std::slice::from_ref(&credential)),
+        vec![selected.path().join("auth.json")]
+    );
+    assert_eq!(
+        public_json(std::slice::from_ref(&credential), "fixtureAuth"),
+        None
+    );
+    assert!(inject(
+        &[credential],
+        r#"{"credential":{"id":"fixtureAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
+    )
+    .is_err());
+}
+
+#[test]
+fn credential_document_budget_refuses_oversized_secrets_without_returning_contents() {
+    let root = tempfile::tempdir().unwrap();
+    let credential = CredentialConfig {
+        file_environment: None,
+        id: "fixtureAuth".into(),
+        file: root.path().join("auth.json").to_string_lossy().into_owned(),
+        public: fields(&[("accountId", "tokens.account_id")]),
+        secret: fields(&[("accessToken", "tokens.access_token")]),
+    };
+    let text=serde_json::json!({"tokens":{"access_token":"opaque-secret".repeat(100000),"account_id":"opaque-account"}}).to_string();
+    std::fs::write(root.path().join("auth.json"), text).unwrap();
+    assert!(public_json(std::slice::from_ref(&credential), "fixtureAuth").is_none());
+    let error = inject(
+        &[credential],
+        r#"{"credential":{"id":"fixtureAuth","headers":{"Authorization":"Bearer {accessToken}"}}}"#,
+    )
+    .unwrap_err();
+    assert!(!error.contains("opaque-secret"));
 }

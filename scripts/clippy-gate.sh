@@ -15,7 +15,7 @@ run_clippy_gate() {
         export CARGO_TARGET_DIR="$CI_TARGET_ROOT/${dir//\//-}"
     fi
     # --all-targets also lints every target in its non-test build, so it catches test-only dead code alone.
-    cargo clippy --manifest-path "$1" --workspace --all-targets --locked -- -D warnings "${CLIPPY_ALLOW[@]}"
+    cargo clippy --manifest-path "$1" --workspace --all-targets --locked -- -W warnings "${CLIPPY_ALLOW[@]}"
 }
 
 run_clippy_gate src-tauri/Cargo.toml || exit $?

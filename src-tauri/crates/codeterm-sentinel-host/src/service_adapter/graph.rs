@@ -281,7 +281,13 @@ impl AutomationGraphExt for ServiceContext {
                 &live_leases,
                 self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
             );
-            retained::project(&mut snapshot, &jobs, &journals, &definitions)?;
+            retained::project(
+                &mut snapshot,
+                &jobs,
+                &journals,
+                &definitions,
+                &self.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
+            )?;
             graph::project_worker_states(&mut snapshot, mux, |tab| self.resolved_tab_status(tab));
             snapshot.quarantined = quarantined;
             Ok(snapshot)
@@ -414,7 +420,13 @@ impl AutomationGraphExt for ServiceContext {
                     &live_leases,
                     self.ext::<codeterm_plugin::graph_events::SubscriptionTable>(),
                 );
-                retained::project(&mut combined, &jobs, &journals, &definitions)?;
+                retained::project(
+                    &mut combined,
+                    &jobs,
+                    &journals,
+                    &definitions,
+                    &self.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
+                )?;
                 graph::project_worker_states(&mut combined, mux, |tab| {
                     self.resolved_tab_status(tab)
                 });

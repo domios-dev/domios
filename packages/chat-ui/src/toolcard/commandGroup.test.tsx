@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage, type ToolEvent } from "@codeterm/chat-core";
 import { toolCommandShape } from "../codeterm/commandShape";
 import { ToolCallBubble } from "../ToolCallBubble";
+import { CommandGroupCard } from "./CommandGroupCard";
 import { act, render } from "./cardTestSetup";
 
 const CODEX_SESSION = "01a09a2f-b88c-79b3-a9dd-83f8741f6810";
@@ -93,6 +94,21 @@ function Stateful({ event, initiallyExpanded = false }: { event: ToolEvent; init
 }
 
 describe("compound command group", () => {
+  it("discloses supplied aggregate partial output once at whole-command scope", async () => {
+    const event = {...singleEvent(codexChain("opaque-partial-group",SPEC_CHAIN)),status:"pending" as const,result:"opaque-partial-output"};
+    const shape = toolCommandShape(event);
+    expect(shape.kind).toBe("group");
+    if (shape.kind !== "group") throw new Error("fixture must be a command group");
+    const closed = await render(<CommandGroupCard event={event} rows={shape.rows} expanded={false} onToggle={() => {}} />);
+    expect(closed.querySelector('[aria-label="Command output"]')?.hasAttribute("hidden")).toBe(true);
+    expect(closed.textContent).not.toContain(event.result);
+    const open = await render(<CommandGroupCard event={event} rows={shape.rows} expanded onToggle={() => {}} />);
+    expect(open.querySelector('[aria-label="Command output"]')?.textContent).toContain(event.result);
+    expect(open.textContent?.split(event.result)).toHaveLength(2);
+    expect(open.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe("pending");
+    expect(open.querySelector('[data-testid="chat-command-tree-line"] [aria-label="pending"]')).toBeNull();
+  });
+
   it("renders the Codex pwsh pipeline once as one box with a CodeTerm line and a python script line", async () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexRollout())} expanded={false} onToggle={() => {}} />);
     const groups = host.querySelectorAll('[data-testid="chat-command-group"]');

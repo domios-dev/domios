@@ -425,7 +425,7 @@ pub(super) fn cleanup_challenge(request: &ChallengeRequest) -> bool {
     }
 }
 
-/// HTTPS callable transport; no redirects, bounded time, and no request or account logging.
+/// HTTPS or explicitly selected debug emulator transport; no redirects or account logging.
 pub struct HttpCallable {
     base: url::Url,
     client: reqwest::Client,
@@ -433,17 +433,8 @@ pub struct HttpCallable {
 
 impl HttpCallable {
     pub fn new(base: &str) -> crate::Result<Self> {
-        let base = url::Url::parse(base).map_err(|_| crate::Error::Configuration)?;
-        if base.scheme() != "https"
-            || base.host_str().is_none()
-            || !base.username().is_empty()
-            || base.password().is_some()
-            || base.query().is_some()
-            || base.fragment().is_some()
-            || !base.path().ends_with('/')
-        {
-            return Err(crate::Error::Configuration);
-        }
+        let base =
+            crate::firebase_endpoints::callable_base(base).ok_or(crate::Error::Configuration)?;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::none())
@@ -451,6 +442,27 @@ impl HttpCallable {
             .map_err(|_| crate::Error::Transport)?;
         Ok(Self { base, client })
     }
+}
+
+pub(super) fn callable_url(base: &url::Url, route: &str) -> Result<url::Url, CallableFailure> {
+    let invalid = || CallableFailure::Status {
+        status: 400,
+        retry_after_seconds: None,
+        body: None,
+    };
+    let mut bytes = route.bytes();
+    if !bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        || !bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err(invalid());
+    }
+    let url = base.join(route).map_err(|_| invalid())?;
+    if url.origin() != base.origin() || url.as_str() != format!("{}{route}", base.as_str()) {
+        return Err(invalid());
+    }
+    Ok(url)
 }
 
 #[async_trait]
@@ -461,11 +473,7 @@ impl CallableTransport for HttpCallable {
         id_token: &str,
         data: Value,
     ) -> Result<Value, CallableFailure> {
-        let url = self.base.join(route).map_err(|_| CallableFailure::Status {
-            status: 400,
-            retry_after_seconds: None,
-            body: None,
-        })?;
+        let url = callable_url(&self.base, route)?;
         let response = self
             .client
             .post(url)

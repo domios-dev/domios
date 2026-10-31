@@ -5,6 +5,25 @@ use super::{
 };
 
 #[test]
+fn container_update_refusal_preserves_typed_data_and_tag_recovery() {
+    assert_eq!(super::container_update_error(false), None);
+    let error = super::container_update_error(true).unwrap();
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    crate::cmd::print::write_cli_error(true, &error, &mut stdout, &mut stderr);
+    let body: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(body["ok"], false);
+    assert!(String::from_utf8(stdout)
+        .unwrap()
+        .contains("container_managed_update"));
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Pull a newer image tag"));
+    assert!(stderr.is_empty());
+}
+
+#[test]
 fn continuation_registration_reads_the_daemon_answer() {
     let registered = serde_json::json!({"tab_id": "tab-1", "registered": true});
     let refused = serde_json::json!({"tab_id": "tab-1", "registered": false, "reason": "opaque"});

@@ -5,11 +5,6 @@ const catalogue = JSON.parse(fs.readFileSync(new URL('tests/catalogue.json', roo
 const packageScripts = JSON.parse(fs.readFileSync(new URL('package.json', root))).scripts;
 
 // Indirect executables belong to the entrypoint that invokes them, never a workflow job name.
-const entryTools = {
-  'node-script-tests': ['git', 'bash', 'cargo', 'nextest'],
-  'node-script-tests-serial': ['git', 'bash'],
-  'python-script-tests': ['python', 'python:yaml'],
-};
 const scriptTools = {
   'ci-python-env.mjs': ['python'],
   'ci-artifact.sh': ['node', 'bash', 'curl'],
@@ -37,7 +32,6 @@ export function commandTools(command, seen = new Set()) {
     const entry = catalogue.find(entry => entry.id === id);
     if (!entry) throw new Error('Unknown catalogue entry: ' + id);
     seen.add('entry:' + id);
-    add(entryTools[id] || []);
     add(commandTools(entry.exec?.join(' ') || entry.runner, seen));
   }
   for (const [, name] of command.matchAll(/\bpnpm\s+(?:run\s+)?([\w:-]+)/g)) {

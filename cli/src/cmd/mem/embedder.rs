@@ -44,10 +44,7 @@ pub(crate) fn handle(client: &mut SocketClient, json_mode: bool, action: MemEmbe
         Err(error) => crate::cmd::print::fail(1, error.to_string()),
     };
     if json_mode {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&value).unwrap_or_default()
-        );
+        println!("{}", crate::cmd::output::encode(&value).unwrap_or_default());
         return;
     }
     let text = match action {

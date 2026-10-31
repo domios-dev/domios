@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 
 use serde_json::Value;
+use std::io::Read;
 
 use super::manifest::{CredentialConfig, PluginManifest};
 use codeterm_decision::TokenMode;
@@ -32,9 +33,18 @@ fn credential_path(cred: &CredentialConfig) -> Option<std::path::PathBuf> {
         .or_else(|| PluginManifest::expand_home(&cred.file))
 }
 
+pub(super) fn resolved_files(credentials: &[CredentialConfig]) -> Vec<std::path::PathBuf> {
+    credentials.iter().filter_map(credential_path).collect()
+}
+
 fn read_document(cred: &CredentialConfig) -> Option<Value> {
     let path = credential_path(cred)?;
-    let text = std::fs::read_to_string(path).ok()?;
+    let file = std::fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(1024 * 1024 + 1).read_to_string(&mut text).ok()?;
+    if text.len() > 1024 * 1024 {
+        return None;
+    }
     serde_json::from_str::<Value>(&text).ok()
 }
 

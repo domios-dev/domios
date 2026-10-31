@@ -9,6 +9,9 @@ export interface MentionScope {
 export interface MentionContext { scope: MentionScope; signal: AbortSignal }
 export interface ComposerMention {
   id: string;
+  kind?: "tab" | "task" | "plan" | "blueprint" | "file";
+  providerId?: string | null;
+  status?: string;
   label: string;
   description: string;
   insertText: string;
@@ -77,4 +80,4 @@ export function mentionDismissed(dismissed: MentionDismissal | null, draft: stri
   if (draft.length < dismissed.draft.length && caret <= dismissed.caret) return false;
   return true;
 }
-export const MENTION_PICKER_LAYOUT = { placement: "top-start", width: "anchor", rowHeight: 44, visibleRows: 5 } as const;
+export const MENTION_PICKER_LAYOUT = { placement: "top-start", width: "var(--mention-picker-width)", rowHeight: 44, visibleRows: 6 } as const;

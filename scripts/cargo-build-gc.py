@@ -1,4 +1,4 @@
-# Caller: scripts/cargo-build-gc.mjs, scripts/cargo-build-gc.test.mjs
+# Caller: scripts/cargo-build-gc.mjs
 import contextlib
 import ctypes
 import json
@@ -24,11 +24,11 @@ def safe_path(value):
 
 
 @contextlib.contextmanager
-def cargo_lock(file):
+def cargo_lock(file, blocking=False):
     if os.name != 'nt':
         import fcntl
         with open(file, 'r+b') as handle:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(handle, fcntl.LOCK_EX | (0 if blocking else fcntl.LOCK_NB))
             yield
         return
     from ctypes import wintypes
@@ -49,7 +49,7 @@ def cargo_lock(file):
         raise ctypes.WinError(ctypes.get_last_error())
     try:
         overlap = Overlapped()
-        if not kernel.LockFileEx(handle, 3, 0, 0xFFFFFFFF, 0xFFFFFFFF, ctypes.byref(overlap)):
+        if not kernel.LockFileEx(handle, 2 if blocking else 3, 0, 0xFFFFFFFF, 0xFFFFFFFF, ctypes.byref(overlap)):
             raise ctypes.WinError(ctypes.get_last_error())
         yield
     finally:

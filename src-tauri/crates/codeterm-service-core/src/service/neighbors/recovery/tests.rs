@@ -4,14 +4,13 @@ use super::*;
 fn startup_string_boundary_keeps_permanent_refusals_and_retries_setup_outages() {
     for error in [
         Error::Locked,
+        Error::Unavailable,
         Error::PermissionDenied,
-        Error::FeatureUnsupported,
         Error::SessionRevoked,
         Error::Disabled,
         Error::Revoked,
         Error::ReceiverNotChosen,
         Error::ReceiverStatusUnknown,
-        Error::ReceiversPresent,
     ] {
         assert_eq!(startup_error(&error.to_string()), error);
         assert!(!retryable(startup_error(&error.to_string())));

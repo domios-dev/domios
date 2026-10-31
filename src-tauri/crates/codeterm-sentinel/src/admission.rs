@@ -20,6 +20,18 @@ pub struct Admission {
     pub baseline_pending: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continuation: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_hold: Option<PluginHold>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginHold {
+    pub run: String,
+    pub node: String,
+    pub operation: String,
+    pub state: String,
+    pub reason: String,
 }
 
 impl Admission {
@@ -35,7 +47,7 @@ impl Admission {
     }
 
     pub fn permits_steps(&self) -> bool {
-        self.held_reason.is_none()
+        self.held_reason.is_none() && self.plugin_hold.is_none()
     }
 }
 

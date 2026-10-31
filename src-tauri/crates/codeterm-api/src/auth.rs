@@ -64,8 +64,6 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
     "/api/mesh/link/hello",
-    "/api/mesh/link/approval",
-    "/api/mesh/disconnect-notice",
     "/api/mesh/link/confirm",
     "/api/mesh/link/commit",
 ];
@@ -90,15 +88,11 @@ fn tailnet_exempt(method: &Method, path: &str) -> bool {
             && matches!(
                 path,
                 "/api/mesh/link/hello"
-                    | "/api/mesh/link/approval"
-                    | "/api/mesh/disconnect-notice"
                     | "/api/mesh/link/confirm"
                     | "/api/mesh/link/commit"
                     | "/api/mesh/relay"
                     | "/api/mesh/announce"
                     | "/api/mesh/account-presence"
-                    | "/api/mesh/adopt/offer"
-                    | "/api/mesh/adopt/commit"
             ))
         || (method == Method::DELETE && is_custom_auth(method, path))
 }
@@ -188,25 +182,20 @@ fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bo
     mesh_enabled || address.is_none_or(|address| address.ip().is_loopback())
 }
 
-/// Paths whose handlers authenticate independently and must skip bearer middleware.
-/// This is an EXACT allowlist on purpose: an earlier `starts_with("/api/mesh/peers/")`
-/// prefix match exempted every peer sub-route whose handlers only call the no-op
-/// `check_auth`, leaving them unauthenticated. Only `relay`, the adoption pair and
-/// the unpair handler (`DELETE /api/mesh/peers/{id}`) self-verify against open edges;
-/// announce verifies identity only to accept a renewed membership.
+/// Exact routes whose handlers authenticate their own peer proofs.
 pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
-    if matches!(
-        path,
-        "/api/mesh/relay" | "/api/mesh/adopt/offer" | "/api/mesh/adopt/commit"
-    ) {
+    if matches!(path, "/api/mesh/relay") {
         return true;
     }
-    // Announce verifies its sender itself so an adopted peer can deliver a renewed membership.
+    // Announce accepts an authenticated renewal before re-evaluating an expired edge.
     if method == Method::POST && matches!(path, "/api/mesh/announce" | "/api/mesh/account-presence")
     {
         return true;
     }
     if is_inbound_webhook_path(method, path) {
+        return true;
+    }
+    if crate::plugin_media_routes::is_playback_path(method, path) {
         return true;
     }
     if is_graph_event_path(method, path) {
@@ -215,10 +204,7 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     if path.starts_with("/api/mesh/relay-asset/") {
         return true;
     }
-    // distinct from POST /peers/add-manual and the deeper /peers/{id}/… routes.
-    method == Method::DELETE
-        && path.starts_with("/api/mesh/peers/")
-        && path.matches('/').count() == 4
+    false
 }
 
 fn is_graph_event_path(method: &Method, path: &str) -> bool {

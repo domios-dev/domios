@@ -118,3 +118,71 @@ fn model_catalogue_authority_native_js_parity() {
         js_discover.describe().model_catalogue
     );
 }
+
+#[test]
+fn catalogue_inputs_use_only_declared_credential_home_for_both_transports() {
+    use super::super::JsChatBackend;
+    use std::sync::Arc;
+
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    let default_home = tempfile::tempdir().unwrap();
+    let selected_home = tempfile::tempdir().unwrap();
+    let default_file = default_home.path().join("auth.json");
+    std::fs::write(&default_file, "owner-credential-fixture").unwrap();
+    for variable in ["FIXTURE_HOME", "FIXTURE_PROVIDER_HOME", "XDG_DATA_HOME"] {
+        let manifest_json = serde_json::json!({
+            "id": "credential-home-fixture",
+            "version": "0.1.0",
+            "displayName": "Fixture",
+            "credentials": [{
+                "id": "fixtureAuth",
+                "file": default_file,
+                "fileEnvironment": {"variable": variable, "subdir": "provider/auth.json"}
+            }],
+            "spawn": {
+                "readinessStrategy": {"kind": "fixed_delay", "durationMs": 0},
+                "taskDelivery": "pty_input",
+                "verifySubmit": {"kind": "none"}
+            }
+        })
+        .to_string();
+        let js = load_inline_js_with_manifest(
+            "credential-home-fixture",
+            &manifest_json,
+            "module.exports.default = {};",
+        );
+        let manifest: PluginManifest = serde_json::from_str(&manifest_json).unwrap();
+        let vm = Arc::new(
+            PluginVm::from_source_with(
+                "credential-home-fixture",
+                "module.exports.default = {};".into(),
+                Some(manifest_json),
+            )
+            .unwrap(),
+        );
+        for value in [
+            Some(selected_home.path().as_os_str()),
+            None,
+            Some(std::ffi::OsStr::new("")),
+        ] {
+            if let Some(value) = value {
+                env.set(variable, value);
+            } else {
+                env.remove(variable);
+            }
+            let expected = if value.is_some_and(|value| !value.is_empty()) {
+                selected_home.path().join("provider/auth.json")
+            } else {
+                default_file.clone()
+            };
+            let chat = JsChatBackend::from_manifest(vm.clone(), &manifest);
+            assert_eq!(js.model_credential_files(), vec![expected.clone()]);
+            assert_eq!(chat.model_catalogue_input_files(), vec![expected.clone()]);
+            assert_eq!(
+                js.model_catalogue_capability()
+                    .fingerprint_files(js.model_credential_files()),
+                vec![expected]
+            );
+        }
+    }
+}

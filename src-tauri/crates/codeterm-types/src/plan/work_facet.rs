@@ -1,6 +1,40 @@
 use std::fmt;
 
+#[cfg(test)]
+mod tests;
+
 pub const WORK_VALUES: [&str; 6] = ["frontend", "backend", "design", "qa", "infra", "docs"];
+
+/// Infer only missing work tags; explicit invalid tags remain validation errors.
+pub fn infer_work_tag<'a>(
+    facet_keys: impl IntoIterator<Item = &'a str>,
+    tags: &mut Vec<String>,
+    area: &str,
+) -> Option<String> {
+    if !facet_keys.into_iter().any(|key| key == "work")
+        || tags.iter().any(|tag| {
+            tag.split_once(':')
+                .is_some_and(|(key, _)| key.trim() == "work")
+        })
+    {
+        return None;
+    }
+    let area = area.to_ascii_lowercase();
+    let work = [
+        ("docs", ["prod-docs/", "documentation", "docs"]),
+        ("frontend", ["src/", "frontend", "react"]),
+        ("backend", ["src-tauri/", "backend", "rust"]),
+        ("infra", ["scripts/", "build.sh", "gateway"]),
+        ("qa", ["tests/", "test", "verification"]),
+        ("design", ["design", "figma", "mockup"]),
+    ]
+    .into_iter()
+    .find(|(_, hints)| hints.iter().any(|hint| area.contains(*hint)))
+    .map_or("backend", |(work, _)| work);
+    let tag = format!("work:{work}");
+    tags.push(tag.clone());
+    Some(tag)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WorkFacetViolation {

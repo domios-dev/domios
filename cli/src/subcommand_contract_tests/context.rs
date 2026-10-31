@@ -81,6 +81,25 @@ fn caller_context_round_trips_supplied_values() {
 }
 
 #[test]
+fn blank_caller_environment_yields_no_claims() {
+    for blank in ["", " \t "] {
+        let fields = CONTEXT_ENV.map(|key| (key, blank));
+        with_env(&fields, || {
+            let context = CallerContext::from_env();
+            let mut params = json!({});
+            context.apply_caller_tab(&mut params);
+            context.apply_trusted_session(&mut params);
+            assert_eq!(params, json!({}));
+            assert_eq!(context.owner(), frozen_owner_absent());
+            assert_eq!(context.tab_id(), None);
+            let body = context.report_body("explicit-tab", "opaque-report".into());
+            assert!(body.get("caller_session_id").is_none());
+            assert!(body.get("session_binding_nonce").is_none());
+        });
+    }
+}
+
+#[test]
 fn context_injection_matches_pre_change_params() {
     let (caller_tab, trusted, owner) = with_env(&full_env(), || {
         let ctx = CallerContext::from_env();

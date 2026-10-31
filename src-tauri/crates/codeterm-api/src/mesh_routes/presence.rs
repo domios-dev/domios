@@ -54,7 +54,7 @@ fn authorize_notice(mesh: &mut MeshManager, token: &str) -> Result<String, (Stat
     }
     let sender = crown::verify_signed_request(token, &mesh.paired_identity_keys())
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid peer signature".into()))?;
-    if mesh.is_revoked(&sender) || mesh.is_blocked(&sender) {
+    if mesh.account_peer_revoked(&sender) {
         return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
     }
     mesh.check_and_record_nonce(token)

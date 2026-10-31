@@ -205,7 +205,14 @@ pub(super) fn install_bridge_rule(payload: &str) -> Result<(), String> {
         .ok_or_else(|| "no home directory".to_string())?
         .join(".claude")
         .join("rules");
-    std::fs::create_dir_all(&rules_dir)
+    install_bridge_rule_at(&rules_dir, payload)
+}
+
+pub(crate) fn install_bridge_rule_at(
+    rules_dir: &std::path::Path,
+    payload: &str,
+) -> Result<(), String> {
+    std::fs::create_dir_all(rules_dir)
         .map_err(|e| format!("create {}: {}", rules_dir.display(), e))?;
 
     let final_path = rules_dir.join("codeterm.md");

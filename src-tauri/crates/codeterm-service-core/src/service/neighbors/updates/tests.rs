@@ -1,4 +1,5 @@
 use super::*;
+mod session;
 
 #[tokio::test]
 async fn disabling_cancels_the_account_signal_watch_and_invalidates_its_generation() {

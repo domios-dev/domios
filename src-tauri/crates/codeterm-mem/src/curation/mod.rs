@@ -138,3 +138,6 @@ pub fn pick_restore_body(
             .ok_or((400u16, "no prior body to restore".to_string())),
     }
 }
+
+#[cfg(test)]
+mod organizer_guard;

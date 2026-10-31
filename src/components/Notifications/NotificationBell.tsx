@@ -28,6 +28,7 @@ export function NotificationBell({
   onAnswer,
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
+  const [questionId, setQuestionId] = useState<string | undefined>();
   const [lookedAtId, setLookedAtId] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const unreadStatusId = useId();
@@ -43,7 +44,10 @@ export function NotificationBell({
   const close = useCallback(() => setOpen(false), []);
 
   useEffect(() => {
-    const openPanel = () => setOpen(true);
+    const openPanel = (event: Event) => {
+      setQuestionId((event as CustomEvent<{ notificationId?: string }>).detail?.notificationId);
+      setOpen(true);
+    };
     window.addEventListener(OPEN_NOTIFICATION_CENTER_EVENT, openPanel);
     return () => window.removeEventListener(OPEN_NOTIFICATION_CENTER_EVENT, openPanel);
   }, []);
@@ -85,6 +89,7 @@ export function NotificationBell({
       </span>
       <AnchoredPopover open={open} anchor={buttonRef} placement="bottom-end" gap={6} onClose={close}>
           <NotificationPanel
+            questionId={questionId}
             loading={loading}
             notifications={notifications}
             onMarkRead={onMarkRead}

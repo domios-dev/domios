@@ -1,14 +1,13 @@
 use super::*;
 
 fn status(here: bool, revision: u64) -> FriendReceiver {
-    FriendReceiver::from_account(&ReceiverStatus {
+    FriendReceiver::from_status(&ReceiverStatus {
         receiver_revision: revision,
         receiver_installation_id: Some(if here { "here" } else { "elsewhere" }.into()),
-        receiver_key_id: Some(if here { "vk_here" } else { "vk_elsewhere" }.into()),
+        receiver_encryption_key_id: Some(if here { "vk_here" } else { "vk_elsewhere" }.into()),
         receiver_machine_label: Some("Desk".into()),
         receiving_enabled: true,
         is_me: here,
-        legacy_active: false,
     })
 }
 
@@ -134,16 +133,12 @@ fn an_old_account_snapshot_cannot_authorize_a_new_session() {
 }
 
 #[test]
-fn binding_digest_ignores_labels_but_detects_equal_revision_session_changes() {
-    let projection = |label: &str, session: &str| codeterm_neighbors::wire::EffectiveReceiver {
-        source: codeterm_neighbors::wire::ReceiverSource::Friend,
+fn binding_digest_ignores_labels_but_detects_equal_revision_key_changes() {
+    let projection = |label: &str, key: &str| codeterm_neighbors::wire::EffectiveReceiver {
         installation_id: Some("here".into()),
-        key_id: Some("vk_here".into()),
-        enc_key_id: Some("ek_here".into()),
-        session_id: Some(session.into()),
+        enc_key_id: Some(key.into()),
         machine_label: Some(label.into()),
         revision: 2,
-        features: vec![],
         receiving: true,
     };
     let first = FriendReceiver::from_projection(projection("Desk", "session-one"), "here").unwrap();
@@ -228,7 +223,7 @@ impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
 }
 
 #[tokio::test]
-async fn effective_rows_keep_overrides_on_account_change_and_allow_lower_revision_reset() {
+async fn receiver_rows_are_per_friend_and_missing_projections_never_inherit_authority() {
     let fixture = crate::service::test_fixture::ServiceFixture::new(
         crate::multiplexer::state::MultiplexerState::new().0,
     );
@@ -239,82 +234,34 @@ async fn effective_rows_keep_overrides_on_account_change_and_allow_lower_revisio
         uid: "owner".into(),
         installation_id: "here".into(),
         machine_label: "Desk".into(),
-        enrollment: None,
     };
-    let generation = service.neighbor_cell().generation.load(Ordering::Acquire);
+    let generation = service.neighbor_history_generation();
     let first = "a".repeat(64);
     let second = "b".repeat(64);
-    let projection = |source: &str, here: bool, revision| {
-        json!({"source":source,"installation_id":if here {"here"} else {"elsewhere"},
-        "key_id":if here {"vk_here"} else {"vk_elsewhere"},"enc_key_id":if here {"ek_here"} else {"ek_elsewhere"},
-        "session_id":"session","machine_label":"Desk","revision":revision,"features":["files.v1"],"receiving":true})
+    let projection = |here: bool, revision| {
+        json!({"installation_id":if here {"here"} else {"elsewhere"},
+        "enc_key_id":"ek_receiver","machine_label":"Desk","revision":revision,"receiving":true})
     };
-    let list = |receiver: Value| json!({"friends":[{"friendship_id":first,"my_receiver":receiver},{"friendship_id":second}]});
-    let account = status(true, 1).status;
-    let initial = list(projection("friend", false, 9));
+    let list = json!({"friends":[{"friendship_id":first,"my_receiver":projection(false,9)},{"friendship_id":second,"my_receiver":projection(true,2)}]});
     service
         .reconcile_neighbor_friend_receiver_rows(
             &metadata,
             &registry,
-            &account,
-            &initial,
-            Some("vk_here"),
+            &list,
+            Some("ek_receiver"),
             generation,
         )
         .await
         .unwrap();
-    let binding = service.neighbor_friend_receiver_binding(&first);
     assert!(!service.neighbor_friend_receiving_here(&first));
     assert!(service.neighbor_friend_receiving_here(&second));
-    let account = status(false, 2).status;
-    service
-        .reconcile_neighbor_friend_receiver_rows(
-            &metadata, &registry, &account, &initial, None, generation,
-        )
-        .await
-        .unwrap();
-    assert_eq!(service.neighbor_friend_receiver_binding(&first), binding);
-    assert!(!service.neighbor_friend_receiving_here(&second));
+    let (_, version) = service.neighbor_friend_receiver_snapshot();
     service
         .reconcile_neighbor_friend_receiver_rows(
             &metadata,
             &registry,
-            &account,
-            &list(projection("friend", true, 10)),
-            Some("vk_here"),
-            generation,
-        )
-        .await
-        .unwrap();
-    assert!(service.neighbor_friend_receiving_here(&first));
-    service
-        .reconcile_neighbor_friend_receiver_rows(
-            &metadata,
-            &registry,
-            &account,
-            &list(projection("account", false, 2)),
-            None,
-            generation,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        service
-            .neighbor_friend_receiver(&first)
-            .unwrap()
-            .receiver_revision,
-        2
-    );
-    assert!(!service.neighbor_friend_receiving_here(&first));
-    let (snapshot, version) = service.neighbor_friend_receiver_snapshot();
-    assert_eq!(snapshot[&first]["source"], "account");
-    service
-        .reconcile_neighbor_friend_receiver_rows(
-            &metadata,
-            &registry,
-            &account,
-            &list(projection("account", false, 2)),
-            None,
+            &list,
+            Some("ek_receiver"),
             generation,
         )
         .await
@@ -324,8 +271,7 @@ async fn effective_rows_keep_overrides_on_account_change_and_allow_lower_revisio
         .reconcile_neighbor_friend_receiver_rows(
             &metadata,
             &registry,
-            &account,
-            &list(Value::Null),
+            &json!({"friends":[{"friendship_id":first}]}),
             None,
             generation
         )

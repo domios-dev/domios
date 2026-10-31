@@ -165,7 +165,7 @@ pub(crate) fn load_one_with_installation(
         return Err(reason);
     }
 
-    let sandbox = Arc::new(compute_sandbox(&trust, bundle_dir, &manifest));
+    let sandbox = Arc::new(compute_sandbox(&trust, bundle_dir, &manifest)?);
     let vm = PluginVm::load_with_manifest_sandboxed(&manifest.id, &entry, manifest_json, sandbox)
         .map_err(|e| format!("VM init for {}: {e}", manifest.id))?;
 
@@ -188,7 +188,8 @@ fn compute_sandbox(
     trust: &crate::provider::ProviderTrust,
     bundle_dir: &Path,
     manifest: &PluginManifest,
-) -> crate::js_runtime::host_api::PluginSandbox {
+) -> Result<crate::js_runtime::host_api::PluginSandbox, String> {
+    crate::plugin_id::validate(&manifest.id)?;
     use crate::js_runtime::host_api::PluginSandbox;
     use crate::provider::ProviderTrust;
 
@@ -233,7 +234,13 @@ fn compute_sandbox(
     };
 
     // onto every path, including unrestricted/dev.
-    base.with_identity_and_perms(&manifest.id, &perms)
+    Ok(base
+        .with_identity_and_perms(&manifest.id, &perms)
+        .with_binary_transfer(
+            manifest.capabilities.binary_transfer.clone(),
+            bundle_dir,
+            &manifest.permissions,
+        )
         .with_receiver_status_query(manifest.capabilities.receiver_status_query.clone())
         .with_project_roots(
             roots,
@@ -241,7 +248,7 @@ fn compute_sandbox(
             crate::js_runtime::grants::grants_path(bundle_dir),
         )
         .with_token_mode(manifest.capabilities.decision_model.token_mode)
-        .with_settings(settings_json)
+        .with_settings(settings_json))
 }
 
 /// A bundle under the user plugins dir `~/.domios/plugins/`, as opposed to a
@@ -453,5 +460,7 @@ fn ordered_roots(
     out
 }
 
+#[cfg(test)]
+mod identity_tests;
 #[cfg(test)]
 mod tests;

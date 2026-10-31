@@ -1,3 +1,5 @@
+import { MemoryProvenance } from "./MemoryProvenance";
+import { useProvenanceRings } from "./useProvenanceRings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { CanvasToolbar } from "@codeterm/chat-ui";
 import Sigma from "sigma";
@@ -29,6 +31,7 @@ import type { SnapshotEdge, SnapshotNode } from "./snapshotTypes";
 interface Props {
   api: ApiConfig;
   index: NodeIndex;
+  metadataNodes?: Map<string, MemNode>;
   pulses: Map<string, Pulse>;
   registerFit: (fn: () => void) => void;
   registerRecenter: (fn: () => void) => void;
@@ -63,6 +66,7 @@ function clusterNodeKey(id: number): string {
 export function MemorySnapshotCanvas({
   api,
   index,
+  metadataNodes,
   pulses,
   registerFit,
   registerRecenter,
@@ -109,6 +113,7 @@ export function MemorySnapshotCanvas({
   const handlersRef = useRef({ setSelectedId });
   handlersRef.current = { setSelectedId };
 
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set());
   const [chipStyle, setChipStyle] = useState<{
     x: number;
     y: number;
@@ -220,7 +225,9 @@ export function MemorySnapshotCanvas({
       draggingRef.current = null;
       const attrs = graph.getNodeAttributes(id);
       // Persist drag as a pin (graph y is screen-down; store math-up).
-      setPinnedPosition(api, id, attrs.x as number, -(attrs.y as number)).catch(() => {});
+      setPinnedPosition(api, id, attrs.x as number, -(attrs.y as number))
+        .then(() => setPinnedIds(previous => new Set(previous).add(id)))
+        .catch(() => {});
     };
     sigma.on("upNode", handleUp);
     sigma.on("upStage", handleUp);
@@ -232,7 +239,9 @@ export function MemorySnapshotCanvas({
     };
   }, [api.host, api.port, api.token]);
 
-  const adapterNodes = useMemo(() => buildAdapterMap(index, labelsRef.current), [index, labelTick]);
+  const provenanceCanvasRef = useProvenanceRings(sigmaRef, metadataNodes);
+
+  const adapterNodes = useMemo(() => buildAdapterMap(index, labelsRef.current, metadataNodes, pinnedIds), [index, labelTick, metadataNodes, pinnedIds]);
 
   const rebuildGraph = useCallback(() => {
     const graph = graphRef.current;
@@ -421,13 +430,13 @@ export function MemorySnapshotCanvas({
       if (!n || !graph?.hasNode(activeId)) return;
       const attrs = graph.getNodeAttributes(activeId);
       const viewport = sigma.graphToViewport({ x: attrs.x as number, y: attrs.y as number });
-      const title = labelsRef.current.get(activeId) ?? activeId;
+      const title = metadataNodes?.get(activeId)?.title ?? labelsRef.current.get(activeId) ?? activeId;
       setChipStyle((prev) => {
         const next = {
           x: viewport.x,
           y: viewport.y,
           label: truncate(title, 60),
-          sub: n.kind,
+          sub: [n.kind, (n.pinned || pinnedIds.has(activeId)) ? "Position fixed" : null].filter(Boolean).join(" · "),
         };
         if (
           prev &&
@@ -444,7 +453,7 @@ export function MemorySnapshotCanvas({
     sigma.on("afterRender", onAfter);
     onAfter();
     return () => { sigma.off("afterRender", onAfter); };
-  }, [selectedId, hoveredId, labelTick]);
+  }, [selectedId, hoveredId, labelTick, metadataNodes, pinnedIds]);
 
   const doFit = useCallback(() => {
     const sigma = sigmaRef.current;
@@ -478,6 +487,7 @@ export function MemorySnapshotCanvas({
     registerRecenter(doFit);
   }, [registerFit, registerRecenter, doFit]);
 
+  const activeAuthor = metadataNodes?.get(selectedId ?? hoveredId ?? "")?.author;
   const selectedNode = selectedId ? adapterNodes.get(selectedId) ?? null : null;
   const detailEdges: MemEdge[] = useMemo(
     () =>
@@ -503,6 +513,7 @@ export function MemorySnapshotCanvas({
   return (
     <div className="absolute inset-0 overflow-hidden bg-[var(--ct-bg)]">
       <div ref={containerRef} className="absolute inset-0" />
+      <canvas ref={provenanceCanvasRef} aria-hidden="true" className="absolute inset-0 w-full h-full pointer-events-none" />
       <CanvasToolbar label="Memory graph controls" view={toolbarView} onFit={doFit} onZoomOut={() => { void sigmaRef.current?.getCamera().animatedUnzoom(); }} onZoomIn={() => { void sigmaRef.current?.getCamera().animatedZoom(); }} onRefresh={onRefresh} refreshTestId="memory-graph-refresh" />
 
       {chipStyle && (
@@ -512,15 +523,17 @@ export function MemorySnapshotCanvas({
             left: chipStyle.x,
             top: chipStyle.y,
             transform: "translate(12px, -50%)",
-            background: SELECTION_COLOR,
-            color: "#111",
+            background: "var(--ct-surface)",
+            color: "var(--ct-fg)",
+            border: "1px solid var(--ct-border)",
             boxShadow: "0 1px 2px rgba(0,0,0,0.3)",
           }}
         >
           <div className="text-[11px] font-medium leading-tight break-words">
             {chipStyle.label}
           </div>
-          <div className="text-[9px] opacity-70 leading-tight mt-0.5">{chipStyle.sub}</div>
+          <div className="text-xs opacity-70 leading-tight mt-0.5">{chipStyle.sub}</div>
+          <MemoryProvenance author={activeAuthor} compact />
         </div>
       )}
 
@@ -536,7 +549,7 @@ export function MemorySnapshotCanvas({
         />
       )}
 
-      <div className="absolute top-2 left-2 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">
+      <div className="absolute bottom-3 left-3 right-3 max-w-[520px] flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--ct-muted-fg)] pointer-events-none opacity-55 leading-[1.4]">
         {Object.entries(KIND_COLORS).map(([kind, color]) => (
           <span key={kind} className="flex items-center gap-1 whitespace-nowrap">
             <span
@@ -551,7 +564,7 @@ export function MemorySnapshotCanvas({
   );
 }
 
-function buildAdapterMap(index: NodeIndex, labels: Map<string, string>): Map<string, MemNode> {
+function buildAdapterMap(index: NodeIndex, labels: Map<string, string>, metadataNodes?: Map<string, MemNode>, pinnedIds = new Set<string>()): Map<string, MemNode> {
   const out = new Map<string, MemNode>();
   for (const [id, n] of index.byId) {
     out.set(id, {
@@ -564,6 +577,8 @@ function buildAdapterMap(index: NodeIndex, labels: Map<string, string>): Map<str
       tags: null,
       has_vector: n.has_vector,
       has_body: true,
+      ...metadataNodes?.get(id),
+      pinned: n.pinned || pinnedIds.has(id),
     });
   }
   return out;

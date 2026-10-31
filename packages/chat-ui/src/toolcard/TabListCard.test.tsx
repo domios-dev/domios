@@ -18,4 +18,11 @@ const root = createRoot(host);
 await act(async () => root.render(<TabListCard event={{ id: "tabs", phase: "result", status: "success", kind: "codeterm", result: output, message: { id: "tabs", type: "tool_result", content: "" } }} />));
 if (host.querySelectorAll('[data-testid="tab-list-workspace"]').length !== 2 || host.querySelectorAll('[data-testid="tab-list-row"]').length !== 3) throw new Error("compact tab list rendering regression");
 if (!host.textContent?.includes("card implementation") || !host.textContent.includes("Research")) throw new Error("compact tab list labels regression");
-console.log("tab list card tests: 3/3 passed");
+
+const compactOutput = "aaaa1111  Adele (self) — Working\nbbbb2222  Scout — findings reported\n";
+const compactGroups = parseTabListTree(compactOutput);
+if (compactGroups.length !== 1 || compactGroups[0].rows.length !== 2 || compactGroups[0].rows[0].title !== "Adele (self)") throw new Error("compact CLI rows must render as tabs");
+await act(async () => root.render(<TabListCard event={{ id: "compact", phase: "result", status: "success", kind: "codeterm", result: compactOutput, message: { id: "compact", type: "tool_result", content: "" } }} />));
+if (host.querySelectorAll('[data-testid="tab-list-row"]').length !== 2 || !host.textContent?.includes("findings reported")) throw new Error("compact CLI tab card loses records");
+
+console.log("tab list card tests: 5/5 passed");

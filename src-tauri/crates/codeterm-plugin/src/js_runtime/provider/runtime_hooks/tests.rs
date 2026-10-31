@@ -7,8 +7,114 @@ fn context() -> RuntimeContext {
     serde_json::from_value(json!({"epoch":1,"tabId":"own-tab","bindingNonce":"own-nonce","cwd":"/project","hostVersion":"1.0.0","claimedSends":[],"settings":{},"providerSettings":{}})).unwrap()
 }
 
+#[tokio::test(flavor = "current_thread")]
+async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_settings() {
+    let mut ctx = context();
+    ctx.settings.mode = Some("workspace-write".into());
+    ctx.settings.network_access = Some(false);
+    ctx.restricted_cli = Some(RestrictedCliPolicy {
+        tab_id: ctx.tab_id.clone(),
+        binding_nonce: ctx.binding_nonce.clone(),
+        epoch: ctx.epoch,
+        cwd: ctx.cwd.clone(),
+        metadata_directory: ".runtime-policy".into(),
+        executable: "/trusted/cli".into(),
+        executable_sha256: "a".repeat(64),
+        config_sha256: "b".repeat(64),
+        rule_sha256: "c".repeat(64),
+    });
+    let js = provider("module.exports={runtimePlan(ctx){return {action:{kind:'request',call:{method:'handshake',params:ctx.restrictedCli}},state:null}}}");
+    assert_eq!(
+        js.agent_runtime().unwrap().restricted_cli,
+        Some(RestrictedCliCapability::ExecpolicyServiceOperations {
+            metadata_directory: ".runtime-policy".into()
+        })
+    );
+    let plan = js
+        .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+        .await
+        .unwrap();
+    let RuntimeAction::Request { call } = plan.action else {
+        panic!("expected request")
+    };
+    assert_eq!(
+        call.params,
+        serde_json::to_value(ctx.restricted_cli.as_ref().unwrap()).unwrap()
+    );
+    for field in [
+        "tab",
+        "nonce",
+        "epoch",
+        "cwd",
+        "metadata",
+        "malformed-metadata",
+        "executable",
+        "hash",
+    ] {
+        let mut changed = ctx.clone();
+        let policy = changed.restricted_cli.as_mut().unwrap();
+        match field {
+            "tab" => policy.tab_id = "foreign".into(),
+            "nonce" => policy.binding_nonce = "foreign".into(),
+            "epoch" => policy.epoch += 1,
+            "cwd" => policy.cwd = "foreign".into(),
+            "metadata" => policy.metadata_directory = ".foreign".into(),
+            "malformed-metadata" => policy.metadata_directory = "../foreign".into(),
+            "executable" => policy.executable = "C:/unsafe path/cli.exe".into(),
+            _ => policy.rule_sha256 = "invalid".into(),
+        }
+        assert!(
+            js.runtime_plan(&changed, &RuntimeOperation::Initialize)
+                .await
+                .is_err(),
+            "{field}"
+        );
+    }
+    ctx.restricted_cli = None;
+    ctx.provider_settings = json!({"restrictedCli":{"tabId":"forged"}});
+    assert!(validate_runtime_context(&ctx).is_ok());
+}
+
+#[test]
+fn restricted_cli_descriptor_requires_a_valid_metadata_directory() {
+    let value =
+        json!({"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"});
+    let capability: RestrictedCliCapability = serde_json::from_value(value.clone()).unwrap();
+    assert_eq!(capability.metadata_directory(), ".runtime-policy");
+    assert_eq!(serde_json::to_value(capability).unwrap(), value);
+    assert!(serde_json::from_value::<RestrictedCliCapability>(json!(
+        "execpolicy-service-operations"
+    ))
+    .is_err());
+    assert!(serde_json::from_value::<RestrictedCliCapability>(
+        json!({"kind":"execpolicy-service-operations"})
+    )
+    .is_err());
+    for directory in [
+        "",
+        ".",
+        "..",
+        ".git",
+        ".GIT",
+        "../foreign",
+        ".own/foreign",
+        ".own\\foreign",
+        "C:/foreign",
+        ".own:stream",
+        ".own.",
+    ] {
+        assert!(
+            serde_json::from_value::<RestrictedCliCapability>(
+                json!({"kind":"execpolicy-service-operations","metadataDirectory":directory})
+            )
+            .is_err(),
+            "{directory}"
+        );
+    }
+}
+
 fn provider(source: &str) -> JsProvider {
-    let manifest = PluginManifest::from_json_str(&json!({"id":"runtime-hook-fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"],"answer":[],"interrupt":["interrupt"]},"notificationMethods":["changed"]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest = PluginManifest::from_json_str(&json!({"id":"runtime-hook-fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":{"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"},"runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"],"answer":[],"interrupt":["interrupt"]},"notificationMethods":["changed"]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     JsProvider::new(
         manifest,
         Arc::new(PluginVm::from_source("runtime-hook-fixture", source.into()).unwrap()),

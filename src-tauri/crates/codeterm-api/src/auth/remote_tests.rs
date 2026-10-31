@@ -1,10 +1,7 @@
 use super::*;
 use axum::{body::Body, routing::get, Router};
 use codeterm_service_core::{
-    mesh::{
-        account_mesh::{AccountMeshState, AccountPresence},
-        types::PairedPeer,
-    },
+    mesh::{account_mesh::AccountPresence, types::PairedPeer},
     multiplexer::state::MultiplexerState,
     service::test_fixture::ServiceFixture,
 };
@@ -25,15 +22,15 @@ fn request(path: &str, address: &str, token: &str) -> Request {
 }
 
 fn apply(state: &AppState, presence: AccountPresence) {
-    state.mesh.lock().apply_account_state(AccountMeshState {
-        presence,
-        ..Default::default()
-    });
+    let mut mesh = state.mesh.lock();
+    let mut account = mesh.account_state().clone();
+    account.presence = presence;
+    mesh.apply_account_state(account);
 }
 
 fn signed_peer(state: &AppState) -> String {
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
-    state.mesh.lock().insert_legacy_pair_for_test(PairedPeer {
+    state.mesh.lock().insert_account_peer_for_test(PairedPeer {
         instance_id: "paired".into(),
         instance_name: "paired".into(),
         addresses: vec![],
@@ -77,14 +74,14 @@ async fn presence_address_and_credential_matrix() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
+    let admitted = state.mesh.lock().account_state().presence.clone();
     for presence in [
         AccountPresence::NeverSignedIn,
-        AccountPresence::SignedIn {
-            account_id: "account".into(),
-        },
+        admitted,
         AccountPresence::SignedOut,
     ] {
         let signed_out = presence == AccountPresence::SignedOut;
+        let signed_in = matches!(presence, AccountPresence::SignedIn { .. });
         apply(&state, presence);
         for address in [
             "127.0.0.1:9000",
@@ -106,7 +103,7 @@ async fn presence_address_and_credential_matrix() {
                     .unwrap();
                 let expected = if signed_out && remote {
                     StatusCode::SERVICE_UNAVAILABLE
-                } else if signed_out && token == peer {
+                } else if !signed_in && token == peer {
                     StatusCode::UNAUTHORIZED
                 } else {
                     StatusCode::OK
@@ -194,9 +191,10 @@ async fn signed_out_closes_open_remote_bodies_but_preserves_loopback() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
+    let admitted = state.mesh.lock().account_state().presence.clone();
     for token in ["preview-test-token", peer.as_str()] {
         for address in ["100.64.0.2:9000", "127.0.0.1:9000"] {
-            apply(&state, AccountPresence::NeverSignedIn);
+            apply(&state, admitted.clone());
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<String, std::io::Error>>();
             let rx = std::sync::Arc::new(parking_lot::Mutex::new(Some(rx)));
             let streaming = Router::new()
@@ -393,13 +391,9 @@ async fn tailnet_sign_out_closes_peer_stream_but_preserves_instance_token_stream
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let peer = signed_peer(&state);
+    let admitted = state.mesh.lock().account_state().presence.clone();
     for token in ["preview-test-token", peer.as_str()] {
-        apply(
-            &state,
-            AccountPresence::SignedIn {
-                account_id: "account".into(),
-            },
-        );
+        apply(&state, admitted.clone());
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Result<String, std::io::Error>>();
         let rx = std::sync::Arc::new(parking_lot::Mutex::new(Some(rx)));
         let streaming = Router::new()

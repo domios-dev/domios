@@ -8,8 +8,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
+mod context;
+pub use context::{
+    current_view_call_context, has_view_call_context, with_view_call_context, ViewActor,
+    ViewCallContext, ViewCallOrigin, ViewOwnerScope,
+};
+
 use crate::capability::CapabilityRegistry;
-use crate::js_runtime::WebhookReceiverKind;
+use crate::js_runtime::{ViewHostAction, WebhookReceiverKind};
 
 #[derive(Debug)]
 pub enum ViewError {
@@ -26,9 +32,12 @@ impl std::fmt::Display for ViewError {
 
 impl std::error::Error for ViewError {}
 
-/// A plugin that renders an iframe UI. `call` is the single bridge entry.
+/// A plugin iframe backend. Host-owned ports remain separate from viewCall.
 #[async_trait]
 pub trait ViewProvider: Send + Sync {
+    fn invocation_runtime(&self) -> Option<String> {
+        None
+    }
     fn id(&self) -> &str;
 
     /// The webhook capability served by this view, when it has one.
@@ -36,9 +45,43 @@ pub trait ViewProvider: Send + Sync {
         None
     }
 
+    /// The user-gesture host actions the plugin declared for its view; nothing else is performed.
+    fn host_actions(&self) -> &[ViewHostAction] {
+        &[]
+    }
+
+    fn view_inputs(&self) -> Option<crate::media_delivery::ViewInputDescriptor> {
+        None
+    }
+
+    fn media_delivery(&self) -> Option<crate::media_delivery::MediaDeliveryDescriptor> {
+        None
+    }
+
+    async fn media_file(
+        &self,
+        _id: &str,
+        _context: &crate::view_host::ViewCallContext,
+    ) -> Result<crate::media_delivery::MediaFile, ViewError> {
+        Err(ViewError::Call("media delivery not supported".into()))
+    }
+
+    async fn run_media_file(
+        &self,
+        _id: &str,
+        _context: &crate::media_delivery::RunMediaLookupContext,
+    ) -> Result<crate::media_delivery::MediaFile, ViewError> {
+        Err(ViewError::Call("durable media lookup not supported".into()))
+    }
+
     /// Dispatch one `ct.invoke(method, args)` from the iframe to the plugin's
     /// `viewCall(method, args)` export. Returns its JSON result.
-    async fn call(&self, method: &str, args: Value) -> Result<Value, ViewError>;
+    async fn call(
+        &self,
+        method: &str,
+        args: Value,
+        context: &ViewCallContext,
+    ) -> Result<Value, ViewError>;
 }
 
 pub type ViewRegistry = CapabilityRegistry<dyn ViewProvider>;

@@ -25,7 +25,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
             } else if from_stdin {
                 read_stdin_or_die("--from-stdin")
             } else if let Some(path) = from_file {
-                match std::fs::read_to_string(&path) {
+                match crate::local_admission::read_local_text(&path) {
                     Ok(s) => s,
                     Err(e) => {
                         crate::cmd::print::fail(
@@ -70,7 +70,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                         crate::cmd::print::fail(1, format!("HTTP {}: {}", status.as_u16(), msg));
                     }
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else if let Some(id) = val.get("id").and_then(|v| v.as_str()) {
                         println!("{}", id);
                     } else {
@@ -91,7 +91,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
                     crate::cmd::print::fail_http(1, status.as_u16(), &val.to_string());
                 }
                 if json {
-                    println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                    println!("{}", crate::cmd::output::encode(&val).unwrap());
                     return;
                 }
                 let Some(arr) = val.as_array() else {
@@ -307,10 +307,7 @@ mod tests {
 /// One renderer for local and mesh `paste get`: the exact body, or the record with `--json`.
 pub(crate) fn render_paste(val: &serde_json::Value, json: bool) -> String {
     if json {
-        format!(
-            "{}\n",
-            serde_json::to_string_pretty(val).unwrap_or_default()
-        )
+        format!("{}\n", crate::cmd::output::encode(val).unwrap_or_default())
     } else {
         val.get("body")
             .and_then(|v| v.as_str())

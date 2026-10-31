@@ -76,50 +76,37 @@ impl OrchestrationLedger {
         })
     }
 
-    fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
-        conn.execute_batch(
-            r#"
-            PRAGMA journal_mode = WAL;
-            PRAGMA synchronous = NORMAL;
-            "#,
-        )?;
-        let user_version = Self::user_version(conn)?;
-        Self::migrate(conn, user_version)?;
-        Ok(())
-    }
-
-    fn migrate(conn: &Connection, from_version: u32) -> rusqlite::Result<()> {
-        let mut version = from_version;
-        loop {
-            match version {
-                0 => {
-                    Self::create_v1_schema(conn)?;
-                    version = 1;
-                }
-                1 => {
-                    Self::migrate_v1_to_v2(conn)?;
-                    version = 2;
-                }
-                2 => {
-                    Self::migrate_v2_to_v3(conn)?;
-                    version = 3;
-                }
-                CURRENT_LEDGER_SCHEMA_VERSION => return Ok(()),
-                _ if version > CURRENT_LEDGER_SCHEMA_VERSION => {
-                    return Err(rusqlite::Error::InvalidQuery);
-                }
-                _ => return Err(rusqlite::Error::InvalidQuery),
-            }
+    fn init_schema(conn: &Connection) -> Result<(), String> {
+        let version = Self::user_version(conn).map_err(|error| error.to_string())?;
+        let populated: bool = conn
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%')",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(|error| error.to_string())?;
+        if version != CURRENT_LEDGER_SCHEMA_VERSION && (version != 0 || populated) {
+            return Err(format!(
+                "unsupported orchestration ledger schema version {version}; expected {CURRENT_LEDGER_SCHEMA_VERSION}; data was preserved"
+            ));
         }
+        if version == 0 {
+            Self::create_current_schema(conn).map_err(|error| error.to_string())?;
+        }
+        conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")
+            .map_err(|error| error.to_string())
     }
 
-    fn create_v1_schema(conn: &Connection) -> rusqlite::Result<()> {
+    fn create_current_schema(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute_batch(
             r#"
+            BEGIN IMMEDIATE;
             CREATE TABLE IF NOT EXISTS orchestration_ledger (
                 orchestrator_tab_id TEXT NOT NULL,
                 worker_tab_id       TEXT NOT NULL,
                 title                TEXT NOT NULL DEFAULT '',
+                plan_id              TEXT,
+                task_id              TEXT,
                 branch               TEXT,
                 model                TEXT,
                 status               TEXT,
@@ -136,57 +123,10 @@ impl OrchestrationLedger {
             CREATE INDEX IF NOT EXISTS idx_ledger_orchestrator
                 ON orchestration_ledger(orchestrator_tab_id);
 
-            PRAGMA user_version = 1;
-            "#,
-        )
-    }
-
-    fn migrate_v1_to_v2(conn: &Connection) -> rusqlite::Result<()> {
-        conn.execute_batch(
-            r#"
-            ALTER TABLE orchestration_ledger ADD COLUMN plan_id TEXT;
-            ALTER TABLE orchestration_ledger ADD COLUMN task_id TEXT;
-            PRAGMA user_version = 2;
-            "#,
-        )
-    }
-
-    fn migrate_v2_to_v3(conn: &Connection) -> rusqlite::Result<()> {
-        if Self::has_column(conn, "orchestrator_pane_id")? {
-            conn.execute(
-                "ALTER TABLE orchestration_ledger RENAME COLUMN orchestrator_pane_id TO orchestrator_tab_id",
-                [],
-            )?;
-        }
-        if Self::has_column(conn, "worker_pane_id")? {
-            conn.execute(
-                "ALTER TABLE orchestration_ledger RENAME COLUMN worker_pane_id TO worker_tab_id",
-                [],
-            )?;
-        }
-        if !Self::has_column(conn, "orchestrator_tab_id")?
-            || !Self::has_column(conn, "worker_tab_id")?
-        {
-            return Err(rusqlite::Error::InvalidQuery);
-        }
-        conn.execute_batch(
-            r#"
-            CREATE INDEX IF NOT EXISTS idx_ledger_orchestrator
-                ON orchestration_ledger(orchestrator_tab_id);
             PRAGMA user_version = 3;
+            COMMIT;
             "#,
         )
-    }
-
-    fn has_column(conn: &Connection, column: &str) -> rusqlite::Result<bool> {
-        let mut statement = conn.prepare("PRAGMA table_info(orchestration_ledger)")?;
-        let names = statement.query_map([], |row| row.get::<_, String>(1))?;
-        for name in names {
-            if name? == column {
-                return Ok(true);
-            }
-        }
-        Ok(false)
     }
 
     fn user_version(conn: &Connection) -> rusqlite::Result<u32> {
@@ -337,345 +277,4 @@ fn parse_status(s: &str) -> Option<ReportStatus> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn row(orch: &str, worker: &str, status: ReportStatus, at: u64) -> LedgerRow {
-        LedgerRow {
-            orchestrator_tab_id: orch.into(),
-            worker_tab_id: worker.into(),
-            title: "Worker".into(),
-            plan_id: Some("pl_1".into()),
-            task_id: Some("task_1".into()),
-            branch: Some("orch-p3-ledger".into()),
-            model: Some("opus".into()),
-            status: Some(status),
-            message: "msg".into(),
-            sha: Some("deadbeef".into()),
-            changed_files: Some(vec!["a.rs".into(), "b.rs".into()]),
-            test_cmd: Some("cargo test".into()),
-            test_result: Some("ok".into()),
-            skipped: None,
-            updated_at: at,
-        }
-    }
-
-    fn temp_db() -> std::path::PathBuf {
-        std::env::temp_dir().join(format!(
-            "ledger-test-{}/orchestration.db",
-            ulid::Ulid::new()
-        ))
-    }
-
-    fn create_pre_versioning_schema(conn: &Connection) {
-        conn.execute_batch(
-            r#"
-            CREATE TABLE orchestration_ledger (
-                orchestrator_tab_id TEXT NOT NULL,
-                worker_tab_id       TEXT NOT NULL,
-                title                TEXT NOT NULL DEFAULT '',
-                branch               TEXT,
-                model                TEXT,
-                status               TEXT,
-                message              TEXT NOT NULL DEFAULT '',
-                sha                  TEXT,
-                changed_files_json   TEXT,
-                test_cmd             TEXT,
-                test_result          TEXT,
-                skipped              TEXT,
-                updated_at           INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (orchestrator_tab_id, worker_tab_id)
-            );
-            "#,
-        )
-        .unwrap();
-    }
-
-    fn create_legacy_v2_schema(conn: &Connection) {
-        conn.execute_batch(
-            r#"
-            CREATE TABLE orchestration_ledger (
-                orchestrator_pane_id TEXT NOT NULL,
-                worker_pane_id       TEXT NOT NULL,
-                title                TEXT NOT NULL DEFAULT '',
-                branch               TEXT,
-                model                TEXT,
-                status               TEXT,
-                message              TEXT NOT NULL DEFAULT '',
-                sha                  TEXT,
-                changed_files_json   TEXT,
-                test_cmd             TEXT,
-                test_result          TEXT,
-                skipped              TEXT,
-                updated_at           INTEGER NOT NULL DEFAULT 0,
-                plan_id              TEXT,
-                task_id              TEXT,
-                PRIMARY KEY (orchestrator_pane_id, worker_pane_id)
-            );
-            CREATE INDEX idx_ledger_orchestrator
-                ON orchestration_ledger(orchestrator_pane_id);
-            INSERT INTO orchestration_ledger (
-                orchestrator_pane_id, worker_pane_id, title, branch, model,
-                status, message, sha, changed_files_json, test_cmd,
-                test_result, skipped, updated_at, plan_id, task_id
-            ) VALUES ('orch', 'w1', 'Worker', 'main', 'opus', 'done', 'msg',
-                      'deadbeef', '["a.rs"]', 'cargo test', 'ok', NULL, 42,
-                      'plan-a', 'task-a');
-            PRAGMA user_version = 2;
-            "#,
-        )
-        .unwrap();
-    }
-
-    #[test]
-    fn list_completed_returns_only_finished_lanes_newest_first() {
-        let db = temp_db();
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        ledger
-            .upsert(&row("orch_a", "w_done", ReportStatus::Done, 300))
-            .unwrap();
-        ledger
-            .upsert(&row("orch_b", "w_review", ReportStatus::InReview, 200))
-            .unwrap();
-        ledger
-            .upsert(&row("orch_a", "w_blocked", ReportStatus::Blocked, 400))
-            .unwrap();
-        ledger
-            .upsert(&row("orch_b", "w_partial", ReportStatus::Partial, 500))
-            .unwrap();
-
-        let completed = ledger.list_completed(50).unwrap();
-        let workers: Vec<&str> = completed.iter().map(|r| r.worker_tab_id.as_str()).collect();
-        assert_eq!(
-            workers,
-            vec!["w_done", "w_review"],
-            "only done/in_review lanes appear, most-recently-finished first, spanning all orchestrators"
-        );
-    }
-
-    #[test]
-    fn list_completed_respects_limit() {
-        let db = temp_db();
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        ledger
-            .upsert(&row("orch", "w1", ReportStatus::Done, 100))
-            .unwrap();
-        ledger
-            .upsert(&row("orch", "w2", ReportStatus::Done, 200))
-            .unwrap();
-        ledger
-            .upsert(&row("orch", "w3", ReportStatus::Done, 300))
-            .unwrap();
-        let completed = ledger.list_completed(2).unwrap();
-        assert_eq!(completed.len(), 2);
-        assert_eq!(completed[0].worker_tab_id, "w3");
-        assert_eq!(completed[1].worker_tab_id, "w2");
-    }
-
-    fn insert_pre_versioning_row(conn: &Connection) {
-        conn.execute(
-            r#"
-            INSERT INTO orchestration_ledger (
-                orchestrator_tab_id, worker_tab_id, title, branch, model,
-                status, message, sha, changed_files_json, test_cmd,
-                test_result, skipped, updated_at
-            ) VALUES ('orch', 'w1', 'Worker', 'main', 'opus', 'done', 'msg',
-                      'deadbeef', '["a.rs"]', 'cargo test', 'ok', NULL, 42)
-            "#,
-            [],
-        )
-        .unwrap();
-    }
-
-    fn table_exists(conn: &Connection, table_name: &str) -> bool {
-        conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1)",
-            params![table_name],
-            |r| r.get::<_, bool>(0),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn upsert_keeps_one_row_with_latest_status() {
-        let db = temp_db();
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-
-        ledger
-            .upsert(&row("orch", "w1", ReportStatus::Partial, 100))
-            .unwrap();
-        ledger
-            .upsert(&row("orch", "w1", ReportStatus::Done, 200))
-            .unwrap();
-
-        let listed = ledger.list_for_orchestrator("orch").unwrap();
-        assert_eq!(listed.len(), 1, "re-report UPSERTs, not appends");
-        assert_eq!(
-            listed[0].status,
-            Some(ReportStatus::Done),
-            "latest status wins"
-        );
-        assert_eq!(listed[0].updated_at, 200);
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn rows_survive_drop_and_reopen() {
-        let db = temp_db();
-        {
-            let ledger = OrchestrationLedger::open_at(&db).unwrap();
-            ledger
-                .upsert(&row("orch", "w1", ReportStatus::Done, 1))
-                .unwrap();
-            ledger
-                .upsert(&row("orch", "w2", ReportStatus::Blocked, 2))
-                .unwrap();
-        } // Connection dropped — simulates daemon restart.
-
-        let reopened = OrchestrationLedger::open_at(&db).unwrap();
-        let listed = reopened.list_for_orchestrator("orch").unwrap();
-        assert_eq!(listed.len(), 2, "ledger rows persist across reopen");
-        // ORDER BY updated_at DESC: w2 first.
-        assert_eq!(listed[0].worker_tab_id, "w2");
-        assert_eq!(listed[0].status, Some(ReportStatus::Blocked));
-        assert_eq!(listed[1].worker_tab_id, "w1");
-        assert_eq!(listed[1].status, Some(ReportStatus::Done));
-        let conn = Connection::open(&db).unwrap();
-        assert_eq!(
-            OrchestrationLedger::user_version(&conn).unwrap(),
-            CURRENT_LEDGER_SCHEMA_VERSION
-        );
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn list_scopes_to_one_orchestrator() {
-        let db = temp_db();
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        ledger
-            .upsert(&row("orch-1", "w1", ReportStatus::Done, 1))
-            .unwrap();
-        ledger
-            .upsert(&row("orch-2", "w2", ReportStatus::Done, 1))
-            .unwrap();
-        assert_eq!(ledger.list_for_orchestrator("orch-1").unwrap().len(), 1);
-        assert_eq!(ledger.list_for_orchestrator("orch-2").unwrap().len(), 1);
-        assert_eq!(ledger.list_for_orchestrator("nobody").unwrap().len(), 0);
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn structured_fields_round_trip_through_sql() {
-        let db = temp_db();
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        let r = row("orch", "w1", ReportStatus::Done, 42);
-        ledger.upsert(&r).unwrap();
-        let back = ledger.list_for_orchestrator("orch").unwrap();
-        assert_eq!(back[0], r, "every column round-trips through sqlite");
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn reopening_existing_db_is_idempotent() {
-        let db = temp_db();
-        let l1 = OrchestrationLedger::open_at(&db).unwrap();
-        l1.upsert(&row("orch", "w1", ReportStatus::Done, 1))
-            .unwrap();
-        drop(l1);
-        // Second open must not error or wipe existing rows.
-        let l2 = OrchestrationLedger::open_at(&db).unwrap();
-        assert_eq!(l2.list_for_orchestrator("orch").unwrap().len(), 1);
-        let conn = l2.conn.lock();
-        assert_eq!(
-            OrchestrationLedger::user_version(&conn).unwrap(),
-            CURRENT_LEDGER_SCHEMA_VERSION
-        );
-        drop(conn);
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn fresh_db_migrates_to_current_schema_version() {
-        let db = temp_db();
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        let conn = ledger.conn.lock();
-        assert!(table_exists(&conn, "orchestration_ledger"));
-        assert_eq!(
-            OrchestrationLedger::user_version(&conn).unwrap(),
-            CURRENT_LEDGER_SCHEMA_VERSION
-        );
-        drop(conn);
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn pre_versioning_db_migrates_to_current_without_dropping_rows() {
-        let db = temp_db();
-        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
-        {
-            let conn = Connection::open(&db).unwrap();
-            create_pre_versioning_schema(&conn);
-            insert_pre_versioning_row(&conn);
-            assert_eq!(OrchestrationLedger::user_version(&conn).unwrap(), 0);
-        }
-
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        let rows = ledger.list_for_orchestrator("orch").unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].worker_tab_id, "w1");
-        assert_eq!(rows[0].plan_id, None);
-        assert_eq!(rows[0].task_id, None);
-        assert_eq!(rows[0].updated_at, 42);
-        let conn = ledger.conn.lock();
-        assert_eq!(
-            OrchestrationLedger::user_version(&conn).unwrap(),
-            CURRENT_LEDGER_SCHEMA_VERSION
-        );
-        drop(conn);
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn legacy_v2_pane_columns_migrate_without_dropping_rows() {
-        let db = temp_db();
-        std::fs::create_dir_all(db.parent().unwrap()).unwrap();
-        {
-            let conn = Connection::open(&db).unwrap();
-            create_legacy_v2_schema(&conn);
-        }
-
-        let ledger = OrchestrationLedger::open_at(&db).unwrap();
-        let rows = ledger.list_for_orchestrator("orch").unwrap();
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].worker_tab_id, "w1");
-        assert_eq!(rows[0].plan_id.as_deref(), Some("plan-a"));
-        assert_eq!(rows[0].task_id.as_deref(), Some("task-a"));
-        ledger
-            .upsert(&row("orch", "w1", ReportStatus::Done, 100))
-            .unwrap();
-        let conn = ledger.conn.lock();
-        assert!(OrchestrationLedger::has_column(&conn, "orchestrator_tab_id").unwrap());
-        assert!(OrchestrationLedger::has_column(&conn, "worker_tab_id").unwrap());
-        assert!(!OrchestrationLedger::has_column(&conn, "orchestrator_pane_id").unwrap());
-        assert_eq!(
-            OrchestrationLedger::user_version(&conn).unwrap(),
-            CURRENT_LEDGER_SCHEMA_VERSION
-        );
-        drop(conn);
-        std::fs::remove_dir_all(db.parent().unwrap()).ok();
-    }
-
-    #[test]
-    fn migrate_ladder_establishes_current_from_zero() {
-        let conn = Connection::open_in_memory().unwrap();
-        assert_eq!(OrchestrationLedger::user_version(&conn).unwrap(), 0);
-
-        OrchestrationLedger::migrate(&conn, 0).unwrap();
-
-        assert!(table_exists(&conn, "orchestration_ledger"));
-        assert_eq!(
-            OrchestrationLedger::user_version(&conn).unwrap(),
-            CURRENT_LEDGER_SCHEMA_VERSION
-        );
-    }
-}
+mod tests;

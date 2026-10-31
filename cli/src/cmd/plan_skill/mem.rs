@@ -29,7 +29,7 @@ pub fn mem_payload(plan_id: &str, slug: &str, skill_md: &Path, body: &str) -> se
 // on-disk skill store/ledger writes that already succeeded.
 pub fn index_skill(plan_id: &str, plan_dir: &Path, slug: &str) -> Result<(), String> {
     let skill_md = skill_md_path(plan_dir, slug);
-    let body = std::fs::read_to_string(&skill_md).map_err(|e| e.to_string())?;
+    let body = crate::local_admission::read_local_text(&skill_md).map_err(|e| e.to_string())?;
     let payload = mem_payload(plan_id, slug, &skill_md, &body);
     let (base, _) = crate::read_api_config();
     let http = crate::build_local_api().map_err(|e| e.to_string())?;

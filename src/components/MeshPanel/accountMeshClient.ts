@@ -1,7 +1,6 @@
 import { createContext, useContext } from "react";
 import { invoke, listen } from "../../lib/bridge";
 import { daemonTransportForPeer } from "../../lib/daemonBootstrap";
-import { AccountMeshRefusalError } from "../billing/accountMeshLimit";
 
 /** Exact registry slot identity the server checks before revoke or link. */
 export interface MeshTarget {
@@ -37,11 +36,11 @@ export interface SelfInstallation extends MeshTarget {
   display_name: string | null;
 }
 
-/** A locally saved pairing; `installation_id` is null until the pair is joined to an account machine. */
+/** A mutually authenticated connection to an account installation. */
 export interface LocalPairFact {
   instance_id: string;
-  installation_id: string | null;
-  admission: "legacy" | "adopted";
+  installation_id: string;
+  admission: "account";
   online: boolean;
   name: string;
 }
@@ -52,7 +51,7 @@ export type AccountMeshFailure =
   | { reason: "invalid" | "unauthenticated" | "app-check" | "forbidden" | "conflict" | "authority-unavailable" | "unavailable" }
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }
-  | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" | "declined" | "expired" }
+  | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" }
   | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" | "reauth_required" };
 
 export type AccountMeshOutcome = { ok: true; result?: { display_name: string; metadata_revision: number } } | { ok: false; failure: AccountMeshFailure; local_signed_out?: boolean };
@@ -64,20 +63,9 @@ export interface AccountMeshLimitNotice {
   trigger: string;
 }
 
-export interface AccountLinkRequest {
-  request_id: string;
-  installation_id: string;
-  name: string;
-  incoming: boolean;
-  expires_at: number;
-  decision: "waiting" | "approved" | "declined" | "expired" | "failed";
-  notification_id: string | null;
-  failure: AccountMeshFailure | null;
-}
-
 export interface AccountMeshSnapshot {
+  local_installation_id: string;
   account_epoch: number;
-  link_requests?: AccountLinkRequest[];
   binding: "none" | "current" | "other";
   traffic: "open" | "blocked_signed_out" | "plan_limit_locked";
   cleanup: "none" | "pending" | "confirmed";
@@ -93,21 +81,15 @@ export interface AccountMeshSnapshot {
   limit_notice?: AccountMeshLimitNotice | null;
 }
 
-type LinkResult = { ok: true } | { ok: false; request_id: string; failure: AccountMeshFailure };
-
 export interface AccountMeshClient {
   snapshot(): Promise<AccountMeshSnapshot>;
   enroll(): Promise<AccountMeshOutcome>;
   list(): Promise<AccountMeshOutcome>;
   subscribe(onChange: () => void): () => void;
-  /** Resolves when the request is accepted; the snapshot carries approval and the final outcome. */
-  link(target: MeshTarget): Promise<void>;
-  answerLink(notificationId: string, approve: boolean): Promise<void>;
   renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   renamePeer?(instanceId: string, expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome>;
   revokeSession(installationId?: string): Promise<AccountMeshOutcome>;
   revoke(target: MeshTarget): Promise<AccountMeshOutcome>;
-  unpair(instanceId: string): Promise<void>;
   acknowledgeLimit(requestId: string): Promise<void>;
 }
 
@@ -115,7 +97,6 @@ const COMMANDS = {
   state: "account_mesh_state",
   enroll: "account_mesh_enroll",
   list: "account_mesh_list",
-  link: "account_mesh_link",
   renameSelf: "account_mesh_rename_self",
   revoke: "account_mesh_revoke",
   acknowledgeLimit: "account_mesh_acknowledge_limit",
@@ -141,11 +122,6 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
       window.removeEventListener("domios:account-changed", onChange);
     };
   },
-  async link(target) {
-    const result = await invoke<LinkResult>(COMMANDS.link, { installationId: target.installation_id });
-    if (!result.ok) throw new AccountMeshRefusalError({ requestId: result.request_id, refusal: result.failure });
-  },
-  answerLink: async (notificationId, approve) => { await invoke("answer_notification", { id: notificationId, label: approve ? "Approve" : "Decline" }); },
   renameSelf: (expectedMetadataRevision, displayName) =>
     invoke<AccountMeshOutcome>(COMMANDS.renameSelf, { expectedMetadataRevision, displayName }),
   renamePeer: (instanceId, expectedMetadataRevision, displayName) => daemonTransportForPeer(instanceId).json("POST", "/api/account/mesh/rename", {
@@ -153,7 +129,6 @@ export const bridgeAccountMeshClient: AccountMeshClient = {
   }),
   revokeSession: (installationId) => invoke<AccountMeshOutcome>("account_mesh_session_revoke", { installationId }),
   revoke: (target) => invoke<AccountMeshOutcome>(COMMANDS.revoke, { target }),
-  unpair: async (instanceId) => { await invoke("mesh_disconnect", { instanceId }); },
   acknowledgeLimit: async (requestId) => { await invoke(COMMANDS.acknowledgeLimit, { requestId }); },
 };
 
@@ -161,18 +136,3 @@ const AccountMeshClientContext = createContext<AccountMeshClient>(bridgeAccountM
 export const AccountMeshClientProvider = AccountMeshClientContext.Provider;
 export const useAccountMeshClient = () => useContext(AccountMeshClientContext);
 
-const FAILURE_REASONS = new Set<string>([
-  "key_conflict", "generation_mismatch", "challenge_invalid", "enrollment_budget", "proof_invalid",
-  "invalid", "unauthenticated", "app-check", "forbidden", "conflict", "authority-unavailable", "unavailable",
-  "rate-limited", "mesh.machines", "offline", "peer-unreachable", "handshake-failed", "signed-out",
-  "declined", "expired", "revoked", "cancelled", "verification-unavailable", "reauth_required",
-]);
-
-/** The typed failure a rejected link carries; anything unrecognized is reported as unavailable. */
-export function linkFailure(error: unknown): AccountMeshFailure {
-  if (!(error instanceof AccountMeshRefusalError)) return { reason: "unavailable" };
-  const refusal = error.notice.refusal as { reason?: unknown } | null;
-  return refusal && typeof refusal.reason === "string" && FAILURE_REASONS.has(refusal.reason)
-    ? refusal as AccountMeshFailure
-    : { reason: "unavailable" };
-}

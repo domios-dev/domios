@@ -23,7 +23,6 @@ export { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, sanitizeStyleValue } fro
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 export { parseAttachedDiscussionDoc } from "./discussionDoc";
 export type { AttachedDiscussionDoc } from "./discussionDoc";
-export { InteractiveElementRenderer } from "./interactive/InteractiveElementRenderer";
 export { InteractiveQuestion } from "./interactive/InteractiveQuestion";
 export type { InteractiveAnswerHandler } from "./interactive/InteractiveQuestion";
 export type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
@@ -37,7 +36,6 @@ export type { OutboundReportDescriptor } from "./codeterm/OutboundReportCard";
 export {
   parseDeliveredTaskOutcome,
   reportContentBody,
-  reportIncidentLine,
   reportOutcomeLine,
   reportOutcomeTone,
   reportVerdict,
@@ -60,7 +58,7 @@ export { ChatBlockMessageProvider, useChatBlockMessageId } from "./blocks/ChatBl
 export { useLiveBinding } from "./blocks/liveBinding";
 export type { LiveBindingSource } from "./blocks/liveBinding";
 export { CHAT_BLOCKS, parseChatBlock, parseChatBlocks } from "./blocks/registry";
-export type { ChatBlockDefinition, ParsedChatBlock } from "./blocks/registry";
+export type { ParsedChatBlock } from "./blocks/registry";
 export { PluginBlock } from "./blocks/PluginBlock";
 export { parsePluginId, pluginPrimaryAction, pluginStatus } from "./blocks/pluginBlockModel";
 export type { PluginBlockInfo, PluginBlockState, PluginLifecycleKind } from "./blocks/pluginBlockModel";
@@ -96,3 +94,5 @@ export { ImageFullscreen, type FullscreenImage } from "./ImageFullscreen";
 
 export { CanvasToolbar, type CanvasToolbarProps } from "./CanvasToolbar";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
+
+export { DsRenderContext, type DsRenderScope } from "./blocks/DsRenderContext";

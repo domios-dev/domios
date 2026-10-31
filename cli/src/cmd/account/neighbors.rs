@@ -29,7 +29,7 @@ pub(super) fn handle(json_mode: bool, action: NeighborAction) {
     let result: Value =
         serde_json::from_str(&body).unwrap_or_else(|_| fail(1, "Invalid Neighbor response"));
     if json_mode {
-        println!("{result}");
+        crate::cmd::print::print_json(&result);
     } else if listing {
         println!("{}", render_list(&result));
     } else {
@@ -86,12 +86,6 @@ fn request(action: NeighborAction) -> (&'static str, Value) {
             json!({"operation":"set_friend_receiver","friendship_id":friendship_id,"receiver_operation":"set","expected_receiver_revision":expected_receiver_revision,"takeover_confirmed":takeover_confirmed})
         }
         NeighborAction::Status => json!({"operation":"status"}),
-        NeighborAction::Enroll {
-            confirm_takeover,
-            expected_receiver_revision,
-        } => {
-            json!({"operation":"enroll","takeover_confirmed":confirm_takeover,"expected_receiver_revision":expected_receiver_revision})
-        }
         NeighborAction::Rotate => json!({"operation":"rotate"}),
         NeighborAction::Revoke => json!({"operation":"revoke"}),
         NeighborAction::OwnKeys => json!({"operation":"own_keys"}),

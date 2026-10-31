@@ -1,8 +1,10 @@
 use super::lane_metadata::{apply_lane_update, normalize_lane_metadata};
+use super::plan_match::NON_TERMINAL_TASK_STATUSES;
 use super::readback::pending_after_verified;
 use super::{
-    qa, section_links, tag_model, task_attempts, NewTask, OpenSubtask, PlanError, PlanStore,
-    SplitParentReason, TaskLaneUpdate,
+    qa, section_links, tag_model, task_attempts, AttemptMatch, AttemptState, MutationWriterTurn,
+    NewTask, OpenSubtask, PlanError, PlanMatch, PlanStore, SplitParentReason, TaskLaneUpdate,
+    TaskMatch,
 };
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
@@ -459,7 +461,7 @@ fn validate_task_status_transition_for(
     if matches!(current, TaskStatus::InReview) && matches!(next, TaskStatus::Paused) {
         return Err(PlanError::ReviewHoldRequired);
     }
-    if matches!(current, TaskStatus::InReview) {
+    if matches!(current, TaskStatus::InReview) && !matches!(next, TaskStatus::Cancelled) {
         return Err(PlanError::TransitionDenied {
             from: current.clone(),
             to: next.clone(),

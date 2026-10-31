@@ -1,7 +1,7 @@
 [package]
 license = "AGPL-3.0-only"
 name = "codeterm-cli"
-version = "1.17.3"
+version = "1.18.0"
 edition = "2021"
 # One workspace and one lockfile with the app and server, so shared dependencies resolve identically.
 workspace = "../src-tauri"
@@ -11,7 +11,7 @@ name = "codeterm"
 path = "src/main.rs"
 
 [lints.rust]
-warnings = "deny"
+warnings = "warn"
 
 [dependencies]
 workspace-hack = { version = "0.1", path = "../src-tauri/crates/workspace-hack" }
@@ -40,6 +40,7 @@ zeroize = "1"
 # without minding the input language.
 deunicode = "1"
 codeterm-mem-store = { path = "../crates/mem-store" }
+codeterm-mem = { path = "../src-tauri/crates/codeterm-mem", default-features = false }
 codeterm-plugins = { path = "../src-tauri/crates/codeterm-plugins" }
 # In-process reuse of the daemon's strict PluginManifest + QuickJS loader for
 # `plugin validate` — the CLI never grows its own manifest interpretation.

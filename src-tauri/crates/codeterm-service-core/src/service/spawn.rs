@@ -115,7 +115,14 @@ pub(crate) struct RuntimeForkLaunch {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RuntimeOwnerLinkage {
-    CronRun { job_id: String, run_id: String },
+    CronRun {
+        job_id: String,
+        run_id: String,
+    },
+    StepRun {
+        run_id: String,
+        timeout_seconds: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -209,6 +216,8 @@ pub(crate) fn should_default_agent_tab_to_chat(
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TabHandle {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command_submission: Option<super::ShellCommandSubmission>,
     pub tab_id: String,
     pub pty_id: Option<String>,
     pub workspace_id: String,
@@ -742,6 +751,7 @@ impl ServiceContext {
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
+            command_submission: None,
             tab_id,
             pty_id: None,
             workspace_id: ws_id,
@@ -1067,6 +1077,7 @@ impl ServiceContext {
         self.record_kpi_tab_created(&tab_id, crate::agent::kpi_ledger::TabCreatedKind::Agent);
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         Ok(TabHandle {
+            command_submission: None,
             tab_id,
             pty_id: Some(pty_id),
             workspace_id: ws_id,

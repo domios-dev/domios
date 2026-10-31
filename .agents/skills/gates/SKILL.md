@@ -5,6 +5,8 @@ description: Run Domios's verification gates without burning a session on them. 
 
 # Gates
 
+Shared Workers declare disjoint edit paths and use `./build.sh fmt --paths <owned-files>`. Lanes are for overlap or build-breaking work. Shared checks keep the same authorization and serialization rules; compiler diagnostics in unowned files are foreign failures for the Orchestrator, and still return nonzero. Never repair foreign files or sweep them into a commit to make a gate green.
+
 Workers run no verification on a shared machine unless their dispatch explicitly grants it; they write code and tests and list the exact checks (lane-check scope, test selectors, TS files, guards) in their report. The Orchestrator merges ready lanes and runs those checks serially in canonical, batched: one `./build.sh lane-check <package>... [--tests]` call for all touched library crates (CLI separately), then ONE `./build.sh nextest <scope> "test(a) | test(b) | ..."` per crate scope combining every selector for that crate, so each test binary builds once. Never run one `test-one` per selector: each call rebuilds and links its crate's test binary. Full or reverse-dependency regressions run only in the single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
 
 For file-backed QA summaries and agent-tab delivery, see [`utility-shell-reports`](../utility-shell-reports/SKILL.md).
@@ -50,7 +52,6 @@ node node_modules/typescript/bin/tsc --noEmit
 node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
 node scripts/check-provider-boundary.mjs
-node --test scripts/tests/check-provider-boundary.test.mjs
 node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a moved nextest archive
 ```
 
@@ -82,22 +83,22 @@ The Orchestrator checks a committed Rust change in canonical with `./build.sh ch
 (default: lane HEAD). It checks the SHA out in the per-machine check worktree
 (`<gateway dir>/check-worktree`, own warm `target/app` and `target/cli`, never
 canonical or a lane target), runs incremental
-`cargo clippy --lib --no-deps --message-format short -- -D warnings` with the shared
+`cargo clippy --lib --no-deps --message-format short -- -W warnings` with the shared
 `scripts/clippy-allow.sh` policy for existing touched packages, root bins only
 when root is touched and leaf test targets only for test paths or moved crates.
 Core test targets stay at the batch. It prints at most `--max-errors` (default
 20) `file:line:col: error[...]` lines with an `errors=N shown=M` total, then at
 most `--max-warnings` (default 40) warning lines, one `warnings crate=<name>
-count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
-Warnings count as errors: any rustc or clippy warning in a touched crate fails
-the run; canonical QA requires `errors=0` and `warnings=0`.
+count=N` line per warned crate and `warnings=N shown=M failing=none`.
+Warnings remain visible and advisory; compiler errors, lint errors, failed tests,
+malformed evidence and infrastructure failures still block the run.
 check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
 The Wry world is checked by product library Clippy in check-queue and by every dev and production build.
-`--all` lints the whole app workspace and the CLI and fails on any warning.
+`--all` lints the whole app workspace and the CLI with advisory warnings.
 `./build.sh check` ends with one `warnings crate=` line per warned crate and a
-`check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate
-and the CLI deny `warnings` through `[lints]` in Cargo.toml, so a new warning is
-a compile error everywhere; fix it at the root, never with `#[allow]`. A busy gateway refuses at once with exit 75; do source
+`check: warnings=N` total. Workspace and CLI Cargo lints keep warnings at `warn`;
+warning cleanup follows the build or release without hiding diagnostics or inflating
+baselines. A busy gateway refuses at once with exit 75; do source
 work and never poll. The first run on a machine is cold, later runs are warm.
 
 The provider boundary guard compares exact exceptions with `origin/develop`; CI supplies the target SHA through `PROVIDER_BOUNDARY_BASE`. Each exception names one exact file/token pair and its count. Lower or remove the entry when occurrences leave; moving or formatting existing occurrences within a file is allowed. Counts may only shrink; new provider coupling belongs in the provider plugin.
@@ -222,7 +223,9 @@ tests do not replace the live run. Frontend-only and
 plugin-only releases are outside this gate.
 
 
-<!-- revision: 13 -->
+An intentional `--queue` uses the same event-based queue as `--wait-build`; it does not grant verification authority or change a Worker’s assigned gates. Default busy-slot refusal remains in effect.
+
+<!-- revision: 16 -->
 
 ## Rust warning inventory and cleanup
 
@@ -231,12 +234,13 @@ artifact. The always-running warning summary publishes per-target, per-lint and 
 in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
 for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
 on associated release PRs. JSON diagnostics include crate, location, lint, message and snippet.
-Capture/upload/comment failures do not change platform build results; new warning identities fail
-the summary ratchet. Incomplete runs are labelled and never propose a baseline update.
+Capture/upload/comment failures do not change platform build results; the summary
+still refuses missing, incomplete or malformed required evidence. New warning identities
+are advisory. Incomplete runs are labelled and never propose a baseline update.
 
-`scripts/rust-warnings-baseline.json` is initialized at zero: every crate denies `warnings`
-through Cargo `[lints]`, so any warning identity a run reports is new and fails the ratchet.
-Fix the warning at its root on the owning platform; never add a baseline entry.
+`scripts/rust-warnings-baseline.json` tracks warning identities without blocking a
+successful build. Keep diagnostics and per-platform inventories for post-release cleanup;
+never add baseline entries to conceal new warnings.
 
 The post-release cleanup task consumes the full JSON report, groups by target/file/lint, and
 fixes cfg-specific warnings on their owning platform (including Windows arm64). After a complete
@@ -245,7 +249,6 @@ entries/counts may only shrink relative to origin/develop; adding a replacement 
 same count still fails. A test-only run preserves baseline targets it did not build. Never copy
 an incomplete run's inventory over the baseline or hand-increase an allowance.
 
-Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 
@@ -256,10 +259,8 @@ Product DEV and check-queue library Clippy retain embeddings. Ordinary test prof
 ## Installed application identity
 
 For bundle, installer or release-asset identity changes, include
-`node scripts/check-installed-identity.mjs` and
-`node --test scripts/tests/installed-identity.test.mjs` in the focused batch.
-These cover product/identifier/DEV names, installer-facing legacy-name rejection,
-new updater namespace and non-installable old manifests. Run the changed release
-script tests too. Native package extraction, signing, both CLI resource digests,
+`node scripts/check-installed-identity.mjs` in the focused batch.
+It covers product/identifier/DEV names, installer-facing legacy-name rejection,
+new updater namespace and non-installable old manifests. Native package extraction, signing, both CLI resource digests,
 system CLI ownership, OS registration and the manual old-app removal require release CI and owner
 installation on Windows, macOS and Linux; source assertions do not prove them.

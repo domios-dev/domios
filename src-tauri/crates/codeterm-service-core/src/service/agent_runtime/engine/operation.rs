@@ -2,6 +2,83 @@ use super::super::{capture, owned_context, rpc, subscriber};
 use super::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(any(debug_assertions, test))]
+fn policy_label(value: Option<&Value>) -> &'static str {
+    match value {
+        None => "missing",
+        Some(Value::Null) => "null",
+        Some(Value::String(label)) => match label.as_str() {
+            "read-only" => "read-only",
+            "read-only-with-writable-roots" => "read-only-with-writable-roots",
+            "workspace-write" => "workspace-write",
+            "danger-full-access" => "danger-full-access",
+            "full-access" => "full-access",
+            "approval-required" => "approval-required",
+            "auto-accept-edits" => "auto-accept-edits",
+            "auto" => "auto",
+            "never" => "never",
+            "on-request" => "on-request",
+            "untrusted" => "untrusted",
+            "trusted" => "trusted",
+            "user" => "user",
+            "auto_review" => "auto_review",
+            "readOnly" => "readOnly",
+            "workspaceWrite" => "workspaceWrite",
+            "dangerFullAccess" => "dangerFullAccess",
+            "externalSandbox" => "externalSandbox",
+            ":workspace" => ":workspace",
+            ":read-only" => ":read-only",
+            _ => "other",
+        },
+        Some(_) => "other",
+    }
+}
+
+#[cfg(any(debug_assertions, test))]
+fn policy_fields(value: &Value) -> Value {
+    let sandbox = value.get("sandbox");
+    let sandbox = sandbox
+        .filter(|sandbox| !sandbox.is_object())
+        .or_else(|| sandbox.and_then(|sandbox| sandbox.get("type")));
+    serde_json::json!({
+        "mode":policy_label(value.get("mode")),
+        "approval":policy_label(value.get("approvalPolicy")),
+        "reviewer":policy_label(value.get("approvalsReviewer")),
+        "sandbox":policy_label(sandbox),
+        "sandboxPolicy":policy_label(value.get("sandboxPolicy").and_then(|policy| policy.get("type"))),
+        "profile":policy_label(value.get("activePermissionProfile").and_then(|profile| profile.get("id"))),
+        "permissions":policy_label(value.get("permissions")),
+        "configSandbox":policy_label(value.get("config").and_then(|config| config.get("sandbox_mode"))),
+        "projectTrust":policy_label(value.get("config").and_then(|config| config.get("projects"))
+            .and_then(|projects| value.get("cwd").and_then(Value::as_str).and_then(|cwd| projects.get(cwd)))
+            .and_then(|project| project.get("trust_level"))),
+    })
+}
+
+#[cfg(any(debug_assertions, test))]
+pub(super) fn policy_projection(value: &Value) -> Value {
+    let nested = value.get("threadSettings");
+    let selected_nested = match nested {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(value)) => *value,
+        Some(Value::Number(value)) => value.as_f64().is_some_and(|value| value != 0.0),
+        Some(Value::String(value)) => !value.is_empty(),
+        Some(_) => true,
+    };
+    let selected = if selected_nested {
+        &value["threadSettings"]
+    } else {
+        value
+    };
+    serde_json::json!({
+        "threadSettingsSelected":selected_nested,
+        "top":policy_fields(value),
+        "topThread":policy_fields(&value["thread"]),
+        "selected":policy_fields(selected),
+        "selectedThread":policy_fields(&selected["thread"]),
+    })
+}
+
 pub(in crate::service::agent_runtime) async fn plan(
     session: &Session,
     context: &RuntimeContext,
@@ -66,6 +143,7 @@ async fn run_inner(
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
+    super::super::cli_exception::validate_before_operation(svc, &context).await?;
     crate::service::execution_sandbox::validate_runtime_operation(svc, &context, &operation)
         .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
@@ -159,15 +237,13 @@ async fn run_inner(
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    let cli_context = runtime.context.lock().clone();
+                    super::super::cli_exception::validate_binding(&owner, &cli_context)
+                        .map_err(RuntimeFailure::Refused)?;
                     if let Some(read) = &captured_read {
                         super::model::validate_operation_thread(&runtime.context.lock(), read)?;
                     }
                     if let Some(send) = &captured_send {
-                        if !runtime.capacity_retry.lock().permits_send(send) {
-                            return Err(RuntimeFailure::Refused(
-                                "Automatic retry cancelled before write".into(),
-                            ));
-                        }
                         if runtime.compaction.lock().held(epoch) {
                             return Err(RuntimeFailure::Refused(
                                 "Context restoration pending or failed; sends held".into(),
@@ -178,6 +254,16 @@ async fn run_inner(
                     }
                     Ok(())
                 });
+                #[cfg(debug_assertions)]
+                if matches!(call.method.as_str(), "thread/start" | "thread/resume") {
+                    log::debug!(
+                        "[runtime-policy] phase=rpc_request tab={} epoch={} method={} policy={}",
+                        context.tab_id,
+                        context.epoch,
+                        call.method,
+                        policy_projection(&call.params)
+                    );
+                }
                 handed_off.store(true, Ordering::Release);
                 process.client.request_guarded(call, Some(guard)).await?
             }
@@ -214,6 +300,20 @@ async fn run_inner(
             Ok(value) => RpcReply::Success { value },
             Err(error) => RpcReply::Error { error },
         };
+        #[cfg(debug_assertions)]
+        if let RuntimeAction::Request { call } = &next.action {
+            if matches!(call.method.as_str(), "thread/start" | "thread/resume") {
+                if let RpcReply::Success { value } = &reply {
+                    log::debug!(
+                        "[runtime-policy] phase=rpc_reply tab={} epoch={} method={} policy={}",
+                        context.tab_id,
+                        context.epoch,
+                        call.method,
+                        policy_projection(value)
+                    );
+                }
+            }
+        }
         let step = tokio::time::timeout(
             RUNTIME_HOOK_DEADLINE,
             adapter.runtime_response(&context, &operation, &next.state, &reply),

@@ -1,4 +1,4 @@
-// Caller: build.sh cache-stats; scripts/cache-stats.test.mjs
+// Caller: build.sh cache-stats
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

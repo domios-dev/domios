@@ -331,8 +331,8 @@ This diagnostic remains local-only and is never a CI gate.
 | CLI identity coverage assumed an unbounded snapshot and file-global sequence numbers | locked by test tab_chat_identity_uuidless_record_has_one_id_across_snapshot_window_live_and_backfill: bounded aligned tail, local ordinals, exact IDs across snapshot/window/live/resume/backfill and an exact-once history walk to byte 0 |
 | DEV recovery diagnostics used a stage rejected by the server | locked by FrontendDiagnosticStage type checking; the three invalid call sites fail tsc before the channel repair, and the live preflight requires cold_attach POST 204 |
 | A workspace click completed the snapshot before the bench armed its response observer | locked by test observation is armed before an action can synchronously complete its event in evals/_lib/observe-action.test.mjs; observeAction preserves the original UI action sequence |
-| A phase collector waited past its deadline without saving incomplete evidence | locked by tests a deadline persists incomplete evidence even when an operation ignores cancellation and a late operation cannot overwrite evidence after deadline termination in scripts/tests/startup-phase-collector.test.mjs |
-| Process-tree verification rejected multiple listening addresses belonging to the same DEV process | locked by test DEV process safety accepts multiple addresses of one owner and refuses absent or competing owners in scripts/tests/startup-process-owner.test.mjs; the Windows helper uses Resolve-DevListenerOwner |
+| A phase collector waited past its deadline without saving incomplete evidence | Require incomplete evidence at the deadline and reject late overwrites during the real startup scenario. |
+| Process-tree verification rejected multiple listening addresses belonging to the same DEV process | The Windows helper uses Resolve-DevListenerOwner; real DEV cleanup must accept multiple addresses for one owner and refuse absent or competing owners. |
 
 ## Fresh launch phase capture
 

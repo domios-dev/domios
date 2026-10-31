@@ -155,7 +155,10 @@ impl ServiceContext {
         let now_ms = now_ms();
         let thresholds = LaneThresholds::default();
         let mut changed_plans = Vec::new();
-        for plan in self.plan_store.list_full() {
+        let candidates = crate::service::plan::PlanMatch::active().and(
+            crate::service::plan::TaskMatch::with_status(&[TaskStatus::InProgress]),
+        );
+        for plan in self.plan_store.plans_matching(&candidates) {
             if plan.status != PlanStatus::Active {
                 continue;
             }

@@ -76,6 +76,7 @@ export interface AutomationNode {
   detail?: {
     runs_since_transition?: number;
     last_probe_at?: number | null;
+    next_check_at_ms?: number | null;
     probe_state?: string | null;
     observe_target?: { kind: string; id: string } | null;
     definition?: {
@@ -226,6 +227,7 @@ export interface BlueprintRunSnapshot extends BlueprintProjection {
 }
 
 export interface BlueprintSnapshot extends BlueprintProjection {
+  plugin_hold?: {run:string;node:string;operation:string;state:string;reason:string} | null;
   note?: string | null;
   stopped_at?: number | null;
   deletes_at?: number | null;

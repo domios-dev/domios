@@ -233,4 +233,96 @@ fn compiled_release_ignores_account_config_and_refuses_http() {
     assert_eq!(config.redeem_url, PRODUCTION.redeem);
     assert_eq!(current(), PRODUCTION);
     assert!(!allows_url(&url::Url::parse(EMULATOR.redeem).unwrap()));
+    assert!(callable_base(EMULATOR.functions).is_none());
+}
+
+#[test]
+fn callable_base_preserves_https_shape_rules_for_production_qa_and_custom_functions() {
+    let qa = Box::leak(Box::new(qa_fixture())).endpoints();
+    for base in [
+        PRODUCTION.functions,
+        qa.functions,
+        "https://example.invalid:8443/custom/functions/",
+    ] {
+        for (dev, selected) in [
+            (false, PRODUCTION),
+            (true, PRODUCTION),
+            (true, qa),
+            (true, EMULATOR),
+        ] {
+            assert_eq!(
+                callable_base_for(base, dev, selected).unwrap().as_str(),
+                base
+            );
+        }
+    }
+    for base in [
+        "https://user@example.invalid/",
+        "https://user:password@example.invalid/",
+        "https://example.invalid/?query=x",
+        "https://example.invalid/#fragment",
+        "https://example.invalid/functions",
+        "ftp://example.invalid/functions/",
+        "not a URL",
+    ] {
+        assert!(
+            callable_base_for(base, true, EMULATOR).is_none(),
+            "{base:?}"
+        );
+    }
+}
+
+#[test]
+fn callable_http_requires_exact_explicit_debug_emulator_functions_base() {
+    let qa = Box::leak(Box::new(qa_fixture())).endpoints();
+    assert_eq!(
+        callable_base_for(EMULATOR.functions, true, resolve(true, Some("1")))
+            .unwrap()
+            .as_str(),
+        EMULATOR.functions
+    );
+    for (dev, selected) in [
+        (false, EMULATOR),
+        (false, PRODUCTION),
+        (true, resolve(true, None)),
+        (true, resolve(true, Some("0"))),
+        (true, qa),
+    ] {
+        assert!(callable_base_for(EMULATOR.functions, dev, selected).is_none());
+    }
+    assert!(qa::selected(true, Some("qa"), Some("1")).is_err());
+    for base in [
+        EMULATOR.identity_toolkit,
+        EMULATOR.secure_token,
+        EMULATOR.signin,
+        "http://localhost:15001/demo-domios/us-central1/",
+        "http://127.0.0.1.evil.invalid:15001/demo-domios/us-central1/",
+        "http://192.0.2.1:15001/demo-domios/us-central1/",
+        "http://[::1]:15001/demo-domios/us-central1/",
+        "http://127.1:15001/demo-domios/us-central1/",
+        "http://2130706433:15001/demo-domios/us-central1/",
+        "http://127.0.0.1:15002/demo-domios/us-central1/",
+        "http://127.0.0.1:15001/other-project/us-central1/",
+        "http://127.0.0.1:15001/demo-domios/other-region/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/nested/",
+        "http://127.0.0.1:15001/demo-domios/us-central1",
+        "http://user@127.0.0.1:15001/demo-domios/us-central1/",
+        "http://:password@127.0.0.1:15001/demo-domios/us-central1/",
+        "http://@127.0.0.1:15001/demo-domios/us-central1/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/?q=x",
+        "http://127.0.0.1:15001/demo-domios/us-central1/#fragment",
+        "http://127.0.0.1:15001/demo-domios/us-central1/../us-central1/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/%2e%2e/us-central1/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/%2f/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/%5c/",
+        " http://127.0.0.1:15001/demo-domios/us-central1/",
+        "http://127.0.0.1:15001/demo-domios/us-central1/\n",
+        "http://127.0.0.1:15001/demo-domios/us-central1/\t",
+        "HTTP://127.0.0.1:15001/demo-domios/us-central1/",
+    ] {
+        assert!(
+            callable_base_for(base, true, EMULATOR).is_none(),
+            "{base:?}"
+        );
+    }
 }

@@ -445,6 +445,7 @@ impl ServiceContext {
         }
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         let handle = TabHandle {
+            command_submission: None,
             tab_id: tab_id.clone(),
             pty_id: None,
             workspace_id: ws_id.clone(),

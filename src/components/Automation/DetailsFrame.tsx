@@ -3,6 +3,7 @@ import { ChevronRight, X } from "lucide-react";
 import { focusLost } from "./focus";
 import type { PresenceState } from "../Canvas/usePresence";
 import { AUTOMATION_LABEL } from "./styles";
+import { trapDialogTab } from "../shared/dialogFocusTrap";
 
 export function Facts({ children }: { children: ReactNode }) {
   return <dl className="ct-detail__lane break-words">{children}</dl>;
@@ -22,16 +23,19 @@ export function Disclosure({ title, children }: { title: string; children: React
 interface FrameProps {
   label: string; title: ReactNode; onClose: () => void; children: ReactNode; focusWhenLost?: boolean;
   panelRef?: RefObject<HTMLElement | null>; presence?: PresenceState;
+  modal?: boolean;
 }
 
 /** The app's right side-panel surface: a non-modal region over the graph with its own scroll, Escape and focus-on-open. */
-export function DetailsFrame({ label, title, onClose, children, focusWhenLost = false, panelRef, presence }: FrameProps) {
+export function DetailsFrame({ label, title, onClose, children, focusWhenLost = false, panelRef, presence, modal = false }: FrameProps) {
   const own = useRef<HTMLElement>(null);
   const panel = panelRef ?? own;
   useLayoutEffect(() => {
-    if (!focusWhenLost || focusLost()) panel.current?.focus();
-  }, [label, focusWhenLost, panel]);
-  return <aside ref={panel} tabIndex={-1} role="region" aria-label={label} data-state={presence} inert={presence === "closing" || undefined} className="plan-side-panel text-[length:var(--ct-font-size-sm)] text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]" onKeyDown={(event) => {
+    if (modal) panel.current?.querySelector<HTMLElement>("button")?.focus();
+    else if (!focusWhenLost || focusLost()) panel.current?.focus();
+  }, [label, focusWhenLost, panel, modal]);
+  return <aside ref={panel} tabIndex={-1} role={modal ? "dialog" : "region"} aria-modal={modal || undefined} aria-label={label} data-state={presence} inert={presence === "closing" || undefined} className="plan-side-panel text-[length:var(--ct-font-size-sm)] text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]" onKeyDown={(event) => {
+    if (modal) trapDialogTab(event, panel.current);
     if (event.code !== "Escape") return;
     event.stopPropagation();
     onClose();

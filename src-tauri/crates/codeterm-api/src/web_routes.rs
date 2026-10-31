@@ -17,6 +17,8 @@ use std::time::{Duration, SystemTime};
 use crate::routes::{check_auth, AppState};
 
 pub use crate::web_plugin_routes::plugin_ui;
+mod plugin_view;
+pub use plugin_view::{plugin_view_call, recording_suggestion, remote_task_call};
 mod session_transcript;
 pub use session_transcript::session_transcript;
 
@@ -322,6 +324,7 @@ fn event_matches_tab(event: &crate::events::SystemEvent, tab_id: Option<&str>) -
         | SystemEvent::TabFocused { tab_id: id }
         | SystemEvent::TabClosed { tab_id: id }
         | SystemEvent::SurfaceActivity { tab_id: id, .. }
+        | SystemEvent::SurfaceStateInvalidated { tab: id, .. }
         | SystemEvent::AgentStarted { tab_id: id, .. }
         | SystemEvent::AgentIdle { tab_id: id, .. } => id == tab_id,
         _ => false,
@@ -458,11 +461,6 @@ pub(crate) fn events_sse(
 
 // ── PWA manifest — served per-token because installed iOS web apps get a storage container separate from Safari ──
 
-#[derive(Deserialize)]
-pub struct ManifestQuery {
-    token: Option<String>,
-}
-
 /// Extract a cookie value from the Cookie header.
 fn get_cookie<'a>(headers: &'a axum::http::HeaderMap, name: &str) -> Option<&'a str> {
     let cookie_header = headers.get("cookie")?.to_str().ok()?;
@@ -543,19 +541,12 @@ pub async fn web_manifest_bootstrap(
 /// it matches the configured API token, so the installed app launches
 /// pre-authenticated; otherwise start_url falls back to the plain mirror.
 ///
-/// Token sources (checked in order):
-/// 1. `?token=` query param (legacy — deprecated, leaks via logs/Referer)
-/// 2. `codeterm-web-token` cookie (set by web_manifest_bootstrap)
+/// The bearer bootstrap sets the authentication cookie.
 pub async fn web_manifest(
     AxumState(state): AxumState<AppState>,
     headers: axum::http::HeaderMap,
-    Query(query): Query<ManifestQuery>,
 ) -> impl axum::response::IntoResponse {
-    // Determine the token: query param (legacy) or cookie (preferred).
-    let token: Option<String> = query
-        .token
-        .clone()
-        .or_else(|| get_cookie(&headers, "codeterm-web-token").map(|s| s.to_string()));
+    let token = get_cookie(&headers, "codeterm-web-token").map(str::to_string);
 
     let token_ok = token
         .as_ref()
@@ -944,33 +935,6 @@ pub async fn repo_watch_unsubscribe(
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     Ok(Json(value))
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ViewCallReq {
-    pub plugin_id: String,
-    pub method: String,
-    #[serde(default)]
-    pub args: Option<serde_json::Value>,
-}
-
-/// Web-mirror twin of the `plugin_view_call` Tauri command (the iframe bridge).
-pub async fn plugin_view_call(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(req): Json<ViewCallReq>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    commands::plugins::view_call(
-        &state.svc,
-        &req.plugin_id,
-        &req.method,
-        req.args.unwrap_or(serde_json::Value::Null),
-    )
-    .await
-    .map(Json)
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))
 }
 
 #[derive(serde::Deserialize)]

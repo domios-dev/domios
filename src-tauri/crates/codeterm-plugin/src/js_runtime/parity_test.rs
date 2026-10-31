@@ -16,6 +16,8 @@ mod attachment_capabilities;
 mod execution_sandbox;
 #[path = "parity_test/general_offer.rs"]
 mod general_offer;
+#[path = "parity_test/host_agent_run.rs"]
+mod host_agent_run;
 #[path = "parity_test/host_exec.rs"]
 mod host_exec;
 #[path = "parity_test/inline_fixture.rs"]
@@ -34,7 +36,7 @@ mod runtime;
 mod scoped_filesystem;
 #[path = "parity_test/session_resume.rs"]
 mod session_resume;
-use inline_fixture::{load_inline_js, load_inline_js_with_manifest};
+use inline_fixture::{load_inline_js, load_inline_js_with_manifest, provider_fixture};
 
 use std::path::PathBuf;
 
@@ -124,12 +126,8 @@ fn load_js(id: &str) -> JsProvider {
     load_one(&manifest).unwrap_or_else(|e| panic!("load {id} plugin: {e}"))
 }
 
-fn provider_fixture(id: &str, relative: &str) -> String {
-    let path = workspace_plugins_root()
-        .join(format!("provider-{id}"))
-        .join("tests/fixtures")
-        .join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+pub(crate) fn native_provider_fixture() -> impl AgentProvider {
+    crate::agent_claude::provider::ClaudeProvider::new()
 }
 
 #[test]
@@ -137,7 +135,7 @@ fn host_owned_capabilities_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
-    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let native = native_provider_fixture();
     let js = load_js("claude");
     // A private task-file root keeps parallel tests that sweep the shared one away from these files.
     let root = tempfile::tempdir().unwrap();
@@ -1184,11 +1182,15 @@ mod launch_session_support;
 
 mod reply_relay;
 
-#[path = "parity_test/local_recording_devices.rs"]
-mod local_recording_devices;
-
-#[path = "parity_test/runtime_chat_descriptor.rs"]
-mod runtime_chat_descriptor;
-
+#[path = "parity_test/binary_transfer.rs"]
+mod binary_transfer;
 #[path = "parity_test/data_dir.rs"]
 mod data_dir;
+#[path = "parity_test/local_recording_devices.rs"]
+mod local_recording_devices;
+#[path = "parity_test/media_delivery.rs"]
+mod media_delivery;
+#[path = "parity_test/runtime_chat_descriptor.rs"]
+mod runtime_chat_descriptor;
+#[path = "parity_test/view_context.rs"]
+mod view_context;

@@ -53,18 +53,27 @@ impl PlanStore {
         let query = query.map(str::to_lowercase);
         let mut remaining = if query.is_some() { 50 } else { usize::MAX };
         let mut result = Vec::new();
-        let plans = self.plans.read();
-        let mut ids: Vec<_> = plans.keys().collect();
+        // The index filters on stored columns, so plans outside project, team and status never load.
+        let mut ids: Vec<String> = self
+            .index
+            .read()
+            .values()
+            .filter(|row| {
+                project
+                    .as_ref()
+                    .is_none_or(|project| *project == row.project_path)
+                    && team.is_none_or(|team| row.team_id.as_deref().unwrap_or("") == team)
+                    && (query.is_none() || row.status == PlanStatus::Active)
+            })
+            .map(|row| row.id.clone())
+            .collect();
         ids.sort();
         for id in ids {
-            let plan = plans[id].lock();
-            if project
-                .as_ref()
-                .is_some_and(|project| *project != plan.project_path)
-                || team.is_some_and(|team| plan.team_id.as_deref().unwrap_or("") != team)
-                || (query.is_some()
-                    && (plan.status != PlanStatus::Active || plan.mode == PlanMode::Complete))
-            {
+            let Ok(plan) = self.plan_arc(&id) else {
+                continue;
+            };
+            let plan = plan.lock();
+            if query.is_some() && plan.mode == PlanMode::Complete {
                 continue;
             }
             let value = snapshot(&plan, query.as_deref(), &mut remaining);

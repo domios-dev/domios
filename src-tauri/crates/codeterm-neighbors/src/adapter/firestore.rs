@@ -1,5 +1,4 @@
 use super::AuthenticatedCall;
-pub(super) mod control;
 use super::FirebaseTransport;
 use crate::receive::{InboxEvent, InboxListener};
 use crate::wire::{hex_id, Cursor, InboxDocument, InboxMessage, Timestamp};
@@ -13,17 +12,56 @@ use tonic::transport::{Channel, ClientTlsConfig};
 use zeroize::Zeroizing;
 
 const PAGE_SIZE: i32 = 100;
+pub(super) mod endpoint;
 const MAX_ENVELOPE_STRING_BYTES: usize = crate::wire::MAX_CIPHERTEXT_BYTES
     .saturating_mul(4)
     .div_ceil(3);
 mod pending;
 pub(super) mod registry;
+pub(super) mod state;
 pub(super) use pending::count as pending_count;
 mod watch;
 
 async fn connection(
     transport: &FirebaseTransport,
 ) -> Result<(FirestoreClient<Channel>, Zeroizing<String>, String)> {
+    let (channel, token, database) = connection_with(transport, |target| async move {
+        let mut endpoint = Channel::from_static(target.uri());
+        if target.tls() {
+            endpoint = endpoint
+                .tls_config(ClientTlsConfig::new().with_native_roots())
+                .map_err(|_| Error::Transport)?;
+        }
+        endpoint
+            .connect_timeout(Duration::from_secs(15))
+            .connect()
+            .await
+            .map_err(|_| {
+                transport.calls.firestore_failure(
+                    "connect",
+                    target.uri(),
+                    None,
+                    "transport_connect",
+                );
+                Error::Transport
+            })
+    })
+    .await?;
+    Ok((
+        FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
+        token,
+        database,
+    ))
+}
+
+async fn connection_with<C, F, Fut>(
+    transport: &FirebaseTransport,
+    connect: F,
+) -> Result<(C, Zeroizing<String>, String)>
+where
+    F: FnOnce(endpoint::FirestoreTarget) -> Fut,
+    Fut: std::future::Future<Output = Result<C>>,
+{
     if !crate::wire::uid(&transport.uid)
         || transport.project.is_empty()
         || !transport
@@ -33,26 +71,17 @@ async fn connection(
     {
         return Err(Error::InvalidEnvelope);
     }
-    let channel = Channel::from_static("https://firestore.googleapis.com")
-        .tls_config(ClientTlsConfig::new().with_native_roots())
-        .map_err(|_| Error::Transport)?
-        .connect_timeout(Duration::from_secs(15))
-        .connect()
-        .await
-        .map_err(|_| {
-            transport.calls.firestore_failure(
-                "connect",
-                "firestore.googleapis.com",
-                None,
-                "transport_connect",
-            );
-            Error::Transport
-        })?;
-    Ok((
-        FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
-        transport.calls.id_token().await?,
-        format!("projects/{}/databases/(default)", transport.project),
-    ))
+    let target = transport.calls.firestore_target(&transport.project)?;
+    if target.project() != transport.project {
+        return Err(Error::Transport);
+    }
+    drop(transport.calls.id_token().await?);
+    let channel = connect(target.clone()).await?;
+    let token = transport.calls.id_token().await?;
+    if transport.calls.firestore_target(&transport.project)? != target {
+        return Err(Error::Revoked);
+    }
+    Ok((channel, token, target.database()))
 }
 
 fn rpc_failure(

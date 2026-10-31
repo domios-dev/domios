@@ -170,6 +170,52 @@ async function main() {
     await act(async () => root.unmount());
   });
 
+  test("shows one collapsed live operation last with explicit details, then removes it on idle and completion", async () => {
+    const liveTabId = "live-operation-tab";
+    const command = "domios plugin browser goto http://127.0.0.1:14997/;\ndomios plugin browser screenshot evidence/chat-running-dark.png";
+    const operation = { id: "live-tool", type: "tool_call", content: "", toolId: "live-tool", toolKind: "command", toolInput: { cmd: command }, toolSummary: "browser fixture", toolResult: "opaque-live-output", toolStatus: "running", toolStartedAtMs: Date.now() - 3000, seq: 1 };
+    initial.splice(0, initial.length, operation as never, assistant("after-tool", "Inspecting the page", 2));
+    let state = muxStateFor({ [liveTabId]: { ...tabBase(liveTabId), agent_state: { state: "working" } } as Tab });
+    const store = createMuxStateStore(() => state);
+    const host = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(host);
+    await act(async () => root.render(
+      <MuxStateStoreContext.Provider value={store}>
+        <MultiplexerActionsContext.Provider value={muxActions()}>
+          <TabSessionChat tabId={liveTabId} chatBackend isVisible />
+        </MultiplexerActionsContext.Provider>
+      </MuxStateStoreContext.Provider>,
+    ));
+    const log = host.querySelector('[role="log"]');
+    const live = log?.querySelector('[data-testid="chat-live-operation"]');
+    assert(live?.textContent?.includes("browser"), "live item names the command");
+    assert(live?.textContent?.includes("evidence/chat-running-dark.png"), "compact tree names both command segments");
+    assert(!live?.textContent?.includes("opaque-live-output"), "live command output starts collapsed");
+    assert(log?.firstElementChild?.lastElementChild === live, "live operation is the final transcript item");
+    assert(log?.querySelectorAll('[data-testid="chat-live-operation"]').length === 1, "one live item");
+    assert(!log?.querySelector('[data-chat-window-row="live-tool"] [data-testid="chat-tool-call"]'), "the normal tool card is not duplicated");
+    assert(live?.querySelector('[role="timer"]')?.textContent?.includes("Running"), "elapsed progress renders");
+    const expand = live?.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
+    assert(expand?.getAttribute("aria-expanded") === "false", "live command group starts collapsed");
+    await act(async () => expand?.click());
+    assert(expand?.getAttribute("aria-expanded") === "true", "full operation can be expanded");
+    assert(live?.textContent?.includes("opaque-live-output"), "expanded operation reveals its current output");
+    await act(async () => {
+      state = { ...state, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "idle" } } as Tab } };
+      store.notify();
+    });
+    assert(!log?.querySelector('[data-testid="chat-live-operation"]'), "idle hides stale running activity");
+    await act(async () => {
+      state = { ...state, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
+      store.notify();
+      emit(`tab-chat-msg-${liveTabId}`, { tab_id: liveTabId, source_session_id: null, session_binding_nonce: null, messages: [{ ...operation, toolStatus: "completed", toolCompletedAtMs: Date.now() }] });
+    });
+    assert(!log?.querySelector('[data-testid="chat-live-operation"]'), "completed operation leaves the live slot");
+    assert(log?.querySelector('[data-chat-window-row="live-tool"] [data-testid="chat-tool-call"]'), "completed operation returns to its normal row");
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
   let failed = 0;
   for (const [name, fn] of tests) {
     try { await fn(); console.log(`PASS ${name}`); }

@@ -85,6 +85,13 @@ fn search_warning_lines(val: &serde_json::Value) -> Vec<String> {
 /// Human rendering of a search result; warnings name every provider store the
 /// search could not fully read, so an empty result is never a silent miss.
 fn render_search_human(query: &str, val: &serde_json::Value) -> String {
+    if !crate::cmd::output::verbose() {
+        return crate::cmd::output::compact_list(val, None);
+    }
+    render_search_verbose(query, val)
+}
+
+fn render_search_verbose(query: &str, val: &serde_json::Value) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
     let hits = val
@@ -199,7 +206,7 @@ pub fn handle_sessions(
                 fail(json_mode, &format!("Error: {machine}"), &machine);
             }
             if json_mode {
-                println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                println!("{}", crate::cmd::output::encode(&val).unwrap_or_default());
                 return;
             }
             print!("{}", render_search_human(&query, &val));
@@ -244,7 +251,7 @@ pub fn handle_sessions(
                         fail(json_mode, &format!("Error: {machine}"), &machine);
                     }
                     if json_mode {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap_or_default());
                         return;
                     }
                     let tab = val.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?");
@@ -307,7 +314,7 @@ pub fn handle_sessions(
                         fail(json_mode, &format!("Error: {machine}"), &machine);
                     }
                     if json_mode {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap_or_default());
                         return;
                     }
                     let provider = val.get("provider").and_then(|v| v.as_str()).unwrap_or("?");
@@ -373,7 +380,7 @@ fn handle_backups(
             if json_mode {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&serde_json::json!({ "backups": backups }))
+                    crate::cmd::output::encode(&serde_json::json!({ "backups": backups }))
                         .unwrap_or_default()
                 );
                 return;
@@ -422,7 +429,7 @@ fn handle_backups(
                 fail(json_mode, &format!("Error: {machine}"), &machine);
             }
             if json_mode {
-                println!("{}", serde_json::to_string_pretty(&val).unwrap_or_default());
+                println!("{}", crate::cmd::output::encode(&val).unwrap_or_default());
                 return;
             }
             let ws = val

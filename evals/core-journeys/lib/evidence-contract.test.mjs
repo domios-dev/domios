@@ -1,3 +1,6 @@
+// WHAT: Persisted full-journey results and model-policy evidence.
+// WHY: A passing turn cannot establish prelaunch model-policy compliance.
+// ORACLE: The evidence validator rejects missing or substituted selections and identities.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -114,4 +117,20 @@ test("the real recorder stamps every entry with a verdict", async () => {
   await check("J1", "spawn_ready", "claude", async () => "ok");
   await check("J1", "stop_long_turn", "claude", async () => { throw new Error("boom"); });
   assert.deepEqual(results.checks.map((entry) => entry.verdict), ["pass", "fail"]);
+});
+
+test("missing policy, narrowed roster and substituted prelaunch evidence are invalid", () => {
+  assert.match(errorsOf(run((results) => { delete results.state.model_policy; })), /persisted policy absent/);
+  assert.match(errorsOf(run((results) => { results.state.model_policy.roster = ["claude"]; })), /required provider roster narrowed/);
+  assert.match(errorsOf(run((results) => { results.state.model_policy.launches[0].model = "substitution"; })), /model substituted/);
+  assert.match(errorsOf(run((results) => { results.state.model_policy.configurations.setup.general_model = "substitution"; })), /General selection absent or substituted/);
+  assert.match(errorsOf(run((results) => { results.state.model_policy.catalogues.claude.refresh.refreshed = false; })), /refresh unavailable/);
+});
+
+test("requested, resolved and actual model identities and restart proof must all persist", () => {
+  for (const field of ["requested", "resolved", "actual"]) {
+    assert.match(errorsOf(run((results) => { results.state.model_policy.identities.tab1[field] = null; })), /unknown/);
+  }
+  assert.match(errorsOf(run((results) => { delete results.state.model_policy.restored_identities.tab1; })), /selected identity absent/);
+  assert.match(errorsOf(run((results) => { results.state.model_policy.restored_identities.tab1.session = "foreign"; })), /restored policy session changed/);
 });

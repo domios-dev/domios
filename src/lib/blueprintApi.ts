@@ -66,7 +66,20 @@ export interface BlueprintJournalNode {
   call_stack?: readonly BlueprintCallFrame[];
   [key: string]: unknown;
 }
+export type BlueprintPluginPortKind = "text" | "json" | "file" | "image" | "audio" | "video";
+export interface BlueprintPluginPort { kind: BlueprintPluginPortKind; minItems: number; maxItems: number }
+/** The installed descriptor of a plugin step a shown Blueprint uses; `available: false` when its plugin is gone or disabled. */
+export interface BlueprintPluginNode {
+  available: boolean;
+  title?: string;
+  plugin?: string;
+  description?: string;
+  inputs?: Readonly<Record<string, BlueprintPluginPort>>;
+  outputs?: Readonly<Record<string, BlueprintPluginPort>>;
+  outcomes?: readonly string[];
+}
 export interface BlueprintProjection {
+  plugin_nodes?: Readonly<Record<string, BlueprintPluginNode>>;
   historical_graph_available?: boolean;
   graph_definition_version?: number | null;
   call_graph?: BlueprintDocument | null;
@@ -87,6 +100,7 @@ export interface BlueprintClosureDiff {
 export interface BlueprintViewerHistory {
   current_version: number;
   history_truncated: boolean;
+  plugin_nodes?: Readonly<Record<string, BlueprintPluginNode>>;
   versions: readonly { version: number; replaces: number | null; diff: BlueprintClosureDiff | null; before?: { root: BlueprintDocument; calls: readonly BlueprintExpandedCall[] } | null; after?: { root: BlueprintDocument; calls: readonly BlueprintExpandedCall[] } }[];
 }
 export interface BlueprintProjectEntry { path: string; name: string | null; intent: string | null; error: string | null }

@@ -1,5 +1,6 @@
 mod agent_commands;
 mod bin_resolve;
+mod blueprint_step;
 mod bubble;
 #[cfg(test)]
 mod call_gate;
@@ -10,6 +11,7 @@ mod decision_model;
 mod event_source;
 mod glance;
 pub mod grants;
+mod host_agent_run;
 mod host_api;
 mod host_compute;
 mod host_credentials;
@@ -17,6 +19,7 @@ mod host_exec;
 mod host_net;
 mod host_recording_devices;
 mod host_surface;
+mod host_transfer;
 pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
@@ -37,6 +40,7 @@ pub use bin_resolve::{
     probe_bin_with_environment, refresh_user_path, resolved_bin_path, well_known_bin_dirs,
     BinProbe, BinResolution, BinSearchEnvironment, EnvironmentValue, PathSource, SystemPathSource,
 };
+pub use blueprint_step::JsBlueprintStep;
 pub use bubble::JsBubbleProvider;
 pub use chatbackend::JsChatBackend;
 pub use chatpreprocessor::JsChatPreprocessor;
@@ -59,6 +63,9 @@ pub(crate) static PROCESS_TEST_LOCK: std::sync::LazyLock<parking_lot::Mutex<()>>
 mod parity_test;
 
 #[cfg(test)]
+pub(crate) use parity_test::native_provider_fixture;
+
+#[cfg(test)]
 mod parity_converter_test;
 
 #[cfg(test)]
@@ -77,8 +84,9 @@ pub use manifest::{
     IntegrationKind, PermissionsConfig, PluginManifest, RuleConfig, SerdeHookEventBinding,
     SerdeModelInfo, SerdeProviderReadinessStrategy, SerdeReadinessStrategy,
     SerdeSessionIdInjection, SerdeTaskDelivery, SerdeVerifySubmit, SessionsConfig, SkillsConfig,
-    SpawnConfig, TabMenuAction, TabMenuItem, TrustGrantConfig, UsageConfig, WebhookReceiverCap,
-    WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
+    SpawnConfig, TabMenuAction, TabMenuItem, TrustGrantConfig, UsageConfig, ViewHostAction,
+    ViewInputs, WebhookReceiverCap, WebhookReceiverKind, LAUNCH_TEMPLATE_PLACEHOLDERS,
+    RESUME_TEMPLATE_PLACEHOLDERS,
 };
 use vm::call_json_strict;
 pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};

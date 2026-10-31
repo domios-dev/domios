@@ -218,10 +218,13 @@ impl NativeHostClientSlot {
         client.diagnostics_snapshot()
     }
 
-    #[cfg(windows)]
-    pub(crate) fn set_diagnostics_port_preflight(&self, port: u16, available: bool) {
+    pub(crate) fn set_diagnostics_port_preflight(
+        &self,
+        port: u16,
+        preflight: super::webview_diagnostics::PortPreflight,
+    ) {
         if let Some(client) = self.0.read().as_ref() {
-            client.diagnostics.set_port_preflight(port, available);
+            client.diagnostics.set_port_preflight(port, preflight);
         }
     }
 
@@ -594,6 +597,7 @@ impl NativeHostClient {
                     serde_json::json!({
                         "snapshot": snapshot,
                         "navigation_generation": generation.navigation,
+                        "preflight": self.diagnostics.preflight_receipt(),
                         "origin": url.origin().ascii_serialization(),
                     })
                 );

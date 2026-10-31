@@ -1,3 +1,4 @@
+import { serializeDsBlock } from "@codeterm/chat-core";
 import type { ChecklistInfo, ChecklistItemAction } from "@codeterm/chat-ui";
 import type { CatalogEntry } from "../../components/Extensions/pluginCatalog";
 import { isGeneralAgent } from "../roleKind";
@@ -46,7 +47,7 @@ export const GETTING_STARTED: ChecklistDefinition = {
       label: "Connect your phone",
       hint: "Answer agents from a Telegram bot while you are away.",
       signal: "phoneConnected",
-      action: { kind: "block", label: "Show how", source: "@ds-guide phone" },
+      action: { kind: "block", label: "Show how", source: serializeDsBlock({ kind: "guide", section: "phone" }) },
     },
     {
       id: "plugin",

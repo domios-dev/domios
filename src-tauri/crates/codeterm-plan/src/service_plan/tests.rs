@@ -120,7 +120,7 @@ fn generated_index_regenerates_with_current_titles() {
         )
         .unwrap();
 
-    store.plans.write().clear();
+    store.forget_all_plans_for_test();
     store.reload_from_disk(&plan.id).unwrap();
     let loaded = store.get(&plan.id).unwrap();
     assert_eq!(loaded.title, "After");
@@ -254,7 +254,7 @@ fn external_section_body_edit_reloads_into_full_plan() {
     store.reload_from_disk(&plan.id).unwrap();
 
     let list_plan = store
-        .list_full()
+        .all_plans_for_test()
         .into_iter()
         .find(|p| p.id == plan.id)
         .unwrap();
@@ -944,8 +944,8 @@ fn index_projection_keeps_canonical_ownership_separate_from_central_storage() {
         OrchestratorRef::from_tab("owner-tab"),
     );
     let database = store_db::PlanDatabase::open(database_path.clone()).unwrap();
-    let stored_path = database.persist_plan(&plan, None).unwrap();
-    let entry = PlanStore::index_entry(&plan, stored_path);
+    database.persist_plan(&plan, None).unwrap();
+    let entry = database.list_index_entries().unwrap().remove(0);
 
     assert_eq!(entry.file_path, database_path);
     assert_eq!(entry.canonical_project_path, canonical_project_path);
@@ -974,11 +974,11 @@ fn index_projection_derives_legacy_ownership_from_the_record_project_path() {
     );
     plan.canonical_project_path.clear();
     let database = store_db::PlanDatabase::open(database_path.clone()).unwrap();
-    let stored_path = database.persist_plan(&plan, None).unwrap();
+    database.persist_plan(&plan, None).unwrap();
     let stored = database.load_plan(&plan.id).unwrap().unwrap();
 
     assert!(stored.canonical_project_path.is_empty());
-    let entry = PlanStore::index_entry(&stored, stored_path);
+    let entry = database.list_index_entries().unwrap().remove(0);
     assert_eq!(entry.canonical_project_path, project_path);
     assert_eq!(entry.file_path, database_path);
     assert!(!entry.file_path.starts_with(project.path()));

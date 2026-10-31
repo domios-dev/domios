@@ -283,6 +283,7 @@ fn pipeline_fanin_contract_golden_json() {
         std::slice::from_ref(&job),
         &BTreeMap::new(),
         &definitions,
+        &codeterm_plugin::graph_nodes::GraphNodeRegistry::default(),
     )
     .unwrap();
     let value = snapshot.blueprints.remove(0);

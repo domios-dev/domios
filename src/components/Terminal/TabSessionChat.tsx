@@ -1,3 +1,4 @@
+import { DEV_BUILD } from "../../lib/devBuild";
 import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
@@ -17,13 +18,14 @@ import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { ChatLiveOperation } from "./ChatLiveOperation";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   chatDaySeparators,
@@ -68,7 +70,7 @@ import { useTabActivity } from "../../lib/useTabActivity";
 import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
-import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
+import { chatProjectionMonitor, chatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { PluginIcon } from "../Extensions/PluginIcon";
@@ -388,6 +390,7 @@ function TabSessionChatBody({
     [agentActivity.kind, descriptor, effectiveChatBackend, renderedEnrichedMessages, tab?.backing, transcriptActivityAvailable],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
+  const liveOperation = renderedEnrichedMessages.find(({ msg }) => msg.id === chatTranscriptActivity.liveToolId)?.msg ?? null;
   const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
     active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
@@ -669,6 +672,36 @@ function TabSessionChatBody({
     const tail = paintTailSignature(renderedEnrichedMessages[renderedEnrichedMessages.length - 1]?.msg);
     return scheduleAfterPaint(() => chatProjectionMonitor.recordPaint(tabId, tail));
   }, [tabId, renderedEnrichedMessages]);
+  const traceMountGeneration = useRef(0);
+  useLayoutEffect(() => {
+    if (!DEV_BUILD) return;
+    const authority = { tab: tabId, session: agentSessionId, nonce: tab?.session_binding_nonce ?? null, epoch: runtime.state?.epoch };
+    chatResponsivenessTrace.bind(authority);
+    if (!chatResponsivenessTrace.eligible(authority)) return;
+    const generation = ++traceMountGeneration.current;
+    const start = mountedWindow.range.start;
+    const end = mountedWindow.range.end;
+    const rowsRef = mountedWindow.rowsRef;
+    const active = isActive && setupView.kind === "none" && !chatLoading && !tabLock.locked;
+    const cancel = chatResponsivenessTrace.rendered(authority, renderedEnrichedMessages, {
+      active, start, end, revision: mountedWindow.revision,
+      isMounted: (id, index) => {
+        if (generation !== traceMountGeneration.current || !active || index < start || index >= end) return false;
+        const root = chatRootRef.current;
+        const rows = rowsRef.current;
+        if (!root?.isConnected || root.dataset.chatReady !== "true" || !rows?.isConnected) return false;
+        const mounted = rows.querySelectorAll<HTMLElement>("[data-message-id]");
+        for (let position = 0; position < Math.min(1024, mounted.length); position++) {
+          if (mounted[position].dataset.messageId === id) return true;
+        }
+        return false;
+      },
+    });
+    return () => { traceMountGeneration.current++; cancel(); };
+  }, [tabId, agentSessionId, tab?.session_binding_nonce, runtime.state?.epoch, renderedEnrichedMessages,
+    mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision, mountedWindow.rowsRef,
+    isActive, setupView.kind, chatLoading, tabLock.locked]);
+  useEffect(() => () => { if (DEV_BUILD) chatResponsivenessTrace.release(tabId); }, [tabId]);
   // Drop torn-down tab diagnostics immediately instead of waiting for LRU eviction.
   useEffect(() => () => chatProjectionMonitor.forget(tabId), [tabId]);
   const latestFailedToolCallId = useMemo(() => {
@@ -968,11 +1001,11 @@ function TabSessionChatBody({
             <ChatTranscriptRow
               key={msg.id}
               entry={entry}
+              hideMessage={msg.id === liveOperation?.id}
               daySeparator={daySeparators.get(messageIndex)}
               originProps={originPropsById.get(msg.id)}
               reports={following.length ? following.map((index) => outboundReports[index]).filter(Boolean) : NO_REPORTS}
               asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
-              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? chatLiveOperationLabel(msg) : undefined}
               deliverySend={deliverySend}
               deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
@@ -1009,6 +1042,7 @@ function TabSessionChatBody({
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         <AutoConfirmedPromptRows records={autoConfirmations} />
+        <ChatLiveOperation message={liveOperation} />
         </div>
       </div>
         <ChatSetupState

@@ -8,7 +8,7 @@ fn account_mesh_rotation_membership_replaces_pin_without_expiry_or_generation_do
         "peer".into(),
         LinkRecord {
             link_nonce: None,
-            admission: LinkAdmission::Adopted {
+            admission: LinkAdmission::Account {
                 account_id: ACCOUNT.into(),
                 installation_id: "installation-b".into(),
                 public_key: "transport-key".into(),
@@ -34,11 +34,13 @@ fn account_mesh_rotation_membership_replaces_pin_without_expiry_or_generation_do
 async fn account_mesh_rotation_gate_restores_signed_requests_and_routing_without_restart() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));
-    legacy_pair(&a, &b);
+    enroll_all(&[&a, &b]);
     a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     let transport = Loopback::new(&[&a, &b]);
-    adopt_peer_with(&a.mesh, &transport, &b.id()).await.unwrap();
+    link_installation_with(&a.mesh, &transport, &b.installation_id)
+        .await
+        .unwrap();
     let mut state = a.mesh.lock().account_state().clone();
     state
         .revoked_installations

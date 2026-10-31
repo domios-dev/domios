@@ -44,7 +44,8 @@ struct CliEnv {
 impl CliEnv {
     fn new(stub_port: Option<u16>) -> Self {
         let data_dir = tempfile::tempdir().expect("temp data dir");
-        codeterm_util::instance_token::initialize_at(data_dir.path(), Some("stub-token"), false)
+        codeterm_util::secret_file::SecretFile::new_at(data_dir.path(), "domios.instance")
+            .set("api_token", "stub-token")
             .expect("isolated instance credential");
         Self {
             data_dir,
@@ -158,6 +159,15 @@ fn check_error_envelope(output: &Output, value: &Value) -> Result<(), String> {
 
 fn check_contract(output: &Output) -> Result<Value, String> {
     let value = stdout_value(output)?;
+    let object = value.as_object().ok_or("JSON output must be an object")?;
+    if !object.contains_key("result") {
+        return Err(format!("JSON output has no result payload: {value}"));
+    }
+    for key in ["data", "results", "hits", "tasks", "tabs", "plans"] {
+        if object.contains_key(key) {
+            return Err(format!("old JSON envelope key {key}: {value}"));
+        }
+    }
     if output.status.success() {
         if value.get("ok") == Some(&json!(false)) {
             return Err(format!("exit 0 with ok:false: {value}"));
@@ -200,7 +210,7 @@ fn json_error_contract_all_subcommands() {
     let manifest: Value =
         serde_json::from_slice(&manifest_run.stdout).expect("cli-manifest prints JSON");
     let mut nodes = Vec::new();
-    collect_nodes(&manifest, &mut Vec::new(), &mut nodes);
+    collect_nodes(&manifest["result"], &mut Vec::new(), &mut nodes);
     assert!(
         nodes.len() > 200,
         "manifest sweep found {} nodes",
@@ -375,14 +385,6 @@ fn not_found_maps_to_code_end_to_end() {
             code: "not_found",
         },
         Row {
-            args: &["mesh", "disconnect", "nope"],
-            code: "not_found",
-        },
-        Row {
-            args: &["mesh", "link", "nope"],
-            code: "conflict",
-        },
-        Row {
             args: &["delayed", "delete", "dmsg-nope"],
             code: "not_found",
         },
@@ -429,7 +431,8 @@ fn refused_workspace_close_keeps_its_json_body_and_exits_nonzero() {
         stdout_value(&output).expect("refusal is one JSON value"),
         json!({
             "ok": false,
-            "error": "[TEAM CLOSE REFUSED] caller not member"
+            "error": "[TEAM CLOSE REFUSED] caller not member",
+            "result": null
         })
     );
     assert!(output.stderr.is_empty());
@@ -440,7 +443,8 @@ fn json_success_paths_print_one_object() {
     let env = CliEnv::new(Some(start_stub()));
 
     let deleted = run_cli(&env, &json_args(&["delayed", "delete", "dmsg-ok"]));
-    let value = check_contract(&deleted).expect("delayed delete prints one JSON value");
+    let envelope = check_contract(&deleted).expect("delayed delete prints one JSON value");
+    let value = &envelope["result"];
     assert!(deleted.status.success());
     assert_eq!(value["ok"], json!(true));
     assert_eq!(value["deleted"], json!(true));
@@ -451,14 +455,16 @@ fn json_success_paths_print_one_object() {
     );
 
     let text = run_cli(&env, &json_args(&["tab", "get-text", "--tab", "live1"]));
-    let value = check_contract(&text).expect("tab get-text prints one JSON value");
+    let envelope = check_contract(&text).expect("tab get-text prints one JSON value");
+    let value = &envelope["result"];
     assert!(text.status.success());
     assert_eq!(value["ok"], json!(true));
     assert_eq!(value["text"], "hello");
     assert_eq!(value["tab_id"], "live1");
 
     let docs = run_cli(&env, &json_args(&["docs", "API"]));
-    let value = check_contract(&docs).expect("docs prints one JSON value");
+    let envelope = check_contract(&docs).expect("docs prints one JSON value");
+    let value = &envelope["result"];
     assert!(docs.status.success());
     assert!(value["content"]
         .as_str()
@@ -471,6 +477,9 @@ fn exact_quit_uses_its_finite_refusal_envelope_without_authorizing_replacement()
     let output = run_cli(&environment, &json_args(&["app", "quit", "--exact"]));
     assert!(!output.status.success());
     let value = stdout_value(&output).unwrap();
-    assert_eq!(value, json!({"outcome":"refused","reason":"no_instance"}));
+    assert_eq!(
+        value,
+        json!({"result":{"outcome":"refused","reason":"no_instance"}})
+    );
     assert!(!String::from_utf8_lossy(&output.stdout).contains("stub-token"));
 }

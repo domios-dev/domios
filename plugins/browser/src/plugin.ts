@@ -1,4 +1,5 @@
 import type { AgentCommandCtx, PluginModule } from "@codeterm/plugin-sdk";
+import { readPage } from "./readPage";
 import { redactCredentials } from "./redaction";
 
 export type AgentCommandReply = { result: string } | { error: string };
@@ -72,6 +73,7 @@ export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = ho
 
 const plugin: PluginModule = {
   onAgentCommand: (ctx) => forward(ctx),
+  blueprintSubmit: (request) => readPage(request, hostSurfaceCall()),
 };
 
 export default plugin;

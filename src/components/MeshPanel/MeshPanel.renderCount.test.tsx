@@ -5,6 +5,8 @@ import type { AppConfig } from "../../lib/types";
 import type { MeshDataResult } from "./useMeshData";
 import { webUiSnapshot } from "./webUiFixture.testdata";
 import { MeshPanel } from "./MeshPanel";
+import { accountCanvas } from "./accountCanvas";
+import type { CanvasAccount } from "./MeshCanvas";
 
 const renders = { machines: 0, webCard: 0 };
 
@@ -18,8 +20,21 @@ const inventory: MeshDataResult = {
   loading: false, error: null, loaded: true, refresh: () => {},
 };
 
+const canvasAccount: CanvasAccount = {
+  canvas: accountCanvas({
+    view: { kind: "account", reauthRequired: false, self: null, saved: [], notes: [], machines: inventory.peers.map(peer => ({
+      key: peer.instance_id, name: peer.name, status: "linked", detail: "Connected", online: true,
+      target: null, controls: { revoke: null }, pairInstanceId: peer.instance_id, lastSeenAt: null,
+    })) },
+    peers: inventory.peers, loadFailed: false, listFailed: false, failures: new Map(),
+  }),
+  now: 0, busy: null, signingIn: false,
+  actions: { onPlans: () => {}, onDismiss: () => {} },
+  onSignIn: () => {}, onRetry: () => {},
+};
+
 vi.mock("./useMeshData", () => ({ useMeshData: () => inventory }));
-vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: () => undefined }));
+vi.mock("./useCanvasAccount", () => ({ useCanvasAccount: () => canvasAccount }));
 vi.mock("./useCanvasTailscale", () => ({ useCanvasTailscale: () => undefined }));
 vi.mock("../../lib/bridge", async (original) => ({
   ...await original<typeof import("../../lib/bridge")>(),

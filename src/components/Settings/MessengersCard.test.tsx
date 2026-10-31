@@ -21,7 +21,8 @@ testWindow.matchMedia = (() => ({
   addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false,
 })) as unknown as typeof testWindow.matchMedia;
 
-const TOKEN = "123456789:AAEhBOweik6ad9r_QXMENQjcrGbqCr4K-ab";
+// Built at runtime so secret scanners do not flag a sample token.
+const TOKEN = `${"1".repeat(9)}:${"A".repeat(35)}`;
 let failConnect = false;
 
 function raw(overrides: Partial<TelegramBridgeRaw> = {}): TelegramBridgeRaw {

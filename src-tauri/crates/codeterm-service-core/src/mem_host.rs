@@ -165,31 +165,7 @@ impl MemHostContext for ServiceContext {
     }
 
     fn query_graph_type_counts(&self) -> (Vec<(String, u64)>, Vec<(String, u64)>) {
-        let entity_types: Vec<(String, u64)> = {
-            let conn = self.mem.conn().lock();
-            conn.prepare(
-                "SELECT entity_type, COUNT(*) FROM entities GROUP BY entity_type ORDER BY COUNT(*) DESC LIMIT 20",
-            )
-            .and_then(|mut stmt| {
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            })
-            .unwrap_or_default()
-        };
-
-        let relation_types: Vec<(String, u64)> = {
-            let conn = self.mem.conn().lock();
-            conn.prepare(
-                "SELECT relation_type, COUNT(*) FROM relations GROUP BY relation_type ORDER BY COUNT(*) DESC LIMIT 30",
-            )
-            .and_then(|mut stmt| {
-                stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, u64>(1)?)))
-                    .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
-            })
-            .unwrap_or_default()
-        };
-
-        (entity_types, relation_types)
+        self.mem.graph_type_counts()
     }
 }
 
@@ -596,29 +572,38 @@ fn extract_pending(svc: Arc<ServiceContext>, limit: usize, explicit: bool) -> us
     let fut = async move {
         let _permit = mem.acquire_heavy_permit().await;
         for (id, title, body, kind) in pending {
-            if explicit
-                && svc
-                    .workers
-                    .active_by_intent(&format!("extract:{id}"))
-                    .is_none()
-            {
-                if let Err(error) = svc
-                    .workers
-                    .extraction_retries
-                    .reset(&format!("extract:{id}"))
+            let svc = svc.clone();
+            let mem_cfg = mem_cfg.clone();
+            let default_agent = default_agent.clone();
+            let result = tokio::task::spawn_blocking(move || {
+                if explicit
+                    && svc
+                        .workers
+                        .active_by_intent(&format!("extract:{id}"))
+                        .is_none()
                 {
-                    log::error!("[auto-extract] reset failed: {error}");
-                    continue;
+                    if let Err(error) = svc
+                        .workers
+                        .extraction_retries
+                        .reset(&format!("extract:{id}"))
+                    {
+                        log::error!("[auto-extract] reset failed: {error}");
+                        return;
+                    }
                 }
+                let (title, body) = svc
+                    .mem
+                    .get(&id)
+                    .ok()
+                    .flatten()
+                    .map(|item| (item.title, item.body))
+                    .unwrap_or((title, body));
+                spawn_extraction_worker(&svc, &mem_cfg, &default_agent, id, title, body, kind);
+            })
+            .await;
+            if let Err(error) = result {
+                log::error!("[auto-extract] pending extraction task failed: {error}");
             }
-            let (title, body) = svc
-                .mem
-                .get(&id)
-                .ok()
-                .flatten()
-                .map(|item| (item.title, item.body))
-                .unwrap_or((title, body));
-            spawn_extraction_worker(&svc, &mem_cfg, &default_agent, id, title, body, kind);
         }
     };
     match tokio::runtime::Handle::try_current() {

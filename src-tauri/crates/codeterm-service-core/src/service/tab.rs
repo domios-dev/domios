@@ -217,7 +217,7 @@ impl ServiceContext {
         if is_coordinator(role, role_profile.as_deref(), false, false) {
             return true;
         }
-        for plan in self.plan_store.list_full() {
+        for plan in self.plan_store.plans_owned_or_planned_by(tab_id) {
             let is_owner = plan.owner.tab_id.as_deref() == Some(tab_id);
             let is_planner =
                 match resolve_planner_ref(&plan.planner, &plan.owner, |p| self.tab_probe(p)) {

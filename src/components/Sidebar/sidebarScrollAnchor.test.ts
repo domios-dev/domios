@@ -49,6 +49,16 @@ test("DOM anchoring normalizes CSS zoom and releases space when the anchor is re
   fixture.dispose();
 });
 
+test("a tab switch that shrinks the content below the viewport settles at the top without an unreachable write", () => {
+  const fixture = scrollFixture();
+  const writes = fixture.writes();
+  fixture.resizeContent(300);
+  assert.equal(fixture.viewport.scrollTop, 0);
+  assert.equal(fixture.space.offsetHeight, 0);
+  assert.deepEqual(writes, []);
+  fixture.dispose();
+});
+
 test("the pressed control takes priority over an earlier visible row", () => {
   const fixture = scrollFixture();
   fixture.prependAnchor();
@@ -118,6 +128,12 @@ function scrollFixture(zoom = 1) {
   let headerTop = 934;
   let earlierTop = 500;
   const viewportHeight = 716;
+  const writes: number[] = [];
+  let observing = false;
+  const notify = (callback?: () => void) => {
+    observing = true;
+    try { callback?.(); } finally { observing = false; }
+  };
   const box = (top: number, height: number) => new window.DOMRect(0, top * zoom, 280 * zoom, height * zoom);
   Object.defineProperties(space, { offsetHeight: { get: () => Number.parseFloat(space.style.height) || 0 } });
   Object.defineProperties(viewport, {
@@ -126,7 +142,10 @@ function scrollFixture(zoom = 1) {
     scrollHeight: { get: () => Math.max(viewportHeight, contentHeight + space.offsetHeight) },
     scrollTop: {
       get: () => scrollTop,
-      set: (next: number) => { scrollTop = Math.max(0, Math.min(next, viewport.scrollHeight - viewportHeight)); },
+      set: (next: number) => {
+        if (observing) writes.push(next);
+        scrollTop = Math.max(0, Math.min(next, viewport.scrollHeight - viewportHeight));
+      },
     },
   });
   viewport.getBoundingClientRect = () => box(0, viewportHeight);
@@ -136,12 +155,13 @@ function scrollFixture(zoom = 1) {
   assert.ok(observed.has(body) && observed.has(viewport), "body mutations and both resize surfaces are observed");
   return {
     viewport, space, header,
+    writes: () => writes,
     press: (element: typeof header) => element.dispatchEvent(new window.Event("pointerdown", { bubbles: true })),
     resizeContent: (height: number) => {
       contentHeight = height;
       viewport.scrollTop = scrollTop;
-      callbacks.mutation?.();
-      callbacks.resize?.();
+      notify(callbacks.mutation);
+      notify(callbacks.resize);
     },
     moveHeader: (delta: number) => {
       headerTop += delta;

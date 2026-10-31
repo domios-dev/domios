@@ -16,6 +16,9 @@ import { restoreStageView } from "../../lib/restoreStageView";
 import { setClientTabUiMode } from "../../lib/clientTabUiMode";
 import { TabContent } from "./TabContent";
 import { freeLimitGate } from "../billing/freeLimitGate";
+import { getPersistedChatScrollState } from "./chatViewport";
+import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
+import type { ChatStartResult } from "./chatSessionAuthority";
 
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 vi.mock("./TerminalTab", async () => {
@@ -141,7 +144,7 @@ it("routes a non-PTY task tab through its backing provider even without a local 
   __setListenForTest(async () => () => {});
   __setInvokeForTest(async <T,>(command: string) => {
     calls.push(command);
-    const value = command === "plugin_view_call" ? {phase: "bound", snapshot: {status: "ready", result: "Fixture remote result", diff: null}}
+    const value = command === "plugin_remote_task_call" ? {phase: "bound", snapshot: {status: "ready", result: "Fixture remote result", diff: null}}
       : command === "plugin_manager_snapshot" ? {plugins: [], channels: [], diff: [], marketplace: []} : {};
     return value as T;
   });
@@ -157,7 +160,7 @@ it("routes a non-PTY task tab through its backing provider even without a local 
     </MuxStateStoreContext.Provider>));
     expect(host.querySelector('section[aria-label="Remote task"]')).not.toBeNull();
     expect(host.querySelector("pre")?.textContent).toBe("Fixture remote result");
-    expect(calls).toContain("plugin_view_call");
+    expect(calls).toContain("plugin_remote_task_call");
     expect(calls).not.toContain("chat_start");
     expect(onPtySpawned).not.toHaveBeenCalled();
   } finally {
@@ -448,4 +451,121 @@ it("projects sleeping, restoring and failed snapshots without a wake control", a
     __setInvokeForTest(null);
     __setListenForTest(null);
   }
+});
+
+it("refreshes only its chat attachment while retaining draft, authority, transcript and detached scroll", async () => {
+  let tab: Tab = {
+    id: "header-refresh-own", title: "Fixture", tab_type: "Terminal", cwd: null, pty_id: null,
+    backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "refresh-session" },
+    agent_session_id: "refresh-session", session_binding_nonce: "refresh-binding", boot_stage: "agent_ready",
+    agent_runtime_state: { state: "loaded", epoch: 1 },
+  };
+  const other: Tab = { ...tab, id: "header-refresh-other", agent_session_id: "other-session",
+    session_binding_nonce: "other-binding", backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "other-session" } };
+  let state: ExtendedState = { workspaces: [], tabs: { [tab.id]: tab, [other.id]: other }, teams: [],
+    active_workspace_id: null, focused_tab_id: tab.id, notifications: [], tabStatuses: {}, toasts: [],
+    activeTabIds: {}, generation: 1, pendingCloses: [] };
+  const store = createMuxStateStore(() => state);
+  const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
+  const subscriptions = new Set<string>();
+  let completeRefresh: ((result: ChatStartResult) => void) | undefined;
+  let refreshedSubscription = "";
+  const snapshot = (sessionId: string, nonce: string, subscriptionId: string): ChatStartResult => ({
+    text: "", offset: 1, start_offset: 0, pending: false, source_session_id: sessionId,
+    session_binding_nonce: nonce, subscription_id: subscriptionId,
+    messages: [{ id: `${sessionId}-row`, type: "assistant", content: `${sessionId} retained reply` }],
+  });
+  __setListenForTest(async () => () => {});
+  __setInvokeForTest(<T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    calls.push({ command, args });
+    if (command === "chat_start") {
+      const own = args?.tabId === tab.id;
+      const subscriptionId = String(args?.subscriptionId);
+      if (own && calls.filter(call => call.command === "chat_start" && call.args?.tabId === tab.id).length === 2) {
+        refreshedSubscription = subscriptionId;
+        return new Promise<ChatStartResult>(resolve => { completeRefresh = resolve; }) as Promise<T>;
+      }
+      subscriptions.add(subscriptionId);
+      return Promise.resolve(snapshot(own ? "refresh-session" : "other-session", own ? "refresh-binding" : "other-binding", subscriptionId) as T);
+    }
+    if (command === "chat_stop") subscriptions.delete(String(args?.subscriptionId));
+    const value = command === "delayed_send_list" || command === "list_agent_providers" ? []
+      : command === "plugin_manager_snapshot" ? { plugins: [], channels: [], diff: [], marketplace: [] } : {};
+    return Promise.resolve(value as T);
+  });
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const actions = new Proxy({}, { get: () => () => {} }) as MultiplexerActionsContextType;
+  const render = () => act(async () => root.render(
+    <MuxStateStoreContext.Provider value={store}><MultiplexerActionsContext.Provider value={actions}>
+      {[tab, other].map(item => <TabContent key={item.id} tab={item} isFocused={item === tab} isVisible
+        onFocusTab={() => {}} onPtySpawned={() => {}}
+        theme={{ name: "fixture", background: "#000", foreground: "#fff" } as ThemeConfig} />)}
+    </MultiplexerActionsContext.Provider></MuxStateStoreContext.Provider>,
+  ));
+  const ownSurface = () => host.querySelector(`[data-tab-id="${tab.id}"]`)!;
+  try {
+    await render();
+    const composer = ownSurface().querySelector<HTMLTextAreaElement>("textarea")!;
+    const row = ownSurface().querySelector('[data-testid="chat-message"]');
+    const scroll = ownSurface().querySelector<HTMLDivElement>('[data-testid="tab-session-chat-messages"]')!;
+    expect(row?.textContent).toContain("refresh-session retained reply");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(composer, "unsent refresh draft");
+      composer.dispatchEvent(new Event("input", { bubbles: true }));
+      Object.defineProperties(scroll, { scrollHeight: { configurable: true, value: 1000 }, clientHeight: { configurable: true, value: 200 } });
+      scroll.scrollTop = 800;
+      scroll.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    await act(async () => {
+      scroll.scrollTop = 200;
+      scroll.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    const scrollKey = `${tab.id}:refresh-session`;
+    expect(getPersistedChatScrollState(scrollKey)?.mode).toBe("detached");
+    const authority = readTranscriptWindow(transcriptWindowKey(tab.id, "refresh-session")).transcript.authority;
+    expect(authority).toEqual({ sourceSessionId: "refresh-session", sessionBindingNonce: "refresh-binding" });
+    const refresh = ownSurface().querySelector<HTMLButtonElement>('button[aria-label="Refresh chat"]')!;
+    expect(refresh).not.toBeNull();
+    await act(async () => refresh.click());
+    expect(completeRefresh).toBeDefined();
+    expect(ownSurface().querySelector("textarea")).toBe(composer);
+    expect(composer.value).toBe("unsent refresh draft");
+    expect(ownSurface().querySelector('[data-testid="chat-message"]')).toBe(row);
+    expect(scroll.scrollTop).toBe(200);
+    expect(subscriptions.size).toBe(1);
+    await act(async () => {
+      subscriptions.add(refreshedSubscription);
+      completeRefresh!(snapshot("refresh-session", "refresh-binding", refreshedSubscription));
+    });
+    expect(subscriptions.size).toBe(2);
+    expect(calls.filter(call => call.command === "chat_start").map(call => [call.args?.tabId, call.args?.agentSessionId])).toEqual([
+      [tab.id, "refresh-session"], [other.id, "other-session"], [tab.id, "refresh-session"],
+    ]);
+    expect(readTranscriptWindow(transcriptWindowKey(tab.id, "refresh-session")).transcript.authority).toEqual(authority);
+    expect(composer.value).toBe("unsent refresh draft");
+    expect(ownSurface().querySelector('[data-testid="chat-message"]')).toBe(row);
+    expect(ownSurface().querySelector('[data-testid="tab-session-chat-messages"]')).toBe(scroll);
+    expect(getPersistedChatScrollState(scrollKey)?.mode).toBe("detached");
+    expect(scroll.scrollTop).toBe(200);
+    expect(calls.some(call => ["chat_send_text", "chat_send_raw", "send_text", "restart_agent_tab", "agent_runtime_retry"].includes(call.command))).toBe(false);
+
+    tab = { ...tab, agent_runtime_state: { state: "degraded", epoch: 2, reason: "Deadline: opaque" } };
+    state = { ...state, tabs: { ...state.tabs, [tab.id]: tab } };
+    await act(async () => store.notify());
+    await render();
+    const restoring = ownSurface().querySelector('[role="status"][aria-label="Restoring…"]');
+    expect(restoring === null || restoring.closest('[aria-hidden="true"]') !== null).toBe(true);
+    expect(ownSurface().querySelector('[aria-label="Agent runtime is taking longer than usual"]')).not.toBeNull();
+    expect(ownSurface().querySelector("textarea")).toBe(composer);
+    tab = { ...tab, agent_runtime_state: { state: "degraded", epoch: 3, reason: "ProcessExited: opaque" } };
+    state = { ...state, tabs: { ...state.tabs, [tab.id]: tab } };
+    await act(async () => store.notify());
+    await render();
+    expect(ownSurface().querySelector('[aria-label="Agent runtime unavailable"]')).not.toBeNull();
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    __setInvokeForTest(null); __setListenForTest(null);
+  }
+  expect(subscriptions.size).toBe(0);
 });

@@ -24,10 +24,6 @@ fn read(path: &PathBuf) -> io::Result<AccountMeshRecord> {
     record.admission_cache = fs::read(path.with_file_name("mesh-admission.json"))
         .ok()
         .and_then(|bytes| serde_json::from_slice(&bytes).ok());
-    record.reauth_required_accounts = fs::read(path.with_file_name("mesh-reauth.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default();
     match fs::read(path.with_file_name("mesh-peer-presence.json")) {
         Ok(bytes) => match serde_json::from_slice(&bytes) {
             Ok(presence) => record.peer_presence = presence,
@@ -44,13 +40,6 @@ fn write(path: &PathBuf, record: &AccountMeshRecord) -> io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let reauth_path = path.with_file_name("mesh-reauth.json");
-    let temporary_reauth = reauth_path.with_extension("json.tmp");
-    fs::write(
-        &temporary_reauth,
-        serde_json::to_vec(&record.reauth_required_accounts).map_err(io::Error::other)?,
-    )?;
-    fs::rename(&temporary_reauth, &reauth_path)?;
     if !record.peer_presence_refresh {
         let presence_path = path.with_file_name("mesh-peer-presence.json");
         let temporary_presence = presence_path.with_extension("json.tmp");

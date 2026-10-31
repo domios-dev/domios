@@ -35,6 +35,8 @@ Use an owned Browser session with a clean temporary profile. Use synthetic form 
 
 ## Steps
 
+Use the [controlled-form segment](../../REPEATABLE-QA.md#controlled-form-subset) for reusable mechanics and retained prototype evidence. It covers only the stated submission subset; public-site navigation, all form flags and nonexistent-profile refusal still need their own observations. Keep automation manual and do not report this segment as a full-case PASS.
+
 1. Submit the public test form with a synthetic value and verify the returned value.
 2. Inspect disabled, readonly, selected, and required fields; submit the controlled web form and wait for its explicit completion text.
 3. Attempt to open a nonexistent persistent profile and require a refusal with the profile list unchanged.

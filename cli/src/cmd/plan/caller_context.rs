@@ -10,13 +10,12 @@ pub(crate) struct CallerContext {
 }
 
 impl CallerContext {
-    /// Empty strings are kept, not filtered, so presence matches the legacy `env::var().ok()` reads.
     pub(crate) fn from_env() -> Self {
         Self {
-            tab_id: std::env::var("CODETERM_TAB_ID").ok(),
-            session_id: std::env::var("CODETERM_SESSION_ID").ok(),
-            session_binding_nonce: std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
-            tab_title: std::env::var("CODETERM_TAB_TITLE").ok(),
+            tab_id: crate::nonempty_env("CODETERM_TAB_ID"),
+            session_id: crate::nonempty_env("CODETERM_SESSION_ID"),
+            session_binding_nonce: crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE"),
+            tab_title: crate::nonempty_env("CODETERM_TAB_TITLE"),
         }
     }
 

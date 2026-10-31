@@ -77,6 +77,60 @@ fn runtime_policy_rejects_mode_directory_and_cwd_overrides() {
 }
 
 #[test]
+fn runtime_policy_diagnostics_bound_modes_and_report_only_finite_comparisons() {
+    let mut policy = policy();
+    policy.runtime_mode = Some("workspace-write".into());
+    policy.writable_roots = vec!["private-root".into()];
+    let settings = RuntimeSettings {
+        mode: Some("read-only".into()),
+        additional_directories: vec!["foreign-private-root".into()],
+        network_access: None,
+        ..Default::default()
+    };
+    let comparison = runtime_policy_comparison(&policy, &settings, "private-foreign-cwd");
+    assert_eq!(
+        comparison,
+        RuntimePolicyComparison {
+            expected_mode: "workspace-write",
+            actual_mode: "read-only",
+            mode_matches: false,
+            expected_root_count: 1,
+            actual_root_count: 1,
+            roots_match: false,
+            expected_network_access: Some(false),
+            actual_network_access: None,
+            network_matches: false,
+            cwd_matches: false,
+        }
+    );
+    policy.runtime_mode = Some("private-expected-mode".into());
+    let settings = RuntimeSettings {
+        mode: Some("private-returned-mode".into()),
+        additional_directories: policy.writable_roots.clone(),
+        network_access: Some(false),
+        ..Default::default()
+    };
+    let comparison = runtime_policy_comparison(&policy, &settings, &policy.cwd);
+    assert_eq!(comparison.expected_mode, "other");
+    assert_eq!(comparison.actual_mode, "other");
+    assert!(!comparison.mode_matches);
+    assert!(comparison.roots_match);
+    assert!(comparison.network_matches);
+    assert!(comparison.cwd_matches);
+    assert_eq!(comparison.to_string(), "expected_mode=other actual_mode=other mode_matches=false expected_root_count=1 actual_root_count=1 roots_match=true expected_network_access=Some(false) actual_network_access=Some(false) network_matches=true cwd_matches=true");
+    assert_eq!(runtime_mode_label(None), "missing");
+    for access in [None, Some(false), Some(true)] {
+        let settings = RuntimeSettings {
+            network_access: access,
+            ..settings.clone()
+        };
+        let comparison = runtime_policy_comparison(&policy, &settings, &policy.cwd);
+        assert_eq!(comparison.actual_network_access, access);
+        assert_eq!(comparison.network_matches, access == Some(false));
+    }
+}
+
+#[test]
 fn resolver_requires_capability_and_canonicalizes_only_the_lane_root() {
     let registry = AgentRegistry::new();
     registry.register_provider(Box::new(

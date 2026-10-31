@@ -1,4 +1,5 @@
 use super::*;
+use std::fs::OpenOptions;
 
 #[test]
 fn bundle_lock_cleanup_preserves_foreign_call_handles() {

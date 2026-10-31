@@ -106,16 +106,11 @@ dev_notify_send() {
   fi
   local target_args=(--tab "$tab_id")
   [ -z "${DEV_NOTIFY_TARGET_MESH:-}" ] || target_args=(--mesh "$DEV_NOTIFY_TARGET_MESH" --tab "$tab_id")
-  local refusal status
-  # An older parent CLI rejects the flag as a usage error before sending; resend once without it.
-  refusal="$(dev_notify_parent_cli send "${target_args[@]}" --from-file "$body_file" --system-context build 2>&1 >/dev/null)" && return 0
-  status=$?
-  if [ "$status" -eq 2 ] && grep -q -- "unexpected argument" <<< "$refusal"; then
-    dev_notify_parent_cli send "${target_args[@]}" --from-file "$body_file"
-    return
+  local provenance_args=()
+  if [ -z "${DEV_NOTIFY_PARENT_CODETERM_TAB_ID:-}" ]; then
+    provenance_args=(--system-context build)
   fi
-  printf '%s\n' "$refusal" >&2
-  return "$status"
+  dev_notify_parent_cli send "${target_args[@]}" --from-file "$body_file" "${provenance_args[@]}" >/dev/null
 }
 
 dev_notify_write_ready() {

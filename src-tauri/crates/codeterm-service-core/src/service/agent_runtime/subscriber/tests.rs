@@ -72,6 +72,7 @@ fn outstanding_request_bound_refuses_at_capacity() {
 #[test]
 fn unmapped_requests_get_correlated_error_decision() {
     let context = RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("own".into()),
         ..Default::default()
     };
@@ -161,4 +162,111 @@ async fn mock_runtime_unmapped_requests_reply_and_capacity_stays_bounded() {
     assert_eq!(reply["error"]["code"], -32601);
     assert_eq!(scene.session.prompts.lock().len(), MAX_OUTSTANDING_REQUESTS);
     process.client.close(RuntimeFailure::Superseded);
+}
+
+#[test]
+fn live_trace_origin_requires_current_own_turn_and_never_contains_body() {
+    use crate::service::tab_chat::structured_sink::live_runtime_origin;
+    let before = RuntimeContext {
+        restricted_cli: None,
+        tab_id: "opaque-live-tab".into(),
+        epoch: 7,
+        binding_nonce: "opaque-nonce".into(),
+        thread_id: Some("opaque-thread".into()),
+        active_turn_id: Some("opaque-turn".into()),
+        ..Default::default()
+    };
+    let item = crate::agent::chat_types::ChatMsg {
+        id: "opaque-item".into(),
+        kind: "assistant".into(),
+        content: "opaque-private-body".into(),
+        tool_flow_id: Some("opaque-turn".into()),
+        ..Default::default()
+    };
+    let origin = live_runtime_origin(true, &before, &before, "opaque-thread", &item).unwrap();
+    assert_eq!(
+        serde_json::to_value(origin).unwrap(),
+        json!({"kind":"runtime_live","turn":"opaque-turn"})
+    );
+    assert!(live_runtime_origin(false, &before, &before, "opaque-thread", &item).is_none(),
+        "default runtimeResponse/control/goal publication cannot mark even an exact active assistant live");
+    for current in [
+        RuntimeContext {
+            restricted_cli: None,
+            tab_id: "foreign".into(),
+            ..before.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            epoch: 8,
+            ..before.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            epoch: 0,
+            ..before.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            binding_nonce: "foreign".into(),
+            ..before.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            thread_id: Some("foreign".into()),
+            ..before.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            active_turn_id: None,
+            ..before.clone()
+        },
+        RuntimeContext {
+            restricted_cli: None,
+            active_turn_id: Some("stale-turn".into()),
+            ..before.clone()
+        },
+    ] {
+        assert!(live_runtime_origin(true, &before, &current, "opaque-thread", &item).is_none());
+    }
+    assert!(live_runtime_origin(true, &before, &before, "foreign", &item).is_none());
+    for stale in [
+        crate::agent::chat_types::ChatMsg {
+            tool_flow_id: None,
+            ..item.clone()
+        },
+        crate::agent::chat_types::ChatMsg {
+            tool_flow_id: Some("stale-turn".into()),
+            ..item.clone()
+        },
+        crate::agent::chat_types::ChatMsg {
+            inherited_from_session_id: Some("parent".into()),
+            ..item.clone()
+        },
+    ] {
+        assert!(live_runtime_origin(true, &before, &before, "opaque-thread", &stale).is_none());
+    }
+}
+
+#[test]
+fn cached_assistant_emit_has_no_live_diagnostic_provenance() {
+    let ui = crate::service::test_fixture::RecordedUiEvents::default();
+    let cached = crate::agent::chat_types::ChatMsg {
+        id: "opaque-cached-assistant".into(),
+        kind: "assistant".into(),
+        tool_flow_id: Some("opaque-current-turn".into()),
+        ..Default::default()
+    };
+    crate::service::tab_chat::structured_sink::emit_chat_msgs(
+        &ui,
+        "opaque-cache-trace-tab",
+        &[cached],
+        None,
+        Some("opaque-thread"),
+        Some("opaque-nonce"),
+    );
+    let events = ui.0.lock();
+    assert_eq!(events.len(), 1);
+    assert!(events[0].1.get("diagnostic_live").is_none());
+    assert_eq!(events[0].1["messages"][0]["id"], "opaque-cached-assistant");
 }

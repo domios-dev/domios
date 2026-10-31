@@ -498,7 +498,6 @@ button {
   transition:
     transform var(--ct-duration-liquid-hover) var(--ct-ease-hover-swell),
     color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
-    background-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     border-color var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle),
     box-shadow var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
@@ -515,7 +514,11 @@ button {
 .agent-provider-card[data-selected="yes"] {
   --ct-liquid-base-transform: translate3d(0, -3px, 0);
   border-color: var(--ct-accent);
-  background: color-mix(in srgb, var(--ct-accent) 16%, var(--ct-surface));
+  /* An image like the unselected gradient, so selecting never passes through a transparent fill. */
+  background: linear-gradient(
+    color-mix(in srgb, var(--ct-accent) 16%, var(--ct-surface)),
+    color-mix(in srgb, var(--ct-accent) 16%, var(--ct-surface))
+  );
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--ct-accent) 75%, transparent),
     0 10px 28px color-mix(in srgb, var(--ct-accent) 22%, transparent);
@@ -620,6 +623,14 @@ button {
 .ct-segmented-idle .ct-liquid-segmented__option[aria-selected="true"] {
   color: var(--ct-muted-fg);
   font-weight: 400;
+}
+
+/* The welcome headline is the first words anyone reads in Domios; it scales with the stage. */
+.agent-picker-headline {
+  margin: 0;
+  font-size: clamp(1.5rem, 1.15rem + 1.4vw, 2rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
 }
 
 .agent-provider-card-badge {

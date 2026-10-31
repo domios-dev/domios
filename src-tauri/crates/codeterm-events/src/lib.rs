@@ -36,6 +36,13 @@ pub enum SystemEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         actor: Option<String>,
     },
+    /// Identity-only hint; views refetch their state through their existing plugin bridge.
+    SurfaceStateInvalidated {
+        plugin: String,
+        surface: String,
+        instance: String,
+        tab: String,
+    },
     AgentStarted {
         tab_id: String,
         provider: String,
@@ -73,6 +80,7 @@ impl SystemEvent {
             Self::TabFocused { .. } => "tab-focused",
             Self::TabClosed { .. } => "tab-closed",
             Self::SurfaceActivity { .. } => "surface-activity",
+            Self::SurfaceStateInvalidated { .. } => "surface-state-invalidated",
             Self::AgentStarted { .. } => "agent-started",
             Self::AgentIdle { .. } => "agent-idle",
             Self::ConfigChanged { .. } => "config-changed",

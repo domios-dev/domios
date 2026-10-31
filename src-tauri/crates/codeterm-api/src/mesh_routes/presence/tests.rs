@@ -1,23 +1,12 @@
 use super::*;
 use codeterm_service_core::mesh::{
-    account_mesh::{AccountMeshState, AccountPresence},
+    account_mesh::AccountPresence,
     types::{AccessLevel, MeshIdentity, PairedPeer, RELAY_PROTOCOL_VERSION},
 };
 
-#[test]
-fn presence_notice_requires_a_signed_in_receiver_and_paired_nonreplayed_signature() {
-    let (private, public) = crown::generate_peer_keypair();
-    let mut mesh = MeshManager::in_memory(
-        MeshIdentity {
-            instance_id: "receiver".into(),
-            private_key: None,
-            public_key: None,
-        },
-        "Receiver".into(),
-        7685,
-    );
-    mesh.insert_legacy_pair_for_test(PairedPeer {
-        instance_id: "sender".into(),
+fn peer(id: &str, public: String) -> PairedPeer {
+    PairedPeer {
+        instance_id: id.into(),
         instance_name: "Sender".into(),
         addresses: vec![],
         api_port: 7685,
@@ -32,22 +21,33 @@ fn presence_notice_requires_a_signed_in_receiver_and_paired_nonreplayed_signatur
         relay_protocol_version: RELAY_PROTOCOL_VERSION,
         consecutive_misses: 0,
         last_active_ms: None,
-    });
-    mesh.apply_account_state(AccountMeshState {
-        presence: AccountPresence::SignedOut,
-        ..Default::default()
-    });
+    }
+}
+
+#[test]
+fn presence_notice_requires_a_signed_in_receiver_and_paired_nonreplayed_signature() {
+    let (private, public) = crown::generate_peer_keypair();
+    let mut mesh = MeshManager::in_memory(
+        MeshIdentity {
+            instance_id: "receiver".into(),
+            private_key: None,
+            public_key: None,
+        },
+        "Receiver".into(),
+        7685,
+    );
+    mesh.insert_account_peer_for_test(peer("sender", public));
+    let admitted = mesh.account_state().clone();
+    let mut signed_out = admitted.clone();
+    signed_out.presence = AccountPresence::SignedOut;
+    signed_out.membership = None;
+    mesh.apply_account_state(signed_out);
     let token = crown::sign_request(&private, "sender").unwrap();
     assert_eq!(
         authorize_notice(&mut mesh, &token).unwrap_err().0,
         StatusCode::FORBIDDEN
     );
-    mesh.apply_account_state(AccountMeshState {
-        presence: AccountPresence::SignedIn {
-            account_id: "account".into(),
-        },
-        ..Default::default()
-    });
+    mesh.apply_account_state(admitted);
     assert_eq!(
         authorize_notice(&mut mesh, "forged").unwrap_err().0,
         StatusCode::UNAUTHORIZED
@@ -83,10 +83,6 @@ fn presence_notice_cannot_carry_state_or_traffic_instructions() {
 
 #[test]
 fn account_registry_block_allows_signed_notice_then_reopens_only_after_observation() {
-    use codeterm_service_core::mesh::account_mesh::{
-        protocol::PartyDescriptor, transcript::Party, SignedMembership, VerifiedMembership,
-    };
-    use codeterm_service_core::mesh::manager::LinkOrigin;
     let (private, public) = crown::generate_peer_keypair();
     let sender = "00000000-0000-4000-8000-000000000001";
     let mut mesh = MeshManager::in_memory(
@@ -99,53 +95,13 @@ fn account_registry_block_allows_signed_notice_then_reopens_only_after_observati
         7685,
     );
     mesh.set_clock(std::sync::Arc::new(|| 100));
-    let membership = |installation: &str| SignedMembership {
-        token: "fixture".into(),
-        verified: VerifiedMembership {
-            account_id: "account".into(),
-            installation_id: installation.into(),
-            key_id: "key".into(),
-            key_generation: 1,
-            slot_revision: 1,
-            issued_at: 100,
-            expires_at: 3700,
-        },
-    };
-    let mut state = AccountMeshState {
-        account_epoch: 1,
-        presence: AccountPresence::SignedIn {
-            account_id: "account".into(),
-        },
-        membership: Some(membership("receiver-installation")),
-        ..Default::default()
-    };
-    mesh.apply_account_state(state.clone());
-    mesh.admit_new_link(
-        &PartyDescriptor {
-            party: Party {
-                instance_id: sender.into(),
-                mesh_public_key: public,
-                installation_id: "sender-installation".into(),
-            },
-            instance_name: "Sender".into(),
-            api_port: 7685,
-            addresses: vec![],
-        },
-        &[],
-        membership("sender-installation"),
-        "account",
-        LinkOrigin::Remote,
-        "fixture",
-    )
-    .unwrap();
+    mesh.insert_account_peer_for_test(peer(sender, public));
+    let mut state = mesh.account_state().clone();
     assert!(mesh.traffic_open(sender));
-    state
-        .unavailable_installations
-        .insert("sender-installation".into());
+    state.unavailable_installations.insert(sender.into());
     mesh.apply_account_state(state.clone());
     assert!(!mesh.traffic_open(sender));
-    assert!(!mesh.is_revoked(sender));
-    assert!(!mesh.is_blocked(sender));
+    assert!(!mesh.account_peer_revoked(sender));
     let notice = crown::sign_request(&private, sender).unwrap();
     assert_eq!(authorize_notice(&mut mesh, &notice).unwrap(), sender);
     assert!(!mesh.traffic_open(sender));

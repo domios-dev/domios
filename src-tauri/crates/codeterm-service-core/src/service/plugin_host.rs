@@ -91,6 +91,59 @@ fn api_cfg_base_url(cfg: crate::config::schema::ApiConfig) -> String {
 // ── PluginHostCtx impl ───────────────────────────────────────────────────────
 
 impl codeterm_plugin::PluginHostCtx for ServiceContext {
+    fn agent_run_start_json(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::blueprint_step::StepInputContext,
+        opts: &str,
+    ) -> String {
+        self.plugin_step_agent_start(plugin, context, opts)
+    }
+    fn agent_run_wait_json(
+        &self,
+        plugin: &str,
+        operation: &str,
+        run: &str,
+        deadline: std::time::Instant,
+    ) -> String {
+        serde_json::to_string(&self.wait_step_agent_run(plugin, operation, run, deadline))
+            .unwrap_or_else(|_| r#"{"state":"unknown"}"#.into())
+    }
+    fn agent_run_cancel_json(&self, plugin: &str, operation: &str, run: &str) -> String {
+        serde_json::to_string(&self.cancel_step_agent_run(plugin, operation, run))
+            .unwrap_or_else(|_| r#"{"state":"unknown"}"#.into())
+    }
+    fn step_surface_call_json(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::blueprint_step::StepInputContext,
+        verb: &str,
+        args: &str,
+    ) -> String {
+        self.step_surface_call(plugin, context, verb, args)
+    }
+    fn surface_registration(&self, plugin: &str, runtime: &str) -> Option<String> {
+        let (provider, registration) = self
+            .ext::<codeterm_plugin::view_host::ViewRegistryHandle>()
+            .registered(plugin)?;
+        (provider.id() == plugin && provider.invocation_runtime().as_deref() == Some(runtime))
+            .then_some(registration)
+    }
+    fn bind_run_transfer_input(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::blueprint_step::StepInputContext,
+        handle: &str,
+        destination: &str,
+        control: &codeterm_plugin::binary_transfer::InputPreparation,
+    ) -> codeterm_plugin::binary_transfer::Result<
+        codeterm_plugin::binary_transfer::TransferInputGrant,
+    > {
+        self.host_extension::<codeterm_plugin::blueprint_step::RunInputs>()
+            .ok_or(codeterm_plugin::binary_transfer::TransferRefusal::NotAllowed)?
+            .0
+            .bind(plugin, context, handle, destination, control)
+    }
     fn runtime_launch_authorized(
         &self,
         binding: &codeterm_plugin::agent_runtime::RuntimeLaunchBinding,
@@ -366,7 +419,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     fn contributions_changed(&self, kind: &str) {
         if kind == codeterm_plugin::agent_verbs::PLUGIN_INDEX_CONTRIBUTION_KIND {
-            super::plugin_skills::spawn_sync(self.mem.clone());
+            super::plugin_skills::spawn_sync(
+                self.mem.clone(),
+                self.ext::<crate::agent_commands::AgentCommandRegistryHandle>()
+                    .clone(),
+            );
         }
         if kind == codeterm_plugin::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND {
             super::plugin_prompt::refresh(
@@ -509,6 +566,47 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
 
     // ── Secrets ──────────────────────────────────────────────────────────
 
+    fn bind_view_transfer_input(
+        &self,
+        plugin: &str,
+        context: &codeterm_plugin::view_host::ViewCallContext,
+        handle: &str,
+        destination: &str,
+        control: &codeterm_plugin::binary_transfer::InputPreparation,
+    ) -> codeterm_plugin::binary_transfer::Result<
+        codeterm_plugin::binary_transfer::TransferInputGrant,
+    > {
+        use codeterm_plugin::binary_transfer::{
+            prepare_plugin_input_bounded, FileIdentity, TransferRefusal,
+        };
+        let mut refusal = None;
+        let prepared = self
+            .with_validated_plugin_view_context(plugin, context, || {
+                let input =
+                    codeterm_plugin::media_delivery::open_context_input(plugin, context, handle)
+                        .map_err(|_| "input_not_allowed".to_string())?;
+                let identity = FileIdentity {
+                    size: input.media.size,
+                    sha256: input.sha256,
+                };
+                prepare_plugin_input_bounded(
+                    plugin,
+                    destination,
+                    input.media.file,
+                    &input.media.file_name,
+                    &input.media.content_type,
+                    Some(&identity),
+                    control,
+                )
+                .map_err(|error| {
+                    refusal = Some(error);
+                    "input_not_allowed".to_string()
+                })
+            })
+            .map_err(|_| refusal.unwrap_or(TransferRefusal::NotAllowed))?;
+        prepared.commit()
+    }
+
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String> {
         secret_bucket(plugin_id).get(name).ok()
     }
@@ -531,6 +629,10 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         args_json: &str,
     ) -> String {
         self.surface_agent_call_json(plugin_id, Some(caller), verb, args_json)
+    }
+
+    fn surface_invalidate_json(&self, plugin_id: &str, identity_json: &str) -> String {
+        self.invalidate_surface_view_json(plugin_id, identity_json)
     }
 
     // ── Receiver target ──────────────────────────────────────────────────

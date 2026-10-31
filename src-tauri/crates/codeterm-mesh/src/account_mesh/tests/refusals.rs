@@ -18,20 +18,10 @@ fn signed_in(locked: bool, enrolled: bool) -> AccountMeshState {
     }
 }
 
-fn legacy() -> LinkRecord {
+fn account_link() -> LinkRecord {
     LinkRecord {
         link_nonce: None,
-        admission: LinkAdmission::Legacy {
-            public_key: "peer-key".into(),
-        },
-        remote_membership: None,
-    }
-}
-
-fn adopted() -> LinkRecord {
-    LinkRecord {
-        link_nonce: None,
-        admission: LinkAdmission::Adopted {
+        admission: LinkAdmission::Account {
             account_id: ACCOUNT.into(),
             installation_id: "peer".into(),
             public_key: "peer-key".into(),
@@ -41,41 +31,23 @@ fn adopted() -> LinkRecord {
 }
 
 fn decide(record: &LinkRecord, state: &AccountMeshState) -> TrafficDecision {
-    gate::decide(Some(record), "peer-key", Some(ACCOUNT), state, START)
+    gate::decide(Some(record), "peer-key", state, START)
 }
 
 #[test]
-fn account_mesh_machine_over_limit_blocks_legacy_edge_with_plan_limit_code() {
-    let decision = decide(&legacy(), &signed_in(true, false));
-    assert_eq!(decision, LOCKED);
+fn account_mesh_machine_over_limit_blocks_account_edge_with_plan_limit_code() {
+    assert_eq!(decide(&account_link(), &signed_in(true, false)), LOCKED);
     assert_eq!(
-        BlockReason::PlanLimitLocked.code(),
-        codeterm_entitlements::PLAN_LIMIT_LOCKED
-    );
-}
-
-#[test]
-fn account_mesh_machine_over_limit_blocks_adopted_edge_with_plan_limit_code() {
-    assert_eq!(decide(&adopted(), &signed_in(true, false)), LOCKED);
-    assert_eq!(
-        decide(&adopted(), &signed_in(false, false)),
+        decide(&account_link(), &signed_in(false, false)),
         TrafficDecision::Blocked(BlockReason::LocalMembershipExpired),
         "an expired lease without a limit refusal keeps its own reason"
     );
 }
 
 #[test]
-fn account_mesh_paid_snapshot_opens_both_edges() {
+fn account_mesh_paid_snapshot_opens_account_edge() {
     let paid = signed_in(false, true);
-    assert!(decide(&legacy(), &paid).is_open());
-    assert!(decide(&adopted(), &paid).is_open());
-}
-
-#[test]
-fn account_mesh_dormant_gate_keeps_legacy_open() {
-    let never = AccountMeshState::default();
-    assert!(decide(&legacy(), &never).is_open());
-    assert!(decide(&legacy(), &signed_in(false, false)).is_open());
+    assert!(decide(&account_link(), &paid).is_open());
 }
 
 #[test]

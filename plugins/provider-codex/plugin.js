@@ -30,6 +30,64 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/runPromptStep.ts
+function bytes(text7) {
+  let count = 0;
+  for (const point of text7) {
+    const code = point.codePointAt(0);
+    count += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+  }
+  return count;
+}
+function bounded(text7) {
+  if (bytes(JSON.stringify(text7)) <= 60 * 1024) return text7;
+  let points = Array.from(text7);
+  while (bytes(JSON.stringify(points.join("") + "\n[truncated]")) > 60 * 1024) points = points.slice(0, Math.floor(points.length * 0.9));
+  return points.join("") + "\n[truncated]";
+}
+function runPromptSteps(getHost, options = {}) {
+  function update2(job, reply) {
+    if (reply.state === "running") return { job, state: "running", outcome: null, outputs: {} };
+    if (reply.state === "unknown" || reply.state === "canceled") return { job, state: reply.state, outcome: null, outputs: {} };
+    const done = reply.state === "done" && typeof reply.text === "string" && reply.text.trim().length > 0;
+    return { job, state: "succeeded", outcome: done ? "done" : "failed", outputs: { text: [{ kind: "text", text: bounded(done ? reply.text : "The agent run failed.") }] } };
+  }
+  return {
+    blueprintSubmit(request2) {
+      const params = request2.params;
+      const failed = () => update2(request2.context.operation, { state: "failed" });
+      if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
+      const timeout = params.timeout_ms ?? 6e5;
+      if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
+      const context = request2.inputs.context?.[0];
+      let prompt = params.prompt;
+      if (context) {
+        if (context.kind !== "text") return failed();
+        const fence = "`".repeat(Math.max(3, ...Array.from(context.text.matchAll(/`+/g), (match) => match[0].length + 1)));
+        prompt += `
+
+Context:
+${fence}text
+${context.text}
+${fence}`;
+      }
+      if (bytes(prompt) > 48 * 1024) return failed();
+      return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
+        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update2(request2.context.operation, { state: "unknown" });
+        return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
+      });
+    },
+    blueprintReconcile(request2) {
+      const job = request2.job ?? request2.context.operation;
+      return getHost().await(job, (reply) => update2(job, reply));
+    },
+    blueprintCancel(request2) {
+      const job = request2.job ?? request2.context.operation;
+      return getHost().cancel(job, (reply) => update2(job, reply));
+    }
+  };
+}
+
 // plugins/provider-shared/sessionRecords.ts
 function* sessionRecords(input, accepts) {
   if (typeof input !== "string") {
@@ -360,12 +418,12 @@ function hostOwnedCodexLaunchArgs(hostOwned) {
   return hostOwned?.questions ? ["--disable", "default_mode_request_user_input"] : [];
 }
 function utf8Bytes(value) {
-  let bytes = 0;
+  let bytes2 = 0;
   for (const character of value) {
     const code = character.codePointAt(0);
-    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
   }
-  return bytes;
+  return bytes2;
 }
 function supportsDirectResume() {
   try {
@@ -409,7 +467,7 @@ function buildCodexLaunchSpec(input, starter) {
   }
   const values = ["codex", ...args];
   if (values.some((value) => value.includes("\0"))) return null;
-  if (values.reduce((bytes, value) => bytes + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
+  if (values.reduce((bytes2, value) => bytes2 + utf8Bytes(value) + 1, 0) > POSIX_ARGV_BUDGET) return null;
   if (platform === "linux" && values.some((value) => utf8Bytes(value) + 1 > 128 * 1024)) return null;
   let exclusions;
   try {
@@ -1033,7 +1091,7 @@ function cloudExports(hostRef) {
     sendMessage: (session, text7) => get().sendMessage(session, text7),
     poll: (session, cursor) => get().poll(session, cursor),
     closeSession: (session) => get().closeSession(session),
-    viewCall: (method, args) => get().viewCall(method, args)
+    viewCall: (method, args, context) => get().viewCall(method, args, context)
   };
 }
 
@@ -1154,10 +1212,10 @@ function boundedString(value) {
     /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
     (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
   );
-  const bytes = utf8Bytes2(scrubbed);
-  if (bytes <= STRING_BYTES) return scrubbed;
+  const bytes2 = utf8Bytes2(scrubbed);
+  if (bytes2 <= STRING_BYTES) return scrubbed;
   return `${scrubbed.slice(0, 2048)}
-[content truncated: ${bytes} bytes total]`;
+[content truncated: ${bytes2} bytes total]`;
 }
 function sanitizeHistory(value) {
   return JSON.parse(JSON.stringify(value, (_key, entry) => {
@@ -1177,13 +1235,13 @@ function sanitizeHistory(value) {
 }
 function historyItem(value) {
   const sanitized = sanitizeHistory(value);
-  const bytes = serializedBytes(sanitized);
-  return bytes <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes} serialized bytes]` };
+  const bytes2 = serializedBytes(sanitized);
+  return bytes2 <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes2} serialized bytes]` };
 }
 function boundHistoryRows(rows2) {
-  const bounded = rows2.map((row3) => {
+  const bounded2 = rows2.map((row3) => {
     const sanitized = sanitizeHistory(row3);
-    const bytes2 = serializedBytes(sanitized);
+    const bytes3 = serializedBytes(sanitized);
     if (sanitized.attachments) {
       sanitized.attachments = sanitized.attachments.map((attachment) => {
         if (!attachment.url?.startsWith("[image omitted:")) return attachment;
@@ -1193,11 +1251,11 @@ ${attachment.url}`;
         return chip;
       });
     }
-    if (bytes2 <= ITEM_BYTES) return sanitized;
-    return { id: row3.id, seq: row3.seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` };
+    if (bytes3 <= ITEM_BYTES) return sanitized;
+    return { id: row3.id, seq: row3.seq, type: "system", content: `[history item omitted: ${bytes3} serialized bytes]` };
   });
-  const bytes = serializedBytes(bounded);
-  return bytes <= ITEM_BYTES || !rows2.length ? bounded : [{ id: rows2[0].id, seq: rows2[0].seq, type: "system", content: `[history item omitted: ${bytes} serialized bytes]` }];
+  const bytes2 = serializedBytes(bounded2);
+  return bytes2 <= ITEM_BYTES || !rows2.length ? bounded2 : [{ id: rows2[0].id, seq: rows2[0].seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` }];
 }
 
 // plugins/provider-codex/src/canonicalJson.ts
@@ -2215,7 +2273,7 @@ function pagedHistoryResponse(op, raw, reply) {
   }
   if (value.data.length > (state.historyItemLimit ?? 16)) failure("History item page exceeds requested limit");
   const items = [], openItems = [];
-  let questions = [], bytes = 0;
+  let questions = [], bytes2 = 0;
   const offset = state.offset ?? 0;
   if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
   for (let index = offset; index < value.data.length; index++) {
@@ -2225,8 +2283,8 @@ function pagedHistoryResponse(op, raw, reply) {
     const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
     const opened = active ? rows2.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
     const used = serializedBytes({ rows: rows2, opened, questions: nextQuestions });
-    if (bytes + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
-    bytes += used;
+    if (bytes2 + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
+    bytes2 += used;
     items.unshift(...rows2);
     openItems.unshift(...opened);
     questions = nextQuestions;
@@ -2543,6 +2601,86 @@ function restoreContextItems(raw) {
 }
 
 // plugins/provider-codex/src/runtimeSettings.ts
+var windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+function codexRestrictedCliConfig(ctx) {
+  const policy = ctx.restrictedCli;
+  if (!policy) return {};
+  const hash = (value) => /^[0-9a-f]{64}$/.test(value);
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
+    throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
+  return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
+}
+function codexValidateCliTrust(ctx, raw) {
+  if (!ctx.restrictedCli) return;
+  codexRestrictedCliConfig(ctx);
+  const root = object(raw);
+  if (!root.config || typeof root.config !== "object" || Array.isArray(root.config))
+    throw { code: "invalid_schema", message: "Restricted CLI project trust was not reported" };
+  const config = object(root.config);
+  if (config.projects === void 0 || config.projects === null) return;
+  if (typeof config.projects !== "object" || Array.isArray(config.projects))
+    throw { code: "invalid_schema", message: "Invalid configured project trust" };
+  const normalize = (path) => path.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+  const cwd = normalize(ctx.cwd);
+  for (const [path, value] of Object.entries(object(config.projects))) {
+    if (cwd !== normalize(path) && !cwd.startsWith(normalize(path) + "/")) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw { code: "invalid_schema", message: "Invalid configured project trust" };
+    const project = object(value);
+    const trust = project.trust_level ?? project.trustLevel;
+    if (trust !== void 0 && trust !== null && trust !== "trusted")
+      throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
+  }
+}
+function codexNeedsWindowsSandboxSelection(raw) {
+  const root = object(raw);
+  if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
+    throw { code: "invalid_schema", message: "Windows sandbox configuration was not reported" };
+  const config = object(root.config);
+  const windows = object(config.windows);
+  if (config.windows != null && (typeof config.windows !== "object" || Array.isArray(config.windows)))
+    throw { code: "invalid_schema", message: "Invalid Windows sandbox configuration" };
+  if (windows.sandbox != null) {
+    if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
+      throw { code: "invalid_schema", message: "Unknown configured Windows sandbox" };
+    return false;
+  }
+  if (windows.allow_mxc !== void 0) {
+    if (typeof windows.allow_mxc !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows MXC policy" };
+    if (!windows.allow_mxc) return false;
+  }
+  if (config.features != null && (typeof config.features !== "object" || Array.isArray(config.features)))
+    throw { code: "invalid_schema", message: "Invalid Windows sandbox features" };
+  const features = object(config.features);
+  for (const key of windowsSandboxFeatures) {
+    if (features[key] !== void 0) {
+      if (typeof features[key] !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows sandbox feature selection" };
+      return false;
+    }
+  }
+  return true;
+}
+function codexWindowsSandboxOverride(raw) {
+  const root = object(raw);
+  if (root.requirements === null) return "mxc";
+  if (typeof root.requirements !== "object" || Array.isArray(root.requirements))
+    throw { code: "invalid_schema", message: "Windows sandbox requirements were not reported" };
+  const requirements = object(root.requirements);
+  const allowed = requirements.allowedWindowsSandboxImplementations;
+  if (allowed !== null && (!Array.isArray(allowed) || allowed.some((mode) => !["mxc", "elevated", "unelevated"].includes(String(mode)))))
+    throw { code: "invalid_schema", message: "Windows sandbox implementation requirements are unknown" };
+  if (Array.isArray(allowed) && !allowed.includes("mxc")) return void 0;
+  const modes = requirements.allowedSandboxModes;
+  if (modes !== null && (!Array.isArray(modes) || modes.some((mode) => !["read-only", "workspace-write", "danger-full-access"].includes(String(mode)))))
+    throw { code: "invalid_schema", message: "Sandbox mode requirements are unknown" };
+  if (Array.isArray(modes) && !modes.includes("workspace-write")) return void 0;
+  if (requirements.defaultPermissions != null || requirements.allowedPermissionProfiles != null) return void 0;
+  if (requirements.featureRequirements != null && (typeof requirements.featureRequirements !== "object" || Array.isArray(requirements.featureRequirements)))
+    throw { code: "invalid_schema", message: "Windows sandbox feature requirements are unknown" };
+  const features = object(requirements.featureRequirements);
+  if (windowsSandboxFeatures.some((key) => features[key] !== void 0)) return void 0;
+  return "mxc";
+}
 function codexServiceTier(settings) {
   return settings.serviceTier === void 0 ? {} : { serviceTier: settings.serviceTier.id };
 }
@@ -2603,6 +2741,13 @@ function codexEffectiveSettings(requested, reply) {
   const { serviceTier: _requestedTier, ...other } = requested;
   return { ...other, ...codexReportedSettings(reply, requested) };
 }
+function codexWorkspaceWriteConfirmed(raw) {
+  const root = object(raw);
+  const settings = root.threadSettings ? object(root.threadSettings) : root;
+  const thread = object(settings.thread);
+  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox);
+  return codexReportedSettings(raw).mode === "workspace-write" && sandbox.type === "workspaceWrite" && (settings.approvalPolicy ?? thread.approvalPolicy) === "never" && sandbox.networkAccess === false;
+}
 function codexWritableRootsConfirmed(settings, reply) {
   if (settings.mode !== "read-only-with-writable-roots") return true;
   const root = object(reply);
@@ -2612,6 +2757,12 @@ function codexWritableRootsConfirmed(settings, reply) {
   const expected = settings.additionalDirectories ?? [];
   const same = (value) => Array.isArray(value) && value.length === expected.length && value.every((path) => typeof path === "string" && expected.includes(path));
   return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
+}
+function codexRestrictedCliInstructions(ctx, instructions) {
+  if (!ctx.restrictedCli) return instructions;
+  codexRestrictedCliConfig(ctx);
+  const executable = ctx.restrictedCli.executable;
+  return [instructions, `Trusted Domios CLI executable: ${executable}. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Single-quote opaque string arguments, especially IDs beginning with digits; keep the executable itself unquoted. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox.`].filter((value) => value !== void 0).join("\n\n");
 }
 
 // plugins/provider-codex/src/runtimeServiceTiers.ts
@@ -2796,6 +2947,22 @@ function capText(value, cap) {
   const body = value.startsWith(TRUNCATED) ? value.slice(TRUNCATED.length) : value;
   return TRUNCATED + body.slice(body.length - (cap - TRUNCATED.length));
 }
+function capAgentPayload(input, cap) {
+  const bounded2 = { ...input };
+  const fields = ["agent_result", "agent_description"].filter((key) => typeof input[key] === "string" && input[key].length > 0).sort((a, b) => input[b].length - input[a].length);
+  for (const key of fields) {
+    if (utf8Bytes3(JSON.stringify(bounded2)) <= cap) break;
+    const text7 = bounded2[key];
+    const body = text7.startsWith(TRUNCATED) ? text7.slice(TRUNCATED.length) : text7;
+    const room = cap - utf8Bytes3(JSON.stringify({ ...bounded2, [key]: "" })) - utf8Bytes3(JSON.stringify(TRUNCATED));
+    const keep = Math.max(0, Math.floor(room / 6));
+    let start = Math.max(0, body.length - keep);
+    const unit = body.charCodeAt(start), previous = body.charCodeAt(start - 1);
+    if (unit >= 56320 && unit <= 57343 && previous >= 55296 && previous <= 56319) start++;
+    bounded2[key] = TRUNCATED + body.slice(start);
+  }
+  return bounded2;
+}
 function capRow(row3, cap) {
   let capped;
   for (const key of HEAVY) {
@@ -2804,9 +2971,14 @@ function capRow(row3, cap) {
     capped ?? (capped = { ...row3 });
     capped[key] = capText(value, cap);
   }
-  if (row3.toolInput !== void 0 && JSON.stringify(row3.toolInput).length > cap) {
-    capped ?? (capped = { ...row3 });
-    delete capped.toolInput;
+  if (row3.toolInput !== void 0) {
+    const serialized = JSON.stringify(row3.toolInput);
+    const agentInput = row3.toolKind === "agent" && row3.toolName === "agent_activity" && row3.toolInput !== null && typeof row3.toolInput === "object" && !Array.isArray(row3.toolInput);
+    if ((agentInput ? utf8Bytes3(serialized) : serialized.length) > cap) {
+      capped ?? (capped = { ...row3 });
+      if (agentInput) capped.toolInput = capAgentPayload(row3.toolInput, cap);
+      else delete capped.toolInput;
+    }
   }
   return capped ?? row3;
 }
@@ -2865,17 +3037,17 @@ function compactState(state) {
   fitTotal(state);
 }
 function utf8Bytes3(value) {
-  let bytes = 0;
+  let bytes2 = 0;
   for (let index = 0; index < value.length; index++) {
     const unit = value.charCodeAt(index);
-    if (unit < 128) bytes += 1;
-    else if (unit < 2048) bytes += 2;
+    if (unit < 128) bytes2 += 1;
+    else if (unit < 2048) bytes2 += 2;
     else if (unit >= 55296 && unit < 56320) {
-      bytes += 4;
+      bytes2 += 4;
       index++;
-    } else bytes += 3;
+    } else bytes2 += 3;
   }
-  return bytes;
+  return bytes2;
 }
 var MIN_RUNNING_CAP = 1024;
 function fitTotal(state) {
@@ -2941,22 +3113,34 @@ function shrinkRow(row3, cap) {
 }
 function budgetReduction(state, updates) {
   let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
-  for (let cap = EVENT_TEXT_CAP / 2; serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
+  let bytes2 = serializedBytes2({ state, events });
+  for (let cap = EVENT_TEXT_CAP / 2; bytes2 > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
     events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
+    bytes2 = serializedBytes2({ state, events });
   }
-  if (serializedBytes2({ state, events }) > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
+  if (bytes2 > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
   return { state, events };
 }
 
 // plugins/provider-codex/src/runtimeReduce.ts
+function copyReducerState(state) {
+  const items = /* @__PURE__ */ Object.create(null);
+  for (const [id, row3] of Object.entries(state.items)) items[id] = { ...row3 };
+  const copy = { ...state, items, completed: [...state.completed], compacted: [...state.compacted], evidenced: [...state.evidenced] };
+  for (const key of ["questions", "abandoned", "childCompleted", "open", "retired"]) {
+    const values = state[key];
+    if (values) copy[key] = [...values];
+  }
+  if (state.parents) copy.parents = Object.assign(/* @__PURE__ */ Object.create(null), state.parents);
+  if (state.childActive) copy.childActive = { ...state.childActive };
+  if (state.agents) copy.agents = { ...state.agents, rows: Object.assign(/* @__PURE__ */ Object.create(null), state.agents.rows) };
+  if (state.reasoning) copy.reasoning = Object.fromEntries(Object.entries(state.reasoning).map(([id, parts]) => [id, { summary: [...parts.summary], content: [...parts.content] }]));
+  return copy;
+}
 function initial(ctx, raw) {
   const state = object(raw);
   if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
-    const restored = JSON.parse(JSON.stringify(state));
-    restored.items = Object.assign(/* @__PURE__ */ Object.create(null), restored.items);
-    if (restored.parents) restored.parents = Object.assign(/* @__PURE__ */ Object.create(null), restored.parents);
-    if (restored.agents) restored.agents.rows = Object.assign(/* @__PURE__ */ Object.create(null), restored.agents.rows);
-    return restored;
+    return copyReducerState(state);
   }
   return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
 }
@@ -3313,7 +3497,8 @@ function request(method, params, state = { stage: method }) {
   const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
   return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
 }
-function settingsParams(ctx, settings, instructions) {
+function settingsParams(ctx, settings, instructions, windowsSandbox) {
+  instructions = codexRestrictedCliInstructions(ctx, instructions);
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
   return {
@@ -3321,13 +3506,17 @@ function settingsParams(ctx, settings, instructions) {
     model: settings.model,
     ...codexServiceTier(settings),
     threadSource: "user",
-    config: codexThreadConfig(settings, ctx.hostOwned),
+    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
     ...policies.runtimeWorkspaceRoots ? { runtimeWorkspaceRoots: policies.runtimeWorkspaceRoots } : {},
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,
     sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
     ...instructions !== void 0 ? { developerInstructions: instructions } : {}
   };
+}
+function threadPlan(ctx, op, windowsSandbox) {
+  const params = settingsParams(ctx, op.settings, op.instructions, windowsSandbox);
+  return op.kind === "openThread" ? request("thread/start", params) : request("thread/resume", { ...params, threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", ...windowsSandbox ? { windowsSandbox } : {} });
 }
 function turnParams(ctx, op) {
   const input = [{ type: "text", text: op.input.text }];
@@ -3424,11 +3613,10 @@ function planOperation(ctx, op) {
     case "initialize":
       return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
-      return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
+    case "resumeThread":
+      return op.settings.mode === "workspace-write" ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
     case "forkThread":
       return forkThreadPlan(ctx, op);
-    case "resumeThread":
-      return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
     case "readHistory":
       if (op.order === "desc") return pagedHistoryPlan(op);
       return request(
@@ -3534,10 +3722,17 @@ function respondOperation(ctx, op, raw, reply) {
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
-      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive" }));
+      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive", ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
     return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
   }
   const value = object(reply.value);
+  if (op.kind === "openThread" || op.kind === "resumeThread") {
+    if (state.stage === "windowsSandboxConfig") {
+      codexValidateCliTrust(ctx, value);
+      return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+    }
+    if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
+  }
   switch (op.kind) {
     case "initialize":
       if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: json({ stage: "initializedNotification", binaryVersion: runtimeBinaryVersion(value.userAgent) }) });
@@ -3551,12 +3746,14 @@ function respondOperation(ctx, op, raw, reply) {
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
+      if (op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (!codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
       return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
+      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions, state.windowsSandbox === "mxc" ? "mxc" : void 0), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true, ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
+      if (state.stage !== "verify" && op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
       if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
       const idle = threadStatus(object(value.thread).status)?.state === "idle";
@@ -3657,7 +3854,7 @@ function collectHistoryItems(op, state, turn, entries) {
   const openItems = list(state.openItems);
   let seq = Number(state.seq);
   let questions = list(state.questions);
-  let bytes = serializedBytes({ items, openItems, questions });
+  let bytes2 = serializedBytes({ items, openItems, questions });
   for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
     const record6 = object(entries[index]);
     const rawItem = historyItem(record6.item ?? record6);
@@ -3667,8 +3864,8 @@ function collectHistoryItems(op, state, turn, entries) {
     const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
     const opened = active ? rows2.map((item) => ({ turnId: String(turn.id), item })) : [];
     const rowBytes = serializedBytes(rows2) + serializedBytes(opened) + serializedBytes(nextQuestions);
-    if (bytes + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
-    bytes += rowBytes;
+    if (bytes2 + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
+    bytes2 += rowBytes;
     questions = nextQuestions;
     seq += rows2.length;
     items.push(...rows2);
@@ -6253,8 +6450,8 @@ function codexHookTrustOwnershipPath() {
 }
 function captureIntegrationFile(path) {
   const existed = host.fs.fileExists(path);
-  const bytes = existed ? host.fs.readFile(path) : "";
-  return typeof bytes === "string" ? { path, existed, bytes } : null;
+  const bytes2 = existed ? host.fs.readFile(path) : "";
+  return typeof bytes2 === "string" ? { path, existed, bytes: bytes2 } : null;
 }
 function writeFileIfChanged(path, contents) {
   return host.fs.readFile(path) === contents || host.fs.writeFile(path, contents);
@@ -6534,6 +6731,7 @@ function hasPromptAndStatusFooter(screen) {
   });
 }
 var plugin = {
+  ...runPromptSteps(() => host.agentRun, { sandbox: "read-only" }),
   ...cloudExports(() => host),
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,

@@ -161,9 +161,9 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
     let mut state = signed_in(2);
     state.cleanup = Cleanup::Pending;
     let snapshot = AccountMeshSnapshot {
+        local_installation_id: "installation-a".into(),
         view: state.view(),
         pairs: Vec::new(),
-        link_requests: Vec::new(),
     };
     let value = serde_json::to_value(&snapshot).unwrap();
     for key in [
@@ -223,7 +223,7 @@ fn account_mesh_start_failure_never_opens_past_a_persisted_sign_out() {
     assert_eq!(
         fallback_mesh_state(Ok(AccountMeshRecord::default())).presence,
         mesh::AccountPresence::NeverSignedIn,
-        "an upgrade that never signed out keeps legacy pairs"
+        "an empty account record has never signed in"
     );
 }
 
@@ -250,11 +250,11 @@ fn account_mesh_not_before_skew_matches_across_account_and_mesh() {
     );
 }
 
-fn legacy_mesh() -> crate::MeshStateHandle {
-    Arc::new(parking_lot::Mutex::new(legacy_manager()))
+fn account_mesh_fixture() -> crate::MeshStateHandle {
+    Arc::new(parking_lot::Mutex::new(account_manager()))
 }
 
-fn legacy_manager() -> codeterm_mesh::MeshManager {
+fn account_manager() -> codeterm_mesh::MeshManager {
     let mut manager = codeterm_mesh::MeshManager::in_memory(
         MeshIdentity {
             instance_id: "local-machine".into(),
@@ -264,13 +264,18 @@ fn legacy_manager() -> codeterm_mesh::MeshManager {
         "local".into(),
         7685,
     );
-    manager.insert_legacy_pair_for_test(PairedPeer {
+    manager.insert_account_peer_for_test(account_peer());
+    manager
+}
+
+fn account_peer() -> PairedPeer {
+    PairedPeer {
         instance_id: "peer-a".into(),
         instance_name: "Peer A".into(),
         addresses: Vec::new(),
         api_port: 7685,
         public_key: "peer-key".into(),
-        paired_at: "before-upgrade".into(),
+        paired_at: "fixture".into(),
         last_seen: None,
         online: true,
         is_primary: false,
@@ -280,8 +285,7 @@ fn legacy_manager() -> codeterm_mesh::MeshManager {
         relay_protocol_version: RELAY_PROTOCOL_VERSION,
         consecutive_misses: 0,
         last_active_ms: None,
-    });
-    manager
+    }
 }
 
 struct NoSession;
@@ -354,6 +358,7 @@ fn listener_account_mesh(
     store: Arc<dyn AccountMeshStore>,
 ) -> Arc<AccountMesh> {
     let transport = Arc::new(TransportBridge {
+        installation_id: "installation-a".into(),
         service: Arc::downgrade(service),
         mesh_state: watch::channel(mesh::AccountMeshState::default()).0,
     });
@@ -384,7 +389,6 @@ async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() 
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let mesh_state = fixture.service.ext::<crate::MeshStateHandle>().clone();
-    *mesh_state.lock() = legacy_manager();
     let service = Arc::new(fixture.service.clone());
     let store = Arc::new(HeldSignOutStore::default());
     let account_mesh = listener_account_mesh(&service, store.clone());
@@ -398,6 +402,16 @@ async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() 
             photo_url: None,
         }))
         .await;
+    let mut enrolled = account_mesh.state().as_ref().clone();
+    let mut membership = signed_in(1).membership.unwrap();
+    membership.verified.account_id = enrolled.signed_in_account().unwrap().into();
+    enrolled.membership = Some(membership);
+    {
+        let mut manager = mesh_state.lock();
+        manager.set_clock(Arc::new(|| 100));
+        manager.apply_account_state(super::authority::mesh_state(&enrolled));
+        manager.insert_account_peer_for_test(account_peer());
+    }
     assert!(mesh_state.lock().traffic_open("peer-a"));
 
     let sign_out = tokio::spawn({
@@ -413,7 +427,7 @@ async fn sign_out_closes_the_mesh_manager_gate_before_persistence_can_suspend() 
 
 #[tokio::test]
 async fn failed_account_mesh_initialization_fallback_persists_sign_out_and_blocks_mesh() {
-    let mesh_state = legacy_mesh();
+    let mesh_state = account_mesh_fixture();
     assert!(mesh_state.lock().traffic_open("peer-a"));
     let temp = tempfile::tempdir().unwrap();
     let store: Arc<dyn AccountMeshStore> = Arc::new(FileAccountMeshStore::new(temp.path().into()));

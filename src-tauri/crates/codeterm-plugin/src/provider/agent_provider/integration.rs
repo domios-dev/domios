@@ -99,7 +99,7 @@ macro_rules! agent_provider_integration {
         /// contract repair so it can preserve consent and avoid trust re-grants.
         fn ensure_integration_on_startup(&self, _api_port: u16) {}
 
-        // Project rules: only Claude reads `~/.claude/rules/codeterm.md`.
+        // Project rules: only Claude reads `~/.claude/rules/domios.md`.
         // Others inject rules elsewhere, so installed defaults to true when file is absent.
 
         fn check_rule_status(&self) -> serde_json::Value {

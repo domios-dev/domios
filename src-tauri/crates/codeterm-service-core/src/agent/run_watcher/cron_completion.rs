@@ -72,8 +72,11 @@ impl RunWatcherRegistry {
                     .ok_or("cron binding missing")?,
             )
         };
-        let messages =
-            crate::service::tab_chat::session_chat_snapshot(svc, &provider, &cwd, &session, 0)?.0;
+        let messages = if matches!(&state.kind, AgentRunKind::StepRun { .. }) {
+            vec![]
+        } else {
+            crate::service::tab_chat::session_chat_snapshot(svc, &provider, &cwd, &session, 0)?.0
+        };
         let path = svc
             .agent_registry
             .with_provider(&provider, |p| p.session_file_path(&cwd, &session))
@@ -122,7 +125,11 @@ impl RunWatcherRegistry {
         *state.cron_completion.lock() = Some(PendingCompletion {
             barrier: CompletionBarrier {
                 stopped: false,
-                assistant_ids: messages.iter().map(|message| message.id.clone()).collect(),
+                assistant_ids: if matches!(&state.kind, AgentRunKind::StepRun { .. }) {
+                    Default::default()
+                } else {
+                    messages.iter().map(|message| message.id.clone()).collect()
+                },
             },
             summary: summary.into(),
             provider,
@@ -146,7 +153,7 @@ impl RunWatcherRegistry {
         run_id: &str,
     ) -> Result<std::sync::Arc<super::RunState>, String> {
         let existing = self.runs.lock().values().find(|state| state.tab_id == tab_id
-            && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } if own == run_id)).cloned();
+            && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } | AgentRunKind::StepRun { run_id: own } if own == run_id)).cloned();
         if let Some(state) = existing {
             return Ok(state);
         }
@@ -201,6 +208,16 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return false;
         };
+        if let AgentRunKind::StepRun { run_id } = &state.kind {
+            if state.cron_completion.lock().is_none() {
+                if let Err(error) =
+                    self.request_cron_completion(svc, tab_id, run_id, "agent turn completed")
+                {
+                    self.fail_now(svc, &state.pty_id, error);
+                    return true;
+                }
+            }
+        }
         {
             let mut pending = state.cron_completion.lock();
             let Some(pending) = pending.as_mut() else {

@@ -16,7 +16,7 @@ pub(in crate::service::neighbors::runtime) async fn prefetch(
         .listen_from_cursor(&session.friendship, cursor.as_ref())
         .await?;
     let lifecycle = InstallationKeys {
-        store: &OsKeyStore,
+        store: &session.service.neighbor_key_store()?,
         registry: session.registry.as_ref(),
         scope: session.scope.clone(),
         uid: &session.transport.uid,

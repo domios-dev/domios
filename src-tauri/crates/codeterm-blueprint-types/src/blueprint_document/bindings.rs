@@ -37,12 +37,21 @@ pub(crate) fn unsupported_media(media: Option<&str>) -> bool {
 }
 
 pub fn named(node: &Node) -> bool {
-    matches!(node.kind(), "code" | "command")
+    (matches!(node.kind(), "code" | "command" | "agent")
+        || node.uses.as_ref().is_some_and(super::NodeKind::plugin))
         && !node.bind.is_empty()
         && !node.bind.contains_key("in")
 }
 
 pub fn source_schema(doc: &Document, binding: &str) -> Result<Port, String> {
+    source_schema_with_media(doc, binding, false)
+}
+
+pub fn source_schema_with_media(
+    doc: &Document,
+    binding: &str,
+    allow_media: bool,
+) -> Result<Port, String> {
     let Binding {
         node: id,
         selection: path,
@@ -51,6 +60,9 @@ pub fn source_schema(doc: &Document, binding: &str) -> Result<Port, String> {
         .nodes()
         .find(|n| n.id == id)
         .ok_or("Unknown bind producer")?;
+    if node.uses.as_ref().is_some_and(super::NodeKind::plugin) && node.output.is_none() {
+        return Ok(Port::default());
+    }
     let output = node.output.clone().unwrap_or_else(|| Port {
         kind: if matches!(node.kind(), "code" | "call") {
             ""
@@ -61,8 +73,9 @@ pub fn source_schema(doc: &Document, binding: &str) -> Result<Port, String> {
         ..Default::default()
     });
     let mut output = ports::resolve(&output, &doc.types)?;
-    if unsupported_media(output.media.as_deref())
-        || unsupported_media(inferred_media(doc, node).as_deref())
+    if !allow_media
+        && (unsupported_media(output.media.as_deref())
+            || unsupported_media(inferred_media(doc, node).as_deref()))
     {
         return Err(NAMED_MEDIA_UNSUPPORTED.into());
     }
@@ -75,10 +88,12 @@ pub fn source_schema(doc: &Document, binding: &str) -> Result<Port, String> {
             .remove(part)
             .ok_or("Unknown output field")?;
     }
-    if unsupported_media(output.media.as_deref()) {
+    if !allow_media && unsupported_media(output.media.as_deref()) {
         return Err(NAMED_MEDIA_UNSUPPORTED.into());
     }
-    output.media = None;
+    if !allow_media {
+        output.media = None;
+    }
     Ok(output)
 }
 
@@ -111,7 +126,14 @@ pub fn envelope_schema(doc: &Document, node: &Node) -> Result<Port, String> {
     let properties = node
         .bind
         .iter()
-        .map(|(name, binding)| source_schema(doc, binding).map(|port| (name.clone(), port)))
+        .map(|(name, binding)| {
+            source_schema_with_media(
+                doc,
+                binding,
+                node.kind() == "agent" || node.uses.as_ref().is_some_and(super::NodeKind::plugin),
+            )
+            .map(|port| (name.clone(), port))
+        })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
     Ok(Port {
         kind: "object".into(),

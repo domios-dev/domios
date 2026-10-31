@@ -162,27 +162,22 @@ Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 |--------|------|------|-------------|
 | GET | `/api/mesh/ping` | — | Lightweight mesh liveness probe |
 | GET | `/api/mesh/debug/sign` | — | Mint a signed mesh auth token for diagnostics |
-| GET | `/api/mesh/status` | — | Mesh identity and paired count |
-| GET | `/api/mesh/peers` | — | List paired peers |
-| POST | `/api/mesh/link` | `{installation_id, request_id?}` | Local only. Link a same-account machine from the registry; resolves after the bilateral handshake with `{ok, request_id, pair}` or `{ok:false, request_id, failure}` (`failure.reason` such as `mesh.machines`, `signed-out`, `offline`, `peer-unreachable`, `handshake-failed`) |
+| GET | `/api/account/mesh/summary` | — | Read-only account mesh state for authenticated local agents and the owner |
+| GET | `/api/mesh/status` | — | Mesh identity and account connection count |
+| GET | `/api/mesh/peers` | — | List account installations and authenticated connections |
 | POST | `/api/mesh/link/hello` | `LinkHello` | Inbound handshake step 1: verifies the caller's signed membership and answers with this side's membership, nonce and transcript proofs; stores nothing durable |
 | POST | `/api/mesh/link/confirm` | `LinkConfirm` | Inbound handshake step 2: verifies the caller's proofs and online permit, obtains this side's own permit and returns it; records nothing yet |
-| POST | `/api/mesh/link/commit` | `LinkCommit` | Inbound handshake step 3: the caller proves it verified our permit; only now is the pair recorded. An uncommitted link expires and never carries traffic. A peer this machine unpaired is refused until it is added from this machine |
-| POST | `/api/mesh/adopt/offer` | `AdoptOffer` | Signed by an open legacy edge: begins in-place account adoption |
-| POST | `/api/mesh/adopt/commit` | `AdoptCommit` | Signed by an open legacy edge: verifies the caller's proofs and adopts the edge in place |
-| POST | `/api/mesh/disconnect` | `{instance_id}` | Unpair from a paired peer (local tombstone; frees no account slot) |
+| POST | `/api/mesh/link/commit` | `LinkCommit` | Inbound handshake step 3: the caller proves it verified our permit; only now is the account connection recorded. An uncommitted link expires and never carries traffic |
 | POST | `/api/mesh/sync` | `MeshSyncPayload` | Refresh metadata of already-paired peers; never adds peers |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
-| POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires a supported relay protocol version (`1` or `2`). |
+| POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires a supported relay protocol version (`2`). |
 | POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
 | GET | `/api/stream-mux` | `?session=<id>` | The browser's single multiplexed SSE. Channels added below ride it as frames tagged `{channel, data|open|activity|end}`, so HTTP/1.1 keeps sockets free for REST. Closing it releases every channel. |
 | POST | `/api/stream-mux/{session}/channels` | `{channel, path}` | Attach a `relay-stream` or `/api/output/stream` path as a channel; its frames, cursor and refusal arrive on the session stream. Unknown session → `410`. |
 | DELETE | `/api/stream-mux/{session}/channels/{channel}` | — | Release one channel (idempotent). |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
-| DELETE | `/api/mesh/peers/{id}` | — | Remove a peer (signed by that peer over an open edge; used by `mesh exit`) |
 | POST | `/api/mesh/refresh` | — | Refresh local addresses and announce to peers |
-| POST | `/api/mesh/peers/disconnect/{id}` | — | Path-style alias for `POST /api/mesh/disconnect` (`instance_id` in URL). |
 | POST | `/api/mesh/announce` | `PeerAnnounce` | Inbound peer announcement with addresses, `relay_protocol_version`, and optional typed `web_ui` endpoints; may carry the `x-domios-account-membership` header to renew an adopted edge |
 | POST | `/api/mesh/announce/all` | `?to=peer_id?` | Announce local addresses to one or all peers |
 | POST | `/api/mesh/peers/{id}/addr` | `{ip, port?}` | Override a paired peer's cached address |
@@ -230,4 +225,6 @@ Session changes retain caller and binding checks. Provider hook ingress methods:
 | POST | `/api/workspaces/{id}/tabs/display-order` | Set workspace tab display order. |
 | POST | `/api/workspaces/{id}/tabs/reorder` | Reorder workspace tabs. |
 
-<!-- revision: 67 -->
+`POST /api/tabs` with `cmd` returns the created tab id and `command_submission`. `submitted` is backed by a shell command-start mark. Once bytes are queued, absent confirmation returns success with `submit_unconfirmed`, `bytes_written: true` and the exact PTY id; never replay it. Proven pre-write failure remains an error. Use `tab exec` for final completion and exit status.
+
+<!-- revision: 69 -->

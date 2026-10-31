@@ -7,7 +7,7 @@ fn plan_dir(store: &PlanStore, plan_id: &str) -> std::path::PathBuf {
 }
 
 fn reload_cleared(store: &PlanStore, plan_id: &str) -> Plan {
-    store.plans.write().clear();
+    store.forget_all_plans_for_test();
     store.reload_from_disk(plan_id).unwrap();
     store.get(plan_id).unwrap()
 }

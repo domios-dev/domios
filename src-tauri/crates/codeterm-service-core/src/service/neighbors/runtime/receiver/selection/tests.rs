@@ -1,370 +1,282 @@
 use super::*;
 
-struct Port {
-    account_installation: Option<&'static str>,
-    fail_enrollment: bool,
-    trace: parking_lot::Mutex<Vec<Value>>,
-}
-
+struct Credentials;
 #[async_trait::async_trait]
-impl SelectionPort for Port {
-    async fn account_receiver(&self) -> codeterm_neighbors::Result<ReceiverStatus> {
-        self.trace.lock().push(json!({"call":"account_status"}));
-        Ok(ReceiverStatus {
-            receiver_revision: 3,
-            receiver_installation_id: self.account_installation.map(str::to_owned),
-            receiver_key_id: Some("account-key".into()),
-            receiver_machine_label: Some("Account machine".into()),
-            receiving_enabled: self.account_installation.is_some(),
-            is_me: self.account_installation == Some("here"),
-            legacy_active: false,
-        })
+impl codeterm_account::CredentialStore for Credentials {
+    async fn load(&self, _: &str) -> codeterm_account::Result<Option<codeterm_account::Secret>> {
+        Ok(Some(codeterm_account::Secret::new("fake-refresh")))
     }
-
-    async fn enroll(
-        &self,
-        enrollment: codeterm_neighbors::adapter::Enrollment,
-    ) -> codeterm_neighbors::Result<()> {
-        self.trace.lock().push(
-            json!({"call":"enroll","installation_only":enrollment.installation_only,
-            "takeover":enrollment.takeover,"revision":enrollment.expected_revision}),
-        );
-        if self.fail_enrollment {
-            return Err(Error::KeyLimit {
-                limit: 5,
-                active: 5,
-            });
-        }
+    async fn save(&self, _: &str, _: &codeterm_account::Secret) -> codeterm_account::Result<()> {
         Ok(())
     }
-
-    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)> {
-        Err(Error::InvalidRequest)
+    async fn delete(&self, _: &str) -> codeterm_account::Result<()> {
+        Ok(())
     }
+}
 
+struct NoCalls;
+#[async_trait::async_trait]
+impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
+    async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
+        panic!("retired committed account reached a callable")
+    }
+    async fn id_token(&self) -> codeterm_neighbors::Result<Zeroizing<String>> {
+        panic!("retired committed account reached authentication")
+    }
+}
+
+#[tokio::test]
+async fn committed_reconciliation_rejects_foreign_uid_and_retired_login_before_read_or_effects() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    fixture
+        .service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .neighbors
+        .enabled = true;
+    let account = Arc::new(codeterm_account::Account::new(
+        Arc::new(codeterm_account::adapters::fake::Fake::default()),
+        Arc::new(Credentials),
+        std::time::Duration::from_secs(1),
+    ));
+    account.refresh().await.unwrap();
+    let session = account.session().await.unwrap();
+    assert!(fixture
+        .service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .set(account)
+        .is_ok());
+    for foreign_uid in [true, false] {
+        let uid = if foreign_uid {
+            "foreign-owner".into()
+        } else {
+            session.identity.uid.clone()
+        };
+        let committed = Committed {
+            result: json!({"schema_version":1}),
+            friendship: "a".repeat(64),
+            revision: 1,
+            generation: 0,
+            login_generation: session.login_generation + u64::from(!foreign_uid),
+            registry: Arc::new(FirebaseRegistry {
+                calls: Arc::new(NoCalls),
+                uid: uid.clone(),
+                installation_id: "fixture".into(),
+                machine_label: "Fixture".into(),
+            }),
+            scope: KeyScope::installation("fixture", &uid).unwrap(),
+            metadata: Metadata::new(fixture.temp.path().to_owned(), &uid),
+        };
+        assert_eq!(
+            fixture
+                .service
+                .reconcile_committed_neighbor_receiver(&committed, false)
+                .await,
+            Err(Error::SessionRevoked)
+        );
+        assert!(fixture
+            .service
+            .neighbor_friend_receiver_views()
+            .as_object()
+            .unwrap()
+            .is_empty());
+    }
+}
+
+#[derive(Default)]
+struct Port {
+    trace: parking_lot::Mutex<Vec<Value>>,
+    fail_enrollment: bool,
+}
+#[async_trait::async_trait]
+impl SelectionPort for Port {
+    async fn enroll(&self) -> codeterm_neighbors::Result<()> {
+        self.trace.lock().push(json!("enroll"));
+        if self.fail_enrollment {
+            Err(Error::Transport)
+        } else {
+            Ok(())
+        }
+    }
     async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
-        self.trace
-            .lock()
-            .push(json!({"call":"friendsSetFriendReceiver","command":command}));
+        self.trace.lock().push(command);
         Ok(json!({"selected":true}))
     }
 }
 
 #[tokio::test]
-async fn set_enrolls_only_the_secondary_installation_then_moves_the_named_friend() {
-    let friendship = "a".repeat(64);
-    for (account_installation, installation_only) in [("elsewhere", true), ("here", false)] {
-        let port = Port {
-            account_installation: Some(account_installation),
-            fail_enrollment: false,
-            trace: Default::default(),
-        };
-        assert_eq!(
-            select_friend_receiver(&port, "here", &friendship, Selection::Set, 9, true, false)
-                .await
-                .unwrap(),
-            json!({"selected":true})
-        );
-        let trace = port.trace.lock();
-        assert_eq!(trace.len(), 3);
-        assert_eq!(trace[0], json!({"call":"account_status"}));
-        assert_eq!(
-            trace[1],
-            json!({"call":"enroll","installation_only":installation_only,"takeover":false,"revision":3})
-        );
-        assert_eq!(trace[2]["call"], "friendsSetFriendReceiver");
-        let mut command = trace[2]["command"].clone();
-        let operation_id = command
-            .as_object_mut()
-            .unwrap()
-            .remove("operation_id")
-            .unwrap();
-        assert!(operation_id.as_str().is_some_and(|id| hex_id(id, 32)));
-        assert_eq!(
-            command,
-            json!({"installation_id":"here","friendship_id":friendship,
-            "operation":"set","takeover":true,"expected_revision":9})
-        );
-    }
-}
-
-#[tokio::test]
-async fn reset_skips_key_enrollment_and_submits_only_the_friend_reset() {
-    let port = Port {
-        account_installation: Some("elsewhere"),
-        fail_enrollment: true,
-        trace: Default::default(),
-    };
-    let friendship = "b".repeat(64);
-    select_friend_receiver(
-        &port,
-        "here",
-        &friendship,
-        Selection::Reset,
-        10,
-        true,
-        false,
-    )
-    .await
-    .unwrap();
-    let trace = port.trace.lock();
-    assert_eq!(trace.len(), 1);
-    assert_eq!(trace[0]["call"], "friendsSetFriendReceiver");
-    assert_eq!(trace[0]["command"]["friendship_id"], friendship);
-    assert_eq!(trace[0]["command"]["operation"], "reset");
-    assert_eq!(trace[0]["command"]["expected_revision"], 10);
-}
-
-#[tokio::test]
-async fn failed_installation_enrollment_never_submits_a_friend_receiver_mutation() {
-    let port = Port {
-        account_installation: Some("elsewhere"),
-        fail_enrollment: true,
-        trace: Default::default(),
-    };
-    assert_eq!(
-        select_friend_receiver(
-            &port,
-            "here",
-            &"a".repeat(64),
-            Selection::Set,
-            9,
-            true,
-            false
-        )
-        .await,
-        Err(Error::KeyLimit {
-            limit: 5,
-            active: 5
-        })
-    );
+async fn fresh_friend_setup_enrolls_before_selecting_only_that_friend() {
+    let port = Port::default();
+    select_friend_receiver(&port, "here", "friend", Selection::Set, 0, false)
+        .await
+        .unwrap();
     let trace = port.trace.lock();
     assert_eq!(trace.len(), 2);
+    assert_eq!(trace[0], "enroll");
+    assert_eq!(trace[1]["friendship_id"], "friend");
+    assert_eq!(trace[1]["expected_revision"], 0);
+    assert_eq!(trace[1]["takeover"], false);
+    assert_eq!(trace[1]["operation"], "set");
+    assert!(trace[1].get("require_no_receivers").is_none());
+}
+
+#[tokio::test]
+async fn enrollment_failure_never_changes_receiving_and_reset_never_enrolls() {
+    let port = Port {
+        fail_enrollment: true,
+        ..Default::default()
+    };
     assert_eq!(
-        trace[1],
-        json!({"call":"enroll","installation_only":true,"takeover":false,"revision":3})
+        select_friend_receiver(&port, "here", "friend", Selection::Set, 7, true).await,
+        Err(Error::Transport)
     );
-    assert!(!trace
-        .iter()
-        .any(|call| call["call"] == "friendsSetFriendReceiver"));
+    assert_eq!(*port.trace.lock(), vec![json!("enroll")]);
+    let reset = Port::default();
+    select_friend_receiver(&reset, "here", "friend", Selection::Reset, 7, false)
+        .await
+        .unwrap();
+    let trace = reset.trace.lock();
+    assert_eq!(trace.len(), 1);
+    assert_eq!(trace[0]["operation"], "reset");
+    assert_eq!(trace[0]["expected_revision"], 7);
 }
 
 #[test]
-fn stale_revision_and_unconfirmed_takeover_are_refused_before_mutation() {
-    let mut status = ReceiverStatus {
-        receiver_revision: 4,
-        receiver_installation_id: Some("other".into()),
-        receiver_machine_label: Some("Anya's Mac".into()),
-        receiver_key_id: None,
-        receiving_enabled: true,
-        is_me: false,
-        legacy_active: false,
+fn moving_a_friend_requires_explicit_consent_and_the_exact_friend_revision() {
+    let status = ReceiverStatus {
+        receiver_revision: 7,
+        receiver_installation_id: Some("elsewhere".into()),
+        receiver_machine_label: Some("Other desk".into()),
+        ..Default::default()
     };
     assert_eq!(
-        validate_selection(&status, 3, true),
-        Err(Error::ReceiverRevisionStale)
-    );
-    assert_eq!(
-        validate_selection(&status, 4, false),
+        validate_selection(&status, 7, false),
         Err(Error::ReceiverElsewhere)
     );
-    assert_eq!(validate_selection(&status, 4, true), Ok(()));
-    status.receiver_installation_id = None;
-    status.receiving_enabled = false;
-    assert_eq!(validate_selection(&status, 4, false), Ok(()));
+    assert_eq!(
+        validate_selection(&status, 6, true),
+        Err(Error::ReceiverRevisionStale)
+    );
+    assert_eq!(validate_selection(&status, 7, true), Ok(()));
 }
 
 #[tokio::test]
-async fn first_claim_sends_no_takeover_and_only_the_named_friend() {
-    let port = Port {
-        account_installation: None,
-        fail_enrollment: false,
-        trace: Default::default(),
-    };
-    select_friend_receiver(
-        &port,
-        "here",
-        &"c".repeat(64),
-        Selection::Set,
-        0,
-        false,
-        false,
-    )
-    .await
-    .unwrap();
-    let trace = port.trace.lock();
-    assert_eq!(trace[2]["command"]["friendship_id"], "c".repeat(64));
-    assert_eq!(trace[2]["command"]["takeover"], false);
-    assert_eq!(trace[2]["command"]["expected_revision"], 0);
-}
-
-struct AtomicState {
-    account: ReceiverStatus,
-    friends: Value,
-    gap: Option<&'static str>,
-    enrollments: usize,
-    selections: usize,
-    claimed: usize,
-}
-
-struct AtomicPort(parking_lot::Mutex<AtomicState>);
-
-fn status(installation: Option<&str>) -> ReceiverStatus {
-    ReceiverStatus {
-        receiver_revision: 0,
-        receiver_installation_id: installation.map(str::to_owned),
-        receiver_key_id: None,
-        receiver_machine_label: installation.map(str::to_owned),
-        receiving_enabled: false,
-        is_me: installation == Some("here"),
-        legacy_active: false,
+async fn renamed_registration_refreshes_the_same_key_once_before_selecting_only_the_requested_friend(
+) {
+    use codeterm_neighbors::adapter::AuthenticatedCall;
+    use codeterm_neighbors::crypto::PrivateKeys;
+    use rand::SeedableRng;
+    struct Calls {
+        trace: parking_lot::Mutex<Vec<(String, Value)>>,
+        key_id: String,
     }
-}
-
-fn automatic_port(capability: bool, gap: Option<&'static str>) -> AtomicPort {
-    AtomicPort(parking_lot::Mutex::new(AtomicState {
-        account: status(None),
-        friends: json!({"receiver_claim_capabilities":if capability { vec!["account_all_none_v1"] } else { vec![] },
-            "friends":[{"friendship_id":"one"},{"friendship_id":"two"}]}),
-        gap,
-        enrollments: 0,
-        selections: 0,
-        claimed: 0,
-    }))
-}
-
-#[async_trait::async_trait]
-impl SelectionPort for AtomicPort {
-    async fn automatic_snapshot(&self) -> codeterm_neighbors::Result<(ReceiverStatus, Value)> {
-        let state = self.0.lock();
-        Ok((state.account.clone(), state.friends.clone()))
-    }
-
-    async fn account_receiver(&self) -> codeterm_neighbors::Result<ReceiverStatus> {
-        Ok(self.0.lock().account.clone())
-    }
-
-    async fn enroll(
-        &self,
-        enrollment: codeterm_neighbors::adapter::Enrollment,
-    ) -> codeterm_neighbors::Result<()> {
-        assert!(enrollment.installation_only);
-        assert!(!enrollment.takeover);
-        let mut state = self.0.lock();
-        state.enrollments += 1;
-        match state.gap.take() {
-            Some("account") => state.account = status(Some("foreign")),
-            Some("other_friend") => {
-                state.friends["friends"][1]["my_receiver"] = json!({
-                    "source":"friend","installation_id":"foreign","key_id":null,"enc_key_id":null,
-                    "session_id":null,"machine_label":"Foreign Mac","revision":0,"features":[],"receiving":false
-                })
+    #[async_trait::async_trait]
+    impl AuthenticatedCall for Calls {
+        async fn invoke(&self, route: &str, data: Value) -> codeterm_neighbors::Result<Value> {
+            self.trace.lock().push((route.into(), data));
+            match route {
+                "friendsEnrollVerifierKey" => {
+                    Ok(json!({"verifier_key_id":self.key_id,"revoked_key_ids":[]}))
+                }
+                "friendsSetFriendReceiver" => Ok(json!({"selected":true})),
+                _ => panic!("registration must not revoke or rotate keys"),
             }
-            _ => {}
         }
-        Ok(())
-    }
-
-    async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
-        let mut state = self.0.lock();
-        state.selections += 1;
-        assert_eq!(command["require_no_receivers"], true);
-        assert_eq!(command["takeover"], false);
-        let id = command["friendship_id"].as_str().unwrap();
-        if super::super::super::first_action::first_claim_revision(
-            &state.friends,
-            id,
-            &state.account,
-            "here",
-        )? != Some(0)
-        {
-            return Err(Error::ReceiversPresent);
+        async fn id_token(&self) -> codeterm_neighbors::Result<Zeroizing<String>> {
+            panic!("no authentication")
         }
-        let friend = state.friends["friends"]
-            .as_array_mut()
-            .unwrap()
-            .iter_mut()
-            .find(|friend| friend["friendship_id"] == id)
-            .unwrap();
-        friend["my_receiver"] = json!({
-            "source":"friend","installation_id":"here","key_id":null,"enc_key_id":null,
-            "session_id":null,"machine_label":"Here","revision":1,"features":[],"receiving":false
-        });
-        state.claimed += 1;
-        Ok(json!({"selected":true}))
     }
-}
-
-#[tokio::test]
-async fn two_first_actions_claim_only_the_first_friend_from_fresh_admission() {
-    let port = automatic_port(true, None);
-    select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true)
+    struct BindingPort {
+        registry: FirebaseRegistry,
+        keys: PrivateKeys,
+        registered: tokio::sync::Mutex<Option<RegistrationBinding>>,
+    }
+    #[async_trait::async_trait]
+    impl SelectionPort for BindingPort {
+        async fn enroll(&self) -> codeterm_neighbors::Result<()> {
+            let binding =
+                RegistrationBinding::new(&self.registry, 7, 11, self.keys.verifier_key_id("owner"));
+            refresh_registration(
+                &mut *self.registered.lock().await,
+                binding,
+                &self.registry,
+                &self.keys,
+            )
+            .await
+        }
+        async fn select(&self, command: Value) -> codeterm_neighbors::Result<Value> {
+            self.registry
+                .calls
+                .invoke("friendsSetFriendReceiver", command)
+                .await
+        }
+    }
+    let keys = PrivateKeys::generate(&mut rand::rngs::StdRng::seed_from_u64(31));
+    let calls = Arc::new(Calls {
+        trace: Default::default(),
+        key_id: keys.verifier_key_id("owner"),
+    });
+    let mut port = BindingPort {
+        registry: FirebaseRegistry {
+            calls: calls.clone(),
+            uid: "owner".into(),
+            installation_id: "here".into(),
+            machine_label: "Studio".into(),
+        },
+        keys,
+        registered: Default::default(),
+    };
+    select_friend_receiver(&port, "here", "first", Selection::Set, 0, false)
         .await
         .unwrap();
+    select_friend_receiver(&port, "here", "second", Selection::Set, 0, false)
+        .await
+        .unwrap();
+    port.registry.machine_label = "Laptop".into();
+    select_friend_receiver(&port, "here", "third", Selection::Set, 0, false)
+        .await
+        .unwrap();
+    select_friend_receiver(&port, "here", "fourth", Selection::Set, 0, false)
+        .await
+        .unwrap();
+    let trace = calls.trace.lock();
+    let enrollments: Vec<_> = trace
+        .iter()
+        .filter(|(route, _)| route == "friendsEnrollVerifierKey")
+        .collect();
+    assert_eq!(enrollments.len(), 2);
+    assert_eq!(enrollments[0].1["machine_label"], "Studio");
+    assert_eq!(enrollments[1].1["machine_label"], "Laptop");
     assert_eq!(
-        select_friend_receiver(&port, "here", "two", Selection::Set, 0, false, true).await,
-        Err(Error::ReceiverNotChosen)
+        enrollments[0].1["public_key_spki_b64"],
+        enrollments[1].1["public_key_spki_b64"]
     );
-    let state = port.0.lock();
     assert_eq!(
-        (state.enrollments, state.selections, state.claimed),
-        (1, 1, 1)
+        enrollments[0].1["encryption_public_key_spki_b64"],
+        enrollments[1].1["encryption_public_key_spki_b64"]
     );
-}
-
-#[tokio::test]
-async fn atomic_all_none_precondition_refuses_an_intervening_account_or_other_friend_receiver() {
-    for gap in ["account", "other_friend"] {
-        let port = automatic_port(true, Some(gap));
-        assert_eq!(
-            select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
-            Err(Error::ReceiversPresent)
-        );
-        assert_eq!(port.0.lock().claimed, 0);
-        assert_eq!(
-            select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
-            Err(Error::ReceiverNotChosen)
-        );
-        let state = port.0.lock();
-        assert_eq!((state.enrollments, state.selections), (1, 1));
+    assert_eq!(trace[3].0, "friendsEnrollVerifierKey");
+    assert_eq!(trace[4].1["friendship_id"], "third");
+    assert_eq!(
+        trace
+            .iter()
+            .filter(|(route, _)| route == "friendsSetFriendReceiver")
+            .map(|(_, data)| data["friendship_id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["first", "second", "third", "fourth"]
+    );
+    let binding = RegistrationBinding::new(&port.registry, 7, 11, calls.key_id.clone());
+    for changed in 0..4 {
+        let mut next = binding.clone();
+        match changed {
+            0 => next.uid = "other-owner".into(),
+            1 => next.installation_id = "other-machine".into(),
+            2 => next.login_generation += 1,
+            _ => next.generation += 1,
+        }
+        assert!(next != binding);
     }
-}
-
-#[tokio::test]
-async fn absent_global_claim_capability_performs_no_enrollment_or_selection() {
-    for capability in [
-        Value::Null,
-        json!(["unknown"]),
-        json!({}),
-        json!([true]),
-        json!(["account_all_none_v1", true]),
-    ] {
-        let port = automatic_port(false, None);
-        port.0.lock().friends["receiver_claim_capabilities"] = capability;
-        assert_eq!(
-            select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
-            Err(Error::ReceiverNotChosen)
-        );
-        let state = port.0.lock();
-        assert_eq!(
-            (state.enrollments, state.selections, state.claimed),
-            (0, 0, 0)
-        );
-    }
-    let port = automatic_port(false, None);
-    port.0
-        .lock()
-        .friends
-        .as_object_mut()
-        .unwrap()
-        .remove("receiver_claim_capabilities");
-    assert_eq!(
-        select_friend_receiver(&port, "here", "one", Selection::Set, 0, false, true).await,
-        Err(Error::ReceiverNotChosen)
-    );
-    let state = port.0.lock();
-    assert_eq!(
-        (state.enrollments, state.selections, state.claimed),
-        (0, 0, 0)
-    );
 }

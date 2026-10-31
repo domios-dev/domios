@@ -4,8 +4,10 @@ import { readFileSync, lstatSync, openSync, readSync, closeSync } from 'node:fs'
 import { StringDecoder } from 'node:string_decoder';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { firebaseKeyPattern } from './check-firebase-config.mjs';
 
 const rules = [
+  ['firebase-web-key', firebaseKeyPattern],
   ['tailnet-ip', /\b100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.(?:\d{1,3})\.(?:\d{1,3})\b/g],
   ['tailnet-dns', /\b[\w.-]+\.ts\.net\b/gi],
   ['tailnet-ipv6', /\bfd7a:115c:a1e0(?::[a-f\d]{0,4}){1,5}/gi],

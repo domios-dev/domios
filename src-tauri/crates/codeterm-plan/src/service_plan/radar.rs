@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::PlanStatus;
 
-mod legacy;
-
 const RADAR_DIR: &str = "radar";
 const ID_PREFIX: &str = "rd";
 const MAX_TITLE_CHARS: usize = 256;

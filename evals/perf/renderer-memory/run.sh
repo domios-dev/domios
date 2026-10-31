@@ -78,7 +78,7 @@ for w in $(seq 1 "$WORKSPACES"); do
   [ -n "$ws" ] || { echo "workspace create failed" >&2; exit 1; }
   WS_IDS+=("$ws")
   for t in $(seq 1 "$TABS"); do
-    tab="$(dc tab new --workspace "$ws" --cwd "$cwd" --title "s$w$t" --eager --json       | python3 -c "import json,sys; print(json.load(sys.stdin).get('tab_id',''))")"
+    tab="$(dc tab new --workspace "$ws" --cwd "$cwd" --title "s$w$t" --eager --json       | python3 -c "import json,sys; print(json.load(sys.stdin)['result'].get('tab_id',''))")"
     [ -n "$tab" ] || { echo "tab create failed" >&2; exit 1; }
     TAB_IDS+=("$tab")
     dc send --tab "$tab" --to-shell --from-file "$STREAM_CMD" >/dev/null

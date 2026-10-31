@@ -4,6 +4,7 @@ mod concierge;
 pub(super) mod files;
 mod first_action;
 mod gateway;
+mod key_store;
 mod listener;
 mod local;
 pub(crate) mod logout;
@@ -15,6 +16,7 @@ mod receiver;
 mod restoration;
 mod send;
 mod snapshots;
+pub(super) mod transport;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
@@ -28,9 +30,24 @@ use codeterm_neighbors::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::{collections::HashMap, sync::Arc};
 use zeroize::Zeroizing;
+
+#[derive(Default)]
+struct IdentityPending(AtomicBool);
+
+#[cfg(test)]
+pub(in crate::service::neighbors) struct FixtureKeyPorts {
+    pub registry: Arc<FirebaseRegistry>,
+    pub scope: KeyScope,
+    pub metadata: Metadata,
+}
+
+#[cfg(test)]
+pub(in crate::service::neighbors) struct FixtureKeyPortBinding(
+    pub std::sync::Weak<FixtureKeyPorts>,
+);
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
@@ -50,14 +67,21 @@ pub struct NeighborRuntimeCell {
     pub(super) failures: parking_lot::Mutex<HashMap<String, Value>>,
     pending_counts: parking_lot::Mutex<HashMap<String, u64>>,
     names: parking_lot::Mutex<HashMap<String, String>>,
-    receiver: parking_lot::Mutex<Option<codeterm_neighbors::adapter::ReceiverStatus>>,
-    control: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    control_start: tokio::sync::Mutex<()>,
     control_cancel: tokio::sync::Notify,
     pub(super) watch_states: parking_lot::Mutex<std::collections::BTreeMap<String, Value>>,
     bootstrapped: std::sync::atomic::AtomicBool,
     restoration: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
-    file_advertised_generation: tokio::sync::Mutex<Option<u64>>,
+}
+
+#[cfg(test)]
+impl NeighborRuntimeCell {
+    pub(in crate::service::neighbors) fn registry_snapshot_for_test(&self) -> Option<Value> {
+        self.registry_snapshot.lock().clone()
+    }
+
+    pub(in crate::service::neighbors) fn listener_count_for_test(&self) -> usize {
+        self.listeners.lock().active.len()
+    }
 }
 
 #[derive(Deserialize)]
@@ -102,10 +126,6 @@ pub enum NeighborRuntimeCommand {
         service_tier: Option<String>,
     },
     Status,
-    Enroll {
-        takeover_confirmed: bool,
-        expected_receiver_revision: u64,
-    },
     SetFriendReceiver {
         friendship_id: String,
         receiver_operation: receiver::selection::Selection,
@@ -168,6 +188,39 @@ pub(super) fn authoring_allowed(
 }
 
 impl ServiceContext {
+    pub(crate) async fn neighbor_memory_peer_uid(
+        &self,
+        authority: &crate::multiplexer::types::NeighborAuthority,
+    ) -> Result<String, String> {
+        let unavailable =
+            "neighbor_memory_author_unavailable: Verified friendship author is unavailable";
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(peers) = self.try_ext::<crate::mem_ops::author::FixtureNeighborAuthors>() {
+            return peers
+                .0
+                .read()
+                .get(&(authority.uid.clone(), authority.friendship_id.clone()))
+                .filter(|uid| !uid.is_empty())
+                .cloned()
+                .ok_or_else(|| unavailable.into());
+        }
+        let (registry, _, _) = self.neighbor_key_ports().await.map_err(|_| unavailable)?;
+        if registry.uid != authority.uid {
+            return Err(unavailable.into());
+        }
+        let transport = self
+            .neighbor_transport(&registry)
+            .map_err(|_| unavailable)?;
+        let peers = transport
+            .peer_keys(&authority.friendship_id)
+            .await
+            .map_err(|_| unavailable)?;
+        if peers.friendship_id != authority.friendship_id || peers.peer_uid.trim().is_empty() {
+            return Err(unavailable.into());
+        }
+        Ok(peers.peer_uid)
+    }
+
     pub(super) fn neighbor_cell_names(
         &self,
     ) -> parking_lot::MutexGuard<'_, HashMap<String, String>> {
@@ -192,6 +245,17 @@ impl ServiceContext {
     async fn neighbor_key_ports(
         &self,
     ) -> Result<(Arc<FirebaseRegistry>, KeyScope, Metadata), String> {
+        #[cfg(test)]
+        if let Some(ports) = self
+            .try_ext::<FixtureKeyPortBinding>()
+            .and_then(|binding| binding.0.upgrade())
+        {
+            return Ok((
+                ports.registry.clone(),
+                ports.scope.clone(),
+                ports.metadata.clone(),
+            ));
+        }
         let account = self.account().await?;
         if account.status().await.provider == "local" {
             return Err("Sign in with a hosted account to use Neighbors".into());
@@ -213,17 +277,15 @@ impl ServiceContext {
             configured_label
         };
         let registry = Arc::new(FirebaseRegistry {
-            calls: Arc::new(callable::Calls {
-                own_keys: Default::default(),
-                receiver_status: Default::default(),
+            calls: transport::calls(callable::Calls {
                 service: self.clone(),
                 uid: uid.clone(),
                 generation: session.login_generation,
-            }),
+            })
+            .map_err(|error| error.to_string())?,
             uid: uid.clone(),
             installation_id: installation_id.clone(),
             machine_label,
-            enrollment: None,
         });
         let scope = KeyScope::installation(self.installation_id().await?.as_str(), &uid)
             .map_err(|e| e.to_string())?;
@@ -253,23 +315,12 @@ impl ServiceContext {
         &self,
         registry: &FirebaseRegistry,
     ) -> Result<Arc<FirebaseTransport>, String> {
-        let endpoints = codeterm_account::firebase_endpoints::current();
-        if endpoints.emulator {
-            return Err("Native Neighbor streaming requires the QA or production project".into());
-        }
-        let project = if endpoints.qa {
-            "domios-signin-qa"
-        } else {
-            "domios-d9357"
-        }
-        .to_string();
-        let transport = Arc::new(FirebaseTransport {
-            calls: registry.calls.clone(),
-            project,
-            uid: registry.uid.clone(),
-            installation_id: registry.installation_id.clone(),
-        });
-        Ok(transport)
+        transport::new(
+            registry.calls.clone(),
+            registry.uid.clone(),
+            registry.installation_id.clone(),
+        )
+        .map_err(|error| error.to_string())
     }
 
     pub fn require_neighbor_general(
@@ -335,6 +386,7 @@ impl ServiceContext {
             .await?;
         match result {
             owner::Outcome::Value(value) => Ok(value),
+            owner::Outcome::ReceiverCommitted(phase) => self.confirm_neighbor_receiver(phase).await,
         }
     }
 
@@ -344,12 +396,17 @@ impl ServiceContext {
         caller: Option<&str>,
         nonce: Option<&str>,
         generation: u64,
-    ) -> Result<Value, String> {
+        prepared: Option<&receiver::selection::Committed>,
+    ) -> Result<owner::Outcome, String> {
+        self.require_neighbor_generation(generation)?;
         self.authorize_neighbor_runtime(&command, caller, nonce)
             .await?;
         let send_authority = self.neighbor_send_authority(&command, caller, nonce)?;
         if command.is_local_read() {
-            return self.neighbor_local_read(&command, caller, nonce).await;
+            return self
+                .neighbor_local_read(&command, caller, nonce)
+                .await
+                .map(owner::Outcome::Value);
         }
         if !matches!(
             &command,
@@ -364,50 +421,56 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
         }
         let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
-        let registry = match &command {
-            NeighborRuntimeCommand::Enroll {
-                takeover_confirmed: true,
-                expected_receiver_revision,
-            } => Arc::new(FirebaseRegistry {
-                enrollment: Some(codeterm_neighbors::adapter::Enrollment {
-                    installation_only: false,
-                    expected_revision: *expected_receiver_revision,
-                    takeover: true,
-                    operation_id: None,
-                }),
-                ..registry.as_ref().clone()
-            }),
-            NeighborRuntimeCommand::Enroll { .. } => {
-                return Err("Receive here requires confirmation".into())
+        if let Some(committed) = prepared {
+            let account = self.account().await?;
+            let session = account
+                .session()
+                .await
+                .ok_or_else(|| Error::SessionRevoked.to_string())?;
+            self.require_neighbor_generation(committed.generation)?;
+            if session.identity.uid != committed.registry.uid
+                || session.login_generation != committed.login_generation
+                || registry.uid != committed.registry.uid
+                || registry.installation_id != committed.registry.installation_id
+            {
+                return Err(
+                    "Neighbor receiver assignment committed; preparation account changed".into(),
+                );
             }
-            _ => registry,
-        };
-        let friend_mutation = matches!(&command, NeighborRuntimeCommand::SetFriendReceiver { .. });
-        let receiver_status = if friend_mutation
-            || matches!(
-                &command,
-                NeighborRuntimeCommand::SetPermission { .. }
-                    | NeighborRuntimeCommand::Bind { .. }
-                    | NeighborRuntimeCommand::ChangeAgent { .. }
-            ) {
-            self.refresh_neighbor_receiver_readonly(&registry, generation)
-                .await?
-        } else {
-            self.refresh_neighbor_receiver(&registry, &scope, generation)
-                .await?
-        };
+            self.require_neighbor_friend_receiver(&committed.friendship, Some(committed.revision))
+                .map_err(|error| {
+                    format!(
+                        "Neighbor receiver assignment committed; preparation unavailable: {error}"
+                    )
+                })?;
+        }
         match &command {
             NeighborRuntimeCommand::SetPermission { friendship_id, .. }
             | NeighborRuntimeCommand::Bind { friendship_id, .. }
-            | NeighborRuntimeCommand::ChangeAgent { friendship_id, .. } => {
-                self.prepare_neighbor_owner_action(
-                    &registry,
-                    &scope,
-                    &metadata,
-                    friendship_id,
-                    generation,
-                )
-                .await?;
+            | NeighborRuntimeCommand::ChangeAgent { friendship_id, .. }
+                if prepared.is_none() =>
+            {
+                if let Some(committed) = self
+                    .prepare_neighbor_owner_action(
+                        &registry,
+                        &scope,
+                        &metadata,
+                        friendship_id,
+                        generation,
+                    )
+                    .await?
+                {
+                    return Ok(owner::Outcome::ReceiverCommitted(Box::new(
+                        owner::ReceiverCommit {
+                            committed,
+                            continuation: Some(owner::Continuation {
+                                command,
+                                caller: caller.map(str::to_owned),
+                                nonce: nonce.map(str::to_owned),
+                            }),
+                        },
+                    )));
+                }
             }
             NeighborRuntimeCommand::SetFriendReceiver {
                 friendship_id,
@@ -425,18 +488,80 @@ impl ServiceContext {
             }
             _ => {}
         }
+        if let NeighborRuntimeCommand::SetFriendReceiver {
+            friendship_id,
+            receiver_operation,
+            takeover_confirmed,
+            expected_receiver_revision,
+        } = &command
+        {
+            let selection = self
+                .set_neighbor_friend_receiver(
+                    &registry,
+                    &scope,
+                    &metadata,
+                    friendship_id,
+                    *receiver_operation,
+                    *takeover_confirmed,
+                    *expected_receiver_revision,
+                    generation,
+                )
+                .await;
+            let committed = match selection {
+                Ok(committed) => committed,
+                Err(error) => {
+                    self.require_neighbor_generation(generation)?;
+                    self.rearm_neighbor_updates();
+                    self.forget_neighbor_registry();
+                    if matches!(
+                        error,
+                        Error::ReceiverRevisionStale
+                            | Error::ReceiverElsewhere
+                            | Error::NotReceiver
+                    ) {
+                        let _ = self
+                            .start_neighbor_listeners(
+                                transport,
+                                registry.clone(),
+                                scope,
+                                metadata,
+                                generation,
+                            )
+                            .await;
+                        if error == Error::ReceiverElsewhere {
+                            if let Some(status) = self.neighbor_friend_receiver(friendship_id) {
+                                let name = self
+                                    .neighbor_cell_names()
+                                    .get(friendship_id)
+                                    .cloned()
+                                    .unwrap_or_else(|| "This friend".into());
+                                return Err(first_action::receiver_refusal(
+                                    friendship_id,
+                                    &name,
+                                    &status,
+                                ));
+                            }
+                        }
+                    }
+                    return Err(error.to_string());
+                }
+            };
+            return Ok(owner::Outcome::ReceiverCommitted(Box::new(
+                owner::ReceiverCommit {
+                    committed,
+                    continuation: None,
+                },
+            )));
+        }
         let lifecycle = InstallationKeys {
-            store: &OsKeyStore,
+            store: &self.neighbor_key_store().map_err(|e| e.to_string())?,
             registry: registry.as_ref(),
             scope: scope.clone(),
             uid: &transport.uid,
         };
         let receiver_mutation = matches!(
             &command,
-            NeighborRuntimeCommand::Enroll { .. }
-                | NeighborRuntimeCommand::SetFriendReceiver { .. }
-                | NeighborRuntimeCommand::Rotate
-                | NeighborRuntimeCommand::Revoke
+            NeighborRuntimeCommand::Rotate | NeighborRuntimeCommand::Revoke
         );
         let result: codeterm_neighbors::Result<Value> = async {
             match command {
@@ -532,22 +657,7 @@ impl ServiceContext {
                         .map_err(concierge::launch_error)?;
                     Ok(json!({"gateway_tab":tab,"reasoning_effort":options.reasoning_effort,"service_tier":options.service_tier}))
                 }
-                NeighborRuntimeCommand::Enroll {
-                    takeover_confirmed,
-                    expected_receiver_revision,
-                } => {
-                    if expected_receiver_revision != receiver_status.receiver_revision {
-                        return Err(Error::ReceiverRevisionStale);
-                    }
-                    let keys = lifecycle
-                        .enroll_and_enable(takeover_confirmed, &mut rand::rngs::OsRng, &metadata)
-                        .await?;
-                    Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
-                }
-                NeighborRuntimeCommand::SetFriendReceiver { friendship_id,receiver_operation,takeover_confirmed,expected_receiver_revision } => {
-                    self.set_neighbor_friend_receiver(&registry,&scope,&metadata,&friendship_id,receiver_operation,
-                        takeover_confirmed,false,expected_receiver_revision,generation).await
-                }
+                NeighborRuntimeCommand::SetFriendReceiver { .. } => Err(Error::InvalidRequest),
                 NeighborRuntimeCommand::Retry { friendship_id } => {
                     if !hex_id(&friendship_id, 64) {
                         return Err(Error::InvalidEnvelope);
@@ -564,9 +674,6 @@ impl ServiceContext {
                     Ok(json!({"status":"reconnecting"}))
                 }
                 NeighborRuntimeCommand::Rotate => {
-                    if !receiver_status.receiving_here() {
-                        return Err(Error::NotReceiver);
-                    }
                     self.stop_neighbor_listeners();
                     let keys = lifecycle.rotate(&mut rand::rngs::OsRng).await?;
                     Ok(json!({"verifier_key_id":keys.verifier_key_id(&transport.uid)}))
@@ -574,11 +681,6 @@ impl ServiceContext {
                 NeighborRuntimeCommand::Revoke => {
                     self.stop_neighbor_listeners();
                     self.retire_local_neighbor_concierges(&metadata,&transport.uid,generation).await.map_err(|_| Error::Gateway)?;
-                    if receiver_status.receiver_installation_id.as_deref() == Some(transport.installation_id.as_str()) {
-                        if let Err(error) = registry.disable_receiving(receiver_status.receiver_revision).await {
-                            log::debug!("[neighbors] account receiver stop refused; revoking this installation's keys: {error}");
-                        }
-                    }
                     lifecycle.revoke().await?;
                     let mut settings = metadata.settings().await?;
                     settings.enabled = false;
@@ -656,46 +758,10 @@ impl ServiceContext {
         }
         .await;
         if receiver_mutation {
-            self.neighbor_cell().receiver.lock().take();
+            self.rearm_neighbor_updates();
             self.forget_neighbor_registry();
         }
-        let result = match result {
-            Ok(result) => result,
-            Err(error) => {
-                if friend_mutation
-                    && matches!(
-                        error,
-                        Error::ReceiverRevisionStale
-                            | Error::ReceiverElsewhere
-                            | Error::NotReceiver
-                    )
-                {
-                    self.forget_neighbor_registry();
-                    let _ = self
-                        .start_neighbor_listeners(
-                            transport.clone(),
-                            registry.clone(),
-                            lifecycle.scope.clone(),
-                            metadata.clone(),
-                            generation,
-                        )
-                        .await;
-                    return Err(error.to_string());
-                }
-                if matches!(
-                    error,
-                    Error::ReceiverRevisionStale
-                        | Error::ReceiverElsewhere
-                        | Error::Transport
-                        | Error::NotReceiver
-                ) {
-                    let _ = self
-                        .refresh_neighbor_receiver(&registry, &lifecycle.scope, generation)
-                        .await;
-                }
-                return Err(error.to_string());
-            }
-        };
+        let result = result.map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;
         let scope = lifecycle.scope.clone();
         drop(lifecycle);
@@ -709,7 +775,7 @@ impl ServiceContext {
                 json!({"status":"stopped","reason":"Neighbor listener unavailable"}),
             );
         }
-        Ok(result)
+        Ok(owner::Outcome::Value(result))
     }
 
     pub(super) fn stop_neighbor_friendship_listeners(
@@ -785,40 +851,15 @@ impl ServiceContext {
         }
     }
 
-    pub(super) async fn neighbor_receiver_changed(
-        &self,
-        friendship: Option<&str>,
-    ) -> Result<(), String> {
-        self.require_neighbors_enabled()
-            .map_err(|e| e.to_string())?;
-        self.neighbor_cell().receiver.lock().take();
-        self.forget_neighbor_registry();
-        if let Some(friendship) = friendship {
-            self.stop_neighbor_concierge_listener(friendship);
-            let version = self.forget_neighbor_friend_receiver(friendship);
-            self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":version}));
-        } else {
-            let version = self.forget_neighbor_friend_receivers();
-            self.ui.emit(
-                "neighbor-runtime-status",
-                json!({"receiver_unavailable":true,"friend_receivers_version":version}),
-            );
-        }
-        self.neighbor_operation(owner::Operation::ReceiverChanged)
-            .await?;
-        Ok(())
-    }
-
     pub(super) fn pause_neighbor_reception(&self) {
+        if self.require_neighbors_enabled().is_err() {
+            self.neighbor_reconciliation().close();
+        }
         self.forget_neighbor_friend_receivers();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
         self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
-        self.neighbor_cell().receiver.lock().take();
-        if let Some(task) = self.neighbor_cell().control.lock().take() {
-            task.abort();
-        }
         self.stop_neighbor_listeners();
         self.neighbor_cell()
             .bootstrapped
@@ -826,18 +867,19 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
+        self.extensions
+            .get_or_init(IdentityPending::default)
+            .0
+            .store(true, Ordering::Release);
+        self.neighbor_reconciliation().close();
         self.forget_neighbor_friend_receivers();
-        self.neighbor_cell().control_cancel.notify_waiters();
-        self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
         self.neighbor_cell().pauses.clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
-        if let Some(task) = self.neighbor_cell().control.lock().take() {
-            task.abort();
-        }
-        self.neighbor_cell().receiver.lock().take();
+        self.neighbor_cell().control_cancel.notify_waiters();
+        self.cancel_neighbor_restoration();
         self.stop_neighbor_updates();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell()
@@ -847,6 +889,39 @@ impl ServiceContext {
         self.neighbor_cell()
             .bootstrapped
             .store(false, std::sync::atomic::Ordering::Release);
+        let service = self.clone();
+        match self.neighbor_reconciliation().submit(
+            super::reconciliation::Kind::Retirement,
+            move || async move {
+                service.finish_neighbor_identity_change();
+                Ok(())
+            },
+        ) {
+            Ok(receipt) => {
+                crate::async_runtime::spawn(async move {
+                    if let Err(error) = receipt.wait().await {
+                        log::debug!("[neighbors] identity reconciliation drain failed: {error}");
+                    }
+                });
+            }
+            Err(error) => log::debug!("[neighbors] identity reconciliation drain pending: {error}"),
+        }
+    }
+
+    pub(super) fn finish_neighbor_identity_change(&self) {
+        if !self
+            .extensions
+            .get_or_init(IdentityPending::default)
+            .0
+            .swap(false, Ordering::AcqRel)
+        {
+            return;
+        }
+        self.reset_neighbor_projection_owned();
+        self.neighbor_cell().names.lock().clear();
+        self.neighbor_cell().pauses.clear();
+        self.neighbor_cell().handling.clear();
+        self.neighbor_cell().restore_grants.lock().clear();
     }
 }
 

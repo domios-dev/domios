@@ -1,0 +1,8 @@
+**
+!packaging/
+!packaging/docker/
+!packaging/docker/verify.py
+!packaging/docker/container.py
+!packaging/docker/config.toml
+!packaging/docker/postgres.toml
+!packaging/docker/release.pub

@@ -15,15 +15,7 @@ impl PluginManifest {
         m.icon_svg = m
             .icon
             .as_deref()
-            .and_then(|relative| crate::plugin_icon::load_plugin_icon(path.parent()?, relative))
-            .or_else(|| {
-                m.legacy_icon_svg
-                    .as_ref()
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(|inline| {
-                        crate::plugin_icon::sanitize_plugin_icon_svg(inline.as_bytes())
-                    })
-            });
+            .and_then(|relative| crate::plugin_icon::load_plugin_icon(path.parent()?, relative));
         m.icon_color = m
             .raw_icon_color
             .as_ref()
@@ -48,6 +40,7 @@ impl PluginManifest {
     /// Strict parse plus the cross-field capability rules every load path enforces.
     pub fn from_json_str(text: &str) -> Result<Self, String> {
         let mut manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
+        crate::plugin_id::validate(&manifest.id)?;
         if let Some(raw) = manifest.agent_prompt_line.take() {
             match crate::agent_prompt_lines::validate_agent_prompt_line(&raw) {
                 Ok(line) => manifest.agent_prompt_line = Some(line),
@@ -57,8 +50,26 @@ impl PluginManifest {
         manifest
             .validate_agent_runtime()
             .map_err(|e| e.to_string())?;
+        if let Some(media) = &manifest.capabilities.media_delivery {
+            if !media.valid()
+                || (!manifest.capabilities.view
+                    && manifest.capabilities.remote_task.is_none()
+                    && manifest.capabilities.graph_nodes.steps.is_empty())
+            {
+                return Err("mediaDelivery requires a view, remote task or graph steps and distinct MIME types".into());
+            }
+        }
+        if manifest
+            .capabilities
+            .binary_transfer
+            .as_ref()
+            .is_some_and(|descriptor| !descriptor.valid())
+        {
+            return Err("binaryTransfer limits exceed the host bounds".into());
+        }
         manifest.capabilities.validate_tab_menu()?;
         manifest.capabilities.validate_surfaces()?;
+        manifest.capabilities.validate_view_host_actions()?;
         for source in manifest.capabilities.record_sources.values() {
             source.validate()?;
         }

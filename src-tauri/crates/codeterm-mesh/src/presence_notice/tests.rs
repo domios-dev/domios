@@ -40,11 +40,11 @@ fn presence_notice_targets_retained_online_peers_without_reopening_local_traffic
         peer("offline", false),
         peer("blocked", true),
     ] {
-        manager.insert_legacy_pair_for_test(peer);
+        manager.insert_account_peer_for_test(peer);
     }
-    manager.revocation_list.blocked.push("blocked".into());
     manager.apply_account_state(AccountMeshState {
         presence: AccountPresence::SignedOut,
+        revoked_installations: ["blocked".into()].into_iter().collect(),
         ..Default::default()
     });
     assert!(!manager.traffic_open("online"));
@@ -71,10 +71,11 @@ fn registry_invalidation_targets_retained_peers_and_heartbeat_carries_observed_r
         peer("blocked", true),
         peer("removed", true),
     ] {
-        manager.insert_legacy_pair_for_test(peer);
+        manager.insert_account_peer_for_test(peer);
     }
-    manager.revocation_list.blocked.push("blocked".into());
-    manager.revocation_list.revoked.push("removed".into());
+    let mut account = manager.account_state().clone();
+    account.revoked_installations = ["blocked".into(), "removed".into()].into_iter().collect();
+    manager.apply_account_state(account);
     assert_eq!(notice_targets(&manager, true).len(), 2);
     manager.apply_account_state(AccountMeshState {
         presence: AccountPresence::SignedIn {

@@ -1,3 +1,4 @@
+import { DEV_BUILD } from "../../lib/devBuild";
 import type { ChatSessionDiagnosticEvent, ChatSessionDiagnosticSink } from "./useChatSession";
 
 /** Stages of the chat projection pipeline whose tail can diverge. Ordered
@@ -348,4 +349,263 @@ declare global {
   interface Window {
     __chatProjection?: ChatProjectionMonitor;
   }
+}
+
+export interface ChatTraceSelection {
+  trace: string;
+  tab: string;
+  session: string;
+  nonce: string;
+  epoch: number;
+  turn: string;
+  item: string;
+}
+export type ChatTraceArm = Omit<ChatTraceSelection, "turn" | "item">;
+type LiveTraceOrigin = { kind?: string; turn?: string };
+
+function validTraceId(id: unknown): id is string {
+  return typeof id === "string" && id.length > 0 && id.length <= 128
+    && [...id].every(char => char.charCodeAt(0) > 31 && char.charCodeAt(0) !== 127)
+    && new TextEncoder().encode(id).length <= 128;
+}
+
+function validateTraceSelection(binding: ChatTraceArm, ids: readonly unknown[]): void {
+  if (!ids.every(validTraceId) || !/^[A-Za-z0-9-]+$/.test(binding.trace)
+    || !Number.isSafeInteger(binding.epoch) || binding.epoch <= 0) throw new Error("Invalid chat trace selection");
+}
+const traceBinding = ({ trace, tab, session, nonce, epoch }: ChatTraceArm): ChatTraceArm => ({ trace, tab, session, nonce, epoch });
+
+type TraceAuthority = { tab: string; session: string | null; nonce: string | null; epoch?: number; generation?: number };
+type TraceRow = { id: string; type?: string; seq?: number; content?: string; toolResult?: string; toolDetail?: string; toolFlowId?: string; toolStatus?: string | null };
+interface ChatTraceRecord {
+  stage: string;
+  clock: "browser-performance-ms";
+  at: number;
+  unixMs: number;
+  binding: string;
+  turn: string;
+  item: string;
+  epoch: number;
+  epochVerified: boolean;
+  listenerGeneration: number | null;
+  sourceSeq: number | null;
+  status: string | null;
+  contentUnits: number;
+  resultUnits: number;
+  detailUnits: number;
+  observerMs: number;
+  mountStart?: number;
+  mountEnd?: number;
+  mountRevision?: number;
+}
+
+function traceFingerprint(parts: readonly string[]): string {
+  let hash = 2166136261;
+  const encoder = new TextEncoder();
+  for (const part of parts) {
+    for (const byte of encoder.encode(part)) hash = Math.imul(hash ^ byte, 16777619);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+type TraceMetrics = Pick<ChatTraceRecord, "sourceSeq" | "status" | "contentUnits" | "resultUnits" | "detailUnits">;
+const traceMetrics = (row: TraceRow): TraceMetrics => ({ sourceSeq: row.seq ?? null,
+  status: ["running", "completed", "failed", "interrupted", "abandoned"].includes(row.toolStatus ?? "") ? row.toolStatus ?? null : null,
+  contentUnits: row.content?.length ?? 0, resultUnits: row.toolResult?.length ?? 0, detailUnits: row.toolDetail?.length ?? 0 });
+const traceRow = (row: TraceRow): TraceRow => row;
+const traceEntry = (entry: { msg: TraceRow }): TraceRow => entry.msg;
+const NO_TRACE_WORK = () => {};
+type TraceMount = { active: boolean; start: number; end: number; revision: number; isMounted: (id: string, index: number) => boolean };
+
+export class ChatResponsivenessTrace {
+  private selection: ChatTraceSelection | null = null;
+  private armed: ChatTraceArm | null = null;
+  private records: ChatTraceRecord[] = [];
+  private dropped = 0;
+  private overheadMs = 0;
+  private epochVerified = false;
+  private generation = 0;
+  private cancellations = new Set<() => void>();
+
+  constructor(private readonly clock = () => performance.now(), private readonly wall = Date.now) {}
+
+  select(selection: ChatTraceSelection): void {
+    const ids = [selection.trace, selection.tab, selection.session, selection.nonce, selection.turn, selection.item];
+    validateTraceSelection(selection, ids);
+    this.dispose();
+    this.selection = { ...traceBinding(selection), turn: selection.turn, item: selection.item };
+    this.records = [];
+    this.dropped = 0;
+    this.overheadMs = 0;
+  }
+
+  arm(binding: ChatTraceArm): void {
+    validateTraceSelection(binding, [binding.trace, binding.tab, binding.session, binding.nonce]);
+    this.dispose();
+    this.armed = traceBinding(binding);
+    this.records = [];
+    this.dropped = 0;
+    this.overheadMs = 0;
+  }
+
+  bind(authority: TraceAuthority): void {
+    const selection = this.selection ?? this.armed;
+    if (!selection || selection.tab !== authority.tab) return;
+    if (!this.matches(authority) || selection.epoch !== authority.epoch) { this.dispose(); return; }
+    this.epochVerified = true;
+  }
+
+  private matches(authority: TraceAuthority): boolean {
+    const selection = this.selection ?? this.armed;
+    return selection != null && selection.tab === authority.tab && selection.session === authority.session
+      && selection.nonce === authority.nonce && (authority.epoch === undefined || selection.epoch === authority.epoch);
+  }
+
+  eligible(authority: TraceAuthority): boolean { return this.selection !== null && this.matches(authority); }
+
+  private admit(authority: TraceAuthority, active = true): boolean {
+    if (!active || !this.eligible(authority)) return false;
+    if (this.records.length >= 2048) { this.dropped++; return false; }
+    return true;
+  }
+
+  private metrics<T>(rows: readonly T[], readRow: (row: T) => TraceRow, start = 0, end = rows.length) {
+    const selection = this.selection;
+    if (!selection) return null;
+    const last = Math.max(0, Math.min(rows.length, end));
+    for (let index = last - 1; index >= Math.max(0, start, last - 1024); index--) {
+      const row = readRow(rows[index]);
+      if (row.id === selection.item && row.toolFlowId === selection.turn) {
+        return { index, metrics: traceMetrics(row) };
+      }
+    }
+    return null;
+  }
+
+  private record(stage: string, authority: TraceAuthority, metrics: TraceMetrics, mount?: Pick<TraceMount, "start" | "end" | "revision">): ChatTraceRecord | null {
+    if (!this.matches(authority)) return null;
+    if (this.records.length >= 2048) { this.dropped++; return null; }
+    const selection = this.selection!;
+    const record: ChatTraceRecord = {
+      stage, clock: "browser-performance-ms", at: this.clock(), unixMs: this.wall(),
+      binding: traceFingerprint([selection.tab, selection.session, selection.nonce]),
+      turn: traceFingerprint([selection.turn]), item: traceFingerprint([selection.item]), epoch: selection.epoch,
+      epochVerified: authority.epoch !== undefined ? authority.epoch === selection.epoch : this.epochVerified,
+      listenerGeneration: authority.generation ?? null, ...metrics, observerMs: 0,
+      ...(mount ? { mountStart: mount.start, mountEnd: mount.end, mountRevision: mount.revision } : {}),
+    };
+    this.records.push(record);
+    return record;
+  }
+
+  private finish(start: number, record: ChatTraceRecord | null = null): void {
+    const elapsed = this.clock() - start;
+    if (record) record.observerMs = elapsed;
+    this.overheadMs += elapsed;
+  }
+
+  arrival(authority: TraceAuthority, rows: readonly TraceRow[], origin?: LiveTraceOrigin): void {
+    if ((!this.armed && !this.selection) || !this.matches(authority)) return;
+    if (this.records.length >= 2048) { this.dropped++; return; }
+    const start = this.clock();
+    if (authority.epoch === undefined || origin?.kind !== "runtime_live" || !validTraceId(origin.turn)) {
+      this.finish(start); return;
+    }
+    let metrics: TraceMetrics | null = null;
+    if (this.armed) {
+      for (let index = 0; index < Math.min(rows.length, 1024); index++) {
+        const row = rows[index];
+        if (row.type !== "assistant" || row.toolFlowId !== origin.turn || !validTraceId(row.id)) continue;
+        this.selection = { ...this.armed, turn: origin.turn, item: row.id };
+        this.armed = null;
+        this.epochVerified = true;
+        metrics = traceMetrics(row);
+        break;
+      }
+      if (this.armed && rows.length > 1024) this.dropped++;
+    } else if (this.selection?.turn === origin.turn) metrics = this.metrics(rows, traceRow)?.metrics ?? null;
+    const record = metrics ? this.record("frontend_arrival", authority, metrics) : null;
+    this.finish(start, record);
+  }
+
+  observe(stage: string, authority: TraceAuthority, rows: readonly TraceRow[]): void {
+    if (!this.admit(authority)) return;
+    const start = this.clock();
+    const found = this.metrics(rows, traceRow);
+    const record = found ? this.record(stage, authority, found.metrics) : null;
+    this.finish(start, record);
+  }
+
+  rendered(authority: TraceAuthority, entries: readonly { msg: TraceRow }[], mount: TraceMount): () => void {
+    if (!this.admit(authority, mount.active)) return NO_TRACE_WORK;
+    const start = this.clock();
+    const found = this.metrics(entries, traceEntry, mount.start, mount.end);
+    if (!found || !this.selection || !mount.isMounted(this.selection.item, found.index)) { this.finish(start); return NO_TRACE_WORK; }
+    const item = this.selection.item;
+    const record = this.record("rendered_commit", authority, found.metrics, mount);
+    const cancel = this.scheduleMetrics(authority, found.metrics, () => mount.isMounted(item, found.index), mount);
+    this.finish(start, record);
+    return cancel;
+  }
+
+  afterPaint(authority: TraceAuthority, rows: readonly TraceRow[], isMounted: () => boolean): () => void {
+    if (!this.admit(authority)) return NO_TRACE_WORK;
+    const start = this.clock();
+    const found = this.metrics(rows, traceRow);
+    const cancel = found && isMounted() ? this.scheduleMetrics(authority, found.metrics, isMounted) : NO_TRACE_WORK;
+    this.finish(start);
+    return cancel;
+  }
+  private scheduleMetrics(authority: TraceAuthority, metrics: TraceMetrics, isMounted: () => boolean, mount?: Pick<TraceMount, "start" | "end" | "revision">): () => void {
+    const generation = this.generation;
+    let completed = false;
+    let stop = NO_TRACE_WORK;
+    const cancel = scheduleAfterPaint(() => {
+      const start = this.clock();
+      completed = true;
+      this.cancellations.delete(stop);
+      const record = generation === this.generation && this.admit(authority) && isMounted()
+        ? this.record("paint_opportunity", authority, metrics, mount) : null;
+      this.finish(start, record);
+    });
+    stop = () => {
+      const start = this.clock();
+      cancel();
+      this.cancellations.delete(stop);
+      this.finish(start);
+    };
+    if (!completed) this.cancellations.add(stop);
+    return stop;
+  }
+  snapshot() {
+    return { trace: this.selection?.trace ?? this.armed?.trace ?? null, timeOrigin: performance.timeOrigin,
+      selection: this.selection ? { ...this.selection } : null, armed: this.armed ? { ...this.armed } : null,
+      records: this.records.map(record => ({ ...record })), dropped: this.dropped, observerMs: this.overheadMs,
+      active: this.selection !== null || this.armed !== null };
+  }
+
+  dispose(): void {
+    for (const cancel of this.cancellations) cancel();
+    this.cancellations.clear();
+    this.generation++;
+    this.epochVerified = false;
+    this.selection = null;
+    this.armed = null;
+  }
+
+  release(tab: string): void { if ((this.selection ?? this.armed)?.tab === tab) this.dispose(); }
+}
+
+export const chatResponsivenessTrace = new ChatResponsivenessTrace();
+
+declare global { interface Window { __chatResponsiveness?: Pick<ChatResponsivenessTrace, "arm" | "select" | "snapshot" | "dispose"> } }
+
+if (DEV_BUILD && typeof window !== "undefined") {
+  window.__chatResponsiveness = {
+    arm: binding => chatResponsivenessTrace.arm(binding),
+    select: selection => chatResponsivenessTrace.select(selection),
+    snapshot: () => chatResponsivenessTrace.snapshot(),
+    dispose: () => chatResponsivenessTrace.dispose(),
+  };
 }

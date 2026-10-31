@@ -27,10 +27,15 @@ mod events;
 mod manual;
 mod movement_sources;
 pub(crate) mod policy;
+mod reconciliation;
 mod scheduling;
+pub(crate) use reconciliation::CuratorReconciliations;
+#[cfg(test)]
+mod notification_tests;
 #[cfg(test)]
 mod tests;
 pub use authority::CuratorIdentity;
+pub(crate) use events::curator_bootstrap_ids;
 pub(crate) use events::CuratorTabs;
 
 fn curator_envelope() -> crate::service::messenger::MessageEnvelope {
@@ -148,9 +153,10 @@ impl ServiceContext {
     }
 
     pub fn control_loop_show(&self, plan_id: &str) -> Result<ControlLoop, String> {
+        let now = self.curator_now()?;
+        self.reconcile_curator_id(plan_id, now);
         let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
         let mut state = plan.control_loop.clone();
-        let now = self.curator_now()?;
         state.refresh_counts(now);
         state.suspended_reason = self.curator_suspended_reason(&plan);
         if state.suspended_reason.is_some() {

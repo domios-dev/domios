@@ -3,7 +3,7 @@ use codeterm_neighbors::{Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Clone, Default, Deserialize, Serialize)]
 pub(super) struct Seen {
     incoming: Vec<String>,
     accepted: Vec<String>,

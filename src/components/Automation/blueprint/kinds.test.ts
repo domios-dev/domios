@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { blueprintActions, blueprintNodeKinds, blueprintSources, blueprintSteps, blueprintTriggers, irNodeKind } from "./kinds";
+import { blueprintActions, blueprintNodeKinds, blueprintSources, blueprintSteps, blueprintTriggers, irNodeKind, pluginDescriptor, pluginNodeKind } from "./kinds";
 
 const fixture = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-nodes.golden.json", import.meta.url), "utf8")) as { nodes: { kind: string; type: string }[] };
 const catalogTypes = (kind: string) => fixture.nodes.filter((node) => node.kind === kind).map((node) => node.type).sort();
@@ -24,4 +24,7 @@ assert.equal(kind({ id: "a", uses: "filter" }).type, "logic");
 assert.equal(kind({ id: "a", call: { ref: "mem:x" } }).type, "call");
 for (const action of Object.keys(blueprintActions)) assert.equal(kind({ id: "a", uses: action }).type, action === "command" ? "code" : "action");
 assert.equal(kind({ id: "a", uses: "toString" }).type, "action", "inherited names never match a registry entry");
+assert.deepEqual([pluginNodeKind({ available: true, plugin: "fixture" }).type, pluginNodeKind({ available: true, plugin: "fixture" }).label, pluginNodeKind({ available: false }).label], ["plugin", "fixture", "Plugin"]);
+assert.equal(pluginDescriptor({ id: "a", uses: "toString" }, {}), undefined, "inherited names never mark a plugin step");
+assert.equal(pluginDescriptor({ id: "a", uses: "fixture.read" }, undefined), undefined);
 console.log("Blueprint kind registry covers the canonical Rust node catalog and classifies definition nodes");

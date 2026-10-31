@@ -1,4 +1,4 @@
-# Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1
+# Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe; scripts check-windows-dev-cleanup-selection.ps1
 param(
   [Parameter(Mandatory = $true)][string] $Root,
   [Parameter(Mandatory = $true)][string] $TargetDebug,
@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (@($ApiPort, $VitePort, $CdpPort) -contains 7685) { throw 'Refusing production port 7685' }
 function Remove-VerbatimPrefix([string] $path) {
   # Win32_Process can report image paths with the \\?\ prefix, which breaks prefix matching.
   if ($path.StartsWith('\\?\')) { return $path.Substring(4) }
@@ -26,6 +27,9 @@ $rootPath = [IO.Path]::GetFullPath($Root)
 $targetDebugPath = [IO.Path]::GetFullPath($TargetDebug)
 $dataDirPath = [IO.Path]::GetFullPath($DataDir)
 $nodeModules = Join-Path $rootPath "node_modules"
+$runtimeImages = @('domios-app.exe', 'domios-dev-app.exe', 'domios-server.exe', 'codeterm.exe',
+  'domios-server/domios-server.exe', 'cli/codeterm.exe', 'conpty/x64/OpenConsole.exe', 'conpty/arm64/OpenConsole.exe') |
+  ForEach-Object { [IO.Path]::GetFullPath((Join-Path $targetDebugPath $_)) }
 
 if ($FixturePath) {
   if (-not $PlanOnly) { throw 'Process fixtures require PlanOnly; refusing live cleanup' }
@@ -133,6 +137,7 @@ if (-not $OwnedOnly) {
     $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
     $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
       ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+    if ($Instance -eq '') { $rawTarget = $exe -and $exe -in $runtimeImages }
     $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
     $instanceConptyPath = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
       (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
@@ -154,17 +159,12 @@ if (-not $OwnedOnly) {
         $cmd.IndexOf("--port $VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
         $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0)
     $matchesCdp = $cmd -and
-      $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0
+      $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+      $name.Equals('msedgewebview2.exe', [StringComparison]::OrdinalIgnoreCase) -and
+      $cmd.IndexOf("$Identifier\EBWebView", [StringComparison]::OrdinalIgnoreCase) -ge 0
 
     if ($matchesTarget -or $matchesInstanceConpty -or $matchesWebView -or $matchesVite -or $matchesCdp) {
       [void]$victimRoots.Add($procId)
-    }
-  }
-  # dev-back owns only the API and CDP ports; dev-front keeps its Vite port.
-  $ownedPorts = if ($KeepVite) { @($ApiPort, $CdpPort) } else { @($ApiPort, $VitePort, $CdpPort) }
-  foreach ($port in $ownedPorts) {
-    foreach ($listener in @($listeners | Where-Object { [int]$_.port -eq $port })) {
-      [void]$victimRoots.Add([int]$listener.process_id)
     }
   }
 }
@@ -201,6 +201,10 @@ $selected = New-Object System.Collections.Generic.HashSet[int]
 function Add-ProcessTree {
   param([int] $ProcessId, [long] $ParentCreated = 0)
   if ($ProcessId -le 0 -or $selfAncestry.Contains($ProcessId) -or $selected.Contains($ProcessId)) {
+    return
+  }
+  if ($portsByPid.ContainsKey($ProcessId) -and $portsByPid[$ProcessId].Contains(7685)) {
+    Skip-Process "PID ${ProcessId}: production listener"
     return
   }
   try {
