@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "
 import { useKeyboardInset } from "../../hooks/useKeyboardInset";
 import { compositionDefersAutosize, type CompositionGate } from "./composerComposition";
 import { COMPOSER_MIN_HEIGHT, COMPOSER_MAX_HEIGHT, measureComposerAutosize } from "./composerAutosize";
-import { resolveComposerLayout, type ComposerLayout } from "./composerLayoutModel";
+import { COMPOSER_PANEL_HEIGHT_SHARE, resolveComposerLayout, type ComposerLayout } from "./composerLayoutModel";
 import { useComposerHeight } from "./useComposerHeight";
 
 export function useComposerLayout(input: string, textareaRef: RefObject<HTMLTextAreaElement | null>, shellRef: RefObject<HTMLDivElement | null>, gate: CompositionGate, inputVisible = true) {
@@ -14,12 +14,12 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     const textarea = textareaRef.current;
     const shell = shellRef.current;
     if (!textarea || !shell || compositionDefersAutosize(gate)) return;
-    const panel = shell.closest<HTMLElement>('[data-testid="terminal-tab"]') ?? shell.parentElement;
+    const panel = shell.closest<HTMLElement>('[data-testid="terminal-tab"], [data-testid="tab-session-chat"]') ?? shell.ownerDocument.documentElement;
     if (!panel) return;
     const bounds = panel.getBoundingClientRect();
     const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
     const panelHeightPx = Math.min(bounds.height || viewportHeight, viewportHeight);
-    const maxPx = Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, panelHeightPx * 0.55));
+    const maxPx = Math.max(COMPOSER_MIN_HEIGHT, Math.min(COMPOSER_MAX_HEIGHT, panelHeightPx * COMPOSER_PANEL_HEIGHT_SHARE));
     const measured = measureComposerAutosize(textarea, shell, maxPx);
     const next = resolveComposerLayout({ contentPx: measured.contentPx, minPx: COMPOSER_MIN_HEIGHT, editorMaxPx: COMPOSER_MAX_HEIGHT,
       panelWidthPx: bounds.width, panelHeightPx, keyboardOpen });
@@ -34,7 +34,7 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
   useLayoutEffect(() => {
     const shell = shellRef.current;
     const textarea = textareaRef.current;
-    const panel = shell?.closest<HTMLElement>('[data-testid="terminal-tab"]') ?? shell?.parentElement;
+    const panel = shell?.closest<HTMLElement>('[data-testid="terminal-tab"], [data-testid="tab-session-chat"]') ?? shell?.ownerDocument.documentElement;
     if (!panel || !textarea || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);
     observer.observe(panel);
