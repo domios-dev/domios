@@ -1,4 +1,4 @@
-// Caller: manual DEV phone diagnostics; scripts/tests/chat-scroll-trace.test.mjs
+// Caller: manual DEV phone diagnostics
 import { sameAnchorLayoutResidual } from "./chat-scroll-residual.mjs";
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";

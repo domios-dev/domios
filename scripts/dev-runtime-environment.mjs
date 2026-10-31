@@ -1,4 +1,4 @@
-// Caller: scripts/dev-prep.mjs; scripts/tests/dev-runtime-environment.test.mjs
+// Caller: scripts/dev-prep.mjs
 import { join } from 'node:path';
 
 export function devRuntimeEnvironment(inherited, physicalRepo) {

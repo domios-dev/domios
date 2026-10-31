@@ -1,4 +1,4 @@
-// Caller: release-linux.yml, release-linux-arm64.yml, release-macos-build.yml, release-windows.yml, release-windows-arm64.yml; scripts/tests/release-analytics-key.test.mjs
+// Caller: release-linux.yml, release-linux-arm64.yml, release-macos-build.yml, release-windows.yml, release-windows-arm64.yml
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';

@@ -407,8 +407,7 @@ DEV staging must synchronize the complete tree: an overlay retains obsolete
 hashed chunks, and the watcher's service-worker precache then changes `sw.js`.
 After updating the staging code, rebuild the selected instance with `dev --wait`
 once to stage an exact tree and record provenance. Never edit the receipt or
-exclude the service worker from validation. Focused proof:
-`node --test scripts/tests/dev-frontend-provenance.test.mjs scripts/tests/dev-provenance-roundtrip.test.mjs`.
+exclude the service worker from validation.
 
 ```bash
 curl -s http://127.0.0.1:7686/api/health | jq '.status'
@@ -674,7 +673,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
 
 ### REST listener bind recovery
 

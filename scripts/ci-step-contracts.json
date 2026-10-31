@@ -1,8 +1,8 @@
 {
   "version": 1,
   "sources": {
-    "tests-fast.yml": "1eab2efcb4c94df182f6ec2ffd4c5e6724e0e482d20a218a8eacb09f7108beb4",
-    "tests-pr.yml": "03a8ecbad5a6564f944c33d6ff8aa1ee7ca19333538e22a5bfdf0c68ea7f8348"
+    "tests-fast.yml": "1d381acb46859eb37bfd0119f714c84826e2775ef5b0d77bd927a0a231226b52",
+    "tests-pr.yml": "40543e46af389e2751872f818cd2b7be5bb9f1cc9d01841d3baff345dd6465fe"
   },
   "bindings": [
     {
@@ -16,20 +16,6 @@
       "file": "tests-fast.yml",
       "jobId": "guards",
       "entry": "rust-fmt",
-      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
-      "pythonBootstrap": "node scripts/ci-python-env.mjs"
-    },
-    {
-      "file": "tests-fast.yml",
-      "jobId": "guards",
-      "entry": "node-script-tests",
-      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
-      "pythonBootstrap": "node scripts/ci-python-env.mjs"
-    },
-    {
-      "file": "tests-fast.yml",
-      "jobId": "guards",
-      "entry": "python-script-tests",
       "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
       "pythonBootstrap": "node scripts/ci-python-env.mjs"
     },
@@ -93,13 +79,6 @@
       "file": "tests-fast.yml",
       "jobId": "ts-unit",
       "entry": "ts-unit",
-      "role": "bash,git,node,pnpm",
-      "pythonBootstrap": null
-    },
-    {
-      "file": "tests-fast.yml",
-      "jobId": "ts-unit",
-      "entry": "ts-unit-runner-tests",
       "role": "bash,git,node,pnpm",
       "pythonBootstrap": null
     },
@@ -141,20 +120,6 @@
     {
       "file": "tests-pr.yml",
       "jobId": "guards",
-      "entry": "node-script-tests",
-      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
-      "pythonBootstrap": "node scripts/ci-python-env.mjs"
-    },
-    {
-      "file": "tests-pr.yml",
-      "jobId": "guards",
-      "entry": "python-script-tests",
-      "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
-      "pythonBootstrap": "node scripts/ci-python-env.mjs"
-    },
-    {
-      "file": "tests-pr.yml",
-      "jobId": "guards",
       "entry": "core-journeys-offline",
       "role": "bash,cargo,git,nextest,node,pnpm,python,python:yaml",
       "pythonBootstrap": "node scripts/ci-python-env.mjs"
@@ -212,13 +177,6 @@
       "file": "tests-pr.yml",
       "jobId": "ts-unit",
       "entry": "ts-unit",
-      "role": "bash,git,node,pnpm",
-      "pythonBootstrap": null
-    },
-    {
-      "file": "tests-pr.yml",
-      "jobId": "ts-unit",
-      "entry": "ts-unit-runner-tests",
       "role": "bash,git,node,pnpm",
       "pythonBootstrap": null
     },

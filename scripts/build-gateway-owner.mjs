@@ -1,4 +1,4 @@
-// Caller: scripts/build-gateway.sh; scripts/build-gateway-owner.test.mjs
+// Caller: scripts/build-gateway.sh
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

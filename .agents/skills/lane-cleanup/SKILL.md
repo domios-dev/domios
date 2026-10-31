@@ -46,7 +46,6 @@ The script must prove all of these before deletion:
 Before recursive deletion, the script walks real directories explicitly and
 unlinks every reparse point without entering its target. Never recursively
 delete through a lane's `node_modules` junction: it may target canonical.
-Verify with `node --test scripts/tests/lane-cleanup.test.mjs` on Windows.
 
 Never use this skill on the canonical checkout, a dirty lane, an unmerged lane,
 or an unknown directory. Do not kill processes by name. If deletion still fails,
