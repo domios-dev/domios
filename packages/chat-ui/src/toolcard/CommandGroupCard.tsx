@@ -103,7 +103,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
         <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </button>
-      <div className="pb-1 pl-5 pr-2">
+      <div className="pb-1 pr-2">
         <CommandGroupDetail event={event} rows={rows} expanded={expanded} {...navigation} />
       </div>
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
