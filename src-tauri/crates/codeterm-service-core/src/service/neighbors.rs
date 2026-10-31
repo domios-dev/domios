@@ -196,7 +196,7 @@ impl ServiceContext {
 
     async fn complete_confirmed_neighbor_removal(&self, metadata: storage::Metadata, friendship: String, generation: u64) -> codeterm_neighbors::Result<()> {
         let service = self.clone();
-        self.neighbor_reconciliation().submit(reconciliation::Kind::Retirement, move || async move {
+        self.neighbor_reconciliation().submit(reconciliation::Kind::Removal { friendship: friendship.clone(), generation }, move || async move {
             service.invalidate_neighbor_projection_list();
             service.end_neighbor_friendship(&metadata, &friendship, generation).await
         })?.wait().await

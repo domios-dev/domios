@@ -4,17 +4,18 @@ use tokio::sync::{mpsc, oneshot};
 
 const CAPACITY: usize = 32;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(super) enum Kind {
     Projection,
     Activation,
     Retirement,
+    Removal { friendship: String, generation: u64 },
     Selection,
     StopLocal,
 }
 
 impl Kind {
-    fn candidate(self) -> bool { matches!(self, Self::Projection | Self::Activation) }
+    fn candidate(&self) -> bool { matches!(self, Self::Projection | Self::Activation) }
 }
 
 struct State {
@@ -25,14 +26,28 @@ struct State {
     closed: bool,
     off_pending: bool,
     error: Option<Error>,
+    recovery: Option<(Kind, Error)>,
 }
 
 impl Default for State {
     fn default() -> Self {
         Self {
             revision: Arc::new(()), pending: 0, controls: 0, active: false,
-            closed: false, off_pending: false, error: None,
+            closed: false, off_pending: false, error: None, recovery: None,
         }
+    }
+}
+
+impl State {
+    fn error(&self) -> Option<Error> {
+        self.recovery.as_ref().map(|(_, error)| error.clone()).or_else(|| self.error.clone())
+    }
+
+    fn admits_control(&self, kind: &Kind) -> bool {
+        if self.recovery.as_ref().is_some_and(|(failed, _)| failed != kind && *kind != Kind::Retirement) {
+            return false;
+        }
+        *kind != Kind::Selection || self.error.is_none()
     }
 }
 
@@ -109,8 +124,8 @@ where
 impl Coordinator {
     pub(super) fn require_readable(&self) -> Result<()> {
         let state = self.0.state.lock();
-        if state.closed || state.off_pending || state.controls > 0 || state.error.is_some() {
-            return Err(state.error.clone().unwrap_or(Error::Revoked));
+        if state.closed || state.off_pending || state.controls > 0 || state.error().is_some() {
+            return Err(state.error().unwrap_or(Error::Revoked));
         }
         Ok(())
     }
@@ -135,15 +150,15 @@ impl Coordinator {
     {
         let mut state = self.0.state.lock();
         if kind != Kind::StopLocal && state.off_pending {
-            return Err(state.error.clone().unwrap_or(Error::Revoked));
+            return Err(state.error().unwrap_or(Error::Revoked));
         }
-        if kind == Kind::Selection && state.error.is_some() {
-            return Err(state.error.clone().unwrap_or(Error::Transport));
+        if !kind.candidate() && !state.admits_control(&kind) {
+            return Err(state.error().unwrap_or(Error::Transport));
         }
         if kind.candidate()
-            && (state.closed || state.controls > 0 || state.error.is_some())
+            && (state.closed || state.controls > 0 || state.error().is_some())
         {
-            return Err(state.error.clone().unwrap_or(Error::Revoked));
+            return Err(state.error().unwrap_or(Error::Revoked));
         }
         let limit = if kind.candidate() { CAPACITY - 1 } else { CAPACITY };
         if state.pending >= limit {
@@ -156,7 +171,7 @@ impl Coordinator {
         let (reply, receiver) = oneshot::channel();
         let revision = if kind == Kind::Activation { state.revision.clone() } else { Arc::new(()) };
         if self.0.sender.try_send(Job {
-            revision: revision.clone(), kind, port: Box::new(Work { work, reply }),
+            revision: revision.clone(), kind: kind.clone(), port: Box::new(Work { work, reply }),
         }).is_err() {
             state.closed = true;
             state.error = Some(Error::Transport);
@@ -174,7 +189,7 @@ impl Coordinator {
     #[cfg(test)]
     fn outcome(&self) -> (usize, bool, bool, Option<Error>) {
         let state = self.0.state.lock();
-        (state.pending, state.active, state.closed || state.off_pending, state.error.clone())
+        (state.pending, state.active, state.closed || state.off_pending, state.error())
     }
 
     #[cfg(test)]
@@ -206,10 +221,10 @@ async fn run(mut receiver: mpsc::Receiver<Job>, inner: Weak<Inner>) {
         let Some(inner) = inner.upgrade() else { break; };
         let admitted = {
             let mut state = inner.state.lock();
-            let admitted = if job.kind == Kind::Selection {
-                !state.off_pending && state.error.is_none()
-            } else if !job.kind.candidate() { true } else {
-                !state.closed && !state.off_pending && state.error.is_none()
+            let admitted = if !job.kind.candidate() {
+                (job.kind != Kind::Selection || !state.off_pending) && state.admits_control(&job.kind)
+            } else {
+                !state.closed && !state.off_pending && state.error().is_none()
                     && Arc::ptr_eq(&state.revision, &job.revision) && !job.port.abandoned()
             };
             state.active = admitted;
@@ -228,12 +243,20 @@ async fn run(mut receiver: mpsc::Receiver<Job>, inner: Weak<Inner>) {
             match &completed.outcome {
                 Ok(()) => {
                     state.error = None;
+                    if state.recovery.as_ref().is_some_and(|(failed, _)| *failed == job.kind) {
+                        state.recovery = None;
+                    }
                     if job.kind == Kind::StopLocal { state.off_pending = false; }
-                    if Arc::ptr_eq(&state.revision, &job.revision) {
+                    if state.recovery.is_none() && Arc::ptr_eq(&state.revision, &job.revision) {
                         state.closed = false;
                     }
                 }
-                Err(error) => { state.error = Some(error.clone()); state.closed = true; }
+                Err(error) => {
+                    if admitted && state.recovery.is_none() {
+                        state.recovery = Some((job.kind.clone(), error.clone()));
+                    }
+                    state.closed = true;
+                }
             }
         }
         if let Err(error) = &completed.outcome {

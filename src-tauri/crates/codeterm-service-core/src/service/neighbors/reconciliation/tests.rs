@@ -125,6 +125,62 @@ async fn failed_off_cleanup_is_retained_and_blocks_successor_until_explicit_clea
 }
 
 #[tokio::test]
+async fn failed_cleanup_survives_cache_retirement_and_only_matching_completion_reopens_admission() {
+    let owner = Coordinator::default();
+    let cleanup = Kind::Removal { friendship: "friend-a".into(), generation: 7 };
+    let effects = Arc::new(Mutex::new(Vec::new()));
+    let (started, running) = oneshot::channel();
+    let (release, held) = oneshot::channel();
+    let log = effects.clone();
+    let failed = owner.submit(cleanup.clone(), move || async move {
+        log.lock().push("cleanup side effect");
+        started.send(()).unwrap();
+        held.await.unwrap();
+        Err::<(), _>(Error::CursorStore)
+    }).unwrap();
+    running.await.unwrap();
+    let log = effects.clone();
+    let refresh = owner.submit(Kind::Retirement, move || async move {
+        log.lock().push("cache retired");
+        Ok(())
+    }).unwrap();
+    let selection: Receipt<()> = owner.submit(Kind::Selection, || async {
+        panic!("Queued selection cannot discharge a failed cleanup")
+    }).unwrap();
+    release.send(()).unwrap();
+    assert_eq!(failed.wait().await, Err(Error::CursorStore));
+    assert_eq!(refresh.wait().await, Ok(()));
+    assert_eq!(selection.wait().await, Err(Error::Revoked));
+    assert_eq!(owner.outcome(), (0, false, true, Some(Error::CursorStore)));
+    assert_eq!(owner.require_readable(), Err(Error::CursorStore));
+    for kind in [Kind::Selection, Kind::Projection, Kind::Activation, Kind::StopLocal,
+        Kind::Removal { friendship: "friend-b".into(), generation: 7 },
+        Kind::Removal { friendship: "friend-a".into(), generation: 8 }] {
+        let attempted: Result<Receipt<()>> = owner.submit(kind, || async {
+            panic!("Unrelated successor effects must not enter")
+        });
+        assert!(matches!(attempted, Err(Error::CursorStore)));
+    }
+    owner.submit(Kind::Retirement, || async { Ok(()) }).unwrap().wait().await.unwrap();
+    assert_eq!(owner.require_readable(), Err(Error::CursorStore));
+    let log = effects.clone();
+    owner.submit(cleanup, move || async move {
+        log.lock().push("corresponding cleanup completed");
+        Ok(())
+    }).unwrap().wait().await.unwrap();
+    assert_eq!(owner.require_readable(), Ok(()));
+    for kind in [Kind::Selection, Kind::Projection, Kind::Activation] {
+        let log = effects.clone();
+        owner.submit(kind, move || async move {
+            log.lock().push("successor effect");
+            Ok(())
+        }).unwrap().wait().await.unwrap();
+    }
+    assert_eq!(*effects.lock(), ["cleanup side effect", "cache retired",
+        "corresponding cleanup completed", "successor effect", "successor effect", "successor effect"]);
+}
+
+#[tokio::test]
 async fn failed_current_storage_does_not_commit_dedupe_and_same_version_recovery_is_owned() {
     let owner = Coordinator::default();
     let persisted = Arc::new(Mutex::new(false));

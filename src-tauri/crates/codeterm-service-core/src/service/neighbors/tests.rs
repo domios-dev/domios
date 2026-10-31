@@ -197,3 +197,40 @@ async fn confirmed_remove_cleans_only_its_friendship_and_preserves_other_binding
     service.complete_confirmed_neighbor_removal(metadata.clone(), first, service.neighbor_history_generation()).await.unwrap();
     assert!(metadata.settings().await.unwrap().bindings.contains_key(&second));
 }
+
+#[tokio::test]
+async fn confirmed_remove_partial_failure_survives_refresh_until_corresponding_local_cleanup_completes() {
+    use reconciliation::Kind;
+    use codeterm_neighbors::Error;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let service = &fixture.service;
+    let metadata = storage::Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let generation = service.neighbor_history_generation();
+    let mut settings = storage::Settings::default();
+    settings.bindings.insert(friendship.clone(), "absent-local-tab".into());
+    metadata.save_settings(settings).await.unwrap();
+    assert_eq!(service.complete_confirmed_neighbor_removal(
+        metadata.clone().with_failed_settings_save_for_test(), friendship.clone(), generation,
+    ).await, Err(Error::CursorStore));
+    assert!(metadata.history(&friendship).await.unwrap().ended);
+    assert!(metadata.settings().await.unwrap().bindings.contains_key(&friendship));
+    service.refresh_neighbor_list().await.unwrap();
+    service.invalidate_neighbor_list().await.unwrap();
+    assert_eq!(service.neighbor_reconciliation().require_readable(), Err(Error::CursorStore));
+    for kind in [Kind::Selection, Kind::Projection, Kind::Activation] {
+        let attempted: codeterm_neighbors::Result<reconciliation::Receipt<()>> = service.neighbor_reconciliation().submit(kind, || async {
+            panic!("A partially failed confirmed removal still owns cleanup")
+        });
+        assert!(matches!(attempted, Err(Error::CursorStore)));
+    }
+    assert_eq!(service.complete_confirmed_neighbor_removal(metadata.clone(), "b".repeat(64), generation).await,
+        Err(Error::CursorStore));
+    assert!(!metadata.history(&"b".repeat(64)).await.unwrap().ended);
+    assert_eq!(service.complete_confirmed_neighbor_removal(metadata.clone(), friendship.clone(), generation + 1).await,
+        Err(Error::CursorStore));
+    service.complete_confirmed_neighbor_removal(metadata.clone(), friendship.clone(), generation).await.unwrap();
+    assert!(!metadata.settings().await.unwrap().bindings.contains_key(&friendship));
+    assert_eq!(service.neighbor_reconciliation().require_readable(), Ok(()));
+    service.neighbor_reconciliation().submit(Kind::Selection, || async { Ok(()) }).unwrap().wait().await.unwrap();
+}
