@@ -52,7 +52,7 @@
   position: fixed;
   max-width: none;
   padding: 30px 16px 12px;
-  background: var(--ct-bg-elev, var(--ct-surface));
+  background: var(--ct-surface);
   animation: ct-composer-rise 180ms var(--ct-ease-liquid-settle) both;
   overflow: visible;
   border-radius: var(--ct-composer-radius);
@@ -70,7 +70,7 @@
   grid-row: 1;
   border: 1px solid var(--ct-border);
   border-radius: 12px;
-  background: transparent;
+  background: var(--ct-bg);
   box-shadow: none;
   --tw-ring-shadow: 0 0 transparent;
 }
