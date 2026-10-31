@@ -43,12 +43,21 @@ fn runtime_policy_wire_projection_preserves_precedence_without_private_values() 
     assert_eq!(request["top"]["sandbox"], "workspace-write");
     assert_eq!(request["top"]["configSandbox"], "read-only");
     assert_eq!(request["top"]["permissions"], "other");
-    for nested in [Value::Null, Value::Bool(false), serde_json::json!(0), serde_json::json!("")] {
-        let projected = operation::policy_projection(&serde_json::json!({"mode":"workspace-write","threadSettings":nested}));
+    for nested in [
+        Value::Null,
+        Value::Bool(false),
+        serde_json::json!(0),
+        serde_json::json!(""),
+    ] {
+        let projected = operation::policy_projection(
+            &serde_json::json!({"mode":"workspace-write","threadSettings":nested}),
+        );
         assert_eq!(projected["threadSettingsSelected"], false);
         assert_eq!(projected["selected"]["mode"], "workspace-write");
     }
-    let malformed = operation::policy_projection(&serde_json::json!({"mode":"workspace-write","threadSettings":"private-truthy"}));
+    let malformed = operation::policy_projection(
+        &serde_json::json!({"mode":"workspace-write","threadSettings":"private-truthy"}),
+    );
     assert_eq!(malformed["threadSettingsSelected"], true);
     assert_eq!(malformed["selected"]["mode"], "missing");
     assert!(!malformed.to_string().contains("private"));

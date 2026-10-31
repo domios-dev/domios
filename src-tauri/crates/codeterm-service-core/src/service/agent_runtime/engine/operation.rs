@@ -36,7 +36,8 @@ fn policy_label(value: Option<&Value>) -> &'static str {
 #[cfg(any(debug_assertions, test))]
 fn policy_fields(value: &Value) -> Value {
     let sandbox = value.get("sandbox");
-    let sandbox = sandbox.filter(|sandbox| !sandbox.is_object())
+    let sandbox = sandbox
+        .filter(|sandbox| !sandbox.is_object())
         .or_else(|| sandbox.and_then(|sandbox| sandbox.get("type")));
     serde_json::json!({
         "mode":policy_label(value.get("mode")),
@@ -60,7 +61,11 @@ pub(super) fn policy_projection(value: &Value) -> Value {
         Some(Value::String(value)) => !value.is_empty(),
         Some(_) => true,
     };
-    let selected = if selected_nested { &value["threadSettings"] } else { value };
+    let selected = if selected_nested {
+        &value["threadSettings"]
+    } else {
+        value
+    };
     serde_json::json!({
         "threadSettingsSelected":selected_nested,
         "top":policy_fields(value),
@@ -245,7 +250,10 @@ async fn run_inner(
                 if matches!(call.method.as_str(), "thread/start" | "thread/resume") {
                     log::debug!(
                         "[runtime-policy] phase=rpc_request tab={} epoch={} method={} policy={}",
-                        context.tab_id, context.epoch, call.method, policy_projection(&call.params)
+                        context.tab_id,
+                        context.epoch,
+                        call.method,
+                        policy_projection(&call.params)
                     );
                 }
                 handed_off.store(true, Ordering::Release);
@@ -290,7 +298,10 @@ async fn run_inner(
                 if let RpcReply::Success { value } = &reply {
                     log::debug!(
                         "[runtime-policy] phase=rpc_reply tab={} epoch={} method={} policy={}",
-                        context.tab_id, context.epoch, call.method, policy_projection(value)
+                        context.tab_id,
+                        context.epoch,
+                        call.method,
+                        policy_projection(value)
                     );
                 }
             }
