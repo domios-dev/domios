@@ -40,7 +40,8 @@ import { createPortal } from "react-dom";
 import { ComposerContextHeader } from "./ComposerContextHeader";
 import { DelayedMessageModal, type DelayedModalTarget } from "./DelayedMessageModal";
 import { useMuxSelector } from "../../store/multiplexer";
-import { COMPOSER_MIN_HEIGHT } from "./composerAutosize";
+import { COMPOSER_MIN_HEIGHT, COMPOSER_MAX_HEIGHT } from "./composerAutosize";
+import { ComposerExpandHandle, ExpandedComposer } from "./ExpandedComposer";
 import {
   beginComposition,
   createCompositionGate,
@@ -237,6 +238,7 @@ function ChatComposerImpl({
   isActiveRef.current = isActive;
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
+  const [expandedEditor, setExpandedEditor] = useState(false);
   const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -592,6 +594,15 @@ function ChatComposerImpl({
       </div>
       {promptDock}
       <div data-testid="composer-row" className="relative">
+        {(composerLayout.scrolls || composerLayout.editorPx >= COMPOSER_MAX_HEIGHT) &&
+          <ComposerExpandHandle onExpand={() => { setPickerOpen(false); setExpandedEditor(true); }} />}
+        {expandedEditor && isActive && <ExpandedComposer
+          value={capsules.toPortable(input)}
+          onChange={(value) => { setComposerInvalid(false); recall.reset(); setInput(capsules.fromPortable(value)); }}
+          onClose={() => setExpandedEditor(false)}
+          onSend={() => { setExpandedEditor(false); void send(); }}
+          sendDisabled={!startupSend.allowed || (!input.trim() && attachments.length === 0 && !reply.reply)}
+        />}
         <ComposerActions
           tabId={tabId}
           onAttach={(paths) => void attachInline(paths)}

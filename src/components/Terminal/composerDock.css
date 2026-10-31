@@ -21,6 +21,87 @@
     border-color var(--ct-duration-liquid-toggle) var(--ct-ease-liquid-settle);
 }
 .ct-composer-lane { max-width: var(--ct-chat-readable-width); }
+
+.ct-composer-expand {
+  position: absolute;
+  inset-inline-start: 50%;
+  top: -19px;
+  z-index: 2;
+  display: flex;
+  width: 112px;
+  height: 22px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transform: translateX(-50%);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--ct-muted-fg) 55%, transparent);
+  cursor: pointer;
+}
+.ct-composer-expand svg { fill: none; stroke: currentColor; stroke-width: 1; }
+.ct-composer-expand span { font-size: 10px; opacity: 0; }
+.ct-composer-expand:hover,
+.ct-composer-expand:focus-visible { color: var(--ct-muted-fg); }
+.ct-composer-expand:hover span,
+.ct-composer-expand:focus-visible span { opacity: 1; }
+.ct-composer-expand:focus-visible { outline: 1px solid var(--ct-accent); }
+
+.ct-expanded-composer {
+  width: 100%;
+  max-width: 64rem;
+  height: min(84dvh, 56rem);
+  max-height: calc(var(--ct-visual-height, 100dvh) - 2rem);
+}
+.ct-expanded-composer__input {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  resize: none;
+  padding: 14px;
+  border: 1px solid var(--ct-border);
+  border-radius: 10px;
+  outline: none;
+  background: var(--ct-bg);
+  color: var(--ct-fg);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.65;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.ct-expanded-composer__input:focus { border-color: var(--ct-accent); }
+.ct-expanded-composer__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+}
+.ct-expanded-composer__close:hover { background: var(--ct-bg); color: var(--ct-fg); }
+.ct-expanded-composer__send {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ct-accent);
+  color: var(--ct-bg);
+  cursor: pointer;
+}
+.ct-expanded-composer__send:disabled { opacity: 0.4; cursor: default; }
+@media (max-width: 640px) {
+  .ct-expanded-composer { height: calc(var(--ct-visual-height, 100dvh) - 2rem); padding: 12px; }
+  .ct-expanded-composer__input { font-size: 16px; }
+  .ct-composer-expand span { opacity: 1; }
+}
 .ct-composer-card {
   border: var(--ct-composer-card-border) solid var(--ct-border);
   border-radius: var(--ct-composer-radius);

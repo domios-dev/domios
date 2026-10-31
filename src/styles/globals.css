@@ -2215,7 +2215,7 @@ button {
   transition: opacity 140ms ease, color 140ms ease;
 }
 
-.sidebar-team-disclosure-label { opacity: 0; }
+.sidebar-team-disclosure-label { opacity: 0; color: color-mix(in srgb, var(--ct-muted-fg) 72%, transparent); }
 
 .sidebar-team-disclosure-count {
   color: color-mix(in srgb, var(--ct-muted-fg) 68%, transparent);
