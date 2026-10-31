@@ -108,7 +108,7 @@ async fn request_count_oracle_fallback_is_shared_across_four_consumers_and_ui_ac
             .unwrap();
     }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    fixture.service.invalidate_neighbor_list();
+    fixture.service.invalidate_neighbor_list().await.unwrap();
     for generation in [1, 2] {
         fixture
             .service
@@ -197,8 +197,8 @@ async fn mutation_and_refresh_recover_cached_failures_once_per_explicit_epoch() 
     let calls = AtomicUsize::new(0);
     for epoch in 0..3 {
         match epoch {
-            1 => service.invalidate_neighbor_list(),
-            2 => service.refresh_neighbor_list(),
+            1 => service.invalidate_neighbor_list().await.unwrap(),
+            2 => service.refresh_neighbor_list().await.unwrap(),
             _ => (),
         }
         for _activity in 0..19 {
@@ -229,7 +229,7 @@ async fn mutation_and_refresh_retire_an_active_service_list_read() {
         });
         let control = async {
             running.await.unwrap();
-            if refresh { service.refresh_neighbor_list(); } else { service.invalidate_neighbor_list(); }
+            if refresh { service.refresh_neighbor_list().await.unwrap(); } else { service.invalidate_neighbor_list().await.unwrap(); }
             assert_eq!(service.neighbor_backend_read("friendsList", "owner", 1, async {
                 Ok(json!("fresh"))
             }).await, Ok(json!("fresh")));

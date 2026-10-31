@@ -219,8 +219,7 @@ impl Calls {
                 | "friendsSetDailyLimit"
                 | "friendsSetFileDailyLimit"
         ) {
-            self.service.invalidate_neighbor_list();
-            self.service.forget_neighbor_registry();
+            self.service.invalidate_neighbor_list().await?;
         }
         Ok(result)
     }

@@ -157,3 +157,43 @@ fn neighbor_frames_preserve_provenance_without_a_local_reply_route() {
     assert!(!frame.suffix.contains("--tab"));
     assert!(message.attr("mesh").is_none());
 }
+
+#[tokio::test]
+async fn fallback_observation_preserves_bindings_history_and_pause_state() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let service = &fixture.service;
+    let metadata = storage::Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let friendship = "a".repeat(64);
+    let mut settings = storage::Settings::default();
+    settings.bindings.insert(friendship.clone(), "absent-local-tab".into());
+    settings.paused.insert(friendship.clone());
+    metadata.save_settings(settings.clone()).await.unwrap();
+    let mut list = json!({"access":"paid","friends":[],"incoming":[],"outgoing":[]});
+    service.prepare_neighbor_list_observation(&metadata, &mut list).await.unwrap();
+    let after = metadata.settings().await.unwrap();
+    assert_eq!(after.bindings, settings.bindings);
+    assert_eq!(after.paused, settings.paused);
+    assert!(!metadata.history(&friendship).await.unwrap().ended);
+    assert!(fixture.ui.0.lock().is_empty());
+}
+
+#[tokio::test]
+async fn confirmed_remove_cleans_only_its_friendship_and_preserves_other_bindings() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let service = &fixture.service;
+    let metadata = storage::Metadata::new(fixture.temp.path().to_owned(), "owner");
+    let first = "a".repeat(64);
+    let second = "b".repeat(64);
+    let mut settings = storage::Settings::default();
+    settings.bindings.insert(first.clone(), "absent-a".into());
+    settings.bindings.insert(second.clone(), "absent-b".into());
+    metadata.save_settings(settings).await.unwrap();
+    service.complete_confirmed_neighbor_removal(metadata.clone(), first.clone(), service.neighbor_history_generation()).await.unwrap();
+    assert!(metadata.history(&first).await.unwrap().ended);
+    assert!(!metadata.history(&second).await.unwrap().ended);
+    let settings = metadata.settings().await.unwrap();
+    assert!(!settings.bindings.contains_key(&first));
+    assert!(settings.bindings.contains_key(&second));
+    service.complete_confirmed_neighbor_removal(metadata.clone(), first, service.neighbor_history_generation()).await.unwrap();
+    assert!(metadata.settings().await.unwrap().bindings.contains_key(&second));
+}

@@ -29,9 +29,12 @@ use codeterm_neighbors::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::{collections::HashMap, sync::Arc};
 use zeroize::Zeroizing;
+
+#[derive(Default)]
+struct IdentityPending(AtomicBool);
 
 #[derive(Default)]
 pub struct NeighborRuntimeCell {
@@ -766,6 +769,9 @@ impl ServiceContext {
     }
 
     pub(super) fn pause_neighbor_reception(&self) {
+        if self.require_neighbors_enabled().is_err() {
+            self.neighbor_reconciliation().close();
+        }
         self.forget_neighbor_friend_receivers();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell().control_cancel.notify_waiters();
@@ -778,15 +784,16 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
-        self.reset_neighbor_projection();
+        self.extensions.get_or_init(IdentityPending::default).0.store(true, Ordering::Release);
+        self.neighbor_reconciliation().close();
         self.forget_neighbor_friend_receivers();
-        self.neighbor_cell().control_cancel.notify_waiters();
-        self.cancel_neighbor_restoration();
         self.forget_neighbor_registry();
         self.neighbor_cell().names.lock().clear();
         self.neighbor_cell().pauses.clear();
         self.neighbor_cell().handling.clear();
         self.neighbor_cell().restore_grants.lock().clear();
+        self.neighbor_cell().control_cancel.notify_waiters();
+        self.cancel_neighbor_restoration();
         self.stop_neighbor_updates();
         self.neighbor_cell().watch_states.lock().clear();
         self.neighbor_cell()
@@ -796,6 +803,29 @@ impl ServiceContext {
         self.neighbor_cell()
             .bootstrapped
             .store(false, std::sync::atomic::Ordering::Release);
+        let service = self.clone();
+        match self.neighbor_reconciliation().submit(super::reconciliation::Kind::Retirement, move || async move {
+            service.finish_neighbor_identity_change();
+            Ok(())
+        }) {
+            Ok(receipt) => { crate::async_runtime::spawn(async move {
+                if let Err(error) = receipt.wait().await {
+                    log::debug!("[neighbors] identity reconciliation drain failed: {error}");
+                }
+            }); }
+            Err(error) => log::debug!("[neighbors] identity reconciliation drain pending: {error}"),
+        }
+    }
+
+    pub(super) fn finish_neighbor_identity_change(&self) {
+        if !self.extensions.get_or_init(IdentityPending::default).0.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        self.reset_neighbor_projection_owned();
+        self.neighbor_cell().names.lock().clear();
+        self.neighbor_cell().pauses.clear();
+        self.neighbor_cell().handling.clear();
+        self.neighbor_cell().restore_grants.lock().clear();
     }
 }
 

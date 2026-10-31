@@ -59,3 +59,16 @@ fn local_request_identity_uses_email_and_never_exposes_uid_when_profile_exists()
         "opaque"
     );
 }
+
+#[test]
+fn rejected_or_failed_notice_preparation_does_not_advance_committed_seen() {
+    let list = json!({"incoming":[{"request_id":"pending","displayName":"Peer","uid":"peer"}],"friends":[]});
+    let committed = Seen::default();
+    let mut rejected = committed.clone();
+    assert_eq!(changes(&mut rejected, &list, &[]).unwrap().len(), 1);
+    let mut recovery = committed.clone();
+    assert_eq!(changes(&mut recovery, &list, &[]).unwrap().len(), 1);
+    let persisted = serde_json::to_value(&recovery).unwrap();
+    let mut restored: Seen = serde_json::from_value(persisted).unwrap();
+    assert!(changes(&mut restored, &list, &[]).unwrap().is_empty());
+}

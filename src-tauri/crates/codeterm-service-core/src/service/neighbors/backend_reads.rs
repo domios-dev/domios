@@ -144,6 +144,7 @@ impl ServiceContext {
         generation: u64,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
+        self.neighbor_reconciliation().require_readable()?;
         self.require_neighbor_projection_account(uid, generation)?;
         let epoch = if route == "friendsList" {
             Some(self.neighbor_projection_read_epoch(uid, generation)?)
@@ -176,14 +177,19 @@ impl ServiceContext {
             None => return Err(Error::Transport),
         };
         self.require_neighbor_projection_account(uid, generation)?;
+        self.neighbor_reconciliation().require_readable()?;
         if let Some(value) = self.peek_neighbor_projection(uid, generation, route, "") {
             return Ok(value);
         }
         result
     }
 
-    pub(in crate::service::neighbors) fn invalidate_neighbor_list(&self) {
-        self.invalidate_neighbor_projection_list();
+    pub(in crate::service::neighbors) async fn invalidate_neighbor_list(&self) -> Result<()> {
+        let service = self.clone();
+        self.neighbor_reconciliation().submit(super::reconciliation::Kind::Retirement, move || async move {
+            service.invalidate_neighbor_projection_list();
+            Ok(())
+        })?.wait().await
     }
 
     pub(super) fn commit_neighbor_list_epoch<T>(
@@ -210,9 +216,10 @@ impl ServiceContext {
         self.extensions.get_or_init(Reads::default).list.state.lock().epoch.matches(epoch)
     }
 
-    pub(super) fn refresh_neighbor_list(&self) {
-        self.invalidate_neighbor_list();
+    pub(super) async fn refresh_neighbor_list(&self) -> Result<()> {
+        self.invalidate_neighbor_list().await?;
         self.rearm_neighbor_reads();
+        Ok(())
     }
 
     pub(crate) fn rearm_neighbor_reads(&self) {
