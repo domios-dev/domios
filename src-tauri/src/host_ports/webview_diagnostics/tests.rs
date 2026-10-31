@@ -58,7 +58,13 @@ fn main_target_requires_exact_document_and_view_navigation_pair() {
 fn requested_diagnostics_are_unsupported_off_windows() {
     for occupied in [true, false] {
         assert_eq!(
-            initial_status(Some(9222), PortPreflight { windows: false, ..test_preflight(occupied) }),
+            initial_status(
+                Some(9222),
+                PortPreflight {
+                    windows: false,
+                    ..test_preflight(occupied)
+                }
+            ),
             NativeWebviewDiagnosticsStatus::Unsupported
         );
     }
@@ -115,7 +121,11 @@ fn diagnostics_listener_must_be_a_webview_process_owned_by_this_client() {
 
 fn test_preflight(occupied: bool) -> PortPreflight {
     PortPreflight::evaluate(true, true, || {
-        if occupied { Err(io::ErrorKind::AddrInUse.into()) } else { Ok(()) }
+        if occupied {
+            Err(io::ErrorKind::AddrInUse.into())
+        } else {
+            Ok(())
+        }
     })
 }
 
@@ -125,7 +135,10 @@ fn preflight_ineligible_build_or_platform_never_attempts_bind() {
         let preflight = PortPreflight::evaluate(debug, windows, || panic!("ineligible bind"));
         assert_eq!(preflight.bind, BindOutcome::NotAttempted);
         assert!(!preflight.available());
-        assert_eq!(initial_status(Some(9222), preflight), NativeWebviewDiagnosticsStatus::Unsupported);
+        assert_eq!(
+            initial_status(Some(9222), preflight),
+            NativeWebviewDiagnosticsStatus::Unsupported
+        );
     }
 }
 
@@ -133,23 +146,40 @@ fn preflight_ineligible_build_or_platform_never_attempts_bind() {
 fn preflight_available_is_not_attributed_or_active() {
     let preflight = PortPreflight::evaluate(true, true, || Ok(()));
     assert!(preflight.available());
-    assert_eq!(initial_status(Some(9222), preflight), NativeWebviewDiagnosticsStatus::Unavailable {
-        reason: NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
-    });
+    assert_eq!(
+        initial_status(Some(9222), preflight),
+        NativeWebviewDiagnosticsStatus::Unavailable {
+            reason: NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
+        }
+    );
 }
 
 #[test]
 fn preflight_only_address_in_use_is_occupied() {
-    for kind in [io::ErrorKind::AddrInUse, io::ErrorKind::PermissionDenied, io::ErrorKind::AddrNotAvailable, io::ErrorKind::Other] {
+    for kind in [
+        io::ErrorKind::AddrInUse,
+        io::ErrorKind::PermissionDenied,
+        io::ErrorKind::AddrNotAvailable,
+        io::ErrorKind::Other,
+    ] {
         let preflight = PortPreflight::evaluate(true, true, || Err(kind.into()));
-        assert_eq!(preflight.bind, BindOutcome::Failed { kind, raw_os_error: None });
+        assert_eq!(
+            preflight.bind,
+            BindOutcome::Failed {
+                kind,
+                raw_os_error: None
+            }
+        );
         assert!(!preflight.available());
         let reason = if kind == io::ErrorKind::AddrInUse {
             NativeWebviewDiagnosticsUnavailableReason::PortOccupied
         } else {
             NativeWebviewDiagnosticsUnavailableReason::WebviewInitializationFailed
         };
-        assert_eq!(initial_status(Some(9222), preflight), NativeWebviewDiagnosticsStatus::Unavailable { reason });
+        assert_eq!(
+            initial_status(Some(9222), preflight),
+            NativeWebviewDiagnosticsStatus::Unavailable { reason }
+        );
     }
 }
 
@@ -158,7 +188,13 @@ fn preflight_preserves_raw_os_error_without_error_text() {
     let error = io::Error::from_raw_os_error(12345);
     let kind = error.kind();
     let preflight = PortPreflight::evaluate(true, true, || Err(error));
-    assert_eq!(preflight.bind, BindOutcome::Failed { kind, raw_os_error: Some(12345) });
+    assert_eq!(
+        preflight.bind,
+        BindOutcome::Failed {
+            kind,
+            raw_os_error: Some(12345)
+        }
+    );
 }
 
 #[test]
@@ -166,56 +202,108 @@ fn pending_or_mismatched_preflight_never_enables_inspection() {
     let session = DiagnosticsSession::new(crate::LocalWebviewDiagnosticsMode::RequestedPort(9222));
     session.set_port_preflight(9223, test_preflight(false));
     assert!(!session.preflight.lock().available());
-    assert!(!matches!(session.bind_view(), NativeWebviewDiagnosticsStatus::Active { .. }));
+    assert!(!matches!(
+        session.bind_view(),
+        NativeWebviewDiagnosticsStatus::Active { .. }
+    ));
     session.set_port_preflight(9222, test_preflight(true));
-    assert_eq!(session.bind_view(), NativeWebviewDiagnosticsStatus::Unavailable {
-        reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
-    });
+    assert_eq!(
+        session.bind_view(),
+        NativeWebviewDiagnosticsStatus::Unavailable {
+            reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
+        }
+    );
 }
 
 #[tokio::test]
 async fn failed_or_pending_preflight_refuses_before_endpoint_inspection() {
-    let generation = ClientViewGeneration { view: 8, navigation: 21 };
-    let main = with_root_generation(&Url::parse("http://127.0.0.1:7686/index.html").unwrap(), generation);
+    let generation = ClientViewGeneration {
+        view: 8,
+        navigation: 21,
+    };
+    let main = with_root_generation(
+        &Url::parse("http://127.0.0.1:7686/index.html").unwrap(),
+        generation,
+    );
     for preflight in [
         PortPreflight::pending(true, true),
         test_preflight(true),
         PortPreflight::evaluate(true, true, || Err(io::ErrorKind::PermissionDenied.into())),
         PortPreflight::evaluate(false, true, || panic!("ineligible bind")),
     ] {
-        assert_eq!(inspect_main_webview_diagnostics(9222, generation, main.clone(), preflight).await,
-            initial_status(Some(9222), preflight));
+        assert_eq!(
+            inspect_main_webview_diagnostics(9222, generation, main.clone(), preflight).await,
+            initial_status(Some(9222), preflight)
+        );
     }
 }
 
 #[test]
 fn target_refuses_foreign_document_view_and_socket() {
-    let generation = ClientViewGeneration { view: 8, navigation: 21 };
-    let main = with_root_generation(&Url::parse("http://127.0.0.1:7686/index.html").unwrap(), generation);
-    let foreign_document = with_root_generation(&Url::parse("http://127.0.0.1:7686/foreign.html").unwrap(), generation);
-    let foreign_view = with_root_generation(&main, ClientViewGeneration { view: 9, ..generation });
+    let generation = ClientViewGeneration {
+        view: 8,
+        navigation: 21,
+    };
+    let main = with_root_generation(
+        &Url::parse("http://127.0.0.1:7686/index.html").unwrap(),
+        generation,
+    );
+    let foreign_document = with_root_generation(
+        &Url::parse("http://127.0.0.1:7686/foreign.html").unwrap(),
+        generation,
+    );
+    let foreign_view = with_root_generation(
+        &main,
+        ClientViewGeneration {
+            view: 9,
+            ..generation
+        },
+    );
     for (target_type, document, socket) in [
-        ("page", &foreign_document, "ws://127.0.0.1:9222/devtools/page/main"),
-        ("page", &foreign_view, "ws://127.0.0.1:9222/devtools/page/main"),
-        ("page", &main, "ws://foreign.invalid:9222/devtools/page/main"),
+        (
+            "page",
+            &foreign_document,
+            "ws://127.0.0.1:9222/devtools/page/main",
+        ),
+        (
+            "page",
+            &foreign_view,
+            "ws://127.0.0.1:9222/devtools/page/main",
+        ),
+        (
+            "page",
+            &main,
+            "ws://foreign.invalid:9222/devtools/page/main",
+        ),
         ("page", &main, "ws://127.0.0.1:9222/foreign/main"),
         ("worker", &main, "ws://127.0.0.1:9222/devtools/page/main"),
     ] {
-        assert!(!target_matches(target_type, document.as_str(), socket, 9222, generation, &main));
+        assert!(!target_matches(
+            target_type,
+            document.as_str(),
+            socket,
+            9222,
+            generation,
+            &main
+        ));
     }
 }
 
 #[test]
 #[cfg(debug_assertions)]
 fn preflight_receipt_is_bounded_and_records_compiled_eligibility_and_phase() {
-    let preflight = PortPreflight::evaluate(true, true, || Err(io::ErrorKind::PermissionDenied.into()));
-    assert_eq!(preflight.receipt(Some(9222)), serde_json::json!({
-        "requested_port": 9222,
-        "compiled_debug": true,
-        "compiled_windows": true,
-        "phase": "after_builder_before_build",
-        "bind_outcome": "bind_failed",
-        "bind_error_kind": "PermissionDenied",
-        "raw_os_error": null,
-    }));
+    let preflight =
+        PortPreflight::evaluate(true, true, || Err(io::ErrorKind::PermissionDenied.into()));
+    assert_eq!(
+        preflight.receipt(Some(9222)),
+        serde_json::json!({
+            "requested_port": 9222,
+            "compiled_debug": true,
+            "compiled_windows": true,
+            "phase": "after_builder_before_build",
+            "bind_outcome": "bind_failed",
+            "bind_error_kind": "PermissionDenied",
+            "raw_os_error": null,
+        })
+    );
 }

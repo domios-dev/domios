@@ -47,7 +47,10 @@ impl DiagnosticsSession {
         };
         Self {
             requested_port,
-            preflight: Mutex::new(PortPreflight::pending(cfg!(debug_assertions), cfg!(windows))),
+            preflight: Mutex::new(PortPreflight::pending(
+                cfg!(debug_assertions),
+                cfg!(windows),
+            )),
             status: Mutex::new(None),
         }
     }
@@ -220,7 +223,10 @@ fn target_matches(
 enum BindOutcome {
     NotAttempted,
     Available,
-    Failed { kind: io::ErrorKind, raw_os_error: Option<i32> },
+    Failed {
+        kind: io::ErrorKind,
+        raw_os_error: Option<i32>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -232,7 +238,11 @@ pub(crate) struct PortPreflight {
 
 impl PortPreflight {
     fn pending(debug: bool, windows: bool) -> Self {
-        Self { debug, windows, bind: BindOutcome::NotAttempted }
+        Self {
+            debug,
+            windows,
+            bind: BindOutcome::NotAttempted,
+        }
     }
 
     pub(crate) fn evaluate(
@@ -263,7 +273,11 @@ impl PortPreflight {
             BindOutcome::NotAttempted => ("not_attempted", None, None),
             BindOutcome::Available => ("available", None, None),
             BindOutcome::Failed { kind, raw_os_error } => (
-                if kind == io::ErrorKind::AddrInUse { "address_in_use" } else { "bind_failed" },
+                if kind == io::ErrorKind::AddrInUse {
+                    "address_in_use"
+                } else {
+                    "bind_failed"
+                },
                 Some(format!("{kind:?}")),
                 raw_os_error,
             ),
@@ -284,9 +298,8 @@ pub(crate) fn port_preflight(port: u16) -> PortPreflight {
     let preflight = PortPreflight::evaluate(cfg!(debug_assertions), cfg!(windows), || {
         #[cfg(windows)]
         {
-            codeterm_util::tcp_listener::bind(
-                SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into(),
-            ).map(drop)
+            codeterm_util::tcp_listener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port).into())
+                .map(drop)
         }
         #[cfg(not(windows))]
         {
@@ -305,13 +318,27 @@ pub(crate) fn initial_status(
 ) -> NativeWebviewDiagnosticsStatus {
     match requested_port {
         None => NativeWebviewDiagnosticsStatus::Disabled,
-        Some(_) if !preflight.debug || !preflight.windows => NativeWebviewDiagnosticsStatus::Unsupported,
-        Some(_) if matches!(preflight.bind, BindOutcome::Failed { kind: io::ErrorKind::AddrInUse, .. }) => NativeWebviewDiagnosticsStatus::Unavailable {
-            reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
-        },
-        Some(_) if matches!(preflight.bind, BindOutcome::Failed { .. }) => NativeWebviewDiagnosticsStatus::Unavailable {
-            reason: NativeWebviewDiagnosticsUnavailableReason::WebviewInitializationFailed,
-        },
+        Some(_) if !preflight.debug || !preflight.windows => {
+            NativeWebviewDiagnosticsStatus::Unsupported
+        }
+        Some(_)
+            if matches!(
+                preflight.bind,
+                BindOutcome::Failed {
+                    kind: io::ErrorKind::AddrInUse,
+                    ..
+                }
+            ) =>
+        {
+            NativeWebviewDiagnosticsStatus::Unavailable {
+                reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
+            }
+        }
+        Some(_) if matches!(preflight.bind, BindOutcome::Failed { .. }) => {
+            NativeWebviewDiagnosticsStatus::Unavailable {
+                reason: NativeWebviewDiagnosticsUnavailableReason::WebviewInitializationFailed,
+            }
+        }
         Some(_) => NativeWebviewDiagnosticsStatus::Unavailable {
             reason: NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
         },
@@ -326,7 +353,9 @@ pub(crate) async fn status_for_view(
 ) -> NativeWebviewDiagnosticsStatus {
     match requested_port {
         None => NativeWebviewDiagnosticsStatus::Disabled,
-        Some(_) if !preflight.debug || !preflight.windows => NativeWebviewDiagnosticsStatus::Unsupported,
+        Some(_) if !preflight.debug || !preflight.windows => {
+            NativeWebviewDiagnosticsStatus::Unsupported
+        }
         Some(port) => inspect_main_webview_diagnostics(port, generation, main_url, preflight).await,
     }
 }
