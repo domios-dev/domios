@@ -22,7 +22,8 @@ fn read_step_text(raw: &str) -> Result<(String, String), String> {
         .split_once(':')
         .ok_or_else(|| format!("invalid --step {raw:?}; expected kind:text or kind:@file"))?;
     let text = if let Some(path) = text.strip_prefix('@') {
-        crate::local_admission::read_local_text(path).map_err(|e| format!("failed to read {path}: {e}"))?
+        crate::local_admission::read_local_text(path)
+            .map_err(|e| format!("failed to read {path}: {e}"))?
     } else {
         text.to_string()
     };

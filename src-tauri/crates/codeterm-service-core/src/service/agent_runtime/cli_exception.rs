@@ -73,25 +73,43 @@ fn plain_path(path: &Path) -> Result<String, String> {
 }
 
 fn literal_command_path(path: &str) -> bool {
-    !path.is_empty() && path.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/\\:._-".contains(&byte))
+    !path.is_empty()
+        && path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"/\\:._-".contains(&byte))
 }
 
 fn command_path(path: &Path) -> Result<String, String> {
     let plain = plain_path(path)?;
-    if literal_command_path(&plain) { return Ok(plain); }
+    if literal_command_path(&plain) {
+        return Ok(plain);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::ffi::OsStrExt;
         let input: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
         let mut short = vec![0u16; 32768];
         // SAFETY: input is NUL-terminated and output has the supplied UTF-16 capacity.
-        let size = unsafe { windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(input.as_ptr(), short.as_mut_ptr(), short.len() as u32) } as usize;
-        if size == 0 || size >= short.len() { return Err("Trusted CLI path has no supported literal Windows invocation".into()); }
+        let size = unsafe {
+            windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(
+                input.as_ptr(),
+                short.as_mut_ptr(),
+                short.len() as u32,
+            )
+        } as usize;
+        if size == 0 || size >= short.len() {
+            return Err("Trusted CLI path has no supported literal Windows invocation".into());
+        }
         let short = PathBuf::from(String::from_utf16(&short[..size]).map_err(|_| DENIED)?);
         if short.canonicalize().map_err(|_| DENIED)? != path.canonicalize().map_err(|_| DENIED)?
-            || file_digest(&short)? != file_digest(path)? { return Err(DENIED.into()); }
+            || file_digest(&short)? != file_digest(path)?
+        {
+            return Err(DENIED.into());
+        }
         let literal = plain_path(&short)?;
-        if literal_command_path(&literal) { return Ok(literal); }
+        if literal_command_path(&literal) {
+            return Ok(literal);
+        }
     }
     Err("Trusted CLI path has no supported literal invocation".into())
 }

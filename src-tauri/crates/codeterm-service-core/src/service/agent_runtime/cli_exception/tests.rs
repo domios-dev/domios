@@ -273,8 +273,22 @@ fn full_concierge_skips_optional_exception_only_with_current_host_bypass_grant()
 
 #[test]
 fn trusted_cli_requires_literal_command_path_and_never_promotes_an_interpreter() {
-    for path in ["C:/trusted/cli.exe", "/trusted/cli", "C:/USERNA~1/bin/cli.exe"] { assert!(literal_command_path(path)); }
-    for path in ["C:/space path/cli.exe", "& C:/trusted/cli.exe", "C:/trusted/cli.exe;pwsh", "C:/trusted/$env.exe", ""] { assert!(!literal_command_path(path)); }
+    for path in [
+        "C:/trusted/cli.exe",
+        "/trusted/cli",
+        "C:/USERNA~1/bin/cli.exe",
+    ] {
+        assert!(literal_command_path(path));
+    }
+    for path in [
+        "C:/space path/cli.exe",
+        "& C:/trusted/cli.exe",
+        "C:/trusted/cli.exe;pwsh",
+        "C:/trusted/$env.exe",
+        "",
+    ] {
+        assert!(!literal_command_path(path));
+    }
 }
 
 #[test]
@@ -289,7 +303,10 @@ fn spaced_cli_path_uses_only_a_verified_existing_literal_alias_or_refuses() {
         Ok(alias) => {
             assert!(literal_command_path(&alias));
             assert_eq!(Path::new(&alias).canonicalize().unwrap(), canonical);
-            assert_eq!(file_digest(Path::new(&alias)).unwrap(), digest(b"opaque-cli"));
+            assert_eq!(
+                file_digest(Path::new(&alias)).unwrap(),
+                digest(b"opaque-cli")
+            );
         }
         Err(reason) => assert!(reason.contains("literal")),
     }

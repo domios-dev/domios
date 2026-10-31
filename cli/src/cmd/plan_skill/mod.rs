@@ -189,7 +189,8 @@ fn edit_skill(
         ));
     }
     if let Some(path) = body_file {
-        let body = crate::local_admission::read_local_text(&path).map_err(|e| format!("read {path}: {e}"))?;
+        let body = crate::local_admission::read_local_text(&path)
+            .map_err(|e| format!("read {path}: {e}"))?;
         std::fs::write(&skill_md, body).map_err(|e| e.to_string())?;
     }
     let entry = ledger::append_entry(&plan_dir, &slug, &verdict, &rationale)?;

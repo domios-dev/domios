@@ -68,7 +68,8 @@ fn read_file_or_stdin_with(
             .map_err(|e| format!("failed to read {option} from stdin: {e}"))?;
         Ok(body)
     } else {
-        crate::local_admission::read_local_text(path).map_err(|e| format!("failed to read {option} {path}: {e}"))
+        crate::local_admission::read_local_text(path)
+            .map_err(|e| format!("failed to read {option} {path}: {e}"))
     }
 }
 

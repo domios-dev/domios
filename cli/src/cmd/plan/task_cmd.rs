@@ -574,8 +574,8 @@ pub(super) fn run_task(
             from_file,
         } => {
             let children: Vec<Value> = if let Some(path) = from_file {
-                let content =
-                    crate::local_admission::read_local_text(&path).map_err(|e| format!("read {path}: {e}"))?;
+                let content = crate::local_admission::read_local_text(&path)
+                    .map_err(|e| format!("read {path}: {e}"))?;
                 serde_json::from_str(&content)
                     .map_err(|e| format!("parse children file {path}: {e}"))?
             } else {

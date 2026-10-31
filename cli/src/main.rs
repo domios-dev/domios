@@ -1,7 +1,7 @@
 mod client;
 mod cmd;
-mod local_api;
 mod local_admission;
+mod local_api;
 mod mesh_cli;
 mod protocol;
 mod stdout;
@@ -134,10 +134,19 @@ fn main() {
     stdout::run(main_impl);
 }
 
-fn restricted_cli_scope(scope: Option<&std::ffi::OsStr>, inherited_credential: bool) -> Result<(), &'static str> {
-    let Some(scope) = scope else { return Ok(()); };
-    if scope != "service-operations" { return Err("Restricted CLI scope is unknown"); }
-    if !inherited_credential { return Err("Restricted CLI scope requires its inherited launch credential"); }
+fn restricted_cli_scope(
+    scope: Option<&std::ffi::OsStr>,
+    inherited_credential: bool,
+) -> Result<(), &'static str> {
+    let Some(scope) = scope else {
+        return Ok(());
+    };
+    if scope != "service-operations" {
+        return Err("Restricted CLI scope is unknown");
+    }
+    if !inherited_credential {
+        return Err("Restricted CLI scope requires its inherited launch credential");
+    }
     Ok(())
 }
 
@@ -174,7 +183,9 @@ fn main_impl() {
     let scoped = std::env::var_os("CODETERM_CLI_SCOPE").is_some();
     if let Some(operation) = local_admission::operation_for_cli(&cli, scoped) {
         if local_admission::requires_admission(scoped) {
-            if let Err(reason) = local_admission::require(operation) { cmd::print::fail(7, reason); }
+            if let Err(reason) = local_admission::require(operation) {
+                cmd::print::fail(7, reason);
+            }
         }
         plugin_bundle::install();
     }

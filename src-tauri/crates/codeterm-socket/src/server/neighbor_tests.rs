@@ -541,11 +541,53 @@ fn neighbor_save_replace_pinned() {
 fn native_socket_local_admission_denies_concierge_and_accepts_ordinary_authenticated_tab() {
     let (fixture, concierge, token) = fixture();
     for operation in ["maintenance", "host-owner", "local-input"] {
-        assert_eq!(request(&fixture, &token, "cli.local.authorize", Some(json!({"operation":operation}))).error.unwrap().code, -32003);
+        assert_eq!(
+            request(
+                &fixture,
+                &token,
+                "cli.local.authorize",
+                Some(json!({"operation":operation}))
+            )
+            .error
+            .unwrap()
+            .code,
+            -32003
+        );
     }
-    assert!(request(&fixture, &token, "system.identify", None).result.is_some());
-    let ordinary = fixture.service.mux.read().all_tabs().find(|tab| tab.id != concierge).unwrap().id.clone();
-    let ordinary_token = fixture.service.frontend_pty_env(Some(&ordinary)).remove("CODETERM_API_TOKEN").unwrap();
-    assert_eq!(request(&fixture, &ordinary_token, "cli.local.authorize", Some(json!({"operation":"maintenance"}))).result.unwrap()["authorized"], true);
-    assert!(request(&fixture, "forged", "cli.local.authorize", Some(json!({"operation":"maintenance"}))).error.is_some());
+    assert!(request(&fixture, &token, "system.identify", None)
+        .result
+        .is_some());
+    let ordinary = fixture
+        .service
+        .mux
+        .read()
+        .all_tabs()
+        .find(|tab| tab.id != concierge)
+        .unwrap()
+        .id
+        .clone();
+    let ordinary_token = fixture
+        .service
+        .frontend_pty_env(Some(&ordinary))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    assert_eq!(
+        request(
+            &fixture,
+            &ordinary_token,
+            "cli.local.authorize",
+            Some(json!({"operation":"maintenance"}))
+        )
+        .result
+        .unwrap()["authorized"],
+        true
+    );
+    assert!(request(
+        &fixture,
+        "forged",
+        "cli.local.authorize",
+        Some(json!({"operation":"maintenance"}))
+    )
+    .error
+    .is_some());
 }

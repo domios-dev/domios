@@ -26,7 +26,8 @@ pub(super) fn read_path_or_stdin(path: &str) -> Result<String, String> {
             .map_err(|e| format!("failed to read stdin: {}", e))?;
         Ok(buf)
     } else {
-        crate::local_admission::read_local_text(path).map_err(|e| format!("failed to read {}: {}", path, e))
+        crate::local_admission::read_local_text(path)
+            .map_err(|e| format!("failed to read {}: {}", path, e))
     }
 }
 

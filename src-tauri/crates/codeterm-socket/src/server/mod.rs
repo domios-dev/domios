@@ -544,7 +544,11 @@ fn respond_to_request(
     }
     if req.method == "cli.local.authorize" {
         return match codeterm_service_core::async_runtime::block_on(
-            codeterm_service_core::service::cli_local_admission::authorize(svc, &req.credential, local_params.as_ref()),
+            codeterm_service_core::service::cli_local_admission::authorize(
+                svc,
+                &req.credential,
+                local_params.as_ref(),
+            ),
         ) {
             Ok(value) => JsonRpcResponse::success(id, value),
             Err(message) => JsonRpcResponse::error(id, -32003, message),

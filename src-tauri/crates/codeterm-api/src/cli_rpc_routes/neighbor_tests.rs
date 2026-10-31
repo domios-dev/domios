@@ -441,9 +441,20 @@ async fn loopback_local_admission_denies_concierge_before_dispatch() {
     let (_fixture, state, _, token) = fixture().await;
     codeterm_service_core::ports::socket::register_test_stub();
     for operation in ["maintenance", "host-owner", "local-input"] {
-        let (status, body) = call(state.clone(), &token, "cli.local.authorize", Some(json!({"operation":operation}))).await.unwrap_err();
+        let (status, body) = call(
+            state.clone(),
+            &token,
+            "cli.local.authorize",
+            Some(json!({"operation":operation})),
+        )
+        .await
+        .unwrap_err();
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body.0["error"]["code"], -32003);
     }
-    assert!(call(state, &token, "system.identify", None).await.unwrap().0["result"].is_object());
+    assert!(call(state, &token, "system.identify", None)
+        .await
+        .unwrap()
+        .0["result"]
+        .is_object());
 }
