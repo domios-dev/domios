@@ -44,7 +44,7 @@ pub(super) fn reply_hint(envelope: &MessageEnvelope) -> Option<String> {
     if !hex_id(friendship, 64) || !hex_id(&message.message_id, 32) {
         return None;
     }
-    Some(format!("Reply through domios account neighbors send '{friendship}' --kind answer --in-reply-to '{}' --from-pad - using the native tool's stdin input without staging a file; if the tool cannot supply stdin and end-of-input, report that limitation instead of inventing a shell recipe. Refuse out-of-scope requests politely.", message.message_id))
+    Some(format!("Reply through domios account neighbors send '{friendship}' --kind answer --in-reply-to '{}' --from-pad - using stdin; refuse out-of-scope requests politely.", message.message_id))
 }
 
 #[cfg(test)]
