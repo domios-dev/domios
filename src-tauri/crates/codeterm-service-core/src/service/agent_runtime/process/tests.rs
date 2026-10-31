@@ -433,15 +433,31 @@ async fn pipe_drop_from_a_live_peer_is_not_success() {
 fn child_policy_debug_projection_is_bounded_redacted_and_survives_split_reads() {
     let mut diagnostic = PolicyStderrDiagnostic::default();
     let cwd = "/own-project";
-    assert!(diagnostic.push(b"DEBUG codex_core::exec_policy: loaded rules fr", cwd).is_empty());
-    assert_eq!(diagnostic.push(b"om 1 files\n", cwd), vec![PolicyStderrObservation::ParsedRuleFiles(1)]);
-    assert_eq!(diagnostic.push(b"DEBUG codex_core::exec_policy: loaded 1 .rules files in /own-project/.codex/rules\n", cwd), vec![PolicyStderrObservation::OwnRuleDirectoryFiles(1)]);
+    assert!(diagnostic
+        .push(b"DEBUG codex_core::exec_policy: loaded rules fr", cwd)
+        .is_empty());
+    assert_eq!(
+        diagnostic.push(b"om 1 files\n", cwd),
+        vec![PolicyStderrObservation::ParsedRuleFiles(1)]
+    );
+    assert_eq!(
+        diagnostic.push(
+            b"DEBUG codex_core::exec_policy: loaded 1 .rules files in /own-project/.codex/rules\n",
+            cwd
+        ),
+        vec![PolicyStderrObservation::OwnRuleDirectoryFiles(1)]
+    );
     assert!(diagnostic.push(b"DEBUG codex_core::exec_policy: loaded 1 .rules files in /private-project/.codex/rules\nprivate-token\n", cwd).is_empty());
-    let observations = diagnostic.push(b"WARN codex_core::exec_policy: failed to parse rules: private-body\n", cwd);
+    let observations = diagnostic.push(
+        b"WARN codex_core::exec_policy: failed to parse rules: private-body\n",
+        cwd,
+    );
     assert_eq!(observations, vec![PolicyStderrObservation::RuleParseFailed]);
     assert!(!format!("{observations:?}").contains("private"));
     assert!(diagnostic.push(&vec![b'x'; 8192], cwd).is_empty());
-    assert!(diagnostic.push(b"codex_core::exec_policy: loaded rules from 9 files\n", cwd).is_empty());
+    assert!(diagnostic
+        .push(b"codex_core::exec_policy: loaded rules from 9 files\n", cwd)
+        .is_empty());
     let input = b"DEBUG codex_core::exec_policy: loaded rules from 1 files\n".repeat(100);
     assert!(diagnostic.push(&input, cwd).len() <= 16);
     assert!(diagnostic.push(&input, cwd).is_empty());

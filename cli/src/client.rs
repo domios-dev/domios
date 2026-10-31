@@ -279,7 +279,11 @@ impl SocketClient {
         }
         Err(format!(
             "{}; stage=socket_connect attempts=[{}]",
-            connect_failure_message(socket_path, denied, crate::nonempty_env("CODETERM_TAB_ID").as_deref()),
+            connect_failure_message(
+                socket_path,
+                denied,
+                crate::nonempty_env("CODETERM_TAB_ID").as_deref()
+            ),
             failures.join("; "),
         ))
     }
@@ -469,20 +473,20 @@ impl SocketClient {
         let payload = serde_json::to_string(&req)
             .map_err(|e| SocketCallError::Transport(format!("Serialize error: {}", e)))?;
         let writer = reader.get_mut();
-        writer
-            .write_all(payload.as_bytes())
-            .map_err(|e| SocketCallError::Transport(format!("stage=socket_write {}", io_failure_fields(&e))))?;
-        writer
-            .write_all(b"\n")
-            .map_err(|e| SocketCallError::Transport(format!("stage=socket_write {}", io_failure_fields(&e))))?;
-        writer
-            .flush()
-            .map_err(|e| SocketCallError::Transport(format!("stage=socket_flush {}", io_failure_fields(&e))))?;
+        writer.write_all(payload.as_bytes()).map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_write {}", io_failure_fields(&e)))
+        })?;
+        writer.write_all(b"\n").map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_write {}", io_failure_fields(&e)))
+        })?;
+        writer.flush().map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_flush {}", io_failure_fields(&e)))
+        })?;
 
         let mut line = String::new();
-        let bytes_read = reader
-            .read_line(&mut line)
-            .map_err(|e| SocketCallError::Transport(format!("stage=socket_read {}", io_failure_fields(&e))))?;
+        let bytes_read = reader.read_line(&mut line).map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_read {}", io_failure_fields(&e)))
+        })?;
 
         if bytes_read == 0 || line.trim().is_empty() {
             return Err(SocketCallError::Transport(format!(
@@ -612,23 +616,36 @@ fn selected_socket_failure(source: ResolutionSource, cause: &str) -> String {
 }
 
 fn io_failure_fields(error: &std::io::Error) -> String {
-    let os = error.raw_os_error().map(|code| code.to_string()).unwrap_or_else(|| "none".into());
+    let os = error
+        .raw_os_error()
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| "none".into());
     format!("kind={:?} os={os}", error.kind())
 }
 
 fn http_failure_message(stage: &str, error: &reqwest::Error) -> String {
     use std::error::Error;
-    let class = if error.is_timeout() { "timeout" }
-        else if error.is_connect() { "connect" }
-        else if error.is_builder() { "builder" }
-        else if error.is_decode() { "decode" }
-        else if error.is_body() { "body" }
-        else if error.is_request() { "request" }
-        else { "other" };
+    let class = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_builder() {
+        "builder"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_request() {
+        "request"
+    } else {
+        "other"
+    };
     let mut cause = error.source();
     let mut io = "kind=none os=none".to_string();
     for _ in 0..8 {
-        let Some(current) = cause else { break; };
+        let Some(current) = cause else {
+            break;
+        };
         if let Some(error) = current.downcast_ref::<std::io::Error>() {
             io = io_failure_fields(error);
             break;

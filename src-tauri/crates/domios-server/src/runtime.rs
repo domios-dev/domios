@@ -522,7 +522,9 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     if let Err(error) = session_persist::stop_worker(&running.service) {
         errors.push(error);
     }
-    if let Err(error) = codeterm_service_core::service::agent_runtime::engine::shutdown_blocking(&running.service) {
+    if let Err(error) =
+        codeterm_service_core::service::agent_runtime::engine::shutdown_blocking(&running.service)
+    {
         errors.push(format!("Agent runtime shutdown failed: {error}"));
     }
     #[cfg(windows)]

@@ -227,8 +227,12 @@ pub fn spawn(
             #[cfg(debug_assertions)]
             for observation in diagnostic.push(&bytes[..count], &diagnostic_identity.1) {
                 let (event, count) = match observation {
-                    PolicyStderrObservation::ParsedRuleFiles(count) => ("parsed_rule_files", Some(count)),
-                    PolicyStderrObservation::OwnRuleDirectoryFiles(count) => ("own_rule_directory_files", Some(count)),
+                    PolicyStderrObservation::ParsedRuleFiles(count) => {
+                        ("parsed_rule_files", Some(count))
+                    }
+                    PolicyStderrObservation::OwnRuleDirectoryFiles(count) => {
+                        ("own_rule_directory_files", Some(count))
+                    }
                     PolicyStderrObservation::RuleParseFailed => ("rule_parse_failed", None),
                 };
                 log::debug!("[runtime-policy] phase=child_exec_policy tab={} pid={} event={event} count={count:?}", diagnostic_identity.0, pid);
@@ -369,7 +373,9 @@ struct PolicyStderrDiagnostic {
 impl PolicyStderrDiagnostic {
     fn push(&mut self, bytes: &[u8], cwd: &str) -> Vec<PolicyStderrObservation> {
         let mut observations = Vec::new();
-        if self.emitted >= 16 { return observations; }
+        if self.emitted >= 16 {
+            return observations;
+        }
         for byte in bytes {
             if *byte == b'\n' {
                 if !self.overflow {
@@ -380,7 +386,9 @@ impl PolicyStderrDiagnostic {
                 }
                 self.line.clear();
                 self.overflow = false;
-                if self.emitted >= 16 { break; }
+                if self.emitted >= 16 {
+                    break;
+                }
             } else if self.line.len() < 4096 {
                 self.line.push(*byte);
             } else {
@@ -396,17 +404,35 @@ fn policy_stderr_observation(line: &[u8], cwd: &str) -> Option<PolicyStderrObser
     let line = std::str::from_utf8(line).ok()?;
     let (_, message) = line.split_once("codex_core::exec_policy:")?;
     let message = message.trim();
-    if let Some(count) = message.strip_prefix("loaded rules from ").and_then(|value| value.strip_suffix(" files")) {
-        return count.parse().ok().map(PolicyStderrObservation::ParsedRuleFiles);
+    if let Some(count) = message
+        .strip_prefix("loaded rules from ")
+        .and_then(|value| value.strip_suffix(" files"))
+    {
+        return count
+            .parse()
+            .ok()
+            .map(PolicyStderrObservation::ParsedRuleFiles);
     }
     if message.starts_with("failed to parse rules:") {
         return Some(PolicyStderrObservation::RuleParseFailed);
     }
-    let (count, directory) = message.strip_prefix("loaded ")?.split_once(" .rules files in ")?;
+    let (count, directory) = message
+        .strip_prefix("loaded ")?
+        .split_once(" .rules files in ")?;
     let expected = format!("{}/.codex/rules", cwd.trim_end_matches(['/', '\\'])).replace('\\', "/");
     let directory = codeterm_paths::strip_verbatim_prefix(directory).replace('\\', "/");
-    let same = if cfg!(windows) { directory.eq_ignore_ascii_case(&expected) } else { directory == expected };
-    same.then(|| count.parse().ok().map(PolicyStderrObservation::OwnRuleDirectoryFiles)).flatten()
+    let same = if cfg!(windows) {
+        directory.eq_ignore_ascii_case(&expected)
+    } else {
+        directory == expected
+    };
+    same.then(|| {
+        count
+            .parse()
+            .ok()
+            .map(PolicyStderrObservation::OwnRuleDirectoryFiles)
+    })
+    .flatten()
 }
 
 #[cfg(test)]

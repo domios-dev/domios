@@ -756,7 +756,10 @@ fn http_failure_diagnostic_redacts_request_and_error_strings() {
         .get("https://private-user:private-password@private.invalid:invalid-port/private-path?token=private-token")
         .build().unwrap_err();
     let message = http_failure_message("http_probe_send", &error);
-    assert_eq!(message, "loopback HTTP failure stage=http_probe_send class=builder kind=none os=none");
+    assert_eq!(
+        message,
+        "loopback HTTP failure stage=http_probe_send class=builder kind=none os=none"
+    );
     assert!(!message.contains("private"));
 }
 #[test]
