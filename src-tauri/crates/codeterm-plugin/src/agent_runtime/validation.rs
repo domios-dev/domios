@@ -87,6 +87,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
             || policy.binding_nonce != ctx.binding_nonce
             || policy.epoch != ctx.epoch
             || policy.cwd != ctx.cwd
+            || !RestrictedCliCapability::valid_metadata_directory(&policy.metadata_directory)
             || ctx.settings.mode.as_deref() != Some("workspace-write")
             || ctx.settings.network_access != Some(false)
             || !identifier(&policy.executable)
@@ -257,6 +258,13 @@ pub fn validate_runtime_plan(
     plan: &RuntimePlan,
 ) -> Result<(), RuntimeFailure> {
     validate_runtime_operation(ctx, op)?;
+    if let Some(policy) = &ctx.restricted_cli
+        && cap.restricted_cli.as_ref().is_none_or(|capability| {
+            capability.metadata_directory() != policy.metadata_directory.as_str()
+        })
+    {
+        return Err(mismatch("restricted CLI metadata differs from provider capability"));
+    }
     validate_runtime_size(plan, MAX_RUNTIME_VALUE_BYTES)?;
     validate_runtime_size(&plan.state, MAX_RUNTIME_STATE_BYTES)?;
     if matches!(op, RuntimeOperation::ForkThread { .. })
