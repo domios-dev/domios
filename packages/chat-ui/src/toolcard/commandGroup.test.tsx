@@ -1,11 +1,12 @@
 import React, { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage, type ToolEvent } from "@codeterm/chat-core";
 import { toolCommandShape } from "../codeterm/commandShape";
 import { ToolCallBubble } from "../ToolCallBubble";
 import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 import { CommandGroupCard } from "./CommandGroupCard";
 import { act, render } from "./cardTestSetup";
+import * as shellLexer from "../../../chat-core/src/shellLexer";
 
 const CODEX_SESSION = "01a09a2f-b88c-79b3-a9dd-83f8741f6810";
 const CODEX_PIPELINE = [
@@ -271,5 +272,63 @@ describe("compact command tree", () => {
     expect(host.querySelectorAll('[data-testid="toolcard-duration"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();
     expect(lines(host)).toHaveLength(4);
+  });
+});
+
+describe("shell file operation visibility", () => {
+  it("shows intended command-local targets, reuses analysis on render, and preserves truthful diff disclosure", async () => {
+    const command = "$p='C:/work/preview.ts'; $s=Get-Content $p -Raw; $s=$s.Replace('unmatched','next'); Set-Content $p $s";
+    const base = singleEvent(codexChain("file-operation-main", command));
+    const main: ToolEvent = { ...base, message: { ...base.message, toolInput: { command, argv: ["pwsh", "-Command", command] } } };
+    const lexer = vi.spyOn(shellLexer, "lexShell");
+    try {
+      function Preview() {
+        const [expanded, setExpanded] = useState(false);
+        return <ToolCallBubble event={{ ...main }} expanded={expanded} onToggle={setExpanded} />;
+      }
+      const host = await render(<Preview />);
+      const operations = host.querySelector('ul[aria-label="Intended file operations"]');
+      expect(operations?.children).toHaveLength(1);
+      expect(operations?.textContent).toContain("C:/work/preview.ts");
+      expect(host.querySelector('[data-testid="file-diff-card"]')).toBeNull();
+      const parses = lexer.mock.calls.filter(call => call[2] === true).length;
+      expect(parses).toBe(1);
+      const groupToggle = host.querySelector('[data-testid="chat-command-group-toggle"]');
+      expect(groupToggle?.getAttribute("aria-expanded")).toBe("false");
+      await click(groupToggle);
+      expect(groupToggle?.getAttribute("aria-expanded")).toBe("true");
+      await click(lines(host)[3].querySelector("button"));
+      expect(lines(host)[3].querySelector('[data-testid="chat-command-tree-detail"]')?.textContent).toContain("Set-Content $p $s");
+      expect(lexer.mock.calls.filter(call => call[2] === true)).toHaveLength(parses);
+      expect(host.querySelectorAll('ul[aria-label="Intended file operations"]')).toHaveLength(1);
+
+      for (const status of ["pending", "success", "error", "interrupted", "unresolved"] as const) {
+        const failed = await render(<ToolCallBubble event={{ ...main, id: `write-${status}`, status }} expanded={false} onToggle={() => {}} />);
+        expect(failed.querySelector('ul[aria-label="Intended file operations"]')?.children).toHaveLength(1);
+        expect(failed.querySelector('[data-testid="file-diff-card"]')).toBeNull();
+      }
+      const unknown = await render(<ToolCallBubble event={singleEvent(codexChain("unknown-file", "Set-Content $outside x"))} expanded={false} onToggle={() => {}} />);
+      expect(unknown.querySelector('ul[aria-label="Intended file operations"]')?.textContent).toContain("unresolved target");
+      const read = await render(<ToolCallBubble event={singleEvent(codexChain("readonly-file", "Get-Content source.txt -Raw"))} expanded={false} onToggle={() => {}} />);
+      expect(read.querySelector('ul[aria-label="Intended file operations"]')).toBeNull();
+
+      const stream = await render(<ToolCallBubble event={{ ...main, stream: { flowId: "file-operation-stream", active: false, members: [main], entries: [{ kind: "action", event: main }] } }} expanded onToggle={() => {}} />);
+      expect(stream.querySelectorAll('ul[aria-label="Intended file operations"]')).toHaveLength(1);
+      await click(stream.querySelector('[data-testid="chat-tool-stream-action"]'));
+      expect(stream.querySelectorAll('ul[aria-label="Intended file operations"]')).toHaveLength(1);
+
+      const diff = { path: "C:/work/preview.ts", kind: "modify" as const, additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-old", "+new"] }] };
+      for (const kind of ["command", "edit"] as const) {
+        const exact = await render(<ToolCallBubble event={{ ...main, id: `exact-${kind}`, kind, fileDiffs: [diff] }} expanded={false} onToggle={() => {}} />);
+        expect(exact.querySelectorAll('[data-testid="file-diff-card"]')).toHaveLength(1);
+        expect(exact.querySelector('ul[aria-label="Intended file operations"]')).toBeNull();
+        expect(exact.querySelector('[data-testid="file-diff-hunk"]')).toBeNull();
+        const toggle = exact.querySelector('button[aria-label^="Show diff for"]');
+        expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+        await click(toggle);
+        expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+        expect(exact.querySelectorAll('[data-testid="file-diff-hunk"]')).toHaveLength(1);
+      }
+    } finally { lexer.mockRestore(); }
   });
 });

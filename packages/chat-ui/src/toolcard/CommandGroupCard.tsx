@@ -12,6 +12,7 @@ import { CodetermActionDetail, type CodetermNavigationProps } from "./CodetermAc
 import { COMMAND_TREE_CAP, CommandTree, commandCallKey, openSegmentOf, rememberOpenSegment } from "./CommandTree";
 import { StatusGlyph, statusName } from "./ToolActivityStream";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
+import { shellFileOperationPreview } from "./ShellFileOperations";
 
 interface CommandGroupCardProps extends CodetermNavigationProps {
   event: ToolEvent;
@@ -111,6 +112,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       }]} />
       <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
+      {shellFileOperationPreview(event)}
       <div className="pb-1 pr-2">
         <CommandGroupDetail event={event} rows={rows} expanded={expanded} onExpand={() => onToggle(true)} {...navigation} />
       </div>
