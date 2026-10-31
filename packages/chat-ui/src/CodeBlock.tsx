@@ -123,7 +123,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
         style={{ maxHeight: fullSize ? "100%" : maxHeight }}
       >
         <pre
-          className="m-0 w-max min-w-full whitespace-pre p-3 font-mono text-xs leading-[1.4]"
+          className="m-0 w-max min-w-full whitespace-pre px-3 pb-2.5 pt-1 font-mono text-xs leading-[1.4]"
           style={{
             background: "var(--ct-bg)",
             color: "var(--ct-fg)",
@@ -162,7 +162,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
             customStyle={{
               margin: 0,
               borderRadius: 0,
-              padding: reading ? "0" : "0.75rem",
+              padding: reading ? "0" : "0.25rem 0.75rem 0.625rem",
               fontSize: reading ? "0.8125rem" : "0.75rem",
               lineHeight: reading ? "1.65" : "1.4",
               background: reading ? "transparent" : "var(--ct-bg)",
@@ -397,7 +397,7 @@ export function CodeBlock({
   return (
     <div className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
       <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
-        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-3 py-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
+        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="inline-flex min-w-0 items-baseline gap-1.5">
             <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
             <span className="opacity-70">{language}</span>
