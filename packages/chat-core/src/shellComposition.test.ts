@@ -174,6 +174,15 @@ describe("command display labels", () => {
 });
 
 describe("bounded intended shell file operations", () => {
+  it("previews literal written content without inventing previous file contents", () => {
+    const append = shellFileOperations("Add-Content -LiteralPath 'notes.txt' -Value 'second line'");
+    expect(append.operations).toEqual([{ action: "append", path: "notes.txt", content: "second line" }]);
+    expect(shellFileOperations("Set-Content 'new.txt' ''").operations).toEqual([{ action: "write", path: "new.txt", content: "" }]);
+    expect(shellFileOperations("Add-Content 'notes.txt' $unknown").operations[0].content).toBeUndefined();
+    const large = shellFileOperations(`Add-Content 'notes.txt' '${"x".repeat(SHELL_FILE_LIMITS.fragmentBytes + 1)}'`);
+    expect(large.operations[0].content).toBeUndefined();
+    expect(large.limited).toBe(true);
+  });
   it("resolves a same-command PowerShell literal path without treating Replace as diff evidence", () => {
     const command = "$p='C:/work/CommandTree.tsx'; $s=Get-Content $p -Raw; $s=$s.Replace('missing','next'); Set-Content $p $s";
     const expected = { operations: [{ action: "write", path: "C:/work/CommandTree.tsx", replacement: {
@@ -243,7 +252,7 @@ describe("bounded intended shell file operations", () => {
   it("preserves single-quoted variable targets as literal filenames", () => {
     const command = "$p='resolved.txt'; Set-Content '$p' 'value'; Set-Content $P 'value'";
     expect(shellFileOperations(command).operations).toEqual([
-      { action: "write", path: "$p" }, { action: "write", path: "resolved.txt" },
+      { action: "write", path: "$p", content: "value" }, { action: "write", path: "resolved.txt", content: "value" },
     ]);
     expect(shellLexer.lexShell("echo hi", "posix")?.[0].rawArgv).toBeUndefined();
   });

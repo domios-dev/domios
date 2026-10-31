@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { framePrefix } from "../../../src/lib/chatPrefixes";
 import { MessageBubble } from "./MessageBubble";
+import { ChatBlockHostProvider } from "./blocks/ChatBlockHost";
 
 const windowInstance = new Window({ url: "http://localhost/chat-ui-expansion-tests" });
 const testWindow = windowInstance as unknown as Window & typeof globalThis;
@@ -100,7 +101,7 @@ async function run() {
 
   await act(async () => {
     root.render(
-      <div>
+      <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><div>
         {reduceToolEvents(messages).map((item) => {
           const message = item.kind === "message" ? item.message : item.event.message;
           return <MessageBubble key={message.id} message={message} item={item.kind === "tool" ? item : undefined} />;
@@ -128,7 +129,7 @@ async function run() {
         /></section>
         <MessageBubble message={ordinaryUser} />
         <MessageBubble message={ordinaryAssistant} />
-      </div>,
+      </div></ChatBlockHostProvider>,
     );
   });
 
@@ -231,12 +232,12 @@ async function run() {
   assert(rawDisclosures.every((view) => !view.textContent?.includes("User formatted") && !view.textContent?.includes("Assistant formatted")), "ordinary messages have no raw command disclosure");
   const commandDisclosure = completedCommandCard?.querySelector<HTMLButtonElement>('[aria-label="Show full command"]');
   await act(async () => commandDisclosure?.click());
-  const commandView = completedCommandCard?.querySelector<HTMLElement>('[data-testid="raw-command-disclosure"]');
-  assert(commandView && !commandView.querySelector('[data-testid="message-raw-content"]'), "collapsed raw disclosure hides the full invocation");
-  assert(commandView.textContent?.includes("clean"), "collapsed raw disclosure keeps the result visible");
-  const commandRaw = Array.from(commandView?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Raw command");
+  const commandView = completedCommandCard;
+  assert(commandView && !commandView.querySelector('[data-testid="message-raw-content"]'), "raw invocation starts hidden behind the menu");
+  assert(commandView.textContent?.includes("clean"), "command output remains visible");
+  const commandRaw = Array.from(commandView?.querySelectorAll("button") ?? []).find((button) => button.textContent === "Details");
+  assert(commandRaw, "raw invocation is available from Details");
   await act(async () => commandRaw?.click());
-  assert(commandRaw?.getAttribute("aria-expanded") === "true", "raw command disclosure expands");
   assert(commandView?.querySelector('[data-testid="message-raw-content"]')?.textContent === "git status --short", "raw command disclosure preserves the full invocation");
   assert(commandView?.textContent?.includes("clean"), "expanded raw command keeps the result visible");
 

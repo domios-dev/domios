@@ -32,11 +32,6 @@ function lineTone(line: string): LineTone {
   return marker === "+" ? "add" : marker === "-" ? "del" : "context";
 }
 
-function hunkLabel(count: number): string {
-  if (count === 0) return "empty";
-  return count === 1 ? "1 hunk" : `${count} hunks`;
-}
-
 function changedLines(hunk: FileDiffHunk): string {
   const start = hunk.newLines > 0 ? hunk.newStart : hunk.oldStart;
   const count = hunk.newLines > 0 ? hunk.newLines : hunk.oldLines;
@@ -137,7 +132,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
     menu.push({ label: "View changes", icon: <FileDiffIcon size={14} aria-hidden />, onSelect: () => open(path, "diff") });
     if (diff.kind !== "delete") menu.push({ label: "View file", icon: <FileText size={14} aria-hidden />, onSelect: () => open(path, "file") });
   }
-  if (rawCommand) menu.push({ label: "Technical details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
+  if (rawCommand) menu.push({ label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
     onSelect: () => { setTechnicalOpen((open) => !open); setExpanded(true); } });
   return (
     <section
@@ -168,7 +163,6 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
           <span className="shrink-0" style={{ color: "var(--ct-green)" }}>+{diff.additions}</span>{" "}
           <span className="shrink-0" style={{ color: "var(--ct-red)" }}>−{diff.deletions}</span>
         </span>
-        <span className="shrink-0 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{hunkLabel(diff.hunks.length)}</span>
       </button>
       <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={menu} /></span>
       <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} diff for ${name}`} onClick={() => setExpanded(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>

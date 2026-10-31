@@ -213,7 +213,7 @@ button.ct-card__head {
 }
 
 .ct-card:hover .ct-card__menu,
-.ct-card:focus-within .ct-card__menu,
+.ct-card:has(:focus-visible) .ct-card__menu,
 .ct-card__menu.is-shown {
   opacity: 1;
 }
@@ -235,7 +235,7 @@ button.ct-card__head {
 }
 
 .ct-card:hover .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
-.ct-card:focus-within .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
+.ct-card:has(:focus-visible) .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
 .ct-tool-status-slot:has(.ct-card__menu.is-shown) > .ct-tool-status-icon {
   opacity: 0;
 }

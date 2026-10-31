@@ -109,7 +109,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <StatusGlyph status={event.status} />
       </span>
       <ChatCardMenu label={`Actions for ${title}`} items={[{
-        label: "Technical details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
+        label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
         onSelect: () => setTechnicalOpen(value => !value),
       }]} />
       </span>
@@ -122,7 +122,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <CommandGroupDetail event={event} rows={rows} expanded={expanded} onExpand={() => onToggle(true)} {...navigation} />
       </div>
       <div id={regionId} role="region" aria-label="Command output" hidden={!technicalOpen} className="px-3 pb-2">
-        {technicalOpen && event.result && <ToolOutputContent text={event.result} maxHeight="12rem" />}
+        {technicalOpen && event.result && <><div className="mb-1 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Output</div><ToolOutputContent text={event.result} maxHeight="12rem" /></>}
       </div>
     </section>
   );

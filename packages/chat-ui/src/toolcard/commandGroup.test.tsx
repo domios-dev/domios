@@ -109,7 +109,7 @@ describe("compound command group", () => {
       <CommandGroupCard event={event} rows={shape.rows} expanded onToggle={() => {}} />
     </ChatBlockHostProvider>);
     expect(open.textContent).not.toContain(event.result);
-    const details = [...open.querySelectorAll("button")].find(button => button.textContent === "Technical details")!;
+    const details = [...open.querySelectorAll("button")].find(button => button.textContent === "Details")!;
     await act(async () => details.click());
     expect(open.querySelector('[aria-label="Command output"]')?.textContent).toContain(event.result);
     expect(open.textContent?.split(event.result)).toHaveLength(2);
@@ -276,6 +276,16 @@ describe("compact command tree", () => {
 });
 
 describe("shell file operation visibility", () => {
+  it("opens known append content without inventing a previous file version", async () => {
+    const command = "Add-Content -LiteralPath 'notes.txt' -Value 'second line'";
+    const event = singleEvent(codexChain("append-preview", command));
+    const host = await render(<ToolCallBubble event={event} expanded={false} onToggle={() => {}} />);
+    expect(host.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+    await click(host.querySelector('button[aria-label="Show append preview for notes.txt"]'));
+    const content = host.querySelector('[data-testid="shell-replacement-fragments"]');
+    expect(content?.textContent).toContain("second line");
+    expect(content?.textContent).not.toContain("Before");
+  });
   it("discloses literal command fragments inside the command and preserves call-local expansion", async () => {
     const command = `$p='C:/games/snake.html'; $s=Get-Content $p -Raw; $nl=[Environment]::NewLine; $s=$s.Replace('<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>'); $s=$s.Replace('function tick() { $p=1; }', 'function tick() {' + $nl + 'save();}'); Set-Content -LiteralPath $p $s`;
     const base = singleEvent(codexChain("snake-replacement-preview", command));

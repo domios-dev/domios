@@ -206,7 +206,7 @@ describe("file diff cards", () => {
     const card = all(host, "file-diff-card")[0];
     expect(card.querySelector('[data-testid="message-raw-content"]')).toBeNull();
     expect(card.textContent).not.toContain("Raw command");
-    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent === "Technical details");
+    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent === "Details");
     expect(rawToggle).toBeDefined();
     await act(async () => rawToggle?.click());
     expect(card.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(JSON.stringify(editEvent.message.toolInput, null, 2));

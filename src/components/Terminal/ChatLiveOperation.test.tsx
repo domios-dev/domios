@@ -44,7 +44,7 @@ describe("live command presentation", () => {
     await click(toggle);
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector('[aria-label="Command output"]')?.hasAttribute("hidden")).toBe(true);
-    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Technical details") ?? null);
+    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Details") ?? null);
     expect(host.querySelector('[aria-label="Command output"]')?.textContent).toContain("opaque-partial");
     expect(host.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe("pending");
     const lines = host.querySelectorAll('[data-testid="chat-command-tree-line"]');
@@ -61,7 +61,7 @@ describe("live command presentation", () => {
     expect(host.querySelector('[data-testid="chat-live-operation"]')).toBeNull();
     expect(host.querySelectorAll('[data-testid="chat-command-group"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe("success");
-    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Technical details") ?? null);
+    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Details") ?? null);
     expect(host.querySelector('[aria-label="Command output"]')?.textContent).toContain("opaque-final");
     expect(host.querySelectorAll('[data-testid="chat-command-tree-line"]')[1].querySelector('[data-testid="chat-command-tree-detail"]')?.textContent).toContain("echo opaque-second");
   });
@@ -75,7 +75,7 @@ describe("live command presentation", () => {
     expect(host.querySelectorAll('[data-testid="chat-command-group"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe(status === "failed" ? "error" : "interrupted");
     expect(host.textContent).not.toContain(`opaque-${status}-output`);
-    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Technical details") ?? null);
+    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Details") ?? null);
     expect(host.textContent).toContain(`opaque-${status}-output`);
   });
 

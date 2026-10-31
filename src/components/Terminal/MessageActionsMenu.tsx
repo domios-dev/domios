@@ -4,7 +4,7 @@ import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, t
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
-import { useMessageHoverBridge } from "./useMessageHoverBridge";
+import { useMessageHoverBridge, useMessageHoverIntent } from "./useMessageHoverBridge";
 
 export type DotSide = "start" | "end";
 type OpenedBy = "hover" | "focus" | "click";
@@ -63,8 +63,10 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
   const openedBy = useRef<OpenedBy | null>(null);
   const focusItem = useRef<"first" | "last" | null>(null);
   const [copied, setCopied] = useState<"copy" | "markdown" | null>(null);
+  const hoverIntent = useMessageHoverIntent(() => show("hover"));
 
   const show = (by: OpenedBy, item: "first" | "last" | null = null) => {
+    hoverIntent.cancel();
     if (!open) {
       openedBy.current = by;
       onOpenChange(true);
@@ -75,6 +77,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
     if (open && item) focusMenuItem(item);
   };
   const hide = (refocus = false) => {
+    hoverIntent.cancel();
     openedBy.current = null;
     setCopied(null);
     onOpenChange(false);
@@ -176,8 +179,8 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
       data-side={side}
       data-open={open || undefined}
       data-hint={hint || undefined}
-      onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
-      onPointerLeave={onHoverLeave}
+      onPointerEnter={(event) => { if (event.pointerType === "mouse" && !open) hoverIntent.start(); }}
+      onPointerLeave={(event) => { hoverIntent.cancel(); onHoverLeave(event); }}
       onBlur={(event) => {
         if (touch) return;
         if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null) && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
@@ -195,6 +198,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
         onKeyDown={onDotKey}
       >
         <span aria-hidden="true" className="ct-msg-dot__more" onAnimationEnd={onHintEnd}><i /><i /><i /></span>
+        {hoverIntent.pending && !open && <svg aria-hidden="true" className="ct-msg-dot__progress" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" pathLength="1" /></svg>}
       </button>
       {touch
         ? open && createPortal(<div className="ct-msg-sheet-wrap">{menu}</div>, document.body)

@@ -20,7 +20,8 @@ function HoverHarness() {
     actions={{ quote: () => {}, ask: () => {}, select: () => {} }} />;
 }
 
-async function hoverFixture() {
+async function hoverFixture(waitForHover = true) {
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -31,11 +32,36 @@ async function hoverFixture() {
   };
   await pointer(dot, "pointerover");
   const menu = () => document.querySelector<HTMLElement>('[role="menu"][aria-label="Message actions"]');
-  expect(menu()).not.toBeNull();
-  return { dot, menu, pointer, unmount: async () => { await act(async () => root.unmount()); host.remove(); } };
+  expect(menu()).toBeNull();
+  if (waitForHover) {
+    await act(async () => vi.advanceTimersByTime(299));
+    expect(menu()).toBeNull();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(menu()).not.toBeNull();
+  }
+  return { dot, menu, pointer, unmount: async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); } };
 }
 
 describe("message action hover wiring", () => {
+  it.each(["click", "keyboard"])("opens immediately by %s and does not reopen after dismissal", async (method) => {
+    const view = await hoverFixture(false);
+    try {
+      await act(async () => method === "click" ? view.dot.click() : view.dot.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown", bubbles: true, cancelable: true })));
+      expect(view.menu()).not.toBeNull();
+      await act(async () => document.body.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true })));
+      await act(async () => vi.advanceTimersByTime(300));
+      expect(view.menu()).toBeNull();
+    } finally { await view.unmount(); }
+  });
+
+  it("cancels a pending hover when the pointer leaves before the delay", async () => {
+    const view = await hoverFixture(false);
+    try {
+      await view.pointer(view.dot, "pointerout");
+      await act(async () => vi.advanceTimersByTime(300));
+      expect(view.menu()).toBeNull();
+    } finally { await view.unmount(); }
+  });
   it("waits 300ms before hiding and cancels hiding when the pointer returns", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const view = await hoverFixture();

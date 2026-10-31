@@ -18,6 +18,7 @@ export interface ShellFileOperation {
   readonly action: "write" | "append";
   readonly path: string | null;
   readonly replacement?: ReplacementChain;
+  readonly content?: string;
 }
 
 export interface ShellFileAnalysis {
@@ -54,6 +55,14 @@ function writerVariable(segment: LexedSegment): string | null {
   at++;
   if (args[at]?.toLowerCase() === "-value") at++;
   return at === args.length - 1 && /^\$[A-Za-z_]\w*$/.test(args[at]) ? args[at].slice(1).toLowerCase() : null;
+}
+
+function writtenLiteral(segment: LexedSegment): string | undefined {
+  const args = segment.rawArgv ?? [];
+  const flag = args.findIndex((arg) => arg.toLowerCase() === "-value");
+  const raw = flag >= 0 ? args[flag + 1] : args.length === 3 ? args[2] : undefined;
+  if (!raw || !new RegExp(`^${QUOTED_FRAGMENT}$`).test(raw)) return undefined;
+  return raw[0] === "'" ? raw.slice(1, -1).replace(/''/g, "'") : raw.slice(1, -1);
 }
 
 function byteLength(value: string): number {
@@ -130,9 +139,16 @@ function analyze(command: string, argv?: readonly string[]): ShellFileAnalysis {
   let limited = false;
   let previous: LexedSegment | undefined;
   const clear = () => { variables.clear(); chains.clear(); };
-  const add = (action: ShellFileOperation["action"], path: string | null, chain?: ReplacementChain) => {
+  const add = (action: ShellFileOperation["action"], path: string | null, chain?: ReplacementChain, content?: string) => {
     const replacement = chain && chain.path === path && chain.fragments.length > 0 ? chain : undefined;
-    if (operations.length < SHELL_FILE_LIMITS.operations) operations.push(Object.freeze({ action, path, ...(replacement ? { replacement } : {}) }));
+    if (content !== undefined) {
+      const bytes = byteLength(content);
+      if (bytes > SHELL_FILE_LIMITS.fragmentBytes || fragmentBytes + bytes > SHELL_FILE_LIMITS.totalFragmentBytes) {
+        limited = true;
+        content = undefined;
+      } else fragmentBytes += bytes;
+    }
+    if (operations.length < SHELL_FILE_LIMITS.operations) operations.push(Object.freeze({ action, path, ...(replacement ? { replacement } : {}), ...(content !== undefined ? { content } : {}) }));
     else limited = true;
   };
   for (const segment of segments) {
@@ -183,7 +199,8 @@ function analyze(command: string, argv?: readonly string[]): ShellFileAnalysis {
         const destination = writeTarget(segment);
         const append = name === "add-content" || name === "out-file" && segment.rawArgv?.some(arg => arg.toLowerCase() === "-append");
         const variable = writerVariable(segment);
-        add(append ? "append" : "write", target(destination.raw, dialect, variables, destination.wildcard), name === "set-content" && variable && segment.redirects.length === 0 ? chains.get(variable) : undefined);
+        add(append ? "append" : "write", target(destination.raw, dialect, variables, destination.wildcard), name === "set-content" && variable && segment.redirects.length === 0 ? chains.get(variable) : undefined,
+          dialect === "powershell" && name !== "out-file" ? writtenLiteral(segment) : undefined);
       }
       if (!WRITERS.has(name) && !/^(?:get-content|echo|printf|cat)$/.test(name)) clear();
     }
@@ -200,7 +217,7 @@ function analyze(command: string, argv?: readonly string[]): ShellFileAnalysis {
 }
 
 function retainedStringBytes(key: string, result: ShellFileAnalysis): number {
-  return (key.length + result.operations.reduce((sum, operation) => sum + (operation.path?.length ?? 0) + (operation.replacement?.path.length ?? 0)
+  return (key.length + result.operations.reduce((sum, operation) => sum + (operation.path?.length ?? 0) + (operation.content?.length ?? 0) + (operation.replacement?.path.length ?? 0)
     + (operation.replacement?.fragments.reduce((size, fragment) => size + fragment.before.length + fragment.after.length, 0) ?? 0), 0)) * 2;
 }
 

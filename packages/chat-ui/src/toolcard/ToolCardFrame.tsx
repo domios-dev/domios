@@ -4,7 +4,6 @@ import { ArrowUpRight, Check, CircleX, Copy, LoaderCircle, ChevronRight, Message
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
-import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 import { rawToolPayload } from "./toolParsing";
@@ -86,8 +85,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
   const baseMenu = menu ?? toolMenuItems(event, labelText, host);
-  const menuItems = communication && showTechnicalDetails ? [...baseMenu, {
-    label: "Technical details",
+  const menuItems = showTechnicalDetails ? [...baseMenu, {
+    label: "Details",
     icon: <SquareTerminal size={14} aria-hidden />,
     checked: technicalOpen,
     onSelect: () => { setTechnicalOpen(value => !value); if (!expanded) onToggle(); },
@@ -146,14 +145,12 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         style={{ boxSizing: "border-box" }}
       >
         {expanded ? (
-          communication ? <>
+          <>
             {children}
-            {technicalOpen && showTechnicalDetails && <BoundedMessageContent collapsedHeight="12rem" as="pre"
+            {technicalOpen && showTechnicalDetails && <><div className="mt-2 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Command</div><BoundedMessageContent collapsedHeight="12rem" as="pre"
               data-testid="message-raw-content" className="mt-2 whitespace-pre-wrap break-words font-mono text-xs"
-              style={{ color: "var(--ct-muted-fg)" }}>{event.detail || rawToolPayload(event)}</BoundedMessageContent>}
-          </> : <RawCommandDisclosure raw={event.detail || rawToolPayload(event)}>
-            {children}
-          </RawCommandDisclosure>
+              style={{ color: "var(--ct-muted-fg)" }}>{event.detail || rawToolPayload(event)}</BoundedMessageContent></>}
+          </>
         ) : null}
       </BoundedMessageContent>
     </div>

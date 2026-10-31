@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { MessageBubble } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider } from "../../../packages/chat-ui/src/blocks/ChatBlockHost";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { ChatWindowRow } from "./ChatWindowRow";
 import { chatLiveOperationLabel } from "./chatTranscriptActivity";
@@ -38,9 +39,9 @@ async function renderOperation(message: NormalizedChatMessage) {
   root ??= createRoot(host);
   const liveActivityLabel = message.toolStatus === "running" ? chatLiveOperationLabel(message) : undefined;
   await act(async () => root?.render(
-    <ChatWindowRow key={message.id} message={message} liveActivityLabel={liveActivityLabel}>
+    <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><ChatWindowRow key={message.id} message={message} liveActivityLabel={liveActivityLabel}>
       <MessageBubble message={message} />
-    </ChatWindowRow>,
+    </ChatWindowRow></ChatBlockHostProvider>,
   ));
   return host;
 }
@@ -65,8 +66,8 @@ it("keeps one accessible tool row and settles the same card in place", async () 
   expect(document.getElementById(detailsId!)?.hidden).toBe(true);
   await act(async () => expand?.click());
   expect(expand?.getAttribute("aria-expanded")).toBe("true");
-  const revealRawCommand = running.querySelector<HTMLButtonElement>('[data-testid="raw-command-disclosure"] button');
-  expect(revealRawCommand?.textContent).toBe("Raw command");
+  const revealRawCommand = [...running.querySelectorAll<HTMLButtonElement>("button")].find(button => button.textContent === "Details");
+  expect(revealRawCommand).toBeDefined();
   await act(async () => revealRawCommand?.click());
   expect(running.querySelector('[data-testid="message-raw-content"]')?.textContent)
     .toContain("gh run view 39149606573 --repo rollacode/codeterm --job 1");
