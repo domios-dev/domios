@@ -164,6 +164,10 @@ async function run() {
   assert(groupToggle?.getAttribute("aria-expanded") === "false", "historical command group starts collapsed");
   assert(!group?.textContent?.includes("opaque-group-result"), "historical command group output stays behind disclosure");
   await act(async () => groupToggle.click());
+  assert(!group?.textContent?.includes("opaque-group-result"), "expanding steps does not open command output");
+  const groupDetails = [...(group?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find(button => button.textContent === "Details");
+  assert(groupDetails, "group output is reachable from Details");
+  await act(async () => groupDetails.click());
   assert(group?.textContent?.includes("opaque-group-result"), "historical command group reveals supplied output");
   await act(async () => groupToggle.click());
   const generic = cards.find(card => card.getAttribute("data-tool-status") === "error");

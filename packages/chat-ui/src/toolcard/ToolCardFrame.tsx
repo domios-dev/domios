@@ -9,6 +9,7 @@ import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 import { rawToolPayload } from "./toolParsing";
 
 interface ToolCardFrameProps {
+  expandable?: boolean;
   communication?: boolean;
   showTechnicalDetails?: boolean;
   headerTestId?: string;
@@ -70,9 +71,11 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const [technicalOpen, setTechnicalOpen] = useState(false);
+  const canExpand = expandable || technicalOpen;
+  const open = expanded && canExpand;
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
   const statusColor = event.status === "error"
@@ -80,7 +83,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     : event.status === "pending" ? "var(--ct-accent)" : event.status === "unresolved" || event.status === "interrupted" ? "var(--ct-muted-fg)" : "var(--ct-green)";
   const error = event.status === "error";
   const inlineCommand = event.kind === "command";
-  const quiet = !error && !expanded && variant !== "codeterm";
+  const quiet = !error && !open && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
@@ -96,7 +99,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     <div
       data-testid={testId}
       data-tool-status={event.status}
-      data-expanded={expanded}
+      data-expanded={open}
       className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineCommand ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
       style={{ minHeight, "--ct-card-tone": error ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
@@ -104,8 +107,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <button
           type="button"
           aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
-          aria-expanded={expanded}
-          aria-controls={detailsId}
+          aria-expanded={canExpand ? open : undefined}
+          aria-controls={canExpand ? detailsId : undefined}
+          disabled={!canExpand}
           onClick={onToggle}
           className={`flex min-w-0 flex-1 gap-2 text-left ${subtitle ? "items-start" : "items-center"}`}
         >
@@ -133,18 +137,20 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         </span>
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
         </span>
-        <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
+        {canExpand && <button type="button" aria-label={open ? "Collapse card" : "Expand card"} onClick={onToggle} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
+          <ChevronRight aria-hidden size={14} className={open ? "rotate-90" : ""} />
+        </button>}
       </div>
       {primaryContent && <div className="px-3 pb-2">{primaryContent}</div>}
       <BoundedMessageContent collapsedHeight={communication ? "160px" : "600px"}
         id={detailsId}
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
-        hidden={!expanded}
-        className={communication ? "px-3 pb-3 pt-0.5" : "pb-2 pl-12 pr-3 pt-0.5"}
+        hidden={!open}
+        className={communication || inlineCommand ? "px-3 pb-3 pt-0.5" : "pb-2 pl-12 pr-3 pt-0.5"}
         style={{ boxSizing: "border-box" }}
       >
-        {expanded ? (
+        {open ? (
           <>
             {children}
             {technicalOpen && showTechnicalDetails && <><div className="mt-2 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Command</div><BoundedMessageContent collapsedHeight="12rem" as="pre"

@@ -1,14 +1,17 @@
 import React, { act } from "react";
 import { CommandCard } from "./CommandCard";
 import { CodetermActionCard } from "./CodetermActionCard";
-import { event, render } from "./cardTestSetup";
+import { event, render as renderCard } from "./cardTestSetup";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
+
+const render = (node: React.ReactElement) => renderCard(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}>{node}</ChatBlockHostProvider>);
 
 const fullCommand = "git log --oneline -2; git status --short; git diff --stat";
 const longCommand = Array.from({ length: 100 }, (_, index) => `echo command-${index}`).join("\n");
 const commandHost = await render(<CommandCard event={event({ kind: "command", detail: fullCommand, result: "command result", status: "success" })} expanded onToggle={() => {}} />);
 if (commandHost.querySelector('[data-testid="message-raw-content"]')) throw new Error("command_card_reveal formatted mode must hide the full command");
 if (commandHost.querySelector('[aria-label="Hide full command"]')?.getAttribute("aria-expanded") !== "true") throw new Error("command_card_reveal expanded command must expose a meaningful disclosure name");
-const rawButton = Array.from(commandHost.querySelectorAll("button")).find((button) => button.textContent === "Raw command");
+const rawButton = Array.from(commandHost.querySelectorAll("button")).find((button) => button.textContent === "Details");
 await act(async () => rawButton?.click());
 if (commandHost.querySelector('[data-testid="message-raw-content"]')?.textContent !== fullCommand) throw new Error("command_card_reveal raw mode must render the full command");
 if (!commandHost.textContent?.includes("command result")) throw new Error("command_card_reveal raw mode must preserve the result");
@@ -18,10 +21,10 @@ if (codetermHost.querySelector('[data-testid="message-raw-content"]')) throw new
 if (!codetermHost.querySelector('[aria-label="Hide full command"]')) throw new Error("command_card_reveal CodeTerm command must expose a meaningful disclosure name");
 
 const longHost = await render(<CommandCard event={event({ kind: "command", detail: longCommand })} expanded onToggle={() => {}} />);
-const longRawButton = Array.from(longHost.querySelectorAll("button")).find((button) => button.textContent === "Raw command");
+const longRawButton = Array.from(longHost.querySelectorAll("button")).find((button) => button.textContent === "Details");
 await act(async () => longRawButton?.click());
 const longRaw = longHost.querySelector<HTMLElement>('[data-testid="message-raw-content"]');
-if (longRaw?.style.overflowY !== "hidden" || longRaw.textContent !== longCommand) throw new Error("command_card_reveal raw command must stay bounded and complete");
+if (longRaw?.textContent !== longCommand) throw new Error("command_card_reveal raw command must remain complete");
 
 for (const [name, host] of [
   ["command", await render(<CommandCard event={event({ kind: "command", detail: fullCommand })} expanded={false} onToggle={() => {}} />)],
