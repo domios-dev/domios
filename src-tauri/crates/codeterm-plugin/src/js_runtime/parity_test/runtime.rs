@@ -662,23 +662,55 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
     let js = generic_provider(&generic_paths());
     let native = native::NativeRuntime(js.agent_runtime().unwrap());
     let mut ctx = RuntimeContext {
-        epoch:1,tab_id:"own".into(),binding_nonce:"binding".into(),cwd:"/project".into(),host_version:"1.18.0".into(),
-        settings:RuntimeSettings {mode:Some("workspace-write".into()),network_access:Some(false),..Default::default()},
+        epoch: 1,
+        tab_id: "own".into(),
+        binding_nonce: "binding".into(),
+        cwd: "/project".into(),
+        host_version: "1.18.0".into(),
+        settings: RuntimeSettings {
+            mode: Some("workspace-write".into()),
+            network_access: Some(false),
+            ..Default::default()
+        },
         ..Default::default()
     };
-    ctx.restricted_cli=Some(RestrictedCliPolicy {
-        tab_id:ctx.tab_id.clone(),binding_nonce:ctx.binding_nonce.clone(),epoch:ctx.epoch,cwd:ctx.cwd.clone(),
-        executable:std::env::current_exe().unwrap().to_str().unwrap().into(),executable_sha256:"a".repeat(64),config_sha256:"b".repeat(64),rule_sha256:"c".repeat(64),argv:vec!["identify".into(),"--json".into()],
+    ctx.restricted_cli = Some(RestrictedCliPolicy {
+        tab_id: ctx.tab_id.clone(),
+        binding_nonce: ctx.binding_nonce.clone(),
+        epoch: ctx.epoch,
+        cwd: ctx.cwd.clone(),
+        executable: std::env::current_exe().unwrap().to_str().unwrap().into(),
+        executable_sha256: "a".repeat(64),
+        config_sha256: "b".repeat(64),
+        rule_sha256: "c".repeat(64),
+        argv: vec!["identify".into(), "--json".into()],
     });
-    assert_eq!(native.runtime_plan(&ctx,&RuntimeOperation::Initialize).await.unwrap(),js.runtime_plan(&ctx,&RuntimeOperation::Initialize).await.unwrap());
-    for field in ["tab","nonce","epoch","cwd","argv"] {
-        let mut changed=ctx.clone();
-        let policy=changed.restricted_cli.as_mut().unwrap();
+    assert_eq!(
+        native
+            .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+            .await
+            .unwrap(),
+        js.runtime_plan(&ctx, &RuntimeOperation::Initialize)
+            .await
+            .unwrap()
+    );
+    for field in ["tab", "nonce", "epoch", "cwd", "argv"] {
+        let mut changed = ctx.clone();
+        let policy = changed.restricted_cli.as_mut().unwrap();
         match field {
-            "tab"=>policy.tab_id="foreign".into(),"nonce"=>policy.binding_nonce="foreign".into(),
-            "epoch"=>policy.epoch+=1,"cwd"=>policy.cwd="foreign".into(),_=>policy.argv.push("--mesh=foreign".into()),
+            "tab" => policy.tab_id = "foreign".into(),
+            "nonce" => policy.binding_nonce = "foreign".into(),
+            "epoch" => policy.epoch += 1,
+            "cwd" => policy.cwd = "foreign".into(),
+            _ => policy.argv.push("--mesh=foreign".into()),
         }
-        assert!(native.runtime_plan(&changed,&RuntimeOperation::Initialize).await.is_err());
-        assert!(js.runtime_plan(&changed,&RuntimeOperation::Initialize).await.is_err());
+        assert!(native
+            .runtime_plan(&changed, &RuntimeOperation::Initialize)
+            .await
+            .is_err());
+        assert!(js
+            .runtime_plan(&changed, &RuntimeOperation::Initialize)
+            .await
+            .is_err());
     }
 }

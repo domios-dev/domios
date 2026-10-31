@@ -2602,6 +2602,36 @@ function restoreContextItems(raw) {
 
 // plugins/provider-codex/src/runtimeSettings.ts
 var windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+function codexRestrictedCliConfig(ctx) {
+  const policy = ctx.restrictedCli;
+  if (!policy) return {};
+  const hash = (value) => /^[0-9a-f]{64}$/.test(value);
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash) || JSON.stringify(policy.argv) !== JSON.stringify(["identify", "--json"]))
+    throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
+  return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
+}
+function codexValidateCliTrust(ctx, raw) {
+  if (!ctx.restrictedCli) return;
+  codexRestrictedCliConfig(ctx);
+  const root = object(raw);
+  if (!root.config || typeof root.config !== "object" || Array.isArray(root.config))
+    throw { code: "invalid_schema", message: "Restricted CLI project trust was not reported" };
+  const config = object(root.config);
+  if (config.projects === void 0 || config.projects === null) return;
+  if (typeof config.projects !== "object" || Array.isArray(config.projects))
+    throw { code: "invalid_schema", message: "Invalid configured project trust" };
+  const normalize = (path) => path.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+  const cwd = normalize(ctx.cwd);
+  for (const [path, value] of Object.entries(object(config.projects))) {
+    if (cwd !== normalize(path) && !cwd.startsWith(normalize(path) + "/")) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw { code: "invalid_schema", message: "Invalid configured project trust" };
+    const project = object(value);
+    const trust = project.trust_level ?? project.trustLevel;
+    if (trust !== void 0 && trust !== null && trust !== "trusted")
+      throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
+  }
+}
 function codexNeedsWindowsSandboxSelection(raw) {
   const root = object(raw);
   if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
@@ -3469,7 +3499,7 @@ function settingsParams(ctx, settings, instructions, windowsSandbox) {
     model: settings.model,
     ...codexServiceTier(settings),
     threadSource: "user",
-    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
+    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
     ...policies.runtimeWorkspaceRoots ? { runtimeWorkspaceRoots: policies.runtimeWorkspaceRoots } : {},
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,
@@ -3690,7 +3720,10 @@ function respondOperation(ctx, op, raw, reply) {
   }
   const value = object(reply.value);
   if (op.kind === "openThread" || op.kind === "resumeThread") {
-    if (state.stage === "windowsSandboxConfig") return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+    if (state.stage === "windowsSandboxConfig") {
+      codexValidateCliTrust(ctx, value);
+      return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+    }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
   }
   switch (op.kind) {

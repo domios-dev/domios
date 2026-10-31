@@ -7,7 +7,7 @@ fn restricted_cli_trust_projection_never_exposes_project_path() {
         "cwd":"/opaque/private-project",
         "config":{"projects":{"/opaque/private-project":{"trust_level":"trusted"}}}
     }));
-    assert_eq!(projected["top"]["projectTrust"],"trusted");
+    assert_eq!(projected["top"]["projectTrust"], "trusted");
     assert!(!projected.to_string().contains("private-project"));
 }
 

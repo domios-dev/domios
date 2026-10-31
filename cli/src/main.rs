@@ -123,7 +123,9 @@ mod plugin_bundle;
 
 fn main() {
     let raw_args: Vec<_> = std::env::args_os().collect();
-    if let Err(reason) = restricted_cli_args(std::env::var_os("CODETERM_CLI_SCOPE").as_deref(), &raw_args) {
+    if let Err(reason) =
+        restricted_cli_args(std::env::var_os("CODETERM_CLI_SCOPE").as_deref(), &raw_args)
+    {
         eprintln!("{reason}");
         std::process::exit(7);
     }
@@ -132,9 +134,16 @@ fn main() {
     stdout::run(main_impl);
 }
 
-fn restricted_cli_args(scope: Option<&std::ffi::OsStr>, args: &[std::ffi::OsString]) -> Result<(), &'static str> {
-    let Some(scope) = scope else { return Ok(()); };
-    if scope == "identify-only" && matches!(args, [_, command, flag] if command == "identify" && flag == "--json") {
+fn restricted_cli_args(
+    scope: Option<&std::ffi::OsStr>,
+    args: &[std::ffi::OsString],
+) -> Result<(), &'static str> {
+    let Some(scope) = scope else {
+        return Ok(());
+    };
+    if scope == "identify-only"
+        && matches!(args, [_, command, flag] if command == "identify" && flag == "--json")
+    {
         Ok(())
     } else {
         Err("Restricted CLI scope permits only identify --json on the inherited local connection")
