@@ -250,6 +250,14 @@ fn sandbox(
     if tab.neighbor_authority.is_none() {
         return Ok(None);
     }
+    if tab.restorable_launch.permission_bypass_requested {
+        if tab.restorable_launch.execution_sandbox.is_some() {
+            return Err(DENIED.into());
+        }
+        drop(mux);
+        svc.require_neighbor_restore_grant(&context.tab_id, true)?;
+        return Ok(None);
+    }
     let policy = tab
         .restorable_launch
         .execution_sandbox
