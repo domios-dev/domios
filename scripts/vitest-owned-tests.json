@@ -1,5 +1,4 @@
 [
-  "src/components/Terminal/ChatTranscriptViewport.test.tsx",
   "src/components/Terminal/ChatLiveOperation.test.tsx",
   "src/components/Automation/blueprint/replayModel.test.ts",
   "src/components/Automation/blueprint/triggerModel.test.tsx",
